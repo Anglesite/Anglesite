@@ -183,7 +183,7 @@ The initial focus of Anglesite will be on delivering a Minimum Viable Product (M
 ## Legal & Licensing
 
 - Complies with Apple App Store and open web standards
-- Open source license: MIT (with SPDX format license table)
+- Open source license: ISC (with SPDX format license table)
 - Contributor license agreement (CLA) may be added based on community input
 
 ## Summary for Developers
