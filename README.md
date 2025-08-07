@@ -8,22 +8,22 @@ To get started with Anglesite, you'll need to have Node.js and npm installed.
 
 1. Clone the repository:
 
-    ```bash
-    git clone https://github.com/anglesite/anglesite.git
-    ```
+   ```bash
+   git clone https://github.com/anglesite/anglesite.git
+   ```
 
 2. Install the dependencies:
 
-    ```bash
-    cd anglesite
-    npm install
-    ```
+   ```bash
+   cd anglesite
+   npm install
+   ```
 
 3. Start the development server:
 
-    ```bash
-    npm start
-    ```
+   ```bash
+   npm start
+   ```
 
 This will start a local development server that you can use to preview your changes.
 

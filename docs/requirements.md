@@ -65,50 +65,59 @@ The initial focus of Anglesite will be on delivering a Minimum Viable Product (M
 ## Core Features
 
 1. **Standards-Compliant Output**
-    - Semantic HTML, responsive CSS, modern JS
-    - Built-in SEO: structured metadata, schema.org, and social cards
-    - WCAG 2.1 AA accessibility by default
+
+   - Semantic HTML, responsive CSS, modern JS
+   - Built-in SEO: structured metadata, schema.org, and social cards
+   - WCAG 2.1 AA accessibility by default
 
 2. **Extensible Visual Editors**
-    - Modular WYSIWYG editors for HTML, Markdown, CSS, SVG, XML
-    - Uses community-maintained NPM packages
-    - Editable plugin wrappers allow contributors to upgrade or swap editors
+
+   - Modular WYSIWYG editors for HTML, Markdown, CSS, SVG, XML
+   - Uses community-maintained NPM packages
+   - Editable plugin wrappers allow contributors to upgrade or swap editors
 
 3. **Syndication Engine**
-    - Push-based workflow with pluggable post-publish hooks
-    - Each service uses a dedicated plugin for maintainability
-    - Built-in support for feeds (RSS, JSONFeed, ActivityPub)
+
+   - Push-based workflow with pluggable post-publish hooks
+   - Each service uses a dedicated plugin for maintainability
+   - Built-in support for feeds (RSS, JSONFeed, ActivityPub)
 
 4. **Import & Migration Framework**
-    - Abstracted importer pipeline for third-party platforms (WordPress, Wix, etc.)
-    - Domain ownership verified via pluggable provider API modules
-    - All import/export logic exposed as plugin hooks
+
+   - Abstracted importer pipeline for third-party platforms (WordPress, Wix, etc.)
+   - Domain ownership verified via pluggable provider API modules
+   - All import/export logic exposed as plugin hooks
 
 5. **Developer-Focused Social Publishing**
-    - **Git-centric ownership of source content:** All content is stored in a Git repository, allowing developers to use their existing workflows and tools. For example, a developer could write a blog post in their favorite text editor, commit it to a Git repository, and have it automatically published to their website and social media channels.
-    - **Integration layer between static builds and social platforms:** Anglesite provides a set of plugins that make it easy to cross-post content to popular social media platforms like BlueSky and Mastodon. These plugins can be configured to automatically generate social media-friendly summaries and images.
-    - Customizable social card generation and preview
+
+   - **Git-centric ownership of source content:** All content is stored in a Git repository, allowing developers to use their existing workflows and tools. For example, a developer could write a blog post in their favorite text editor, commit it to a Git repository, and have it automatically published to their website and social media channels.
+   - **Integration layer between static builds and social platforms:** Anglesite provides a set of plugins that make it easy to cross-post content to popular social media platforms like BlueSky and Mastodon. These plugins can be configured to automatically generate social media-friendly summaries and images.
+   - Customizable social card generation and preview
 
 6. **Modular Admin Console**
-    - UI powered by a plugin system—support for alternative providers encouraged
-    - **Example Integration:** Anglesite integrates with Cloudflare by default, with hooks for extensibility. This allows users to manage their Cloudflare-hosted sites from within the Anglesite admin console. However, this is just one example of a hosting provider integration. Developers are encouraged to create plugins for other hosting providers like Netlify, Vercel, and AWS.
-    - Web standards–first config interface (robots.txt, redirects, headers, etc.)
+
+   - UI powered by a plugin system—support for alternative providers encouraged
+   - **Example Integration:** Anglesite integrates with Cloudflare by default, with hooks for extensibility. This allows users to manage their Cloudflare-hosted sites from within the Anglesite admin console. However, this is just one example of a hosting provider integration. Developers are encouraged to create plugins for other hosting providers like Netlify, Vercel, and AWS.
+   - Web standards–first config interface (robots.txt, redirects, headers, etc.)
 
 7. **Collaboration Infrastructure**
-    - Git-backed project storage with visual diff UI
-    - Dropbox/iCloud/Drive support via file watcher adapters
-    - **Near-term goals:** The initial focus will be on providing a solid foundation for collaboration, including features like visual diffing and file watcher adapters.
-    - Real-time merge conflict resolution is future roadmap
+
+   - Git-backed project storage with visual diff UI
+   - Dropbox/iCloud/Drive support via file watcher adapters
+   - **Near-term goals:** The initial focus will be on providing a solid foundation for collaboration, including features like visual diffing and file watcher adapters.
+   - Real-time merge conflict resolution is future roadmap
 
 8. **Accessibility & Automation**
-    - Full OS-level accessibility APIs
-    - Native scripting support through OS hooks and Electron IPC
-    - AI-friendly design: local agents can drive workflows
+
+   - Full OS-level accessibility APIs
+   - Native scripting support through OS hooks and Electron IPC
+   - AI-friendly design: local agents can drive workflows
 
 9. **Deployment Targets**
-    - First-class Cloudflare Pages support
-    - Plugin interface for other CI/CD platforms
-    - Secure 11ty build execution in Docker sandbox
+
+   - First-class Cloudflare Pages support
+   - Plugin interface for other CI/CD platforms
+   - Secure 11ty build execution in Docker sandbox
 
 10. **Electron UX**
     - Electron shell with platform-native theming
@@ -142,14 +151,14 @@ The initial focus of Anglesite will be on delivering a Minimum Viable Product (M
 
 ## Editor Components
 
-| Editor Type      | Compliance     | Contribution Opportunities                                                                                             |
-| ---------------- | -------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| HTML             | HTML5          | Custom element integration (e.g., for embedding interactive content), improved accessibility checking                  |
-| Markdown         | CommonMark     | Live preview & syntax extensions (e.g., for creating tables or footnotes)                                              |
-| CSS              | W3C CSS        | Visual design tools, accessibility UI (e.g., for checking color contrast)                                              |
-| SVG              | W3C SVG        | Shape libraries, accessibility fixes (e.g., for adding ARIA labels to SVG elements)                                    |
-| XML              | W3C XML        | Syndication schema validation (e.g., for ensuring that an RSS feed is well-formed)                                     |
-| JavaScript/Text  | VSCode-based   | Language extension plugins (e.g., for adding support for new programming languages)                                    |
+| Editor Type     | Compliance   | Contribution Opportunities                                                                            |
+| --------------- | ------------ | ----------------------------------------------------------------------------------------------------- |
+| HTML            | HTML5        | Custom element integration (e.g., for embedding interactive content), improved accessibility checking |
+| Markdown        | CommonMark   | Live preview & syntax extensions (e.g., for creating tables or footnotes)                             |
+| CSS             | W3C CSS      | Visual design tools, accessibility UI (e.g., for checking color contrast)                             |
+| SVG             | W3C SVG      | Shape libraries, accessibility fixes (e.g., for adding ARIA labels to SVG elements)                   |
+| XML             | W3C XML      | Syndication schema validation (e.g., for ensuring that an RSS feed is well-formed)                    |
+| JavaScript/Text | VSCode-based | Language extension plugins (e.g., for adding support for new programming languages)                   |
 
 ## Roadmap for Contributors
 

@@ -38,65 +38,70 @@ Development will proceed in a phased approach to ensure a stable and scalable fo
 The initial focus is on delivering a functional core product that provides a solid foundation for future development.
 
 - **Deliverables:**
-    1. **Standards-Compliant Output:** Generate semantic HTML, responsive CSS, and modern JS.
-    2. **Extensible Visual Editors:** Implement modular WYSIWYG editors for HTML and Markdown.
-    3. **Syndication Engine:** Include built-in support for RSS and JSONFeed.
-    4. **Deployment Target:** Establish first-class support for Cloudflare Pages.
-    5. **Electron UX:** Create a basic Electron shell with platform-native theming.
+  1. **Standards-Compliant Output:** Generate semantic HTML, responsive CSS, and modern JS.
+  2. **Extensible Visual Editors:** Implement modular WYSIWYG editors for HTML and Markdown.
+  3. **Syndication Engine:** Include built-in support for RSS and JSONFeed.
+  4. **Deployment Target:** Establish first-class support for Cloudflare Pages.
+  5. **Electron UX:** Create a basic Electron shell with platform-native theming.
 
 #### High-Level Task List (In Order)
 
 1. **Foundation & Core Build Setup**
-    - Initialize the Node.js project and install initial dependencies (11ty, TypeScript).
-    - Establish the core directory structure (`src`, `dist`, `docs`).
-    - Create a basic `.eleventy.js` configuration to build a single "Hello World" page.
-    - Set up linting, formatting, and testing frameworks (e.g., ESLint, Prettier, Jest).
+
+   - Initialize the Node.js project and install initial dependencies (11ty, TypeScript).
+   - Establish the core directory structure (`src`, `dist`, `docs`).
+   - Create a basic `.eleventy.js` configuration to build a single "Hello World" page.
+   - Set up linting, formatting, and testing frameworks (e.g., ESLint, Prettier, Jest).
 
 2. **Basic Electron Shell**
-    - Set up the main Electron process and a basic application window.
-    - Create a simple renderer process UI to act as the application's front-end.
-    - Integrate the 11ty build process, allowing it to be triggered from the Electron UI.
-    - Embed a local preview server to display the generated site within the app.
+
+   - Set up the main Electron process and a basic application window.
+   - Create a simple renderer process UI to act as the application's front-end.
+   - Integrate the 11ty build process, allowing it to be triggered from the Electron UI.
+   - Embed a local preview server to display the generated site within the app.
 
 3. **Standards-Compliant Output & Theming**
-    - Develop a default theme using WebC templates that produces semantic HTML5.
-    - Implement a CSS build pipeline for responsive design and accessibility.
-    - Create data structures and templates for generating SEO metadata (schema.org, social cards).
-    - Add automated accessibility checks (e.g., `axe-core`) to the test suite.
+
+   - Develop a default theme using WebC templates that produces semantic HTML5.
+   - Implement a CSS build pipeline for responsive design and accessibility.
+   - Create data structures and templates for generating SEO metadata (schema.org, social cards).
+   - Add automated accessibility checks (e.g., `axe-core`) to the test suite.
 
 4. **Visual Editor Integration**
-    - Research and select open-source WYSIWYG components for Markdown and HTML.
-    - Develop the plugin wrapper API for editor components.
-    - Integrate the selected Markdown and HTML editors into the Electron UI.
+
+   - Research and select open-source WYSIWYG components for Markdown and HTML.
+   - Develop the plugin wrapper API for editor components.
+   - Integrate the selected Markdown and HTML editors into the Electron UI.
 
 5. **Syndication Engine**
-    - Create 11ty templates to generate RSS 2.0 and JSONFeed 1.1 feeds from content.
-    - Ensure feeds are automatically updated during the build process.
+
+   - Create 11ty templates to generate RSS 2.0 and JSONFeed 1.1 feeds from content.
+   - Ensure feeds are automatically updated during the build process.
 
 6. **Deployment Workflow**
-    - Create a Dockerfile to define a secure, sandboxed environment for running 11ty builds.
-    - Develop a deployment plugin to automate publishing the output directory to Cloudflare Pages.
-    - Document the end-to-end workflow: from creating content to deploying the site.
+   - Create a Dockerfile to define a secure, sandboxed environment for running 11ty builds.
+   - Develop a deployment plugin to automate publishing the output directory to Cloudflare Pages.
+   - Document the end-to-end workflow: from creating content to deploying the site.
 
 ### Phase 2: Core Feature Expansion
 
 Following the MVP, development will focus on expanding the core feature set to enhance functionality and developer experience.
 
 - **Deliverables:**
-    1. **Import & Migration Framework:** Build an abstracted importer pipeline for third-party platforms.
-    2. **Developer-Focused Social Publishing:** Integrate git-centric content ownership with social platforms like BlueSky and Mastodon.
-    3. **Modular Admin Console:** Develop a plugin-based UI with a default integration for Cloudflare.
-    4. **Collaboration Infrastructure:** Implement Git-backed project storage with a visual diff UI and file watcher adapters.
+  1. **Import & Migration Framework:** Build an abstracted importer pipeline for third-party platforms.
+  2. **Developer-Focused Social Publishing:** Integrate git-centric content ownership with social platforms like BlueSky and Mastodon.
+  3. **Modular Admin Console:** Develop a plugin-based UI with a default integration for Cloudflare.
+  4. **Collaboration Infrastructure:** Implement Git-backed project storage with a visual diff UI and file watcher adapters.
 
 ### Phase 3: Community & Ecosystem Growth
 
 This phase focuses on long-term growth by empowering contributors to expand the Anglesite ecosystem.
 
 - **Deliverables (based on contributor roadmap):**
-    1. **Internationalization (i18n/l10n):** Refactor for language pack support.
-    2. **Headless CMS Sync:** Add integration points for external databases and headless CMS providers.
-    3. **Serverless Support:** Create a Cloudflare Pages Functions plugin starter.
-    4. **Expanded Export Templates:** Develop templates for SCORM, ePub, and Apple Help.
+  1. **Internationalization (i18n/l10n):** Refactor for language pack support.
+  2. **Headless CMS Sync:** Add integration points for external databases and headless CMS providers.
+  3. **Serverless Support:** Create a Cloudflare Pages Functions plugin starter.
+  4. **Expanded Export Templates:** Develop templates for SCORM, ePub, and Apple Help.
 
 ## 5. Technical Strategy
 
@@ -114,12 +119,12 @@ The project's success relies on community involvement.
 
 ## 7. Risks & Mitigation
 
-| Risk | Mitigation |
-| :--- | :--- |
-| **Low Contributor Adoption** | Maintain high-quality documentation, a clear roadmap, and a welcoming environment. Actively engage with early contributors. |
-| **Scope Creep** | Adhere strictly to the defined goals and phased rollout plan. Defer non-essential features to the post-MVP roadmap. |
-| **Technical Debt** | Enforce strict TDD, linting, and code review processes. The modular plugin architecture helps isolate components and reduce complexity. |
-| **Dependency Management** | Rely on well-maintained open-source libraries. The plugin system allows for key components (like editors) to be swapped if a dependency becomes unmaintained. |
+| Risk                         | Mitigation                                                                                                                                                    |
+| :--------------------------- | :------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **Low Contributor Adoption** | Maintain high-quality documentation, a clear roadmap, and a welcoming environment. Actively engage with early contributors.                                   |
+| **Scope Creep**              | Adhere strictly to the defined goals and phased rollout plan. Defer non-essential features to the post-MVP roadmap.                                           |
+| **Technical Debt**           | Enforce strict TDD, linting, and code review processes. The modular plugin architecture helps isolate components and reduce complexity.                       |
+| **Dependency Management**    | Rely on well-maintained open-source libraries. The plugin system allows for key components (like editors) to be swapped if a dependency becomes unmaintained. |
 
 ## 8. Success Metrics
 

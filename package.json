@@ -1,0 +1,53 @@
+{
+  "name": "@dwk/anglesite",
+  "version": "0.1.0",
+  "description": "A local-first, open-source WYSIWYG static site generator.",
+  "main": "dist/app/main.js",
+  "scripts": {
+    "start": "electron .",
+    "build": "eleventy --config=.eleventy.ts",
+    "serve": "eleventy --config=.eleventy.ts --serve",
+    "lint": "eslint . --ext .ts --config .eslintrc.cjs",
+    "format": "prettier --write .",
+    "test": "jest"
+  },
+  "keywords": [
+    "static site generator",
+    "ssg",
+    "wysiwyg",
+    "electron",
+    "11ty",
+    "local-first"
+  ],
+  "author": {
+    "name": "David W. Keith",
+    "email": "git@dwk.io",
+    "url": "https://dwk.io"
+  },
+  "license": "ISC",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/anglesite/anglesite.git"
+  },
+  "bugs": {
+    "url": "https://github.com/anglesite/anglesite/issues"
+  },
+  "homepage": "https://github.com/anglesite/anglesite#readme",
+  "devDependencies": {
+    "@11ty/eleventy": "^2.0.1",
+    "@types/jest": "^30.0.0",
+    "@typescript-eslint/eslint-plugin": "^8.39.0",
+    "@typescript-eslint/parser": "^8.39.0",
+    "electron": "^31.0.2",
+    "eslint": "^8.57.1",
+    "eslint-config-prettier": "^8.10.2",
+    "eslint-plugin-prettier": "^4.2.5",
+    "jest": "^30.0.5",
+    "jest-environment-jsdom": "^30.0.5",
+    "live-server": "^1.2.2",
+    "prettier": "^2.8.8",
+    "ts-jest": "^29.4.1",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.5.2"
+  }
+}
