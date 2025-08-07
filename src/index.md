@@ -1,5 +1,6 @@
 ---
-title: Hello World
+title: Welcome to Anglesite
+layout: base-layout.njk
 ---
 
-# Hello World
+This is the home page for your new Anglesite website.
