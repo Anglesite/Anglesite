@@ -9,6 +9,10 @@
  */
 module.exports = {
   root: true,
+  ignorePatterns: ["dist/**/*"],
+  env: {
+    node: true, // Enable Node.js global variables and Node.js scoping
+  },
   parser: "@typescript-eslint/parser",
   plugins: ["@typescript-eslint", "prettier"],
   extends: [
@@ -19,4 +23,24 @@ module.exports = {
   rules: {
     "prettier/prettier": "error",
   },
+  overrides: [
+    {
+      files: ["**/*.js", "**/*.cjs"],
+      parser: "espree", // Default parser for JavaScript
+      parserOptions: {
+        ecmaVersion: 2021,
+        sourceType: "module",
+      },
+      extends: ["eslint:recommended", "prettier"],
+      rules: {
+        // Add any specific JavaScript rules here if needed
+      },
+    },
+    {
+      files: ["test/**/*.ts"],
+      rules: {
+        "@typescript-eslint/no-require-imports": "off",
+      },
+    },
+  ],
 };

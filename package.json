@@ -5,10 +5,11 @@
   "main": "dist/app/main.js",
   "scripts": {
     "start": "electron .",
-    "build": "eleventy",
-    "serve": "eleventy --serve",
-    "lint": "eslint . --ext .ts --config .eslintrc.cjs",
+    "build": "eleventy --config=eleventy/.eleventy.js",
+    "serve": "eleventy --config=eleventy/.eleventy.js --serve",
+    "lint": "eslint . --ext .ts,.js,.cjs --config .eslintrc.cjs",
     "format": "prettier --write .",
+    "pretest": "tsc",
     "test": "jest"
   },
   "keywords": [

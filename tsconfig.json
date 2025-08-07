@@ -6,7 +6,8 @@
     "forceConsistentCasingInFileNames": true,
     "strict": true,
     "skipLibCheck": true,
-    "outDir": "dist/app"
+    "outDir": "dist/app",
+    "allowJs": true // Allow JavaScript files to be processed by TypeScript
   },
   "include": ["app"]
 }

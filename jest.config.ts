@@ -10,4 +10,7 @@ export default {
   },
   testEnvironment: "jsdom",
   testMatch: ["**/__tests__/**/*.ts?(x)", "**/?(*.)+(spec|test).ts?(x)"],
+  moduleNameMapper: {
+    "^../../eleventy/.eleventy$": "<rootDir>/eleventy/.eleventy.js",
+  },
 };

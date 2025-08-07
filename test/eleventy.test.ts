@@ -1,7 +1,7 @@
 /**
  * @file Tests for the Eleventy configuration.
  */
-import eleventyConfig from "../.eleventy";
+const eleventyConfig = require("../../eleventy/.eleventy");
 
 /**
  * Describes the Eleventy configuration tests.
@@ -11,9 +11,10 @@ describe("Eleventy Configuration", () => {
     const config = eleventyConfig({
       addPlugin: () => {},
       addPassthroughCopy: () => {},
+      setLibrary: () => {},
     });
     expect(config.dir).toBeDefined();
-    expect(config.dir.input).toBe("src");
+    expect(config.dir.input).toBe("docs");
     expect(config.dir.output).toBe("dist");
   });
 });
