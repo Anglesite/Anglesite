@@ -63,6 +63,9 @@ jest.mock("electron", () => {
             removeChildView: jest.fn(),
           },
           getBounds: jest.fn(() => ({ width: 1200, height: 800 })),
+          webContents: {
+            send: jest.fn(),
+          },
         })),
         getFocusedWindow: jest.fn(() => ({
           webContents: {
@@ -536,18 +539,44 @@ describe("Electron Main Process", () => {
     );
   });
 
-  it("should handle new-website IPC event with website creation", async () => {
-    const { dialog, app } = require("electron");
+  it("should handle new-website IPC event by sending input request", async () => {
+    const { BrowserWindow } = require("electron");
+    
+    // Setup mock window with webContents
+    const mockWindow = {
+      webContents: {
+        send: jest.fn()
+      }
+    };
+    BrowserWindow.fromWebContents.mockReturnValue(mockWindow);
+
+    // Get the new-website handler
+    const newWebsiteHandler = (ipcMain.on as jest.Mock).mock.calls.find(
+      (call: any) => call[0] === "new-website"
+    )[1];
+
+    // Create a mock event
+    const mockEvent = {
+      sender: {}
+    };
+
+    // Trigger the handler
+    await newWebsiteHandler(mockEvent);
+
+    // Verify that the input request was sent to renderer
+    expect(mockWindow.webContents.send).toHaveBeenCalledWith("show-website-name-input");
+  });
+
+  it("should handle create-website-with-name IPC event with website creation", async () => {
+    const { dialog, app, BrowserWindow } = require("electron");
     
     // Setup mocks
-    dialog.showMessageBox = jest.fn()
-      .mockResolvedValueOnce({ response: 1 }) // User clicks "Create"
-      .mockResolvedValueOnce({ response: 0 }); // User clicks "OK" for success
-
-    dialog.showSaveDialog = jest.fn().mockResolvedValue({
-      canceled: false,
-      filePath: "/mock/path/test-website"
-    });
+    dialog.showMessageBox = jest.fn().mockResolvedValue({ response: 0 }); // Success dialog
+    
+    const mockWindow = {
+      webContents: { send: jest.fn() }
+    };
+    BrowserWindow.fromWebContents.mockReturnValue(mockWindow);
 
     app.getPath = jest.fn().mockReturnValue("/mock/userdata");
     
@@ -562,9 +591,9 @@ describe("Electron Main Process", () => {
     
     const consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
 
-    // Get the new-website handler
-    const newWebsiteHandler = (ipcMain.on as jest.Mock).mock.calls.find(
-      (call: any) => call[0] === "new-website"
+    // Get the create-website-with-name handler
+    const createWebsiteHandler = (ipcMain.on as jest.Mock).mock.calls.find(
+      (call: any) => call[0] === "create-website-with-name"
     )[1];
 
     // Create a mock event
@@ -572,25 +601,8 @@ describe("Electron Main Process", () => {
       sender: {}
     };
 
-    // Trigger the handler
-    await newWebsiteHandler(mockEvent);
-
-    // Verify dialogs were called
-    expect(dialog.showMessageBox).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        title: "Create New Website",
-        message: "Enter a name for your new website:"
-      })
-    );
-
-    expect(dialog.showSaveDialog).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        title: "Website Name",
-        defaultPath: "my-new-website"
-      })
-    );
+    // Trigger the handler with a website name
+    await createWebsiteHandler(mockEvent, "test-website");
 
     // Verify website creation was logged
     expect(consoleLogSpy).toHaveBeenCalledWith("Creating new website:", "test-website");
@@ -598,17 +610,22 @@ describe("Electron Main Process", () => {
     consoleLogSpy.mockRestore();
   });
 
-  it("should handle new-website cancellation", async () => {
-    const { dialog } = require("electron");
+  it("should handle create-website-with-name with invalid name", async () => {
+    const { dialog, BrowserWindow } = require("electron");
     
-    // Setup mocks for cancelled dialog
-    dialog.showMessageBox = jest.fn().mockResolvedValue({ response: 0 }); // User clicks "Cancel"
+    // Setup mocks for error dialog
+    dialog.showErrorBox = jest.fn();
+    
+    const mockWindow = {
+      webContents: { send: jest.fn() }
+    };
+    BrowserWindow.fromWebContents.mockReturnValue(mockWindow);
 
     const consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
 
-    // Get the new-website handler
-    const newWebsiteHandler = (ipcMain.on as jest.Mock).mock.calls.find(
-      (call: any) => call[0] === "new-website"
+    // Get the create-website-with-name handler
+    const createWebsiteHandler = (ipcMain.on as jest.Mock).mock.calls.find(
+      (call: any) => call[0] === "create-website-with-name"
     )[1];
 
     // Create a mock event
@@ -616,15 +633,13 @@ describe("Electron Main Process", () => {
       sender: {}
     };
 
-    // Trigger the handler
-    await newWebsiteHandler(mockEvent);
+    // Trigger the handler with invalid name
+    await createWebsiteHandler(mockEvent, "");
 
-    // Verify dialog was shown
-    expect(dialog.showMessageBox).toHaveBeenCalledWith(
-      expect.anything(),
-      expect.objectContaining({
-        title: "Create New Website"
-      })
+    // Verify error dialog was shown
+    expect(dialog.showErrorBox).toHaveBeenCalledWith(
+      "Invalid Name",
+      "Please enter a valid website name without special characters."
     );
 
     // Verify no website creation was attempted

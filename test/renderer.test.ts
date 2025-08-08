@@ -16,7 +16,6 @@ describe("Renderer Process", () => {
 
     // Set up a minimal DOM for the test
     document.body.innerHTML = `
-      <button id="new-website">New Website</button>
       <button id="preview">Preview</button>
       <button id="open-browser">Open Browser</button>
       <button id="reload">Reload</button>

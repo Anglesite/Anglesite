@@ -3,6 +3,43 @@
  * @see {@link https://www.electronjs.org/docs/latest/tutorial/process-model#renderer-process}
  */
 
+console.log("DEBUG: Renderer script is executing");
+console.log("DEBUG: window.electronAPI available:", !!window.electronAPI);
+
+// Send a message to main process to confirm renderer is loaded
+if (window.electronAPI) {
+  window.electronAPI.send("renderer-loaded", "Renderer is working!");
+}
+
+// Simplified immediate registration
+console.log("DEBUG: About to register show-website-name-input listener");
+
+try {
+  if (window.electronAPI && window.electronAPI.on) {
+    console.log("DEBUG: electronAPI available, setting up listener");
+    
+    window.electronAPI.on("show-website-name-input", () => {
+      console.log("DEBUG: *** WEBSITE NAME INPUT REQUESTED ***");
+      
+      const websiteName = prompt("Enter a name for your new website:", "My Website");
+      console.log("DEBUG: User entered name:", websiteName);
+      
+      if (websiteName && websiteName.trim()) {
+        console.log("DEBUG: Sending create-website-with-name:", websiteName.trim());
+        window.electronAPI.send("create-website-with-name", websiteName.trim());
+      } else {
+        console.log("DEBUG: No website name provided, cancelling");
+      }
+    });
+    
+    console.log("DEBUG: Listener registered successfully");
+  } else {
+    console.error("DEBUG: No electronAPI available");
+  }
+} catch (error) {
+  console.error("DEBUG: Error setting up listener:", error);
+}
+
 const newWebsiteButton = document.getElementById("new-website");
 const previewButton = document.getElementById("preview");
 const openBrowserButton = document.getElementById("open-browser");
@@ -77,10 +114,11 @@ window.electronAPI.on("preview-loaded", () => {
  * Handle menu events from the application menu.
  * @returns {void}
  */
+console.log("DEBUG: Registering menu-new-website event listener");
 window.electronAPI.on("menu-new-website", () => {
-  if (newWebsiteButton) {
-    newWebsiteButton.click();
-  }
+  console.log("DEBUG: New website requested from menu");
+  window.electronAPI.send("new-website");
+  console.log("DEBUG: Sent new-website IPC message");
 });
 
 window.electronAPI.on("menu-reload", () => {
@@ -100,12 +138,14 @@ window.electronAPI.on("menu-export-site", () => {
   window.electronAPI.send("export-site");
 });
 
+
 /**
  * Add console log to confirm renderer is loaded.
  * @returns {void}
  */
 window.addEventListener("DOMContentLoaded", () => {
   console.log(
-    "Anglesite renderer loaded successfully with BrowserView support"
+    "DEBUG: Anglesite renderer loaded successfully with BrowserView support"
   );
+  console.log("DEBUG: Setting up menu event listeners");
 });
