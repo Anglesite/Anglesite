@@ -136,7 +136,7 @@ export function createWindow() {
  * Current live-server URL.
  * @type {string}
  */
-let currentLiveServerUrl = "http://127.0.0.1:8080";
+let currentLiveServerUrl = "http://localhost:8080";
 
 /**
  * Whether live-server is ready.
@@ -369,7 +369,7 @@ async function getNativeInput(parent: BrowserWindow, options: {
 
     // Set up result handling
     const handleResult = (_event: any, result: string | null) => {
-      ipcMain.removeListener('input-dialog-result', handleResult);
+      ipcMain.off('input-dialog-result', handleResult);
       inputWindow.close();
       try { fs.unlinkSync(tempPath); } catch {}
       resolve(result);
@@ -378,7 +378,7 @@ async function getNativeInput(parent: BrowserWindow, options: {
     ipcMain.on('input-dialog-result', handleResult);
 
     inputWindow.on('closed', () => {
-      ipcMain.removeListener('input-dialog-result', handleResult);
+      ipcMain.off('input-dialog-result', handleResult);
       try { fs.unlinkSync(tempPath); } catch {}
       resolve(null);
     });

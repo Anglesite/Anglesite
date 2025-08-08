@@ -264,7 +264,7 @@ describe("Electron Main Process", () => {
     const mockStdout = mockProcess.stdout;
 
     // Mock URL detection from live-server output
-    const testOutput = 'Serving "dist" at http://127.0.0.1:8080\u001b[0m';
+    const testOutput = 'Serving "dist" at http://localhost:8080\u001b[0m';
     mockStdout.on.mock.calls.find((call: any) => call[0] === "data")[1](
       Buffer.from(testOutput)
     );
@@ -539,7 +539,7 @@ describe("Electron Main Process", () => {
     );
   });
 
-  it("should handle new-website IPC event by sending input request", async () => {
+  it("should handle new-website IPC event by showing native input dialog", async () => {
     const { BrowserWindow } = require("electron");
     
     // Setup mock window with webContents
@@ -550,6 +550,18 @@ describe("Electron Main Process", () => {
     };
     BrowserWindow.fromWebContents.mockReturnValue(mockWindow);
 
+    // Mock BrowserWindow constructor for the input dialog
+    const mockInputWindow = {
+      loadFile: jest.fn(),
+      close: jest.fn(),
+      setMenuBarVisibility: jest.fn(),
+      on: jest.fn(),
+    };
+    (BrowserWindow as jest.Mock).mockImplementation(() => mockInputWindow);
+
+    // Mock ipcMain.off method
+    (ipcMain as any).off = jest.fn();
+
     // Get the new-website handler
     const newWebsiteHandler = (ipcMain.on as jest.Mock).mock.calls.find(
       (call: any) => call[0] === "new-website"
@@ -557,15 +569,37 @@ describe("Electron Main Process", () => {
 
     // Create a mock event
     const mockEvent = {
-      sender: {}
+      sender: mockWindow.webContents
     };
 
-    // Trigger the handler
-    await newWebsiteHandler(mockEvent);
+    // Mock fs.writeFileSync for the temp HTML file
+    const fs = require("fs");
+    fs.writeFileSync = jest.fn();
+    fs.unlinkSync = jest.fn();
 
-    // Verify that the input request was sent to renderer
-    expect(mockWindow.webContents.send).toHaveBeenCalledWith("show-website-name-input");
-  });
+    // Start the handler but don't wait for it to complete
+    const handlerPromise = newWebsiteHandler(mockEvent);
+
+    // Give it a small amount of time to set up the dialog
+    await new Promise(resolve => setTimeout(resolve, 50));
+
+    // Verify that a BrowserWindow was created for the input dialog
+    expect(BrowserWindow).toHaveBeenCalledWith(expect.objectContaining({
+      modal: true,
+      width: 380,
+      height: 180,
+    }));
+
+    // Clean up by simulating dialog closure to prevent test hanging
+    setTimeout(() => {
+      if (mockInputWindow.on.mock.calls.find((call: any) => call[0] === 'closed')) {
+        const closeHandler = mockInputWindow.on.mock.calls.find((call: any) => call[0] === 'closed')[1];
+        closeHandler();
+      }
+    }, 10);
+
+    // Don't wait for the full promise to avoid timeout
+  }, 1000);
 
   it("should handle create-website-with-name IPC event with website creation", async () => {
     const { dialog, app, BrowserWindow } = require("electron");
