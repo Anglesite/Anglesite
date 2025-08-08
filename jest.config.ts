@@ -9,6 +9,7 @@ export default {
     "^.+.js$": "ts-jest",
   },
   testEnvironment: "jsdom",
+  setupFilesAfterEnv: ["<rootDir>/test/setup.ts"],
   testMatch: ["**/__tests__/**/*.ts?(x)", "**/?(*.)+(spec|test).ts?(x)"],
   moduleNameMapper: {
     "^../../eleventy/.eleventy$": "<rootDir>/eleventy/.eleventy.js",

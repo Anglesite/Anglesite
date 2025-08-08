@@ -2,12 +2,31 @@
 <html>
   <head>
     <meta charset="UTF-8" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self'; style-src 'self';"
+    />
     <title>Anglesite</title>
+    <link rel="stylesheet" href="./styles.css" />
   </head>
   <body>
-    <h1>Welcome to Anglesite</h1>
-    <p>A local-first, open-source WYSIWYG static site generator.</p>
-    <button id="build">Build</button>
+    <div class="top-bar">
+      <button id="new-website">New Website</button>
+      <button id="preview">Preview</button>
+      <button id="open-browser">Open In Browser</button>
+    </div>
+
+    <div class="browser-bar">
+      <button id="reload">Reload</button>
+      <button id="devtools">DevTools</button>
+      <div class="site-title" id="site-title">Hello World!</div>
+      <div class="url-display" id="url-display">/index.html</div>
+    </div>
+
+    <div class="content-area">
+      <!-- Preview content will be shown here via BrowserView -->
+    </div>
+
     <script src="./renderer.js"></script>
   </body>
 </html>

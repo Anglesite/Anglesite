@@ -9,5 +9,5 @@
     "outDir": "dist/app",
     "allowJs": true // Allow JavaScript files to be processed by TypeScript
   },
-  "include": ["app"]
+  "include": ["app", "app/types.d.ts"]
 }

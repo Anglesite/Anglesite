@@ -1,11 +1,8 @@
 /**
  * @file Tests for the Electron renderer process.
  */
-import { ipcRenderer } from "electron";
-
-// Mock Electron's ipcRenderer
+// Mock Electron's ipcRenderer (not used directly in tests)
 jest.mock("electron", () => ({
-  // Corrected: Removed unnecessary escaping of curly braces
   ipcRenderer: {
     send: jest.fn(),
   },
@@ -16,9 +13,16 @@ describe("Renderer Process", () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+
     // Set up a minimal DOM for the test
-    document.body.innerHTML = '<button id="build">Build</button>'; // Corrected: Escaped double quotes within the string
-    buildButton = document.getElementById("build") as HTMLElement;
+    document.body.innerHTML = `
+      <button id="new-website">New Website</button>
+      <button id="preview">Preview</button>
+      <button id="open-browser">Open Browser</button>
+      <button id="reload">Reload</button>
+      <button id="devtools">DevTools</button>
+    `;
+    buildButton = document.getElementById("preview") as HTMLElement;
 
     // Dynamically import the renderer script after the DOM is set up
     jest.isolateModules(() => {
@@ -26,9 +30,11 @@ describe("Renderer Process", () => {
     });
   });
 
-  it("should send a 'build' message when the build button is clicked", () => {
-    // Corrected: Escaped single quote within the string
+  it("should send a 'preview' message when the preview button is clicked", () => {
+    const mockElectronAPI = (
+      global as unknown as { mockElectronAPI: { send: jest.Mock } }
+    ).mockElectronAPI;
     buildButton.click();
-    expect(ipcRenderer.send).toHaveBeenCalledWith("build");
+    expect(mockElectronAPI.send).toHaveBeenCalledWith("preview");
   });
 });
