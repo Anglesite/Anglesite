@@ -98,6 +98,10 @@ jest.mock("electron", () => {
       showMessageBox: jest.fn(),
       showErrorBox: jest.fn(),
     } as unknown as typeof Electron.dialog,
+    shell: {
+      showItemInFolder: jest.fn(),
+      openExternal: jest.fn(),
+    } as unknown as typeof Electron.shell,
   };
 });
 
@@ -115,6 +119,14 @@ jest.mock("child_process", () => ({
 // Mock fs/promises
 jest.mock("fs/promises", () => ({
   cp: jest.fn(),
+}));
+
+// Mock fs
+jest.mock("fs", () => ({
+  existsSync: jest.fn(),
+  mkdirSync: jest.fn(),
+  readFileSync: jest.fn(),
+  writeFileSync: jest.fn(),
 }));
 
 // Mock process.on for signal handlers
@@ -522,5 +534,104 @@ describe("Electron Main Process", () => {
       "export-site",
       expect.any(Function)
     );
+  });
+
+  it("should handle new-website IPC event with website creation", async () => {
+    const { dialog, app } = require("electron");
+    
+    // Setup mocks
+    dialog.showMessageBox = jest.fn()
+      .mockResolvedValueOnce({ response: 1 }) // User clicks "Create"
+      .mockResolvedValueOnce({ response: 0 }); // User clicks "OK" for success
+
+    dialog.showSaveDialog = jest.fn().mockResolvedValue({
+      canceled: false,
+      filePath: "/mock/path/test-website"
+    });
+
+    app.getPath = jest.fn().mockReturnValue("/mock/userdata");
+    
+    const mockFs = require("fs");
+    mockFs.existsSync = jest.fn()
+      .mockReturnValueOnce(false) // websites dir doesn't exist
+      .mockReturnValueOnce(false) // website doesn't exist  
+      .mockReturnValueOnce(true);  // index.md exists
+    mockFs.mkdirSync = jest.fn();
+    mockFs.readFileSync = jest.fn().mockReturnValue("---\ntitle: Hello World!\n---\nContent");
+    mockFs.writeFileSync = jest.fn();
+    
+    const consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+
+    // Get the new-website handler
+    const newWebsiteHandler = (ipcMain.on as jest.Mock).mock.calls.find(
+      (call: any) => call[0] === "new-website"
+    )[1];
+
+    // Create a mock event
+    const mockEvent = {
+      sender: {}
+    };
+
+    // Trigger the handler
+    await newWebsiteHandler(mockEvent);
+
+    // Verify dialogs were called
+    expect(dialog.showMessageBox).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        title: "Create New Website",
+        message: "Enter a name for your new website:"
+      })
+    );
+
+    expect(dialog.showSaveDialog).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        title: "Website Name",
+        defaultPath: "my-new-website"
+      })
+    );
+
+    // Verify website creation was logged
+    expect(consoleLogSpy).toHaveBeenCalledWith("Creating new website:", "test-website");
+
+    consoleLogSpy.mockRestore();
+  });
+
+  it("should handle new-website cancellation", async () => {
+    const { dialog } = require("electron");
+    
+    // Setup mocks for cancelled dialog
+    dialog.showMessageBox = jest.fn().mockResolvedValue({ response: 0 }); // User clicks "Cancel"
+
+    const consoleLogSpy = jest.spyOn(console, "log").mockImplementation(() => {});
+
+    // Get the new-website handler
+    const newWebsiteHandler = (ipcMain.on as jest.Mock).mock.calls.find(
+      (call: any) => call[0] === "new-website"
+    )[1];
+
+    // Create a mock event
+    const mockEvent = {
+      sender: {}
+    };
+
+    // Trigger the handler
+    await newWebsiteHandler(mockEvent);
+
+    // Verify dialog was shown
+    expect(dialog.showMessageBox).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.objectContaining({
+        title: "Create New Website"
+      })
+    );
+
+    // Verify no website creation was attempted
+    expect(consoleLogSpy).not.toHaveBeenCalledWith(
+      expect.stringContaining("Creating new website:")
+    );
+
+    consoleLogSpy.mockRestore();
   });
 });

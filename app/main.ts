@@ -378,14 +378,118 @@ export function setupIpcMainListeners() {
     shell.openExternal(currentLiveServerUrl);
   });
 
-  ipcMain.on("new-website", async () => {
+  ipcMain.on("new-website", async (event) => {
     const { dialog } = await import("electron");
-    dialog.showMessageBox({
-      type: "info",
-      title: "New Website",
-      message:
-        "New website functionality will be implemented in a future version.",
+    const win = BrowserWindow.fromWebContents(event.sender);
+
+    if (!win) return;
+
+    // Prompt for website name
+    const result = await dialog.showMessageBox(win, {
+      type: "question",
+      title: "Create New Website",
+      message: "Enter a name for your new website:",
+      buttons: ["Cancel", "Create"],
+      defaultId: 1,
+      cancelId: 0,
     });
+
+    if (result.response === 0) {
+      // User cancelled
+      return;
+    }
+
+    // Show input dialog for website name
+    const nameResult = await dialog.showSaveDialog(win, {
+      title: "Website Name",
+      defaultPath: "my-new-website",
+      properties: ["createDirectory"],
+    });
+
+    if (nameResult.canceled || !nameResult.filePath) {
+      return;
+    }
+
+    // Extract just the directory name from the path
+    const websiteName = path.basename(nameResult.filePath);
+    
+    // Validate website name (basic validation)
+    if (!websiteName || websiteName.trim() === "" || /[<>:"/\\|?*]/.test(websiteName)) {
+      dialog.showErrorBox(
+        "Invalid Name",
+        "Please enter a valid website name without special characters."
+      );
+      return;
+    }
+
+    try {
+      console.log("Creating new website:", websiteName);
+      
+      // Get the userData directory
+      const userDataPath = app.getPath("userData");
+      const websitesDir = path.join(userDataPath, "websites");
+      const newWebsitePath = path.join(websitesDir, websiteName);
+
+      // Check if website already exists
+      if (fs.existsSync(newWebsitePath)) {
+        const overwriteResult = await dialog.showMessageBox(win, {
+          type: "warning",
+          title: "Website Exists",
+          message: `A website named "${websiteName}" already exists. Do you want to overwrite it?`,
+          buttons: ["Cancel", "Overwrite"],
+          defaultId: 0,
+          cancelId: 0,
+        });
+
+        if (overwriteResult.response === 0) {
+          return; // User cancelled
+        }
+      }
+
+      // Ensure websites directory exists
+      if (!fs.existsSync(websitesDir)) {
+        fs.mkdirSync(websitesDir, { recursive: true });
+      }
+
+      // Copy the template from eleventy/src
+      const templatePath = path.join(process.cwd(), "eleventy", "src");
+      const { cp } = await import("fs/promises");
+      
+      await cp(templatePath, newWebsitePath, { recursive: true });
+
+      // Update the index.md with the website name
+      const indexPath = path.join(newWebsitePath, "index.md");
+      if (fs.existsSync(indexPath)) {
+        let content = fs.readFileSync(indexPath, "utf-8");
+        // Replace the title in the frontmatter
+        content = content.replace(/^title: .*$/m, `title: ${websiteName}`);
+        fs.writeFileSync(indexPath, content, "utf-8");
+      }
+
+      console.log("New website created at:", newWebsitePath);
+
+      // Show success message
+      const successResult = await dialog.showMessageBox(win, {
+        type: "info",
+        title: "Website Created",
+        message: `Your new website "${websiteName}" has been created successfully!`,
+        detail: `Location: ${newWebsitePath}`,
+        buttons: ["OK", "Open Folder"],
+      });
+
+      if (successResult.response === 1) {
+        // Open folder in file explorer
+        const { shell } = await import("electron");
+        shell.showItemInFolder(newWebsitePath);
+      }
+
+    } catch (error) {
+      console.error("Failed to create new website:", error);
+      dialog.showErrorBox(
+        "Creation Failed",
+        `Failed to create website: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   });
 
   ipcMain.on("export-site", async (event) => {
