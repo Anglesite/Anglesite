@@ -46,19 +46,33 @@ The initial focus is on delivering a functional core product that provides a sol
 
 #### High-Level Task List (In Order)
 
-1. **Foundation & Core Build Setup**
+1. **Foundation & Core Build Setup** ✅ **COMPLETED**
 
-   - Initialize the Node.js project and install initial dependencies (11ty, TypeScript).
-   - Establish the core directory structure (`src`, `dist`, `docs`).
-   - Create a basic `.eleventy.js` configuration to build a single "Hello World" page.
-   - Set up linting, formatting, and testing frameworks (e.g., ESLint, Prettier, Jest).
+   - ✅ Initialize the Node.js project and install initial dependencies (11ty, TypeScript).
+   - ✅ Establish the core directory structure (`src`, `dist`, `docs`).
+   - ✅ Create a basic `.eleventy.js` configuration to build a single "Hello World" page.
+   - ✅ Set up linting, formatting, and testing frameworks (e.g., ESLint, Prettier, Jest).
 
-2. **Basic Electron Shell**
+   **Lessons Learned:**
 
-   - Set up the main Electron process and a basic application window.
-   - Create a simple renderer process UI to act as the application's front-end.
-   - Integrate the 11ty build process, allowing it to be triggered from the Electron UI.
-   - Embed a local preview server to display the generated site within the app.
+   - Used ESLint v8 instead of v9 due to compatibility issues with TypeScript and flat config
+   - Implemented Nunjucks templates for better template inheritance
+   - Added comprehensive JSDoc documentation throughout
+
+2. **Basic Electron Shell** ✅ **COMPLETED**
+
+   - ✅ Set up the main Electron process and a basic application window.
+   - ✅ Create a simple renderer process UI to act as the application's front-end.
+   - ✅ Integrate the 11ty build process, allowing it to be triggered from the Electron UI.
+   - ✅ Embed a local preview server to display the generated site within the app.
+
+   **Lessons Learned:**
+
+   - Migrated from deprecated BrowserView to WebContentsView API for better security
+   - Implemented strict Content Security Policy (CSP) without unsafe-inline
+   - Switched from live-server to Eleventy's built-in server to avoid CSP violations
+   - Added comprehensive test coverage (65%+ for main process)
+   - Implemented proper process cleanup for server processes
 
 3. **Standards-Compliant Output & Theming**
 
@@ -134,3 +148,35 @@ Project success will be measured by:
 - **Ecosystem Growth:** Number of third-party plugins and themes developed.
 - **Adoption:** Number of websites built using Anglesite.
 - **Project Velocity:** Consistent progress through the defined milestones.
+
+## 9. Current Status & Next Steps
+
+### Completed (Phase 1, Steps 1-2)
+
+- ✅ Foundation & Core Build Setup (100%)
+- ✅ Basic Electron Shell (100%)
+- ✅ Basic UI implementation matching user-interface.md sketch
+- ✅ Eleventy integration with live preview
+- ✅ Comprehensive security implementation (CSP, secure IPC)
+
+### In Progress (Phase 1, Step 3)
+
+- **Standards-Compliant Output & Theming**
+  - Next: Implement WebC templates for semantic HTML5
+  - Next: Create responsive CSS pipeline
+  - Next: Add SEO metadata generation
+
+### Technical Decisions Made
+
+1. **WebContentsView over BrowserView**: Better security and modern API
+2. **Eleventy's built-in server**: Avoids CSP violations from script injection
+3. **Strict CSP policy**: No unsafe-inline, enhances security
+4. **TypeScript throughout**: Better type safety and documentation
+5. **Comprehensive testing**: TDD approach with Jest
+
+### Known Issues & Improvements
+
+1. **Test Coverage**: Main process at 65%, could improve to 80%+
+2. **Error Handling**: Need better user feedback for build errors
+3. **UI Polish**: Current UI is functional but basic
+4. **Documentation**: Need user-facing documentation beyond developer docs

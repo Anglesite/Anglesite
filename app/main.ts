@@ -378,6 +378,75 @@ export function setupIpcMainListeners() {
         "New website functionality will be implemented in a future version.",
     });
   });
+
+  ipcMain.on("export-site", async (event) => {
+    const { dialog } = await import("electron");
+    const win = BrowserWindow.fromWebContents(event.sender);
+
+    if (!win) return;
+
+    // Show save dialog
+    const result = await dialog.showSaveDialog(win, {
+      title: "Export Site",
+      defaultPath: "anglesite-export",
+      buttonLabel: "Export",
+      properties: ["createDirectory", "showOverwriteConfirmation"],
+    });
+
+    if (result.canceled || !result.filePath) {
+      return;
+    }
+
+    // Build the site
+    console.log("Building site for export...");
+    exec("npm run build", async (err, stdout) => {
+      if (err) {
+        console.error("Build failed:", err);
+        dialog.showErrorBox(
+          "Export Failed",
+          `Failed to build site: ${err.message}`
+        );
+        return;
+      }
+
+      console.log("Build output:", stdout);
+
+      // Copy the dist folder to the selected location
+      const sourcePath = path.join(process.cwd(), "dist");
+      const destPath = result.filePath;
+
+      // Use fs-extra or implement recursive copy
+      const { cp } = await import("fs/promises");
+
+      try {
+        await cp(sourcePath, destPath, { recursive: true });
+
+        // Show success message
+        dialog
+          .showMessageBox(win, {
+            type: "info",
+            title: "Export Complete",
+            message: "Site exported successfully!",
+            detail: `Your site has been exported to: ${destPath}`,
+            buttons: ["OK", "Open Folder"],
+          })
+          .then((response) => {
+            if (response.response === 1) {
+              // Open folder in file explorer
+              import("electron").then(({ shell }) => {
+                shell.showItemInFolder(destPath);
+              });
+            }
+          });
+      } catch (copyErr) {
+        console.error("Copy failed:", copyErr);
+        dialog.showErrorBox(
+          "Export Failed",
+          `Failed to copy files: ${copyErr}`
+        );
+      }
+    });
+  });
 }
 
 /**
@@ -430,6 +499,19 @@ function createApplicationMenu() {
             const focusedWindow = BrowserWindow.getFocusedWindow();
             if (focusedWindow) {
               focusedWindow.webContents.send("menu-new-website");
+            }
+          },
+        },
+        {
+          type: "separator",
+        },
+        {
+          label: "Export Site...",
+          accelerator: "Command+E",
+          click: () => {
+            const focusedWindow = BrowserWindow.getFocusedWindow();
+            if (focusedWindow) {
+              focusedWindow.webContents.send("menu-export-site");
             }
           },
         },

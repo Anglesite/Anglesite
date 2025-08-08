@@ -95,6 +95,11 @@ window.electronAPI.on("menu-toggle-devtools", () => {
   }
 });
 
+window.electronAPI.on("menu-export-site", () => {
+  console.log("Export site requested from menu");
+  window.electronAPI.send("export-site");
+});
+
 /**
  * Add console log to confirm renderer is loaded.
  * @returns {void}

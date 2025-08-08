@@ -16,6 +16,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "reload-preview",
       "toggle-devtools",
       "hide-preview",
+      "export-site",
     ];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, ...args);
@@ -29,6 +30,7 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "menu-new-website",
       "menu-reload",
       "menu-toggle-devtools",
+      "menu-export-site",
     ];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (_event, ...args) => func(...args));
