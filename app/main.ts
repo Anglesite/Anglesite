@@ -72,10 +72,16 @@ export function createWindow() {
 
   console.log("WebContentsView created and ready to display content");
 
-  // Start live-server for the site preview (HTTP for now)
+  // Start Eleventy's built-in server (no script injection, integrated with build)
   liveServerProcess = spawn(
     "npx",
-    ["live-server", "dist", "--port=8080", "--no-browser"],
+    [
+      "eleventy",
+      "--config=eleventy/.eleventy.js",
+      "--serve",
+      "--port=8080",
+      "--quiet",
+    ],
     {
       cwd: process.cwd(),
       shell: true,
@@ -87,26 +93,18 @@ export function createWindow() {
   if (liveServerProcess.stdout) {
     liveServerProcess.stdout.on("data", (data: Buffer) => {
       const output = data.toString();
-      console.log(`live-server: ${output}`);
+      console.log(`eleventy: ${output}`);
 
-      // Extract the URL from live-server output
-      const urlMatch = output.match(/Serving ".*?" at (https?:\/\/[^\s]+)/);
+      // Eleventy outputs something like "[11ty] Server at http://localhost:8080/"
+      const urlMatch = output.match(/Server at (https?:\/\/[^\s/]+)/);
       if (urlMatch) {
-        // Clean the URL by taking only the valid URL part
-        const rawUrl = urlMatch[1];
-        // Find where the actual URL ends (before any color codes)
-        // First split by whitespace to get the URL part
-        const urlPart = rawUrl.split(/\s/)[0];
-        // Then check for ANSI escape sequences
-        const escIndex = urlPart.indexOf("\u001b"); // ESC character
-        liveServerUrl =
-          escIndex > -1 ? urlPart.substring(0, escIndex) : urlPart;
+        liveServerUrl = urlMatch[1];
         setLiveServerUrl(liveServerUrl);
         liveServerReady = true;
-        console.log(`Live server URL detected: ${liveServerUrl}`);
-        console.log("Live server is ready");
+        console.log(`Eleventy server URL detected: ${liveServerUrl}`);
+        console.log("Eleventy server is ready");
 
-        // Auto-load the preview once live-server is ready
+        // Auto-load the preview once server is ready
         autoLoadPreview(win);
       }
     });
@@ -114,13 +112,24 @@ export function createWindow() {
 
   if (liveServerProcess.stderr) {
     liveServerProcess.stderr.on("data", (data: Buffer) => {
-      console.error(`live-server error: ${data}`);
+      console.error(`eleventy error: ${data}`);
     });
   }
 
   liveServerProcess.on("close", (code: number) => {
-    console.log(`live-server process exited with code ${code}`);
+    console.log(`eleventy process exited with code ${code}`);
   });
+
+  // Fallback: If Eleventy doesn't output the URL within 2 seconds, assume it's ready
+  setTimeout(() => {
+    if (!liveServerReady) {
+      setLiveServerUrl(currentLiveServerUrl);
+      liveServerReady = true;
+      console.log(`Eleventy server URL (fallback): ${currentLiveServerUrl}`);
+      console.log("Eleventy server is ready");
+      autoLoadPreview(win);
+    }
+  }, 2000);
 }
 
 /**
@@ -613,11 +622,11 @@ app.whenReady().then(() => {
  */
 function cleanupLiveServer() {
   if (liveServerProcess) {
-    console.log("Cleaning up live-server process");
+    console.log("Cleaning up Eleventy server process");
     try {
       liveServerProcess.kill("SIGTERM");
     } catch (error) {
-      console.warn("Failed to kill live-server process:", error);
+      console.warn("Failed to kill Eleventy server process:", error);
     }
     // Don't set to null to allow tests to verify the kill was called
   }
