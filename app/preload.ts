@@ -20,6 +20,10 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "create-website-with-name",
       "renderer-loaded",
       "input-dialog-result",
+      "get-settings",
+      "save-settings",
+      "close-settings-window",
+      "open-settings-window",
     ];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, ...args);
@@ -34,12 +38,18 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "menu-reload",
       "menu-toggle-devtools",
       "menu-export-site",
+      "menu-settings",
       "show-website-name-input",
+      "settings-loaded",
+      "settings-saved",
     ];
     if (validChannels.includes(channel)) {
       console.log(`DEBUG PRELOAD: Setting up listener for channel: ${channel}`);
       ipcRenderer.on(channel, (_event, ...args) => {
-        console.log(`DEBUG PRELOAD: Received message on channel: ${channel}`, ...args);
+        console.log(
+          `DEBUG PRELOAD: Received message on channel: ${channel}`,
+          ...args
+        );
         func(...args);
       });
     }

@@ -16,7 +16,7 @@ function rootDir(relativePath) {
  * @returns {ReturnType<import("@11ty/eleventy").UserConfig>}
  */
 module.exports = function AnglesiteConfig(eleventyConfig) {
-  const absoluteIncludesPath = rootDir("eleventy/includes");
+  const absoluteIncludesPath = rootDir("app/eleventy/includes");
 
   eleventyConfig.addPlugin(webc, {
     components: path.join(absoluteIncludesPath, "**/*.webc"),

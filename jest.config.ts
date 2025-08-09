@@ -12,6 +12,6 @@ export default {
   setupFilesAfterEnv: ["<rootDir>/test/setup.ts"],
   testMatch: ["**/__tests__/**/*.ts?(x)", "**/?(*.)+(spec|test).ts?(x)"],
   moduleNameMapper: {
-    "^../../eleventy/.eleventy$": "<rootDir>/eleventy/.eleventy.js",
+    "^../../app/eleventy/.eleventy$": "<rootDir>/app/eleventy/.eleventy.js",
   },
 };

@@ -1,7 +1,7 @@
 /**
  * @file Tests for the Eleventy configuration.
  */
-const eleventyConfig = require("../../eleventy/.eleventy");
+const eleventyConfig = require("../../app/eleventy/.eleventy");
 
 /**
  * Describes the Eleventy configuration tests.
