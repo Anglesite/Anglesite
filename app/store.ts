@@ -18,6 +18,8 @@ export interface AppSettings {
   httpsMode: 'https' | 'http' | null;
   /** Whether the first launch setup assistant has been completed */
   firstLaunchCompleted: boolean;
+  /** Theme preference: 'system', 'light', 'dark' */
+  theme: 'system' | 'light' | 'dark';
   // Add more settings here as needed
 }
 
@@ -42,6 +44,7 @@ export class Store {
       autoDnsEnabled: false,
       httpsMode: null,
       firstLaunchCompleted: false,
+      theme: 'system',
     });
   }
 

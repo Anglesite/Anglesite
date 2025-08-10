@@ -5,6 +5,7 @@ import { BrowserWindow, WebContentsView, ipcMain, WebContents } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
+import { themeManager } from './theme-manager';
 
 let previewWebContentsView: WebContentsView | null = null;
 let settingsWindow: BrowserWindow | null = null;
@@ -299,6 +300,7 @@ export async function getNativeInput(title: string, prompt: string): Promise<str
       maximizable: false,
       fullscreenable: false,
       modal: true,
+      show: false, // Don't show immediately to prevent white flash
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
@@ -311,29 +313,65 @@ export async function getNativeInput(title: string, prompt: string): Promise<str
   <meta charset="UTF-8">
   <title>${title}</title>
   <style>
+    :root {
+      color-scheme: light dark; /* Enable native dark mode support to prevent white flash */
+      --bg-primary: #ffffff;
+      --bg-secondary: #f5f5f5;
+      --text-primary: #333333;
+      --border-primary: #dddddd;
+      --button-primary: #007AFF;
+      --button-primary-hover: #0056CC;
+      --button-secondary: #e5e5e7;
+      --button-secondary-hover: #d1d1d6;
+      --button-secondary-text: #333;
+      --shadow: rgba(0,0,0,0.1);
+    }
+    
+    :root[data-theme="dark"] {
+      --bg-primary: #2d2d2d;
+      --bg-secondary: #1e1e1e;
+      --text-primary: #ffffff;
+      --border-primary: #404040;
+      --button-primary: #0A84FF;
+      --button-primary-hover: #409CFF;
+      --button-secondary: #404040;
+      --button-secondary-hover: #525252;
+      --button-secondary-text: #ffffff;
+      --shadow: rgba(255,255,255,0.1);
+    }
+
     body { 
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
-      margin: 0; padding: 20px; background: #f5f5f5; 
+      margin: 0; padding: 20px; 
+      background: Canvas; /* Use system Canvas color as fallback */
+      color: CanvasText; /* Use system CanvasText color as fallback */
+      transition: background-color 0.2s ease, color 0.2s ease;
     }
+    
+    /* Apply theme variables when data-theme is set */
+    :root body { background: var(--bg-secondary); color: var(--text-primary); }
     .container { 
-      background: white; border-radius: 8px; padding: 20px; 
-      box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+      background: var(--bg-primary); border-radius: 8px; padding: 20px; 
+      box-shadow: 0 2px 10px var(--shadow);
+      transition: background-color 0.2s ease;
     }
-    .prompt { margin-bottom: 15px; color: #333; font-size: 14px; }
+    .prompt { margin-bottom: 15px; color: var(--text-primary); font-size: 14px; }
     input { 
-      width: 100%; padding: 8px 12px; border: 1px solid #ddd; 
+      width: 100%; padding: 8px 12px; border: 1px solid var(--border-primary); 
       border-radius: 6px; font-size: 14px; margin-bottom: 20px;
-      box-sizing: border-box;
+      box-sizing: border-box; background: var(--bg-primary); color: var(--text-primary);
+      transition: border-color 0.2s ease, background-color 0.2s ease, color 0.2s ease;
     }
     .buttons { text-align: right; }
     button { 
-      background: #007AFF; color: white; border: none; 
+      background: var(--button-primary); color: white; border: none; 
       padding: 8px 20px; border-radius: 6px; font-size: 13px; 
-      cursor: pointer; margin-left: 8px; 
+      cursor: pointer; margin-left: 8px;
+      transition: background-color 0.2s ease;
     }
-    button:hover { background: #0056CC; }
-    button.secondary { background: #e5e5e7; color: #333; }
-    button.secondary:hover { background: #d1d1d6; }
+    button:hover { background: var(--button-primary-hover); }
+    button.secondary { background: var(--button-secondary); color: var(--button-secondary-text); }
+    button.secondary:hover { background: var(--button-secondary-hover); }
   </style>
 </head>
 <body>
@@ -347,6 +385,32 @@ export async function getNativeInput(title: string, prompt: string): Promise<str
   </div>
   <script>
     const { ipcRenderer } = require('electron');
+    
+    // Apply theme when dialog loads
+    document.addEventListener('DOMContentLoaded', () => {
+      // Load theme with delay to not block dialog functionality
+      setTimeout(async () => {
+        try {
+          const themeInfo = await ipcRenderer.invoke('get-current-theme');
+          applyTheme(themeInfo.resolvedTheme);
+          
+          ipcRenderer.on('theme-updated', (_event, themeInfo) => {
+            applyTheme(themeInfo.resolvedTheme);
+          });
+        } catch (error) {
+          console.log('Theme loading failed, using default theme');
+        }
+      }, 50);
+    });
+
+    function applyTheme(resolvedTheme) {
+      const root = document.documentElement;
+      if (resolvedTheme === 'dark') {
+        root.setAttribute('data-theme', 'dark');
+      } else {
+        root.removeAttribute('data-theme');
+      }
+    }
     
     function cancel() {
       ipcRenderer.send('input-dialog-result', null);
@@ -366,6 +430,15 @@ export async function getNativeInput(title: string, prompt: string): Promise<str
 </html>`;
 
     inputWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(inputHTML)}`);
+
+    // Use ready-to-show event following Electron best practices
+    inputWindow.once('ready-to-show', () => {
+      if (inputWindow && !inputWindow.isDestroyed()) {
+        // Apply current theme to the input window before showing
+        themeManager.applyThemeToWindow(inputWindow);
+        inputWindow.show();
+      }
+    });
 
     // Handle input result
     const handleInputResult = (result: string | null) => {
@@ -404,6 +477,7 @@ export async function showFirstLaunchAssistant(): Promise<'https' | 'http' | nul
       maximizable: false,
       fullscreenable: false,
       modal: true,
+      show: false, // Don't show immediately to prevent white flash
       titleBarStyle: 'hiddenInset',
       webPreferences: {
         nodeIntegration: true,
@@ -435,6 +509,15 @@ export async function showFirstLaunchAssistant(): Promise<'https' | 'http' | nul
       );
     }
 
+    // Use ready-to-show event following Electron best practices
+    assistantWindow.once('ready-to-show', () => {
+      if (assistantWindow && !assistantWindow.isDestroyed()) {
+        // Apply current theme to the first launch assistant before showing
+        themeManager.applyThemeToWindow(assistantWindow);
+        assistantWindow.show();
+      }
+    });
+
     // Handle window close
     assistantWindow.on('closed', () => {
       resolve(null);
@@ -462,6 +545,7 @@ export function openWebsiteSelectionWindow(): void {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
+    show: false, // Don't show immediately to prevent white flash
     titleBarStyle: 'hiddenInset',
     webPreferences: {
       nodeIntegration: true,
@@ -481,12 +565,60 @@ export function openWebsiteSelectionWindow(): void {
   <meta charset="UTF-8">
   <title>Open Website</title>
   <style>
+    :root {
+      color-scheme: light dark; /* Enable native dark mode support to prevent white flash */
+      /* Light theme colors */
+      --bg-primary: #ffffff;
+      --bg-secondary: #f5f5f5;
+      --bg-tertiary: #ffffff;
+      --text-primary: #333333;
+      --text-secondary: #666666;
+      --border-primary: #e1e1e1;
+      --button-primary: #007AFF;
+      --button-primary-hover: #0056CC;
+      --button-secondary: #e5e5e7;
+      --button-secondary-hover: #d1d1d6;
+      --button-secondary-text: #333;
+      --card-hover-border: #007AFF;
+      --card-hover-shadow: rgba(0,0,0,0.1);
+      --input-border: #007AFF;
+      --input-shadow: rgba(0, 122, 255, 0.1);
+      --error-color: #FF3B30;
+      --error-shadow: rgba(255, 59, 48, 0.1);
+    }
+
+    :root[data-theme="dark"] {
+      /* Dark theme colors */
+      --bg-primary: #1e1e1e;
+      --bg-secondary: #121212;
+      --bg-tertiary: #2d2d2d;
+      --text-primary: #ffffff;
+      --text-secondary: #b3b3b3;
+      --border-primary: #404040;
+      --button-primary: #0A84FF;
+      --button-primary-hover: #409CFF;
+      --button-secondary: #404040;
+      --button-secondary-hover: #525252;
+      --button-secondary-text: #ffffff;
+      --card-hover-border: #0A84FF;
+      --card-hover-shadow: rgba(255,255,255,0.1);
+      --input-border: #0A84FF;
+      --input-shadow: rgba(10, 132, 255, 0.2);
+      --error-color: #FF453A;
+      --error-shadow: rgba(255, 69, 58, 0.2);
+    }
+    
     body { 
       font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
       margin: 0; 
       padding: 20px 20px 10px 20px; 
-      background: #f5f5f5; 
+      background: Canvas; /* Use system Canvas color as fallback */
+      color: CanvasText; /* Use system CanvasText color as fallback */
+      transition: background-color 0.2s ease, color 0.2s ease;
     }
+    
+    /* Apply theme variables when data-theme is set */
+    :root body { background: var(--bg-secondary); color: var(--text-primary); }
     .header {
       text-align: center;
       margin-bottom: 30px;
@@ -494,12 +626,12 @@ export function openWebsiteSelectionWindow(): void {
     .title {
       font-size: 24px;
       font-weight: 600;
-      color: #333;
+      color: var(--text-primary);
       margin-bottom: 8px;
     }
     .subtitle {
       font-size: 14px;
-      color: #666;
+      color: var(--text-secondary);
     }
     .websites-grid {
       display: grid;
@@ -508,18 +640,18 @@ export function openWebsiteSelectionWindow(): void {
       margin-bottom: 30px;
     }
     .website-card {
-      background: white;
+      background: var(--bg-tertiary);
       border-radius: 12px;
       padding: 20px;
       text-align: center;
       cursor: pointer;
       transition: all 0.2s ease;
-      border: 1px solid #e1e1e1;
+      border: 1px solid var(--border-primary);
     }
     .website-card:hover {
       transform: translateY(-2px);
-      box-shadow: 0 8px 25px rgba(0,0,0,0.1);
-      border-color: #007AFF;
+      box-shadow: 0 8px 25px var(--card-hover-shadow);
+      border-color: var(--card-hover-border);
     }
     .website-icon {
       font-size: 48px;
@@ -528,25 +660,25 @@ export function openWebsiteSelectionWindow(): void {
     .website-name {
       font-size: 16px;
       font-weight: 500;
-      color: #333;
+      color: var(--text-primary);
       margin-bottom: 5px;
     }
     .website-name.editing {
-      background: white;
-      border: 2px solid #007AFF;
+      background: var(--bg-primary);
+      border: 2px solid var(--input-border);
       border-radius: 4px;
       padding: 4px 8px;
       margin: -4px -8px 5px -8px;
       outline: none;
-      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+      box-shadow: 0 0 0 3px var(--input-shadow);
     }
     .website-name.editing.error {
-      border-color: #FF3B30;
-      box-shadow: 0 0 0 3px rgba(255, 59, 48, 0.1);
+      border-color: var(--error-color);
+      box-shadow: 0 0 0 3px var(--error-shadow);
     }
     .validation-error {
       font-size: 12px;
-      color: #FF3B30;
+      color: var(--error-color);
       margin-top: 5px;
       display: none;
     }
@@ -555,13 +687,13 @@ export function openWebsiteSelectionWindow(): void {
     }
     .website-path {
       font-size: 12px;
-      color: #666;
+      color: var(--text-secondary);
       word-break: break-all;
     }
     .empty-state {
       text-align: center;
       padding: 60px 20px;
-      color: #666;
+      color: var(--text-secondary);
     }
     .empty-icon {
       font-size: 64px;
@@ -572,7 +704,7 @@ export function openWebsiteSelectionWindow(): void {
       justify-content: space-between;
       align-items: center;
       padding-top: 20px;
-      border-top: 1px solid #e1e1e1;
+      border-top: 1px solid var(--border-primary);
     }
     .buttons-left {
       flex: 1;
@@ -581,24 +713,25 @@ export function openWebsiteSelectionWindow(): void {
       flex: 0;
     }
     button {
-      background: #e5e5e7;
-      color: #333;
+      background: var(--button-secondary);
+      color: var(--button-secondary-text);
       border: none;
       padding: 10px 24px;
       border-radius: 6px;
       font-size: 14px;
       cursor: pointer;
       margin: 0 8px;
+      transition: background-color 0.2s ease;
     }
     button:hover {
-      background: #d1d1d6;
+      background: var(--button-secondary-hover);
     }
     button.primary {
-      background: #007AFF;
+      background: var(--button-primary);
       color: white;
     }
     button.primary:hover {
-      background: #0056CC;
+      background: var(--button-primary-hover);
     }
   </style>
 </head>
@@ -627,10 +760,44 @@ export function openWebsiteSelectionWindow(): void {
   <script>
     const { ipcRenderer } = require('electron');
     
-    // Load websites when page loads
+    // Load websites and theme when page loads
     document.addEventListener('DOMContentLoaded', () => {
       loadWebsites();
+      loadTheme();
     });
+
+    // Theme management - simplified for this window
+    function loadTheme() {
+      try {
+        // For this window, we'll just apply the theme based on direct IPC
+        // but we'll do it after the main functionality is loaded
+        setTimeout(async () => {
+          try {
+            const themeInfo = await ipcRenderer.invoke('get-current-theme');
+            applyTheme(themeInfo.resolvedTheme);
+            
+            // Listen for theme updates
+            ipcRenderer.on('theme-updated', (_event, themeInfo) => {
+              applyTheme(themeInfo.resolvedTheme);
+            });
+          } catch (error) {
+            console.log('Theme loading failed, using default theme');
+            // Fallback to light theme - don't log error to avoid console noise
+          }
+        }, 100);
+      } catch (error) {
+        // Silently fail - theme is not critical for functionality
+      }
+    }
+
+    function applyTheme(resolvedTheme) {
+      const root = document.documentElement;
+      if (resolvedTheme === 'dark') {
+        root.setAttribute('data-theme', 'dark');
+      } else {
+        root.removeAttribute('data-theme');
+      }
+    }
     
     async function loadWebsites() {
       try {
@@ -854,6 +1021,15 @@ export function openWebsiteSelectionWindow(): void {
 </html>`;
 
     websiteSelectionWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(websiteSelectionHTML)}`);
+
+    // Use ready-to-show event following Electron best practices
+    websiteSelectionWindow.once('ready-to-show', () => {
+      if (websiteSelectionWindow && !websiteSelectionWindow.isDestroyed()) {
+        // Apply current theme to the website selection window before showing
+        themeManager.applyThemeToWindow(websiteSelectionWindow);
+        websiteSelectionWindow.show();
+      }
+    });
   }
 }
 
@@ -874,6 +1050,7 @@ export function openSettingsWindow(): void {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
+    show: false, // Don't show immediately to prevent white flash
     titleBarStyle: 'default',
     webPreferences: {
       nodeIntegration: false,
@@ -888,20 +1065,134 @@ export function openSettingsWindow(): void {
   <meta charset="UTF-8">
   <title>Settings</title>
   <style>
-    body { font-family: system-ui; margin: 0; padding: 20px; background: #f5f5f5; }
-    .setting-group { background: white; border-radius: 6px; padding: 20px; margin-bottom: 16px; }
-    .setting-title { font-size: 13px; font-weight: 600; margin-bottom: 8px; }
-    .setting-description { font-size: 11px; color: #666; margin-bottom: 16px; line-height: 1.4; }
-    label { display: flex; align-items: center; cursor: pointer; }
-    input[type="checkbox"] { margin-right: 8px; }
-    .buttons { text-align: right; margin-top: 20px; }
-    button { background: #007AFF; color: white; border: none; padding: 8px 20px; border-radius: 6px; font-size: 13px; cursor: pointer; margin-left: 8px; }
-    button:hover { background: #0056CC; }
-    button.secondary { background: #e5e5e7; color: #333; }
-    button.secondary:hover { background: #d1d1d6; }
+    :root {
+      color-scheme: light dark; /* Enable native dark mode support to prevent white flash */
+      --bg-primary: #ffffff;
+      --bg-secondary: #f5f5f5;
+      --bg-tertiary: #ffffff;
+      --text-primary: #333333;
+      --text-secondary: #666666;
+      --border-primary: #e5e5e7;
+      --button-primary: #007AFF;
+      --button-primary-hover: #0056CC;
+      --button-secondary: #e5e5e7;
+      --button-secondary-hover: #d1d1d6;
+      --button-secondary-text: #333;
+    }
+
+    :root[data-theme="dark"] {
+      --bg-primary: #1e1e1e;
+      --bg-secondary: #121212;
+      --bg-tertiary: #2d2d2d;
+      --text-primary: #ffffff;
+      --text-secondary: #b3b3b3;
+      --border-primary: #404040;
+      --button-primary: #0A84FF;
+      --button-primary-hover: #409CFF;
+      --button-secondary: #404040;
+      --button-secondary-hover: #525252;
+      --button-secondary-text: #ffffff;
+    }
+
+    body { 
+      font-family: system-ui; 
+      margin: 0; 
+      padding: 20px; 
+      background: Canvas; /* Use system Canvas color as fallback */
+      color: CanvasText; /* Use system CanvasText color as fallback */
+      transition: background-color 0.2s ease, color 0.2s ease;
+    }
+    
+    /* Apply theme variables when data-theme is set */
+    :root body { background: var(--bg-secondary); color: var(--text-primary); }
+    .setting-group { 
+      background: var(--bg-tertiary); 
+      border-radius: 6px; 
+      padding: 20px; 
+      margin-bottom: 16px;
+      border: 1px solid var(--border-primary);
+      transition: background-color 0.2s ease, border-color 0.2s ease;
+    }
+    .setting-title { 
+      font-size: 13px; 
+      font-weight: 600; 
+      margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+    .setting-description { 
+      font-size: 11px; 
+      color: var(--text-secondary); 
+      margin-bottom: 16px; 
+      line-height: 1.4; 
+    }
+    label { 
+      display: flex; 
+      align-items: center; 
+      cursor: pointer; 
+      margin-bottom: 8px;
+      color: var(--text-primary);
+    }
+    input[type="checkbox"] { 
+      margin-right: 8px; 
+    }
+    input[type="radio"] { 
+      margin-right: 8px; 
+    }
+    .radio-group {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-top: 8px;
+    }
+    .buttons { 
+      text-align: right; 
+      margin-top: 20px; 
+    }
+    button { 
+      background: var(--button-primary); 
+      color: white; 
+      border: none; 
+      padding: 8px 20px; 
+      border-radius: 6px; 
+      font-size: 13px; 
+      cursor: pointer; 
+      margin-left: 8px;
+      transition: background-color 0.2s ease;
+    }
+    button:hover { 
+      background: var(--button-primary-hover); 
+    }
+    button.secondary { 
+      background: var(--button-secondary); 
+      color: var(--button-secondary-text); 
+    }
+    button.secondary:hover { 
+      background: var(--button-secondary-hover); 
+    }
   </style>
 </head>
 <body>
+  <div class="setting-group">
+    <div class="setting-title">Appearance</div>
+    <div class="setting-description">
+      Choose how Anglesite should appear. System will follow your system's light/dark mode preference.
+    </div>
+    <div class="radio-group">
+      <label>
+        <input type="radio" name="theme" value="system" id="themeSystem" checked>
+        <span>System (follow system preference)</span>
+      </label>
+      <label>
+        <input type="radio" name="theme" value="light" id="themeLight">
+        <span>Light mode</span>
+      </label>
+      <label>
+        <input type="radio" name="theme" value="dark" id="themeDark">
+        <span>Dark mode</span>
+      </label>
+    </div>
+  </div>
+  
   <div class="setting-group">
     <div class="setting-title">Development Domains</div>
     <div class="setting-description">
@@ -912,19 +1203,96 @@ export function openSettingsWindow(): void {
       <span>Automatically configure .test domains</span>
     </label>
   </div>
+  
   <div class="buttons">
     <button class="secondary" onclick="window.close()">Cancel</button>
     <button onclick="saveSettings()">Save Settings</button>
   </div>
+  
   <script>
-    function saveSettings() {
-      const autoDomains = document.getElementById('autoDomains').checked;
-      // TODO: Save to store
-      window.close();
+    let currentThemeInfo = null;
+
+    // Load current settings when page loads
+    document.addEventListener('DOMContentLoaded', async () => {
+      try {
+        // Load current theme
+        currentThemeInfo = await window.electronAPI.getCurrentTheme();
+        const themeRadio = document.getElementById('theme' + capitalizeFirst(currentThemeInfo.userPreference));
+        if (themeRadio) {
+          themeRadio.checked = true;
+        }
+
+        // Apply current theme immediately
+        applyTheme(currentThemeInfo.resolvedTheme);
+
+        // Listen for theme updates
+        window.electronAPI.onThemeUpdated((themeInfo) => {
+          currentThemeInfo = themeInfo;
+          applyTheme(themeInfo.resolvedTheme);
+        });
+
+        // Add immediate theme switching to radio buttons
+        const themeRadios = document.querySelectorAll('input[name="theme"]');
+        themeRadios.forEach(radio => {
+          radio.addEventListener('change', async (event) => {
+            if (event.target.checked) {
+              try {
+                console.log('Theme radio changed to:', event.target.value);
+                const newThemeInfo = await window.electronAPI.setTheme(event.target.value);
+                currentThemeInfo = newThemeInfo;
+                applyTheme(newThemeInfo.resolvedTheme);
+                console.log('Theme applied immediately:', newThemeInfo);
+              } catch (error) {
+                console.error('Failed to apply theme immediately:', error);
+              }
+            }
+          });
+        });
+
+      } catch (error) {
+        console.error('Failed to load settings:', error);
+      }
+    });
+
+    function capitalizeFirst(str) {
+      return str.charAt(0).toUpperCase() + str.slice(1);
+    }
+
+    function applyTheme(resolvedTheme) {
+      const root = document.documentElement;
+      if (resolvedTheme === 'dark') {
+        root.setAttribute('data-theme', 'dark');
+      } else {
+        root.removeAttribute('data-theme');
+      }
+    }
+
+    async function saveSettings() {
+      try {
+        // Theme is already saved immediately when changed, so just handle other settings
+        
+        // Save other settings
+        const autoDomains = document.getElementById('autoDomains').checked;
+        // TODO: Save autoDomains to store when implemented
+
+        window.close();
+      } catch (error) {
+        console.error('Failed to save settings:', error);
+        alert('Failed to save settings. Please try again.');
+      }
     }
   </script>
 </body>
 </html>`;
 
   settingsWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(settingsHTML)}`);
+
+  // Use ready-to-show event following Electron best practices
+  settingsWindow.once('ready-to-show', () => {
+    if (settingsWindow && !settingsWindow.isDestroyed()) {
+      // Apply current theme to the settings window before showing
+      themeManager.applyThemeToWindow(settingsWindow);
+      settingsWindow.show();
+    }
+  });
 }

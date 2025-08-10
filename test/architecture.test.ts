@@ -2,6 +2,24 @@
  * @file Simple architecture validation tests
  */
 
+// Mock Electron modules before any imports
+jest.mock('electron', () => ({
+  app: {
+    getPath: jest.fn(() => '/mock/path'),
+  },
+  nativeTheme: {
+    shouldUseDarkColors: false,
+    on: jest.fn(),
+  },
+  ipcMain: {
+    handle: jest.fn(),
+    on: jest.fn(),
+  },
+  BrowserWindow: {
+    getAllWindows: jest.fn(() => []),
+  },
+}));
+
 describe('Modular Architecture', () => {
   describe('Module Imports', () => {
     it('should import UI modules', () => {

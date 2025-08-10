@@ -5,6 +5,7 @@ import { BrowserWindow, WebContentsView } from 'electron';
 import * as path from 'path';
 import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
 import { updateApplicationMenu } from './menu';
+import { themeManager } from './theme-manager';
 
 /**
  * Interface for tracking a website window
@@ -32,6 +33,7 @@ export function createHelpWindow(): BrowserWindow {
     width: 1000,
     height: 700,
     title: 'Anglesite',
+    show: false, // Don't show until ready
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -168,6 +170,15 @@ export function createHelpWindow(): BrowserWindow {
 
   console.log('Help window created and ready');
   updateApplicationMenu();
+
+  // Use ready-to-show event as recommended by Electron docs
+  helpWindow.once('ready-to-show', () => {
+    if (helpWindow && !helpWindow.isDestroyed()) {
+      themeManager.applyThemeToWindow(helpWindow);
+      helpWindow.show();
+    }
+  });
+
   return helpWindow;
 }
 
@@ -186,6 +197,7 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
     width: 1200,
     height: 800,
     title: websiteName,
+    show: false, // Don't show until ready
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
@@ -284,6 +296,15 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
 
   console.log(`Website window created for: ${websiteName}`);
   updateApplicationMenu();
+
+  // Use ready-to-show event as recommended by Electron docs
+  window.once('ready-to-show', () => {
+    if (window && !window.isDestroyed()) {
+      themeManager.applyThemeToWindow(window);
+      window.show();
+    }
+  });
+
   return window;
 }
 

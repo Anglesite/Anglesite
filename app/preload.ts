@@ -29,7 +29,13 @@ contextBridge.exposeInMainWorld('electronAPI', {
   },
   invoke: (channel: string, ...args: unknown[]) => {
     // Whitelist invoke channels for security
-    const validChannels = ['list-websites', 'validate-website-name', 'rename-website'];
+    const validChannels = [
+      'list-websites',
+      'validate-website-name',
+      'rename-website',
+      'get-current-theme',
+      'set-theme',
+    ];
     if (validChannels.includes(channel)) {
       return ipcRenderer.invoke(channel, ...args);
     }
@@ -47,6 +53,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'show-website-name-input',
       'website-context-menu-action',
       'website-operation-completed',
+      'theme-updated',
     ];
     if (validChannels.includes(channel)) {
       console.log(`DEBUG PRELOAD: Setting up listener for channel: ${channel}`);
@@ -61,5 +68,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
     if (validChannels.includes(channel)) {
       ipcRenderer.removeAllListeners(channel);
     }
+  },
+
+  // Theme API methods
+  getCurrentTheme: () => ipcRenderer.invoke('get-current-theme'),
+  setTheme: (theme: string) => ipcRenderer.invoke('set-theme', theme),
+  onThemeUpdated: (callback: (...args: unknown[]) => void) => {
+    ipcRenderer.on('theme-updated', (_event, ...args) => callback(...args));
   },
 });

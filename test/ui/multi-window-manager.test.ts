@@ -6,10 +6,18 @@
 const mockBrowserWindow = {
   isDestroyed: jest.fn(() => false),
   focus: jest.fn(),
+  show: jest.fn(),
   getBounds: jest.fn(() => ({ width: 1200, height: 800 })),
   getTitle: jest.fn(() => 'Test Window'),
   on: jest.fn(),
+  once: jest.fn(),
   loadFile: jest.fn(),
+  webContents: {
+    send: jest.fn(),
+    isLoading: jest.fn(() => false),
+    executeJavaScript: jest.fn(() => Promise.resolve()),
+    once: jest.fn(),
+  },
   contentView: {
     addChildView: jest.fn(),
     children: [],
@@ -31,6 +39,17 @@ const mockUpdateApplicationMenu = jest.fn();
 jest.mock('electron', () => ({
   BrowserWindow: jest.fn(() => mockBrowserWindow),
   WebContentsView: jest.fn(() => mockWebContentsView),
+  app: {
+    getPath: jest.fn(() => '/mock/path'),
+  },
+  nativeTheme: {
+    shouldUseDarkColors: false,
+    on: jest.fn(),
+  },
+  ipcMain: {
+    handle: jest.fn(),
+    on: jest.fn(),
+  },
 }));
 
 jest.mock('../../app/server/eleventy', () => ({

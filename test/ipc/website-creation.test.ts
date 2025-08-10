@@ -2,6 +2,24 @@
  * @file Tests for website creation flow and timing fixes
  */
 
+// Mock Electron first
+jest.mock('electron', () => ({
+  app: {
+    getPath: jest.fn(() => '/mock/path'),
+  },
+  nativeTheme: {
+    shouldUseDarkColors: false,
+    on: jest.fn(),
+  },
+  ipcMain: {
+    handle: jest.fn(),
+    on: jest.fn(),
+  },
+  BrowserWindow: {
+    getAllWindows: jest.fn(() => []),
+  },
+}));
+
 // Mock modules
 const mockCreateWebsiteWindow = jest.fn();
 const mockLoadWebsiteContent = jest.fn();

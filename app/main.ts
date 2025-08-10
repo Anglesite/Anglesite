@@ -12,6 +12,7 @@ import { handleFirstLaunch } from './utils/first-launch';
 import { cleanupEleventyServer, startDefaultEleventyServer } from './server/eleventy';
 import { createHttpsProxy } from './server/https-proxy';
 import { addLocalDnsResolution, cleanupHostsFile, checkAndSuggestTouchIdSetup } from './dns/hosts-manager';
+import { themeManager } from './ui/theme-manager';
 
 // Set application name as early as possible
 app.setName('Anglesite');
@@ -49,6 +50,9 @@ async function initializeApp(): Promise<void> {
 
   // Setup IPC handlers
   setupIpcMainListeners();
+
+  // Initialize theme manager
+  themeManager.initialize();
 
   // Clean up hosts file to match existing websites
   console.log('Cleaning up hosts file...');

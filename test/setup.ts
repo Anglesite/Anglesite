@@ -2,6 +2,13 @@
  * @file Jest setup file for renderer tests
  */
 
+// Setup TextEncoder/TextDecoder for JSDOM
+if (typeof global.TextEncoder === 'undefined') {
+  const { TextEncoder, TextDecoder } = require('util');
+  global.TextEncoder = TextEncoder;
+  global.TextDecoder = TextDecoder;
+}
+
 // Mock electronAPI globally for all tests
 const mockElectronAPI = {
   send: jest.fn(),

@@ -41,7 +41,8 @@
       "Bash(npm outdated)",
       "Bash(npm update:*)",
       "Bash(npm view:*)",
-      "Bash(npm test:*)"
+      "Bash(npm test:*)",
+      "WebFetch(domain:www.electronjs.org)"
     ],
     "deny": []
   }

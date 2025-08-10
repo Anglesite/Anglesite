@@ -11,7 +11,9 @@
     "lint": "eslint . && markdownlint '**/*.md' --ignore node_modules --ignore dist",
     "format": "prettier --write .",
     "pretest": "tsc",
-    "test": "jest"
+    "test": "jest",
+    "test:coverage": "jest --coverage --config jest.coverage.config.ts",
+    "test:dark-mode": "jest --coverage --collectCoverageFrom='app/ui/theme-manager.ts' test/ui/dark-mode-*.test.ts"
   },
   "keywords": [
     "static site generator",
@@ -40,6 +42,7 @@
     "@11ty/eleventy-plugin-webc": "^0.11.2",
     "@types/hostile": "^1.3.5",
     "@types/jest": "^30.0.0",
+    "@types/jsdom": "^21.1.7",
     "@typescript-eslint/eslint-plugin": "^8.39.0",
     "@typescript-eslint/parser": "^8.39.0",
     "electron": "^37.2.6",
@@ -49,6 +52,7 @@
     "globals": "^16.3.0",
     "jest": "^30.0.5",
     "jest-environment-jsdom": "^30.0.5",
+    "jsdom": "^26.1.0",
     "live-server": "^1.2.2",
     "markdownlint-cli": "^0.45.0",
     "mkcert": "^3.2.0",

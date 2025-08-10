@@ -5,6 +5,7 @@
 // Mock Electron modules
 const mockBrowserWindow = {
   getFocusedWindow: jest.fn(),
+  getAllWindows: jest.fn(() => []),
 };
 
 const mockWebContents = {
@@ -37,6 +38,17 @@ const mockMultiWindowManager = {
 // Set up mocks
 jest.mock('electron', () => ({
   BrowserWindow: mockBrowserWindow,
+  app: {
+    getPath: jest.fn(() => '/mock/path'),
+  },
+  nativeTheme: {
+    shouldUseDarkColors: false,
+    on: jest.fn(),
+  },
+  ipcMain: {
+    handle: jest.fn(),
+    on: jest.fn(),
+  },
 }));
 
 jest.mock('../../app/ui/multi-window-manager', () => mockMultiWindowManager);
