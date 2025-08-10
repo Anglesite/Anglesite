@@ -185,7 +185,7 @@ describe('DNS Hosts Manager', () => {
     it('should use sudo-prompt when not elevated', async () => {
       mockIsElevated.mockResolvedValue(false);
       mockSudoPrompt.exec.mockImplementation((_command, options, callback) => {
-        expect(options.name).toBe('Anglesite - DNS Configuration');
+        expect(options.name).toBe('Anglesite DNS');
         callback(null, 'success', '');
       });
 

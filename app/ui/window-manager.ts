@@ -1,7 +1,7 @@
 /**
  * @file Window and WebContentsView management
  */
-import { BrowserWindow, WebContentsView, ipcMain } from 'electron';
+import { BrowserWindow, WebContentsView, ipcMain, WebContents } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
@@ -238,16 +238,50 @@ export function reloadPreview(): void {
 }
 
 /**
- * Toggle DevTools for preview
+ * Toggle DevTools for the currently focused window
  */
 export function togglePreviewDevTools(): void {
-  if (previewWebContentsView?.webContents) {
-    if (previewWebContentsView.webContents.isDevToolsOpened()) {
-      previewWebContentsView.webContents.closeDevTools();
-    } else {
-      previewWebContentsView.webContents.openDevTools();
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (!focusedWindow) {
+    console.log('No focused window found for DevTools');
+    return;
+  }
+
+  // Import here to avoid circular dependency
+  // eslint-disable-next-line @typescript-eslint/no-require-imports
+  const { getAllWebsiteWindows, getHelpWindow } = require('./multi-window-manager');
+
+  // Check if it's the help window
+  const helpWindow = getHelpWindow();
+  if (helpWindow === focusedWindow) {
+    // For help window, find its WebContentsView
+    const helpViews = helpWindow.contentView.children;
+    if (helpViews.length > 0 && 'webContents' in helpViews[0]) {
+      const webContents = (helpViews[0] as { webContents: WebContents }).webContents;
+      if (webContents.isDevToolsOpened()) {
+        webContents.closeDevTools();
+      } else {
+        webContents.openDevTools();
+      }
+    }
+    return;
+  }
+
+  // Check if it's a website window
+  const websiteWindows = getAllWebsiteWindows();
+  for (const [, websiteWindow] of websiteWindows) {
+    if (websiteWindow.window === focusedWindow) {
+      const webContents = websiteWindow.webContentsView.webContents;
+      if (webContents.isDevToolsOpened()) {
+        webContents.closeDevTools();
+      } else {
+        webContents.openDevTools();
+      }
+      return;
     }
   }
+
+  console.log('Focused window is not a recognized Anglesite window');
 }
 
 /**

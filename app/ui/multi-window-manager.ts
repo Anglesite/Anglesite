@@ -79,8 +79,28 @@ export function createHelpWindow(): BrowserWindow {
     });
   });
 
-  // Load help content
-  setTimeout(() => {
+  // Load help content when server is ready
+  const loadHelpContent = () => {
+    if (!isLiveServerReady()) {
+      // Show loading message and retry
+      const loadingHTML = `
+        <!DOCTYPE html>
+        <html>
+          <head><title>Anglesite Help</title></head>
+          <body style="font-family: system-ui; padding: 20px; text-align: center;">
+            <h1>📚 Anglesite Help</h1>
+            <p>Help content is loading...</p>
+            <p><small>The documentation server is starting up</small></p>
+          </body>
+        </html>
+      `;
+      helpWebContentsView.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(loadingHTML)}`);
+
+      // Retry after 500ms
+      setTimeout(loadHelpContent, 500);
+      return;
+    }
+
     const serverUrl = getCurrentLiveServerUrl();
     console.log('Loading help content from:', serverUrl);
 
@@ -101,7 +121,10 @@ export function createHelpWindow(): BrowserWindow {
       `;
       helpWebContentsView.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(fallbackHTML)}`);
     });
-  }, 100);
+  };
+
+  // Start loading help content
+  setTimeout(loadHelpContent, 100);
 
   // Add WebContentsView to help window
   helpWindow.contentView.addChildView(helpWebContentsView);
@@ -279,42 +302,44 @@ export function loadWebsiteContent(websiteName: string): void {
     return;
   }
 
-  const serverUrl = getCurrentLiveServerUrl();
-  console.log(`Loading website content for ${websiteName} from:`, serverUrl);
+  // Try website-specific URL first, fallback to main server if DNS fails
+  const websiteUrl = `https://${websiteName}.test:8080`;
+  const fallbackUrl = getCurrentLiveServerUrl();
+
+  console.log(`Loading website content for ${websiteName} from:`, websiteUrl);
 
   websiteWindow.webContentsView.webContents.removeAllListeners('did-fail-load');
   websiteWindow.webContentsView.webContents.removeAllListeners('did-finish-load');
 
   websiteWindow.webContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    console.error(`Failed to load content for ${websiteName}:`, validatedURL, 'Error:', errorCode, errorDescription);
+    // Only handle actual website loading failures, not data URLs
+    if (!validatedURL.startsWith('data:text/html')) {
+      console.log(`DNS resolution failed for ${websiteName}.test, trying fallback URL`);
 
-    // Show fallback content
-    const fallbackHTML = `
-        <!DOCTYPE html>
-        <html>
-          <head><title>${websiteName}</title></head>
-          <body style="font-family: system-ui; padding: 20px; text-align: center;">
-            <h1>🌐 ${websiteName}</h1>
-            <p>Website is loading...</p>
-            <p><small>Please wait while the content loads</small></p>
-          </body>
-        </html>
-      `;
-    websiteWindow.webContentsView.webContents.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(fallbackHTML)}`
-    );
+      // Try fallback URL if website-specific URL fails
+      if (validatedURL === websiteUrl) {
+        websiteWindow.webContentsView.webContents.loadURL(fallbackUrl).catch((fallbackError) => {
+          console.error(`Both website and fallback URLs failed for ${websiteName}:`, fallbackError);
+        });
+      }
+    }
   });
 
   websiteWindow.webContentsView.webContents.on('did-finish-load', () => {
-    console.log(`Successfully loaded content for ${websiteName}:`, serverUrl);
+    console.log(`Successfully loaded content for ${websiteName}`);
   });
 
-  // Load the website content
+  // Load the website content with a small delay to ensure HTTPS proxy is ready
   setTimeout(() => {
-    websiteWindow.webContentsView.webContents.loadURL(serverUrl).catch((error) => {
+    websiteWindow.webContentsView.webContents.loadURL(websiteUrl).catch((error) => {
       console.error(`Failed to load content for ${websiteName}:`, error);
+      // Auto-fallback to main server URL if website-specific URL fails
+      console.log(`Trying fallback URL for ${websiteName}: ${fallbackUrl}`);
+      websiteWindow.webContentsView.webContents.loadURL(fallbackUrl).catch((fallbackError) => {
+        console.error(`Both website and fallback URLs failed for ${websiteName}:`, fallbackError);
+      });
     });
-  }, 100);
+  }, 500);
 
   // Send message to renderer
   websiteWindow.window.webContents.send('preview-loaded');

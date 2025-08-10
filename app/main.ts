@@ -109,11 +109,22 @@ app.on('before-quit', () => {
 app.on('certificate-error', (event, _webContents, url, _error, _certificate, callback) => {
   // Allow self-signed certificates for local development
   if (url.includes('localhost') || url.includes('.test')) {
+    console.log('Accepting self-signed certificate for:', url);
     event.preventDefault();
     callback(true);
   } else {
     callback(false);
   }
 });
+
+// Disable web security for development (allows self-signed certs)
+app.commandLine.appendSwitch('--ignore-certificate-errors-spki-list');
+app.commandLine.appendSwitch('--ignore-certificate-errors');
+app.commandLine.appendSwitch('--ignore-ssl-errors');
+
+// Suppress Node.js deprecation warnings in development
+if (process.env.NODE_ENV !== 'production') {
+  process.removeAllListeners('warning');
+}
 
 export { mainWindow };

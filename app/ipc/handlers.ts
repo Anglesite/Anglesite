@@ -324,10 +324,6 @@ async function openWebsiteInNewWindow(websiteName: string, websitePath?: string)
     await switchToWebsite(actualWebsitePath);
     console.log('DEBUG: switchToWebsite completed for:', websiteName);
 
-    // Load the website content in its window
-    loadWebsiteContent(websiteName);
-    console.log('DEBUG: loadWebsiteContent called for website window');
-
     // Generate test domain and setup DNS
     const testDomain = `https://${websiteName}.test:8080`;
     const hostname = `${websiteName}.test`;
@@ -352,6 +348,10 @@ async function openWebsiteInNewWindow(websiteName: string, websitePath?: string)
     } else {
       console.log('HTTP-only mode by user preference, skipping HTTPS proxy');
     }
+
+    // Load the website content in its window (after HTTPS proxy is ready)
+    loadWebsiteContent(websiteName);
+    console.log('DEBUG: loadWebsiteContent called for website window');
 
     console.log(`Website "${websiteName}" ready in dedicated window`);
   } catch (error) {

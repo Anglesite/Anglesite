@@ -247,7 +247,7 @@ export function createApplicationMenu(): Menu {
           accelerator: 'F12',
           click: (menuItem, browserWindow) => {
             if (browserWindow && 'webContents' in browserWindow) {
-              (browserWindow.webContents as WebContents).send('toggle-devtools');
+              (browserWindow.webContents as WebContents).send('menu-toggle-devtools');
             }
           },
         },

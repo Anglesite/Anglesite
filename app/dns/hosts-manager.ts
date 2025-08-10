@@ -204,7 +204,7 @@ async function executeWithElevatedPrivileges(
 
       // Need to request elevated privileges
       const options = {
-        name: 'Anglesite - DNS Configuration',
+        name: 'Anglesite DNS',
         icns: process.platform === 'darwin' ? undefined : undefined, // Can be set to app icon path
       };
 
