@@ -40,7 +40,8 @@
       "Bash(sudo npx hostile remove:*)",
       "Bash(npm outdated)",
       "Bash(npm update:*)",
-      "Bash(npm view:*)"
+      "Bash(npm view:*)",
+      "Bash(npm test:*)"
     ],
     "deny": []
   }

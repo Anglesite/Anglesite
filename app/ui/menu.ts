@@ -4,7 +4,7 @@
 import { Menu, MenuItemConstructorOptions, shell, WebContents, BrowserWindow } from 'electron';
 import { getCurrentLiveServerUrl } from '../server/eleventy';
 import { openSettingsWindow } from './window-manager';
-import { getAllWebsiteWindows } from './multi-window-manager';
+import { getAllWebsiteWindows, getHelpWindow } from './multi-window-manager';
 
 /**
  * Check if the current focused window is a website window
@@ -21,6 +21,53 @@ function isWebsiteWindowFocused(): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Build a list of open windows for the Window menu
+ */
+export function buildWindowList(): MenuItemConstructorOptions[] {
+  const windowMenuItems: MenuItemConstructorOptions[] = [];
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+
+  // Add help window
+  const helpWindow = getHelpWindow();
+  if (helpWindow && !helpWindow.isDestroyed()) {
+    windowMenuItems.push({
+      label: helpWindow.getTitle(),
+      type: 'checkbox',
+      checked: helpWindow === focusedWindow,
+      click: () => {
+        helpWindow.focus();
+      },
+    });
+  }
+
+  // Add website windows
+  const websiteWindows = getAllWebsiteWindows();
+  websiteWindows.forEach((websiteWindow) => {
+    if (!websiteWindow.window.isDestroyed()) {
+      const isChecked = websiteWindow.window === focusedWindow;
+      windowMenuItems.push({
+        label: websiteWindow.window.getTitle(),
+        type: 'checkbox',
+        checked: isChecked,
+        click: () => {
+          websiteWindow.window.focus();
+        },
+      });
+    }
+  });
+
+  // If no windows are open, show a disabled item
+  if (windowMenuItems.length === 0) {
+    windowMenuItems.push({
+      label: 'No Windows Open',
+      enabled: false,
+    });
+  }
+
+  return windowMenuItems;
 }
 
 /**
@@ -295,6 +342,10 @@ export function createApplicationMenu(): Menu {
           label: 'Bring All to Front',
           role: 'front',
         },
+        {
+          type: 'separator',
+        },
+        ...buildWindowList(),
       ],
     },
     {

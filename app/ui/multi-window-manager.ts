@@ -31,13 +31,18 @@ export function createHelpWindow(): BrowserWindow {
   helpWindow = new BrowserWindow({
     width: 1000,
     height: 700,
-    title: 'Anglesite Help',
+    title: 'Anglesite',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, '..', 'preload.js'),
     },
     titleBarStyle: 'default',
+  });
+
+  // Prevent HTML title from overriding window title
+  helpWindow.on('page-title-updated', (event) => {
+    event.preventDefault();
   });
 
   helpWindow.loadFile(path.join(__dirname, '..', 'index.html'));
@@ -135,9 +140,11 @@ export function createHelpWindow(): BrowserWindow {
   // Clean up reference when window is closed
   helpWindow.on('closed', () => {
     helpWindow = null;
+    updateApplicationMenu();
   });
 
   console.log('Help window created and ready');
+  updateApplicationMenu();
   return helpWindow;
 }
 
@@ -155,13 +162,18 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
   const window = new BrowserWindow({
     width: 1200,
     height: 800,
-    title: `${websiteName} - Anglesite`,
+    title: websiteName,
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
       preload: path.join(__dirname, '..', 'preload.js'),
     },
     titleBarStyle: 'default',
+  });
+
+  // Prevent HTML title from overriding window title
+  window.on('page-title-updated', (event) => {
+    event.preventDefault();
   });
 
   window.loadFile(path.join(__dirname, '..', 'index.html'));
@@ -244,9 +256,11 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
   // Clean up when window is closed
   window.on('closed', () => {
     websiteWindows.delete(websiteName);
+    updateApplicationMenu();
   });
 
   console.log(`Website window created for: ${websiteName}`);
+  updateApplicationMenu();
   return window;
 }
 
