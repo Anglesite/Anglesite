@@ -1,7 +1,14 @@
 /**
  * @file IPC message handlers
  */
-import { ipcMain, BrowserWindow, shell, dialog } from "electron";
+import {
+  ipcMain,
+  BrowserWindow,
+  shell,
+  dialog,
+  Menu,
+  MenuItem,
+} from "electron";
 import { exec } from "child_process";
 import {
   showPreview,
@@ -9,8 +16,12 @@ import {
   reloadPreview,
   togglePreviewDevTools,
   getNativeInput,
-  autoLoadPreview,
 } from "../ui/window-manager";
+import {
+  createWebsiteWindow,
+  loadWebsiteContent,
+  getAllWebsiteWindows,
+} from "../ui/multi-window-manager";
 import {
   getCurrentLiveServerUrl,
   isLiveServerReady,
@@ -19,6 +30,10 @@ import {
 import {
   createWebsiteWithName,
   validateWebsiteName,
+  listWebsites,
+  getWebsitePath,
+  renameWebsite,
+  deleteWebsite,
 } from "../utils/website-manager";
 import { addLocalDnsResolution } from "../dns/hosts-manager";
 import { restartHttpsProxy } from "../server/https-proxy";
@@ -138,7 +153,7 @@ export function setupIpcMainListeners(): void {
         }
       } while (!websiteName);
 
-      await createNewWebsite(win, websiteName);
+      await createNewWebsite(websiteName);
     } catch (error) {
       console.error("Failed to create new website:", error);
       dialog.showMessageBox(win, {
@@ -166,15 +181,163 @@ export function setupIpcMainListeners(): void {
       shell.showItemInFolder(filePath);
     }
   });
+
+  // Website listing handler
+  ipcMain.handle("list-websites", async () => {
+    console.log("DEBUG: Received list-websites request");
+    try {
+      const allWebsites = listWebsites();
+      const openWebsiteWindows = getAllWebsiteWindows();
+      const openWebsiteNames = Array.from(openWebsiteWindows.keys());
+
+      // Filter out websites that are already open
+      const availableWebsites = allWebsites.filter(
+        (websiteName) => !openWebsiteNames.includes(websiteName)
+      );
+
+      console.log("DEBUG: All websites:", allWebsites);
+      console.log("DEBUG: Open websites:", openWebsiteNames);
+      console.log("DEBUG: Available websites:", availableWebsites);
+      return availableWebsites;
+    } catch (error) {
+      console.error("Failed to list websites:", error);
+      throw error;
+    }
+  });
+
+  // Website opening handler
+  ipcMain.on("open-website", async (event, websiteName: string) => {
+    console.log("DEBUG: Received open-website request for:", websiteName);
+
+    try {
+      await openWebsiteInNewWindow(websiteName);
+      console.log(`Website "${websiteName}" opened successfully in new window`);
+    } catch (error) {
+      console.error("Failed to open website:", error);
+      const websiteWindow = createWebsiteWindow(websiteName);
+      dialog.showMessageBox(websiteWindow, {
+        type: "error",
+        title: "Open Failed",
+        message: "Failed to open website",
+        detail: error instanceof Error ? error.message : String(error),
+        buttons: ["OK"],
+      });
+    }
+  });
+
+  // Website context menu handler
+  ipcMain.on(
+    "show-website-context-menu",
+    (event, websiteName: string, position: { x: number; y: number }) => {
+      const contextMenu = new Menu();
+      const window = BrowserWindow.fromWebContents(event.sender);
+
+      contextMenu.append(
+        new MenuItem({
+          label: "Rename",
+          click: () => {
+            event.sender.send(
+              "website-context-menu-action",
+              "rename",
+              websiteName
+            );
+          },
+        })
+      );
+
+      contextMenu.append(
+        new MenuItem({
+          label: "Delete",
+          click: () => {
+            event.sender.send(
+              "website-context-menu-action",
+              "delete",
+              websiteName
+            );
+          },
+        })
+      );
+
+      // Show context menu - let Electron position it automatically if window is provided
+      if (window) {
+        console.log("Showing context menu with window positioning");
+        contextMenu.popup({ window });
+      } else {
+        console.log("Showing context menu at position:", position);
+        contextMenu.popup({
+          x: Math.round(position.x),
+          y: Math.round(position.y),
+        });
+      }
+    }
+  );
+
+  // Website name validation handler
+  ipcMain.handle("validate-website-name", async (event, name: string) => {
+    console.log(`DEBUG: Received validate-website-name request for: "${name}"`);
+    return validateWebsiteName(name);
+  });
+
+  // Website rename handler
+  ipcMain.handle(
+    "rename-website",
+    async (event, oldName: string, newName: string) => {
+      console.log(
+        `DEBUG: Received rename-website request: "${oldName}" -> "${newName}"`
+      );
+
+      try {
+        const success = await renameWebsite(oldName, newName);
+        console.log(
+          `Website "${oldName}" renamed to "${newName}" successfully`
+        );
+
+        // Notify the website selection window to refresh
+        event.sender.send("website-operation-completed");
+
+        return success;
+      } catch (error) {
+        console.error("Failed to rename website:", error);
+        throw error; // Let the frontend handle the error display
+      }
+    }
+  );
+
+  // Website delete handler
+  ipcMain.on("delete-website", async (event, websiteName: string) => {
+    console.log(`DEBUG: Received delete-website request for: "${websiteName}"`);
+
+    try {
+      const window = BrowserWindow.fromWebContents(event.sender);
+      const deleted = await deleteWebsite(websiteName, window || undefined);
+
+      if (deleted) {
+        console.log(`Website "${websiteName}" deleted successfully`);
+        // Notify the website selection window to refresh
+        event.sender.send("website-operation-completed");
+      } else {
+        console.log(`Website deletion cancelled by user: "${websiteName}"`);
+      }
+    } catch (error) {
+      console.error("Failed to delete website:", error);
+      const window = BrowserWindow.fromWebContents(event.sender);
+      if (window) {
+        dialog.showMessageBox(window, {
+          type: "error",
+          title: "Delete Failed",
+          message: "Failed to delete website",
+          detail: error instanceof Error ? error.message : String(error),
+          buttons: ["OK"],
+        });
+      }
+    }
+  });
 }
 
 /**
- * Create a new website with the given name
+ * Create a new website with the given name and open it in a new window
  */
-async function createNewWebsite(
-  win: BrowserWindow,
-  websiteName: string
-): Promise<void> {
+async function createNewWebsite(websiteName: string): Promise<void> {
   console.log("Creating new website:", websiteName);
 
   try {
@@ -182,27 +345,46 @@ async function createNewWebsite(
     const newWebsitePath = await createWebsiteWithName(websiteName);
     console.log("New website created at:", newWebsitePath);
 
-    // Switch to edit the new website
-    console.log("Switching to edit the new website");
-    console.log(
-      "DEBUG: About to call switchToWebsite with path:",
-      newWebsitePath
-    );
+    // Open the new website in a new window
+    await openWebsiteInNewWindow(websiteName, newWebsitePath);
 
-    await switchToWebsite(newWebsitePath);
-    console.log("DEBUG: switchToWebsite completed");
+    console.log(`Website "${websiteName}" created and opened in new window`);
+  } catch (error) {
+    console.error("Failed to create new website:", error);
+    throw error;
+  }
+}
 
-    // Refresh the preview to show the new website
-    autoLoadPreview(win);
-    console.log("DEBUG: autoLoadPreview called for new website");
+/**
+ * Open a website in a new dedicated window
+ */
+async function openWebsiteInNewWindow(
+  websiteName: string,
+  websitePath?: string
+): Promise<void> {
+  console.log(`Opening website "${websiteName}" in new window`);
+
+  try {
+    // Get website path if not provided
+    const actualWebsitePath = websitePath || getWebsitePath(websiteName);
+    console.log("DEBUG: Opening website at path:", actualWebsitePath);
+
+    // Create a new window for this website
+    createWebsiteWindow(websiteName, actualWebsitePath);
+
+    // Switch to the selected website
+    await switchToWebsite(actualWebsitePath);
+    console.log("DEBUG: switchToWebsite completed for:", websiteName);
+
+    // Load the website content in its window
+    loadWebsiteContent(websiteName);
+    console.log("DEBUG: loadWebsiteContent called for website window");
 
     // Generate test domain and setup DNS
     const testDomain = `https://${websiteName}.test:8080`;
     const hostname = `${websiteName}.test`;
 
-    console.log("DEBUG: websitePath for new domain:", newWebsitePath);
-    console.log("DEBUG: extracted websiteName:", websiteName);
-    console.log("DEBUG: generated newTestDomain:", testDomain);
+    console.log("DEBUG: generated test domain:", testDomain);
 
     // Setup DNS resolution
     await addLocalDnsResolution(hostname);
@@ -212,10 +394,10 @@ async function createNewWebsite(
     const httpsMode = store.get("httpsMode");
 
     if (httpsMode === "https") {
-      // Restart HTTPS proxy for the new domain
+      // Restart HTTPS proxy for the domain
       const httpsSuccess = await restartHttpsProxy(8080, 8081, hostname);
       if (httpsSuccess) {
-        console.log(`New website HTTPS server ready at: ${testDomain}`);
+        console.log(`Website HTTPS server ready at: ${testDomain}`);
       } else {
         console.log("HTTPS proxy failed, continuing with HTTP-only mode");
       }
@@ -223,9 +405,12 @@ async function createNewWebsite(
       console.log("HTTP-only mode by user preference, skipping HTTPS proxy");
     }
 
-    console.log(`Website "${websiteName}" created and ready for editing`);
+    console.log(`Website "${websiteName}" ready in dedicated window`);
   } catch (error) {
-    console.error("Failed to create new website:", error);
+    console.error(
+      `Failed to open website "${websiteName}" in new window:`,
+      error
+    );
     throw error;
   }
 }

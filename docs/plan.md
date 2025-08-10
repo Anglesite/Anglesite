@@ -139,37 +139,69 @@ The MVP focused on delivering a fully functional desktop application with compre
    - Utility modules: Website management and helper functions
    - Complete separation of concerns with documented interfaces
 
-### Phase 2: Content Management & Publishing
+### Phase 2: Content Management & WYSIWYG Editors
 
-Now that the core desktop application is complete, focus shifts to content creation and publishing workflows.
+Now that the core desktop application foundation is complete, the focus shifts to implementing the core requirements for content creation and editing as defined in the requirements document.
 
-- **Planned Deliverables:**
-  1. **Visual Editor Integration:** Implement WYSIWYG editors for Markdown and HTML content
-  2. **Theme System:** Create theme marketplace with customizable templates
-  3. **Standards-Compliant Output:** Generate semantic HTML5, responsive CSS, and accessibility-compliant markup
-  4. **Syndication Engine:** Built-in RSS, JSON Feed, and social media integration
-  5. **Git Integration:** Version control for websites with visual diff interface
-  6. **Deployment Pipeline:** Direct publishing to hosting services (Netlify, Vercel, GitHub Pages)
+- **Planned Deliverables (Aligned with Requirements):**
+  1. **Extensible Visual Editors:** Modular WYSIWYG editors for HTML, Markdown, CSS, SVG, and XML
+  2. **Standards-Compliant Output:** Semantic HTML5, responsive CSS, WCAG 2.1 AA accessibility compliance
+  3. **Plugin System Foundation:** Angular-style API for UI and behavior extension
+  4. **Editor Components:** Implementation of the editor matrix from requirements
+  5. **Built-in SEO:** Structured metadata, schema.org, and social cards
+  6. **Accessibility Integration:** Full OS-level accessibility APIs
 
-### Phase 3: Ecosystem & Platform Expansion
+**Editor Implementation Priority:**
 
-This phase focuses on expanding platform support and building a plugin ecosystem.
+1. **Markdown Editor:** CommonMark compliance with live preview
+2. **HTML Editor:** HTML5 compliance with custom element integration
+3. **CSS Editor:** W3C CSS compliance with visual design tools
+4. **SVG Editor:** W3C SVG compliance with shape libraries
+5. **XML Editor:** W3C XML compliance for syndication schema validation
+6. **JavaScript/Text Editor:** VSCode-based with language extension plugins
+
+### Phase 3: Syndication & Publishing Platform
+
+This phase focuses on implementing the syndication engine and deployment infrastructure as specified in the requirements.
+
+- **Planned Deliverables (Aligned with Requirements):**
+  1. **Syndication Engine:** Built-in RSS, JSONFeed, and ActivityPub support
+  2. **Import & Migration Framework:** WordPress, Wix, Jekyll, Hugo importers with domain verification
+  3. **Developer-Focused Social Publishing:** Git-centric content with BlueSky/Mastodon integration
+  4. **Deployment Targets:** First-class Cloudflare Pages support with plugin interface for other platforms
+  5. **Modular Admin Console:** Plugin-powered UI with hosting provider integrations
+  6. **Social Card Generation:** Customizable social media card creation and preview
+
+### Phase 4: Collaboration & Multi-Platform
+
+This phase expands platform support and implements collaboration features.
 
 - **Planned Deliverables:**
   1. **Multi-Platform Support:** Windows and Linux certificate management and hosts integration
-  2. **Plugin System:** Extensible architecture for third-party Eleventy configurations
-  3. **Import Framework:** Migration tools from WordPress, Jekyll, Hugo, and other generators
-  4. **Advanced Collaboration:** Multi-user editing with conflict resolution
-  5. **Cloud Sync:** Optional cloud storage integration for website backup/sync
-  6. **Advanced Deployment:** CI/CD pipeline integration and staging environments
+  2. **Collaboration Infrastructure:** Git-backed storage with visual diff UI
+  3. **Cloud Storage Integration:** Dropbox/iCloud/Drive support via file watcher adapters
+  4. **Real-time Collaboration:** Multi-user editing with conflict resolution
+  5. **Advanced Deployment:** CI/CD pipeline integration and staging environments
+  6. **Docker Integration:** Secure 11ty build execution in sandboxed environment
 
-## 5. Technical Strategy
+## 5. Technical Strategy (Aligned with Requirements)
 
-- **Core Stack:** Electron 31+, Node.js 18+, TypeScript 5+, Eleventy 2.0+, mkcert for certificates
-- **Architecture:** Modular, multi-process architecture with strict separation of concerns and comprehensive IPC communication
-- **Security Model:** Local-only servers, user keychain certificates, sandboxed website storage, no external network access
-- **Development Standards:** Test-Driven Development (TDD), comprehensive JSDoc documentation, ESLint + Prettier, 65%+ test coverage
-- **Platform Strategy:** macOS first (complete), Windows/Linux planned for Phase 3
+- **Core Stack:** Electron + Node.js + TypeScript, 11ty as build engine, Docker for isolated builds, sudo-prompt for authentication
+- **Architecture:** Modular plugin system with Angular-style API, multi-process Electron with comprehensive IPC
+- **Plugin System Categories:**
+  - CSS themes (based on community frameworks)
+  - WebC templates
+  - Build process middleware
+  - Import/export adapters
+  - Syndication integrations
+  - Hosting/domain provider modules
+- **Security & Configuration:**
+  - Local-first with user keychain certificates
+  - .env file encryption and OS password manager integration
+  - All secrets excluded from version control by default
+- **Development Standards:** TDD-first (CLI, UI, build outputs), TypeScript with strict linting, JSDoc with spec links
+- **Editor Strategy:** Community-maintained NPM packages with editable plugin wrappers for contributor flexibility
+- **Platform Strategy:** macOS foundation (complete), multi-platform expansion in Phase 4
 
 ## 6. Contribution & Collaboration
 
@@ -213,10 +245,13 @@ The project's success relies on community involvement.
 
 - ✅ Full Electron desktop application with native menus
 - ✅ Automatic HTTPS development environment with CA management
-- ✅ Smart DNS management via /etc/hosts integration
+- ✅ Smart DNS management via /etc/hosts integration with Touch ID support
 - ✅ Live preview system with hot reload
 - ✅ First launch assistant with guided setup
+- ✅ Multi-window architecture for dedicated website editing
+- ✅ Enhanced authentication system with biometric support
 - ✅ Complete website lifecycle (create → edit → build → preview)
+- ✅ Website management with validation, renaming, and deletion
 - ✅ Comprehensive architecture documentation with Mermaid diagrams
 - ✅ Full JSDoc documentation across all modules
 - ✅ Updated README and project documentation
@@ -225,11 +260,60 @@ The project's success relies on community involvement.
 
 - Complete certificate management system using mkcert
 - HTTPS proxy server for secure .test domain access
+- Enhanced authentication system with Touch ID/biometric support
+- Modern privilege escalation using sudo-prompt (replaced electron-sudo)
+- Multi-window architecture with dedicated website editing windows
 - Automatic hosts file cleanup and synchronization
-- Modular TypeScript architecture with IPC communication
+- Modular TypeScript architecture with comprehensive IPC communication
 - WebContentsView integration for secure preview display
+- Context-aware menu system adapting to window focus
 - Settings persistence and first-launch flow
-- Comprehensive test coverage with Jest
+- Comprehensive test coverage (49 tests) with Jest
+- Full ESLint compliance with proper TypeScript types
+
+### ✅ Phase 1.1: Enhanced User Experience & Security (COMPLETED)
+
+After completing the core desktop application, additional enhancements were implemented based on user feedback and security best practices:
+
+**Recent Enhancements Completed:**
+
+1. **🔐 Biometric Authentication System**
+
+   - ✅ Touch ID support for macOS hosts file modifications
+   - ✅ Intelligent fallback to password authentication
+   - ✅ Real-time Touch ID availability detection with user guidance
+   - ✅ Replaced unmaintained electron-sudo with modern sudo-prompt
+   - ✅ Cross-platform privilege detection using native-is-elevated
+
+2. **🪟 Multi-Window Architecture**
+
+   - ✅ Dedicated editing windows for each website project
+   - ✅ Context-aware menu system that adapts to focused window
+   - ✅ Window state management preventing duplicate windows
+   - ✅ Seamless website creation and editing workflow
+   - ✅ Independent WebContentsView for each website window
+
+3. **⚡ Enhanced Website Management**
+
+   - ✅ Real-time website name validation with user feedback
+   - ✅ In-place website renaming with validation
+   - ✅ Context menu-based website operations (rename/delete)
+   - ✅ Improved "New Website" button placement and functionality
+   - ✅ Website selection window filtering (excludes already-open websites)
+
+4. **🧪 Testing & Code Quality Improvements**
+   - ✅ Comprehensive test suite expansion (49 tests total)
+   - ✅ DNS/hosts manager testing with Touch ID mocking
+   - ✅ IPC handlers testing for website management operations
+   - ✅ Architecture testing to ensure modular design integrity
+   - ✅ Complete ESLint compliance without disable comments
+
+**Impact & Benefits:**
+
+- **Security**: Enhanced with biometric authentication, eliminating reliance on unmaintained packages
+- **User Experience**: Streamlined multi-website workflow with dedicated windows
+- **Developer Experience**: Comprehensive testing and linting ensure maintainable codebase
+- **Cross-Platform Readiness**: Modern authentication stack supports future Windows/Linux expansion
 
 ### 🎯 Next Phase: Content Management (Phase 2)
 
@@ -260,6 +344,10 @@ The project's success relies on community involvement.
 4. **✅ Direct Mode Selection**: Streamlines first launch experience
 5. **✅ WebContentsView Architecture**: Provides secure, modern preview system
 6. **✅ Modular TypeScript Design**: Enables easy feature expansion
+7. **✅ sudo-prompt over electron-sudo**: Modern, maintained authentication with Touch ID support
+8. **✅ Multi-Window Architecture**: Dedicated windows improve workflow over single-window approach
+9. **✅ Context-Aware Menus**: Dynamic menu system adapts to user focus
+10. **✅ Comprehensive Testing Strategy**: 49 tests ensure reliability and maintainability
 
 ### Platform Readiness Assessment
 
@@ -269,8 +357,26 @@ The project's success relies on community involvement.
 
 ### Success Metrics Achieved
 
+#### Phase 1 Core Application
+
 - **Functionality**: 100% of Phase 1 objectives completed
 - **Security**: Zero admin privileges required, all operations sandboxed
 - **User Experience**: First launch success rate improved with guided setup
 - **Code Quality**: 65%+ test coverage, comprehensive documentation
 - **Architecture**: Fully modular design ready for Phase 2 expansion
+
+#### Phase 1.1 Enhanced Experience
+
+- **Security**: 100% modern authentication stack with Touch ID support
+- **User Experience**: Multi-window workflow significantly improves usability
+- **Code Quality**: 49 comprehensive tests, 100% ESLint compliance
+- **Cross-Platform Readiness**: Authentication system prepared for Windows/Linux
+- **Developer Experience**: Complete TypeScript types, no linting disable comments
+
+#### Overall Project Health
+
+- **Test Coverage**: 49 tests across all major components
+- **Documentation**: Complete architecture and technical documentation
+- **Code Quality**: Zero linting errors, comprehensive TypeScript typing
+- **Security**: Modern privilege escalation, biometric authentication
+- **User Workflow**: Streamlined multi-website editing experience

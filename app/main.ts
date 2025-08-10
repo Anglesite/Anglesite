@@ -4,7 +4,7 @@
  */
 import { app, Menu } from "electron";
 // Import modular components
-import { createWindow, autoLoadPreview } from "./ui/window-manager";
+import { createHelpWindow, closeAllWindows } from "./ui/multi-window-manager";
 import { createApplicationMenu } from "./ui/menu";
 import { setupIpcMainListeners } from "./ipc/handlers";
 import { Store } from "./store";
@@ -14,13 +14,17 @@ import {
   startDefaultEleventyServer,
 } from "./server/eleventy";
 import { createHttpsProxy } from "./server/https-proxy";
-import { addLocalDnsResolution, cleanupHostsFile } from "./dns/hosts-manager";
+import {
+  addLocalDnsResolution,
+  cleanupHostsFile,
+  checkAndSuggestTouchIdSetup,
+} from "./dns/hosts-manager";
 
 // Set application name as early as possible
 app.setName("Anglesite");
 
 /**
- * Main window instance
+ * Main window instance - will become help window
  */
 let mainWindow: Electron.BrowserWindow | null = null;
 
@@ -43,8 +47,8 @@ async function initializeApp(): Promise<void> {
     await handleFirstLaunch(store);
   }
 
-  // Create the main window
-  mainWindow = createWindow();
+  // Create the help window as the main window
+  mainWindow = createHelpWindow();
 
   // Set up the application menu
   const menu = createApplicationMenu();
@@ -57,10 +61,13 @@ async function initializeApp(): Promise<void> {
   console.log("Cleaning up hosts file...");
   await cleanupHostsFile();
 
-  // Start the default Eleventy server
+  // Check Touch ID setup and provide helpful information
+  await checkAndSuggestTouchIdSetup();
+
+  // Start the default Eleventy server for help/docs
   await startDefaultServer();
 
-  console.log("Anglesite initialization complete");
+  console.log("Anglesite initialization complete - Help window ready");
 }
 
 /**
@@ -73,7 +80,10 @@ async function startDefaultServer(): Promise<void> {
     mainWindow,
     addLocalDnsResolution,
     createHttpsProxy,
-    autoLoadPreview
+    () => {
+      // No need to auto-load preview for help window - it loads its own content
+      console.log("Default server ready for help content");
+    }
   );
 }
 
@@ -105,6 +115,7 @@ app.on("window-all-closed", () => {
 app.on("before-quit", () => {
   console.log("Cleaning up resources...");
   cleanupEleventyServer();
+  closeAllWindows();
 });
 
 // Handle certificate errors for development

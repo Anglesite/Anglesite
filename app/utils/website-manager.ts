@@ -4,7 +4,7 @@
 import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
-import { dialog } from "electron";
+import { dialog, BrowserWindow } from "electron";
 
 /**
  * Get the websites directory path
@@ -149,7 +149,10 @@ export function listWebsites(): string[] {
 /**
  * Delete a website
  */
-export async function deleteWebsite(websiteName: string): Promise<boolean> {
+export async function deleteWebsite(
+  websiteName: string,
+  parentWindow?: BrowserWindow
+): Promise<boolean> {
   const websitesDir = getWebsitesDirectory();
   const websitePath = path.join(websitesDir, websiteName);
 
@@ -157,15 +160,20 @@ export async function deleteWebsite(websiteName: string): Promise<boolean> {
     throw new Error(`Website "${websiteName}" does not exist`);
   }
 
-  const result = dialog.showMessageBoxSync({
-    type: "warning",
+  const dialogOptions = {
+    type: "warning" as const,
     title: "Delete Website",
     message: `Are you sure you want to delete "${websiteName}"?`,
     detail: "This action cannot be undone.",
     buttons: ["Cancel", "Delete"],
     defaultId: 0,
     cancelId: 0,
-  });
+  };
+
+  // Use the parent window if provided for proper modal behavior
+  const result = parentWindow
+    ? dialog.showMessageBoxSync(parentWindow, dialogOptions)
+    : dialog.showMessageBoxSync(dialogOptions);
 
   if (result === 1) {
     try {
@@ -186,4 +194,44 @@ export async function deleteWebsite(websiteName: string): Promise<boolean> {
  */
 export function getWebsitePath(websiteName: string): string {
   return path.join(getWebsitesDirectory(), websiteName);
+}
+
+/**
+ * Rename a website
+ */
+export async function renameWebsite(
+  oldName: string,
+  newName: string
+): Promise<boolean> {
+  console.log(`Renaming website from "${oldName}" to "${newName}"`);
+
+  // Validate the new name
+  const validation = validateWebsiteName(newName);
+  if (!validation.valid) {
+    throw new Error(validation.error || "Invalid website name");
+  }
+
+  const websitesDir = getWebsitesDirectory();
+  const oldPath = path.join(websitesDir, oldName);
+  const newPath = path.join(websitesDir, newName);
+
+  // Check if old website exists
+  if (!fs.existsSync(oldPath)) {
+    throw new Error(`Website "${oldName}" does not exist`);
+  }
+
+  // Check if new name already exists
+  if (fs.existsSync(newPath)) {
+    throw new Error(`Website "${newName}" already exists`);
+  }
+
+  try {
+    // Rename the directory
+    fs.renameSync(oldPath, newPath);
+    console.log(`Website renamed from "${oldName}" to "${newName}"`);
+    return true;
+  } catch (error) {
+    console.error("Failed to rename website:", error);
+    throw error;
+  }
 }

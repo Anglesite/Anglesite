@@ -50,3 +50,4 @@ This document contains notes and learned information about the Anglesite project
 - **TypeScript Compilation:** `npx tsc` is used to compile TypeScript files, which are prefered over JavaScript.
 - **Testing Strategy:** Tests are written for Eleventy configuration, Electron main process logic (including `live-server` management and build triggering), and renderer process interactions.
 - **JSDoc:** Full JSDoc comments have been added to all TypeScript files.
+- **Node Packages:** When adding features use NPM packages rather than shell scripts or AppleScripts. This is especially true when there are NPM packages tagged 'electron' that will solve a problem.

@@ -450,6 +450,420 @@ export async function showFirstLaunchAssistant(): Promise<
 }
 
 /**
+ * Open Website Selection window
+ */
+export function openWebsiteSelectionWindow(): void {
+  const websiteSelectionWindow = new BrowserWindow({
+    width: 600,
+    height: 500,
+    title: "Open Website",
+    resizable: true,
+    minimizable: false,
+    maximizable: false,
+    fullscreenable: false,
+    titleBarStyle: "hiddenInset",
+    webPreferences: {
+      nodeIntegration: true,
+      contextIsolation: false,
+    },
+  });
+
+  const htmlFilePath = path.join(
+    __dirname,
+    "..",
+    "ui",
+    "website-selection.html"
+  );
+
+  // Check if file exists, create fallback if not
+  if (fs.existsSync(htmlFilePath)) {
+    websiteSelectionWindow.loadFile(htmlFilePath);
+  } else {
+    const websiteSelectionHTML = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <title>Open Website</title>
+  <style>
+    body { 
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+      margin: 0; 
+      padding: 20px 20px 10px 20px; 
+      background: #f5f5f5; 
+    }
+    .header {
+      text-align: center;
+      margin-bottom: 30px;
+    }
+    .title {
+      font-size: 24px;
+      font-weight: 600;
+      color: #333;
+      margin-bottom: 8px;
+    }
+    .subtitle {
+      font-size: 14px;
+      color: #666;
+    }
+    .websites-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+      gap: 20px;
+      margin-bottom: 30px;
+    }
+    .website-card {
+      background: white;
+      border-radius: 12px;
+      padding: 20px;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s ease;
+      border: 1px solid #e1e1e1;
+    }
+    .website-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 8px 25px rgba(0,0,0,0.1);
+      border-color: #007AFF;
+    }
+    .website-icon {
+      font-size: 48px;
+      margin-bottom: 15px;
+    }
+    .website-name {
+      font-size: 16px;
+      font-weight: 500;
+      color: #333;
+      margin-bottom: 5px;
+    }
+    .website-name.editing {
+      background: white;
+      border: 2px solid #007AFF;
+      border-radius: 4px;
+      padding: 4px 8px;
+      margin: -4px -8px 5px -8px;
+      outline: none;
+      box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.1);
+    }
+    .website-name.editing.error {
+      border-color: #FF3B30;
+      box-shadow: 0 0 0 3px rgba(255, 59, 48, 0.1);
+    }
+    .validation-error {
+      font-size: 12px;
+      color: #FF3B30;
+      margin-top: 5px;
+      display: none;
+    }
+    .validation-error.show {
+      display: block;
+    }
+    .website-path {
+      font-size: 12px;
+      color: #666;
+      word-break: break-all;
+    }
+    .empty-state {
+      text-align: center;
+      padding: 60px 20px;
+      color: #666;
+    }
+    .empty-icon {
+      font-size: 64px;
+      margin-bottom: 20px;
+    }
+    .buttons {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      padding-top: 20px;
+      border-top: 1px solid #e1e1e1;
+    }
+    .buttons-left {
+      flex: 1;
+    }
+    .buttons-right {
+      flex: 0;
+    }
+    button {
+      background: #e5e5e7;
+      color: #333;
+      border: none;
+      padding: 10px 24px;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      margin: 0 8px;
+    }
+    button:hover {
+      background: #d1d1d6;
+    }
+    button.primary {
+      background: #007AFF;
+      color: white;
+    }
+    button.primary:hover {
+      background: #0056CC;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <div class="title">Open Website</div>
+    <div class="subtitle">Select a website to open</div>
+  </div>
+  
+  <div id="websitesContainer">
+    <div class="empty-state">
+      <div class="empty-icon">🌐</div>
+      <div>Loading websites...</div>
+    </div>
+  </div>
+  
+  <div class="buttons">
+    <div class="buttons-left">
+      <button class="primary" onclick="createNewWebsite()">New</button>
+    </div>
+    <div class="buttons-right">
+      <button onclick="window.close()">Cancel</button>
+    </div>
+  </div>
+  
+  <script>
+    const { ipcRenderer } = require('electron');
+    
+    // Load websites when page loads
+    document.addEventListener('DOMContentLoaded', () => {
+      loadWebsites();
+    });
+    
+    async function loadWebsites() {
+      try {
+        const websites = await ipcRenderer.invoke('list-websites');
+        displayWebsites(websites);
+      } catch (error) {
+        console.error('Failed to load websites:', error);
+        displayError();
+      }
+    }
+    
+    function displayWebsites(websites) {
+      const container = document.getElementById('websitesContainer');
+      
+      if (websites.length === 0) {
+        container.innerHTML = '<div class="empty-state"><div class="empty-icon">📁</div><div>No websites found</div><div style="font-size: 12px; margin-top: 8px;">Create a new website to get started</div></div>';
+        return;
+      }
+      
+      container.innerHTML = '<div class="websites-grid">' + 
+        websites.map(website => \`
+          <div class="website-card" onclick="openWebsite('\${website}')" oncontextmenu="showContextMenu(event, '\${website}')">
+            <div class="website-icon">🌐</div>
+            <div class="website-name" contenteditable="false" data-original="\${website}">\${website}</div>
+            <div class="validation-error"></div>
+            <div class="website-path">\${website}</div>
+          </div>
+        \`).join('') + 
+        '</div>';
+    }
+    
+    function displayError() {
+      const container = document.getElementById('websitesContainer');
+      container.innerHTML = '<div class="empty-state"><div class="empty-icon">⚠️</div><div>Failed to load websites</div></div>';
+    }
+    
+    function openWebsite(websiteName) {
+      ipcRenderer.send('open-website', websiteName);
+      window.close();
+    }
+    
+    function createNewWebsite() {
+      ipcRenderer.send('new-website');
+      window.close();
+    }
+    
+    function showContextMenu(event, websiteName) {
+      event.preventDefault();
+      event.stopPropagation();
+      
+      // Let Electron handle the positioning automatically by just sending the request
+      // The main process will show the context menu at the current mouse position
+      ipcRenderer.send('show-website-context-menu', websiteName, {
+        x: 0, // These will be ignored when using window-based positioning
+        y: 0
+      });
+    }
+    
+    // Listen for context menu actions
+    ipcRenderer.on('website-context-menu-action', (event, action, websiteName) => {
+      if (action === 'rename') {
+        startInlineEdit(websiteName);
+      } else if (action === 'delete') {
+        // Send delete request directly - the backend will handle confirmation
+        ipcRenderer.send('delete-website', websiteName);
+      }
+    });
+    
+    // Listen for website operations completed to refresh the list
+    ipcRenderer.on('website-operation-completed', () => {
+      loadWebsites(); // Refresh the website list
+    });
+    
+    let currentlyEditing = null;
+    
+    function startInlineEdit(websiteName) {
+      // If another element is being edited, cancel it first
+      if (currentlyEditing) {
+        cancelInlineEdit();
+      }
+      
+      // Find the website name element
+      const nameElements = document.querySelectorAll('.website-name');
+      const nameElement = Array.from(nameElements).find(el => el.textContent.trim() === websiteName);
+      
+      if (!nameElement) return;
+      
+      // Store reference and original value
+      currentlyEditing = nameElement;
+      const originalName = nameElement.getAttribute('data-original');
+      
+      // Make it editable and focused
+      nameElement.contentEditable = 'true';
+      nameElement.classList.add('editing');
+      nameElement.focus();
+      
+      // Select all text
+      const range = document.createRange();
+      range.selectNodeContents(nameElement);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      
+      // Add event listeners
+      nameElement.addEventListener('blur', handleBlur);
+      nameElement.addEventListener('keydown', handleKeydown);
+      nameElement.addEventListener('input', handleInput);
+    }
+    
+    function handleBlur(event) {
+      if (!currentlyEditing) return;
+      
+      const newName = currentlyEditing.textContent.trim();
+      const originalName = currentlyEditing.getAttribute('data-original');
+      
+      if (newName && newName !== originalName) {
+        // Attempt to save the rename
+        saveRename(originalName, newName);
+      } else {
+        // Cancel if empty or unchanged
+        cancelInlineEdit();
+      }
+    }
+    
+    function handleKeydown(event) {
+      if (!currentlyEditing) return;
+      
+      if (event.key === 'Escape') {
+        event.preventDefault();
+        cancelInlineEdit();
+      } else if (event.key === 'Enter') {
+        event.preventDefault();
+        currentlyEditing.blur(); // This will trigger handleBlur
+      }
+    }
+    
+    function handleInput(event) {
+      if (!currentlyEditing) return;
+      
+      const newName = currentlyEditing.textContent.trim();
+      validateNameInRealTime(newName);
+    }
+    
+    async function validateNameInRealTime(name) {
+      if (!currentlyEditing) return;
+      
+      const errorElement = currentlyEditing.parentElement.querySelector('.validation-error');
+      
+      try {
+        const validation = await ipcRenderer.invoke('validate-website-name', name);
+        
+        if (validation.valid) {
+          currentlyEditing.classList.remove('error');
+          errorElement.classList.remove('show');
+          errorElement.textContent = '';
+        } else {
+          currentlyEditing.classList.add('error');
+          errorElement.classList.add('show');
+          errorElement.textContent = validation.error || 'Invalid name';
+        }
+      } catch (error) {
+        console.error('Validation error:', error);
+        currentlyEditing.classList.add('error');
+        errorElement.classList.add('show');
+        errorElement.textContent = 'Validation failed';
+      }
+    }
+    
+    async function saveRename(oldName, newName) {
+      if (!currentlyEditing) return;
+      
+      try {
+        await ipcRenderer.invoke('rename-website', oldName, newName);
+        // Success - the website list will refresh automatically via the operation-completed event
+        cleanupInlineEdit();
+      } catch (error) {
+        console.error('Rename failed:', error);
+        
+        // Show error and keep editing mode
+        const errorElement = currentlyEditing.parentElement.querySelector('.validation-error');
+        errorElement.classList.add('show');
+        errorElement.textContent = error.message || 'Rename failed';
+        currentlyEditing.classList.add('error');
+        
+        // Keep focus for user to try again
+        currentlyEditing.focus();
+      }
+    }
+    
+    function cancelInlineEdit() {
+      if (!currentlyEditing) return;
+      
+      // Restore original name
+      const originalName = currentlyEditing.getAttribute('data-original');
+      currentlyEditing.textContent = originalName;
+      
+      cleanupInlineEdit();
+    }
+    
+    function cleanupInlineEdit() {
+      if (!currentlyEditing) return;
+      
+      // Remove editing state
+      currentlyEditing.contentEditable = 'false';
+      currentlyEditing.classList.remove('editing', 'error');
+      
+      // Clear error message
+      const errorElement = currentlyEditing.parentElement.querySelector('.validation-error');
+      errorElement.classList.remove('show');
+      errorElement.textContent = '';
+      
+      // Remove event listeners
+      currentlyEditing.removeEventListener('blur', handleBlur);
+      currentlyEditing.removeEventListener('keydown', handleKeydown);
+      currentlyEditing.removeEventListener('input', handleInput);
+      
+      currentlyEditing = null;
+    }
+  </script>
+</body>
+</html>`;
+
+    websiteSelectionWindow.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(websiteSelectionHTML)}`
+    );
+  }
+}
+
+/**
  * Open Settings window
  */
 export function openSettingsWindow(): void {

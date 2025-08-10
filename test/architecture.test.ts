@@ -47,6 +47,14 @@ describe("Modular Architecture", () => {
       const websiteManager = require("../app/utils/website-manager");
       expect(typeof websiteManager.validateWebsiteName).toBe("function");
     });
+
+    it("should export functions from hosts manager", () => {
+      const hostsManager = require("../app/dns/hosts-manager");
+      expect(typeof hostsManager.addLocalDnsResolution).toBe("function");
+      expect(typeof hostsManager.cleanupHostsFile).toBe("function");
+      expect(typeof hostsManager.updateHostsFile).toBe("function");
+      expect(typeof hostsManager.checkAndSuggestTouchIdSetup).toBe("function");
+    });
   });
 
   describe("Pure Functions", () => {
@@ -96,9 +104,13 @@ describe("Modular Architecture", () => {
       expect(lineCount).toBeLessThan(200); // Was over 2000 lines before
 
       // Should import from modules
-      expect(mainContent).toContain("import { createWindow");
+      expect(mainContent).toContain("import { createHelpWindow");
       expect(mainContent).toContain("import { createApplicationMenu");
       expect(mainContent).toContain("import { setupIpcMainListeners");
+      // Check that DNS management functions are imported (may be multi-line)
+      expect(mainContent).toContain("addLocalDnsResolution");
+      expect(mainContent).toContain("cleanupHostsFile");
+      expect(mainContent).toContain("checkAndSuggestTouchIdSetup");
     });
 
     it("should have separate module files", () => {

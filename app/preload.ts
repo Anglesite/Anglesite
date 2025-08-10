@@ -20,14 +20,24 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "create-website-with-name",
       "renderer-loaded",
       "input-dialog-result",
-      "get-settings",
-      "save-settings",
-      "close-settings-window",
-      "open-settings-window",
+      "show-website-context-menu",
+      "delete-website",
     ];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, ...args);
     }
+  },
+  invoke: (channel: string, ...args: unknown[]) => {
+    // Whitelist invoke channels for security
+    const validChannels = [
+      "list-websites",
+      "validate-website-name",
+      "rename-website",
+    ];
+    if (validChannels.includes(channel)) {
+      return ipcRenderer.invoke(channel, ...args);
+    }
+    return Promise.reject(new Error(`Invalid invoke channel: ${channel}`));
   },
   on: (channel: string, func: (...args: unknown[]) => void) => {
     // Whitelist channels for security
@@ -38,10 +48,9 @@ contextBridge.exposeInMainWorld("electronAPI", {
       "menu-reload",
       "menu-toggle-devtools",
       "menu-export-site",
-      "menu-settings",
       "show-website-name-input",
-      "settings-loaded",
-      "settings-saved",
+      "website-context-menu-action",
+      "website-operation-completed",
     ];
     if (validChannels.includes(channel)) {
       console.log(`DEBUG PRELOAD: Setting up listener for channel: ${channel}`);

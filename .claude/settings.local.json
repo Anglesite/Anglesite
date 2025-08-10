@@ -32,7 +32,12 @@
       "Bash(npm run build:*)",
       "Bash(npm run test:*)",
       "Bash(npm uninstall:*)",
-      "Bash(npm run format:*)"
+      "Bash(npm run format:*)",
+      "Bash(npm start)",
+      "Bash(sudo cat:*)",
+      "Bash(npx hostile:*)",
+      "Bash(node:*)",
+      "Bash(sudo npx hostile remove:*)"
     ],
     "deny": []
   }

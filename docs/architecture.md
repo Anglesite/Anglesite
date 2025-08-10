@@ -10,15 +10,17 @@ graph TB
         Main[main.ts]
         Store[Store<br/>Settings Management]
         Cert[Certificate Manager]
-        DNS[DNS/Hosts Manager]
+        DNS[DNS/Hosts Manager<br/>Touch ID Support]
         Server[Server Manager]
         IPC[IPC Handlers]
     end
 
     subgraph "Electron Renderer Process"
         UI[UI/Window Manager]
+        MultiWin[Multi-Window Manager]
         Menu[Application Menu]
         Preview[WebContentsView<br/>Preview]
+        Websites[Dedicated Website<br/>Windows]
     end
 
     subgraph "External Services"
@@ -35,8 +37,11 @@ graph TB
     Main --> IPC
 
     IPC <--> UI
+    IPC <--> MultiWin
     UI --> Preview
     UI --> Menu
+    MultiWin --> Websites
+    MultiWin --> Menu
 
     Server --> Eleventy
     Server --> HTTPS
@@ -70,6 +75,7 @@ anglesite/
 │   │
 │   ├── ui/                     # User interface components
 │   │   ├── window-manager.ts   # Window and WebContentsView
+│   │   ├── multi-window-manager.ts # Multi-window management
 │   │   ├── menu.ts             # Application menu
 │   │   ├── first-launch.html   # First launch assistant
 │   │   └── index.ts            # UI module exports
@@ -176,23 +182,35 @@ graph LR
 - User keychain installation (no admin required)
 - Fallback to HTTP if certificate issues
 
-### 3. DNS and Hosts Management
+### 3. DNS and Hosts Management with Biometric Authentication
 
 ```mermaid
 stateDiagram-v2
     [*] --> CheckWebsites: App Launch
-    CheckWebsites --> ScanDirectories: List Website Folders
+    CheckWebsites --> CheckTouchID: Detect Biometrics
+    CheckTouchID --> ScanDirectories: List Website Folders
     ScanDirectories --> CompareHosts: Compare with /etc/hosts
 
     CompareHosts --> RemoveOrphans: Found Orphans
     CompareHosts --> AddMissing: Missing Entries
     CompareHosts --> NoChanges: All Synced
 
-    RemoveOrphans --> UpdateHosts
-    AddMissing --> UpdateHosts
+    RemoveOrphans --> RequestAuth: Need Elevation
+    AddMissing --> RequestAuth: Need Elevation
+    RequestAuth --> TouchIDAuth: Touch ID Available
+    RequestAuth --> PasswordAuth: Touch ID Not Available
+    TouchIDAuth --> UpdateHosts: Authenticated
+    PasswordAuth --> UpdateHosts: Authenticated
     UpdateHosts --> [*]: Complete
     NoChanges --> [*]: Complete
 ```
+
+**Enhanced Authentication System:**
+
+- **Touch ID Support**: Native biometric authentication on supported macOS systems
+- **Fallback Authentication**: Password prompt when Touch ID unavailable
+- **Privilege Detection**: Uses `native-is-elevated` to check current permissions
+- **Secure Elevation**: `sudo-prompt` integration for administrator access
 
 **Automatic Management:**
 
@@ -201,8 +219,49 @@ stateDiagram-v2
 - Removes orphaned .test domains
 - Adds new website domains automatically
 - Preserves system entries outside Anglesite section
+- Single authentication prompt for batch operations
 
-### 4. Website Management
+### 4. Multi-Window Architecture
+
+```mermaid
+graph TD
+    subgraph "Window Management"
+        Main[Main Help Window]
+        Selection[Website Selection]
+        WebWin1[Website Window 1]
+        WebWin2[Website Window 2]
+        WebWinN[Website Window N]
+    end
+
+    subgraph "Window Features"
+        Preview[Preview WebContentsView]
+        DevTools[Developer Tools]
+        MenuBar[Dynamic Menu Bar]
+    end
+
+    Main --> Selection
+    Selection --> WebWin1
+    Selection --> WebWin2
+    Selection --> WebWinN
+
+    WebWin1 --> Preview
+    WebWin2 --> Preview
+    WebWinN --> Preview
+
+    Main --> MenuBar
+    WebWin1 --> MenuBar
+    WebWin2 --> MenuBar
+```
+
+**Key Features:**
+
+- **Dedicated Website Windows**: Each website opens in its own isolated window
+- **Context-Aware Menus**: Menu bar adapts based on focused window type
+- **Independent Preview**: Each website window has its own WebContentsView
+- **Window State Management**: Tracks open websites and prevents duplicates
+- **Seamless Editing Workflow**: Direct website creation and editing flow
+
+### 5. Website Management
 
 ```mermaid
 graph TD
@@ -275,11 +334,17 @@ sequenceDiagram
 
 **Key IPC Channels:**
 
-- `new-website`: Create new website
+- `new-website`: Create new website with validation
+- `list-websites`: Get available websites (excluding open ones)
+- `open-website`: Open website in dedicated window
+- `validate-website-name`: Real-time name validation
+- `rename-website`: Rename existing website
+- `delete-website`: Delete website with confirmation
 - `preview`: Show preview window
 - `toggle-devtools`: Toggle developer tools
 - `build`: Trigger site build
 - `open-browser`: Open in external browser
+- `show-website-context-menu`: Display right-click menu
 
 ## Security Architecture
 
@@ -314,9 +379,11 @@ graph TD
    - HTTPS certificates for .test domains only
 
 3. **System Integration**
-   - Hosts file modification requires sudo
+   - Hosts file modification with biometric authentication (Touch ID)
+   - Fallback to password authentication when biometrics unavailable
    - Certificate installation in user keychain
-   - No system-wide changes without consent
+   - Privilege escalation using `sudo-prompt` (replaces electron-sudo)
+   - No system-wide changes without explicit consent
 
 ## State Management
 
@@ -356,8 +423,16 @@ stateDiagram-v2
    - Eleventy server persists between site switches
 
 3. **Hosts File Management**
+
    - Batch operations for multiple domains
-   - Single sudo prompt for all changes
+   - Single biometric/password prompt for all changes
+   - Intelligent privilege checking with `native-is-elevated`
+   - Touch ID detection and user guidance
+
+4. **Multi-Window Optimization**
+   - Window state tracking prevents duplicate windows
+   - Context-aware menu updates
+   - Efficient WebContentsView reuse
 
 ## Future Architecture Considerations
 
@@ -386,6 +461,28 @@ stateDiagram-v2
 - **Performance**: Handles 100+ websites efficiently
 - **Memory Usage**: ~150MB baseline, scales with preview content
 - **Certificate Management**: Cached, 365-day validity
+
+## Technology Stack
+
+### Core Dependencies
+
+- **Electron**: Desktop application framework
+- **Eleventy**: Static site generator engine
+- **TypeScript**: Type-safe development
+- **Jest**: Testing framework with comprehensive mocking
+
+### Authentication & Security
+
+- **sudo-prompt**: Secure privilege escalation (replaced electron-sudo)
+- **native-is-elevated**: Cross-platform privilege detection
+- **hostile**: Cross-platform hosts file management
+- **mkcert**: SSL certificate generation
+
+### UI & Window Management
+
+- **WebContentsView**: Modern preview integration
+- **BrowserWindow**: Multi-window architecture
+- **IPC**: Secure inter-process communication
 
 ## Development Workflow
 

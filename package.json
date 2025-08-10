@@ -38,6 +38,7 @@
   "devDependencies": {
     "@11ty/eleventy": "^2.0.1",
     "@11ty/eleventy-plugin-webc": "^0.11.2",
+    "@types/hostile": "^1.3.5",
     "@types/jest": "^30.0.0",
     "@typescript-eslint/eslint-plugin": "^8.39.0",
     "@typescript-eslint/parser": "^8.39.0",
@@ -53,5 +54,10 @@
     "ts-jest": "^29.4.1",
     "ts-node": "^10.9.2",
     "typescript": "^5.5.2"
+  },
+  "dependencies": {
+    "hostile": "^1.4.0",
+    "native-is-elevated": "^0.7.0",
+    "sudo-prompt": "^9.2.1"
   }
 }

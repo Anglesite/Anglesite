@@ -1,9 +1,41 @@
 /**
  * @file Application menu creation
  */
-import { Menu, MenuItemConstructorOptions, shell, WebContents } from "electron";
+import {
+  Menu,
+  MenuItemConstructorOptions,
+  shell,
+  WebContents,
+  BrowserWindow,
+} from "electron";
 import { getCurrentLiveServerUrl } from "../server/eleventy";
 import { openSettingsWindow } from "./window-manager";
+import { getAllWebsiteWindows } from "./multi-window-manager";
+
+/**
+ * Check if the current focused window is a website window
+ */
+function isWebsiteWindowFocused(): boolean {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (!focusedWindow) return false;
+
+  // Check if this window is in our website windows map
+  const websiteWindows = getAllWebsiteWindows();
+  for (const [, websiteWindow] of websiteWindows) {
+    if (websiteWindow.window === focusedWindow) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Update the application menu when window focus changes
+ */
+export function updateApplicationMenu(): void {
+  const menu = createApplicationMenu();
+  Menu.setApplicationMenu(menu);
+}
 
 /**
  * Create the application menu
@@ -80,6 +112,16 @@ export function createApplicationMenu(): Menu {
           },
         },
         {
+          label: "Open Website...",
+          accelerator: "CmdOrCtrl+Shift+O",
+          click: async () => {
+            const { openWebsiteSelectionWindow } = await import(
+              "./window-manager"
+            );
+            openWebsiteSelectionWindow();
+          },
+        },
+        {
           type: "separator",
         },
         {
@@ -96,6 +138,7 @@ export function createApplicationMenu(): Menu {
         {
           label: "Export Website...",
           accelerator: "CmdOrCtrl+E",
+          enabled: isWebsiteWindowFocused(),
           click: () => {
             // TODO: Implement export functionality
             console.log("Export Website clicked");
@@ -275,7 +318,8 @@ export function createApplicationMenu(): Menu {
         {
           label: "Anglesite Help",
           click: async () => {
-            await shell.openExternal("https://github.com/anglesite/anglesite");
+            const { createHelpWindow } = await import("./multi-window-manager");
+            createHelpWindow();
           },
         },
         {

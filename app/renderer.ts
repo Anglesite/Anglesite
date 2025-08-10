@@ -52,16 +52,6 @@ const previewButton = document.getElementById("preview");
 const openBrowserButton = document.getElementById("open-browser");
 const reloadButton = document.getElementById("reload");
 const devToolsButton = document.getElementById("devtools");
-const settingsButton = document.getElementById("settings");
-const settingsModal = document.getElementById(
-  "settings-modal"
-) as HTMLDivElement;
-const settingsCancel = document.getElementById("settings-cancel");
-const settingsSave = document.getElementById("settings-save");
-const autoDnsCheckbox = document.getElementById(
-  "auto-dns-checkbox"
-) as HTMLInputElement;
-const dnsStatus = document.getElementById("dns-status") as HTMLDivElement;
 
 /**
  * Adds event listener to the new website button.
@@ -155,96 +145,6 @@ window.electronAPI.on("menu-export-site", () => {
   window.electronAPI.send("export-site");
 });
 
-window.electronAPI.on("menu-settings", () => {
-  console.log("Settings requested from menu");
-  // Request current settings from main process
-  window.electronAPI.send("get-settings");
-  if (settingsModal) {
-    settingsModal.style.display = "block";
-  }
-});
-
-/**
- * Adds event listener to the settings button.
- * @returns {void}
- */
-if (settingsButton) {
-  settingsButton.addEventListener("click", () => {
-    // Send message to main process to open Settings window
-    window.electronAPI.send("open-settings-window");
-  });
-}
-
-/**
- * Handles settings cancel button.
- * @returns {void}
- */
-if (settingsCancel) {
-  settingsCancel.addEventListener("click", () => {
-    if (settingsModal) {
-      settingsModal.style.display = "none";
-    }
-  });
-}
-
-/**
- * Handles settings save button.
- * @returns {void}
- */
-if (settingsSave) {
-  settingsSave.addEventListener("click", () => {
-    const autoDnsEnabled = autoDnsCheckbox?.checked || false;
-    window.electronAPI.send("save-settings", { autoDnsEnabled });
-
-    // Show status
-    if (dnsStatus) {
-      dnsStatus.style.display = "block";
-      dnsStatus.textContent = "Saving settings...";
-    }
-  });
-}
-
-/**
- * Listen for settings response from main process.
- * @returns {void}
- */
-window.electronAPI.on("settings-loaded", (...args: unknown[]) => {
-  const settings = args[0] as { autoDnsEnabled?: boolean };
-  if (autoDnsCheckbox && settings) {
-    autoDnsCheckbox.checked = settings.autoDnsEnabled || false;
-  }
-});
-
-/**
- * Listen for settings save response.
- * @returns {void}
- */
-window.electronAPI.on("settings-saved", (...args: unknown[]) => {
-  const response = args[0] as { success: boolean; error?: string };
-  if (dnsStatus) {
-    dnsStatus.style.display = "block";
-    if (response.success) {
-      dnsStatus.style.background = "#d4edda";
-      dnsStatus.style.color = "#155724";
-      dnsStatus.textContent = "✓ Settings saved successfully";
-    } else {
-      dnsStatus.style.background = "#f8d7da";
-      dnsStatus.style.color = "#721c24";
-      dnsStatus.textContent = `✗ Error: ${response.error}`;
-    }
-
-    // Hide the modal after a delay
-    setTimeout(() => {
-      if (settingsModal) {
-        settingsModal.style.display = "none";
-      }
-      if (dnsStatus) {
-        dnsStatus.style.display = "none";
-      }
-    }, 2000);
-  }
-});
-
 /**
  * Add console log to confirm renderer is loaded.
  * @returns {void}
@@ -256,14 +156,6 @@ window.addEventListener("DOMContentLoaded", () => {
   console.log("DEBUG: Setting up menu event listeners");
 
   // Debug UI element visibility
-  console.log(
-    "DEBUG: Settings button found:",
-    !!document.getElementById("settings")
-  );
-  console.log(
-    "DEBUG: Settings modal found:",
-    !!document.getElementById("settings-modal")
-  );
   console.log("DEBUG: Top bar found:", !!document.querySelector(".top-bar"));
 
   // Log all buttons in top bar
