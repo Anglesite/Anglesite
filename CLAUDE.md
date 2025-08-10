@@ -31,8 +31,9 @@ This document contains notes and learned information about the Anglesite project
 ## Specific Configurations & Workarounds
 
 - **ESLint Configuration:**
-  - Uses `.eslintrc.cjs` (CommonJS format) due to compatibility issues with ESLint v9's flat config and TypeScript module resolution.
-  - Contains a JSDoc note explaining this decision.
+  - Uses `eslint.config.cjs` (CommonJS flat config format) compatible with ESLint v9.
+  - Successfully migrated from ESLint v8 legacy configuration to ESLint v9 flat config system.
+  - TypeScript-ESLint v8.39.0+ provides full ESLint v9 support.
 - **Jest Test Environment:**
   - `jest.config.ts` is configured to use `jsdom` for tests that interact with the DOM (e.g., `test/renderer.test.ts`).
   - `jest-environment-jsdom` is installed as a separate dependency.

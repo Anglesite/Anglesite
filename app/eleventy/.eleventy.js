@@ -1,6 +1,6 @@
-const webc = require("@11ty/eleventy-plugin-webc");
-const path = require("path");
-const Nunjucks = require("nunjucks");
+const webc = require('@11ty/eleventy-plugin-webc');
+const path = require('path');
+const Nunjucks = require('nunjucks');
 
 /**
  * Returns an absolute path relative to the project root.
@@ -16,41 +16,33 @@ function rootDir(relativePath) {
  * @returns {ReturnType<import("@11ty/eleventy").UserConfig>}
  */
 module.exports = function AnglesiteConfig(eleventyConfig) {
-  const absoluteIncludesPath = rootDir("app/eleventy/includes");
+  const absoluteIncludesPath = rootDir('app/eleventy/includes');
 
   eleventyConfig.addPlugin(webc, {
-    components: path.join(absoluteIncludesPath, "**/*.webc"),
+    components: path.join(absoluteIncludesPath, '**/*.webc'),
   });
 
-  eleventyConfig.setLibrary(
-    "njk",
-    new Nunjucks.Environment(
-      new Nunjucks.FileSystemLoader(absoluteIncludesPath)
-    )
-  );
+  eleventyConfig.setLibrary('njk', new Nunjucks.Environment(new Nunjucks.FileSystemLoader(absoluteIncludesPath)));
 
   eleventyConfig.addPassthroughCopy({
-    [path.join(absoluteIncludesPath, "style.css")]: "/style.css",
+    [path.join(absoluteIncludesPath, 'style.css')]: '/style.css',
   });
 
   // Determine the effective input directory
-  let inputDir = "docs"; // Default input directory
-  const cliInputArg = process.argv.find((arg) => arg.startsWith("--input="));
+  let inputDir = 'docs'; // Default input directory
+  const cliInputArg = process.argv.find((arg) => arg.startsWith('--input='));
   if (cliInputArg) {
-    inputDir = cliInputArg.split("=")[1];
+    inputDir = cliInputArg.split('=')[1];
   }
 
   // Calculate includes path relative to the effective input directory
-  const includesPathRelative = path.relative(
-    rootDir(inputDir),
-    absoluteIncludesPath
-  );
+  const includesPathRelative = path.relative(rootDir(inputDir), absoluteIncludesPath);
 
   return {
-    markdownTemplateEngine: "njk",
+    markdownTemplateEngine: 'njk',
     dir: {
       input: inputDir,
-      output: "dist",
+      output: 'dist',
       includes: includesPathRelative,
     },
   };

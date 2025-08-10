@@ -1,10 +1,10 @@
 /**
  * @file Multi-window management for website windows and help window
  */
-import { BrowserWindow, WebContentsView } from "electron";
-import * as path from "path";
-import { getCurrentLiveServerUrl, isLiveServerReady } from "../server/eleventy";
-import { updateApplicationMenu } from "./menu";
+import { BrowserWindow, WebContentsView } from 'electron';
+import * as path from 'path';
+import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
+import { updateApplicationMenu } from './menu';
 
 /**
  * Interface for tracking a website window
@@ -31,16 +31,16 @@ export function createHelpWindow(): BrowserWindow {
   helpWindow = new BrowserWindow({
     width: 1000,
     height: 700,
-    title: "Anglesite Help",
+    title: 'Anglesite Help',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, "..", "preload.js"),
+      preload: path.join(__dirname, '..', 'preload.js'),
     },
-    titleBarStyle: "default",
+    titleBarStyle: 'default',
   });
 
-  helpWindow.loadFile(path.join(__dirname, "..", "index.html"));
+  helpWindow.loadFile(path.join(__dirname, '..', 'index.html'));
 
   // Create preview WebContentsView for help content
   const helpWebContentsView = new WebContentsView({
@@ -51,42 +51,36 @@ export function createHelpWindow(): BrowserWindow {
   });
 
   // Add error handling
-  helpWebContentsView.webContents.on(
-    "render-process-gone",
-    (_event, details) => {
-      console.error("Help WebContentsView render process gone:", details);
-      setTimeout(() => {
-        try {
-          helpWebContentsView?.webContents.reload();
-        } catch (error) {
-          console.error("Failed to reload help WebContentsView:", error);
-        }
-      }, 1000);
-    }
-  );
-
-  helpWebContentsView.webContents.on("unresponsive", () => {
-    console.error("Help WebContentsView webContents unresponsive");
+  helpWebContentsView.webContents.on('render-process-gone', (_event, details) => {
+    console.error('Help WebContentsView render process gone:', details);
+    setTimeout(() => {
+      try {
+        helpWebContentsView?.webContents.reload();
+      } catch (error) {
+        console.error('Failed to reload help WebContentsView:', error);
+      }
+    }, 1000);
   });
 
-  helpWebContentsView.webContents.on(
-    "did-fail-load",
-    (_event, errorCode, errorDescription, validatedURL) => {
-      console.error("Help WebContentsView failed to load:", {
-        errorCode,
-        errorDescription,
-        validatedURL,
-      });
-    }
-  );
+  helpWebContentsView.webContents.on('unresponsive', () => {
+    console.error('Help WebContentsView webContents unresponsive');
+  });
+
+  helpWebContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error('Help WebContentsView failed to load:', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+    });
+  });
 
   // Load help content
   setTimeout(() => {
     const serverUrl = getCurrentLiveServerUrl();
-    console.log("Loading help content from:", serverUrl);
+    console.log('Loading help content from:', serverUrl);
 
     helpWebContentsView.webContents.loadURL(serverUrl).catch((error) => {
-      console.error("Failed to load help content:", error);
+      console.error('Failed to load help content:', error);
 
       // Show fallback HTML
       const fallbackHTML = `
@@ -100,9 +94,7 @@ export function createHelpWindow(): BrowserWindow {
           </body>
         </html>
       `;
-      helpWebContentsView.webContents.loadURL(
-        `data:text/html;charset=utf-8,${encodeURIComponent(fallbackHTML)}`
-      );
+      helpWebContentsView.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(fallbackHTML)}`);
     });
   }, 100);
 
@@ -110,7 +102,7 @@ export function createHelpWindow(): BrowserWindow {
   helpWindow.contentView.addChildView(helpWebContentsView);
 
   // Handle window resize
-  helpWindow.on("resize", () => {
+  helpWindow.on('resize', () => {
     if (helpWebContentsView) {
       const bounds = helpWindow!.getBounds();
       helpWebContentsView.setBounds({
@@ -132,30 +124,27 @@ export function createHelpWindow(): BrowserWindow {
   });
 
   // Update menu when focus changes
-  helpWindow.on("focus", () => {
+  helpWindow.on('focus', () => {
     updateApplicationMenu();
   });
 
-  helpWindow.on("blur", () => {
+  helpWindow.on('blur', () => {
     updateApplicationMenu();
   });
 
   // Clean up reference when window is closed
-  helpWindow.on("closed", () => {
+  helpWindow.on('closed', () => {
     helpWindow = null;
   });
 
-  console.log("Help window created and ready");
+  console.log('Help window created and ready');
   return helpWindow;
 }
 
 /**
  * Create a new website window
  */
-export function createWebsiteWindow(
-  websiteName: string,
-  websitePath?: string
-): BrowserWindow {
+export function createWebsiteWindow(websiteName: string, websitePath?: string): BrowserWindow {
   // Check if window already exists for this website
   const existingWindow = websiteWindows.get(websiteName);
   if (existingWindow && !existingWindow.window.isDestroyed()) {
@@ -170,12 +159,12 @@ export function createWebsiteWindow(
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, "..", "preload.js"),
+      preload: path.join(__dirname, '..', 'preload.js'),
     },
-    titleBarStyle: "default",
+    titleBarStyle: 'default',
   });
 
-  window.loadFile(path.join(__dirname, "..", "index.html"));
+  window.loadFile(path.join(__dirname, '..', 'index.html'));
 
   // Create preview WebContentsView for website content
   const webContentsView = new WebContentsView({
@@ -186,37 +175,34 @@ export function createWebsiteWindow(
   });
 
   // Add error handling
-  webContentsView.webContents.on("render-process-gone", (_event, details) => {
-    console.error("Website WebContentsView render process gone:", details);
+  webContentsView.webContents.on('render-process-gone', (_event, details) => {
+    console.error('Website WebContentsView render process gone:', details);
     setTimeout(() => {
       try {
         webContentsView?.webContents.reload();
       } catch (error) {
-        console.error("Failed to reload website WebContentsView:", error);
+        console.error('Failed to reload website WebContentsView:', error);
       }
     }, 1000);
   });
 
-  webContentsView.webContents.on("unresponsive", () => {
-    console.error("Website WebContentsView webContents unresponsive");
+  webContentsView.webContents.on('unresponsive', () => {
+    console.error('Website WebContentsView webContents unresponsive');
   });
 
-  webContentsView.webContents.on(
-    "did-fail-load",
-    (_event, errorCode, errorDescription, validatedURL) => {
-      console.error("Website WebContentsView failed to load:", {
-        errorCode,
-        errorDescription,
-        validatedURL,
-      });
-    }
-  );
+  webContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error('Website WebContentsView failed to load:', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+    });
+  });
 
   // Add WebContentsView to window
   window.contentView.addChildView(webContentsView);
 
   // Handle window resize
-  window.on("resize", () => {
+  window.on('resize', () => {
     if (webContentsView) {
       const bounds = window.getBounds();
       webContentsView.setBounds({
@@ -247,16 +233,16 @@ export function createWebsiteWindow(
   websiteWindows.set(websiteName, websiteWindow);
 
   // Update menu when focus changes
-  window.on("focus", () => {
+  window.on('focus', () => {
     updateApplicationMenu();
   });
 
-  window.on("blur", () => {
+  window.on('blur', () => {
     updateApplicationMenu();
   });
 
   // Clean up when window is closed
-  window.on("closed", () => {
+  window.on('closed', () => {
     websiteWindows.delete(websiteName);
   });
 
@@ -275,31 +261,21 @@ export function loadWebsiteContent(websiteName: string): void {
   }
 
   if (!isLiveServerReady()) {
-    console.log("Live server not ready yet, waiting...");
+    console.log('Live server not ready yet, waiting...');
     return;
   }
 
   const serverUrl = getCurrentLiveServerUrl();
   console.log(`Loading website content for ${websiteName} from:`, serverUrl);
 
-  websiteWindow.webContentsView.webContents.removeAllListeners("did-fail-load");
-  websiteWindow.webContentsView.webContents.removeAllListeners(
-    "did-finish-load"
-  );
+  websiteWindow.webContentsView.webContents.removeAllListeners('did-fail-load');
+  websiteWindow.webContentsView.webContents.removeAllListeners('did-finish-load');
 
-  websiteWindow.webContentsView.webContents.on(
-    "did-fail-load",
-    (_event, errorCode, errorDescription, validatedURL) => {
-      console.error(
-        `Failed to load content for ${websiteName}:`,
-        validatedURL,
-        "Error:",
-        errorCode,
-        errorDescription
-      );
+  websiteWindow.webContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error(`Failed to load content for ${websiteName}:`, validatedURL, 'Error:', errorCode, errorDescription);
 
-      // Show fallback content
-      const fallbackHTML = `
+    // Show fallback content
+    const fallbackHTML = `
         <!DOCTYPE html>
         <html>
           <head><title>${websiteName}</title></head>
@@ -310,27 +286,24 @@ export function loadWebsiteContent(websiteName: string): void {
           </body>
         </html>
       `;
-      websiteWindow.webContentsView.webContents.loadURL(
-        `data:text/html;charset=utf-8,${encodeURIComponent(fallbackHTML)}`
-      );
-    }
-  );
+    websiteWindow.webContentsView.webContents.loadURL(
+      `data:text/html;charset=utf-8,${encodeURIComponent(fallbackHTML)}`
+    );
+  });
 
-  websiteWindow.webContentsView.webContents.on("did-finish-load", () => {
+  websiteWindow.webContentsView.webContents.on('did-finish-load', () => {
     console.log(`Successfully loaded content for ${websiteName}:`, serverUrl);
   });
 
   // Load the website content
   setTimeout(() => {
-    websiteWindow.webContentsView.webContents
-      .loadURL(serverUrl)
-      .catch((error) => {
-        console.error(`Failed to load content for ${websiteName}:`, error);
-      });
+    websiteWindow.webContentsView.webContents.loadURL(serverUrl).catch((error) => {
+      console.error(`Failed to load content for ${websiteName}:`, error);
+    });
   }, 100);
 
   // Send message to renderer
-  websiteWindow.window.webContents.send("preview-loaded");
+  websiteWindow.window.webContents.send('preview-loaded');
 }
 
 /**
@@ -345,9 +318,7 @@ export function getHelpWindow(): BrowserWindow | null {
  */
 export function getWebsiteWindow(websiteName: string): BrowserWindow | null {
   const websiteWindow = websiteWindows.get(websiteName);
-  return websiteWindow && !websiteWindow.window.isDestroyed()
-    ? websiteWindow.window
-    : null;
+  return websiteWindow && !websiteWindow.window.isDestroyed() ? websiteWindow.window : null;
 }
 
 /**

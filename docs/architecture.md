@@ -367,13 +367,11 @@ graph TD
 ### Permission Model
 
 1. **File System Access**
-
    - Application data: `~/Library/Application Support/Anglesite/`
    - Website storage: Isolated in app data
    - No access to user documents without explicit action
 
 2. **Network Security**
-
    - Local-only servers (127.0.0.1)
    - No external network access
    - HTTPS certificates for .test domains only
@@ -413,17 +411,14 @@ stateDiagram-v2
 ## Performance Optimizations
 
 1. **Certificate Caching**
-
    - In-memory cache for generated certificates
    - Avoids regenerating for same domains
 
 2. **Lazy Loading**
-
    - WebContentsView created once, reused
    - Eleventy server persists between site switches
 
 3. **Hosts File Management**
-
    - Batch operations for multiple domains
    - Single biometric/password prompt for all changes
    - Intelligent privilege checking with `native-is-elevated`
@@ -439,13 +434,11 @@ stateDiagram-v2
 ### Planned Improvements
 
 1. **Plugin System**
-
    - Extensible Eleventy configurations
    - Custom build pipelines
    - Third-party integrations
 
 2. **Multi-Site Management**
-
    - Concurrent site editing
    - Site templates and themes
    - Import/export functionality

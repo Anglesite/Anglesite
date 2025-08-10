@@ -1,5 +1,5 @@
 /**
  * @file Server module exports
  */
-export * from "./eleventy";
-export * from "./https-proxy";
+export * from './eleventy';
+export * from './https-proxy';

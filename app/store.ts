@@ -4,9 +4,9 @@
  * Manages user preferences and configuration state across app sessions
  * Settings are stored in JSON format in the user's application data directory
  */
-import { app } from "electron";
-import * as fs from "fs";
-import * as path from "path";
+import { app } from 'electron';
+import * as fs from 'fs';
+import * as path from 'path';
 
 /**
  * Application settings interface defining all configurable options
@@ -15,7 +15,7 @@ export interface AppSettings {
   /** Whether automatic DNS configuration is enabled */
   autoDnsEnabled: boolean;
   /** HTTPS mode preference: 'https', 'http', or null if not yet configured */
-  httpsMode: "https" | "http" | null;
+  httpsMode: 'https' | 'http' | null;
   /** Whether the first launch setup assistant has been completed */
   firstLaunchCompleted: boolean;
   // Add more settings here as needed
@@ -34,8 +34,8 @@ export class Store {
    * Loads existing settings from disk or creates default settings if none exist
    */
   constructor() {
-    const userDataPath = app.getPath("userData");
-    this.path = path.join(userDataPath, "settings.json");
+    const userDataPath = app.getPath('userData');
+    this.path = path.join(userDataPath, 'settings.json');
 
     // Load existing settings or create defaults
     this.data = this.parseDataFile(this.path, {
@@ -91,11 +91,11 @@ export class Store {
   private parseDataFile(filePath: string, defaults: AppSettings): AppSettings {
     try {
       if (fs.existsSync(filePath)) {
-        const fileContent = fs.readFileSync(filePath, "utf-8");
+        const fileContent = fs.readFileSync(filePath, 'utf-8');
         return JSON.parse(fileContent);
       }
     } catch (error) {
-      console.error("Error reading settings file:", error);
+      console.error('Error reading settings file:', error);
     }
     return defaults;
   }
@@ -108,7 +108,7 @@ export class Store {
     try {
       fs.writeFileSync(this.path, JSON.stringify(this.data, null, 2));
     } catch (error) {
-      console.error("Error saving settings:", error);
+      console.error('Error saving settings:', error);
     }
   }
 }

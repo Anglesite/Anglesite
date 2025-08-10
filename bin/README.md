@@ -2,14 +2,14 @@
 
 These shell scripts are **legacy utilities** from early development and are no longer needed in current Anglesite versions.
 
-## What these were for:
+## What these were for
 
 - `setup-dns.sh` - Manually added .test domains to /etc/hosts
 - `setup-mkcert.sh` - Manually set up mkcert certificates
 - `fix-hosts.sh` - Fixed malformed hosts file entries
 - `fix-hosts-entry.sh` - Another hosts file repair utility
 
-## Current behavior:
+## Current behavior
 
 All of this functionality is now **automated** in the TypeScript application:
 

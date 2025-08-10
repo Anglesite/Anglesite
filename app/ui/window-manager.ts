@@ -1,10 +1,10 @@
 /**
  * @file Window and WebContentsView management
  */
-import { BrowserWindow, WebContentsView, ipcMain } from "electron";
-import * as path from "path";
-import * as fs from "fs";
-import { getCurrentLiveServerUrl, isLiveServerReady } from "../server/eleventy";
+import { BrowserWindow, WebContentsView, ipcMain } from 'electron';
+import * as path from 'path';
+import * as fs from 'fs';
+import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
 
 let previewWebContentsView: WebContentsView | null = null;
 let settingsWindow: BrowserWindow | null = null;
@@ -19,19 +19,19 @@ export function createWindow(): BrowserWindow {
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, "..", "preload.js"),
+      preload: path.join(__dirname, '..', 'preload.js'),
     },
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: 'hiddenInset',
     trafficLightPosition: { x: 20, y: 20 },
   });
 
-  win.loadFile(path.join(__dirname, "..", "index.html"));
+  win.loadFile(path.join(__dirname, '..', 'index.html'));
 
   // Create preview WebContentsView
   createPreviewWebContentsView();
 
   // Handle window resize to reposition WebContentsView
-  win.on("resize", () => {
+  win.on('resize', () => {
     if (previewWebContentsView) {
       const bounds = win.getBounds();
       previewWebContentsView.setBounds({
@@ -58,36 +58,30 @@ function createPreviewWebContentsView(): void {
   });
 
   // Add error handling
-  previewWebContentsView.webContents.on(
-    "render-process-gone",
-    (_event, details) => {
-      console.error("WebContentsView render process gone:", details);
-      setTimeout(() => {
-        try {
-          previewWebContentsView?.webContents.reload();
-        } catch (error) {
-          console.error("Failed to reload WebContentsView:", error);
-        }
-      }, 1000);
-    }
-  );
-
-  previewWebContentsView.webContents.on("unresponsive", () => {
-    console.error("WebContentsView webContents unresponsive");
+  previewWebContentsView.webContents.on('render-process-gone', (_event, details) => {
+    console.error('WebContentsView render process gone:', details);
+    setTimeout(() => {
+      try {
+        previewWebContentsView?.webContents.reload();
+      } catch (error) {
+        console.error('Failed to reload WebContentsView:', error);
+      }
+    }, 1000);
   });
 
-  previewWebContentsView.webContents.on(
-    "did-fail-load",
-    (_event, errorCode, errorDescription, validatedURL) => {
-      console.error("WebContentsView failed to load:", {
-        errorCode,
-        errorDescription,
-        validatedURL,
-      });
-    }
-  );
+  previewWebContentsView.webContents.on('unresponsive', () => {
+    console.error('WebContentsView webContents unresponsive');
+  });
 
-  console.log("WebContentsView created and ready to display content");
+  previewWebContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+    console.error('WebContentsView failed to load:', {
+      errorCode,
+      errorDescription,
+      validatedURL,
+    });
+  });
+
+  console.log('WebContentsView created and ready to display content');
 }
 
 /**
@@ -96,38 +90,29 @@ function createPreviewWebContentsView(): void {
 export function autoLoadPreview(win: BrowserWindow): void {
   if (win && previewWebContentsView && isLiveServerReady()) {
     const currentUrl = getCurrentLiveServerUrl();
-    console.log("Auto-loading preview with URL:", currentUrl);
+    console.log('Auto-loading preview with URL:', currentUrl);
 
     // Remove existing listeners to avoid duplicates
-    previewWebContentsView.webContents.removeAllListeners("did-fail-load");
-    previewWebContentsView.webContents.removeAllListeners("did-finish-load");
+    previewWebContentsView.webContents.removeAllListeners('did-fail-load');
+    previewWebContentsView.webContents.removeAllListeners('did-finish-load');
 
-    previewWebContentsView.webContents.on(
-      "did-fail-load",
-      (_event, errorCode, errorDescription, validatedURL) => {
-        console.error(
-          "Auto-load failed for URL:",
-          validatedURL,
-          "Error:",
-          errorCode,
-          errorDescription
-        );
-        // Fallback to file:// protocol if HTTP fails
-        loadLocalFilePreview(win);
-      }
-    );
+    previewWebContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+      console.error('Auto-load failed for URL:', validatedURL, 'Error:', errorCode, errorDescription);
+      // Fallback to file:// protocol if HTTP fails
+      loadLocalFilePreview(win);
+    });
 
-    previewWebContentsView.webContents.on("did-finish-load", () => {
-      console.log("Auto-loaded preview successfully:", currentUrl);
+    previewWebContentsView.webContents.on('did-finish-load', () => {
+      console.log('Auto-loaded preview successfully:', currentUrl);
     });
 
     // Load the current live server URL
     setTimeout(() => {
       const serverUrl = getCurrentLiveServerUrl();
-      console.log("Auto-loading URL now:", serverUrl);
+      console.log('Auto-loading URL now:', serverUrl);
 
       previewWebContentsView?.webContents.loadURL(serverUrl).catch((error) => {
-        console.error("Failed to load server URL:", error);
+        console.error('Failed to load server URL:', error);
 
         // Show fallback HTML
         const fallbackHTML = `
@@ -141,16 +126,14 @@ export function autoLoadPreview(win: BrowserWindow): void {
             </body>
           </html>
         `;
-        previewWebContentsView?.webContents.loadURL(
-          `data:text/html;charset=utf-8,${encodeURIComponent(fallbackHTML)}`
-        );
+        previewWebContentsView?.webContents.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(fallbackHTML)}`);
       });
     }, 100);
 
     // Add WebContentsView to window if not already added
     if (!win.contentView.children.includes(previewWebContentsView)) {
       win.contentView.addChildView(previewWebContentsView);
-      console.log("WebContentsView added to window");
+      console.log('WebContentsView added to window');
     }
 
     // Position the preview correctly
@@ -163,8 +146,8 @@ export function autoLoadPreview(win: BrowserWindow): void {
     });
 
     // Send message to renderer
-    win.webContents.send("preview-loaded");
-    console.log("Auto-preview loaded successfully");
+    win.webContents.send('preview-loaded');
+    console.log('Auto-preview loaded successfully');
   }
 }
 
@@ -173,20 +156,20 @@ export function autoLoadPreview(win: BrowserWindow): void {
  */
 export function loadLocalFilePreview(win: BrowserWindow): void {
   if (win && previewWebContentsView) {
-    const distPath = path.resolve(process.cwd(), "dist");
-    const indexFile = path.join(distPath, "index.html");
+    const distPath = path.resolve(process.cwd(), 'dist');
+    const indexFile = path.join(distPath, 'index.html');
     const fileUrl = `file://${indexFile}`;
 
-    console.log("Loading local file preview:", fileUrl);
+    console.log('Loading local file preview:', fileUrl);
 
     try {
       if (fs.existsSync(indexFile)) {
         previewWebContentsView.webContents.loadFile(indexFile);
       } else {
-        console.error("Index file not found:", indexFile);
+        console.error('Index file not found:', indexFile);
       }
     } catch (error) {
-      console.error("Error loading local file preview:", error);
+      console.error('Error loading local file preview:', error);
     }
   }
 }
@@ -196,7 +179,7 @@ export function loadLocalFilePreview(win: BrowserWindow): void {
  */
 export function showPreview(win: BrowserWindow): void {
   if (win && previewWebContentsView) {
-    console.log("Showing WebContentsView and loading URL");
+    console.log('Showing WebContentsView and loading URL');
 
     // Add WebContentsView to window if not already added
     if (!win.contentView.children.includes(previewWebContentsView)) {
@@ -204,31 +187,22 @@ export function showPreview(win: BrowserWindow): void {
     }
 
     // Remove existing listeners
-    previewWebContentsView.webContents.removeAllListeners("did-fail-load");
-    previewWebContentsView.webContents.removeAllListeners("did-finish-load");
+    previewWebContentsView.webContents.removeAllListeners('did-fail-load');
+    previewWebContentsView.webContents.removeAllListeners('did-finish-load');
 
-    previewWebContentsView.webContents.on(
-      "did-fail-load",
-      (_event, errorCode, errorDescription, validatedURL) => {
-        console.error(
-          "Failed to load URL:",
-          validatedURL,
-          "Error:",
-          errorCode,
-          errorDescription
-        );
-      }
-    );
+    previewWebContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
+      console.error('Failed to load URL:', validatedURL, 'Error:', errorCode, errorDescription);
+    });
 
-    previewWebContentsView.webContents.on("did-finish-load", () => {
+    previewWebContentsView.webContents.on('did-finish-load', () => {
       const serverUrl = getCurrentLiveServerUrl();
-      console.log("WebContentsView successfully loaded:", serverUrl);
+      console.log('WebContentsView successfully loaded:', serverUrl);
     });
 
     // Load current server URL directly
     const serverUrl = getCurrentLiveServerUrl();
     setTimeout(() => {
-      console.log("MAIN PROCESS: Actually loading URL now:", serverUrl);
+      console.log('MAIN PROCESS: Actually loading URL now:', serverUrl);
       previewWebContentsView?.webContents.loadURL(serverUrl);
     }, 100);
 
@@ -241,7 +215,7 @@ export function showPreview(win: BrowserWindow): void {
       height: bounds.height - 90,
     });
 
-    win.webContents.send("preview-loaded");
+    win.webContents.send('preview-loaded');
   }
 }
 
@@ -279,10 +253,7 @@ export function togglePreviewDevTools(): void {
 /**
  * Get native input from user
  */
-export async function getNativeInput(
-  title: string,
-  prompt: string
-): Promise<string | null> {
+export async function getNativeInput(title: string, prompt: string): Promise<string | null> {
   return new Promise((resolve) => {
     // Create a simple input dialog window with nodeIntegration enabled for this specific use case
     const inputWindow = new BrowserWindow({
@@ -360,9 +331,7 @@ export async function getNativeInput(
 </body>
 </html>`;
 
-    inputWindow.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(inputHTML)}`
-    );
+    inputWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(inputHTML)}`);
 
     // Handle input result
     const handleInputResult = (result: string | null) => {
@@ -371,16 +340,16 @@ export async function getNativeInput(
     };
 
     // Handle window close
-    inputWindow.on("closed", () => {
+    inputWindow.on('closed', () => {
       resolve(null);
     });
 
     // Set up IPC listener for the result
     const handleResult = (_event: unknown, result: string | null) => {
-      ipcMain.removeListener("input-dialog-result", handleResult);
+      ipcMain.removeListener('input-dialog-result', handleResult);
       handleInputResult(result);
     };
-    ipcMain.on("input-dialog-result", handleResult);
+    ipcMain.on('input-dialog-result', handleResult);
   });
 }
 
@@ -390,20 +359,18 @@ export async function getNativeInput(
  * or HTTP (simple) mode for local development
  * @returns Promise resolving to "https", "http", or null if cancelled
  */
-export async function showFirstLaunchAssistant(): Promise<
-  "https" | "http" | null
-> {
+export async function showFirstLaunchAssistant(): Promise<'https' | 'http' | null> {
   return new Promise((resolve) => {
     const assistantWindow = new BrowserWindow({
       width: 520,
       height: 480,
-      title: "Welcome to Anglesite",
+      title: 'Welcome to Anglesite',
       resizable: false,
       minimizable: false,
       maximizable: false,
       fullscreenable: false,
       modal: true,
-      titleBarStyle: "hiddenInset",
+      titleBarStyle: 'hiddenInset',
       webPreferences: {
         nodeIntegration: true,
         contextIsolation: false,
@@ -411,14 +378,14 @@ export async function showFirstLaunchAssistant(): Promise<
     });
 
     // Load the HTML file
-    const htmlFilePath = path.join(__dirname, "..", "ui", "first-launch.html");
-    console.log("Loading first launch HTML from:", htmlFilePath);
+    const htmlFilePath = path.join(__dirname, '..', 'ui', 'first-launch.html');
+    console.log('Loading first launch HTML from:', htmlFilePath);
 
     // Check if file exists
     if (fs.existsSync(htmlFilePath)) {
       assistantWindow.loadFile(htmlFilePath);
     } else {
-      console.error("First launch HTML file not found at:", htmlFilePath);
+      console.error('First launch HTML file not found at:', htmlFilePath);
       // Fall back to a simple HTML
       assistantWindow.loadURL(
         `data:text/html;charset=utf-8,${encodeURIComponent(`
@@ -435,17 +402,17 @@ export async function showFirstLaunchAssistant(): Promise<
     }
 
     // Handle window close
-    assistantWindow.on("closed", () => {
+    assistantWindow.on('closed', () => {
       resolve(null);
     });
 
     // Set up IPC listener for the result
-    const handleResult = (_event: unknown, result: "https" | "http" | null) => {
-      ipcMain.removeListener("first-launch-result", handleResult);
+    const handleResult = (_event: unknown, result: 'https' | 'http' | null) => {
+      ipcMain.removeListener('first-launch-result', handleResult);
       assistantWindow.close();
       resolve(result);
     };
-    ipcMain.on("first-launch-result", handleResult);
+    ipcMain.on('first-launch-result', handleResult);
   });
 }
 
@@ -456,24 +423,19 @@ export function openWebsiteSelectionWindow(): void {
   const websiteSelectionWindow = new BrowserWindow({
     width: 600,
     height: 500,
-    title: "Open Website",
+    title: 'Open Website',
     resizable: true,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
-    titleBarStyle: "hiddenInset",
+    titleBarStyle: 'hiddenInset',
     webPreferences: {
       nodeIntegration: true,
       contextIsolation: false,
     },
   });
 
-  const htmlFilePath = path.join(
-    __dirname,
-    "..",
-    "ui",
-    "website-selection.html"
-  );
+  const htmlFilePath = path.join(__dirname, '..', 'ui', 'website-selection.html');
 
   // Check if file exists, create fallback if not
   if (fs.existsSync(htmlFilePath)) {
@@ -857,9 +819,7 @@ export function openWebsiteSelectionWindow(): void {
 </body>
 </html>`;
 
-    websiteSelectionWindow.loadURL(
-      `data:text/html;charset=utf-8,${encodeURIComponent(websiteSelectionHTML)}`
-    );
+    websiteSelectionWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(websiteSelectionHTML)}`);
   }
 }
 
@@ -875,16 +835,16 @@ export function openSettingsWindow(): void {
   settingsWindow = new BrowserWindow({
     width: 500,
     height: 300,
-    title: "Settings",
+    title: 'Settings',
     resizable: false,
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
-    titleBarStyle: "default",
+    titleBarStyle: 'default',
     webPreferences: {
       nodeIntegration: false,
       contextIsolation: true,
-      preload: path.join(__dirname, "..", "preload.js"),
+      preload: path.join(__dirname, '..', 'preload.js'),
     },
   });
 
@@ -932,7 +892,5 @@ export function openSettingsWindow(): void {
 </body>
 </html>`;
 
-  settingsWindow.loadURL(
-    `data:text/html;charset=utf-8,${encodeURIComponent(settingsHTML)}`
-  );
+  settingsWindow.loadURL(`data:text/html;charset=utf-8,${encodeURIComponent(settingsHTML)}`);
 }

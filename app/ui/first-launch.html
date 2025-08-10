@@ -1,12 +1,11 @@
-<!DOCTYPE html>
+<!doctype html>
 <html>
   <head>
     <meta charset="UTF-8" />
     <title>Welcome to Anglesite</title>
     <style>
       body {
-        font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
-          sans-serif;
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         margin: 0;
         padding: 0;
         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
@@ -110,46 +109,43 @@
         <div class="option" id="https-option" onclick="selectHttps()">
           <h3>HTTPS Development <span class="badge">RECOMMENDED</span></h3>
           <p>
-            Use secure HTTPS connections for your local development. This
-            provides the most realistic development environment and allows
-            testing of HTTPS-specific features.
+            Use secure HTTPS connections for your local development. This provides the most realistic development
+            environment and allows testing of HTTPS-specific features.
           </p>
           <div class="warning-text" style="display: none">
             <strong>Certificate Installation:</strong>
-            HTTPS mode requires installing a Certificate Authority (CA) in your
-            keychain to enable secure local connections.
+            HTTPS mode requires installing a Certificate Authority (CA) in your keychain to enable secure local
+            connections.
           </div>
         </div>
 
         <div class="option" id="http-option" onclick="selectHttp()">
           <h3>HTTP Development <span class="badge warning">BASIC</span></h3>
           <p>
-            Use standard HTTP connections for development. Simpler setup but
-            some modern web features may not work without HTTPS.
+            Use standard HTTP connections for development. Simpler setup but some modern web features may not work
+            without HTTPS.
           </p>
         </div>
       </div>
     </div>
 
     <script>
-      const { ipcRenderer } = require("electron");
+      const { ipcRenderer } = require('electron');
 
       function selectHttps() {
         // Show warning text
-        const warningText = document.querySelector(
-          "#https-option .warning-text"
-        );
-        warningText.style.display = "block";
+        const warningText = document.querySelector('#https-option .warning-text');
+        warningText.style.display = 'block';
 
         // Add a small delay to let user read the warning, then proceed
         setTimeout(() => {
-          ipcRenderer.send("first-launch-result", "https");
+          ipcRenderer.send('first-launch-result', 'https');
         }, 2000);
       }
 
       function selectHttp() {
         // Proceed immediately for HTTP
-        ipcRenderer.send("first-launch-result", "http");
+        ipcRenderer.send('first-launch-result', 'http');
       }
     </script>
   </body>

@@ -48,27 +48,23 @@ The MVP focused on delivering a fully functional desktop application with compre
 #### High-Level Task List (In Order)
 
 1. **Foundation & Core Build Setup** ✅ **COMPLETED**
-
    - ✅ Initialize the Node.js project and install initial dependencies (11ty, TypeScript).
    - ✅ Establish the core directory structure (`src`, `dist`, `docs`).
    - ✅ Create a basic `.eleventy.js` configuration to build a single "Hello World" page.
    - ✅ Set up linting, formatting, and testing frameworks (e.g., ESLint, Prettier, Jest).
 
    **Lessons Learned:**
-
    - Used ESLint v8 instead of v9 due to compatibility issues with TypeScript and flat config
    - Implemented Nunjucks templates for better template inheritance
    - Added comprehensive JSDoc documentation throughout
 
 2. **Basic Electron Shell** ✅ **COMPLETED**
-
    - ✅ Set up the main Electron process and a basic application window.
    - ✅ Create a simple renderer process UI to act as the application's front-end.
    - ✅ Integrate the 11ty build process, allowing it to be triggered from the Electron UI.
    - ✅ Embed a local preview server to display the generated site within the app.
 
    **Lessons Learned:**
-
    - Migrated from deprecated BrowserView to WebContentsView API for better security
    - Implemented strict Content Security Policy (CSP) without unsafe-inline
    - Switched from live-server to Eleventy's built-in server to avoid CSP violations
@@ -79,7 +75,6 @@ The MVP focused on delivering a fully functional desktop application with compre
    - First launch flow essential for certificate trust establishment
 
 3. **SSL Certificate & HTTPS Infrastructure** ✅ **COMPLETED**
-
    - ✅ Implemented local Certificate Authority (CA) generation using mkcert
    - ✅ Automated SSL certificate generation for .test domains
    - ✅ User keychain integration for trusted certificate installation
@@ -87,7 +82,6 @@ The MVP focused on delivering a fully functional desktop application with compre
    - ✅ Graceful fallback to HTTP mode when certificates fail
 
    **Features Delivered:**
-
    - Self-contained CA with 825-day validity
    - Certificate caching for performance
    - Automatic domain certificate generation
@@ -95,21 +89,18 @@ The MVP focused on delivering a fully functional desktop application with compre
    - HTTPS proxy on port 8080 → Eleventy on port 8081
 
 4. **DNS Management & Hosts Integration** ✅ **COMPLETED**
-
    - ✅ Automatic /etc/hosts file management
    - ✅ Smart cleanup of orphaned domains on startup
    - ✅ Seamless .test domain configuration
    - ✅ Sudo permission handling for hosts file updates
 
    **Features Delivered:**
-
    - Syncs hosts file with actual website directories
    - Preserves system entries outside Anglesite section
    - Removes orphaned .test domains automatically
    - Batch operations to minimize sudo prompts
 
 5. **User Interface & Experience** ✅ **COMPLETED**
-
    - ✅ First launch assistant with HTTPS/HTTP mode selection
    - ✅ Native macOS menu integration
    - ✅ Website creation workflow
@@ -117,7 +108,6 @@ The MVP focused on delivering a fully functional desktop application with compre
    - ✅ DevTools integration for debugging
 
    **Features Delivered:**
-
    - Guided first launch setup with gem emoji branding
    - Direct mode selection without confirmation dialogs
    - External HTML templates for maintainability
@@ -125,14 +115,12 @@ The MVP focused on delivering a fully functional desktop application with compre
    - Streamlined workflow without success dialogs
 
 6. **Application Architecture** ✅ **COMPLETED**
-
    - ✅ Modular TypeScript architecture with full JSDoc documentation
    - ✅ Comprehensive IPC communication system
    - ✅ Settings persistence with JSON storage
    - ✅ Server management with proper lifecycle handling
 
    **Architecture Delivered:**
-
    - Main process: Certificate, DNS, server, and window management
    - Renderer process: UI components and preview display
    - IPC handlers: Secure communication between processes
@@ -278,7 +266,6 @@ After completing the core desktop application, additional enhancements were impl
 **Recent Enhancements Completed:**
 
 1. **🔐 Biometric Authentication System**
-
    - ✅ Touch ID support for macOS hosts file modifications
    - ✅ Intelligent fallback to password authentication
    - ✅ Real-time Touch ID availability detection with user guidance
@@ -286,7 +273,6 @@ After completing the core desktop application, additional enhancements were impl
    - ✅ Cross-platform privilege detection using native-is-elevated
 
 2. **🪟 Multi-Window Architecture**
-
    - ✅ Dedicated editing windows for each website project
    - ✅ Context-aware menu system that adapts to focused window
    - ✅ Window state management preventing duplicate windows
@@ -294,7 +280,6 @@ After completing the core desktop application, additional enhancements were impl
    - ✅ Independent WebContentsView for each website window
 
 3. **⚡ Enhanced Website Management**
-
    - ✅ Real-time website name validation with user feedback
    - ✅ In-place website renaming with validation
    - ✅ Context menu-based website operations (rename/delete)
@@ -320,13 +305,11 @@ After completing the core desktop application, additional enhancements were impl
 **Immediate Priorities:**
 
 1. **Visual Editor Integration**
-
    - Research and implement WYSIWYG Markdown editor
    - Add rich text editing capabilities
    - File upload and media management
 
 2. **Theme System**
-
    - Create default responsive theme
    - Implement theme switching mechanism
    - Add theme customization options

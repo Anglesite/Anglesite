@@ -7,11 +7,11 @@
  * - Installing CA certificates in the system keychain
  * - Checking certificate installation status
  */
-import { createCA, createCert } from "mkcert";
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
-import { execSync } from "child_process";
+import { createCA, createCert } from 'mkcert';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+import { execSync } from 'child_process';
 
 /**
  * Certificate cache to avoid regenerating certificates for the same domains
@@ -25,31 +25,31 @@ const certificateCache = new Map<string, { cert: string; key: string }>();
  */
 async function getOrCreateCA(): Promise<{ cert: string; key: string }> {
   const appDataPath =
-    process.platform === "darwin"
-      ? path.join(os.homedir(), "Library", "Application Support", "Anglesite")
-      : process.platform === "win32"
-      ? path.join(process.env.APPDATA || "", "Anglesite")
-      : path.join(os.homedir(), ".config", "anglesite");
+    process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Library', 'Application Support', 'Anglesite')
+      : process.platform === 'win32'
+        ? path.join(process.env.APPDATA || '', 'Anglesite')
+        : path.join(os.homedir(), '.config', 'anglesite');
 
-  const caPath = path.join(appDataPath, "ca");
-  const caCertPath = path.join(caPath, "ca.crt");
-  const caKeyPath = path.join(caPath, "ca.key");
+  const caPath = path.join(appDataPath, 'ca');
+  const caCertPath = path.join(caPath, 'ca.crt');
+  const caKeyPath = path.join(caPath, 'ca.key');
 
   // Check if CA already exists
   if (fs.existsSync(caCertPath) && fs.existsSync(caKeyPath)) {
     return {
-      cert: fs.readFileSync(caCertPath, "utf8"),
-      key: fs.readFileSync(caKeyPath, "utf8"),
+      cert: fs.readFileSync(caCertPath, 'utf8'),
+      key: fs.readFileSync(caKeyPath, 'utf8'),
     };
   }
 
   // Create new CA
-  console.log("Creating new Certificate Authority...");
+  console.log('Creating new Certificate Authority...');
   const ca = await createCA({
-    organization: "Anglesite Development",
-    countryCode: "US",
-    state: "Development",
-    locality: "Local",
+    organization: 'Anglesite Development',
+    countryCode: 'US',
+    state: 'Development',
+    locality: 'Local',
     validity: 825, // ~2.25 years
   });
 
@@ -58,7 +58,7 @@ async function getOrCreateCA(): Promise<{ cert: string; key: string }> {
   fs.writeFileSync(caCertPath, ca.cert);
   fs.writeFileSync(caKeyPath, ca.key);
 
-  console.log("✅ Certificate Authority created and saved");
+  console.log('✅ Certificate Authority created and saved');
   return ca;
 }
 
@@ -68,13 +68,11 @@ async function getOrCreateCA(): Promise<{ cert: string; key: string }> {
  * @param domains - Array of domain names to include in the certificate
  * @returns Promise resolving to certificate and private key
  */
-export async function generateCertificate(
-  domains: string[]
-): Promise<{ cert: string; key: string }> {
+export async function generateCertificate(domains: string[]): Promise<{ cert: string; key: string }> {
   // Check cache first
-  const cacheKey = domains.sort().join(",");
+  const cacheKey = domains.sort().join(',');
   if (certificateCache.has(cacheKey)) {
-    console.log(`✅ Using cached certificate for ${domains.join(", ")}`);
+    console.log(`✅ Using cached certificate for ${domains.join(', ')}`);
     return certificateCache.get(cacheKey)!;
   }
 
@@ -83,12 +81,10 @@ export async function generateCertificate(
     const ca = await getOrCreateCA();
 
     // Always include localhost and common variations
-    const allDomains = Array.from(
-      new Set([...domains, "localhost", "127.0.0.1", "::1"])
-    );
+    const allDomains = Array.from(new Set([...domains, 'localhost', '127.0.0.1', '::1']));
 
     // Create certificate
-    console.log(`Generating certificate for: ${allDomains.join(", ")}`);
+    console.log(`Generating certificate for: ${allDomains.join(', ')}`);
     const cert = await createCert({
       ca: { key: ca.key, cert: ca.cert },
       domains: allDomains,
@@ -98,15 +94,11 @@ export async function generateCertificate(
     // Cache the certificate
     certificateCache.set(cacheKey, cert);
 
-    console.log("✅ Certificate generated successfully");
+    console.log('✅ Certificate generated successfully');
     return cert;
   } catch (error) {
-    console.error("Failed to generate certificate:", error);
-    throw new Error(
-      `Certificate generation failed: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
+    console.error('Failed to generate certificate:', error);
+    throw new Error(`Certificate generation failed: ${error instanceof Error ? error.message : String(error)}`);
   }
 }
 
@@ -120,7 +112,7 @@ export function isCAInstalledInSystem(): boolean {
     // Check if the CA certificate is in any keychain and is trusted
     execSync(
       'security verify-cert -c "/Users/$(whoami)/Library/Application Support/Anglesite/ca/ca.crt" 2>/dev/null || security find-certificate -c "Anglesite Development"',
-      { stdio: "pipe" }
+      { stdio: 'pipe' }
     );
     return true;
   } catch {
@@ -140,21 +132,21 @@ export async function installCAInSystem(): Promise<boolean> {
     const ca = await getOrCreateCA();
 
     // Write CA cert to temporary file
-    const tempCertPath = path.join(os.tmpdir(), "anglesite-ca.crt");
+    const tempCertPath = path.join(os.tmpdir(), 'anglesite-ca.crt');
     fs.writeFileSync(tempCertPath, ca.cert);
 
     // Install certificate in user keychain (no admin privileges required)
     execSync(`security add-trusted-cert -d -r trustRoot "${tempCertPath}"`, {
-      stdio: "pipe",
+      stdio: 'pipe',
     });
 
     // Clean up temporary file
     fs.unlinkSync(tempCertPath);
 
-    console.log("✅ Anglesite CA installed in user keychain");
+    console.log('✅ Anglesite CA installed in user keychain');
     return true;
   } catch (error) {
-    console.error("Failed to install CA in keychain:", error);
+    console.error('Failed to install CA in keychain:', error);
     return false;
   }
 }
@@ -166,13 +158,13 @@ export async function installCAInSystem(): Promise<boolean> {
  */
 export function getCAPath(): string {
   const appDataPath =
-    process.platform === "darwin"
-      ? path.join(os.homedir(), "Library", "Application Support", "Anglesite")
-      : process.platform === "win32"
-      ? path.join(process.env.APPDATA || "", "Anglesite")
-      : path.join(os.homedir(), ".config", "anglesite");
+    process.platform === 'darwin'
+      ? path.join(os.homedir(), 'Library', 'Application Support', 'Anglesite')
+      : process.platform === 'win32'
+        ? path.join(process.env.APPDATA || '', 'Anglesite')
+        : path.join(os.homedir(), '.config', 'anglesite');
 
-  return path.join(appDataPath, "ca", "ca.crt");
+  return path.join(appDataPath, 'ca', 'ca.crt');
 }
 
 /**
@@ -181,9 +173,7 @@ export function getCAPath(): string {
  * @param domains - Array of domain names, defaults to ["anglesite.test"]
  * @returns Promise resolving to certificate and private key for HTTPS server
  */
-export async function loadCertificates(
-  domains: string[] = ["anglesite.test"]
-): Promise<{
+export async function loadCertificates(domains: string[] = ['anglesite.test']): Promise<{
   cert: string;
   key: string;
 }> {

@@ -65,12 +65,10 @@ Anglesite is a local-first, Electron-based static site generator that combines t
 On first launch, Anglesite will present a setup assistant:
 
 1. **Choose Development Mode**:
-
    - **HTTPS Mode** (Recommended): Secure local development with SSL certificates
    - **HTTP Mode**: Basic HTTP connections without certificate setup
 
 2. **Certificate Installation** (HTTPS mode only):
-
    - Anglesite will install a local Certificate Authority in your user keychain
    - This enables trusted HTTPS connections for .test domains
    - No administrator privileges required for certificate management
@@ -227,7 +225,7 @@ To reset the first launch flow:
 
 Anglesite is designed for active contribution and community involvement. We welcome contributors!
 
-### Getting Started
+### How to Contribute
 
 1. Fork the repository
 2. Create a feature branch

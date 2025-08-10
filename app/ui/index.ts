@@ -1,5 +1,5 @@
 /**
  * @file UI module exports
  */
-export * from "./window-manager";
-export * from "./menu";
+export * from './window-manager';
+export * from './menu';

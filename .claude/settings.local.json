@@ -37,7 +37,10 @@
       "Bash(sudo cat:*)",
       "Bash(npx hostile:*)",
       "Bash(node:*)",
-      "Bash(sudo npx hostile remove:*)"
+      "Bash(sudo npx hostile remove:*)",
+      "Bash(npm outdated)",
+      "Bash(npm update:*)",
+      "Bash(npm view:*)"
     ],
     "deny": []
   }

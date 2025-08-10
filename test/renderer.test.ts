@@ -2,13 +2,13 @@
  * @file Tests for the Electron renderer process.
  */
 // Mock Electron's ipcRenderer (not used directly in tests)
-jest.mock("electron", () => ({
+jest.mock('electron', () => ({
   ipcRenderer: {
     send: jest.fn(),
   },
 }));
 
-describe("Renderer Process", () => {
+describe('Renderer Process', () => {
   let buildButton: HTMLElement;
 
   beforeEach(() => {
@@ -21,19 +21,17 @@ describe("Renderer Process", () => {
       <button id="reload">Reload</button>
       <button id="devtools">DevTools</button>
     `;
-    buildButton = document.getElementById("preview") as HTMLElement;
+    buildButton = document.getElementById('preview') as HTMLElement;
 
     // Dynamically import the renderer script after the DOM is set up
     jest.isolateModules(() => {
-      jest.requireActual("../dist/app/renderer.js");
+      jest.requireActual('../dist/app/renderer.js');
     });
   });
 
   it("should send a 'preview' message when the preview button is clicked", () => {
-    const mockElectronAPI = (
-      global as unknown as { mockElectronAPI: { send: jest.Mock } }
-    ).mockElectronAPI;
+    const mockElectronAPI = (global as unknown as { mockElectronAPI: { send: jest.Mock } }).mockElectronAPI;
     buildButton.click();
-    expect(mockElectronAPI.send).toHaveBeenCalledWith("preview");
+    expect(mockElectronAPI.send).toHaveBeenCalledWith('preview');
   });
 });

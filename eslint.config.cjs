@@ -1,0 +1,145 @@
+/**
+ * @file ESLint flat configuration file for ESLint v9+
+ * @see {@link https://eslint.org/docs/latest/use/configure/configuration-files-new}
+ */
+const js = require('@eslint/js');
+const tsEslint = require('@typescript-eslint/eslint-plugin');
+const tsParser = require('@typescript-eslint/parser');
+const prettier = require('eslint-plugin-prettier');
+const prettierConfig = require('eslint-config-prettier');
+const globals = require('globals');
+
+module.exports = [
+  // Base recommended configuration
+  js.configs.recommended,
+
+  // Global ignores
+  {
+    ignores: ['dist/**/*'],
+  },
+
+  // TypeScript files configuration
+  {
+    files: ['**/*.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 2021,
+        sourceType: 'module',
+      },
+      globals: {
+        ...globals.node,
+        ...globals.es2021,
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsEslint,
+      prettier: prettier,
+    },
+    rules: {
+      ...tsEslint.configs.recommended.rules,
+      ...prettierConfig.rules,
+      'prettier/prettier': 'error',
+    },
+  },
+
+  // Renderer process files (browser environment)
+  {
+    files: ['app/renderer.ts', 'app/preload.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 2021,
+        sourceType: 'module',
+      },
+      globals: {
+        ...globals.browser,
+        ...globals.node,
+        ...globals.es2021,
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsEslint,
+      prettier: prettier,
+    },
+    rules: {
+      ...tsEslint.configs.recommended.rules,
+      ...prettierConfig.rules,
+      'prettier/prettier': 'error',
+    },
+  },
+
+  // JavaScript and CommonJS files configuration
+  {
+    files: ['**/*.js', '**/*.cjs'],
+    languageOptions: {
+      ecmaVersion: 2021,
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+        ...globals.es2021,
+      },
+    },
+    plugins: {
+      prettier: prettier,
+    },
+    rules: {
+      ...prettierConfig.rules,
+      'prettier/prettier': 'error',
+    },
+  },
+
+  // Test files configuration (Jest + JSDOM environment)
+  {
+    files: ['test/**/*.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 2021,
+        sourceType: 'module',
+      },
+      globals: {
+        ...globals.node,
+        ...globals.jest,
+        ...globals.browser, // For DOM globals in Jest with JSDOM
+        ...globals.es2021,
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsEslint,
+      prettier: prettier,
+    },
+    rules: {
+      ...tsEslint.configs.recommended.rules,
+      ...prettierConfig.rules,
+      'prettier/prettier': 'error',
+      '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+
+  // TypeScript files with Electron types
+  {
+    files: ['app/main.ts', 'app/server/eleventy.ts'],
+    languageOptions: {
+      parser: tsParser,
+      parserOptions: {
+        ecmaVersion: 2021,
+        sourceType: 'module',
+      },
+      globals: {
+        ...globals.node,
+        ...globals.es2021,
+        Electron: 'readonly', // TypeScript Electron namespace
+      },
+    },
+    plugins: {
+      '@typescript-eslint': tsEslint,
+      prettier: prettier,
+    },
+    rules: {
+      ...tsEslint.configs.recommended.rules,
+      ...prettierConfig.rules,
+      'prettier/prettier': 'error',
+    },
+  },
+];

@@ -10,12 +10,10 @@ const mockElectronAPI = {
 };
 
 // Set up window.electronAPI for renderer tests
-Object.defineProperty(window, "electronAPI", {
+Object.defineProperty(window, 'electronAPI', {
   value: mockElectronAPI,
   writable: true,
 });
 
 // Export for tests that need direct access
-(
-  global as unknown as { mockElectronAPI: typeof mockElectronAPI }
-).mockElectronAPI = mockElectronAPI;
+(global as unknown as { mockElectronAPI: typeof mockElectronAPI }).mockElectronAPI = mockElectronAPI;
