@@ -26,7 +26,7 @@ graph TB
     subgraph "External Services"
         Eleventy[Eleventy Server<br/>Port 8081]
         HTTPS[HTTPS Proxy<br/>Port 8080]
-        Hosts[/etc/hosts]
+        Hosts["/etc/hosts"]
         Keychain[System Keychain]
     end
 
