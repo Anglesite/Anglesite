@@ -1,0 +1,52 @@
+/**
+ * @file Template loading utility for HTML templates
+ */
+import * as fs from 'fs';
+import * as path from 'path';
+
+/**
+ * Interface for template replacement variables
+ */
+interface TemplateVariables {
+  [key: string]: string;
+}
+
+/**
+ * Load and process an HTML template file with variable substitution
+ * @param templateName - Name of the template file (without extension)
+ * @param variables - Object containing variables to substitute in template
+ * @returns Processed HTML string
+ */
+export function loadTemplate(templateName: string, variables: TemplateVariables = {}): string {
+  try {
+    const templatePath = path.join(__dirname, 'templates', `${templateName}.html`);
+
+    if (!fs.existsSync(templatePath)) {
+      throw new Error(`Template file not found: ${templatePath}`);
+    }
+
+    let templateContent = fs.readFileSync(templatePath, 'utf8');
+
+    // Replace template variables in the format {{variableName}}
+    for (const [key, value] of Object.entries(variables)) {
+      const placeholder = `{{${key}}}`;
+      templateContent = templateContent.replace(new RegExp(placeholder, 'g'), value);
+    }
+
+    return templateContent;
+  } catch (error) {
+    console.error(`Failed to load template ${templateName}:`, error);
+    throw error;
+  }
+}
+
+/**
+ * Load template and return as data URL for use with BrowserWindow.loadURL
+ * @param templateName - Name of the template file (without extension)
+ * @param variables - Object containing variables to substitute in template
+ * @returns Data URL string
+ */
+export function loadTemplateAsDataUrl(templateName: string, variables: TemplateVariables = {}): string {
+  const templateContent = loadTemplate(templateName, variables);
+  return `data:text/html;charset=utf-8,${encodeURIComponent(templateContent)}`;
+}

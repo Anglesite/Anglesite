@@ -174,7 +174,7 @@ export function stopEleventyServer(): void {
 /**
  * Switch to serving a different website
  */
-export async function switchToWebsite(websitePath: string): Promise<void> {
+export async function switchToWebsite(websitePath: string): Promise<number> {
   console.log('Switching to website at:', websitePath);
 
   stopEleventyServer();
@@ -185,7 +185,9 @@ export async function switchToWebsite(websitePath: string): Promise<void> {
       8081,
       (httpUrl) => {
         console.log(`New website HTTP server ready at: ${httpUrl}`);
-        resolve();
+        // Extract the actual port from the URL
+        const actualPort = parseInt(new URL(httpUrl).port || '8081');
+        resolve(actualPort);
       },
       (error) => {
         console.error('Failed to start server for new website:', error);

@@ -311,7 +311,7 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
 /**
  * Load website content in its window
  */
-export function loadWebsiteContent(websiteName: string): void {
+export function loadWebsiteContent(websiteName: string, retryCount: number = 0): void {
   const websiteWindow = websiteWindows.get(websiteName);
   if (!websiteWindow || websiteWindow.window.isDestroyed()) {
     console.error(`Website window not found: ${websiteName}`);
@@ -319,48 +319,69 @@ export function loadWebsiteContent(websiteName: string): void {
   }
 
   if (!isLiveServerReady()) {
-    console.log('Live server not ready yet, waiting...');
+    console.log('Live server not ready yet, retrying in 500ms...');
+    setTimeout(() => loadWebsiteContent(websiteName, retryCount), 500);
     return;
   }
 
-  // Try website-specific URL first, fallback to main server if DNS fails
-  const websiteUrl = `https://${websiteName}.test:8080`;
-  const fallbackUrl = getCurrentLiveServerUrl();
-
-  console.log(`Loading website content for ${websiteName} from:`, websiteUrl);
+  // Use the current server URL which should be set correctly by the IPC handler
+  const serverUrl = getCurrentLiveServerUrl();
+  console.log(`Loading website content for ${websiteName} from:`, serverUrl);
 
   websiteWindow.webContentsView.webContents.removeAllListeners('did-fail-load');
   websiteWindow.webContentsView.webContents.removeAllListeners('did-finish-load');
+  websiteWindow.webContentsView.webContents.removeAllListeners('did-fail-provisional-load');
+
+  // Track if we successfully loaded
+  let loadSuccess = false;
+
+  websiteWindow.webContentsView.webContents.on('did-fail-provisional-load', (_event, errorCode, errorDescription, validatedURL) => {
+    // Provisional load failures often happen when the server isn't quite ready
+    if (retryCount < 3 && !loadSuccess) {
+      console.log(`Provisional load failed for ${websiteName}, retrying (attempt ${retryCount + 1}/3)...`);
+      setTimeout(() => loadWebsiteContent(websiteName, retryCount + 1), 1000);
+    }
+  });
 
   websiteWindow.webContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    // Only handle actual website loading failures, not data URLs
-    if (!validatedURL.startsWith('data:text/html')) {
-      console.log(`DNS resolution failed for ${websiteName}.test, trying fallback URL`);
-
-      // Try fallback URL if website-specific URL fails
-      if (validatedURL === websiteUrl) {
-        websiteWindow.webContentsView.webContents.loadURL(fallbackUrl).catch((fallbackError) => {
-          console.error(`Both website and fallback URLs failed for ${websiteName}:`, fallbackError);
-        });
-      }
+    console.error(`Failed to load content for ${websiteName}:`, {
+      errorCode,
+      errorDescription,
+      validatedURL,
+    });
+    
+    // Retry if we haven't exceeded retry count
+    if (retryCount < 3 && !loadSuccess) {
+      console.log(`Retrying load for ${websiteName} (attempt ${retryCount + 1}/3)...`);
+      setTimeout(() => loadWebsiteContent(websiteName, retryCount + 1), 1000);
+    } else if (!loadSuccess) {
+      // Show fallback after all retries failed
+      const { loadTemplateAsDataUrl } = require('./template-loader');
+      const fallbackDataUrl = loadTemplateAsDataUrl('preview-fallback');
+      websiteWindow.webContentsView.webContents.loadURL(fallbackDataUrl);
     }
   });
 
   websiteWindow.webContentsView.webContents.on('did-finish-load', () => {
+    loadSuccess = true;
     console.log(`Successfully loaded content for ${websiteName}`);
   });
 
-  // Load the website content with a small delay to ensure HTTPS proxy is ready
-  setTimeout(() => {
-    websiteWindow.webContentsView.webContents.loadURL(websiteUrl).catch((error) => {
-      console.error(`Failed to load content for ${websiteName}:`, error);
-      // Auto-fallback to main server URL if website-specific URL fails
-      console.log(`Trying fallback URL for ${websiteName}: ${fallbackUrl}`);
-      websiteWindow.webContentsView.webContents.loadURL(fallbackUrl).catch((fallbackError) => {
-        console.error(`Both website and fallback URLs failed for ${websiteName}:`, fallbackError);
-      });
-    });
-  }, 500);
+  // Load the website content
+  websiteWindow.webContentsView.webContents.loadURL(serverUrl).catch((error) => {
+    console.error(`Failed to load content for ${websiteName}:`, error);
+    
+    // Retry if we haven't exceeded retry count
+    if (retryCount < 3) {
+      console.log(`Retrying after error for ${websiteName} (attempt ${retryCount + 1}/3)...`);
+      setTimeout(() => loadWebsiteContent(websiteName, retryCount + 1), 1000);
+    } else {
+      // Show fallback after all retries failed
+      const { loadTemplateAsDataUrl } = require('./template-loader');
+      const fallbackDataUrl = loadTemplateAsDataUrl('preview-fallback');
+      websiteWindow.webContentsView.webContents.loadURL(fallbackDataUrl);
+    }
+  });
 
   // Send message to renderer
   websiteWindow.window.webContents.send('preview-loaded');

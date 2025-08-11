@@ -142,68 +142,15 @@ export function createApplicationMenu(): Menu {
           label: 'New Website...',
           accelerator: 'CmdOrCtrl+N',
           click: async () => {
-            console.log('DEBUG: New Website menu clicked - calling getNativeInput directly');
-            try {
-              const { getNativeInput } = await import('./window-manager');
-              const websiteName = await getNativeInput('New Website', 'Enter a name for your new website:');
-
-              if (websiteName && websiteName.trim()) {
-                console.log('DEBUG: User entered website name:', websiteName.trim());
-                const { createWebsiteWithName } = await import('../utils/website-manager');
-
-                // Create the website
-                const websitePath = await createWebsiteWithName(websiteName.trim());
-                console.log('DEBUG: Website created at:', websitePath);
-
-                // Import and call the function that handles opening websites
-                // This replicates the logic from IPC handlers openWebsiteInNewWindow
-                const { createWebsiteWindow, loadWebsiteContent } = await import('../ui/multi-window-manager');
-                const { switchToWebsite } = await import('../server/eleventy');
-                const { addLocalDnsResolution } = await import('../dns/hosts-manager');
-                const { restartHttpsProxy } = await import('../server/https-proxy');
-                const { Store } = await import('../store');
-
-                console.log('DEBUG: Opening website in new window');
-
-                // Create a new window for this website
-                createWebsiteWindow(websiteName.trim(), websitePath);
-
-                // Switch to the selected website
-                await switchToWebsite(websitePath);
-
-                // Generate test domain and setup DNS
-                const hostname = `${websiteName.trim()}.test`;
-                await addLocalDnsResolution(hostname);
-
-                // Check user's HTTPS preference
-                const store = new Store();
-                const httpsMode = store.get('httpsMode');
-
-                if (httpsMode === 'https') {
-                  // Start HTTPS proxy for the domain
-                  const httpsProxySuccess = await restartHttpsProxy(8080, 8081, hostname);
-                  if (httpsProxySuccess) {
-                    console.log('DEBUG: HTTPS proxy configured for:', hostname);
-                  } else {
-                    console.log('DEBUG: HTTPS proxy failed, using HTTP mode');
-                  }
-                } else {
-                  console.log('DEBUG: HTTP-only mode by user preference, skipping HTTPS proxy');
-                }
-
-                // Load the website content in its window (after HTTPS proxy is ready)
-                loadWebsiteContent(websiteName.trim());
-                console.log('DEBUG: Website opened successfully');
-              } else {
-                console.log('DEBUG: User cancelled website creation');
-              }
-            } catch (error) {
-              console.error('DEBUG: Error creating/opening website:', error);
+            // Use the IPC handler which has the proper implementation
+            const focusedWindow = BrowserWindow.getFocusedWindow();
+            if (focusedWindow) {
+              focusedWindow.webContents.send('trigger-new-website');
             }
           },
         },
         {
-          label: 'Open Website...',
+          label: 'Open Website…',
           accelerator: 'CmdOrCtrl+Shift+O',
           click: async () => {
             const { openWebsiteSelectionWindow } = await import('./window-manager');
@@ -214,24 +161,28 @@ export function createApplicationMenu(): Menu {
           type: 'separator',
         },
         {
-          label: 'Open Website Folder...',
-          accelerator: 'CmdOrCtrl+O',
-          click: async () => {
-            // TODO: Implement folder picker
-            console.log('Open Website Folder clicked');
-          },
-        },
-        {
-          type: 'separator',
-        },
-        {
-          label: 'Export Website...',
-          accelerator: 'CmdOrCtrl+E',
+          label: 'Export To',
           enabled: isWebsiteWindowFocused(),
-          click: () => {
-            // TODO: Implement export functionality
-            console.log('Export Website clicked');
-          },
+          submenu: [
+            {
+              label: 'Folder…',
+              accelerator: 'CmdOrCtrl+E',
+              click: async () => {
+                console.log('DEBUG: Export to Folder menu clicked');
+                const { exportSiteHandler } = await import('../ipc/handlers');
+                await exportSiteHandler(null, false);
+              },
+            },
+            {
+              label: 'Zip Archive…',
+              accelerator: 'CmdOrCtrl+Shift+E',
+              click: async () => {
+                console.log('DEBUG: Export to Zip menu clicked');
+                const { exportSiteHandler } = await import('../ipc/handlers');
+                await exportSiteHandler(null, true);
+              },
+            },
+          ],
         },
       ],
     },

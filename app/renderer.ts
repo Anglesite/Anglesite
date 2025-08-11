@@ -122,6 +122,12 @@ window.electronAPI.on('menu-new-website', () => {
   console.log('DEBUG: Sent new-website IPC message');
 });
 
+// Handle trigger-new-website from menu
+window.electronAPI.on('trigger-new-website', () => {
+  console.log('DEBUG: New website triggered from menu');
+  window.electronAPI.send('new-website');
+});
+
 window.electronAPI.on('menu-reload', () => {
   if (reloadButton) {
     reloadButton.click();

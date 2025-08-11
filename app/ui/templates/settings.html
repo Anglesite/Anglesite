@@ -1,0 +1,231 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>Settings</title>
+    <style>
+      :root {
+        color-scheme: light dark; /* Enable native dark mode support to prevent white flash */
+        --bg-primary: #ffffff;
+        --bg-secondary: #f5f5f5;
+        --bg-tertiary: #ffffff;
+        --text-primary: #333333;
+        --text-secondary: #666666;
+        --border-primary: #e5e5e7;
+        --button-primary: #007aff;
+        --button-primary-hover: #0056cc;
+        --button-secondary: #e5e5e7;
+        --button-secondary-hover: #d1d1d6;
+        --button-secondary-text: #333;
+      }
+
+      :root[data-theme='dark'] {
+        --bg-primary: #1e1e1e;
+        --bg-secondary: #121212;
+        --bg-tertiary: #2d2d2d;
+        --text-primary: #ffffff;
+        --text-secondary: #b3b3b3;
+        --border-primary: #404040;
+        --button-primary: #0a84ff;
+        --button-primary-hover: #409cff;
+        --button-secondary: #404040;
+        --button-secondary-hover: #525252;
+        --button-secondary-text: #ffffff;
+      }
+
+      body {
+        font-family: system-ui;
+        margin: 0;
+        padding: 20px;
+        background: Canvas; /* Use system Canvas color as fallback */
+        color: CanvasText; /* Use system CanvasText color as fallback */
+        transition:
+          background-color 0.2s ease,
+          color 0.2s ease;
+      }
+
+      /* Apply theme variables when data-theme is set */
+      :root body {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+      }
+      .setting-group {
+        background: var(--bg-tertiary);
+        border-radius: 6px;
+        padding: 20px;
+        margin-bottom: 16px;
+        border: 1px solid var(--border-primary);
+        transition:
+          background-color 0.2s ease,
+          border-color 0.2s ease;
+      }
+      .setting-title {
+        font-size: 13px;
+        font-weight: 600;
+        margin-bottom: 8px;
+        color: var(--text-primary);
+      }
+      .setting-description {
+        font-size: 11px;
+        color: var(--text-secondary);
+        margin-bottom: 16px;
+        line-height: 1.4;
+      }
+      label {
+        display: flex;
+        align-items: center;
+        cursor: pointer;
+        margin-bottom: 8px;
+        color: var(--text-primary);
+      }
+      input[type='checkbox'] {
+        margin-right: 8px;
+      }
+      input[type='radio'] {
+        margin-right: 8px;
+      }
+      .radio-group {
+        display: flex;
+        flex-direction: column;
+        gap: 8px;
+        margin-top: 8px;
+      }
+      .buttons {
+        text-align: right;
+        margin-top: 20px;
+      }
+      button {
+        background: var(--button-primary);
+        color: white;
+        border: none;
+        padding: 8px 20px;
+        border-radius: 6px;
+        font-size: 13px;
+        cursor: pointer;
+        margin-left: 8px;
+        transition: background-color 0.2s ease;
+      }
+      button:hover {
+        background: var(--button-primary-hover);
+      }
+      button.secondary {
+        background: var(--button-secondary);
+        color: var(--button-secondary-text);
+      }
+      button.secondary:hover {
+        background: var(--button-secondary-hover);
+      }
+    </style>
+  </head>
+  <body>
+    <div class="setting-group">
+      <div class="setting-title">Appearance</div>
+      <div class="setting-description">
+        Choose how Anglesite should appear. System will follow your system's light/dark mode preference.
+      </div>
+      <div class="radio-group">
+        <label>
+          <input type="radio" name="theme" value="system" id="themeSystem" checked />
+          <span>System (follow system preference)</span>
+        </label>
+        <label>
+          <input type="radio" name="theme" value="light" id="themeLight" />
+          <span>Light mode</span>
+        </label>
+        <label>
+          <input type="radio" name="theme" value="dark" id="themeDark" />
+          <span>Dark mode</span>
+        </label>
+      </div>
+    </div>
+
+    <div class="setting-group">
+      <div class="setting-title">Development Domains</div>
+      <div class="setting-description">
+        When enabled, Anglesite will automatically configure *.test wildcard domains.
+      </div>
+      <label>
+        <input type="checkbox" id="autoDomains" checked />
+        <span>Automatically configure .test domains</span>
+      </label>
+    </div>
+
+    <div class="buttons">
+      <button class="secondary" onclick="window.close()">Cancel</button>
+      <button onclick="saveSettings()">Save Settings</button>
+    </div>
+
+    <script>
+      let currentThemeInfo = null;
+
+      // Load current settings when page loads
+      document.addEventListener('DOMContentLoaded', async () => {
+        try {
+          // Load current theme
+          currentThemeInfo = await window.electronAPI.getCurrentTheme();
+          const themeRadio = document.getElementById('theme' + capitalizeFirst(currentThemeInfo.userPreference));
+          if (themeRadio) {
+            themeRadio.checked = true;
+          }
+
+          // Apply current theme immediately
+          applyTheme(currentThemeInfo.resolvedTheme);
+
+          // Listen for theme updates
+          window.electronAPI.onThemeUpdated((themeInfo) => {
+            currentThemeInfo = themeInfo;
+            applyTheme(themeInfo.resolvedTheme);
+          });
+
+          // Add immediate theme switching to radio buttons
+          const themeRadios = document.querySelectorAll('input[name="theme"]');
+          themeRadios.forEach((radio) => {
+            radio.addEventListener('change', async (event) => {
+              if (event.target.checked) {
+                try {
+                  console.log('Theme radio changed to:', event.target.value);
+                  const newThemeInfo = await window.electronAPI.setTheme(event.target.value);
+                  currentThemeInfo = newThemeInfo;
+                  applyTheme(newThemeInfo.resolvedTheme);
+                  console.log('Theme applied immediately:', newThemeInfo);
+                } catch (error) {
+                  console.error('Failed to apply theme immediately:', error);
+                }
+              }
+            });
+          });
+        } catch (error) {
+          console.error('Failed to load settings:', error);
+        }
+      });
+
+      function capitalizeFirst(str) {
+        return str.charAt(0).toUpperCase() + str.slice(1);
+      }
+
+      function applyTheme(resolvedTheme) {
+        const root = document.documentElement;
+        if (resolvedTheme === 'dark') {
+          root.setAttribute('data-theme', 'dark');
+        } else {
+          root.removeAttribute('data-theme');
+        }
+      }
+
+      async function saveSettings() {
+        try {
+          // Theme is already saved immediately when changed, so just handle other settings
+
+          // Save other settings
+          const autoDomains = document.getElementById('autoDomains').checked;
+          // TODO: Save autoDomains to store when implemented
+
+          window.close();
+        } catch (error) {
+          console.error('Failed to save settings:', error);
+          alert('Failed to save settings. Please try again.');
+        }
+      }
+    </script>
+  </body>
+</html>

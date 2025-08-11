@@ -1,11 +1,19 @@
 /**
  * @file IPC message handlers
  */
-import { ipcMain, BrowserWindow, shell, dialog, Menu, MenuItem } from 'electron';
+import { ipcMain, BrowserWindow, shell, dialog, Menu, MenuItem, IpcMainEvent } from 'electron';
 import { exec } from 'child_process';
+import * as fs from 'fs';
+import archiver from 'archiver';
 import { showPreview, hidePreview, reloadPreview, togglePreviewDevTools, getNativeInput } from '../ui/window-manager';
 import { createWebsiteWindow, loadWebsiteContent, getAllWebsiteWindows } from '../ui/multi-window-manager';
-import { getCurrentLiveServerUrl, isLiveServerReady, switchToWebsite } from '../server/eleventy';
+import {
+  getCurrentLiveServerUrl,
+  isLiveServerReady,
+  switchToWebsite,
+  setLiveServerUrl,
+  setCurrentWebsiteName,
+} from '../server/eleventy';
 import {
   createWebsiteWithName,
   validateWebsiteName,
@@ -80,6 +88,18 @@ export function setupIpcMainListeners(): void {
         console.error('Failed to open in browser:', fallbackError);
       }
     }
+  });
+
+  // Export site to folder handler
+  ipcMain.on('menu-export-site-folder', async (event) => {
+    console.log('DEBUG: Received menu-export-site-folder IPC message');
+    await exportSiteHandler(event, false);
+  });
+
+  // Export site to zip handler
+  ipcMain.on('menu-export-site-zip', async (event) => {
+    console.log('DEBUG: Received menu-export-site-zip IPC message');
+    await exportSiteHandler(event, true);
   });
 
   // Website creation handler
@@ -286,6 +306,142 @@ export function setupIpcMainListeners(): void {
 }
 
 /**
+ * Handle export site requests for both folder and zip formats
+ */
+export async function exportSiteHandler(event: IpcMainEvent | null, exportAsZip: boolean): Promise<void> {
+  console.log(`DEBUG: exportSiteHandler called with exportAsZip: ${exportAsZip}`);
+  
+  // Get window from event or focused window
+  const win = event ? BrowserWindow.fromWebContents(event.sender) : BrowserWindow.getFocusedWindow();
+  if (!win) {
+    console.log('DEBUG: No window found for export handler');
+    return;
+  }
+
+  try {
+    // Get the currently focused website window to determine which website to export
+    const focusedWindow = BrowserWindow.getFocusedWindow();
+    const websiteWindows = getAllWebsiteWindows();
+    let websiteToExport: string | null = null;
+
+    // Find which website window is focused
+    for (const [websiteName, websiteWindow] of websiteWindows) {
+      if (websiteWindow.window === focusedWindow) {
+        websiteToExport = websiteName;
+        break;
+      }
+    }
+
+    if (!websiteToExport) {
+      console.log('DEBUG: No website selected for export');
+      dialog.showMessageBox(win, {
+        type: 'info',
+        title: 'No Website Selected',
+        message: 'Please open a website window first',
+        detail: 'To export a website, you need to have a website window open and focused.',
+        buttons: ['OK'],
+      });
+      return;
+    }
+
+    console.log(`DEBUG: Found website to export: ${websiteToExport}`);
+
+    // Show appropriate save dialog based on export type
+    const result = await dialog.showSaveDialog(win, {
+      title: `Export ${websiteToExport}`,
+      defaultPath: websiteToExport + (exportAsZip ? '.zip' : ''),
+      filters: exportAsZip 
+        ? [{ name: 'Zip Archive', extensions: ['zip'] }]
+        : [{ name: 'Folder', extensions: [] }],
+    });
+
+    if (result.canceled || !result.filePath) {
+      return;
+    }
+
+    const exportPath = result.filePath;
+
+    // Get the website source path
+    const websitePath = getWebsitePath(websiteToExport);
+    console.log(`Exporting website "${websiteToExport}" from ${websitePath} to ${exportPath} (zip: ${exportAsZip})`);
+    
+    // Determine the build output directory
+    const buildDir = exportAsZip ? exportPath.replace('.zip', '') : exportPath;
+
+    // Build the current website in the target directory
+    exec(
+      `npx eleventy --config=app/eleventy/.eleventy.js --input="${websitePath}" --output="${buildDir}"`,
+      { cwd: process.cwd() },
+      (buildErr, buildStdout) => {
+        if (buildErr) {
+          console.error('Build failed:', buildErr);
+          dialog.showMessageBox(win, {
+            type: 'error',
+            title: 'Export Failed',
+            message: 'Failed to build website for export',
+            detail: buildErr.message,
+            buttons: ['OK'],
+          });
+          return;
+        }
+
+        console.log('Build completed:', buildStdout);
+
+        // Create a zip archive if user chose zip export
+        if (exportAsZip) {
+          if (!fs.existsSync(buildDir)) {
+            dialog.showMessageBox(win, {
+              type: 'error',
+              title: 'Export Failed',
+              message: 'Built website not found',
+              detail: 'The build directory was not found after building.',
+              buttons: ['OK'],
+            });
+            return;
+          }
+
+          const output = fs.createWriteStream(exportPath);
+          const archive = archiver('zip', { zlib: { level: 9 } });
+
+          output.on('close', () => {
+            console.log(`Export completed: ${archive.pointer()} total bytes`);
+            // Clean up the temporary build directory
+            fs.rmSync(buildDir, { recursive: true, force: true });
+          });
+
+          archive.on('error', (err: Error) => {
+            console.error('Archive error:', err);
+            dialog.showMessageBox(win, {
+              type: 'error',
+              title: 'Export Failed',
+              message: 'Failed to create export archive',
+              detail: err.message,
+              buttons: ['OK'],
+            });
+          });
+
+          archive.pipe(output);
+          archive.directory(buildDir, false);
+          archive.finalize();
+        } else {
+          // User chose folder export, files are already in place
+          console.log(`Folder export completed: ${exportPath}`);
+        }
+      }
+    );
+  } catch (error) {
+    console.error('Export failed:', error);
+    dialog.showMessageBox(win, {
+      type: 'error',
+      title: 'Export Failed',
+      message: 'Failed to export website',
+      detail: error instanceof Error ? error.message : String(error),
+      buttons: ['OK'],
+    });
+  }
+}
+
+/**
  * Create a new website with the given name and open it in a new window
  */
 async function createNewWebsite(websiteName: string): Promise<void> {
@@ -296,8 +452,8 @@ async function createNewWebsite(websiteName: string): Promise<void> {
     const newWebsitePath = await createWebsiteWithName(websiteName);
     console.log('New website created at:', newWebsitePath);
 
-    // Open the new website in a new window
-    await openWebsiteInNewWindow(websiteName, newWebsitePath);
+    // Open the new website in a new window (with isNewWebsite = true)
+    await openWebsiteInNewWindow(websiteName, newWebsitePath, true);
 
     console.log(`Website "${websiteName}" created and opened in new window`);
   } catch (error) {
@@ -309,8 +465,8 @@ async function createNewWebsite(websiteName: string): Promise<void> {
 /**
  * Open a website in a new dedicated window
  */
-async function openWebsiteInNewWindow(websiteName: string, websitePath?: string): Promise<void> {
-  console.log(`Opening website "${websiteName}" in new window`);
+async function openWebsiteInNewWindow(websiteName: string, websitePath?: string, isNewWebsite: boolean = false): Promise<void> {
+  console.log(`Opening website "${websiteName}" in new window (new website: ${isNewWebsite})`);
 
   try {
     // Get website path if not provided
@@ -320,9 +476,9 @@ async function openWebsiteInNewWindow(websiteName: string, websitePath?: string)
     // Create a new window for this website
     createWebsiteWindow(websiteName, actualWebsitePath);
 
-    // Switch to the selected website
-    await switchToWebsite(actualWebsitePath);
-    console.log('DEBUG: switchToWebsite completed for:', websiteName);
+    // Switch to the selected website and get the actual port
+    const actualPort = await switchToWebsite(actualWebsitePath);
+    console.log('DEBUG: switchToWebsite completed for:', websiteName, 'on port:', actualPort);
 
     // Generate test domain and setup DNS
     const testDomain = `https://${websiteName}.test:8080`;
@@ -338,20 +494,33 @@ async function openWebsiteInNewWindow(websiteName: string, websitePath?: string)
     const httpsMode = store.get('httpsMode');
 
     if (httpsMode === 'https') {
-      // Restart HTTPS proxy for the domain
-      const httpsSuccess = await restartHttpsProxy(8080, 8081, hostname);
+      // Restart HTTPS proxy for the domain using the actual port
+      const httpsSuccess = await restartHttpsProxy(8080, actualPort, hostname);
       if (httpsSuccess) {
         console.log(`Website HTTPS server ready at: ${testDomain}`);
+        // Update the server URL for the new website
+        setLiveServerUrl(testDomain);
+        setCurrentWebsiteName(websiteName);
       } else {
         console.log('HTTPS proxy failed, continuing with HTTP-only mode');
+        // Fallback to HTTP URL with actual port
+        setLiveServerUrl(`http://localhost:${actualPort}`);
+        setCurrentWebsiteName(websiteName);
       }
     } else {
       console.log('HTTP-only mode by user preference, skipping HTTPS proxy');
+      // Set HTTP URL with actual port
+      setLiveServerUrl(`http://localhost:${actualPort}`);
+      setCurrentWebsiteName(websiteName);
     }
 
     // Load the website content in its window (after HTTPS proxy is ready)
-    loadWebsiteContent(websiteName);
-    console.log('DEBUG: loadWebsiteContent called for website window');
+    // Add a longer delay for new websites to ensure Eleventy has fully processed the files
+    const delay = isNewWebsite ? 2500 : 1000;
+    setTimeout(() => {
+      loadWebsiteContent(websiteName);
+      console.log('DEBUG: loadWebsiteContent called for website window');
+    }, delay);
 
     console.log(`Website "${websiteName}" ready in dedicated window`);
   } catch (error) {

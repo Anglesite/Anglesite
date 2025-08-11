@@ -54,6 +54,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'website-context-menu-action',
       'website-operation-completed',
       'theme-updated',
+      'trigger-new-website',
     ];
     if (validChannels.includes(channel)) {
       console.log(`DEBUG PRELOAD: Setting up listener for channel: ${channel}`);

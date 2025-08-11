@@ -77,7 +77,15 @@ anglesite/
 │   │   ├── window-manager.ts   # Window and WebContentsView
 │   │   ├── multi-window-manager.ts # Multi-window management
 │   │   ├── menu.ts             # Application menu
-│   │   ├── first-launch.html   # First launch assistant
+│   │   ├── template-loader.ts  # HTML template loading utility
+│   │   ├── theme-manager.ts    # Dark mode theme management
+│   │   ├── templates/          # HTML template files
+│   │   │   ├── input-dialog.html      # Input dialog template
+│   │   │   ├── preview-fallback.html  # Preview fallback template
+│   │   │   ├── settings.html          # Settings window template
+│   │   │   ├── website-selection.html # Website selection template
+│   │   │   └── welcome-assistant.html # Welcome assistant template
+│   │   ├── first-launch.html   # First launch assistant (legacy)
 │   │   └── index.ts            # UI module exports
 │   │
 │   ├── ipc/                    # Inter-process communication
@@ -261,7 +269,81 @@ graph TD
 - **Window State Management**: Tracks open websites and prevents duplicates
 - **Seamless Editing Workflow**: Direct website creation and editing flow
 
-### 5. Website Management
+### 5. Template System Architecture
+
+```mermaid
+graph LR
+    subgraph "Template Loading"
+        Loader[template-loader.ts]
+        Templates[templates/*.html]
+        Variables[Template Variables]
+    end
+
+    subgraph "Template Files"
+        Input[input-dialog.html]
+        Preview[preview-fallback.html]
+        Settings[settings.html]
+        Selection[website-selection.html]
+        Welcome[welcome-assistant.html]
+    end
+
+    subgraph "Usage"
+        Window[BrowserWindow]
+        DataURL[Data URL]
+        Rendered[Rendered HTML]
+    end
+
+    Templates --> Loader
+    Variables --> Loader
+    Loader -->|loadTemplate| Rendered
+    Loader -->|loadTemplateAsDataUrl| DataURL
+    DataURL --> Window
+```
+
+**Key Features:**
+
+- **Variable Substitution**: Replace {{variableName}} placeholders with dynamic values
+- **Data URL Support**: Convert templates to data URLs for BrowserWindow loading
+- **Centralized Templates**: All HTML templates stored in ui/templates directory
+- **Error Handling**: Graceful fallback when templates are missing
+
+### 6. Dark Mode and Theme Management
+
+```mermaid
+graph TD
+    subgraph "Theme System"
+        ThemeManager[theme-manager.ts]
+        Store[Settings Store]
+        SystemPref[System Preferences]
+        AppTheme[Application Theme]
+    end
+
+    subgraph "Theme Application"
+        MainWin[Main Window]
+        WebWin[Website Windows]
+        Templates[HTML Templates]
+        CSS[Dynamic CSS Variables]
+    end
+
+    SystemPref -->|Detect| ThemeManager
+    Store -->|Load Preference| ThemeManager
+    ThemeManager -->|Apply| AppTheme
+    
+    AppTheme --> MainWin
+    AppTheme --> WebWin
+    AppTheme --> Templates
+    AppTheme --> CSS
+```
+
+**Dark Mode Features:**
+
+- **System Integration**: Follows macOS dark mode preference
+- **Dynamic Theming**: Real-time theme switching without restart
+- **Comprehensive Coverage**: Themes apply to all windows, menus, and templates
+- **CSS Variables**: Uses CSS custom properties for consistent theming
+- **Toolbar Integration**: Native toolbar follows theme changes
+
+### 7. Website Management
 
 ```mermaid
 graph TD
@@ -288,7 +370,7 @@ graph TD
     end
 ```
 
-### 5. Server Architecture
+### 8. Server Architecture
 
 ```mermaid
 graph LR
@@ -345,6 +427,8 @@ sequenceDiagram
 - `build`: Trigger site build
 - `open-browser`: Open in external browser
 - `show-website-context-menu`: Display right-click menu
+- `get-theme`: Get current theme setting
+- `set-theme`: Update theme preference
 
 ## Security Architecture
 

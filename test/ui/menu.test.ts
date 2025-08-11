@@ -64,6 +64,7 @@ jest.mock('../../app/ui/multi-window-manager', () => ({
 jest.mock('../../app/ui/window-manager', () => ({
   openSettingsWindow: jest.fn(),
   openWebsiteSelectionWindow: jest.fn(),
+  getNativeInput: jest.fn(),
 }));
 
 jest.mock('../../app/server/eleventy', () => ({
@@ -79,11 +80,22 @@ describe('Menu', () => {
   let mockMultiWindowManager: {
     getHelpWindow: jest.Mock;
     getAllWebsiteWindows: jest.Mock;
+    createHelpWindow: jest.Mock;
+  };
+  let mockWindowManager: {
+    openSettingsWindow: jest.Mock;
+    openWebsiteSelectionWindow: jest.Mock;
+    getNativeInput: jest.Mock;
+  };
+  let mockEleventyServer: {
+    getCurrentLiveServerUrl: jest.Mock;
   };
 
   beforeAll(() => {
     menu = require('../../app/ui/menu');
     mockMultiWindowManager = require('../../app/ui/multi-window-manager');
+    mockWindowManager = require('../../app/ui/window-manager');
+    mockEleventyServer = require('../../app/server/eleventy');
   });
 
   beforeEach(() => {
@@ -301,6 +313,391 @@ describe('Menu', () => {
 
       expect(helpWindowItem).toBeDefined();
       expect(helpWindowItem?.checked).toBe(true);
+    });
+  });
+
+  describe('isWebsiteWindowFocused', () => {
+    it('should return false when no window is focused', () => {
+      mockBrowserWindow.getFocusedWindow.mockReturnValue(null);
+      mockMultiWindowManager.getAllWebsiteWindows.mockReturnValue(new Map());
+
+      // We need to access the internal function indirectly through menu creation
+      // Create a menu template and check if the Export menu item is disabled
+      mockMultiWindowManager.getHelpWindow.mockReturnValue(null);
+
+      const menuInstance = menu.createApplicationMenu();
+      const template = mockMenu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
+      const fileMenu = template.find((item) => item.label === 'File');
+      const exportItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
+        (item) => item.label === 'Export Website...'
+      );
+
+      expect(exportItem?.enabled).toBe(false);
+    });
+
+    it('should return true when focused window is a website window', () => {
+      const websiteWindows = new Map([['site1', mockWebsiteWindow1]]);
+      mockBrowserWindow.getFocusedWindow.mockReturnValue(mockWebsiteWindow1.window);
+      mockMultiWindowManager.getAllWebsiteWindows.mockReturnValue(websiteWindows);
+      mockMultiWindowManager.getHelpWindow.mockReturnValue(null);
+
+      const menuInstance = menu.createApplicationMenu();
+      const template = mockMenu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
+      const fileMenu = template.find((item) => item.label === 'File');
+      const exportItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
+        (item) => item.label === 'Export Website...'
+      );
+
+      expect(exportItem?.enabled).toBe(true);
+    });
+
+    it('should return false when focused window is not a website window', () => {
+      const websiteWindows = new Map([['site1', mockWebsiteWindow1]]);
+      const otherWindow = { id: 'other-window' };
+      mockBrowserWindow.getFocusedWindow.mockReturnValue(otherWindow);
+      mockMultiWindowManager.getAllWebsiteWindows.mockReturnValue(websiteWindows);
+      mockMultiWindowManager.getHelpWindow.mockReturnValue(null);
+
+      const menuInstance = menu.createApplicationMenu();
+      const template = mockMenu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
+      const fileMenu = template.find((item) => item.label === 'File');
+      const exportItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
+        (item) => item.label === 'Export Website...'
+      );
+
+      expect(exportItem?.enabled).toBe(false);
+    });
+  });
+
+  describe('Menu Item Click Handlers', () => {
+    let template: MenuItemConstructorOptions[];
+    let mockBrowserWindowInstance: any;
+    let mockWebContents: any;
+
+    beforeEach(() => {
+      mockBrowserWindowInstance = {
+        webContents: {
+          send: jest.fn(),
+          reloadIgnoringCache: jest.fn(),
+        },
+      };
+      mockWebContents = mockBrowserWindowInstance.webContents;
+
+      mockMultiWindowManager.getHelpWindow.mockReturnValue(null);
+      mockMultiWindowManager.getAllWebsiteWindows.mockReturnValue(new Map());
+
+      menu.createApplicationMenu();
+      template = mockMenu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
+    });
+
+    describe('File Menu', () => {
+      it('should handle Settings click', () => {
+        const anglesiteMenu = template.find((item) => item.label === 'Anglesite');
+        const settingsItem = (anglesiteMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Settings...'
+        );
+
+        expect(settingsItem?.click).toBeDefined();
+        if (settingsItem?.click) {
+          (settingsItem.click as Function)({}, undefined, {});
+        }
+
+        expect(mockWindowManager.openSettingsWindow).toHaveBeenCalled();
+      });
+
+      it('should handle Open Website click', async () => {
+        const fileMenu = template.find((item) => item.label === 'File');
+        const openWebsiteItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Open Website...'
+        );
+
+        expect(openWebsiteItem?.click).toBeDefined();
+        if (openWebsiteItem?.click) {
+          await (openWebsiteItem.click as Function)({}, undefined, {});
+        }
+
+        expect(mockWindowManager.openWebsiteSelectionWindow).toHaveBeenCalled();
+      });
+
+      it('should handle New Website click', async () => {
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+        const fileMenu = template.find((item) => item.label === 'File');
+        const newWebsiteItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'New Website...'
+        );
+
+        expect(newWebsiteItem?.click).toBeDefined();
+        expect(newWebsiteItem?.accelerator).toBe('CmdOrCtrl+N');
+
+        // The click handler contains complex async logic with dynamic imports
+        // We can verify it exists but testing the full flow would require complex mocking
+        expect(typeof newWebsiteItem?.click).toBe('function');
+
+        consoleSpy.mockRestore();
+      });
+
+      it('should handle Open Website Folder click', async () => {
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+        const fileMenu = template.find((item) => item.label === 'File');
+        const openFolderItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Open Website Folder...'
+        );
+
+        expect(openFolderItem?.click).toBeDefined();
+        if (openFolderItem?.click) {
+          await (openFolderItem.click as Function)({}, undefined, {});
+        }
+
+        expect(consoleSpy).toHaveBeenCalledWith('Open Website Folder clicked');
+        consoleSpy.mockRestore();
+      });
+
+      it('should handle Export Website click', () => {
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+        const fileMenu = template.find((item) => item.label === 'File');
+        const exportItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Export Website...'
+        );
+
+        expect(exportItem?.click).toBeDefined();
+        if (exportItem?.click) {
+          (exportItem.click as Function)({}, undefined, {});
+        }
+
+        expect(consoleSpy).toHaveBeenCalledWith('Export Website clicked');
+        consoleSpy.mockRestore();
+      });
+    });
+
+    describe('View Menu', () => {
+      it('should handle Reload click', () => {
+        const viewMenu = template.find((item) => item.label === 'View');
+        const reloadItem = (viewMenu?.submenu as MenuItemConstructorOptions[])?.find((item) => item.label === 'Reload');
+
+        expect(reloadItem?.click).toBeDefined();
+        if (reloadItem?.click) {
+          (reloadItem.click as Function)({}, mockBrowserWindowInstance, {});
+        }
+
+        expect(mockWebContents.send).toHaveBeenCalledWith('reload-preview');
+      });
+
+      it('should handle Force Reload click', () => {
+        const viewMenu = template.find((item) => item.label === 'View');
+        const forceReloadItem = (viewMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Force Reload'
+        );
+
+        expect(forceReloadItem?.click).toBeDefined();
+        if (forceReloadItem?.click) {
+          (forceReloadItem.click as Function)({}, mockBrowserWindowInstance, {});
+        }
+
+        expect(mockWebContents.reloadIgnoringCache).toHaveBeenCalled();
+      });
+
+      it('should handle Toggle Developer Tools click', () => {
+        const viewMenu = template.find((item) => item.label === 'View');
+        const devToolsItem = (viewMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Toggle Developer Tools'
+        );
+
+        expect(devToolsItem?.click).toBeDefined();
+        if (devToolsItem?.click) {
+          (devToolsItem.click as Function)({}, mockBrowserWindowInstance, {});
+        }
+
+        expect(mockWebContents.send).toHaveBeenCalledWith('menu-toggle-devtools');
+      });
+
+      it('should handle View menu clicks with no browser window', () => {
+        const viewMenu = template.find((item) => item.label === 'View');
+        const reloadItem = (viewMenu?.submenu as MenuItemConstructorOptions[])?.find((item) => item.label === 'Reload');
+
+        // Should not throw when no browser window is provided
+        expect(() => {
+          if (reloadItem?.click) {
+            (reloadItem.click as Function)({}, null, {});
+          }
+        }).not.toThrow();
+      });
+
+      it('should handle View menu clicks with browser window without webContents', () => {
+        const browserWindowWithoutWebContents = { someOtherProp: 'value' };
+        const viewMenu = template.find((item) => item.label === 'View');
+        const reloadItem = (viewMenu?.submenu as MenuItemConstructorOptions[])?.find((item) => item.label === 'Reload');
+
+        // Should not throw when browser window doesn't have webContents
+        expect(() => {
+          if (reloadItem?.click) {
+            (reloadItem.click as Function)({}, browserWindowWithoutWebContents, {});
+          }
+        }).not.toThrow();
+      });
+    });
+
+    describe('Server Menu', () => {
+      it('should handle Open in Browser click successfully', async () => {
+        mockEleventyServer.getCurrentLiveServerUrl.mockReturnValue('https://test.example.com:8080');
+        mockShell.openExternal.mockResolvedValue(undefined);
+
+        const serverMenu = template.find((item) => item.label === 'Server');
+        const openInBrowserItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Open in Browser'
+        );
+
+        expect(openInBrowserItem?.click).toBeDefined();
+        if (openInBrowserItem?.click) {
+          await (openInBrowserItem.click as Function)({}, undefined, {});
+        }
+
+        expect(mockShell.openExternal).toHaveBeenCalledWith('https://test.example.com:8080');
+      });
+
+      it('should handle Open in Browser click with fallback to localhost', async () => {
+        mockEleventyServer.getCurrentLiveServerUrl.mockReturnValue('https://mysite.test:8080');
+        mockShell.openExternal
+          .mockRejectedValueOnce(new Error('Failed to open .test domain'))
+          .mockResolvedValueOnce(undefined);
+
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+
+        const serverMenu = template.find((item) => item.label === 'Server');
+        const openInBrowserItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Open in Browser'
+        );
+
+        expect(openInBrowserItem?.click).toBeDefined();
+        if (openInBrowserItem?.click) {
+          await (openInBrowserItem.click as Function)({}, undefined, {});
+        }
+
+        expect(mockShell.openExternal).toHaveBeenCalledWith('https://mysite.test:8080');
+        expect(mockShell.openExternal).toHaveBeenCalledWith('https://localhost:8080');
+        expect(consoleSpy).toHaveBeenCalledWith('Failed to open .test domain, trying localhost');
+
+        consoleSpy.mockRestore();
+      });
+
+      it('should handle Open in Browser click with both attempts failing', async () => {
+        mockEleventyServer.getCurrentLiveServerUrl.mockReturnValue('https://mysite.test:8080');
+        mockShell.openExternal
+          .mockRejectedValueOnce(new Error('Failed to open .test domain'))
+          .mockRejectedValueOnce(new Error('Failed to open localhost'));
+
+        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+        const serverMenu = template.find((item) => item.label === 'Server');
+        const openInBrowserItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Open in Browser'
+        );
+
+        expect(openInBrowserItem?.click).toBeDefined();
+        if (openInBrowserItem?.click) {
+          await (openInBrowserItem.click as Function)({}, undefined, {});
+        }
+
+        expect(consoleSpy).toHaveBeenCalledWith('Failed to open .test domain, trying localhost');
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to open in browser:', expect.any(Error));
+
+        consoleSpy.mockRestore();
+        consoleErrorSpy.mockRestore();
+      });
+
+      it('should handle Copy Server URL click', async () => {
+        mockEleventyServer.getCurrentLiveServerUrl.mockReturnValue('https://localhost:8080');
+
+        const serverMenu = template.find((item) => item.label === 'Server');
+        const copyUrlItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Copy Server URL'
+        );
+
+        expect(copyUrlItem?.click).toBeDefined();
+        if (copyUrlItem?.click) {
+          await (copyUrlItem.click as Function)({}, mockBrowserWindowInstance, {});
+        }
+
+        expect(mockClipboard.writeText).toHaveBeenCalledWith('https://localhost:8080');
+      });
+
+      it('should handle Copy Server URL click with no browser window', async () => {
+        const serverMenu = template.find((item) => item.label === 'Server');
+        const copyUrlItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Copy Server URL'
+        );
+
+        // Should not throw when no browser window is provided
+        expect(async () => {
+          if (copyUrlItem?.click) {
+            await (copyUrlItem.click as Function)({}, null, {});
+          }
+        }).not.toThrow();
+      });
+
+      it('should handle Copy Server URL click with browser window without webContents', async () => {
+        const browserWindowWithoutWebContents = { someOtherProp: 'value' };
+        const serverMenu = template.find((item) => item.label === 'Server');
+        const copyUrlItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Copy Server URL'
+        );
+
+        // Should not throw when browser window doesn't have webContents
+        expect(async () => {
+          if (copyUrlItem?.click) {
+            await (copyUrlItem.click as Function)({}, browserWindowWithoutWebContents, {});
+          }
+        }).not.toThrow();
+      });
+
+      it('should handle Restart Server click', () => {
+        const serverMenu = template.find((item) => item.label === 'Server');
+        const restartServerItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Restart Server'
+        );
+
+        expect(restartServerItem?.click).toBeDefined();
+        if (restartServerItem?.click) {
+          (restartServerItem.click as Function)({}, mockBrowserWindowInstance, {});
+        }
+
+        expect(mockWebContents.send).toHaveBeenCalledWith('restart-server');
+      });
+    });
+
+    describe('Help Menu', () => {
+      it('should handle Anglesite Help click', async () => {
+        const helpMenu = template.find((item) => item.label === 'Help');
+        const anglesiteHelpItem = (helpMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Anglesite Help'
+        );
+
+        expect(anglesiteHelpItem?.click).toBeDefined();
+        if (anglesiteHelpItem?.click) {
+          await (anglesiteHelpItem.click as Function)({}, undefined, {});
+        }
+
+        expect(mockMultiWindowManager.createHelpWindow).toHaveBeenCalled();
+      });
+
+      it('should handle Report Issue click', async () => {
+        mockShell.openExternal.mockResolvedValue(undefined);
+
+        const helpMenu = template.find((item) => item.label === 'Help');
+        const reportIssueItem = (helpMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Report Issue'
+        );
+
+        expect(reportIssueItem?.click).toBeDefined();
+        if (reportIssueItem?.click) {
+          await (reportIssueItem.click as Function)({}, undefined, {});
+        }
+
+        expect(mockShell.openExternal).toHaveBeenCalledWith('https://github.com/anglesite/anglesite/issues');
+      });
     });
   });
 });

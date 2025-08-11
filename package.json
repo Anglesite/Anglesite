@@ -6,7 +6,7 @@
   "scripts": {
     "start": "electron .",
     "build": "npm run build:app && eleventy --config=app/eleventy/.eleventy.js",
-    "build:app": "tsc && cp app/ui/*.html dist/app/ui/ 2>/dev/null || true",
+    "build:app": "tsc && cp app/ui/*.html dist/app/ui/ 2>/dev/null || true && mkdir -p dist/app/ui/templates && cp app/ui/templates/*.html dist/app/ui/templates/ 2>/dev/null || true",
     "serve": "eleventy --config=app/eleventy/.eleventy.js --serve",
     "lint": "eslint . && markdownlint '**/*.md' --ignore node_modules --ignore dist",
     "format": "prettier --write .",
@@ -62,6 +62,8 @@
     "typescript": "^5.5.2"
   },
   "dependencies": {
+    "@types/archiver": "^6.0.3",
+    "archiver": "^7.0.1",
     "hostile": "^1.4.0",
     "native-is-elevated": "^0.7.0",
     "sudo-prompt": "^9.2.1"
