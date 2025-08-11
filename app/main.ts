@@ -41,8 +41,10 @@ async function initializeApp(): Promise<void> {
     await handleFirstLaunch(store);
   }
 
-  // Create the help window as the main window
-  mainWindow = createHelpWindow();
+  // Create the help window only if it should be shown on startup
+  if (store.get('showHelpOnStartup')) {
+    mainWindow = createHelpWindow();
+  }
 
   // Set up the application menu
   const menu = createApplicationMenu();
@@ -65,6 +67,17 @@ async function initializeApp(): Promise<void> {
   await startDefaultServer();
 
   console.log('Anglesite initialization complete - Help window ready');
+
+  // Restore previously open website windows
+  const { restoreWindowStates, getAllWebsiteWindows } = await import('./ui/multi-window-manager');
+  await restoreWindowStates();
+
+  // If no help window was created and no website windows were restored, create a help window
+  if (!mainWindow && getAllWebsiteWindows().size === 0) {
+    console.log('DEBUG: No windows to restore, creating help window');
+    mainWindow = createHelpWindow();
+    store.set('showHelpOnStartup', true);
+  }
 }
 
 /**

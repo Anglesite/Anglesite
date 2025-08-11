@@ -6,6 +6,7 @@ import * as path from 'path';
 import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
 import { updateApplicationMenu } from './menu';
 import { themeManager } from './theme-manager';
+import { Store, WindowState } from '../store';
 
 /**
  * Interface for tracking a website window
@@ -410,9 +411,155 @@ export function getAllWebsiteWindows(): Map<string, WebsiteWindow> {
 }
 
 /**
+ * Save current window states to persistent storage
+ */
+export function saveWindowStates(): void {
+  console.log('DEBUG: Saving window states...');
+  const store = new Store();
+  const windowStates: WindowState[] = [];
+
+  // Save help window state
+  if (helpWindow && !helpWindow.isDestroyed()) {
+    const bounds = helpWindow.getBounds();
+    const isMaximized = helpWindow.isMaximized();
+    
+    store.set('showHelpOnStartup', true);
+    console.log('DEBUG: Help window will be restored');
+  } else {
+    store.set('showHelpOnStartup', false);
+  }
+
+  // Save website window states
+  websiteWindows.forEach((websiteWindow, websiteName) => {
+    if (!websiteWindow.window.isDestroyed()) {
+      const bounds = websiteWindow.window.getBounds();
+      const isMaximized = websiteWindow.window.isMaximized();
+
+      const windowState: WindowState = {
+        websiteName,
+        websitePath: websiteWindow.websitePath,
+        bounds,
+        isMaximized,
+      };
+
+      windowStates.push(windowState);
+      console.log(`DEBUG: Saved state for website window: ${websiteName}`);
+    }
+  });
+
+  store.saveWindowStates(windowStates);
+  console.log(`DEBUG: Saved ${windowStates.length} website window states`);
+}
+
+/**
+ * Restore website windows from saved states
+ */
+export async function restoreWindowStates(): Promise<void> {
+  console.log('DEBUG: Restoring window states...');
+  const store = new Store();
+  const windowStates = store.getWindowStates();
+
+  if (windowStates.length === 0) {
+    console.log('DEBUG: No saved window states found');
+    return;
+  }
+
+  console.log(`DEBUG: Found ${windowStates.length} saved window states`);
+
+  for (const windowState of windowStates) {
+    try {
+      console.log(`DEBUG: Restoring website window: ${windowState.websiteName}`);
+      
+      // Restore the website window
+      await restoreWebsiteWindow(windowState);
+
+      // Restore window bounds and maximized state after a delay to ensure the window is ready
+      setTimeout(() => {
+        const websiteWindow = websiteWindows.get(windowState.websiteName);
+        if (websiteWindow && !websiteWindow.window.isDestroyed() && windowState.bounds) {
+          if (windowState.isMaximized) {
+            websiteWindow.window.maximize();
+          } else {
+            websiteWindow.window.setBounds(windowState.bounds);
+          }
+          console.log(`DEBUG: Restored bounds for ${windowState.websiteName}`);
+        }
+      }, 1000);
+
+    } catch (error) {
+      console.error(`DEBUG: Failed to restore window for ${windowState.websiteName}:`, error);
+    }
+  }
+}
+
+/**
+ * Restore a single website window
+ */
+async function restoreWebsiteWindow(windowState: WindowState): Promise<void> {
+  const { createWebsiteWindow, loadWebsiteContent } = require('./multi-window-manager');
+  const { switchToWebsite, setLiveServerUrl, setCurrentWebsiteName } = await import('../server/eleventy');
+  const { addLocalDnsResolution } = await import('../dns/hosts-manager');
+  const { restartHttpsProxy } = await import('../server/https-proxy');
+  const { getWebsitePath } = await import('../utils/website-manager');
+
+  try {
+    // Get the website path
+    const websitePath = windowState.websitePath || getWebsitePath(windowState.websiteName);
+
+    // Create the window
+    createWebsiteWindow(windowState.websiteName, websitePath);
+
+    // Switch to the website and get the actual port
+    const actualPort = await switchToWebsite(websitePath);
+    console.log('DEBUG: switchToWebsite completed for restored window:', windowState.websiteName, 'on port:', actualPort);
+
+    // Generate test domain and setup DNS
+    const testDomain = `https://${windowState.websiteName}.test:8080`;
+    const hostname = `${windowState.websiteName}.test`;
+
+    await addLocalDnsResolution(hostname);
+
+    // Check user's HTTPS preference
+    const store = new Store();
+    const httpsMode = store.get('httpsMode');
+
+    if (httpsMode === 'https') {
+      // Restart HTTPS proxy for the domain using the actual port
+      const httpsSuccess = await restartHttpsProxy(8080, actualPort, hostname);
+      if (httpsSuccess) {
+        console.log(`Restored website HTTPS server ready at: ${testDomain}`);
+        setLiveServerUrl(testDomain);
+        setCurrentWebsiteName(windowState.websiteName);
+      } else {
+        console.log('HTTPS proxy failed for restored window, continuing with HTTP-only mode');
+        setLiveServerUrl(`http://localhost:${actualPort}`);
+        setCurrentWebsiteName(windowState.websiteName);
+      }
+    } else {
+      console.log('HTTP-only mode by user preference, skipping HTTPS proxy for restored window');
+      setLiveServerUrl(`http://localhost:${actualPort}`);
+      setCurrentWebsiteName(windowState.websiteName);
+    }
+
+    // Load the website content with a delay to ensure everything is ready
+    setTimeout(() => {
+      loadWebsiteContent(windowState.websiteName);
+      console.log(`DEBUG: loadWebsiteContent called for restored window: ${windowState.websiteName}`);
+    }, 1500);
+
+  } catch (error) {
+    console.error(`Failed to restore website window for ${windowState.websiteName}:`, error);
+    throw error;
+  }
+}
+
+/**
  * Close all windows
  */
 export function closeAllWindows(): void {
+  // Save window states before closing
+  saveWindowStates();
+
   if (helpWindow && !helpWindow.isDestroyed()) {
     helpWindow.close();
   }

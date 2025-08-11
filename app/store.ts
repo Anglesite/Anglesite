@@ -9,6 +9,25 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
+ * Interface for persisting website window state
+ */
+export interface WindowState {
+  /** Name of the website */
+  websiteName: string;
+  /** Path to the website directory */
+  websitePath?: string;
+  /** Window bounds */
+  bounds?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
+  /** Whether the window was maximized */
+  isMaximized?: boolean;
+}
+
+/**
  * Application settings interface defining all configurable options
  */
 export interface AppSettings {
@@ -20,6 +39,10 @@ export interface AppSettings {
   firstLaunchCompleted: boolean;
   /** Theme preference: 'system', 'light', 'dark' */
   theme: 'system' | 'light' | 'dark';
+  /** Whether to show the help window on startup */
+  showHelpOnStartup: boolean;
+  /** List of website windows to restore on startup */
+  openWebsiteWindows: WindowState[];
   // Add more settings here as needed
 }
 
@@ -45,6 +68,8 @@ export class Store {
       httpsMode: null,
       firstLaunchCompleted: false,
       theme: 'system',
+      showHelpOnStartup: true,
+      openWebsiteWindows: [],
     });
   }
 
@@ -83,6 +108,29 @@ export class Store {
   setAll(settings: Partial<AppSettings>): void {
     this.data = { ...this.data, ...settings };
     this.saveData();
+  }
+
+  /**
+   * Save current window states
+   * @param {WindowState[]} windowStates - Array of window states to save
+   */
+  saveWindowStates(windowStates: WindowState[]): void {
+    this.set('openWebsiteWindows', windowStates);
+  }
+
+  /**
+   * Get saved window states
+   * @returns {WindowState[]} Array of saved window states
+   */
+  getWindowStates(): WindowState[] {
+    return this.get('openWebsiteWindows');
+  }
+
+  /**
+   * Clear saved window states
+   */
+  clearWindowStates(): void {
+    this.set('openWebsiteWindows', []);
   }
 
   /**
