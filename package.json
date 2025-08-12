@@ -13,8 +13,7 @@
     "format": "prettier --write .",
     "pretest": "tsc",
     "test": "jest",
-    "test:coverage": "jest --coverage --config jest.coverage.config.ts",
-    "test:dark-mode": "jest --coverage --collectCoverageFrom='app/ui/theme-manager.ts' test/ui/dark-mode-*.test.ts"
+    "test:coverage": "jest --coverage --config jest.coverage.config.ts"
   },
   "keywords": [
     "static site generator",

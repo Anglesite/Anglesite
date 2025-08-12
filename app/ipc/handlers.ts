@@ -119,19 +119,16 @@ export function setupIpcMainListeners(): void {
 
   // Export site to folder handler
   ipcMain.on('menu-export-site-folder', async (event) => {
-    console.log('DEBUG: Received menu-export-site-folder IPC message');
     await exportSiteHandler(event, false);
   });
 
   // Export site to zip handler
   ipcMain.on('menu-export-site-zip', async (event) => {
-    console.log('DEBUG: Received menu-export-site-zip IPC message');
     await exportSiteHandler(event, true);
   });
 
   // Website creation handler
   ipcMain.on('new-website', async (event) => {
-    console.log('DEBUG: Received new-website IPC message');
 
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) {
@@ -145,7 +142,6 @@ export function setupIpcMainListeners(): void {
 
       // Keep asking until user provides valid name or cancels
       do {
-        console.log('DEBUG: Getting website name from user using native approach');
 
         let prompt = 'Enter a name for your new website:';
         if (validationError) {
@@ -155,11 +151,9 @@ export function setupIpcMainListeners(): void {
         websiteName = await getNativeInput('New Website', prompt);
 
         if (!websiteName) {
-          console.log('DEBUG: User cancelled website creation');
           return;
         }
 
-        console.log('DEBUG: User provided website name:', websiteName);
 
         // Validate website name
         const validation = validateWebsiteName(websiteName);
@@ -202,7 +196,6 @@ export function setupIpcMainListeners(): void {
 
   // Website listing handler
   ipcMain.handle('list-websites', async () => {
-    console.log('DEBUG: Received list-websites request');
     try {
       const allWebsites = listWebsites();
       const openWebsiteWindows = getAllWebsiteWindows();
@@ -211,9 +204,6 @@ export function setupIpcMainListeners(): void {
       // Filter out websites that are already open
       const availableWebsites = allWebsites.filter((websiteName) => !openWebsiteNames.includes(websiteName));
 
-      console.log('DEBUG: All websites:', allWebsites);
-      console.log('DEBUG: Open websites:', openWebsiteNames);
-      console.log('DEBUG: Available websites:', availableWebsites);
       return availableWebsites;
     } catch (error) {
       console.error('Failed to list websites:', error);
@@ -223,7 +213,6 @@ export function setupIpcMainListeners(): void {
 
   // Website opening handler
   ipcMain.on('open-website', async (event, websiteName: string) => {
-    console.log('DEBUG: Received open-website request for:', websiteName);
 
     try {
       await openWebsiteInNewWindow(websiteName);
@@ -361,7 +350,6 @@ export async function exportSiteHandler(event: IpcMainEvent | null, exportFormat
   // Get window from event or focused window
   const win = event ? BrowserWindow.fromWebContents(event.sender) : BrowserWindow.getFocusedWindow();
   if (!win) {
-    console.log('DEBUG: No window found for export handler');
     return;
   }
 
@@ -380,7 +368,6 @@ export async function exportSiteHandler(event: IpcMainEvent | null, exportFormat
     }
 
     if (!websiteToExport) {
-      console.log('DEBUG: No website selected for export');
       dialog.showMessageBox(win, {
         type: 'info',
         title: 'No Website Selected',
@@ -762,20 +749,17 @@ async function openWebsiteInNewWindow(
   try {
     // Get website path if not provided
     const actualWebsitePath = websitePath || getWebsitePath(websiteName);
-    console.log('DEBUG: Opening website at path:', actualWebsitePath);
 
     // Create a new window for this website
     createWebsiteWindow(websiteName, actualWebsitePath);
 
     // Switch to the selected website and get the actual port
     const actualPort = await switchToWebsite(actualWebsitePath);
-    console.log('DEBUG: switchToWebsite completed for:', websiteName, 'on port:', actualPort);
 
     // Generate test domain and setup DNS
     const testDomain = `https://${websiteName}.test:8080`;
     const hostname = `${websiteName}.test`;
 
-    console.log('DEBUG: generated test domain:', testDomain);
 
     // Setup DNS resolution
     await addLocalDnsResolution(hostname);
@@ -810,7 +794,6 @@ async function openWebsiteInNewWindow(
     const delay = isNewWebsite ? 2500 : 1000;
     setTimeout(() => {
       loadWebsiteContent(websiteName);
-      console.log('DEBUG: loadWebsiteContent called for website window');
     }, delay);
 
     console.log(`Website "${websiteName}" ready in dedicated window`);

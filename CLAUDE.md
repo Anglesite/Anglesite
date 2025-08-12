@@ -22,18 +22,15 @@ This document contains notes and learned information about the Anglesite project
 
 ## Important Scripts
 
-- `npm run build`: Compiles the Eleventy site.
-- `npm run lint`: Runs ESLint for linting TypeScript files.
-- `npm run format`: Runs Prettier for code formatting.
-- `npm run test`: Executes Jest tests.
+- `npm run build:app`: Compiles the Electron application.
+- `npm run lint`: Runs Prettier for code formatting and then ESLint for linting TypeScript files.
+- `npm run test:coverage`: Executes Jest tests.
 - `npm start`: Launches the Electron application.
 
 ## Specific Configurations & Workarounds
 
 - **ESLint Configuration:**
   - Uses `eslint.config.cjs` (CommonJS flat config format) compatible with ESLint v9.
-  - Successfully migrated from ESLint v8 legacy configuration to ESLint v9 flat config system.
-  - TypeScript-ESLint v8.39.0+ provides full ESLint v9 support.
 - **Jest Test Environment:**
   - `jest.config.ts` is configured to use `jsdom` for tests that interact with the DOM (e.g., `test/renderer.test.ts`).
   - `jest-environment-jsdom` is installed as a separate dependency.
@@ -47,7 +44,7 @@ This document contains notes and learned information about the Anglesite project
 
 ## Development Workflow Notes
 
-- **TypeScript Compilation:** `npx tsc` is used to compile TypeScript files, which are prefered over JavaScript.
-- **Testing Strategy:** Tests are written for Eleventy configuration, Electron main process logic (including `live-server` management and build triggering), and renderer process interactions.
+- **TypeScript Compilation:** `npx tsc` is used to compile TypeScript files.
+- **Testing Strategy:** Tests are written for all code files with an expected global coverage of 90% for statments, branches, lines, and functions. Use `npm run test:coverage` when running tests.
 - **JSDoc:** Full JSDoc comments have been added to all TypeScript files. Make heavy use of `@see` directives to link to the offical documentation or RFC.
-- **Node Packages:** When adding features use NPM packages rather than shell scripts or AppleScripts. This is especially true when there are NPM packages tagged 'electron' that will solve a problem.
+- **Node Packages:** When adding features use NPM packages when availible for logic, API bridges, and cross-platform user experiences.

@@ -441,14 +441,12 @@ export function getAllWebsiteWindows(): Map<string, WebsiteWindow> {
  * Save current window states to persistent storage.
  */
 export function saveWindowStates(): void {
-  console.log('DEBUG: Saving window states...');
   const store = new Store();
   const windowStates: WindowState[] = [];
 
   // Save help window state
   if (helpWindow && !helpWindow.isDestroyed()) {
     store.set('showHelpOnStartup', true);
-    console.log('DEBUG: Help window will be restored');
   } else {
     store.set('showHelpOnStartup', false);
   }
@@ -467,32 +465,26 @@ export function saveWindowStates(): void {
       };
 
       windowStates.push(windowState);
-      console.log(`DEBUG: Saved state for website window: ${websiteName}`);
     }
   });
 
   store.saveWindowStates(windowStates);
-  console.log(`DEBUG: Saved ${windowStates.length} website window states`);
 }
 
 /**
  * Restore website windows from saved states.
  */
 export async function restoreWindowStates(): Promise<void> {
-  console.log('DEBUG: Restoring window states...');
   const store = new Store();
   const windowStates = store.getWindowStates();
 
   if (windowStates.length === 0) {
-    console.log('DEBUG: No saved window states found');
     return;
   }
 
-  console.log(`DEBUG: Found ${windowStates.length} saved window states`);
 
   for (const windowState of windowStates) {
     try {
-      console.log(`DEBUG: Restoring website window: ${windowState.websiteName}`);
 
       // Restore the website window
       await restoreWebsiteWindow(windowState);

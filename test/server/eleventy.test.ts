@@ -1,0 +1,492 @@
+/**
+ * @file Tests for Eleventy server management
+ */
+import {
+  getCurrentLiveServerUrl,
+  isLiveServerReady,
+  setLiveServerUrl,
+  getCurrentWebsiteName,
+  setCurrentWebsiteName,
+  generateTestDomain,
+  getHostnameFromTestDomain,
+  cleanupEleventyServer,
+  startEleventyServer,
+  stopEleventyServer,
+  switchToWebsite,
+  startDefaultEleventyServer,
+} from '../../app/server/eleventy';
+import { spawn } from 'child_process';
+import { EventEmitter } from 'events';
+
+// Mock child_process
+jest.mock('child_process');
+
+const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
+
+describe('Eleventy Server Management', () => {
+  let mockProcess: any;
+  let consoleLogSpy: jest.SpyInstance;
+  let consoleErrorSpy: jest.SpyInstance;
+  let consoleWarnSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    jest.useFakeTimers();
+    
+    // Spy on console methods
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
+    
+    // Create mock process
+    mockProcess = new EventEmitter();
+    mockProcess.stdout = new EventEmitter();
+    mockProcess.stderr = new EventEmitter();
+    mockProcess.kill = jest.fn();
+    
+    mockSpawn.mockReturnValue(mockProcess as any);
+    
+    // Reset server state
+    setLiveServerUrl('https://localhost:8080');
+    setCurrentWebsiteName('anglesite');
+  });
+
+  afterEach(() => {
+    jest.useRealTimers();
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+    consoleWarnSpy.mockRestore();
+  });
+
+  describe('URL and state management', () => {
+    it('should get and set live server URL', () => {
+      const testUrl = 'https://test.example.com:3000';
+      setLiveServerUrl(testUrl);
+      expect(getCurrentLiveServerUrl()).toBe(testUrl);
+    });
+
+    it('should track server ready state', () => {
+      // Setting URL should mark server as ready
+      setLiveServerUrl('https://localhost:8080');
+      expect(isLiveServerReady()).toBe(true);
+    });
+
+    it('should get and set current website name', () => {
+      const testName = 'my-test-website';
+      setCurrentWebsiteName(testName);
+      expect(getCurrentWebsiteName()).toBe(testName);
+    });
+  });
+
+  describe('Test domain generation', () => {
+    it('should generate test domain URLs', () => {
+      const websiteName = 'my-blog';
+      const testDomain = generateTestDomain(websiteName);
+      expect(testDomain).toBe('https://my-blog.test:8080');
+    });
+
+    it('should generate test domains for different website names', () => {
+      expect(generateTestDomain('portfolio')).toBe('https://portfolio.test:8080');
+      expect(generateTestDomain('company-site')).toBe('https://company-site.test:8080');
+      expect(generateTestDomain('docs')).toBe('https://docs.test:8080');
+    });
+  });
+
+  describe('Hostname extraction', () => {
+    it('should extract hostname from test domain URL', () => {
+      const testDomain = 'https://my-blog.test:8080';
+      const hostname = getHostnameFromTestDomain(testDomain);
+      expect(hostname).toBe('my-blog.test');
+    });
+
+    it('should extract hostname from different URLs', () => {
+      expect(getHostnameFromTestDomain('https://portfolio.test:8080')).toBe('portfolio.test');
+      expect(getHostnameFromTestDomain('http://localhost:3000')).toBe('localhost');
+      expect(getHostnameFromTestDomain('https://example.com')).toBe('example.com');
+    });
+
+    it('should handle invalid URLs gracefully', () => {
+      const invalidUrl = 'not-a-valid-url';
+      const hostname = getHostnameFromTestDomain(invalidUrl);
+      expect(hostname).toBe('localhost');
+    });
+
+    it('should handle malformed URLs', () => {
+      expect(getHostnameFromTestDomain('')).toBe('localhost');
+      expect(getHostnameFromTestDomain('://')).toBe('localhost');
+      expect(getHostnameFromTestDomain('http://')).toBe('localhost');
+    });
+  });
+
+  describe('Server cleanup', () => {
+    it('should provide cleanup function', () => {
+      expect(typeof cleanupEleventyServer).toBe('function');
+
+      // Should not throw when called
+      expect(() => {
+        cleanupEleventyServer();
+      }).not.toThrow();
+    });
+  });
+
+  describe('Integration scenarios', () => {
+    it('should handle website switching workflow', () => {
+      const websiteName = 'new-project';
+      const testDomain = generateTestDomain(websiteName);
+      const hostname = getHostnameFromTestDomain(testDomain);
+
+      setCurrentWebsiteName(websiteName);
+      setLiveServerUrl(testDomain);
+
+      expect(getCurrentWebsiteName()).toBe(websiteName);
+      expect(getCurrentLiveServerUrl()).toBe(testDomain);
+      expect(hostname).toBe(`${websiteName}.test`);
+      expect(isLiveServerReady()).toBe(true);
+    });
+
+    it('should handle default Anglesite setup', () => {
+      setCurrentWebsiteName('anglesite');
+      setLiveServerUrl('https://anglesite.test:8080');
+
+      expect(getCurrentWebsiteName()).toBe('anglesite');
+      expect(getCurrentLiveServerUrl()).toBe('https://anglesite.test:8080');
+      expect(isLiveServerReady()).toBe(true);
+    });
+  });
+
+  describe('Server lifecycle', () => {
+    describe('startEleventyServer', () => {
+      it('should start Eleventy server with default parameters', () => {
+        startEleventyServer();
+
+        expect(mockSpawn).toHaveBeenCalledWith(
+          'npx',
+          ['eleventy', '--config=app/eleventy/.eleventy.js', '--input="docs"', '--serve', '--port=8081', '--quiet'],
+          {
+            cwd: process.cwd(),
+            shell: true,
+          }
+        );
+        expect(consoleLogSpy).toHaveBeenCalledWith('Starting Eleventy server for: docs');
+      });
+
+      it('should start Eleventy server with custom parameters', () => {
+        startEleventyServer('custom-dir', 9000);
+
+        expect(mockSpawn).toHaveBeenCalledWith(
+          'npx',
+          ['eleventy', '--config=app/eleventy/.eleventy.js', '--input="custom-dir"', '--serve', '--port=9000', '--quiet'],
+          {
+            cwd: process.cwd(),
+            shell: true,
+          }
+        );
+        expect(consoleLogSpy).toHaveBeenCalledWith('Starting Eleventy server for: custom-dir');
+      });
+
+      it('should stop existing server before starting new one', () => {
+        // Start first server
+        startEleventyServer();
+        const firstProcess = mockProcess;
+        
+        // Create new mock process for second server
+        const secondMockProcess: any = new EventEmitter();
+        secondMockProcess.stdout = new EventEmitter();
+        secondMockProcess.stderr = new EventEmitter();
+        secondMockProcess.kill = jest.fn();
+        mockSpawn.mockReturnValue(secondMockProcess as any);
+        
+        // Start second server
+        startEleventyServer('different-dir');
+
+        expect(firstProcess.kill).toHaveBeenCalledWith('SIGTERM');
+        expect(mockSpawn).toHaveBeenCalledTimes(2);
+      });
+
+      it('should handle server ready message from stdout', () => {
+        const onReady = jest.fn();
+        startEleventyServer('docs', 8081, onReady);
+
+        // Simulate Eleventy output
+        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
+
+        expect(consoleLogSpy).toHaveBeenCalledWith('Eleventy HTTP server URL detected: http://localhost:8081');
+        expect(onReady).toHaveBeenCalledWith('http://localhost:8081');
+        expect(isLiveServerReady()).toBe(true);
+      });
+
+      it('should handle server ready message from stderr', () => {
+        const onReady = jest.fn();
+        startEleventyServer('docs', 8081, onReady);
+
+        // Simulate Eleventy output in stderr
+        mockProcess.stderr.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
+
+        expect(consoleLogSpy).toHaveBeenCalledWith('Eleventy HTTP server URL detected in stderr: http://localhost:8081');
+        expect(onReady).toHaveBeenCalledWith('http://localhost:8081');
+        expect(isLiveServerReady()).toBe(true);
+      });
+
+      it('should handle error messages from stderr', () => {
+        const onError = jest.fn();
+        startEleventyServer('docs', 8081, undefined, onError);
+
+        // Simulate error output
+        mockProcess.stderr.emit('data', Buffer.from('Error: Something went wrong'));
+
+        expect(consoleErrorSpy).toHaveBeenCalledWith('eleventy error: Error: Something went wrong');
+        expect(onError).toHaveBeenCalledWith('Error: Something went wrong');
+      });
+
+      it('should handle non-error stderr output', () => {
+        startEleventyServer();
+
+        // Simulate non-error stderr output
+        mockProcess.stderr.emit('data', Buffer.from('Some informational message\n'));
+
+        expect(consoleLogSpy).toHaveBeenCalledWith('eleventy stderr: Some informational message');
+        expect(consoleErrorSpy).not.toHaveBeenCalled();
+      });
+
+      it('should handle process close event', () => {
+        startEleventyServer();
+
+        mockProcess.emit('close', 0);
+
+        expect(consoleLogSpy).toHaveBeenCalledWith('eleventy process exited with code 0');
+        expect(isLiveServerReady()).toBe(false);
+      });
+
+      it('should use fallback timeout when server does not start', () => {
+        const onReady = jest.fn();
+        startEleventyServer('docs', 8081, onReady);
+
+        // Advance timer to trigger fallback
+        jest.advanceTimersByTime(2000);
+
+        expect(consoleLogSpy).toHaveBeenCalledWith('Eleventy server URL (fallback): http://localhost:8081');
+        expect(onReady).toHaveBeenCalledWith('http://localhost:8081');
+        expect(isLiveServerReady()).toBe(true);
+      });
+
+      it('should not trigger fallback if server already ready', () => {
+        const onReady = jest.fn();
+        startEleventyServer('docs', 8081, onReady);
+
+        // Mark server as ready
+        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
+        
+        // Clear the mock calls
+        onReady.mockClear();
+        
+        // Advance timer
+        jest.advanceTimersByTime(2000);
+
+        // Should not call onReady again
+        expect(onReady).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('stopEleventyServer', () => {
+      it('should stop running server', () => {
+        // Start server first
+        startEleventyServer();
+        
+        stopEleventyServer();
+
+        expect(consoleLogSpy).toHaveBeenCalledWith('Stopping Eleventy server');
+        expect(mockProcess.kill).toHaveBeenCalledWith('SIGTERM');
+        expect(isLiveServerReady()).toBe(false);
+      });
+
+      it('should handle kill error gracefully', () => {
+        startEleventyServer();
+        mockProcess.kill.mockImplementation(() => {
+          throw new Error('Kill failed');
+        });
+
+        stopEleventyServer();
+
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Error stopping Eleventy server:', expect.any(Error));
+      });
+
+      it('should handle stopping when no server is running', () => {
+        stopEleventyServer();
+
+        // Should not throw and not attempt to kill
+        expect(mockProcess.kill).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('switchToWebsite', () => {
+      it('should switch to new website successfully', async () => {
+        const websitePath = '/path/to/website';
+        
+        // Start the switch
+        const switchPromise = switchToWebsite(websitePath);
+        
+        // Immediately simulate server ready
+        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
+
+        const port = await switchPromise;
+
+        expect(consoleLogSpy).toHaveBeenCalledWith('Switching to website at:', websitePath);
+        expect(consoleLogSpy).toHaveBeenCalledWith('New website HTTP server ready at: http://localhost:8081');
+        expect(port).toBe(8081);
+      });
+
+      it('should handle server start error', async () => {
+        const websitePath = '/path/to/website';
+        
+        // Start the switch
+        const switchPromise = switchToWebsite(websitePath);
+        
+        // Immediately simulate server error
+        mockProcess.stderr.emit('data', Buffer.from('Error: Failed to start'));
+
+        await expect(switchPromise).rejects.toThrow('Error: Failed to start');
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to start server for new website:', 'Error: Failed to start');
+      });
+
+      it('should extract port from URL correctly', async () => {
+        const websitePath = '/path/to/website';
+        
+        const switchPromise = switchToWebsite(websitePath);
+        
+        // Immediately simulate server ready with different port
+        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:9000/'));
+
+        const port = await switchPromise;
+        expect(port).toBe(9000);
+      });
+    });
+
+    describe('startDefaultEleventyServer', () => {
+      it('should start default server with HTTPS mode', async () => {
+        const mockMainWindow = {} as any;
+        const mockAddLocalDnsResolution = jest.fn().mockResolvedValue(undefined);
+        const mockCreateHttpsProxy = jest.fn().mockResolvedValue(true);
+        const mockAutoLoadPreview = jest.fn();
+
+        startDefaultEleventyServer(
+          'https',
+          mockMainWindow,
+          mockAddLocalDnsResolution,
+          mockCreateHttpsProxy,
+          mockAutoLoadPreview
+        );
+
+        // Immediately simulate server ready
+        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
+
+        // Wait for multiple async operations to complete
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(mockAddLocalDnsResolution).toHaveBeenCalledWith('anglesite.test');
+        expect(mockCreateHttpsProxy).toHaveBeenCalledWith(8080, 8081, 'anglesite.test');
+        expect(getCurrentLiveServerUrl()).toBe('https://anglesite.test:8080');
+        expect(getCurrentWebsiteName()).toBe('anglesite');
+        expect(mockAutoLoadPreview).toHaveBeenCalledWith(mockMainWindow);
+      });
+
+      it('should handle HTTPS proxy failure', async () => {
+        const mockMainWindow = {} as any;
+        const mockAddLocalDnsResolution = jest.fn().mockResolvedValue(undefined);
+        const mockCreateHttpsProxy = jest.fn().mockResolvedValue(false);
+        const mockAutoLoadPreview = jest.fn();
+
+        startDefaultEleventyServer(
+          'https',
+          mockMainWindow,
+          mockAddLocalDnsResolution,
+          mockCreateHttpsProxy,
+          mockAutoLoadPreview
+        );
+
+        // Immediately simulate server ready
+        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
+
+        // Wait for multiple async operations to complete
+        await Promise.resolve();
+        await Promise.resolve();
+        await Promise.resolve();
+
+        expect(mockCreateHttpsProxy).toHaveBeenCalled();
+        expect(getCurrentLiveServerUrl()).toBe('http://localhost:8081');
+        expect(consoleLogSpy).toHaveBeenCalledWith('⚠️  HTTPS proxy failed, falling back to HTTP mode');
+        expect(mockAutoLoadPreview).toHaveBeenCalledWith(mockMainWindow);
+      });
+
+      it('should start default server with HTTP mode', async () => {
+        const mockMainWindow = {} as any;
+        const mockAddLocalDnsResolution = jest.fn().mockResolvedValue(undefined);
+        const mockCreateHttpsProxy = jest.fn();
+        const mockAutoLoadPreview = jest.fn();
+
+        startDefaultEleventyServer(
+          'http',
+          mockMainWindow,
+          mockAddLocalDnsResolution,
+          mockCreateHttpsProxy,
+          mockAutoLoadPreview
+        );
+
+        // Immediately simulate server ready
+        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
+
+        // Wait for async operations to complete
+        await Promise.resolve();
+
+        expect(mockAddLocalDnsResolution).toHaveBeenCalledWith('anglesite.test');
+        expect(mockCreateHttpsProxy).not.toHaveBeenCalled();
+        expect(getCurrentLiveServerUrl()).toBe('http://localhost:8081');
+        expect(consoleLogSpy).toHaveBeenCalledWith('✅ Eleventy server is ready (HTTP-only mode by user preference)');
+        expect(mockAutoLoadPreview).toHaveBeenCalledWith(mockMainWindow);
+      });
+
+      it('should handle null main window gracefully', async () => {
+        const mockAddLocalDnsResolution = jest.fn().mockResolvedValue(undefined);
+        const mockCreateHttpsProxy = jest.fn().mockResolvedValue(true);
+        const mockAutoLoadPreview = jest.fn();
+
+        startDefaultEleventyServer(
+          'https',
+          null,
+          mockAddLocalDnsResolution,
+          mockCreateHttpsProxy,
+          mockAutoLoadPreview
+        );
+
+        // Immediately simulate server ready
+        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
+
+        // Wait for async operations to complete
+        await Promise.resolve();
+
+        expect(mockAutoLoadPreview).not.toHaveBeenCalled();
+      });
+
+      it('should handle server error', () => {
+        const mockMainWindow = {} as any;
+        const mockAddLocalDnsResolution = jest.fn();
+        const mockCreateHttpsProxy = jest.fn();
+        const mockAutoLoadPreview = jest.fn();
+
+        startDefaultEleventyServer(
+          'https',
+          mockMainWindow,
+          mockAddLocalDnsResolution,
+          mockCreateHttpsProxy,
+          mockAutoLoadPreview
+        );
+
+        // Simulate server error
+        mockProcess.stderr.emit('data', Buffer.from('Error: Server failed'));
+
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Eleventy server error:', 'Error: Server failed');
+      });
+    });
+  });
+});

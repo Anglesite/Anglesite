@@ -1,0 +1,445 @@
+/**
+ * @file Tests for renderer wrapper functionality
+ * @jest-environment jsdom
+ */
+
+import {
+  executeRendererInitialization,
+  registerShowWebsiteNameInputListener,
+  setupButtonEventHandlers,
+  registerMenuEventListeners,
+  setupDOMContentLoadedHandler
+} from '../../app/renderer-wrapper';
+
+// Mock globals
+const mockElectronAPI = {
+  send: jest.fn(),
+  on: jest.fn(),
+};
+
+const mockPrompt = jest.fn();
+const originalConsoleLog = console.log;
+const originalConsoleError = console.error;
+
+describe('Renderer Wrapper Tests', () => {
+  let consoleLogSpy: jest.SpyInstance;
+  let consoleErrorSpy: jest.SpyInstance;
+
+  beforeEach(() => {
+    jest.clearAllMocks();
+    
+    // Clear DOM
+    document.body.innerHTML = '';
+    
+    // Mock window.electronAPI
+    (window as any).electronAPI = mockElectronAPI;
+    (window as any).prompt = mockPrompt;
+    
+    // Reset mocks
+    mockElectronAPI.send.mockClear();
+    mockElectronAPI.on.mockClear();
+    mockPrompt.mockClear();
+    
+    // Spy on console methods
+    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
+    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+  });
+
+  afterEach(() => {
+    consoleLogSpy.mockRestore();
+    consoleErrorSpy.mockRestore();
+  });
+
+  describe('executeRendererInitialization', () => {
+    it('should send renderer-loaded message when electronAPI is available', () => {
+      executeRendererInitialization();
+
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('renderer-loaded', 'Renderer is working!');
+    });
+
+    it('should not send message when electronAPI is unavailable', () => {
+      (window as any).electronAPI = undefined;
+
+      executeRendererInitialization();
+
+      expect(mockElectronAPI.send).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('registerShowWebsiteNameInputListener', () => {
+    it('should register listener when electronAPI is available', () => {
+      registerShowWebsiteNameInputListener();
+
+      expect(mockElectronAPI.on).toHaveBeenCalledWith('show-website-name-input', expect.any(Function));
+    });
+
+    it('should handle missing electronAPI', () => {
+      (window as any).electronAPI = undefined;
+
+      registerShowWebsiteNameInputListener();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('No electronAPI available');
+    });
+
+    it('should handle electronAPI without on method', () => {
+      (window as any).electronAPI = { send: jest.fn() };
+
+      registerShowWebsiteNameInputListener();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('No electronAPI available');
+    });
+
+    it('should handle listener registration error', () => {
+      mockElectronAPI.on.mockImplementation(() => {
+        throw new Error('Registration failed');
+      });
+
+      registerShowWebsiteNameInputListener();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('Error setting up listener:', expect.any(Error));
+    });
+
+    it('should handle website name input correctly', () => {
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'show-website-name-input') {
+          handler = callback;
+        }
+      });
+
+      registerShowWebsiteNameInputListener();
+
+      // Test valid input
+      mockPrompt.mockReturnValue('My New Website');
+      handler!();
+
+      expect(mockPrompt).toHaveBeenCalledWith('Enter a name for your new website:', 'My Website');
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('create-website-with-name', 'My New Website');
+    });
+
+    it('should trim whitespace from website name', () => {
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'show-website-name-input') {
+          handler = callback;
+        }
+      });
+
+      registerShowWebsiteNameInputListener();
+
+      mockPrompt.mockReturnValue('  Spaced Website  ');
+      handler!();
+
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('create-website-with-name', 'Spaced Website');
+    });
+
+    it('should handle cancelled prompt', () => {
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'show-website-name-input') {
+          handler = callback;
+        }
+      });
+
+      registerShowWebsiteNameInputListener();
+
+      mockPrompt.mockReturnValue(null);
+      handler!();
+
+      expect(mockElectronAPI.send).not.toHaveBeenCalledWith('create-website-with-name', expect.any(String));
+    });
+
+    it('should handle empty website name', () => {
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'show-website-name-input') {
+          handler = callback;
+        }
+      });
+
+      registerShowWebsiteNameInputListener();
+
+      mockPrompt.mockReturnValue('');
+      handler!();
+
+      expect(mockElectronAPI.send).not.toHaveBeenCalledWith('create-website-with-name', expect.any(String));
+    });
+
+    it('should handle whitespace-only website name', () => {
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'show-website-name-input') {
+          handler = callback;
+        }
+      });
+
+      registerShowWebsiteNameInputListener();
+
+      mockPrompt.mockReturnValue('   ');
+      handler!();
+
+      expect(mockElectronAPI.send).not.toHaveBeenCalledWith('create-website-with-name', expect.any(String));
+    });
+  });
+
+  describe('setupButtonEventHandlers', () => {
+    beforeEach(() => {
+      document.body.innerHTML = `
+        <button id="new-website">New Website</button>
+        <button id="preview">Preview</button>
+        <button id="open-browser">Open Browser</button>
+        <button id="reload">Reload</button>
+        <button id="devtools">DevTools</button>
+      `;
+    });
+
+    it('should set up all button event handlers', () => {
+      setupButtonEventHandlers();
+
+      // Test new website button
+      const newWebsiteButton = document.getElementById('new-website');
+      newWebsiteButton?.click();
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('new-website');
+
+      // Test preview button
+      const previewButton = document.getElementById('preview');
+      previewButton?.click();
+      expect(consoleLogSpy).toHaveBeenCalledWith('Preview button clicked');
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('preview');
+
+      // Test open browser button
+      const openBrowserButton = document.getElementById('open-browser');
+      openBrowserButton?.click();
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('open-browser');
+
+      // Test reload button
+      const reloadButton = document.getElementById('reload');
+      reloadButton?.click();
+      expect(consoleLogSpy).toHaveBeenCalledWith('Reload button clicked');
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('reload-preview');
+
+      // Test devtools button
+      const devToolsButton = document.getElementById('devtools');
+      devToolsButton?.click();
+      expect(consoleLogSpy).toHaveBeenCalledWith('DevTools button clicked - sending IPC message');
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('toggle-devtools');
+      expect(consoleLogSpy).toHaveBeenCalledWith('IPC message sent');
+    });
+
+    it('should handle missing devtools button', () => {
+      // Remove devtools button
+      document.body.innerHTML = `
+        <button id="preview">Preview</button>
+      `;
+
+      setupButtonEventHandlers();
+
+      expect(consoleErrorSpy).toHaveBeenCalledWith('DevTools button not found!');
+    });
+
+    it('should handle missing buttons gracefully', () => {
+      document.body.innerHTML = '<div>No buttons</div>';
+
+      // Should not throw
+      expect(() => setupButtonEventHandlers()).not.toThrow();
+    });
+  });
+
+  describe('registerMenuEventListeners', () => {
+    beforeEach(() => {
+      document.body.innerHTML = `
+        <button id="reload">Reload</button>
+        <button id="devtools">DevTools</button>
+      `;
+    });
+
+    it('should register all menu event listeners', () => {
+      registerMenuEventListeners();
+
+      expect(mockElectronAPI.on).toHaveBeenCalledWith('preview-loaded', expect.any(Function));
+      expect(mockElectronAPI.on).toHaveBeenCalledWith('menu-new-website', expect.any(Function));
+      expect(mockElectronAPI.on).toHaveBeenCalledWith('trigger-new-website', expect.any(Function));
+      expect(mockElectronAPI.on).toHaveBeenCalledWith('menu-reload', expect.any(Function));
+      expect(mockElectronAPI.on).toHaveBeenCalledWith('menu-toggle-devtools', expect.any(Function));
+      expect(mockElectronAPI.on).toHaveBeenCalledWith('menu-export-site', expect.any(Function));
+    });
+
+    it('should handle preview-loaded event', () => {
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'preview-loaded') {
+          handler = callback;
+        }
+      });
+
+      registerMenuEventListeners();
+      handler!();
+
+      expect(consoleLogSpy).toHaveBeenCalledWith('Preview BrowserView loaded');
+    });
+
+    it('should handle menu-new-website event', () => {
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'menu-new-website') {
+          handler = callback;
+        }
+      });
+
+      registerMenuEventListeners();
+      handler!();
+
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('new-website');
+    });
+
+    it('should handle trigger-new-website event', () => {
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'trigger-new-website') {
+          handler = callback;
+        }
+      });
+
+      registerMenuEventListeners();
+      handler!();
+
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('new-website');
+    });
+
+    it('should handle menu-reload event', () => {
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'menu-reload') {
+          handler = callback;
+        }
+      });
+
+      registerMenuEventListeners();
+
+      const reloadButton = document.getElementById('reload');
+      const clickSpy = jest.spyOn(reloadButton!, 'click');
+
+      handler!();
+      expect(clickSpy).toHaveBeenCalled();
+    });
+
+    it('should handle menu-reload event when button not found', () => {
+      document.getElementById('reload')?.remove();
+
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'menu-reload') {
+          handler = callback;
+        }
+      });
+
+      registerMenuEventListeners();
+
+      // Should not throw
+      expect(() => handler!()).not.toThrow();
+    });
+
+    it('should handle menu-toggle-devtools event', () => {
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'menu-toggle-devtools') {
+          handler = callback;
+        }
+      });
+
+      registerMenuEventListeners();
+
+      const devToolsButton = document.getElementById('devtools');
+      const clickSpy = jest.spyOn(devToolsButton!, 'click');
+
+      handler!();
+      expect(clickSpy).toHaveBeenCalled();
+    });
+
+    it('should handle menu-toggle-devtools event when button not found', () => {
+      document.getElementById('devtools')?.remove();
+
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'menu-toggle-devtools') {
+          handler = callback;
+        }
+      });
+
+      registerMenuEventListeners();
+
+      // Should not throw
+      expect(() => handler!()).not.toThrow();
+    });
+
+    it('should handle menu-export-site event', () => {
+      let handler: Function;
+      mockElectronAPI.on.mockImplementation((event, callback) => {
+        if (event === 'menu-export-site') {
+          handler = callback;
+        }
+      });
+
+      registerMenuEventListeners();
+      handler!();
+
+      expect(consoleLogSpy).toHaveBeenCalledWith('Export site requested from menu');
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('export-site');
+    });
+  });
+
+  describe('setupDOMContentLoadedHandler', () => {
+    it('should set up DOMContentLoaded handler', () => {
+      setupDOMContentLoadedHandler();
+
+      // Trigger DOMContentLoaded event
+      const event = new Event('DOMContentLoaded');
+      window.dispatchEvent(event);
+
+      // The handler should run without errors
+      expect(() => window.dispatchEvent(event)).not.toThrow();
+    });
+  });
+
+  describe('Integration scenarios', () => {
+    it('should work with all functions together', () => {
+      document.body.innerHTML = `
+        <div class="top-bar">
+          <button id="new-website">New Website</button>
+          <button id="preview">Preview</button>
+          <button id="reload">Reload</button>
+          <button id="devtools">DevTools</button>
+        </div>
+      `;
+
+      // Initialize all functions
+      executeRendererInitialization();
+      registerShowWebsiteNameInputListener();
+      setupButtonEventHandlers();
+      registerMenuEventListeners();
+      setupDOMContentLoadedHandler();
+
+      // Verify initialization
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('renderer-loaded', 'Renderer is working!');
+      
+      // Verify listeners registered
+      expect(mockElectronAPI.on).toHaveBeenCalledWith('show-website-name-input', expect.any(Function));
+      expect(mockElectronAPI.on).toHaveBeenCalledWith('preview-loaded', expect.any(Function));
+      
+      // Test button functionality
+      const previewButton = document.getElementById('preview');
+      previewButton?.click();
+      expect(mockElectronAPI.send).toHaveBeenCalledWith('preview');
+
+      // Test DOMContentLoaded
+      const event = new Event('DOMContentLoaded');
+      expect(() => window.dispatchEvent(event)).not.toThrow();
+    });
+  });
+});
+
+// Restore console methods
+afterAll(() => {
+  console.log = originalConsoleLog;
+  console.error = originalConsoleError;
+});

@@ -57,9 +57,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'trigger-new-website',
     ];
     if (validChannels.includes(channel)) {
-      console.log(`DEBUG PRELOAD: Setting up listener for channel: ${channel}`);
       ipcRenderer.on(channel, (_event, ...args) => {
-        console.log(`DEBUG PRELOAD: Received message on channel: ${channel}`, ...args);
         func(...args);
       });
     }

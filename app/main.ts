@@ -74,7 +74,6 @@ async function initializeApp(): Promise<void> {
 
   // If no help window was created and no website windows were restored, create a help window
   if (!mainWindow && getAllWebsiteWindows().size === 0) {
-    console.log('DEBUG: No windows to restore, creating help window');
     mainWindow = createHelpWindow();
     store.set('showHelpOnStartup', true);
   }

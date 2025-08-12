@@ -168,7 +168,6 @@ export function createApplicationMenu(): Menu {
               label: 'Folder…',
               accelerator: 'CmdOrCtrl+E',
               click: async () => {
-                console.log('DEBUG: Export to Folder menu clicked');
                 const { exportSiteHandler } = await import('../ipc/handlers');
                 await exportSiteHandler(null, false);
               },
@@ -177,7 +176,6 @@ export function createApplicationMenu(): Menu {
               label: 'Zip Archive…',
               accelerator: 'CmdOrCtrl+Shift+E',
               click: async () => {
-                console.log('DEBUG: Export to Zip menu clicked');
                 const { exportSiteHandler } = await import('../ipc/handlers');
                 await exportSiteHandler(null, true);
               },
@@ -186,7 +184,6 @@ export function createApplicationMenu(): Menu {
               label: 'BagIt Archive…',
               accelerator: 'CmdOrCtrl+Alt+E',
               click: async () => {
-                console.log('DEBUG: Export to BagIt menu clicked');
                 const { exportSiteHandler } = await import('../ipc/handlers');
                 await exportSiteHandler(null, 'bagit');
               },

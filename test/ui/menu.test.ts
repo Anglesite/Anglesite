@@ -460,8 +460,6 @@ describe('Menu', () => {
       });
 
       it('should handle Export to Folder click', async () => {
-        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-
         const fileMenu = template.find((item) => item.label === 'File');
         const exportToItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
           (item) => item.label === 'Export To'
@@ -477,13 +475,10 @@ describe('Menu', () => {
           )({}, undefined, {});
         }
 
-        expect(consoleSpy).toHaveBeenCalledWith('DEBUG: Export to Folder menu clicked');
-        consoleSpy.mockRestore();
+        expect(mockExportSiteHandler).toHaveBeenCalledWith(null, false);
       });
 
       it('should handle Export to Zip click', async () => {
-        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-
         const fileMenu = template.find((item) => item.label === 'File');
         const exportToItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
           (item) => item.label === 'Export To'
@@ -501,8 +496,7 @@ describe('Menu', () => {
           );
         }
 
-        expect(consoleSpy).toHaveBeenCalledWith('DEBUG: Export to Zip menu clicked');
-        consoleSpy.mockRestore();
+        expect(mockExportSiteHandler).toHaveBeenCalledWith(null, true);
       });
     });
 
