@@ -27,7 +27,7 @@ describe('HTTPS Proxy Server', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Spy on console methods
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
@@ -55,10 +55,10 @@ describe('HTTPS Proxy Server', () => {
     // Setup default mocks
     mockHttps.createServer.mockReturnValue(mockServer as any);
     mockHttp.request.mockReturnValue(mockProxyReq as any);
-    
+
     loadCertificates.mockResolvedValue({
       cert: 'mock-cert',
-      key: 'mock-key'
+      key: 'mock-key',
     });
   });
 
@@ -78,10 +78,7 @@ describe('HTTPS Proxy Server', () => {
 
       expect(result).toBe(true);
       expect(loadCertificates).toHaveBeenCalledWith(['test.com']);
-      expect(mockHttps.createServer).toHaveBeenCalledWith(
-        { cert: 'mock-cert', key: 'mock-key' },
-        expect.any(Function)
-      );
+      expect(mockHttps.createServer).toHaveBeenCalledWith({ cert: 'mock-cert', key: 'mock-key' }, expect.any(Function));
       expect(mockServer.listen).toHaveBeenCalledWith(8080, '0.0.0.0', expect.any(Function));
       expect(consoleLogSpy).toHaveBeenCalledWith('Creating HTTPS proxy for test.com on port 8080 -> 3000');
       expect(consoleLogSpy).toHaveBeenCalledWith('✅ HTTPS proxy server running at https://test.com:8080/');
@@ -126,7 +123,7 @@ describe('HTTPS Proxy Server', () => {
 
     it('should handle proxy requests correctly', async () => {
       let requestHandler: any;
-      
+
       mockHttps.createServer.mockImplementation((options, handler) => {
         requestHandler = handler;
         return mockServer as any;
@@ -161,7 +158,7 @@ describe('HTTPS Proxy Server', () => {
       requestHandler(mockReq, mockRes);
 
       // Wait for async operations
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       expect(mockHttp.request).toHaveBeenCalledWith(
         {
@@ -183,7 +180,7 @@ describe('HTTPS Proxy Server', () => {
 
     it('should handle proxy request errors', async () => {
       let requestHandler: any;
-      
+
       mockHttps.createServer.mockImplementation((options, handler) => {
         requestHandler = handler;
         return mockServer as any;
@@ -217,7 +214,7 @@ describe('HTTPS Proxy Server', () => {
       requestHandler(mockReq, mockRes);
 
       // Wait for async operations
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       expect(consoleErrorSpy).toHaveBeenCalledWith('HTTPS proxy request error:', expect.any(Error));
       expect(mockRes.writeHead).toHaveBeenCalledWith(500);
@@ -226,7 +223,7 @@ describe('HTTPS Proxy Server', () => {
 
     it('should handle undefined status code in proxy response', async () => {
       let requestHandler: any;
-      
+
       mockHttps.createServer.mockImplementation((options, handler) => {
         requestHandler = handler;
         return mockServer as any;
@@ -265,7 +262,7 @@ describe('HTTPS Proxy Server', () => {
       requestHandler(mockReq, mockRes);
 
       // Wait for async operations
-      await new Promise(resolve => setTimeout(resolve, 10));
+      await new Promise((resolve) => setTimeout(resolve, 10));
 
       expect(mockRes.writeHead).toHaveBeenCalledWith(500, mockProxyResUndefined.headers);
     });
@@ -280,7 +277,7 @@ describe('HTTPS Proxy Server', () => {
 
       // Create a proxy server first
       await createHttpsProxy(8080, 3000);
-      
+
       // Now stop it
       stopHttpsProxy();
 
@@ -290,7 +287,7 @@ describe('HTTPS Proxy Server', () => {
 
     it('should handle stopping when no server is running', () => {
       stopHttpsProxy();
-      
+
       // Should not throw error and not attempt to close
       expect(mockServer.close).not.toHaveBeenCalled();
     });

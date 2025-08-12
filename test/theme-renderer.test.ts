@@ -77,20 +77,20 @@ describe('ThemeRenderer', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Create fresh instance for each test
     themeRenderer = new TestThemeRenderer();
-    
+
     // Spy on console methods
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-    
+
     // Mock document.documentElement
     documentMock = {
       setAttribute: jest.fn(),
       removeAttribute: jest.fn(),
     };
-    
+
     // Replace document.documentElement
     Object.defineProperty(document, 'documentElement', {
       value: documentMock,
@@ -114,7 +114,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'dark',
         systemTheme: 'dark',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(themeInfo);
       mockElectronAPI.onThemeUpdated.mockImplementation(() => {});
 
@@ -133,7 +133,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(themeInfo);
       mockElectronAPI.onThemeUpdated.mockImplementation(() => {});
 
@@ -151,9 +151,9 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(themeInfo);
-      
+
       let themeUpdateCallback: (themeInfo: ThemeInfo) => void;
       mockElectronAPI.onThemeUpdated.mockImplementation((callback) => {
         themeUpdateCallback = callback;
@@ -167,7 +167,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'dark',
         systemTheme: 'dark',
       };
-      
+
       themeUpdateCallback!(newThemeInfo);
 
       expect(consoleLogSpy).toHaveBeenCalledWith('Theme updated in renderer:', newThemeInfo);
@@ -200,7 +200,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'dark',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(themeInfo);
       await themeRenderer.initialize();
 
@@ -215,7 +215,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'dark',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.setTheme.mockResolvedValue(expectedThemeInfo);
 
       const result = await themeRenderer.setTheme('dark');
@@ -239,7 +239,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'light',
         systemTheme: 'dark',
       };
-      
+
       mockElectronAPI.setTheme.mockResolvedValue(expectedThemeInfo);
 
       const result = await themeRenderer.setTheme('light');
@@ -254,7 +254,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'dark',
         systemTheme: 'dark',
       };
-      
+
       mockElectronAPI.setTheme.mockResolvedValue(expectedThemeInfo);
 
       const result = await themeRenderer.setTheme('system');
@@ -271,7 +271,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(expectedThemeInfo);
 
       const result = await themeRenderer.getThemeInfo();
@@ -296,7 +296,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'dark',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(themeInfo);
       await themeRenderer.initialize();
 
@@ -311,7 +311,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'light',
         systemTheme: 'dark',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(themeInfo);
       await themeRenderer.initialize();
 
@@ -327,9 +327,9 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(lightThemeInfo);
-      
+
       let themeUpdateCallback: (themeInfo: ThemeInfo) => void;
       mockElectronAPI.onThemeUpdated.mockImplementation((callback) => {
         themeUpdateCallback = callback;
@@ -351,7 +351,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'dark',
         systemTheme: 'light',
       };
-      
+
       themeUpdateCallback!(darkThemeInfo);
 
       expect(documentMock.setAttribute).toHaveBeenCalledWith('data-theme', 'dark');
@@ -377,7 +377,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(initialThemeInfo);
       mockElectronAPI.onThemeUpdated.mockImplementation(() => {});
 
@@ -389,7 +389,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'dark',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.setTheme.mockResolvedValue(updatedThemeInfo);
 
       const result = await themeRenderer.setTheme('dark');
@@ -400,7 +400,7 @@ describe('ThemeRenderer', () => {
       // Get updated theme info
       mockElectronAPI.getCurrentTheme.mockResolvedValue(updatedThemeInfo);
       const currentInfo = await themeRenderer.getThemeInfo();
-      
+
       expect(currentInfo).toEqual(updatedThemeInfo);
     });
 
@@ -410,9 +410,9 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(systemThemeInfo);
-      
+
       let themeUpdateCallback: (themeInfo: ThemeInfo) => void;
       mockElectronAPI.onThemeUpdated.mockImplementation((callback) => {
         themeUpdateCallback = callback;
@@ -426,7 +426,7 @@ describe('ThemeRenderer', () => {
         resolvedTheme: 'dark',
         systemTheme: 'dark',
       };
-      
+
       themeUpdateCallback!(updatedSystemTheme);
 
       expect(documentMock.setAttribute).toHaveBeenCalledWith('data-theme', 'dark');

@@ -11,7 +11,7 @@ import {
   registerShowWebsiteNameInputListener,
   setupButtonEventHandlers,
   registerMenuEventListeners,
-  setupDOMContentLoadedHandler
+  setupDOMContentLoadedHandler,
 } from '../../app/renderer';
 
 // Mock globals
@@ -30,19 +30,19 @@ describe('Renderer Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Clear DOM
     document.body.innerHTML = '';
-    
+
     // Mock window.electronAPI
     (window as any).electronAPI = mockElectronAPI;
     (window as any).prompt = mockPrompt;
-    
+
     // Reset mocks
     mockElectronAPI.send.mockClear();
     mockElectronAPI.on.mockClear();
     mockPrompt.mockClear();
-    
+
     // Spy on console methods
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
@@ -445,11 +445,11 @@ describe('Renderer Tests', () => {
 
       // Verify initialization
       expect(mockElectronAPI.send).toHaveBeenCalledWith('renderer-loaded', 'Renderer is working!');
-      
+
       // Verify listeners registered
       expect(mockElectronAPI.on).toHaveBeenCalledWith('show-website-name-input', expect.any(Function));
       expect(mockElectronAPI.on).toHaveBeenCalledWith('preview-loaded', expect.any(Function));
-      
+
       // Test button functionality
       const previewButton = document.getElementById('preview');
       previewButton?.click();

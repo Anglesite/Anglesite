@@ -34,7 +34,7 @@ describe('Certificates Module', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Reset modules to clear the certificate cache
     jest.resetModules();
 
@@ -72,9 +72,13 @@ describe('Certificates Module', () => {
       });
 
       const result = getCAPath();
-      
+
       expect(mockPath.join).toHaveBeenCalledWith('/Users/testuser', 'Library', 'Application Support', 'Anglesite');
-      expect(mockPath.join).toHaveBeenCalledWith('/Users/testuser/Library/Application Support/Anglesite', 'ca', 'ca.crt');
+      expect(mockPath.join).toHaveBeenCalledWith(
+        '/Users/testuser/Library/Application Support/Anglesite',
+        'ca',
+        'ca.crt'
+      );
     });
 
     it('should return correct path for Windows', () => {
@@ -84,7 +88,7 @@ describe('Certificates Module', () => {
       });
 
       const result = getCAPath();
-      
+
       expect(mockPath.join).toHaveBeenCalledWith('/Users/testuser/AppData', 'Anglesite');
       expect(mockPath.join).toHaveBeenCalledWith('/Users/testuser/AppData/Anglesite', 'ca', 'ca.crt');
     });
@@ -96,7 +100,7 @@ describe('Certificates Module', () => {
       });
 
       const result = getCAPath();
-      
+
       expect(mockPath.join).toHaveBeenCalledWith('/Users/testuser', '.config', 'anglesite');
       expect(mockPath.join).toHaveBeenCalledWith('/Users/testuser/.config/anglesite', 'ca', 'ca.crt');
     });
@@ -109,7 +113,7 @@ describe('Certificates Module', () => {
       delete process.env.APPDATA;
 
       const result = getCAPath();
-      
+
       expect(mockPath.join).toHaveBeenCalledWith('', 'Anglesite');
     });
 
@@ -121,7 +125,7 @@ describe('Certificates Module', () => {
       process.env.APPDATA = '/Windows/AppData';
 
       const result = getCAPath();
-      
+
       expect(mockPath.join).toHaveBeenCalledWith('/Windows/AppData', 'Anglesite');
     });
   });
@@ -129,12 +133,12 @@ describe('Certificates Module', () => {
   describe('generateCertificate', () => {
     const mockCA = {
       cert: 'mock-ca-cert',
-      key: 'mock-ca-key'
+      key: 'mock-ca-key',
     };
 
     const mockCert = {
       cert: 'mock-cert',
-      key: 'mock-key'
+      key: 'mock-key',
     };
 
     beforeEach(() => {
@@ -177,8 +181,14 @@ describe('Certificates Module', () => {
 
       expect(result).toEqual(mockCert);
       expect(mockCreateCA).not.toHaveBeenCalled();
-      expect(mockFs.readFileSync).toHaveBeenCalledWith('/Users/testuser/Library/Application Support/Anglesite/ca/ca.crt', 'utf8');
-      expect(mockFs.readFileSync).toHaveBeenCalledWith('/Users/testuser/Library/Application Support/Anglesite/ca/ca.key', 'utf8');
+      expect(mockFs.readFileSync).toHaveBeenCalledWith(
+        '/Users/testuser/Library/Application Support/Anglesite/ca/ca.crt',
+        'utf8'
+      );
+      expect(mockFs.readFileSync).toHaveBeenCalledWith(
+        '/Users/testuser/Library/Application Support/Anglesite/ca/ca.key',
+        'utf8'
+      );
     });
 
     it('should return cached certificate for same domains', async () => {
@@ -188,12 +198,12 @@ describe('Certificates Module', () => {
 
       // Generate certificate first time
       const result1 = await generateCertificate(['example.test']);
-      
+
       // Clear mocks but keep cache intact (don't reset modules)
       jest.clearAllMocks();
       mockCreateCert.mockResolvedValue(mockCert);
       consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-      
+
       // Generate certificate second time (should use cache)
       const result2 = await generateCertificate(['example.test']);
 
@@ -217,7 +227,6 @@ describe('Certificates Module', () => {
       });
     });
 
-
     it('should sort domains for consistent caching', async () => {
       mockFs.existsSync.mockReturnValue(false);
       mockFs.mkdirSync.mockImplementation();
@@ -225,12 +234,12 @@ describe('Certificates Module', () => {
 
       // Generate certificate with domains in different order
       await generateCertificate(['z.test', 'a.test']);
-      
+
       // Clear mocks but keep cache
       jest.clearAllMocks();
       mockCreateCert.mockResolvedValue(mockCert);
       consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-      
+
       await generateCertificate(['a.test', 'z.test']);
 
       // Should not create cert second time due to caching
@@ -266,7 +275,7 @@ describe('Certificates Module', () => {
   describe('installCAInSystem', () => {
     const mockCA = {
       cert: 'mock-ca-cert',
-      key: 'mock-ca-key'
+      key: 'mock-ca-key',
     };
 
     beforeEach(() => {
@@ -284,10 +293,9 @@ describe('Certificates Module', () => {
 
       expect(result).toBe(true);
       expect(mockFs.writeFileSync).toHaveBeenCalledWith('/tmp/anglesite-ca.crt', 'existing-ca-cert');
-      expect(mockExecSync).toHaveBeenCalledWith(
-        'security add-trusted-cert -d -r trustRoot "/tmp/anglesite-ca.crt"',
-        { stdio: 'pipe' }
-      );
+      expect(mockExecSync).toHaveBeenCalledWith('security add-trusted-cert -d -r trustRoot "/tmp/anglesite-ca.crt"', {
+        stdio: 'pipe',
+      });
       expect(mockFs.unlinkSync).toHaveBeenCalledWith('/tmp/anglesite-ca.crt');
       expect(consoleLogSpy).toHaveBeenCalledWith('✅ Anglesite CA installed in user keychain');
     });
@@ -329,7 +337,7 @@ describe('Certificates Module', () => {
     it('should not clean up temp file when security command fails', async () => {
       mockFs.existsSync.mockReturnValue(true);
       mockFs.readFileSync.mockReturnValue('existing-ca-cert');
-      
+
       // Mock execSync to throw on the security command
       mockExecSync.mockImplementation(() => {
         throw new Error('security command failed');
@@ -347,7 +355,7 @@ describe('Certificates Module', () => {
   describe('loadCertificates', () => {
     const mockCert = {
       cert: 'mock-cert',
-      key: 'mock-key'
+      key: 'mock-key',
     };
 
     beforeEach(() => {
@@ -371,7 +379,7 @@ describe('Certificates Module', () => {
 
     it('should load certificates with custom domains', async () => {
       const customDomains = ['custom.test', 'another.test'];
-      
+
       const result = await loadCertificates(customDomains);
 
       expect(result).toEqual(mockCert);

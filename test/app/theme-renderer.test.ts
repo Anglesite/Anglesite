@@ -40,7 +40,7 @@ describe('ThemeRenderer Module Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     // Clear mock calls
     mockDocumentElement.setAttribute.mockClear();
     mockDocumentElement.removeAttribute.mockClear();
@@ -65,7 +65,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'dark',
         systemTheme: 'dark',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(themeInfo);
       mockElectronAPI.onThemeUpdated.mockImplementation(() => {});
 
@@ -84,7 +84,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(themeInfo);
       mockElectronAPI.onThemeUpdated.mockImplementation(() => {});
 
@@ -101,9 +101,9 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(initialTheme);
-      
+
       let themeUpdateCallback: (themeInfo: ThemeInfo) => void;
       mockElectronAPI.onThemeUpdated.mockImplementation((callback) => {
         themeUpdateCallback = callback;
@@ -121,7 +121,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'dark',
         systemTheme: 'dark',
       };
-      
+
       themeUpdateCallback!(newTheme);
 
       expect(consoleLogSpy).toHaveBeenCalledWith('Theme updated in renderer:', newTheme);
@@ -149,7 +149,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'dark',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(themeInfo);
       await themeRenderer.initialize();
 
@@ -164,7 +164,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'dark',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.setTheme.mockResolvedValue(expectedThemeInfo);
 
       const result = await themeRenderer.setTheme('dark');
@@ -184,14 +184,14 @@ describe('ThemeRenderer Module Tests', () => {
 
     it('should set all theme types', async () => {
       const themes: Theme[] = ['light', 'dark', 'system'];
-      
+
       for (const theme of themes) {
         const expectedThemeInfo: ThemeInfo = {
           userPreference: theme,
           resolvedTheme: theme === 'system' ? 'light' : theme,
           systemTheme: 'light',
         };
-        
+
         mockElectronAPI.setTheme.mockResolvedValue(expectedThemeInfo);
 
         const result = await themeRenderer.setTheme(theme);
@@ -209,7 +209,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(expectedThemeInfo);
 
       const result = await themeRenderer.getThemeInfo();
@@ -234,7 +234,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'dark',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(themeInfo);
       await themeRenderer.initialize();
 
@@ -248,7 +248,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'light',
         systemTheme: 'dark',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(themeInfo);
       await themeRenderer.initialize();
 
@@ -263,9 +263,9 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(lightTheme);
-      
+
       let themeUpdateCallback: (themeInfo: ThemeInfo) => void;
       mockElectronAPI.onThemeUpdated.mockImplementation((callback) => {
         themeUpdateCallback = callback;
@@ -283,7 +283,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'dark',
         systemTheme: 'light',
       };
-      
+
       themeUpdateCallback!(darkTheme);
 
       expect(mockDocumentElement.setAttribute).toHaveBeenCalledWith('data-theme', 'dark');
@@ -309,7 +309,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(initialTheme);
       await themeRenderer.initialize();
 
@@ -319,7 +319,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'dark',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.setTheme.mockResolvedValue(newTheme);
 
       const result = await themeRenderer.setTheme('dark');
@@ -330,7 +330,7 @@ describe('ThemeRenderer Module Tests', () => {
       // Get updated info
       mockElectronAPI.getCurrentTheme.mockResolvedValue(newTheme);
       const currentInfo = await themeRenderer.getThemeInfo();
-      
+
       expect(currentInfo).toEqual(newTheme);
     });
 
@@ -340,9 +340,9 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'light',
         systemTheme: 'light',
       };
-      
+
       mockElectronAPI.getCurrentTheme.mockResolvedValue(systemTheme);
-      
+
       let themeUpdateCallback: (themeInfo: ThemeInfo) => void;
       mockElectronAPI.onThemeUpdated.mockImplementation((callback) => {
         themeUpdateCallback = callback;
@@ -356,7 +356,7 @@ describe('ThemeRenderer Module Tests', () => {
         resolvedTheme: 'dark',
         systemTheme: 'dark',
       };
-      
+
       themeUpdateCallback!(updatedSystemTheme);
 
       expect(mockDocumentElement.setAttribute).toHaveBeenCalledWith('data-theme', 'dark');
@@ -365,7 +365,7 @@ describe('ThemeRenderer Module Tests', () => {
   });
 });
 
-// Test the auto-initialization patterns separately 
+// Test the auto-initialization patterns separately
 describe('Auto-initialization behavior', () => {
   it('should handle document loading state', () => {
     // Test the conditional logic patterns
@@ -405,12 +405,12 @@ describe('Auto-initialization behavior', () => {
   it('should simulate DOMContentLoaded callback behavior', () => {
     // Test the pattern used in the auto-initialization
     const mockInitialize = jest.fn();
-    
+
     // Simulate the DOMContentLoaded event listener callback directly
     const callback = () => {
       mockInitialize();
     };
-    
+
     // Execute the callback (simulating DOMContentLoaded event)
     callback();
 

@@ -32,20 +32,20 @@ describe('Eleventy Server Management', () => {
   beforeEach(() => {
     jest.clearAllMocks();
     jest.useFakeTimers();
-    
+
     // Spy on console methods
     consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
-    
+
     // Create mock process
     mockProcess = new EventEmitter();
     mockProcess.stdout = new EventEmitter();
     mockProcess.stderr = new EventEmitter();
     mockProcess.kill = jest.fn();
-    
+
     mockSpawn.mockReturnValue(mockProcess as any);
-    
+
     // Reset server state
     setLiveServerUrl('https://localhost:8080');
     setCurrentWebsiteName('anglesite');
@@ -175,7 +175,14 @@ describe('Eleventy Server Management', () => {
 
         expect(mockSpawn).toHaveBeenCalledWith(
           'npx',
-          ['eleventy', '--config=app/eleventy/.eleventy.js', '--input="custom-dir"', '--serve', '--port=9000', '--quiet'],
+          [
+            'eleventy',
+            '--config=app/eleventy/.eleventy.js',
+            '--input="custom-dir"',
+            '--serve',
+            '--port=9000',
+            '--quiet',
+          ],
           {
             cwd: process.cwd(),
             shell: true,
@@ -188,14 +195,14 @@ describe('Eleventy Server Management', () => {
         // Start first server
         startEleventyServer();
         const firstProcess = mockProcess;
-        
+
         // Create new mock process for second server
         const secondMockProcess: any = new EventEmitter();
         secondMockProcess.stdout = new EventEmitter();
         secondMockProcess.stderr = new EventEmitter();
         secondMockProcess.kill = jest.fn();
         mockSpawn.mockReturnValue(secondMockProcess as any);
-        
+
         // Start second server
         startEleventyServer('different-dir');
 
@@ -222,7 +229,9 @@ describe('Eleventy Server Management', () => {
         // Simulate Eleventy output in stderr
         mockProcess.stderr.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
 
-        expect(consoleLogSpy).toHaveBeenCalledWith('Eleventy HTTP server URL detected in stderr: http://localhost:8081');
+        expect(consoleLogSpy).toHaveBeenCalledWith(
+          'Eleventy HTTP server URL detected in stderr: http://localhost:8081'
+        );
         expect(onReady).toHaveBeenCalledWith('http://localhost:8081');
         expect(isLiveServerReady()).toBe(true);
       });
@@ -275,10 +284,10 @@ describe('Eleventy Server Management', () => {
 
         // Mark server as ready
         mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
-        
+
         // Clear the mock calls
         onReady.mockClear();
-        
+
         // Advance timer
         jest.advanceTimersByTime(2000);
 
@@ -291,7 +300,7 @@ describe('Eleventy Server Management', () => {
       it('should stop running server', () => {
         // Start server first
         startEleventyServer();
-        
+
         stopEleventyServer();
 
         expect(consoleLogSpy).toHaveBeenCalledWith('Stopping Eleventy server');
@@ -321,10 +330,10 @@ describe('Eleventy Server Management', () => {
     describe('switchToWebsite', () => {
       it('should switch to new website successfully', async () => {
         const websitePath = '/path/to/website';
-        
+
         // Start the switch
         const switchPromise = switchToWebsite(websitePath);
-        
+
         // Immediately simulate server ready
         mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
 
@@ -337,22 +346,25 @@ describe('Eleventy Server Management', () => {
 
       it('should handle server start error', async () => {
         const websitePath = '/path/to/website';
-        
+
         // Start the switch
         const switchPromise = switchToWebsite(websitePath);
-        
+
         // Immediately simulate server error
         mockProcess.stderr.emit('data', Buffer.from('Error: Failed to start'));
 
         await expect(switchPromise).rejects.toThrow('Error: Failed to start');
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to start server for new website:', 'Error: Failed to start');
+        expect(consoleErrorSpy).toHaveBeenCalledWith(
+          'Failed to start server for new website:',
+          'Error: Failed to start'
+        );
       });
 
       it('should extract port from URL correctly', async () => {
         const websitePath = '/path/to/website';
-        
+
         const switchPromise = switchToWebsite(websitePath);
-        
+
         // Immediately simulate server ready with different port
         mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:9000/'));
 
@@ -451,13 +463,7 @@ describe('Eleventy Server Management', () => {
         const mockCreateHttpsProxy = jest.fn().mockResolvedValue(true);
         const mockAutoLoadPreview = jest.fn();
 
-        startDefaultEleventyServer(
-          'https',
-          null,
-          mockAddLocalDnsResolution,
-          mockCreateHttpsProxy,
-          mockAutoLoadPreview
-        );
+        startDefaultEleventyServer('https', null, mockAddLocalDnsResolution, mockCreateHttpsProxy, mockAutoLoadPreview);
 
         // Immediately simulate server ready
         mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));

@@ -27,17 +27,15 @@ describe('Preload Script', () => {
   beforeAll(() => {
     // Clear any previous mock calls
     mockContextBridge.exposeInMainWorld.mockClear();
-    
+
     // Delete from require cache if it exists
     delete require.cache[require.resolve('../../app/preload')];
-    
+
     // Import preload script to trigger the contextBridge.exposeInMainWorld call
     require('../../app/preload');
 
     // Get the electronAPI that was exposed
-    const exposeCall = mockContextBridge.exposeInMainWorld.mock.calls.find(
-      call => call[0] === 'electronAPI'
-    );
+    const exposeCall = mockContextBridge.exposeInMainWorld.mock.calls.find((call) => call[0] === 'electronAPI');
     electronAPI = exposeCall ? exposeCall[1] : null;
   });
 
@@ -83,7 +81,7 @@ describe('Preload Script', () => {
       'delete-website',
     ];
 
-    validSendChannels.forEach(channel => {
+    validSendChannels.forEach((channel) => {
       it(`should send valid channel: ${channel}`, () => {
         electronAPI.send(channel, 'test-arg');
 
@@ -119,7 +117,7 @@ describe('Preload Script', () => {
       'set-theme',
     ];
 
-    validInvokeChannels.forEach(channel => {
+    validInvokeChannels.forEach((channel) => {
       it(`should invoke valid channel: ${channel}`, async () => {
         const mockResult = { success: true };
         mockIpcRenderer.invoke.mockResolvedValue(mockResult);
@@ -172,16 +170,13 @@ describe('Preload Script', () => {
       'trigger-new-website',
     ];
 
-    validOnChannels.forEach(channel => {
+    validOnChannels.forEach((channel) => {
       it(`should register listener for valid channel: ${channel}`, () => {
         const mockCallback = jest.fn();
-        
+
         electronAPI.on(channel, mockCallback);
 
-        expect(mockIpcRenderer.on).toHaveBeenCalledWith(
-          channel,
-          expect.any(Function)
-        );
+        expect(mockIpcRenderer.on).toHaveBeenCalledWith(channel, expect.any(Function));
       });
     });
 
@@ -231,7 +226,7 @@ describe('Preload Script', () => {
   describe('removeAllListeners method', () => {
     const validRemoveChannels = ['preview-loaded', 'preview-error'];
 
-    validRemoveChannels.forEach(channel => {
+    validRemoveChannels.forEach((channel) => {
       it(`should remove listeners for valid channel: ${channel}`, () => {
         electronAPI.removeAllListeners(channel);
 
@@ -288,13 +283,10 @@ describe('Preload Script', () => {
     describe('onThemeUpdated', () => {
       it('should register listener for theme-updated events', () => {
         const mockCallback = jest.fn();
-        
+
         electronAPI.onThemeUpdated(mockCallback);
 
-        expect(mockIpcRenderer.on).toHaveBeenCalledWith(
-          'theme-updated',
-          expect.any(Function)
-        );
+        expect(mockIpcRenderer.on).toHaveBeenCalledWith('theme-updated', expect.any(Function));
       });
 
       it('should call callback when theme-updated event is received', () => {
@@ -320,62 +312,36 @@ describe('Preload Script', () => {
 
   describe('Security validation', () => {
     it('should only allow whitelisted send channels', () => {
-      const invalidChannels = [
-        'malicious-channel',
-        'arbitrary-command',
-        'system-access',
-        'file-access',
-      ];
+      const invalidChannels = ['malicious-channel', 'arbitrary-command', 'system-access', 'file-access'];
 
-      invalidChannels.forEach(channel => {
+      invalidChannels.forEach((channel) => {
         electronAPI.send(channel, 'malicious-payload');
-        expect(mockIpcRenderer.send).not.toHaveBeenCalledWith(
-          channel,
-          'malicious-payload'
-        );
+        expect(mockIpcRenderer.send).not.toHaveBeenCalledWith(channel, 'malicious-payload');
       });
     });
 
     it('should only allow whitelisted invoke channels', async () => {
-      const invalidChannels = [
-        'malicious-invoke',
-        'system-command',
-        'file-read',
-        'process-spawn',
-      ];
+      const invalidChannels = ['malicious-invoke', 'system-command', 'file-read', 'process-spawn'];
 
       for (const channel of invalidChannels) {
-        await expect(electronAPI.invoke(channel, 'payload')).rejects.toThrow(
-          `Invalid invoke channel: ${channel}`
-        );
+        await expect(electronAPI.invoke(channel, 'payload')).rejects.toThrow(`Invalid invoke channel: ${channel}`);
         expect(mockIpcRenderer.invoke).not.toHaveBeenCalledWith(channel, 'payload');
       }
     });
 
     it('should only allow whitelisted on channels', () => {
-      const invalidChannels = [
-        'malicious-listener',
-        'system-event',
-        'arbitrary-event',
-      ];
+      const invalidChannels = ['malicious-listener', 'system-event', 'arbitrary-event'];
 
-      invalidChannels.forEach(channel => {
+      invalidChannels.forEach((channel) => {
         electronAPI.on(channel, jest.fn());
-        expect(mockIpcRenderer.on).not.toHaveBeenCalledWith(
-          channel,
-          expect.any(Function)
-        );
+        expect(mockIpcRenderer.on).not.toHaveBeenCalledWith(channel, expect.any(Function));
       });
     });
 
     it('should only allow whitelisted removeAllListeners channels', () => {
-      const invalidChannels = [
-        'malicious-remove',
-        'system-cleanup',
-        'arbitrary-cleanup',
-      ];
+      const invalidChannels = ['malicious-remove', 'system-cleanup', 'arbitrary-cleanup'];
 
-      invalidChannels.forEach(channel => {
+      invalidChannels.forEach((channel) => {
         electronAPI.removeAllListeners(channel);
         expect(mockIpcRenderer.removeAllListeners).not.toHaveBeenCalledWith(channel);
       });

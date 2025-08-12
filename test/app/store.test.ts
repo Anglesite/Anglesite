@@ -33,17 +33,17 @@ describe('Store', () => {
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
-    
+
     // Get the mocked app
     mockApp = require('electron').app;
-    
+
     // Set up mock paths
     mockUserDataPath = '/mock/user/data';
     mockSettingsPath = '/mock/user/data/settings.json';
-    
+
     mockApp.getPath.mockReturnValue(mockUserDataPath);
     mockedPath.join.mockReturnValue(mockSettingsPath);
-    
+
     // Set up console spy
     consoleSpy = jest.spyOn(console, 'error').mockImplementation();
   });
@@ -55,13 +55,13 @@ describe('Store', () => {
   describe('Constructor', () => {
     it('should initialize with default settings when no file exists', () => {
       mockedFs.existsSync.mockReturnValue(false);
-      
+
       store = new Store();
-      
+
       expect(mockApp.getPath).toHaveBeenCalledWith('userData');
       expect(mockedPath.join).toHaveBeenCalledWith(mockUserDataPath, 'settings.json');
       expect(mockedFs.existsSync).toHaveBeenCalledWith(mockSettingsPath);
-      
+
       // Verify default settings
       expect(store.get('autoDnsEnabled')).toBe(false);
       expect(store.get('httpsMode')).toBe(null);
@@ -87,12 +87,12 @@ describe('Store', () => {
           },
         ],
       };
-      
+
       mockedFs.existsSync.mockReturnValue(true);
       mockedFs.readFileSync.mockReturnValue(JSON.stringify(existingSettings));
-      
+
       store = new Store();
-      
+
       expect(mockedFs.readFileSync).toHaveBeenCalledWith(mockSettingsPath, 'utf-8');
       expect(store.get('autoDnsEnabled')).toBe(true);
       expect(store.get('httpsMode')).toBe('https');
@@ -105,9 +105,9 @@ describe('Store', () => {
     it('should use defaults when file exists but is corrupted', () => {
       mockedFs.existsSync.mockReturnValue(true);
       mockedFs.readFileSync.mockReturnValue('invalid json');
-      
+
       store = new Store();
-      
+
       expect(consoleSpy).toHaveBeenCalledWith('Error reading settings file:', expect.any(Error));
       expect(store.get('autoDnsEnabled')).toBe(false);
       expect(store.get('theme')).toBe('system');
@@ -118,9 +118,9 @@ describe('Store', () => {
       mockedFs.readFileSync.mockImplementation(() => {
         throw new Error('Permission denied');
       });
-      
+
       store = new Store();
-      
+
       expect(consoleSpy).toHaveBeenCalledWith('Error reading settings file:', expect.any(Error));
       expect(store.get('autoDnsEnabled')).toBe(false);
     });
@@ -144,7 +144,7 @@ describe('Store', () => {
     it('should return updated values after set', () => {
       store.set('autoDnsEnabled', true);
       store.set('theme', 'dark');
-      
+
       expect(store.get('autoDnsEnabled')).toBe(true);
       expect(store.get('theme')).toBe('dark');
     });
@@ -159,7 +159,7 @@ describe('Store', () => {
 
     it('should update setting and save to disk', () => {
       store.set('autoDnsEnabled', true);
-      
+
       expect(store.get('autoDnsEnabled')).toBe(true);
       expect(mockedFs.writeFileSync).toHaveBeenCalledWith(
         mockSettingsPath,
@@ -171,7 +171,7 @@ describe('Store', () => {
       store.set('httpsMode', 'https');
       store.set('firstLaunchCompleted', true);
       store.set('theme', 'light');
-      
+
       expect(store.get('httpsMode')).toBe('https');
       expect(store.get('firstLaunchCompleted')).toBe(true);
       expect(store.get('theme')).toBe('light');
@@ -192,9 +192,9 @@ describe('Store', () => {
           isMaximized: true,
         },
       ];
-      
+
       store.set('openWebsiteWindows', windowStates);
-      
+
       expect(store.get('openWebsiteWindows')).toEqual(windowStates);
       expect(store.get('openWebsiteWindows')).toHaveLength(2);
     });
@@ -203,9 +203,9 @@ describe('Store', () => {
       mockedFs.writeFileSync.mockImplementation(() => {
         throw new Error('Disk full');
       });
-      
+
       store.set('autoDnsEnabled', true);
-      
+
       expect(consoleSpy).toHaveBeenCalledWith('Error saving settings:', expect.any(Error));
       expect(store.get('autoDnsEnabled')).toBe(true); // Setting should still be updated in memory
     });
@@ -219,7 +219,7 @@ describe('Store', () => {
 
     it('should return complete settings object', () => {
       const allSettings = store.getAll();
-      
+
       expect(allSettings).toEqual({
         autoDnsEnabled: false,
         httpsMode: null,
@@ -233,9 +233,9 @@ describe('Store', () => {
     it('should return updated settings after modifications', () => {
       store.set('autoDnsEnabled', true);
       store.set('theme', 'dark');
-      
+
       const allSettings = store.getAll();
-      
+
       expect(allSettings.autoDnsEnabled).toBe(true);
       expect(allSettings.theme).toBe('dark');
       expect(allSettings.firstLaunchCompleted).toBe(false); // Unchanged
@@ -255,9 +255,9 @@ describe('Store', () => {
         theme: 'dark',
         firstLaunchCompleted: true,
       };
-      
+
       store.setAll(updates);
-      
+
       expect(store.get('autoDnsEnabled')).toBe(true);
       expect(store.get('theme')).toBe('dark');
       expect(store.get('firstLaunchCompleted')).toBe(true);
@@ -268,11 +268,11 @@ describe('Store', () => {
     it('should preserve existing settings not being updated', () => {
       store.set('autoDnsEnabled', true);
       store.set('showHelpOnStartup', false);
-      
+
       jest.clearAllMocks();
-      
+
       store.setAll({ theme: 'light' });
-      
+
       expect(store.get('autoDnsEnabled')).toBe(true); // Preserved
       expect(store.get('showHelpOnStartup')).toBe(false); // Preserved
       expect(store.get('theme')).toBe('light'); // Updated
@@ -280,9 +280,9 @@ describe('Store', () => {
 
     it('should handle empty updates', () => {
       const originalSettings = store.getAll();
-      
+
       store.setAll({});
-      
+
       expect(store.getAll()).toEqual(originalSettings);
       expect(mockedFs.writeFileSync).toHaveBeenCalledTimes(1);
     });
@@ -310,16 +310,16 @@ describe('Store', () => {
             isMaximized: true,
           },
         ];
-        
+
         store.saveWindowStates(windowStates);
-        
+
         expect(store.get('openWebsiteWindows')).toEqual(windowStates);
         expect(mockedFs.writeFileSync).toHaveBeenCalledTimes(1);
       });
 
       it('should handle empty window states', () => {
         store.saveWindowStates([]);
-        
+
         expect(store.get('openWebsiteWindows')).toEqual([]);
       });
     });
@@ -334,9 +334,9 @@ describe('Store', () => {
             isMaximized: false,
           },
         ];
-        
+
         store.saveWindowStates(windowStates);
-        
+
         expect(store.getWindowStates()).toEqual(windowStates);
       });
 
@@ -357,14 +357,14 @@ describe('Store', () => {
             bounds: { x: 100, y: 100, width: 900, height: 700 },
           },
         ];
-        
+
         store.saveWindowStates(windowStates);
         expect(store.getWindowStates()).toHaveLength(2);
-        
+
         jest.clearAllMocks();
-        
+
         store.clearWindowStates();
-        
+
         expect(store.getWindowStates()).toEqual([]);
         expect(mockedFs.writeFileSync).toHaveBeenCalledTimes(1);
       });
@@ -385,7 +385,7 @@ describe('Store', () => {
       const theme: 'system' | 'light' | 'dark' = store.get('theme');
       const showHelp: boolean = store.get('showHelpOnStartup');
       const windows: WindowState[] = store.get('openWebsiteWindows');
-      
+
       expect(typeof autoDns).toBe('boolean');
       expect(httpsMode === null || typeof httpsMode === 'string').toBe(true);
       expect(typeof firstLaunch).toBe('boolean');
@@ -406,7 +406,7 @@ describe('Store', () => {
       store.set('theme', 'dark');
       store.set('showHelpOnStartup', true);
       store.set('openWebsiteWindows', []);
-      
+
       expect(store.get('autoDnsEnabled')).toBe(true);
       expect(store.get('httpsMode')).toBe(null);
       expect(store.get('theme')).toBe('dark');
@@ -423,7 +423,7 @@ describe('Store', () => {
     it('should save properly formatted JSON', () => {
       store.set('autoDnsEnabled', true);
       store.set('theme', 'dark');
-      
+
       expect(mockedFs.writeFileSync).toHaveBeenCalledWith(
         mockSettingsPath,
         expect.stringMatching(/\{\s*\n.*"autoDnsEnabled":\s*true.*\n.*"theme":\s*"dark".*\n.*\}/s)
@@ -442,12 +442,12 @@ describe('Store', () => {
         },
         isMaximized: true,
       };
-      
+
       store.saveWindowStates([complexWindowState]);
-      
+
       const savedJson = mockedFs.writeFileSync.mock.calls[0][1] as string;
       const parsedData = JSON.parse(savedJson);
-      
+
       expect(parsedData.openWebsiteWindows).toHaveLength(1);
       expect(parsedData.openWebsiteWindows[0]).toEqual(complexWindowState);
     });
@@ -458,18 +458,18 @@ describe('Store', () => {
       mockApp.getPath.mockReturnValue(undefined as any);
       mockedPath.join.mockReturnValue('undefined/settings.json');
       mockedFs.existsSync.mockReturnValue(false);
-      
+
       expect(() => new Store()).not.toThrow();
     });
 
     it('should handle JSON file containing null', () => {
       mockedFs.existsSync.mockReturnValue(true);
       mockedFs.readFileSync.mockReturnValue('null'); // Valid JSON that parses to null
-      
+
       // The Store constructor handles this by setting this.data = null
       // Then accessing this.data[key] throws when trying to get settings
       store = new Store();
-      
+
       // The store was created but accessing properties will fail
       expect(() => store.get('theme')).toThrow();
     });
@@ -477,9 +477,9 @@ describe('Store', () => {
     it('should handle empty file content', () => {
       mockedFs.existsSync.mockReturnValue(true);
       mockedFs.readFileSync.mockReturnValue('');
-      
+
       store = new Store();
-      
+
       expect(consoleSpy).toHaveBeenCalledWith('Error reading settings file:', expect.any(Error));
       expect(store.get('theme')).toBe('system'); // Should use defaults
     });
@@ -490,12 +490,12 @@ describe('Store', () => {
         theme: 'dark',
         // Missing other required fields
       };
-      
+
       mockedFs.existsSync.mockReturnValue(true);
       mockedFs.readFileSync.mockReturnValue(JSON.stringify(partialSettings));
-      
+
       store = new Store();
-      
+
       expect(store.get('autoDnsEnabled')).toBe(true);
       expect(store.get('theme')).toBe('dark');
       // Missing fields should be undefined (not defaults) - this tests actual behavior
@@ -508,13 +508,13 @@ describe('Store', () => {
       // Simulate app startup with no existing settings
       mockedFs.existsSync.mockReturnValue(false);
       store = new Store();
-      
+
       // First launch setup
       expect(store.get('firstLaunchCompleted')).toBe(false);
       store.set('firstLaunchCompleted', true);
       store.set('httpsMode', 'https');
       store.set('theme', 'dark');
-      
+
       // Save some window states
       const windowStates: WindowState[] = [
         {
@@ -531,24 +531,26 @@ describe('Store', () => {
         },
       ];
       store.saveWindowStates(windowStates);
-      
+
       // Verify everything is saved correctly
       expect(mockedFs.writeFileSync).toHaveBeenCalledTimes(4); // 3 sets + 1 saveWindowStates
-      
+
       // Simulate app restart - create new store instance that loads from file
       jest.clearAllMocks();
       mockedFs.existsSync.mockReturnValue(true);
-      mockedFs.readFileSync.mockReturnValue(JSON.stringify({
-        autoDnsEnabled: false,
-        httpsMode: 'https',
-        firstLaunchCompleted: true,
-        theme: 'dark',
-        showHelpOnStartup: true,
-        openWebsiteWindows: windowStates,
-      }));
-      
+      mockedFs.readFileSync.mockReturnValue(
+        JSON.stringify({
+          autoDnsEnabled: false,
+          httpsMode: 'https',
+          firstLaunchCompleted: true,
+          theme: 'dark',
+          showHelpOnStartup: true,
+          openWebsiteWindows: windowStates,
+        })
+      );
+
       const newStore = new Store();
-      
+
       // Verify settings were restored
       expect(newStore.get('firstLaunchCompleted')).toBe(true);
       expect(newStore.get('httpsMode')).toBe('https');

@@ -129,7 +129,6 @@ export function setupIpcMainListeners(): void {
 
   // Website creation handler
   ipcMain.on('new-website', async (event) => {
-
     const win = BrowserWindow.fromWebContents(event.sender);
     if (!win) {
       console.error('No window found for new-website IPC message');
@@ -142,7 +141,6 @@ export function setupIpcMainListeners(): void {
 
       // Keep asking until user provides valid name or cancels
       do {
-
         let prompt = 'Enter a name for your new website:';
         if (validationError) {
           prompt = `${validationError}\n\nPlease enter a valid website name:`;
@@ -153,7 +151,6 @@ export function setupIpcMainListeners(): void {
         if (!websiteName) {
           return;
         }
-
 
         // Validate website name
         const validation = validateWebsiteName(websiteName);
@@ -213,7 +210,6 @@ export function setupIpcMainListeners(): void {
 
   // Website opening handler
   ipcMain.on('open-website', async (event, websiteName: string) => {
-
     try {
       await openWebsiteInNewWindow(websiteName);
       console.log(`Website "${websiteName}" opened successfully in new window`);
@@ -759,7 +755,6 @@ async function openWebsiteInNewWindow(
     // Generate test domain and setup DNS
     const testDomain = `https://${websiteName}.test:8080`;
     const hostname = `${websiteName}.test`;
-
 
     // Setup DNS resolution
     await addLocalDnsResolution(hostname);

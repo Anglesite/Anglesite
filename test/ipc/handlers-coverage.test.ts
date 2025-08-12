@@ -163,7 +163,7 @@ describe('Handlers Coverage Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
-    
+
     mockEvent = {
       sender: {
         send: jest.fn(),
@@ -175,11 +175,11 @@ describe('Handlers Coverage Tests', () => {
     it('should handle hide-preview when window exists', () => {
       const mockWindow = { id: 'test-window' };
       mockBrowserWindow.fromWebContents.mockReturnValue(mockWindow);
-      
+
       const hidePreviewMock = require('../../app/ui/window-manager').hidePreview;
-      
+
       // Find and call the hide-preview handler
-      const hidePreviewCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'hide-preview');
+      const hidePreviewCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'hide-preview');
       if (hidePreviewCall) {
         hidePreviewCall[1](mockEvent);
         expect(hidePreviewMock).toHaveBeenCalledWith(mockWindow);
@@ -188,11 +188,11 @@ describe('Handlers Coverage Tests', () => {
 
     it('should handle hide-preview when window does not exist', () => {
       mockBrowserWindow.fromWebContents.mockReturnValue(null);
-      
+
       const hidePreviewMock = require('../../app/ui/window-manager').hidePreview;
-      
+
       // Find and call the hide-preview handler
-      const hidePreviewCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'hide-preview');
+      const hidePreviewCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'hide-preview');
       if (hidePreviewCall) {
         hidePreviewCall[1](mockEvent);
         expect(hidePreviewMock).not.toHaveBeenCalled();
@@ -202,21 +202,21 @@ describe('Handlers Coverage Tests', () => {
     it('should handle toggle-devtools', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       const toggleDevToolsMock = require('../../app/ui/window-manager').togglePreviewDevTools;
-      
-      const toggleDevToolsCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'toggle-devtools');
+
+      const toggleDevToolsCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'toggle-devtools');
       if (toggleDevToolsCall) {
         toggleDevToolsCall[1]();
         expect(consoleSpy).toHaveBeenCalledWith('DevTools toggle requested');
         expect(toggleDevToolsMock).toHaveBeenCalled();
       }
-      
+
       consoleSpy.mockRestore();
     });
 
     it('should handle reload-preview', () => {
       const reloadPreviewMock = require('../../app/ui/window-manager').reloadPreview;
-      
-      const reloadPreviewCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'reload-preview');
+
+      const reloadPreviewCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'reload-preview');
       if (reloadPreviewCall) {
         reloadPreviewCall[1]();
         expect(reloadPreviewMock).toHaveBeenCalled();
@@ -229,8 +229,8 @@ describe('Handlers Coverage Tests', () => {
       const getCurrentLiveServerUrlMock = require('../../app/server/eleventy').getCurrentLiveServerUrl;
       getCurrentLiveServerUrlMock.mockReturnValue('https://test.test:8080');
       mockShell.openExternal.mockResolvedValue(undefined);
-      
-      const openBrowserCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'open-browser');
+
+      const openBrowserCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'open-browser');
       if (openBrowserCall) {
         await openBrowserCall[1]();
         expect(mockShell.openExternal).toHaveBeenCalledWith('https://test.test:8080');
@@ -239,46 +239,42 @@ describe('Handlers Coverage Tests', () => {
 
     it('should handle open-browser with primary URL failure and successful fallback', async () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-      
+
       const getCurrentLiveServerUrlMock = require('../../app/server/eleventy').getCurrentLiveServerUrl;
       getCurrentLiveServerUrlMock.mockReturnValue('https://test.test:8080');
-      
-      mockShell.openExternal
-        .mockRejectedValueOnce(new Error('Primary failed'))
-        .mockResolvedValueOnce(undefined);
-      
-      const openBrowserCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'open-browser');
+
+      mockShell.openExternal.mockRejectedValueOnce(new Error('Primary failed')).mockResolvedValueOnce(undefined);
+
+      const openBrowserCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'open-browser');
       if (openBrowserCall) {
         await openBrowserCall[1]();
-        
+
         expect(consoleSpy).toHaveBeenCalledWith('Failed to open .test domain, trying localhost');
         expect(mockShell.openExternal).toHaveBeenCalledTimes(2);
         expect(mockShell.openExternal).toHaveBeenNthCalledWith(2, 'https://localhost:8080');
       }
-      
+
       consoleSpy.mockRestore();
     });
 
     it('should handle open-browser with both primary and fallback URL failures', async () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-      
+
       const getCurrentLiveServerUrlMock = require('../../app/server/eleventy').getCurrentLiveServerUrl;
       getCurrentLiveServerUrlMock.mockReturnValue('https://test.test:8080');
-      
+
       const fallbackError = new Error('Fallback failed');
-      mockShell.openExternal
-        .mockRejectedValueOnce(new Error('Primary failed'))
-        .mockRejectedValueOnce(fallbackError);
-      
-      const openBrowserCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'open-browser');
+      mockShell.openExternal.mockRejectedValueOnce(new Error('Primary failed')).mockRejectedValueOnce(fallbackError);
+
+      const openBrowserCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'open-browser');
       if (openBrowserCall) {
         await openBrowserCall[1]();
-        
+
         expect(consoleSpy).toHaveBeenCalledWith('Failed to open .test domain, trying localhost');
         expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to open in browser:', fallbackError);
       }
-      
+
       consoleSpy.mockRestore();
       consoleErrorSpy.mockRestore();
     });
@@ -288,49 +284,49 @@ describe('Handlers Coverage Tests', () => {
     it('should create context menu with window positioning', () => {
       const mockWindow = { id: 'test-window' };
       mockBrowserWindow.fromWebContents.mockReturnValue(mockWindow);
-      
+
       const mockMenuInstance = {
         append: jest.fn(),
         popup: jest.fn(),
       };
       mockMenu.mockReturnValue(mockMenuInstance);
-      
+
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-      
-      const showContextMenuCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'show-website-context-menu');
+
+      const showContextMenuCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'show-website-context-menu');
       if (showContextMenuCall) {
         showContextMenuCall[1](mockEvent, 'test-site', { x: 100, y: 150 });
-        
+
         expect(mockMenuInstance.append).toHaveBeenCalledTimes(2);
         expect(consoleSpy).toHaveBeenCalledWith('Showing context menu with window positioning');
         expect(mockMenuInstance.popup).toHaveBeenCalledWith({ window: mockWindow });
       }
-      
+
       consoleSpy.mockRestore();
     });
 
     it('should create context menu with position coordinates when no window', () => {
       mockBrowserWindow.fromWebContents.mockReturnValue(null);
-      
+
       const mockMenuInstance = {
         append: jest.fn(),
         popup: jest.fn(),
       };
       mockMenu.mockReturnValue(mockMenuInstance);
-      
+
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-      
-      const showContextMenuCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'show-website-context-menu');
+
+      const showContextMenuCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'show-website-context-menu');
       if (showContextMenuCall) {
         showContextMenuCall[1](mockEvent, 'test-site', { x: 100.7, y: 150.3 });
-        
+
         expect(consoleSpy).toHaveBeenCalledWith('Showing context menu at position:', { x: 100.7, y: 150.3 });
         expect(mockMenuInstance.popup).toHaveBeenCalledWith({
           x: Math.round(100.7),
           y: Math.round(150.3),
         });
       }
-      
+
       consoleSpy.mockRestore();
     });
 
@@ -340,16 +336,14 @@ describe('Handlers Coverage Tests', () => {
         popup: jest.fn(),
       };
       mockMenu.mockReturnValue(mockMenuInstance);
-      
-      const showContextMenuCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'show-website-context-menu');
+
+      const showContextMenuCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'show-website-context-menu');
       if (showContextMenuCall) {
         showContextMenuCall[1](mockEvent, 'test-site', { x: 100, y: 150 });
-        
+
         // Get the rename menu item and trigger its click
-        const renameMenuItem = mockMenuInstance.append.mock.calls.find(call => 
-          call[0] && call[0].label === 'Rename'
-        );
-        
+        const renameMenuItem = mockMenuInstance.append.mock.calls.find((call) => call[0] && call[0].label === 'Rename');
+
         if (renameMenuItem && renameMenuItem[0].click) {
           renameMenuItem[0].click();
           expect(mockEvent.sender.send).toHaveBeenCalledWith('website-context-menu-action', 'rename', 'test-site');
@@ -363,16 +357,14 @@ describe('Handlers Coverage Tests', () => {
         popup: jest.fn(),
       };
       mockMenu.mockReturnValue(mockMenuInstance);
-      
-      const showContextMenuCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'show-website-context-menu');
+
+      const showContextMenuCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'show-website-context-menu');
       if (showContextMenuCall) {
         showContextMenuCall[1](mockEvent, 'test-site', { x: 100, y: 150 });
-        
+
         // Get the delete menu item and trigger its click
-        const deleteMenuItem = mockMenuInstance.append.mock.calls.find(call => 
-          call[0] && call[0].label === 'Delete'
-        );
-        
+        const deleteMenuItem = mockMenuInstance.append.mock.calls.find((call) => call[0] && call[0].label === 'Delete');
+
         if (deleteMenuItem && deleteMenuItem[0].click) {
           deleteMenuItem[0].click();
           expect(mockEvent.sender.send).toHaveBeenCalledWith('website-context-menu-action', 'delete', 'test-site');
@@ -384,8 +376,8 @@ describe('Handlers Coverage Tests', () => {
   describe('Export Folder Handler', () => {
     it('should handle export-folder with user cancellation', async () => {
       mockDialog.showSaveDialog.mockResolvedValue({ canceled: true });
-      
-      const exportFolderCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-folder');
+
+      const exportFolderCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-folder');
       if (exportFolderCall) {
         const result = await exportFolderCall[1](mockEvent);
         expect(result).toEqual({ success: false, message: 'Export cancelled by user' });
@@ -395,20 +387,20 @@ describe('Handlers Coverage Tests', () => {
     it('should handle export-folder with successful export', async () => {
       const fs = require('fs');
       const mockExecCallback = jest.fn();
-      
-      mockDialog.showSaveDialog.mockResolvedValue({ 
+
+      mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/export/path'
+        filePath: '/export/path',
       });
-      
+
       fs.existsSync.mockReturnValue(true);
-      
+
       // Mock successful cp command
       mockExec.mockImplementation((cmd, callback) => {
         callback(null, 'success');
       });
-      
-      const exportFolderCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-folder');
+
+      const exportFolderCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-folder');
       if (exportFolderCall) {
         const result = await exportFolderCall[1](mockEvent);
         expect(result).toEqual({ success: true, message: 'Export completed successfully' });
@@ -416,20 +408,20 @@ describe('Handlers Coverage Tests', () => {
     });
 
     it('should handle export-folder with cp command failure', async () => {
-      mockDialog.showSaveDialog.mockResolvedValue({ 
+      mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/export/path'
+        filePath: '/export/path',
       });
-      
+
       const fs = require('fs');
       fs.existsSync.mockReturnValue(true);
-      
+
       const cpError = new Error('Copy failed');
       mockExec.mockImplementation((cmd, callback) => {
         callback(cpError, null);
       });
-      
-      const exportFolderCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-folder');
+
+      const exportFolderCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-folder');
       if (exportFolderCall) {
         const result = await exportFolderCall[1](mockEvent);
         expect(result).toEqual({ success: false, message: 'Export failed: Copy failed' });
@@ -437,15 +429,15 @@ describe('Handlers Coverage Tests', () => {
     });
 
     it('should handle export-folder with missing build directory', async () => {
-      mockDialog.showSaveDialog.mockResolvedValue({ 
+      mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/export/path'
+        filePath: '/export/path',
       });
-      
+
       const fs = require('fs');
       fs.existsSync.mockReturnValue(false);
-      
-      const exportFolderCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-folder');
+
+      const exportFolderCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-folder');
       if (exportFolderCall) {
         const result = await exportFolderCall[1](mockEvent);
         expect(result).toEqual({ success: false, message: 'Build directory not found. Please build the site first.' });
@@ -456,8 +448,8 @@ describe('Handlers Coverage Tests', () => {
   describe('Export ZIP Handler', () => {
     it('should handle export-zip with user cancellation', async () => {
       mockDialog.showSaveDialog.mockResolvedValue({ canceled: true });
-      
-      const exportZipCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-zip');
+
+      const exportZipCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-zip');
       if (exportZipCall) {
         const result = await exportZipCall[1](mockEvent);
         expect(result).toEqual({ success: false, message: 'Export cancelled by user' });
@@ -465,15 +457,15 @@ describe('Handlers Coverage Tests', () => {
     });
 
     it('should handle export-zip with missing build directory', async () => {
-      mockDialog.showSaveDialog.mockResolvedValue({ 
+      mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/export/archive.zip'
+        filePath: '/export/archive.zip',
       });
-      
+
       const fs = require('fs');
       fs.existsSync.mockReturnValue(false);
-      
-      const exportZipCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-zip');
+
+      const exportZipCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-zip');
       if (exportZipCall) {
         const result = await exportZipCall[1](mockEvent);
         expect(result).toEqual({ success: false, message: 'Build directory not found. Please build the site first.' });
@@ -482,15 +474,15 @@ describe('Handlers Coverage Tests', () => {
 
     it('should handle export-zip with successful archive creation', async () => {
       const fs = require('fs');
-      
-      mockDialog.showSaveDialog.mockResolvedValue({ 
+
+      mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/export/archive.zip'
+        filePath: '/export/archive.zip',
       });
-      
+
       fs.existsSync.mockReturnValue(true);
       fs.createWriteStream.mockReturnValue(mockWriteStream);
-      
+
       // Mock archive events
       mockArchive.on.mockImplementation((event, callback) => {
         if (event === 'end') {
@@ -498,22 +490,22 @@ describe('Handlers Coverage Tests', () => {
         }
         return mockArchive;
       });
-      
+
       mockArchive.finalize.mockImplementation(() => {
         // Trigger the 'end' event
-        const endCallback = mockArchive.on.mock.calls.find(call => call[0] === 'end');
+        const endCallback = mockArchive.on.mock.calls.find((call) => call[0] === 'end');
         if (endCallback) {
           setTimeout(endCallback[1], 0);
         }
       });
-      
-      const exportZipCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-zip');
+
+      const exportZipCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-zip');
       if (exportZipCall) {
         const resultPromise = exportZipCall[1](mockEvent);
-        
+
         // Allow async operations to complete
-        await new Promise(resolve => setTimeout(resolve, 10));
-        
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
         const result = await resultPromise;
         expect(result).toEqual({ success: true, message: 'ZIP export completed successfully' });
       }
@@ -521,17 +513,17 @@ describe('Handlers Coverage Tests', () => {
 
     it('should handle export-zip with archive error', async () => {
       const fs = require('fs');
-      
-      mockDialog.showSaveDialog.mockResolvedValue({ 
+
+      mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/export/archive.zip'
+        filePath: '/export/archive.zip',
       });
-      
+
       fs.existsSync.mockReturnValue(true);
       fs.createWriteStream.mockReturnValue(mockWriteStream);
-      
+
       const archiveError = new Error('Archive failed');
-      
+
       // Mock archive error event
       mockArchive.on.mockImplementation((event, callback) => {
         if (event === 'error') {
@@ -539,14 +531,14 @@ describe('Handlers Coverage Tests', () => {
         }
         return mockArchive;
       });
-      
-      const exportZipCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-zip');
+
+      const exportZipCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-zip');
       if (exportZipCall) {
         const resultPromise = exportZipCall[1](mockEvent);
-        
+
         // Allow async operations to complete
-        await new Promise(resolve => setTimeout(resolve, 10));
-        
+        await new Promise((resolve) => setTimeout(resolve, 10));
+
         try {
           await resultPromise;
         } catch (error) {
@@ -559,40 +551,40 @@ describe('Handlers Coverage Tests', () => {
   describe('Build Website Handler', () => {
     it('should handle build-website with successful build', async () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-      
+
       mockExec.mockImplementation((cmd, callback) => {
         callback(null, 'Build successful');
       });
-      
-      const buildWebsiteCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'build-website');
+
+      const buildWebsiteCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'build-website');
       if (buildWebsiteCall) {
         const result = await buildWebsiteCall[1]();
-        
+
         expect(consoleSpy).toHaveBeenCalledWith('Building website...');
         expect(result).toEqual({ success: true });
       }
-      
+
       consoleSpy.mockRestore();
     });
 
     it('should handle build-website with build failure', async () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-      
+
       const buildError = new Error('Build failed');
       mockExec.mockImplementation((cmd, callback) => {
         callback(buildError, null);
       });
-      
-      const buildWebsiteCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'build-website');
+
+      const buildWebsiteCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'build-website');
       if (buildWebsiteCall) {
         const result = await buildWebsiteCall[1]();
-        
+
         expect(consoleSpy).toHaveBeenCalledWith('Building website...');
         expect(consoleErrorSpy).toHaveBeenCalledWith('Build failed:', buildError);
         expect(result).toEqual({ success: false, error: buildError.message });
       }
-      
+
       consoleSpy.mockRestore();
       consoleErrorSpy.mockRestore();
     });
@@ -601,8 +593,8 @@ describe('Handlers Coverage Tests', () => {
   describe('Theme Handlers', () => {
     it('should handle get-theme', async () => {
       mockStore.get.mockReturnValue('dark');
-      
-      const getThemeCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'get-theme');
+
+      const getThemeCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'get-theme');
       if (getThemeCall) {
         const result = await getThemeCall[1]();
         expect(result).toBe('dark');
@@ -616,8 +608,8 @@ describe('Handlers Coverage Tests', () => {
       };
       const StoreMock = require('../../app/store').Store;
       StoreMock.mockReturnValue(mockStoreInstance);
-      
-      const setThemeCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'set-theme');
+
+      const setThemeCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'set-theme');
       if (setThemeCall) {
         await setThemeCall[1](mockEvent, 'light');
         expect(mockStoreInstance.set).toHaveBeenCalledWith('theme', 'light');
@@ -634,25 +626,25 @@ describe('Handlers Coverage Tests', () => {
       const loadWebsiteContentMock = require('../../app/ui/multi-window-manager').loadWebsiteContent;
       const setLiveServerUrlMock = require('../../app/server/eleventy').setLiveServerUrl;
       const setCurrentWebsiteNameMock = require('../../app/server/eleventy').setCurrentWebsiteName;
-      
+
       createWebsiteWindowMock.mockReturnValue({ id: 'window1' });
       switchToWebsiteMock.mockResolvedValue(3000);
       addLocalDnsResolutionMock.mockResolvedValue(undefined);
       restartHttpsProxyMock.mockResolvedValue(true);
       mockStore.get.mockReturnValue('https');
-      
+
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-      
-      const createWebsiteCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'create-website-window');
+
+      const createWebsiteCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'create-website-window');
       if (createWebsiteCall) {
         jest.useFakeTimers();
         const resultPromise = createWebsiteCall[1](mockEvent, 'test-site', '/path/to/site');
-        
+
         // Fast-forward the setTimeout
         jest.advanceTimersByTime(1500);
-        
+
         await resultPromise;
-        
+
         expect(createWebsiteWindowMock).toHaveBeenCalledWith('test-site', '/path/to/site');
         expect(switchToWebsiteMock).toHaveBeenCalledWith('/path/to/site');
         expect(addLocalDnsResolutionMock).toHaveBeenCalledWith('test-site.test');
@@ -661,10 +653,10 @@ describe('Handlers Coverage Tests', () => {
         expect(setLiveServerUrlMock).toHaveBeenCalledWith('https://test-site.test:8080');
         expect(setCurrentWebsiteNameMock).toHaveBeenCalledWith('test-site');
         expect(loadWebsiteContentMock).toHaveBeenCalledWith('test-site');
-        
+
         jest.useRealTimers();
       }
-      
+
       consoleSpy.mockRestore();
     });
 
@@ -675,30 +667,30 @@ describe('Handlers Coverage Tests', () => {
       const restartHttpsProxyMock = require('../../app/server/https-proxy').restartHttpsProxy;
       const setLiveServerUrlMock = require('../../app/server/eleventy').setLiveServerUrl;
       const setCurrentWebsiteNameMock = require('../../app/server/eleventy').setCurrentWebsiteName;
-      
+
       createWebsiteWindowMock.mockReturnValue({ id: 'window1' });
       switchToWebsiteMock.mockResolvedValue(3000);
       addLocalDnsResolutionMock.mockResolvedValue(undefined);
       restartHttpsProxyMock.mockResolvedValue(false);
       mockStore.get.mockReturnValue('https');
-      
+
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-      
-      const createWebsiteCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'create-website-window');
+
+      const createWebsiteCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'create-website-window');
       if (createWebsiteCall) {
         jest.useFakeTimers();
         const resultPromise = createWebsiteCall[1](mockEvent, 'test-site', '/path/to/site');
-        
+
         jest.advanceTimersByTime(1500);
-        
+
         await resultPromise;
-        
+
         expect(consoleSpy).toHaveBeenCalledWith('HTTPS proxy failed, continuing with HTTP-only mode');
         expect(setLiveServerUrlMock).toHaveBeenCalledWith('http://localhost:3000');
-        
+
         jest.useRealTimers();
       }
-      
+
       consoleSpy.mockRestore();
     });
 
@@ -709,30 +701,30 @@ describe('Handlers Coverage Tests', () => {
       const restartHttpsProxyMock = require('../../app/server/https-proxy').restartHttpsProxy;
       const setLiveServerUrlMock = require('../../app/server/eleventy').setLiveServerUrl;
       const setCurrentWebsiteNameMock = require('../../app/server/eleventy').setCurrentWebsiteName;
-      
+
       createWebsiteWindowMock.mockReturnValue({ id: 'window1' });
       switchToWebsiteMock.mockResolvedValue(3000);
       addLocalDnsResolutionMock.mockResolvedValue(undefined);
       mockStore.get.mockReturnValue('http');
-      
+
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-      
-      const createWebsiteCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'create-website-window');
+
+      const createWebsiteCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'create-website-window');
       if (createWebsiteCall) {
         jest.useFakeTimers();
         const resultPromise = createWebsiteCall[1](mockEvent, 'test-site', '/path/to/site');
-        
+
         jest.advanceTimersByTime(1500);
-        
+
         await resultPromise;
-        
+
         expect(restartHttpsProxyMock).not.toHaveBeenCalled();
         expect(consoleSpy).toHaveBeenCalledWith('HTTP-only mode by user preference, skipping HTTPS proxy');
         expect(setLiveServerUrlMock).toHaveBeenCalledWith('http://localhost:3000');
-        
+
         jest.useRealTimers();
       }
-      
+
       consoleSpy.mockRestore();
     });
   });
@@ -740,8 +732,8 @@ describe('Handlers Coverage Tests', () => {
   describe('Export BagIt Handler', () => {
     it('should handle export-bagit with user cancellation', async () => {
       mockDialog.showSaveDialog.mockResolvedValue({ canceled: true });
-      
-      const exportBagItCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-bagit');
+
+      const exportBagItCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-bagit');
       if (exportBagItCall) {
         const result = await exportBagItCall[1](mockEvent);
         expect(result).toEqual({ success: false, message: 'Export cancelled by user' });
@@ -749,15 +741,15 @@ describe('Handlers Coverage Tests', () => {
     });
 
     it('should handle export-bagit with missing build directory', async () => {
-      mockDialog.showSaveDialog.mockResolvedValue({ 
+      mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/export/bagit-archive'
+        filePath: '/export/bagit-archive',
       });
-      
+
       const fs = require('fs');
       fs.existsSync.mockReturnValue(false);
-      
-      const exportBagItCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-bagit');
+
+      const exportBagItCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-bagit');
       if (exportBagItCall) {
         const result = await exportBagItCall[1](mockEvent);
         expect(result).toEqual({ success: false, message: 'Build directory not found. Please build the site first.' });
@@ -767,24 +759,24 @@ describe('Handlers Coverage Tests', () => {
     it('should handle export-bagit with successful creation', async () => {
       const fs = require('fs');
       const getBagItMetadataMock = require('../../app/ui/window-manager').getBagItMetadata;
-      
-      mockDialog.showSaveDialog.mockResolvedValue({ 
+
+      mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/export/bagit-archive'
+        filePath: '/export/bagit-archive',
       });
-      
+
       fs.existsSync.mockReturnValue(true);
       fs.readdirSync.mockReturnValue([
         { name: 'index.html', isDirectory: () => false },
         { name: 'styles', isDirectory: () => true },
       ]);
-      
+
       getBagItMetadataMock.mockReturnValue({
         title: 'Test Site',
         description: 'Test Description',
         creator: 'Test Creator',
       });
-      
+
       const mockBagInstance = {
         createWriteStream: jest.fn(() => ({
           on: jest.fn((event, callback) => {
@@ -798,24 +790,24 @@ describe('Handlers Coverage Tests', () => {
           setTimeout(callback, 0);
         }),
       };
-      
+
       mockBagIt.mockReturnValue(mockBagInstance);
       fs.createReadStream.mockReturnValue({
         pipe: jest.fn(),
       });
-      
-      const exportBagItCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-bagit');
+
+      const exportBagItCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-bagit');
       if (exportBagItCall) {
         jest.useFakeTimers();
-        
+
         const resultPromise = exportBagItCall[1](mockEvent);
-        
+
         // Advance timers to trigger async operations
         jest.advanceTimersByTime(100);
-        
+
         const result = await resultPromise;
         expect(result).toEqual({ success: true, message: 'BagIt export completed successfully' });
-        
+
         jest.useRealTimers();
       }
     });
@@ -823,26 +815,26 @@ describe('Handlers Coverage Tests', () => {
     it('should handle export-bagit with file copy operations', async () => {
       const fs = require('fs');
       const getBagItMetadataMock = require('../../app/ui/window-manager').getBagItMetadata;
-      
-      mockDialog.showSaveDialog.mockResolvedValue({ 
+
+      mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/export/bagit-archive'
+        filePath: '/export/bagit-archive',
       });
-      
+
       fs.existsSync.mockReturnValue(true);
       fs.readdirSync.mockReturnValue([
         { name: 'file1.html', isDirectory: () => false },
         { name: 'file2.css', isDirectory: () => false },
       ]);
-      
+
       getBagItMetadataMock.mockReturnValue({
         title: 'Test Site',
         description: 'Test Description',
         creator: 'Test Creator',
       });
-      
+
       let finishCallbacks: Array<() => void> = [];
-      
+
       const mockBagInstance = {
         createWriteStream: jest.fn(() => ({
           on: jest.fn((event, callback) => {
@@ -854,29 +846,29 @@ describe('Handlers Coverage Tests', () => {
         })),
         finalize: jest.fn((callback) => {
           // Trigger all finish callbacks first
-          finishCallbacks.forEach(cb => cb());
+          finishCallbacks.forEach((cb) => cb());
           setTimeout(callback, 0);
         }),
       };
-      
+
       mockBagIt.mockReturnValue(mockBagInstance);
       fs.createReadStream.mockReturnValue({
         pipe: jest.fn(),
       });
-      
-      const exportBagItCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-bagit');
+
+      const exportBagItCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-bagit');
       if (exportBagItCall) {
         jest.useFakeTimers();
-        
+
         const resultPromise = exportBagItCall[1](mockEvent);
-        
+
         // Advance timers to trigger async operations
         jest.advanceTimersByTime(100);
-        
+
         const result = await resultPromise;
         expect(result).toEqual({ success: true, message: 'BagIt export completed successfully' });
         expect(mockBagInstance.createWriteStream).toHaveBeenCalledTimes(2);
-        
+
         jest.useRealTimers();
       }
     });
@@ -884,14 +876,14 @@ describe('Handlers Coverage Tests', () => {
     it('should handle export-bagit with directory traversal', async () => {
       const fs = require('fs');
       const getBagItMetadataMock = require('../../app/ui/window-manager').getBagItMetadata;
-      
-      mockDialog.showSaveDialog.mockResolvedValue({ 
+
+      mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/export/bagit-archive'
+        filePath: '/export/bagit-archive',
       });
-      
+
       fs.existsSync.mockReturnValue(true);
-      
+
       // Mock directory structure
       let readdirCalls = 0;
       fs.readdirSync.mockImplementation((dir: any) => {
@@ -904,21 +896,19 @@ describe('Handlers Coverage Tests', () => {
           ];
         } else {
           // Subdirectory
-          return [
-            { name: 'nested.css', isDirectory: () => false },
-          ];
+          return [{ name: 'nested.css', isDirectory: () => false }];
         }
       });
-      
+
       getBagItMetadataMock.mockReturnValue({
         title: 'Test Site',
         description: 'Test Description',
         creator: 'Test Creator',
       });
-      
+
       let finishCallbacks: Array<() => void> = [];
       let pendingCount = 0;
-      
+
       const mockBagInstance = {
         createWriteStream: jest.fn(() => ({
           on: jest.fn((event, callback) => {
@@ -936,29 +926,29 @@ describe('Handlers Coverage Tests', () => {
         })),
         finalize: jest.fn((callback) => {
           // Trigger all finish callbacks
-          finishCallbacks.forEach(cb => cb());
+          finishCallbacks.forEach((cb) => cb());
           setTimeout(callback, 0);
         }),
       };
-      
+
       mockBagIt.mockReturnValue(mockBagInstance);
       fs.createReadStream.mockReturnValue({
         pipe: jest.fn(),
       });
-      
-      const exportBagItCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-bagit');
+
+      const exportBagItCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-bagit');
       if (exportBagItCall) {
         jest.useFakeTimers();
-        
+
         const resultPromise = exportBagItCall[1](mockEvent);
-        
+
         // Advance timers to trigger async operations
         jest.advanceTimersByTime(100);
-        
+
         const result = await resultPromise;
         expect(result).toEqual({ success: true, message: 'BagIt export completed successfully' });
         expect(fs.readdirSync).toHaveBeenCalledTimes(2); // Root + subdirectory
-        
+
         jest.useRealTimers();
       }
     });
@@ -966,25 +956,23 @@ describe('Handlers Coverage Tests', () => {
     it('should handle export-bagit with stream error', async () => {
       const fs = require('fs');
       const getBagItMetadataMock = require('../../app/ui/window-manager').getBagItMetadata;
-      
-      mockDialog.showSaveDialog.mockResolvedValue({ 
+
+      mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
-        filePath: '/export/bagit-archive'
+        filePath: '/export/bagit-archive',
       });
-      
+
       fs.existsSync.mockReturnValue(true);
-      fs.readdirSync.mockReturnValue([
-        { name: 'file.html', isDirectory: () => false },
-      ]);
-      
+      fs.readdirSync.mockReturnValue([{ name: 'file.html', isDirectory: () => false }]);
+
       getBagItMetadataMock.mockReturnValue({
         title: 'Test Site',
         description: 'Test Description',
         creator: 'Test Creator',
       });
-      
+
       const streamError = new Error('Stream error');
-      
+
       const mockBagInstance = {
         createWriteStream: jest.fn(() => ({
           on: jest.fn((event, callback) => {
@@ -996,13 +984,13 @@ describe('Handlers Coverage Tests', () => {
         })),
         finalize: jest.fn(),
       };
-      
+
       mockBagIt.mockReturnValue(mockBagInstance);
       fs.createReadStream.mockReturnValue({
         pipe: jest.fn(),
       });
-      
-      const exportBagItCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'export-bagit');
+
+      const exportBagItCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-bagit');
       if (exportBagItCall) {
         try {
           await exportBagItCall[1](mockEvent);
@@ -1017,40 +1005,40 @@ describe('Handlers Coverage Tests', () => {
   describe('Restart Server Handler', () => {
     it('should handle restart-server with successful restart', async () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-      
+
       mockExec.mockImplementation((cmd, callback) => {
         callback(null, 'Server restarted');
       });
-      
-      const restartServerCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'restart-server');
+
+      const restartServerCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'restart-server');
       if (restartServerCall) {
         const result = await restartServerCall[1]();
-        
+
         expect(consoleSpy).toHaveBeenCalledWith('Restarting server...');
         expect(result).toEqual({ success: true });
       }
-      
+
       consoleSpy.mockRestore();
     });
 
     it('should handle restart-server with failure', async () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-      
+
       const restartError = new Error('Restart failed');
       mockExec.mockImplementation((cmd, callback) => {
         callback(restartError, null);
       });
-      
-      const restartServerCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'restart-server');
+
+      const restartServerCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'restart-server');
       if (restartServerCall) {
         const result = await restartServerCall[1]();
-        
+
         expect(consoleSpy).toHaveBeenCalledWith('Restarting server...');
         expect(consoleErrorSpy).toHaveBeenCalledWith('Server restart failed:', restartError);
         expect(result).toEqual({ success: false, error: restartError.message });
       }
-      
+
       consoleSpy.mockRestore();
       consoleErrorSpy.mockRestore();
     });
@@ -1060,18 +1048,18 @@ describe('Handlers Coverage Tests', () => {
     it('should handle open-website-folder', async () => {
       const getWebsitePathMock = require('../../app/utils/website-manager').getWebsitePath;
       getWebsitePathMock.mockReturnValue('/path/to/website');
-      
-      const openWebsiteFolderCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'open-website-folder');
+
+      const openWebsiteFolderCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'open-website-folder');
       if (openWebsiteFolderCall) {
         await openWebsiteFolderCall[1](mockEvent, 'test-site');
-        
+
         expect(getWebsitePathMock).toHaveBeenCalledWith('test-site');
         expect(mockShell.showItemInFolder).toHaveBeenCalledWith('/path/to/website');
       }
     });
 
     it('should handle open-export-folder', async () => {
-      const openExportFolderCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'open-export-folder');
+      const openExportFolderCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'open-export-folder');
       if (openExportFolderCall) {
         await openExportFolderCall[1](mockEvent, '/export/path');
         expect(mockShell.showItemInFolder).toHaveBeenCalledWith('/export/path');
@@ -1083,8 +1071,8 @@ describe('Handlers Coverage Tests', () => {
     it('should handle get-server-url', async () => {
       const getCurrentLiveServerUrlMock = require('../../app/server/eleventy').getCurrentLiveServerUrl;
       getCurrentLiveServerUrlMock.mockReturnValue('https://test.test:8080');
-      
-      const getServerUrlCall = mockIpcMain.handle.mock.calls.find(call => call[0] === 'get-server-url');
+
+      const getServerUrlCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'get-server-url');
       if (getServerUrlCall) {
         const result = await getServerUrlCall[1]();
         expect(result).toBe('https://test.test:8080');
@@ -1095,26 +1083,26 @@ describe('Handlers Coverage Tests', () => {
   describe('Error Edge Cases', () => {
     it('should handle exceptions in context menu creation', () => {
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-      
+
       // Mock Menu constructor to throw
       mockMenu.mockImplementation(() => {
         throw new Error('Menu creation failed');
       });
-      
-      const showContextMenuCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'show-website-context-menu');
+
+      const showContextMenuCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'show-website-context-menu');
       if (showContextMenuCall) {
         expect(() => {
           showContextMenuCall[1](mockEvent, 'test-site', { x: 100, y: 150 });
         }).toThrow('Menu creation failed');
       }
-      
+
       consoleErrorSpy.mockRestore();
     });
 
     it('should handle missing event sender', () => {
       const mockEventNoSender = {};
-      
-      const hidePreviewCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'hide-preview');
+
+      const hidePreviewCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'hide-preview');
       if (hidePreviewCall) {
         expect(() => {
           hidePreviewCall[1](mockEventNoSender);
@@ -1126,8 +1114,8 @@ describe('Handlers Coverage Tests', () => {
       mockBrowserWindow.fromWebContents.mockImplementation(() => {
         throw new Error('fromWebContents failed');
       });
-      
-      const hidePreviewCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'hide-preview');
+
+      const hidePreviewCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'hide-preview');
       if (hidePreviewCall) {
         expect(() => {
           hidePreviewCall[1](mockEvent);

@@ -482,10 +482,8 @@ export async function restoreWindowStates(): Promise<void> {
     return;
   }
 
-
   for (const windowState of windowStates) {
     try {
-
       // Restore the website window
       await restoreWebsiteWindow(windowState);
 

@@ -48,18 +48,18 @@ describe('Website Manager', () => {
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
-    
+
     // Get the mocked dialog
     mockDialog = require('electron').dialog;
-    
+
     // Set up console spy
     consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-    
+
     // Set up default mock implementations
     mockedOs.homedir.mockReturnValue('/mock/home');
     mockedPath.join.mockImplementation((...args) => args.join('/'));
     mockedFs.existsSync.mockReturnValue(false);
-    
+
     // Reset environment
     process.env = { ...originalEnv };
   });
@@ -81,9 +81,9 @@ describe('Website Manager', () => {
         value: 'darwin',
         configurable: true,
       });
-      
+
       const result = getWebsitePath('test-site');
-      
+
       expect(mockedOs.homedir).toHaveBeenCalled();
       expect(mockedPath.join).toHaveBeenCalledWith('/mock/home', 'Library', 'Application Support', 'Anglesite');
       expect(mockedPath.join).toHaveBeenCalledWith('/mock/home/Library/Application Support/Anglesite', 'websites');
@@ -95,9 +95,9 @@ describe('Website Manager', () => {
         configurable: true,
       });
       process.env.APPDATA = '/mock/appdata';
-      
+
       getWebsitePath('test-site');
-      
+
       expect(mockedPath.join).toHaveBeenCalledWith('/mock/appdata', 'Anglesite');
     });
 
@@ -106,9 +106,9 @@ describe('Website Manager', () => {
         value: 'linux',
         configurable: true,
       });
-      
+
       getWebsitePath('test-site');
-      
+
       expect(mockedOs.homedir).toHaveBeenCalled();
       expect(mockedPath.join).toHaveBeenCalledWith('/mock/home', '.config', 'anglesite');
     });
@@ -119,9 +119,9 @@ describe('Website Manager', () => {
         configurable: true,
       });
       delete process.env.APPDATA;
-      
+
       getWebsitePath('test-site');
-      
+
       expect(mockedPath.join).toHaveBeenCalledWith('', 'Anglesite');
     });
   });
@@ -133,23 +133,23 @@ describe('Website Manager', () => {
       mockedFs.existsSync
         .mockReturnValueOnce(false) // websites directory doesn't exist
         .mockReturnValueOnce(false); // new website doesn't exist
-      
+
       const result = await createWebsiteWithName('test-site');
-      
+
       // Check that directories are created
       expect(mockedFs.mkdirSync).toHaveBeenCalledTimes(2);
       expect(mockedFs.mkdirSync).toHaveBeenNthCalledWith(1, expect.stringContaining('websites'), { recursive: true });
       expect(mockedFs.mkdirSync).toHaveBeenNthCalledWith(2, expect.stringContaining('test-site'), { recursive: true });
-      
+
       // Check that index.md is written
       expect(mockedFs.writeFileSync).toHaveBeenCalledWith(
         expect.stringContaining('index.md'),
         expect.stringContaining('# Welcome to test-site')
       );
-      
+
       // Check return value
       expect(result).toContain('test-site');
-      
+
       // Check console logs
       expect(consoleSpy).toHaveBeenCalledWith('Creating new website:', 'test-site');
     });
@@ -158,9 +158,9 @@ describe('Website Manager', () => {
       mockedFs.existsSync
         .mockReturnValueOnce(true) // websites directory exists
         .mockReturnValueOnce(false); // new website doesn't exist
-      
+
       await createWebsiteWithName('test-site');
-      
+
       expect(mockedFs.mkdirSync).toHaveBeenCalledTimes(1); // Only for the new website, not the parent directory
       expect(mockedFs.mkdirSync).toHaveBeenCalledWith(expect.stringContaining('test-site'), { recursive: true });
     });
@@ -169,22 +169,20 @@ describe('Website Manager', () => {
       mockedFs.existsSync
         .mockReturnValueOnce(true) // websites directory exists
         .mockReturnValueOnce(true); // new website already exists
-      
-      await expect(createWebsiteWithName('existing-site')).rejects.toThrow(
-        'Website "existing-site" already exists'
-      );
-      
+
+      await expect(createWebsiteWithName('existing-site')).rejects.toThrow('Website "existing-site" already exists');
+
       expect(mockedFs.mkdirSync).not.toHaveBeenCalled();
       expect(mockedFs.writeFileSync).not.toHaveBeenCalled();
     });
 
     it('should create proper index.md content', async () => {
       mockedFs.existsSync.mockReturnValue(false);
-      
+
       await createWebsiteWithName('my-blog');
-      
+
       const indexContent = mockedFs.writeFileSync.mock.calls[0][1] as string;
-      
+
       expect(indexContent).toContain('---');
       expect(indexContent).toContain('layout: base-layout.njk');
       expect(indexContent).toContain('title: my-blog');
@@ -196,9 +194,9 @@ describe('Website Manager', () => {
 
     it('should handle special characters in website name', async () => {
       mockedFs.existsSync.mockReturnValue(false);
-      
+
       await createWebsiteWithName('my_awesome-site123');
-      
+
       const indexContent = mockedFs.writeFileSync.mock.calls[0][1] as string;
       expect(indexContent).toContain('title: my_awesome-site123');
       expect(indexContent).toContain('# Welcome to my_awesome-site123');
@@ -219,8 +217,8 @@ describe('Website Manager', () => {
         'lowercase',
         'Mixed-Case_123',
       ];
-      
-      validNames.forEach(name => {
+
+      validNames.forEach((name) => {
         const result = validateWebsiteName(name);
         expect(result.valid).toBe(true);
         expect(result.error).toBeUndefined();
@@ -229,8 +227,8 @@ describe('Website Manager', () => {
 
     it('should reject empty or whitespace names', () => {
       const invalidNames = ['', ' ', '   ', '\t', '\n'];
-      
-      invalidNames.forEach(name => {
+
+      invalidNames.forEach((name) => {
         const result = validateWebsiteName(name);
         expect(result.valid).toBe(false);
         expect(result.error).toBe('Website name cannot be empty');
@@ -264,8 +262,8 @@ describe('Website Manager', () => {
         'site~tilde',
         'site`backtick',
       ];
-      
-      invalidNames.forEach(name => {
+
+      invalidNames.forEach((name) => {
         const result = validateWebsiteName(name);
         expect(result.valid).toBe(false);
         expect(result.error).toBe('Website name can only contain letters, numbers, hyphens, and underscores');
@@ -274,18 +272,18 @@ describe('Website Manager', () => {
 
     it('should reject names that are too long', () => {
       const longName = 'a'.repeat(51); // 51 characters
-      
+
       const result = validateWebsiteName(longName);
-      
+
       expect(result.valid).toBe(false);
       expect(result.error).toBe('Website name must be 50 characters or less');
     });
 
     it('should accept names that are exactly 50 characters', () => {
       const maxLengthName = 'a'.repeat(50); // Exactly 50 characters
-      
+
       const result = validateWebsiteName(maxLengthName);
-      
+
       expect(result.valid).toBe(true);
       expect(result.error).toBeUndefined();
     });
@@ -294,9 +292,9 @@ describe('Website Manager', () => {
   describe('getWebsiteNameFromUser', () => {
     it('should return website name when user clicks Create', async () => {
       mockDialog.showMessageBoxSync.mockReturnValue(1); // Create button
-      
+
       const result = await getWebsiteNameFromUser();
-      
+
       expect(result).toBe('my-new-website');
       expect(mockDialog.showMessageBoxSync).toHaveBeenCalledWith({
         type: 'question',
@@ -310,17 +308,17 @@ describe('Website Manager', () => {
 
     it('should return null when user clicks Cancel', async () => {
       mockDialog.showMessageBoxSync.mockReturnValue(0); // Cancel button
-      
+
       const result = await getWebsiteNameFromUser();
-      
+
       expect(result).toBe(null);
     });
 
     it('should return null when user uses escape key', async () => {
       mockDialog.showMessageBoxSync.mockReturnValue(-1); // Escape/close
-      
+
       const result = await getWebsiteNameFromUser();
-      
+
       expect(result).toBe(null);
     });
   });
@@ -332,9 +330,9 @@ describe('Website Manager', () => {
 
     it('should return empty array when websites directory does not exist', () => {
       mockedFs.existsSync.mockReturnValue(false);
-      
+
       const result = listWebsites();
-      
+
       expect(result).toEqual([]);
       expect(mockedFs.readdirSync).not.toHaveBeenCalled();
     });
@@ -347,9 +345,9 @@ describe('Website Manager', () => {
         { name: 'file.txt', isDirectory: () => false },
         { name: 'site3', isDirectory: () => true },
       ] as any);
-      
+
       const result = listWebsites();
-      
+
       expect(result).toEqual(['site1', 'site2', 'site3']);
       expect(mockedFs.readdirSync).toHaveBeenCalledWith('/mock/websites', { withFileTypes: true });
     });
@@ -360,9 +358,9 @@ describe('Website Manager', () => {
         { name: 'file1.txt', isDirectory: () => false },
         { name: 'file2.md', isDirectory: () => false },
       ] as any);
-      
+
       const result = listWebsites();
-      
+
       expect(result).toEqual([]);
     });
 
@@ -372,12 +370,12 @@ describe('Website Manager', () => {
       mockedFs.readdirSync.mockImplementation(() => {
         throw new Error('Permission denied');
       });
-      
+
       const result = listWebsites();
-      
+
       expect(result).toEqual([]);
       expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to list websites:', expect.any(Error));
-      
+
       consoleErrorSpy.mockRestore();
     });
   });
@@ -386,9 +384,9 @@ describe('Website Manager', () => {
     it('should delete website when user confirms', async () => {
       mockedFs.existsSync.mockReturnValue(true);
       mockDialog.showMessageBoxSync.mockReturnValue(1); // Delete button
-      
+
       const result = await deleteWebsite('test-site');
-      
+
       expect(result).toBe(true);
       expect(mockDialog.showMessageBoxSync).toHaveBeenCalledWith({
         type: 'warning',
@@ -406,9 +404,9 @@ describe('Website Manager', () => {
     it('should not delete website when user cancels', async () => {
       mockedFs.existsSync.mockReturnValue(true);
       mockDialog.showMessageBoxSync.mockReturnValue(0); // Cancel button
-      
+
       const result = await deleteWebsite('test-site');
-      
+
       expect(result).toBe(false);
       expect(mockedFs.rmSync).not.toHaveBeenCalled();
     });
@@ -417,9 +415,9 @@ describe('Website Manager', () => {
       mockedFs.existsSync.mockReturnValue(true);
       mockDialog.showMessageBoxSync.mockReturnValue(1);
       const mockParentWindow = { id: 'mock-window' } as any;
-      
+
       await deleteWebsite('test-site', mockParentWindow);
-      
+
       expect(mockDialog.showMessageBoxSync).toHaveBeenCalledWith(
         mockParentWindow,
         expect.objectContaining({
@@ -431,11 +429,9 @@ describe('Website Manager', () => {
 
     it('should throw error when website does not exist', async () => {
       mockedFs.existsSync.mockReturnValue(false);
-      
-      await expect(deleteWebsite('non-existent-site')).rejects.toThrow(
-        'Website "non-existent-site" does not exist'
-      );
-      
+
+      await expect(deleteWebsite('non-existent-site')).rejects.toThrow('Website "non-existent-site" does not exist');
+
       expect(mockDialog.showMessageBoxSync).not.toHaveBeenCalled();
       expect(mockedFs.rmSync).not.toHaveBeenCalled();
     });
@@ -447,9 +443,9 @@ describe('Website Manager', () => {
       mockedFs.rmSync.mockImplementation(() => {
         throw new Error('Permission denied');
       });
-      
+
       await expect(deleteWebsite('test-site')).rejects.toThrow('Permission denied');
-      
+
       expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to delete website:', expect.any(Error));
       consoleErrorSpy.mockRestore();
     });
@@ -458,14 +454,14 @@ describe('Website Manager', () => {
   describe('getWebsitePath', () => {
     it('should return correct website path', () => {
       const result = getWebsitePath('my-site');
-      
+
       expect(result).toContain('my-site');
       expect(result).toContain('websites');
     });
 
     it('should handle special characters in website name', () => {
       const result = getWebsitePath('my_awesome-site123');
-      
+
       expect(result).toContain('my_awesome-site123');
       expect(result).toContain('websites');
     });
@@ -476,12 +472,12 @@ describe('Website Manager', () => {
       mockedFs.existsSync
         .mockReturnValueOnce(true) // old website exists
         .mockReturnValueOnce(false); // new website doesn't exist
-      
+
       const result = await renameWebsite('old-site', 'new-site');
-      
+
       expect(result).toBe(true);
       expect(mockedFs.renameSync).toHaveBeenCalledWith(
-        expect.stringContaining('old-site'), 
+        expect.stringContaining('old-site'),
         expect.stringContaining('new-site')
       );
       expect(consoleSpy).toHaveBeenCalledWith('Renaming website from "old-site" to "new-site"');
@@ -492,18 +488,16 @@ describe('Website Manager', () => {
       await expect(renameWebsite('old-site', 'invalid name with spaces')).rejects.toThrow(
         'Website name can only contain letters, numbers, hyphens, and underscores'
       );
-      
+
       expect(mockedFs.existsSync).not.toHaveBeenCalled();
       expect(mockedFs.renameSync).not.toHaveBeenCalled();
     });
 
     it('should throw error when old website does not exist', async () => {
       mockedFs.existsSync.mockReturnValueOnce(false); // old website doesn't exist
-      
-      await expect(renameWebsite('non-existent', 'new-site')).rejects.toThrow(
-        'Website "non-existent" does not exist'
-      );
-      
+
+      await expect(renameWebsite('non-existent', 'new-site')).rejects.toThrow('Website "non-existent" does not exist');
+
       expect(mockedFs.renameSync).not.toHaveBeenCalled();
     });
 
@@ -511,54 +505,48 @@ describe('Website Manager', () => {
       mockedFs.existsSync
         .mockReturnValueOnce(true) // old website exists
         .mockReturnValueOnce(true); // new website already exists
-      
+
       await expect(renameWebsite('old-site', 'existing-site')).rejects.toThrow(
         'Website "existing-site" already exists'
       );
-      
+
       expect(mockedFs.renameSync).not.toHaveBeenCalled();
     });
 
     it('should handle file system errors during rename', async () => {
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-      mockedFs.existsSync
-        .mockReturnValueOnce(true)
-        .mockReturnValueOnce(false);
+      mockedFs.existsSync.mockReturnValueOnce(true).mockReturnValueOnce(false);
       mockedFs.renameSync.mockImplementation(() => {
         throw new Error('Permission denied');
       });
-      
+
       await expect(renameWebsite('old-site', 'new-site')).rejects.toThrow('Permission denied');
-      
+
       expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to rename website:', expect.any(Error));
       consoleErrorSpy.mockRestore();
     });
 
     it('should handle empty new name validation', async () => {
-      await expect(renameWebsite('old-site', '')).rejects.toThrow(
-        'Website name cannot be empty'
-      );
+      await expect(renameWebsite('old-site', '')).rejects.toThrow('Website name cannot be empty');
     });
 
     it('should handle name too long validation', async () => {
       const longName = 'a'.repeat(51);
-      
-      await expect(renameWebsite('old-site', longName)).rejects.toThrow(
-        'Website name must be 50 characters or less'
-      );
+
+      await expect(renameWebsite('old-site', longName)).rejects.toThrow('Website name must be 50 characters or less');
     });
   });
 
   describe('Cross-platform compatibility', () => {
     it('should handle different platforms correctly', () => {
       const platforms = ['darwin', 'win32', 'linux', 'freebsd'] as const;
-      
-      platforms.forEach(platform => {
+
+      platforms.forEach((platform) => {
         Object.defineProperty(process, 'platform', {
           value: platform,
           configurable: true,
         });
-        
+
         expect(() => getWebsitePath('test-site')).not.toThrow();
       });
     });
@@ -569,7 +557,7 @@ describe('Website Manager', () => {
         configurable: true,
       });
       delete process.env.APPDATA;
-      
+
       expect(() => getWebsitePath('test-site')).not.toThrow();
     });
   });
@@ -578,18 +566,18 @@ describe('Website Manager', () => {
     it('should support complete website lifecycle', async () => {
       // Start fresh - clear all previous mocks and implementations
       jest.resetAllMocks();
-      
+
       // Reset default implementations
       mockedOs.homedir.mockReturnValue('/mock/home');
       mockedPath.join.mockImplementation((...args) => args.join('/'));
-      
+
       // Setup mocks for creation
       mockedFs.existsSync.mockReturnValue(false);
-      
+
       // 1. Create website
       const websitePath = await createWebsiteWithName('my-blog');
       expect(websitePath).toContain('my-blog');
-      
+
       // 2. List websites (should include our new one)
       jest.clearAllMocks();
       mockedOs.homedir.mockReturnValue('/mock/home');
@@ -599,23 +587,21 @@ describe('Website Manager', () => {
         { name: 'my-blog', isDirectory: () => true },
         { name: 'other-site', isDirectory: () => true },
       ] as any);
-      
+
       const websites = listWebsites();
       expect(websites).toContain('my-blog');
-      
+
       // 3. Rename website
       jest.clearAllMocks();
       mockedOs.homedir.mockReturnValue('/mock/home');
       mockedPath.join.mockImplementation((...args) => args.join('/'));
-      mockedFs.existsSync
-        .mockReturnValueOnce(true)
-        .mockReturnValueOnce(false);
+      mockedFs.existsSync.mockReturnValueOnce(true).mockReturnValueOnce(false);
       // Ensure renameSync works normally
       mockedFs.renameSync.mockImplementation(() => {});
-      
+
       const renamed = await renameWebsite('my-blog', 'my-awesome-blog');
       expect(renamed).toBe(true);
-      
+
       // 4. Delete website
       jest.clearAllMocks();
       mockedOs.homedir.mockReturnValue('/mock/home');
@@ -623,7 +609,7 @@ describe('Website Manager', () => {
       mockedFs.existsSync.mockReturnValue(true);
       mockedFs.rmSync.mockImplementation(() => {}); // Ensure rmSync works
       mockDialog.showMessageBoxSync.mockReturnValue(1); // Delete
-      
+
       const deleted = await deleteWebsite('my-awesome-blog');
       expect(deleted).toBe(true);
     });
@@ -631,13 +617,9 @@ describe('Website Manager', () => {
     it('should handle concurrent operations gracefully', async () => {
       // Test that multiple operations don't interfere with each other
       mockedFs.existsSync.mockReturnValue(false);
-      
-      const promises = [
-        createWebsiteWithName('site1'),
-        createWebsiteWithName('site2'),
-        createWebsiteWithName('site3'),
-      ];
-      
+
+      const promises = [createWebsiteWithName('site1'), createWebsiteWithName('site2'), createWebsiteWithName('site3')];
+
       // All should succeed independently
       await expect(Promise.all(promises)).resolves.toHaveLength(3);
     });
@@ -649,7 +631,7 @@ describe('Website Manager', () => {
         valid: false,
         error: 'Website name cannot be empty',
       });
-      
+
       expect(validateWebsiteName(null as any)).toEqual({
         valid: false,
         error: 'Website name cannot be empty',
@@ -660,7 +642,7 @@ describe('Website Manager', () => {
       const longPath = '/very/long/path/that/might/cause/issues/in/some/systems';
       mockedPath.join.mockReturnValue(longPath);
       mockedFs.existsSync.mockReturnValue(false);
-      
+
       // Should not throw even with long paths
       await expect(createWebsiteWithName('test')).resolves.toBeDefined();
     });
@@ -673,8 +655,8 @@ describe('Website Manager', () => {
         '网站', // Chinese
         'сайт', // Cyrillic
       ];
-      
-      unicodeNames.forEach(name => {
+
+      unicodeNames.forEach((name) => {
         const result = validateWebsiteName(name);
         expect(result.valid).toBe(false);
         expect(result.error).toBe('Website name can only contain letters, numbers, hyphens, and underscores');

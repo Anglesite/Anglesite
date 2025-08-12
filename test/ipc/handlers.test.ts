@@ -455,7 +455,7 @@ describe('IPC Handlers', () => {
       mockBrowserWindow.fromWebContents.mockReturnValue(mockWindow);
 
       // Find and call the hide-preview handler
-      const hidePreviewCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'hide-preview');
+      const hidePreviewCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'hide-preview');
       if (hidePreviewCall) {
         const hidePreviewHandler = hidePreviewCall[1];
         hidePreviewHandler(mockEvent);
@@ -467,7 +467,7 @@ describe('IPC Handlers', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
       // Find and call the toggle-devtools handler
-      const toggleCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'toggle-devtools');
+      const toggleCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'toggle-devtools');
       if (toggleCall) {
         const toggleHandler = toggleCall[1];
         toggleHandler();
@@ -480,7 +480,7 @@ describe('IPC Handlers', () => {
 
     it('should test reload-preview handler directly', () => {
       // Find and call the reload-preview handler
-      const reloadCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'reload-preview');
+      const reloadCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'reload-preview');
       if (reloadCall) {
         const reloadHandler = reloadCall[1];
         reloadHandler();
@@ -491,22 +491,22 @@ describe('IPC Handlers', () => {
     it('should test open-browser handler with fallback', async () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-      
+
       require('../../app/server/eleventy').getCurrentLiveServerUrl.mockReturnValue('https://test.test:8080');
       mockShell.openExternal
         .mockRejectedValueOnce(new Error('Primary failed'))
         .mockRejectedValueOnce(new Error('Fallback failed'));
 
       // Find and call the open-browser handler
-      const openBrowserCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'open-browser');
+      const openBrowserCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'open-browser');
       if (openBrowserCall) {
         const openBrowserHandler = openBrowserCall[1];
         await openBrowserHandler();
-        
+
         expect(consoleSpy).toHaveBeenCalledWith('Failed to open .test domain, trying localhost');
         expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to open in browser:', expect.any(Error));
       }
-      
+
       consoleSpy.mockRestore();
       consoleErrorSpy.mockRestore();
     });
@@ -518,11 +518,11 @@ describe('IPC Handlers', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
       // Find and call the clear-cache handler
-      const clearCacheCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'clear-cache');
+      const clearCacheCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'clear-cache');
       if (clearCacheCall) {
         const clearCacheHandler = clearCacheCall[1];
         clearCacheHandler(mockEvent);
-        
+
         expect(mockWindow.webContents.session.clearCache).toHaveBeenCalled();
         expect(consoleSpy).toHaveBeenCalledWith('Cache cleared');
       }
@@ -534,11 +534,11 @@ describe('IPC Handlers', () => {
       const mockEvent = { sender: {} };
 
       // Find and call the show-item-in-folder handler
-      const showItemCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'show-item-in-folder');
+      const showItemCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'show-item-in-folder');
       if (showItemCall) {
         const showItemHandler = showItemCall[1];
         await showItemHandler(mockEvent, '/valid/path');
-        
+
         expect(mockShell.showItemInFolder).toHaveBeenCalledWith('/valid/path');
       }
     });
@@ -547,17 +547,17 @@ describe('IPC Handlers', () => {
       const mockEvent = { sender: { send: jest.fn() } };
       const mockWindow = { webContents: {} };
       const mockContextMenu = { append: jest.fn(), popup: jest.fn() };
-      
+
       mockBrowserWindow.fromWebContents.mockReturnValue(mockWindow);
       mockMenu.mockReturnValue(mockContextMenu);
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
       // Find and call the context menu handler
-      const contextMenuCall = mockIpcMain.on.mock.calls.find(call => call[0] === 'show-website-context-menu');
+      const contextMenuCall = mockIpcMain.on.mock.calls.find((call) => call[0] === 'show-website-context-menu');
       if (contextMenuCall) {
         const contextMenuHandler = contextMenuCall[1];
         contextMenuHandler(mockEvent, 'test-site', { x: 100, y: 200 });
-        
+
         expect(mockContextMenu.append).toHaveBeenCalledTimes(2);
         expect(consoleSpy).toHaveBeenCalledWith('Showing context menu with window positioning');
         expect(mockContextMenu.popup).toHaveBeenCalledWith({ window: mockWindow });
@@ -565,13 +565,13 @@ describe('IPC Handlers', () => {
         // Test menu item callbacks
         const menuItemCalls = mockMenuItem.mock.calls;
         if (menuItemCalls.length >= 2) {
-          const renameItem = menuItemCalls.find(call => call[0] && call[0].label === 'Rename');
+          const renameItem = menuItemCalls.find((call) => call[0] && call[0].label === 'Rename');
           if (renameItem && renameItem[0].click) {
             renameItem[0].click();
             expect(mockEvent.sender.send).toHaveBeenCalledWith('website-context-menu-action', 'rename', 'test-site');
           }
 
-          const deleteItem = menuItemCalls.find(call => call[0] && call[0].label === 'Delete');
+          const deleteItem = menuItemCalls.find((call) => call[0] && call[0].label === 'Delete');
           if (deleteItem && deleteItem[0].click) {
             deleteItem[0].click();
             expect(mockEvent.sender.send).toHaveBeenCalledWith('website-context-menu-action', 'delete', 'test-site');

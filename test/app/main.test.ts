@@ -117,15 +117,15 @@ describe('Main Process', () => {
   beforeEach(() => {
     // Clear the module cache to ensure fresh imports FIRST
     jest.resetModules();
-    
+
     // Reset the callback
     initializeAppCallback = null;
-    
+
     // Set up console spies first
     consoleSpy = jest.spyOn(console, 'log').mockImplementation();
     consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
     processRemoveAllListenersSpy = jest.spyOn(process, 'removeAllListeners').mockImplementation();
-    
+
     // Manually clear specific mocks, but NOT mockStoreInstance
     mockCreateHelpWindow.mockClear();
     mockCreateApplicationMenu.mockClear();
@@ -148,7 +148,7 @@ describe('Main Process', () => {
     mockApp.quit.mockClear();
     mockApp.commandLine.appendSwitch.mockClear();
     mockMenu.setApplicationMenu.mockClear();
-    
+
     // Clear mockStoreInstance but preserve the implementation
     const getImpl = mockStoreInstance.get.getMockImplementation();
     const setImpl = mockStoreInstance.set.getMockImplementation();
@@ -156,7 +156,7 @@ describe('Main Process', () => {
     mockStoreInstance.set.mockClear();
     if (getImpl) mockStoreInstance.get.mockImplementation(getImpl);
     if (setImpl) mockStoreInstance.set.mockImplementation(setImpl);
-    
+
     // Set up default mock returns AFTER clearing mocks
     mockStoreInstance.get.mockImplementation((key: string) => {
       switch (key) {
@@ -170,24 +170,24 @@ describe('Main Process', () => {
           return undefined;
       }
     });
-    
+
     mockCreateHelpWindow.mockReturnValue({ id: 'mock-help-window' });
     mockCreateApplicationMenu.mockReturnValue({ id: 'mock-menu' });
     mockGetAllWebsiteWindows.mockReturnValue(new Map());
-    
+
     // Mock async functions to resolve
     mockHandleFirstLaunch.mockResolvedValue(undefined);
     mockCleanupHostsFile.mockResolvedValue(undefined);
     mockCheckAndSuggestTouchIdSetup.mockResolvedValue(undefined);
     mockStartDefaultEleventyServer.mockResolvedValue(undefined);
     mockRestoreWindowStates.mockResolvedValue(undefined);
-    
+
     // Capture the initialization callback for testing
     mockApp.whenReady.mockImplementation((callback) => {
       initializeAppCallback = callback;
       return Promise.resolve();
     });
-    
+
     // Set environment to development for testing
     process.env.NODE_ENV = 'development';
   });
@@ -204,19 +204,19 @@ describe('Main Process', () => {
     it('should set application name early', () => {
       // Import main.ts to trigger the setName call
       require('../../app/main');
-      
+
       expect(mockApp.setName).toHaveBeenCalledWith('Anglesite');
     });
 
     it('should register whenReady handler', () => {
       require('../../app/main');
-      
+
       expect(mockApp.whenReady).toHaveBeenCalled();
     });
 
     it('should set up command line switches for development', () => {
       require('../../app/main');
-      
+
       expect(mockApp.commandLine.appendSwitch).toHaveBeenCalledWith('--ignore-certificate-errors-spki-list');
       expect(mockApp.commandLine.appendSwitch).toHaveBeenCalledWith('--ignore-certificate-errors');
       expect(mockApp.commandLine.appendSwitch).toHaveBeenCalledWith('--ignore-ssl-errors');
@@ -224,17 +224,17 @@ describe('Main Process', () => {
 
     it('should suppress Node.js warnings in development', () => {
       process.env.NODE_ENV = 'development';
-      
+
       require('../../app/main');
-      
+
       expect(processRemoveAllListenersSpy).toHaveBeenCalledWith('warning');
     });
 
     it('should not suppress warnings in production', () => {
       process.env.NODE_ENV = 'production';
-      
+
       require('../../app/main');
-      
+
       expect(processRemoveAllListenersSpy).not.toHaveBeenCalled();
     });
   });
@@ -261,54 +261,46 @@ describe('Main Process', () => {
     });
 
     it('should quit on window-all-closed for non-macOS platforms', () => {
-      const windowAllClosedHandler = mockApp.on.mock.calls.find(
-        call => call[0] === 'window-all-closed'
-      )?.[1];
-      
+      const windowAllClosedHandler = mockApp.on.mock.calls.find((call) => call[0] === 'window-all-closed')?.[1];
+
       // Mock non-Darwin platform
       Object.defineProperty(process, 'platform', { value: 'win32' });
-      
+
       windowAllClosedHandler?.();
-      
+
       expect(mockApp.quit).toHaveBeenCalled();
-      
+
       // Reset platform
       Object.defineProperty(process, 'platform', { value: 'darwin' });
     });
 
     it('should not quit on window-all-closed for macOS', () => {
-      const windowAllClosedHandler = mockApp.on.mock.calls.find(
-        call => call[0] === 'window-all-closed'
-      )?.[1];
-      
+      const windowAllClosedHandler = mockApp.on.mock.calls.find((call) => call[0] === 'window-all-closed')?.[1];
+
       // Ensure we're on Darwin (macOS)
       Object.defineProperty(process, 'platform', { value: 'darwin' });
-      
+
       windowAllClosedHandler?.();
-      
+
       expect(mockApp.quit).not.toHaveBeenCalled();
     });
 
     it('should cleanup resources on before-quit', () => {
-      const beforeQuitHandler = mockApp.on.mock.calls.find(
-        call => call[0] === 'before-quit'
-      )?.[1];
-      
+      const beforeQuitHandler = mockApp.on.mock.calls.find((call) => call[0] === 'before-quit')?.[1];
+
       beforeQuitHandler?.();
-      
+
       expect(consoleSpy).toHaveBeenCalledWith('Cleaning up resources...');
       expect(mockCleanupEleventyServer).toHaveBeenCalled();
       expect(mockCloseAllWindows).toHaveBeenCalled();
     });
 
     it('should handle certificate errors for localhost', () => {
-      const certificateErrorHandler = mockApp.on.mock.calls.find(
-        call => call[0] === 'certificate-error'
-      )?.[1];
-      
+      const certificateErrorHandler = mockApp.on.mock.calls.find((call) => call[0] === 'certificate-error')?.[1];
+
       const mockEvent = { preventDefault: jest.fn() };
       const mockCallback = jest.fn();
-      
+
       certificateErrorHandler?.(
         mockEvent,
         null, // webContents
@@ -317,41 +309,30 @@ describe('Main Process', () => {
         null, // certificate
         mockCallback
       );
-      
+
       expect(consoleSpy).toHaveBeenCalledWith('Accepting self-signed certificate for:', 'https://localhost:3000');
       expect(mockEvent.preventDefault).toHaveBeenCalled();
       expect(mockCallback).toHaveBeenCalledWith(true);
     });
 
     it('should handle certificate errors for .test domains', () => {
-      const certificateErrorHandler = mockApp.on.mock.calls.find(
-        call => call[0] === 'certificate-error'
-      )?.[1];
-      
+      const certificateErrorHandler = mockApp.on.mock.calls.find((call) => call[0] === 'certificate-error')?.[1];
+
       const mockEvent = { preventDefault: jest.fn() };
       const mockCallback = jest.fn();
-      
-      certificateErrorHandler?.(
-        mockEvent,
-        null,
-        'https://example.test',
-        'CERT_AUTHORITY_INVALID',
-        null,
-        mockCallback
-      );
-      
+
+      certificateErrorHandler?.(mockEvent, null, 'https://example.test', 'CERT_AUTHORITY_INVALID', null, mockCallback);
+
       expect(mockEvent.preventDefault).toHaveBeenCalled();
       expect(mockCallback).toHaveBeenCalledWith(true);
     });
 
     it('should reject certificate errors for external domains', () => {
-      const certificateErrorHandler = mockApp.on.mock.calls.find(
-        call => call[0] === 'certificate-error'
-      )?.[1];
-      
+      const certificateErrorHandler = mockApp.on.mock.calls.find((call) => call[0] === 'certificate-error')?.[1];
+
       const mockEvent = { preventDefault: jest.fn() };
       const mockCallback = jest.fn();
-      
+
       certificateErrorHandler?.(
         mockEvent,
         null,
@@ -360,7 +341,7 @@ describe('Main Process', () => {
         null,
         mockCallback
       );
-      
+
       expect(mockEvent.preventDefault).not.toHaveBeenCalled();
       expect(mockCallback).toHaveBeenCalledWith(false);
     });
@@ -393,16 +374,14 @@ describe('Main Process', () => {
   describe('Activate Handler', () => {
     it('should recreate app when activated with no main window', () => {
       require('../../app/main');
-      
-      const activateHandler = mockApp.on.mock.calls.find(
-        call => call[0] === 'activate'
-      )?.[1];
-      
+
+      const activateHandler = mockApp.on.mock.calls.find((call) => call[0] === 'activate')?.[1];
+
       // Mock mainWindow as null (which happens when accessing the exported mainWindow)
       const mainModule = require('../../app/main');
-      
+
       activateHandler?.();
-      
+
       // Since initializeApp is called, we should see the mocked functions called again
       // This is a simplified test - in reality the mainWindow would be null and recreated
     });
@@ -417,15 +396,15 @@ describe('Main Process', () => {
 
     it('should execute server ready callback', async () => {
       require('../../app/main');
-      
+
       // Execute the initialization callback
       if (initializeAppCallback) {
         await initializeAppCallback();
       }
-      
+
       // Get the callback passed to startDefaultEleventyServer
       const serverCallback = mockStartDefaultEleventyServer.mock.calls[0]?.[4];
-      
+
       if (serverCallback) {
         serverCallback();
         expect(consoleSpy).toHaveBeenCalledWith('Default server ready for help content');
