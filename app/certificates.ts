@@ -19,9 +19,9 @@ import { execSync } from 'child_process';
 const certificateCache = new Map<string, { cert: string; key: string }>();
 
 /**
- * Get or create Certificate Authority for Anglesite
- * Creates a new CA if one doesn't exist, otherwise loads existing CA from disk
- * @returns Promise resolving to CA certificate and private key
+ * Get or create Certificate Authority for Anglesite.
+ * Creates a new CA if one doesn't exist, otherwise loads existing CA from disk.
+ * @returns Promise resolving to CA certificate and private key.
  */
 async function getOrCreateCA(): Promise<{ cert: string; key: string }> {
   const appDataPath =
@@ -63,10 +63,10 @@ async function getOrCreateCA(): Promise<{ cert: string; key: string }> {
 }
 
 /**
- * Generate SSL certificate for specific domains using the Anglesite CA
- * Includes caching to avoid regenerating certificates for the same domain set
- * @param domains - Array of domain names to include in the certificate
- * @returns Promise resolving to certificate and private key
+ * Generate SSL certificate for specific domains using the Anglesite CA.
+ * Includes caching to avoid regenerating certificates for the same domain set.
+ * @param domains Array of domain names to include in the certificate.
+ * @returns Promise resolving to certificate and private key.
  */
 export async function generateCertificate(domains: string[]): Promise<{ cert: string; key: string }> {
   // Check cache first
@@ -103,9 +103,9 @@ export async function generateCertificate(domains: string[]): Promise<{ cert: st
 }
 
 /**
- * Check if Anglesite CA is installed and trusted in the system keychain
- * Verifies both the existence and trustworthiness of the CA certificate
- * @returns True if CA is properly installed and trusted, false otherwise
+ * Check if Anglesite CA is installed and trusted in the system keychain.
+ * Verifies both the existence and trustworthiness of the CA certificate.
+ * @returns True if CA is properly installed and trusted, false otherwise.
  */
 export function isCAInstalledInSystem(): boolean {
   try {
@@ -122,10 +122,10 @@ export function isCAInstalledInSystem(): boolean {
 }
 
 /**
- * Install Anglesite CA into user keychain as a trusted root certificate
- * This enables SSL certificates signed by the Anglesite CA to be trusted by browsers
- * Installs in user keychain to avoid requiring administrator privileges
- * @returns Promise resolving to true if installation succeeded, false if failed
+ * Install Anglesite CA into user keychain as a trusted root certificate.
+ * This enables SSL certificates signed by the Anglesite CA to be trusted by browsers.
+ * Installs in user keychain to avoid requiring administrator privileges.
+ * @returns Promise resolving to true if installation succeeded, false if failed.
  */
 export async function installCAInSystem(): Promise<boolean> {
   try {
@@ -152,9 +152,9 @@ export async function installCAInSystem(): Promise<boolean> {
 }
 
 /**
- * Get the file system path to the Anglesite CA certificate
- * Useful for manual installation or external certificate management
- * @returns Absolute path to the ca.crt file
+ * Get the file system path to the Anglesite CA certificate.
+ * Useful for manual installation or external certificate management.
+ * @returns Absolute path to the ca.crt file.
  */
 export function getCAPath(): string {
   const appDataPath =
@@ -168,10 +168,10 @@ export function getCAPath(): string {
 }
 
 /**
- * Load or generate SSL certificates for HTTPS server with specific domains
- * Main entry point for getting certificates for the HTTPS proxy server
- * @param domains - Array of domain names, defaults to ["anglesite.test"]
- * @returns Promise resolving to certificate and private key for HTTPS server
+ * Load or generate SSL certificates for HTTPS server with specific domains.
+ * Main entry point for getting certificates for the HTTPS proxy server.
+ * @param domains Array of domain names, defaults to ["anglesite.test"].
+ * @returns Promise resolving to certificate and private key for HTTPS server.
  */
 export async function loadCertificates(domains: string[] = ['anglesite.test']): Promise<{
   cert: string;

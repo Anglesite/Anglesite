@@ -28,6 +28,12 @@ jest.mock('electron', () => ({
   clipboard: mockClipboard,
 }));
 
+// Mock IPC handlers
+const mockExportSiteHandler = jest.fn();
+jest.mock('../../app/ipc/handlers', () => ({
+  exportSiteHandler: mockExportSiteHandler,
+}));
+
 // Mock UI modules
 const mockHelpWindow = {
   getTitle: jest.fn(),
@@ -325,11 +331,11 @@ describe('Menu', () => {
       // Create a menu template and check if the Export menu item is disabled
       mockMultiWindowManager.getHelpWindow.mockReturnValue(null);
 
-      const menuInstance = menu.createApplicationMenu();
+      menu.createApplicationMenu();
       const template = mockMenu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
       const fileMenu = template.find((item) => item.label === 'File');
       const exportItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
-        (item) => item.label === 'Export Website...'
+        (item) => item.label === 'Export To'
       );
 
       expect(exportItem?.enabled).toBe(false);
@@ -341,11 +347,11 @@ describe('Menu', () => {
       mockMultiWindowManager.getAllWebsiteWindows.mockReturnValue(websiteWindows);
       mockMultiWindowManager.getHelpWindow.mockReturnValue(null);
 
-      const menuInstance = menu.createApplicationMenu();
+      menu.createApplicationMenu();
       const template = mockMenu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
       const fileMenu = template.find((item) => item.label === 'File');
       const exportItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
-        (item) => item.label === 'Export Website...'
+        (item) => item.label === 'Export To'
       );
 
       expect(exportItem?.enabled).toBe(true);
@@ -358,11 +364,11 @@ describe('Menu', () => {
       mockMultiWindowManager.getAllWebsiteWindows.mockReturnValue(websiteWindows);
       mockMultiWindowManager.getHelpWindow.mockReturnValue(null);
 
-      const menuInstance = menu.createApplicationMenu();
+      menu.createApplicationMenu();
       const template = mockMenu.buildFromTemplate.mock.calls[0][0] as MenuItemConstructorOptions[];
       const fileMenu = template.find((item) => item.label === 'File');
       const exportItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
-        (item) => item.label === 'Export Website...'
+        (item) => item.label === 'Export To'
       );
 
       expect(exportItem?.enabled).toBe(false);
@@ -371,8 +377,16 @@ describe('Menu', () => {
 
   describe('Menu Item Click Handlers', () => {
     let template: MenuItemConstructorOptions[];
-    let mockBrowserWindowInstance: any;
-    let mockWebContents: any;
+    let mockBrowserWindowInstance: {
+      webContents: {
+        send: jest.Mock;
+        reloadIgnoringCache: jest.Mock;
+      };
+    };
+    let mockWebContents: {
+      send: jest.Mock;
+      reloadIgnoringCache: jest.Mock;
+    };
 
     beforeEach(() => {
       mockBrowserWindowInstance = {
@@ -399,7 +413,11 @@ describe('Menu', () => {
 
         expect(settingsItem?.click).toBeDefined();
         if (settingsItem?.click) {
-          (settingsItem.click as Function)({}, undefined, {});
+          (settingsItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => void)(
+            {},
+            undefined,
+            {}
+          );
         }
 
         expect(mockWindowManager.openSettingsWindow).toHaveBeenCalled();
@@ -408,12 +426,16 @@ describe('Menu', () => {
       it('should handle Open Website click', async () => {
         const fileMenu = template.find((item) => item.label === 'File');
         const openWebsiteItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Open Website...'
+          (item) => item.label === 'Open Website…'
         );
 
         expect(openWebsiteItem?.click).toBeDefined();
         if (openWebsiteItem?.click) {
-          await (openWebsiteItem.click as Function)({}, undefined, {});
+          await (openWebsiteItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>)(
+            {},
+            undefined,
+            {}
+          );
         }
 
         expect(mockWindowManager.openWebsiteSelectionWindow).toHaveBeenCalled();
@@ -437,37 +459,49 @@ describe('Menu', () => {
         consoleSpy.mockRestore();
       });
 
-      it('should handle Open Website Folder click', async () => {
+      it('should handle Export to Folder click', async () => {
         const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
         const fileMenu = template.find((item) => item.label === 'File');
-        const openFolderItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Open Website Folder...'
+        const exportToItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Export To'
+        );
+        const folderExportItem = (exportToItem?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Folder…'
         );
 
-        expect(openFolderItem?.click).toBeDefined();
-        if (openFolderItem?.click) {
-          await (openFolderItem.click as Function)({}, undefined, {});
+        expect(folderExportItem?.click).toBeDefined();
+        if (folderExportItem?.click) {
+          await (
+            folderExportItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>
+          )({}, undefined, {});
         }
 
-        expect(consoleSpy).toHaveBeenCalledWith('Open Website Folder clicked');
+        expect(consoleSpy).toHaveBeenCalledWith('DEBUG: Export to Folder menu clicked');
         consoleSpy.mockRestore();
       });
 
-      it('should handle Export Website click', () => {
+      it('should handle Export to Zip click', async () => {
         const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
         const fileMenu = template.find((item) => item.label === 'File');
-        const exportItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Export Website...'
+        const exportToItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Export To'
+        );
+        const zipExportItem = (exportToItem?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Zip Archive…'
         );
 
-        expect(exportItem?.click).toBeDefined();
-        if (exportItem?.click) {
-          (exportItem.click as Function)({}, undefined, {});
+        expect(zipExportItem?.click).toBeDefined();
+        if (zipExportItem?.click) {
+          await (zipExportItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>)(
+            {},
+            undefined,
+            {}
+          );
         }
 
-        expect(consoleSpy).toHaveBeenCalledWith('Export Website clicked');
+        expect(consoleSpy).toHaveBeenCalledWith('DEBUG: Export to Zip menu clicked');
         consoleSpy.mockRestore();
       });
     });
@@ -479,7 +513,11 @@ describe('Menu', () => {
 
         expect(reloadItem?.click).toBeDefined();
         if (reloadItem?.click) {
-          (reloadItem.click as Function)({}, mockBrowserWindowInstance, {});
+          (reloadItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => void)(
+            {},
+            mockBrowserWindowInstance,
+            {}
+          );
         }
 
         expect(mockWebContents.send).toHaveBeenCalledWith('reload-preview');
@@ -493,7 +531,11 @@ describe('Menu', () => {
 
         expect(forceReloadItem?.click).toBeDefined();
         if (forceReloadItem?.click) {
-          (forceReloadItem.click as Function)({}, mockBrowserWindowInstance, {});
+          (forceReloadItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => void)(
+            {},
+            mockBrowserWindowInstance,
+            {}
+          );
         }
 
         expect(mockWebContents.reloadIgnoringCache).toHaveBeenCalled();
@@ -507,7 +549,11 @@ describe('Menu', () => {
 
         expect(devToolsItem?.click).toBeDefined();
         if (devToolsItem?.click) {
-          (devToolsItem.click as Function)({}, mockBrowserWindowInstance, {});
+          (devToolsItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => void)(
+            {},
+            mockBrowserWindowInstance,
+            {}
+          );
         }
 
         expect(mockWebContents.send).toHaveBeenCalledWith('menu-toggle-devtools');
@@ -520,7 +566,7 @@ describe('Menu', () => {
         // Should not throw when no browser window is provided
         expect(() => {
           if (reloadItem?.click) {
-            (reloadItem.click as Function)({}, null, {});
+            (reloadItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => void)({}, null, {});
           }
         }).not.toThrow();
       });
@@ -533,7 +579,11 @@ describe('Menu', () => {
         // Should not throw when browser window doesn't have webContents
         expect(() => {
           if (reloadItem?.click) {
-            (reloadItem.click as Function)({}, browserWindowWithoutWebContents, {});
+            (reloadItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => void)(
+              {},
+              browserWindowWithoutWebContents,
+              {}
+            );
           }
         }).not.toThrow();
       });
@@ -551,7 +601,9 @@ describe('Menu', () => {
 
         expect(openInBrowserItem?.click).toBeDefined();
         if (openInBrowserItem?.click) {
-          await (openInBrowserItem.click as Function)({}, undefined, {});
+          await (
+            openInBrowserItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>
+          )({}, undefined, {});
         }
 
         expect(mockShell.openExternal).toHaveBeenCalledWith('https://test.example.com:8080');
@@ -572,7 +624,9 @@ describe('Menu', () => {
 
         expect(openInBrowserItem?.click).toBeDefined();
         if (openInBrowserItem?.click) {
-          await (openInBrowserItem.click as Function)({}, undefined, {});
+          await (
+            openInBrowserItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>
+          )({}, undefined, {});
         }
 
         expect(mockShell.openExternal).toHaveBeenCalledWith('https://mysite.test:8080');
@@ -598,7 +652,9 @@ describe('Menu', () => {
 
         expect(openInBrowserItem?.click).toBeDefined();
         if (openInBrowserItem?.click) {
-          await (openInBrowserItem.click as Function)({}, undefined, {});
+          await (
+            openInBrowserItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>
+          )({}, undefined, {});
         }
 
         expect(consoleSpy).toHaveBeenCalledWith('Failed to open .test domain, trying localhost');
@@ -618,7 +674,11 @@ describe('Menu', () => {
 
         expect(copyUrlItem?.click).toBeDefined();
         if (copyUrlItem?.click) {
-          await (copyUrlItem.click as Function)({}, mockBrowserWindowInstance, {});
+          await (copyUrlItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>)(
+            {},
+            mockBrowserWindowInstance,
+            {}
+          );
         }
 
         expect(mockClipboard.writeText).toHaveBeenCalledWith('https://localhost:8080');
@@ -633,7 +693,11 @@ describe('Menu', () => {
         // Should not throw when no browser window is provided
         expect(async () => {
           if (copyUrlItem?.click) {
-            await (copyUrlItem.click as Function)({}, null, {});
+            await (copyUrlItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>)(
+              {},
+              null,
+              {}
+            );
           }
         }).not.toThrow();
       });
@@ -648,7 +712,11 @@ describe('Menu', () => {
         // Should not throw when browser window doesn't have webContents
         expect(async () => {
           if (copyUrlItem?.click) {
-            await (copyUrlItem.click as Function)({}, browserWindowWithoutWebContents, {});
+            await (copyUrlItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>)(
+              {},
+              browserWindowWithoutWebContents,
+              {}
+            );
           }
         }).not.toThrow();
       });
@@ -661,7 +729,11 @@ describe('Menu', () => {
 
         expect(restartServerItem?.click).toBeDefined();
         if (restartServerItem?.click) {
-          (restartServerItem.click as Function)({}, mockBrowserWindowInstance, {});
+          (restartServerItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => void)(
+            {},
+            mockBrowserWindowInstance,
+            {}
+          );
         }
 
         expect(mockWebContents.send).toHaveBeenCalledWith('restart-server');
@@ -677,7 +749,9 @@ describe('Menu', () => {
 
         expect(anglesiteHelpItem?.click).toBeDefined();
         if (anglesiteHelpItem?.click) {
-          await (anglesiteHelpItem.click as Function)({}, undefined, {});
+          await (
+            anglesiteHelpItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>
+          )({}, undefined, {});
         }
 
         expect(mockMultiWindowManager.createHelpWindow).toHaveBeenCalled();
@@ -693,7 +767,11 @@ describe('Menu', () => {
 
         expect(reportIssueItem?.click).toBeDefined();
         if (reportIssueItem?.click) {
-          await (reportIssueItem.click as Function)({}, undefined, {});
+          await (reportIssueItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>)(
+            {},
+            undefined,
+            {}
+          );
         }
 
         expect(mockShell.openExternal).toHaveBeenCalledWith('https://github.com/anglesite/anglesite/issues');

@@ -22,7 +22,7 @@ class ThemeRenderer {
   private currentTheme: ResolvedTheme = 'light';
 
   /**
-   * Initialize theme renderer
+   * Sets up theme management by loading current theme from main process and setting up listeners.
    */
   async initialize(): Promise<void> {
     // Get initial theme from main process
@@ -43,7 +43,7 @@ class ThemeRenderer {
   }
 
   /**
-   * Apply theme to the document
+   * Apply theme to the document.
    */
   private applyTheme(theme: ResolvedTheme): void {
     const root = document.documentElement;
@@ -59,14 +59,14 @@ class ThemeRenderer {
   }
 
   /**
-   * Get the currently applied theme
+   * Get the currently applied theme.
    */
   getCurrentTheme(): ResolvedTheme {
     return this.currentTheme;
   }
 
   /**
-   * Set theme preference (for settings UI)
+   * Set theme preference (for settings UI).
    */
   async setTheme(theme: Theme): Promise<ThemeInfo> {
     try {
@@ -80,7 +80,7 @@ class ThemeRenderer {
   }
 
   /**
-   * Get current theme info (for settings UI)
+   * Get current theme info (for settings UI).
    */
   async getThemeInfo(): Promise<ThemeInfo> {
     try {

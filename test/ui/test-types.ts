@@ -31,7 +31,7 @@ export type PartialMockWindow = {
 };
 
 /**
- * Type-safe casting for mock windows
+ * Type-safe casting for mock windows.
  */
 export function asMockWindow(
   window: PartialMockWindow

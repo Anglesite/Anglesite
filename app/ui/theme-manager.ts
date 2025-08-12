@@ -1,6 +1,6 @@
 /**
- * @file Theme management for Anglesite application
- * Handles system theme detection, user preferences, and theme application across windows
+ * @file Theme management for Anglesite application.
+ * Handles system theme detection, user preferences, and theme application across windows.
  */
 import { BrowserWindow, nativeTheme, ipcMain } from 'electron';
 import { Store } from '../store';
@@ -9,7 +9,7 @@ export type Theme = 'system' | 'light' | 'dark';
 export type ResolvedTheme = 'light' | 'dark';
 
 /**
- * Theme manager singleton for handling application theming
+ * Theme manager singleton for handling application theming.
  */
 class ThemeManager {
   private store: Store;
@@ -23,7 +23,7 @@ class ThemeManager {
   }
 
   /**
-   * Initialize theme manager and set up IPC handlers
+   * Initialize theme manager and set up IPC handlers.
    */
   initialize(): void {
     this.setupIpcHandlers();
@@ -31,7 +31,7 @@ class ThemeManager {
   }
 
   /**
-   * Initialize nativeTheme.themeSource based on stored preference
+   * Initialize nativeTheme.themeSource based on stored preference.
    */
   private initializeNativeTheme(): void {
     const userTheme = this.getUserThemePreference();
@@ -45,7 +45,7 @@ class ThemeManager {
   }
 
   /**
-   * Set up system theme change listener
+   * Set up system theme change listener.
    */
   private setupSystemThemeListener(): void {
     nativeTheme.on('updated', () => {
@@ -55,7 +55,7 @@ class ThemeManager {
   }
 
   /**
-   * Set up IPC handlers for theme management
+   * Set up IPC handlers for theme management.
    */
   private setupIpcHandlers(): void {
     ipcMain.handle('get-current-theme', () => {
@@ -77,21 +77,21 @@ class ThemeManager {
   }
 
   /**
-   * Get the current user theme preference
+   * Get the current user theme preference.
    */
   getUserThemePreference(): Theme {
     return this.store.get('theme');
   }
 
   /**
-   * Get the currently resolved theme (light or dark)
+   * Get the currently resolved theme (light or dark).
    */
   getResolvedTheme(): ResolvedTheme {
     return this.currentResolvedTheme;
   }
 
   /**
-   * Set the theme preference
+   * Set the theme preference.
    */
   setTheme(theme: Theme): void {
     console.log('Setting theme to:', theme);
@@ -110,7 +110,7 @@ class ThemeManager {
   }
 
   /**
-   * Update the resolved theme based on user preference and system theme
+   * Update the resolved theme based on user preference and system theme.
    */
   private updateResolvedTheme(): void {
     const userPreference = this.getUserThemePreference();
@@ -139,7 +139,7 @@ class ThemeManager {
   }
 
   /**
-   * Apply the current theme to all open windows
+   * Apply the current theme to all open windows.
    */
   private applyThemeToAllWindows(): void {
     const allWindows = BrowserWindow.getAllWindows();
@@ -152,7 +152,7 @@ class ThemeManager {
   }
 
   /**
-   * Apply theme to a specific window
+   * Apply theme to a specific window.
    */
   applyThemeToWindow(window: BrowserWindow): void {
     if (window.isDestroyed()) return;
@@ -236,7 +236,7 @@ class ThemeManager {
   }
 
   /**
-   * Get system theme information
+   * Get system theme information.
    */
   getSystemThemeInfo() {
     return {

@@ -1,5 +1,5 @@
 /**
- * @file Website creation and management utilities
+ * @file Website creation and management utilities.
  */
 import * as fs from 'fs';
 import * as path from 'path';
@@ -7,7 +7,8 @@ import * as os from 'os';
 import { dialog, BrowserWindow } from 'electron';
 
 /**
- * Get the websites directory path
+ * Get the platform-specific websites directory path.
+ * @returns Absolute path to the websites directory.
  */
 function getWebsitesDirectory(): string {
   const appDataPath =
@@ -21,7 +22,23 @@ function getWebsitesDirectory(): string {
 }
 
 /**
- * Create a new website with the given name
+ * Create a new website with the specified name and basic structure.
+ *
+ * Creates a new website directory in the application's websites folder.
+ * Initializes it with a basic Eleventy site structure including:
+ * - index.md with frontmatter configuration
+ * - Basic Markdown content template
+ *
+ * The website directory is created using the provided name, and all necessary.
+ * Parent directories are created automatically.
+ * @param websiteName Unique name for the new website (used as directory name).
+ * @returns Promise resolving to the absolute path of the created website directory.
+ * @throws Error if a website with the same name already exists.
+ * @example
+ * ```typescript
+ * const websitePath = await createWebsiteWithName('my-new-blog');
+ * console.log(websitePath); // '/path/to/websites/my-new-blog'
+ * ```
  */
 export async function createWebsiteWithName(websiteName: string): Promise<string> {
   console.log('Creating new website:', websiteName);
@@ -71,7 +88,7 @@ export async function createWebsiteWithName(websiteName: string): Promise<string
 }
 
 /**
- * Get website name from user input
+ * Get website name from user input.
  */
 export async function getWebsiteNameFromUser(): Promise<string | null> {
   // For now, use a simple dialog - in a real implementation you'd want a proper input dialog
@@ -93,7 +110,7 @@ export async function getWebsiteNameFromUser(): Promise<string | null> {
 }
 
 /**
- * Validate website name
+ * Checks if a website name is valid according to naming rules and character restrictions.
  */
 export function validateWebsiteName(name: string): {
   valid: boolean;
@@ -123,7 +140,7 @@ export function validateWebsiteName(name: string): {
 }
 
 /**
- * List all existing websites
+ * List all existing websites.
  */
 export function listWebsites(): string[] {
   const websitesDir = getWebsitesDirectory();
@@ -144,7 +161,7 @@ export function listWebsites(): string[] {
 }
 
 /**
- * Delete a website
+ * Delete a website.
  */
 export async function deleteWebsite(websiteName: string, parentWindow?: BrowserWindow): Promise<boolean> {
   const websitesDir = getWebsitesDirectory();
@@ -184,14 +201,14 @@ export async function deleteWebsite(websiteName: string, parentWindow?: BrowserW
 }
 
 /**
- * Get website path
+ * Constructs the full file system path for a website given its name.
  */
 export function getWebsitePath(websiteName: string): string {
   return path.join(getWebsitesDirectory(), websiteName);
 }
 
 /**
- * Rename a website
+ * Rename a website.
  */
 export async function renameWebsite(oldName: string, newName: string): Promise<boolean> {
   console.log(`Renaming website from "${oldName}" to "${newName}"`);

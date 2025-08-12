@@ -1,11 +1,11 @@
 /**
- * @file DNS and hosts file management for Anglesite development domains
+ * @file DNS and hosts file management for Anglesite development domains.
  *
  * This module handles:
  * - Adding .test domains to /etc/hosts for local DNS resolution
  * - Managing the Anglesite section in the hosts file
  * - Cleaning up orphaned domain entries
- * - Cross-platform hosts file modifications using hostile library
+ * - Cross-platform hosts file modifications using hostile library.
  */
 import { dialog } from 'electron';
 import { exec } from 'child_process';
@@ -13,17 +13,30 @@ import { promisify } from 'util';
 import { listWebsites } from '../utils/website-manager';
 import * as hostile from 'hostile';
 
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const sudoPrompt = require('sudo-prompt');
-// eslint-disable-next-line @typescript-eslint/no-require-imports
-const isElevated = require('native-is-elevated');
+import sudoPrompt from 'sudo-prompt';
+import isElevated from 'native-is-elevated';
 
 const execAsync = promisify(exec);
 
 /**
- * Add local DNS resolution for a hostname to point to 127.0.0.1
- * Manages the Anglesite section in /etc/hosts automatically
- * @param hostname - The hostname to add (e.g., "mysite.test")
+ * Add local DNS resolution for a hostname with biometric authentication.
+ *
+ * Automatically configures /etc/hosts to resolve the specified hostname to 127.0.0.1
+ * for local development. Uses Touch ID when available for secure privilege escalation.
+ *
+ * Features:
+ * - First-time setup creates Anglesite section with user confirmation dialog
+ * - Subsequent additions are silent and automatic
+ * - Touch ID biometric authentication when available
+ * - Fallback to password authentication
+ * - Comprehensive error handling with user feedback.
+ * @param hostname The .test hostname to add (e.g., "mysite.test").
+ * @returns Promise that resolves when DNS resolution is configured.
+ * @example
+ * ```typescript
+ * await addLocalDnsResolution('my-website.test');
+ * // Now https://my-website.test:8080 resolves to localhost
+ * ```
  */
 export async function addLocalDnsResolution(hostname: string): Promise<void> {
   // Check if auto-configuration is enabled
@@ -97,7 +110,7 @@ To enable the custom .test domain:`);
 }
 
 /**
- * Check if anglesite.test domain exists in hosts file
+ * Check if anglesite.test domain exists in hosts file.
  */
 async function checkAnglesiteSection(): Promise<boolean> {
   try {
@@ -109,7 +122,7 @@ async function checkAnglesiteSection(): Promise<boolean> {
 }
 
 /**
- * Check if Touch ID is available and configured for sudo on macOS
+ * Check if Touch ID is available and configured for sudo on macOS.
  */
 async function isTouchIdAvailable(): Promise<boolean> {
   if (process.platform !== 'darwin') {
@@ -133,7 +146,7 @@ async function isTouchIdAvailable(): Promise<boolean> {
 }
 
 /**
- * Check if Touch ID hardware is available but not configured for sudo
+ * Check if Touch ID hardware is available but not configured for sudo.
  */
 async function canEnableTouchId(): Promise<boolean> {
   if (process.platform !== 'darwin') {
@@ -157,7 +170,7 @@ async function canEnableTouchId(): Promise<boolean> {
 }
 
 /**
- * Show Touch ID setup information to user if available but not configured
+ * Show Touch ID setup information to user if available but not configured.
  */
 export async function checkAndSuggestTouchIdSetup(): Promise<void> {
   if (process.platform !== 'darwin') {
@@ -182,7 +195,7 @@ export async function checkAndSuggestTouchIdSetup(): Promise<void> {
 }
 
 /**
- * Execute a command with elevated privileges using sudo-prompt with Touch ID support
+ * Execute a command with elevated privileges using sudo-prompt with Touch ID support.
  */
 async function executeWithElevatedPrivileges(
   command: string,
@@ -216,7 +229,7 @@ async function executeWithElevatedPrivileges(
       }
 
       return new Promise((resolve) => {
-        sudoPrompt.exec(fullCommand, options, (error: Error | null, stdout: string) => {
+        sudoPrompt.exec(fullCommand, options, (error?: Error, stdout?: string | Buffer) => {
           if (error) {
             // Check for specific Touch ID cancellation or failure
             if (error.message.includes('User cancelled') || (error as Error & { code?: number }).code === -128) {
@@ -232,7 +245,7 @@ async function executeWithElevatedPrivileges(
             } else {
               console.log('✅ Authentication successful (password)');
             }
-            resolve({ success: true, output: stdout });
+            resolve({ success: true, output: stdout?.toString() });
           }
         });
       });
@@ -247,7 +260,7 @@ async function executeWithElevatedPrivileges(
 }
 
 /**
- * Add a host entry using hostile with native system authentication
+ * Add a host entry using hostile with native system authentication.
  */
 async function addHostEntry(hostname: string, ipAddress: string = '127.0.0.1'): Promise<boolean> {
   try {
@@ -267,7 +280,7 @@ async function addHostEntry(hostname: string, ipAddress: string = '127.0.0.1'): 
 }
 
 /**
- * Remove a host entry using hostile with native system authentication
+ * Remove a host entry using hostile with native system authentication.
  */
 async function removeHostEntry(hostname: string): Promise<boolean> {
   try {
@@ -287,7 +300,7 @@ async function removeHostEntry(hostname: string): Promise<boolean> {
 }
 
 /**
- * Check if a host entry exists using hostile library
+ * Check if a host entry exists using hostile library.
  */
 async function hostEntryExists(hostname: string): Promise<boolean> {
   return new Promise((resolve) => {
@@ -308,7 +321,7 @@ async function hostEntryExists(hostname: string): Promise<boolean> {
 }
 
 /**
- * Set up initial Anglesite domain using hostile library
+ * Set up initial Anglesite domain using hostile library.
  */
 async function setupAnglesiteWildcardSection(): Promise<boolean> {
   try {
@@ -325,7 +338,7 @@ async function setupAnglesiteWildcardSection(): Promise<boolean> {
 }
 
 /**
- * Add hostname to hosts file using hostile library
+ * Add hostname to hosts file using hostile library.
  */
 async function addToAnglesiteSection(hostname: string, ipAddress: string = '127.0.0.1'): Promise<boolean> {
   try {
@@ -345,7 +358,7 @@ async function addToAnglesiteSection(hostname: string, ipAddress: string = '127.
 }
 
 /**
- * Update hosts file with new entries
+ * Update hosts file with new entries.
  */
 export async function updateHostsFile(hostname: string, ipAddress: string = '127.0.0.1'): Promise<boolean> {
   return addToAnglesiteSection(hostname, ipAddress);
@@ -353,8 +366,8 @@ export async function updateHostsFile(hostname: string, ipAddress: string = '127
 
 /**
  * Clean up orphaned .test domain entries using hostile library
- * Removes domains that no longer have corresponding website folders
- * @returns Promise resolving to true if cleanup succeeded or no changes needed, false if failed
+ * Removes domains that no longer have corresponding website folders.
+ * @returns Promise resolving to true if cleanup succeeded or no changes needed, false if failed.
  */
 export async function cleanupHostsFile(): Promise<boolean> {
   try {

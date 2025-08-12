@@ -1,5 +1,5 @@
 /**
- * @file Multi-window management for website windows and help window
+ * @file Multi-window management for website windows and help window.
  */
 import { BrowserWindow, WebContentsView } from 'electron';
 import * as path from 'path';
@@ -7,9 +7,10 @@ import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
 import { updateApplicationMenu } from './menu';
 import { themeManager } from './theme-manager';
 import { Store, WindowState } from '../store';
+import { loadTemplateAsDataUrl } from './template-loader';
 
 /**
- * Interface for tracking a website window
+ * Interface for tracking a website window.
  */
 interface WebsiteWindow {
   window: BrowserWindow;
@@ -22,7 +23,20 @@ let helpWindow: BrowserWindow | null = null;
 const websiteWindows: Map<string, WebsiteWindow> = new Map();
 
 /**
- * Create a dedicated help window for /docs
+ * Create a dedicated help window for displaying documentation
+ *
+ * Creates a singleton help window that displays the Anglesite documentation
+ * using a WebContentsView. The window loads the Eleventy-generated help content
+ * and includes error handling with automatic retry logic.
+ *
+ * If a help window already exists and is not destroyed, it will be focused
+ * instead of creating a new one.
+ * @returns The help window BrowserWindow instance.
+ * @example
+ * ```typescript
+ * const helpWin = createHelpWindow();
+ * console.log(helpWin.getTitle()); // 'Anglesite'
+ * ```
  */
 export function createHelpWindow(): BrowserWindow {
   if (helpWindow && !helpWindow.isDestroyed()) {
@@ -184,7 +198,22 @@ export function createHelpWindow(): BrowserWindow {
 }
 
 /**
- * Create a new website window
+ * Create a new dedicated website window for editing and preview
+ *
+ * Creates a singleton window for the specified website with its own WebContentsView
+ * for live preview. Each website gets its own isolated window to enable concurrent
+ * editing of multiple websites.
+ *
+ * If a window already exists for the website and is not destroyed, it will be
+ * focused instead of creating a new one.
+ * @param websiteName Unique name of the website.
+ * @param websitePath Optional file system path to the website directory.
+ * @returns The website window BrowserWindow instance.
+ * @example
+ * ```typescript
+ * const websiteWin = createWebsiteWindow('my-blog', '/path/to/my-blog');
+ * console.log(websiteWin.getTitle()); // 'my-blog'
+ * ```
  */
 export function createWebsiteWindow(websiteName: string, websitePath?: string): BrowserWindow {
   // Check if window already exists for this website
@@ -310,7 +339,7 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
 }
 
 /**
- * Load website content in its window
+ * Load website content in its window.
  */
 export function loadWebsiteContent(websiteName: string, retryCount: number = 0): void {
   const websiteWindow = websiteWindows.get(websiteName);
@@ -336,7 +365,7 @@ export function loadWebsiteContent(websiteName: string, retryCount: number = 0):
   // Track if we successfully loaded
   let loadSuccess = false;
 
-  websiteWindow.webContentsView.webContents.on('did-fail-provisional-load', (_event, errorCode, errorDescription, validatedURL) => {
+  websiteWindow.webContentsView.webContents.on('did-fail-provisional-load', () => {
     // Provisional load failures often happen when the server isn't quite ready
     if (retryCount < 3 && !loadSuccess) {
       console.log(`Provisional load failed for ${websiteName}, retrying (attempt ${retryCount + 1}/3)...`);
@@ -350,14 +379,13 @@ export function loadWebsiteContent(websiteName: string, retryCount: number = 0):
       errorDescription,
       validatedURL,
     });
-    
+
     // Retry if we haven't exceeded retry count
     if (retryCount < 3 && !loadSuccess) {
       console.log(`Retrying load for ${websiteName} (attempt ${retryCount + 1}/3)...`);
       setTimeout(() => loadWebsiteContent(websiteName, retryCount + 1), 1000);
     } else if (!loadSuccess) {
       // Show fallback after all retries failed
-      const { loadTemplateAsDataUrl } = require('./template-loader');
       const fallbackDataUrl = loadTemplateAsDataUrl('preview-fallback');
       websiteWindow.webContentsView.webContents.loadURL(fallbackDataUrl);
     }
@@ -371,14 +399,13 @@ export function loadWebsiteContent(websiteName: string, retryCount: number = 0):
   // Load the website content
   websiteWindow.webContentsView.webContents.loadURL(serverUrl).catch((error) => {
     console.error(`Failed to load content for ${websiteName}:`, error);
-    
+
     // Retry if we haven't exceeded retry count
     if (retryCount < 3) {
       console.log(`Retrying after error for ${websiteName} (attempt ${retryCount + 1}/3)...`);
       setTimeout(() => loadWebsiteContent(websiteName, retryCount + 1), 1000);
     } else {
       // Show fallback after all retries failed
-      const { loadTemplateAsDataUrl } = require('./template-loader');
       const fallbackDataUrl = loadTemplateAsDataUrl('preview-fallback');
       websiteWindow.webContentsView.webContents.loadURL(fallbackDataUrl);
     }
@@ -389,14 +416,14 @@ export function loadWebsiteContent(websiteName: string, retryCount: number = 0):
 }
 
 /**
- * Get help window reference
+ * Get help window reference.
  */
 export function getHelpWindow(): BrowserWindow | null {
   return helpWindow && !helpWindow.isDestroyed() ? helpWindow : null;
 }
 
 /**
- * Get website window reference
+ * Get website window reference.
  */
 export function getWebsiteWindow(websiteName: string): BrowserWindow | null {
   const websiteWindow = websiteWindows.get(websiteName);
@@ -404,14 +431,14 @@ export function getWebsiteWindow(websiteName: string): BrowserWindow | null {
 }
 
 /**
- * Get all website windows
+ * Returns the complete map of all currently open website windows keyed by website name.
  */
 export function getAllWebsiteWindows(): Map<string, WebsiteWindow> {
   return websiteWindows;
 }
 
 /**
- * Save current window states to persistent storage
+ * Save current window states to persistent storage.
  */
 export function saveWindowStates(): void {
   console.log('DEBUG: Saving window states...');
@@ -420,9 +447,6 @@ export function saveWindowStates(): void {
 
   // Save help window state
   if (helpWindow && !helpWindow.isDestroyed()) {
-    const bounds = helpWindow.getBounds();
-    const isMaximized = helpWindow.isMaximized();
-    
     store.set('showHelpOnStartup', true);
     console.log('DEBUG: Help window will be restored');
   } else {
@@ -452,7 +476,7 @@ export function saveWindowStates(): void {
 }
 
 /**
- * Restore website windows from saved states
+ * Restore website windows from saved states.
  */
 export async function restoreWindowStates(): Promise<void> {
   console.log('DEBUG: Restoring window states...');
@@ -469,7 +493,7 @@ export async function restoreWindowStates(): Promise<void> {
   for (const windowState of windowStates) {
     try {
       console.log(`DEBUG: Restoring website window: ${windowState.websiteName}`);
-      
+
       // Restore the website window
       await restoreWebsiteWindow(windowState);
 
@@ -485,7 +509,6 @@ export async function restoreWindowStates(): Promise<void> {
           console.log(`DEBUG: Restored bounds for ${windowState.websiteName}`);
         }
       }, 1000);
-
     } catch (error) {
       console.error(`DEBUG: Failed to restore window for ${windowState.websiteName}:`, error);
     }
@@ -493,10 +516,10 @@ export async function restoreWindowStates(): Promise<void> {
 }
 
 /**
- * Restore a single website window
+ * Restore a single website window.
  */
 async function restoreWebsiteWindow(windowState: WindowState): Promise<void> {
-  const { createWebsiteWindow, loadWebsiteContent } = require('./multi-window-manager');
+  // Functions are already available in this module
   const { switchToWebsite, setLiveServerUrl, setCurrentWebsiteName } = await import('../server/eleventy');
   const { addLocalDnsResolution } = await import('../dns/hosts-manager');
   const { restartHttpsProxy } = await import('../server/https-proxy');
@@ -511,7 +534,12 @@ async function restoreWebsiteWindow(windowState: WindowState): Promise<void> {
 
     // Switch to the website and get the actual port
     const actualPort = await switchToWebsite(websitePath);
-    console.log('DEBUG: switchToWebsite completed for restored window:', windowState.websiteName, 'on port:', actualPort);
+    console.log(
+      'DEBUG: switchToWebsite completed for restored window:',
+      windowState.websiteName,
+      'on port:',
+      actualPort
+    );
 
     // Generate test domain and setup DNS
     const testDomain = `https://${windowState.websiteName}.test:8080`;
@@ -546,7 +574,6 @@ async function restoreWebsiteWindow(windowState: WindowState): Promise<void> {
       loadWebsiteContent(windowState.websiteName);
       console.log(`DEBUG: loadWebsiteContent called for restored window: ${windowState.websiteName}`);
     }, 1500);
-
   } catch (error) {
     console.error(`Failed to restore website window for ${windowState.websiteName}:`, error);
     throw error;
@@ -554,7 +581,7 @@ async function restoreWebsiteWindow(windowState: WindowState): Promise<void> {
 }
 
 /**
- * Close all windows
+ * Gracefully closes all open windows (help and website windows) and saves their states.
  */
 export function closeAllWindows(): void {
   // Save window states before closing

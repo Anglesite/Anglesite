@@ -1,5 +1,5 @@
 /**
- * @file Eleventy server management
+ * @file Eleventy server management.
  */
 import { spawn, ChildProcess } from 'child_process';
 
@@ -9,14 +9,25 @@ let currentLiveServerUrl = 'https://localhost:8080';
 let currentWebsiteName = 'anglesite';
 
 /**
- * Generate test domain URL for a website
+ * Generate test domain URL for a website using .test TLD
+ *
+ * Creates a local development URL using the .test top-level domain which
+ * is reserved for testing purposes and won't conflict with real domains.
+ * The URL uses HTTPS on port 8080 which is proxied to the Eleventy server.
+ * @param websiteName Name of the website (will be used as subdomain).
+ * @returns Test domain URL (e.g., "https://my-site.test:8080").
+ * @example
+ * ```typescript
+ * const url = generateTestDomain('my-blog');
+ * console.log(url); // "https://my-blog.test:8080"
+ * ```
  */
 export function generateTestDomain(websiteName: string): string {
   return `https://${websiteName}.test:8080`;
 }
 
 /**
- * Get hostname from test domain URL
+ * Get hostname from test domain URL.
  */
 export function getHostnameFromTestDomain(testDomainUrl: string): string {
   try {
@@ -29,7 +40,7 @@ export function getHostnameFromTestDomain(testDomainUrl: string): string {
 }
 
 /**
- * Set the current live-server URL
+ * Set the current live-server URL.
  */
 export function setLiveServerUrl(url: string) {
   currentLiveServerUrl = url;
@@ -37,35 +48,35 @@ export function setLiveServerUrl(url: string) {
 }
 
 /**
- * Get current live server URL
+ * Returns the URL of the currently running Eleventy server.
  */
 export function getCurrentLiveServerUrl(): string {
   return currentLiveServerUrl;
 }
 
 /**
- * Check if live server is ready
+ * Checks whether the Eleventy server has finished starting up and is ready to serve content.
  */
 export function isLiveServerReady(): boolean {
   return liveServerReady;
 }
 
 /**
- * Get current website name
+ * Returns the name of the website currently being served by Eleventy.
  */
 export function getCurrentWebsiteName(): string {
   return currentWebsiteName;
 }
 
 /**
- * Set current website name
+ * Updates the name of the website currently being served.
  */
 export function setCurrentWebsiteName(name: string) {
   currentWebsiteName = name;
 }
 
 /**
- * Start Eleventy server for a specific directory
+ * Start Eleventy server for a specific directory.
  */
 export function startEleventyServer(
   inputDir: string = 'docs',
@@ -156,7 +167,7 @@ export function startEleventyServer(
 }
 
 /**
- * Stop the current Eleventy server
+ * Stop the current Eleventy server.
  */
 export function stopEleventyServer(): void {
   if (liveServerProcess) {
@@ -172,7 +183,22 @@ export function stopEleventyServer(): void {
 }
 
 /**
- * Switch to serving a different website
+ * Switch the Eleventy server to serve a different website.
+ *
+ * Stops the current Eleventy server process and starts a new one configured
+ * for the specified website directory. The server will scan for an available
+ * port starting from 8081 and update the internal state with the new URL.
+ *
+ * This function handles the complete server transition including process cleanup,
+ * port detection, and readiness monitoring.
+ * @param websitePath Absolute path to the website directory to serve.
+ * @returns Promise resolving to the port number the server is running on.
+ * @throws Error if the server fails to start or websitePath is invalid.
+ * @example
+ * ```typescript
+ * const port = await switchToWebsite('/path/to/my-website');
+ * console.log(`Server running on port ${port}`);
+ * ```
  */
 export async function switchToWebsite(websitePath: string): Promise<number> {
   console.log('Switching to website at:', websitePath);
@@ -198,10 +224,10 @@ export async function switchToWebsite(websitePath: string): Promise<number> {
 }
 
 /**
- * Start the default Eleventy server for Anglesite docs with HTTPS proxy support
- * Handles the complete setup flow including DNS resolution and HTTPS proxy
- * @param httpsMode - User's HTTPS preference ("https" or "http")
- * @param mainWindow - Main window for auto-loading preview
+ * Start the default Eleventy server for Anglesite docs with HTTPS proxy support.
+ * Handles the complete setup flow including DNS resolution and HTTPS proxy.
+ * @param httpsMode User's HTTPS preference ("https" or "http").
+ * @param mainWindow Main window for auto-loading preview.
  */
 export async function startDefaultEleventyServer(
   httpsMode: string,
@@ -275,7 +301,7 @@ export async function startDefaultEleventyServer(
 }
 
 /**
- * Cleanup live server on app exit
+ * Cleanup live server on app exit.
  */
 export function cleanupEleventyServer(): void {
   stopEleventyServer();

@@ -4,8 +4,19 @@
 import { ipcMain, BrowserWindow, shell, dialog, Menu, MenuItem, IpcMainEvent } from 'electron';
 import { exec } from 'child_process';
 import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
 import archiver from 'archiver';
-import { showPreview, hidePreview, reloadPreview, togglePreviewDevTools, getNativeInput } from '../ui/window-manager';
+import BagIt from 'bagit-fs';
+import {
+  showPreview,
+  hidePreview,
+  reloadPreview,
+  togglePreviewDevTools,
+  getNativeInput,
+  getBagItMetadata,
+  BagItMetadata,
+} from '../ui/window-manager';
 import { createWebsiteWindow, loadWebsiteContent, getAllWebsiteWindows } from '../ui/multi-window-manager';
 import {
   getCurrentLiveServerUrl,
@@ -27,7 +38,23 @@ import { restartHttpsProxy } from '../server/https-proxy';
 import { Store } from '../store';
 
 /**
- * Setup all IPC message listeners
+ * Setup all IPC message listeners for inter-process communication
+ *
+ * Registers handlers for all IPC channels used by the application:
+ * - Website management (create, open, list, validate, rename, delete)
+ * - Export functionality (folder, ZIP, BagIt formats)
+ * - Preview controls (show, hide, reload, devtools)
+ * - Server operations (build, restart, browser opening)
+ * - Theme management (get/set theme preferences)
+ * - Context menu interactions
+ *
+ * All handlers include proper error handling and user feedback via dialogs.
+ * Export handlers support progress tracking and metadata collection for BagIt format.
+ * @example
+ * ```typescript
+ * // Called during app initialization
+ * setupIpcMainListeners();
+ * ```
  */
 export function setupIpcMainListeners(): void {
   // Build command handler
@@ -306,11 +333,31 @@ export function setupIpcMainListeners(): void {
 }
 
 /**
- * Handle export site requests for both folder and zip formats
+ * Handle export site requests for folder, zip, and bagit formats
+ *
+ * Exports the currently focused website in the requested format:
+ * - false/undefined: Export as folder
+ * - true: Export as ZIP archive
+ * - 'bagit': Export as BagIt archival format with metadata collection
+ *
+ * The function automatically builds the site using Eleventy before export,
+ * shows appropriate save dialogs, and handles progress feedback to the user.
+ * @param event IPC main event (null when called directly)
+ * @param exportFormat Export format: false (folder), true (ZIP), or 'bagit' (BagIt archive)
+ * @returns Promise that resolves when export is complete
+ * @throws Will show error dialogs to user on export failure
+ * @example
+ * ```typescript
+ * // Export as ZIP
+ * await exportSiteHandler(null, true);
+ *
+ * // Export as BagIt with metadata
+ * await exportSiteHandler(null, 'bagit');
+ * ```
  */
-export async function exportSiteHandler(event: IpcMainEvent | null, exportAsZip: boolean): Promise<void> {
-  console.log(`DEBUG: exportSiteHandler called with exportAsZip: ${exportAsZip}`);
-  
+export async function exportSiteHandler(event: IpcMainEvent | null, exportFormat: boolean | 'bagit'): Promise<void> {
+  console.log(`DEBUG: exportSiteHandler called with exportFormat: ${exportFormat}`);
+
   // Get window from event or focused window
   const win = event ? BrowserWindow.fromWebContents(event.sender) : BrowserWindow.getFocusedWindow();
   if (!win) {
@@ -346,13 +393,39 @@ export async function exportSiteHandler(event: IpcMainEvent | null, exportAsZip:
 
     console.log(`DEBUG: Found website to export: ${websiteToExport}`);
 
+    // Determine export format details
+    const isBagIt = exportFormat === 'bagit';
+    const isZip = exportFormat === true;
+
+    // For BagIt exports, collect metadata first
+    let metadata: BagItMetadata | null = null;
+    if (isBagIt) {
+      metadata = await getBagItMetadata(websiteToExport);
+      if (!metadata) {
+        // User cancelled the metadata dialog
+        return;
+      }
+    }
+
+    let defaultExtension = '';
+    let filters: { name: string; extensions: string[] }[] = [];
+
+    if (isBagIt) {
+      defaultExtension = '.bagit.zip';
+      filters = [{ name: 'BagIt Archive', extensions: ['zip'] }];
+    } else if (isZip) {
+      defaultExtension = '.zip';
+      filters = [{ name: 'Zip Archive', extensions: ['zip'] }];
+    } else {
+      defaultExtension = '';
+      filters = [{ name: 'Folder', extensions: [] }];
+    }
+
     // Show appropriate save dialog based on export type
     const result = await dialog.showSaveDialog(win, {
       title: `Export ${websiteToExport}`,
-      defaultPath: websiteToExport + (exportAsZip ? '.zip' : ''),
-      filters: exportAsZip 
-        ? [{ name: 'Zip Archive', extensions: ['zip'] }]
-        : [{ name: 'Folder', extensions: [] }],
+      defaultPath: websiteToExport + defaultExtension,
+      filters,
     });
 
     if (result.canceled || !result.filePath) {
@@ -363,16 +436,25 @@ export async function exportSiteHandler(event: IpcMainEvent | null, exportAsZip:
 
     // Get the website source path
     const websitePath = getWebsitePath(websiteToExport);
-    console.log(`Exporting website "${websiteToExport}" from ${websitePath} to ${exportPath} (zip: ${exportAsZip})`);
-    
+    console.log(
+      `Exporting website "${websiteToExport}" from ${websitePath} to ${exportPath} (format: ${exportFormat})`
+    );
+
     // Determine the build output directory
-    const buildDir = exportAsZip ? exportPath.replace('.zip', '') : exportPath;
+    let buildDir: string;
+    if (isBagIt) {
+      buildDir = exportPath.replace('.bagit.zip', '');
+    } else if (isZip) {
+      buildDir = exportPath.replace('.zip', '');
+    } else {
+      buildDir = exportPath;
+    }
 
     // Build the current website in the target directory
     exec(
       `npx eleventy --config=app/eleventy/.eleventy.js --input="${websitePath}" --output="${buildDir}"`,
       { cwd: process.cwd() },
-      (buildErr, buildStdout) => {
+      async (buildErr, buildStdout) => {
         if (buildErr) {
           console.error('Build failed:', buildErr);
           dialog.showMessageBox(win, {
@@ -387,44 +469,19 @@ export async function exportSiteHandler(event: IpcMainEvent | null, exportAsZip:
 
         console.log('Build completed:', buildStdout);
 
-        // Create a zip archive if user chose zip export
-        if (exportAsZip) {
-          if (!fs.existsSync(buildDir)) {
-            dialog.showMessageBox(win, {
-              type: 'error',
-              title: 'Export Failed',
-              message: 'Built website not found',
-              detail: 'The build directory was not found after building.',
-              buttons: ['OK'],
-            });
+        // Handle different export formats
+        if (isBagIt) {
+          // Use metadata collected before save dialog
+          if (!metadata) {
+            // This should not happen since we check above, but add safety check
+            fs.rmSync(buildDir, { recursive: true, force: true });
             return;
           }
-
-          const output = fs.createWriteStream(exportPath);
-          const archive = archiver('zip', { zlib: { level: 9 } });
-
-          output.on('close', () => {
-            console.log(`Export completed: ${archive.pointer()} total bytes`);
-            // Clean up the temporary build directory
-            fs.rmSync(buildDir, { recursive: true, force: true });
-          });
-
-          archive.on('error', (err: Error) => {
-            console.error('Archive error:', err);
-            dialog.showMessageBox(win, {
-              type: 'error',
-              title: 'Export Failed',
-              message: 'Failed to create export archive',
-              detail: err.message,
-              buttons: ['OK'],
-            });
-          });
-
-          archive.pipe(output);
-          archive.directory(buildDir, false);
-          archive.finalize();
+          await createBagItArchive(buildDir, exportPath, websiteToExport, win, metadata);
+        } else if (isZip) {
+          await createZipArchive(buildDir, exportPath, win);
         } else {
-          // User chose folder export, files are already in place
+          // Folder export - files are already in place
           console.log(`Folder export completed: ${exportPath}`);
         }
       }
@@ -442,7 +499,237 @@ export async function exportSiteHandler(event: IpcMainEvent | null, exportAsZip:
 }
 
 /**
- * Create a new website with the given name and open it in a new window
+ * Create a zip archive from the build directory.
+ */
+async function createZipArchive(buildDir: string, exportPath: string, win: BrowserWindow): Promise<void> {
+  return new Promise((resolve, reject) => {
+    if (!fs.existsSync(buildDir)) {
+      dialog.showMessageBox(win, {
+        type: 'error',
+        title: 'Export Failed',
+        message: 'Built website not found',
+        detail: 'The build directory was not found after building.',
+        buttons: ['OK'],
+      });
+      reject(new Error('Build directory not found'));
+      return;
+    }
+
+    const output = fs.createWriteStream(exportPath);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    output.on('close', () => {
+      console.log(`Zip export completed: ${archive.pointer()} total bytes`);
+      // Clean up the temporary build directory
+      fs.rmSync(buildDir, { recursive: true, force: true });
+      resolve();
+    });
+
+    archive.on('error', (err: Error) => {
+      console.error('Zip archive error:', err);
+      dialog.showMessageBox(win, {
+        type: 'error',
+        title: 'Export Failed',
+        message: 'Failed to create zip archive',
+        detail: err.message,
+        buttons: ['OK'],
+      });
+      reject(err);
+    });
+
+    archive.pipe(output);
+    archive.directory(buildDir, false);
+    archive.finalize();
+  });
+}
+
+/**
+ * Create a BagIt archive from the build directory using Gladstone.
+ */
+async function createBagItArchive(
+  buildDir: string,
+  exportPath: string,
+  websiteName: string,
+  win: BrowserWindow,
+  metadata: BagItMetadata
+): Promise<void> {
+  try {
+    if (!fs.existsSync(buildDir)) {
+      dialog.showMessageBox(win, {
+        type: 'error',
+        title: 'Export Failed',
+        message: 'Built website not found',
+        detail: 'The build directory was not found after building.',
+        buttons: ['OK'],
+      });
+      throw new Error('Build directory not found');
+    }
+
+    console.log(`Creating BagIt archive for ${websiteName}...`);
+
+    // Create a unique temporary directory in the OS tmp directory
+    const tmpDir = os.tmpdir();
+    const uniqueId = `${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const tempBagDir = path.join(tmpDir, `anglesite_bagit_${uniqueId}`);
+
+    // Get package info for bag metadata
+    const packageJsonPath = path.join(process.cwd(), 'package.json');
+    let bagSoftwareAgent = 'Anglesite';
+
+    try {
+      const packageJson = JSON.parse(fs.readFileSync(packageJsonPath, 'utf8'));
+      const version = packageJson.version || '0.1.0';
+      const homepage = packageJson.homepage || 'https://github.com/anglesite/anglesite';
+      bagSoftwareAgent = `Anglesite ${version} ${homepage}`;
+    } catch (error) {
+      console.warn('Could not read package.json for BagIt metadata:', error);
+    }
+
+    // Prepare BagIt metadata
+    const bagMetadata: { [key: string]: string } = {
+      'External-Description': metadata.externalDescription,
+      'External-Identifier': metadata.externalIdentifier,
+      'Source-Organization': metadata.sourceOrganization,
+      'Bagging-Date': new Date().toISOString().split('T')[0],
+      'Bag-Software-Agent': bagSoftwareAgent,
+    };
+
+    // Add optional fields only if provided
+    if (metadata.organizationAddress.trim()) {
+      bagMetadata['Organization-Address'] = metadata.organizationAddress;
+    }
+    if (metadata.contactName.trim()) {
+      bagMetadata['Contact-Name'] = metadata.contactName;
+    }
+    if (metadata.contactPhone.trim()) {
+      bagMetadata['Contact-Phone'] = metadata.contactPhone;
+    }
+    if (metadata.contactEmail.trim()) {
+      bagMetadata['Contact-Email'] = metadata.contactEmail;
+    }
+
+    // Create the bag using bagit-fs
+    const bag = BagIt(tempBagDir, 'sha256', bagMetadata);
+
+    // Copy all files from build directory to bag
+    await new Promise<void>((resolve, reject) => {
+      const copyFiles = (sourceDir: string, targetPrefix = '') => {
+        const files = fs.readdirSync(sourceDir, { withFileTypes: true });
+        let pending = files.length;
+
+        if (pending === 0) {
+          resolve();
+          return;
+        }
+
+        files.forEach((file) => {
+          const sourcePath = path.join(sourceDir, file.name);
+          const targetPath = path.join(targetPrefix, file.name);
+
+          if (file.isDirectory()) {
+            // Recursively copy directory contents
+            copyFiles(sourcePath, targetPath);
+            pending--;
+            if (pending === 0) resolve();
+          } else {
+            // Copy file to bag
+            const readStream = fs.createReadStream(sourcePath);
+            const writeStream = bag.createWriteStream(`/data${targetPath}`);
+
+            readStream.pipe(writeStream);
+            writeStream.on('finish', () => {
+              pending--;
+              if (pending === 0) resolve();
+            });
+            writeStream.on('error', reject);
+          }
+        });
+      };
+
+      copyFiles(buildDir);
+    });
+
+    // Finalize the bag
+    await new Promise<void>((resolve) => {
+      bag.finalize(() => {
+        console.log('BagIt structure finalized');
+        resolve();
+      });
+    });
+
+    console.log('BagIt structure created, creating archive...');
+
+    // Create a temporary zip file from the bag
+    const tempZipPath = path.join(tmpDir, `anglesite_bagit_${uniqueId}.zip`);
+    await createZipArchiveFromDirectory(tempBagDir, tempZipPath);
+
+    // Copy the completed archive to the user-selected location
+    fs.copyFileSync(tempZipPath, exportPath);
+
+    // Clean up temporary files and directories
+    fs.rmSync(tempBagDir, { recursive: true, force: true });
+    fs.rmSync(tempZipPath, { force: true });
+    fs.rmSync(buildDir, { recursive: true, force: true });
+
+    console.log(`BagIt archive completed: ${exportPath}`);
+  } catch (error) {
+    console.error('BagIt archive creation failed:', error);
+
+    // Clean up any temporary files on error
+    const tmpDir = os.tmpdir();
+    const tempDirs = fs.readdirSync(tmpDir).filter((name) => name.startsWith('anglesite_bagit_'));
+    tempDirs.forEach((dir) => {
+      try {
+        const fullPath = path.join(tmpDir, dir);
+        if (fs.existsSync(fullPath)) {
+          if (fs.statSync(fullPath).isDirectory()) {
+            fs.rmSync(fullPath, { recursive: true, force: true });
+          } else {
+            fs.rmSync(fullPath, { force: true });
+          }
+        }
+      } catch (cleanupError) {
+        console.warn('Failed to clean up temporary file:', dir, cleanupError);
+      }
+    });
+
+    dialog.showMessageBox(win, {
+      type: 'error',
+      title: 'Export Failed',
+      message: 'Failed to create BagIt archive',
+      detail: error instanceof Error ? error.message : String(error),
+      buttons: ['OK'],
+    });
+    throw error;
+  }
+}
+
+/**
+ * Helper function to create a zip archive from a directory.
+ */
+async function createZipArchiveFromDirectory(sourceDir: string, outputPath: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const output = fs.createWriteStream(outputPath);
+    const archive = archiver('zip', { zlib: { level: 9 } });
+
+    output.on('close', () => {
+      console.log(`BagIt zip archive created: ${archive.pointer()} total bytes`);
+      resolve();
+    });
+
+    archive.on('error', (err: Error) => {
+      console.error('BagIt zip archive error:', err);
+      reject(err);
+    });
+
+    archive.pipe(output);
+    archive.directory(sourceDir, false);
+    archive.finalize();
+  });
+}
+
+/**
+ * Create a new website with the given name and open it in a new window.
  */
 async function createNewWebsite(websiteName: string): Promise<void> {
   console.log('Creating new website:', websiteName);
@@ -463,9 +750,13 @@ async function createNewWebsite(websiteName: string): Promise<void> {
 }
 
 /**
- * Open a website in a new dedicated window
+ * Open a website in a new dedicated window.
  */
-async function openWebsiteInNewWindow(websiteName: string, websitePath?: string, isNewWebsite: boolean = false): Promise<void> {
+async function openWebsiteInNewWindow(
+  websiteName: string,
+  websitePath?: string,
+  isNewWebsite: boolean = false
+): Promise<void> {
   console.log(`Opening website "${websiteName}" in new window (new website: ${isNewWebsite})`);
 
   try {

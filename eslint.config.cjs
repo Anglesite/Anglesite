@@ -6,12 +6,16 @@ const js = require('@eslint/js');
 const tsEslint = require('@typescript-eslint/eslint-plugin');
 const tsParser = require('@typescript-eslint/parser');
 const prettier = require('eslint-plugin-prettier');
+const jsdoc = require('eslint-plugin-jsdoc');
 const prettierConfig = require('eslint-config-prettier');
 const globals = require('globals');
 
 module.exports = [
   // Base recommended configuration
   js.configs.recommended,
+  jsdoc.configs['flat/contents-typescript-error'],
+  jsdoc.configs['flat/logical-typescript-error'],
+  jsdoc.configs['flat/stylistic-typescript-error'],
 
   // Global ignores
   {
@@ -35,6 +39,7 @@ module.exports = [
     plugins: {
       '@typescript-eslint': tsEslint,
       prettier: prettier,
+      jsdoc,
     },
     rules: {
       ...tsEslint.configs.recommended.rules,
@@ -61,6 +66,7 @@ module.exports = [
     plugins: {
       '@typescript-eslint': tsEslint,
       prettier: prettier,
+      jsdoc,
     },
     rules: {
       ...tsEslint.configs.recommended.rules,
@@ -82,6 +88,7 @@ module.exports = [
     },
     plugins: {
       prettier: prettier,
+      jsdoc,
     },
     rules: {
       ...prettierConfig.rules,
@@ -108,6 +115,7 @@ module.exports = [
     plugins: {
       '@typescript-eslint': tsEslint,
       prettier: prettier,
+      jsdoc,
     },
     rules: {
       ...tsEslint.configs.recommended.rules,
@@ -135,6 +143,7 @@ module.exports = [
     plugins: {
       '@typescript-eslint': tsEslint,
       prettier: prettier,
+      jsdoc,
     },
     rules: {
       ...tsEslint.configs.recommended.rules,

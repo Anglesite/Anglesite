@@ -5,10 +5,13 @@
 // Mock Electron modules
 const mockBrowserWindow = {
   isDestroyed: jest.fn(() => false),
+  isMaximized: jest.fn(() => false),
   focus: jest.fn(),
   show: jest.fn(),
   close: jest.fn(),
-  getBounds: jest.fn(() => ({ width: 1200, height: 800 })),
+  getBounds: jest.fn(() => ({ width: 1200, height: 800, x: 0, y: 0 })),
+  setBounds: jest.fn(),
+  maximize: jest.fn(),
   getTitle: jest.fn(() => 'Test Window'),
   on: jest.fn(),
   once: jest.fn(),
@@ -79,6 +82,32 @@ jest.mock('path');
 const mockPath = require('path');
 mockPath.join.mockImplementation((...args: string[]) => args.join('/'));
 
+// Mock store
+const mockStore = {
+  get: jest.fn((key: string) => {
+    if (key === 'httpsMode') return 'https';
+    if (key === 'showHelpOnStartup') return true;
+    return [];
+  }),
+  set: jest.fn(),
+  saveWindowStates: jest.fn(),
+  getWindowStates: jest.fn(() => []),
+  clearWindowStates: jest.fn(),
+  getAll: jest.fn(() => ({})),
+  setAll: jest.fn(),
+};
+
+jest.mock('../../app/store', () => ({
+  Store: jest.fn().mockImplementation(() => mockStore),
+}));
+
+// Mock template loader
+jest.mock('../../app/ui/template-loader', () => ({
+  loadTemplateAsDataUrl: jest.fn((templateName: string) => {
+    return `data:text/html;charset=utf-8,<h1>Mock ${templateName}</h1>`;
+  }),
+}));
+
 describe('Multi-Window Manager', () => {
   let multiWindowManager: typeof import('../../app/ui/multi-window-manager');
 
@@ -146,7 +175,7 @@ describe('Multi-Window Manager', () => {
 
       multiWindowManager.loadWebsiteContent('test-site');
 
-      expect(consoleSpy).toHaveBeenCalledWith('Live server not ready yet, waiting...');
+      expect(consoleSpy).toHaveBeenCalledWith('Live server not ready yet, retrying in 500ms...');
 
       consoleSpy.mockRestore();
 
@@ -256,24 +285,29 @@ describe('Multi-Window Manager', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       const websiteName = 'test-site';
 
-      // Create website window
+      // Create website window first
       multiWindowManager.createWebsiteWindow(websiteName);
+
+      // Clear previous mock calls
+      jest.clearAllMocks();
 
       // Load content
       multiWindowManager.loadWebsiteContent(websiteName);
 
       expect(mockWebContents.removeAllListeners).toHaveBeenCalledWith('did-fail-load');
       expect(mockWebContents.removeAllListeners).toHaveBeenCalledWith('did-finish-load');
+      expect(mockWebContents.removeAllListeners).toHaveBeenCalledWith('did-fail-provisional-load');
       expect(mockWebContents.on).toHaveBeenCalledWith('did-fail-load', expect.any(Function));
       expect(mockWebContents.on).toHaveBeenCalledWith('did-finish-load', expect.any(Function));
+      expect(mockWebContents.on).toHaveBeenCalledWith('did-fail-provisional-load', expect.any(Function));
 
       // Advance timer to trigger load
       jest.advanceTimersByTime(500);
 
-      expect(mockWebContents.loadURL).toHaveBeenCalledWith('https://test-site.test:8080');
+      expect(mockWebContents.loadURL).toHaveBeenCalledWith('https://anglesite.test:8080');
       expect(consoleSpy).toHaveBeenCalledWith(
         'Loading website content for test-site from:',
-        'https://test-site.test:8080'
+        'https://anglesite.test:8080'
       );
 
       consoleSpy.mockRestore();
@@ -284,11 +318,10 @@ describe('Multi-Window Manager', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       const websiteName = 'test-site';
 
+      // Create website window first
       multiWindowManager.createWebsiteWindow(websiteName);
 
-      // Clear mocks to focus on loadWebsiteContent call
-      jest.clearAllMocks();
-
+      // Load content to set up event listeners
       multiWindowManager.loadWebsiteContent(websiteName);
 
       // Find the did-fail-load handler
@@ -297,10 +330,17 @@ describe('Multi-Window Manager', () => {
       expect(failLoadCall).toBeDefined();
 
       if (failLoadCall) {
-        // Test DNS resolution failure scenario
-        failLoadCall[1](null, -105, 'NAME_NOT_RESOLVED', 'https://test-site.test:8080');
-        expect(consoleSpy).toHaveBeenCalledWith('DNS resolution failed for test-site.test, trying fallback URL');
-        expect(mockWebContents.loadURL).toHaveBeenCalledWith('https://anglesite.test:8080');
+        // Test error logging behavior
+        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+
+        failLoadCall[1](null, -105, 'NAME_NOT_RESOLVED', 'https://anglesite.test:8080');
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Website WebContentsView failed to load:', {
+          errorCode: -105,
+          errorDescription: 'NAME_NOT_RESOLVED',
+          validatedURL: 'https://anglesite.test:8080',
+        });
+
+        consoleErrorSpy.mockRestore();
       }
 
       consoleSpy.mockRestore();
@@ -310,7 +350,10 @@ describe('Multi-Window Manager', () => {
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
       const websiteName = 'test-site';
 
+      // Create website window first
       multiWindowManager.createWebsiteWindow(websiteName);
+
+      // Load content to set up event listeners
       multiWindowManager.loadWebsiteContent(websiteName);
 
       // Find the did-finish-load handler

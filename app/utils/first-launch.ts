@@ -7,11 +7,11 @@ import { isCAInstalledInSystem, installCAInSystem } from '../certificates';
 import { showFirstLaunchAssistant } from '../ui/window-manager';
 
 /**
- * Handle first launch setup flow
- * Checks if CA is already installed, otherwise shows setup assistant
- * Handles HTTPS mode setup including CA certificate installation
- * Falls back to HTTP mode if CA installation fails or user chooses HTTP
- * @param store - Application settings store
+ * Handle first launch setup flow.
+ * Checks if CA is already installed, otherwise shows setup assistant.
+ * Handles HTTPS mode setup including CA certificate installation.
+ * Falls back to HTTP mode if CA installation fails or user chooses HTTP.
+ * @param store Application settings store
  */
 export async function handleFirstLaunch(store: Store): Promise<void> {
   console.log('First launch detected, showing setup assistant...');

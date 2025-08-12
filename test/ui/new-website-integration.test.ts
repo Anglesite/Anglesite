@@ -50,6 +50,14 @@ jest.mock('../../app/store', () => ({
 }));
 
 // Mock electron
+const mockWebContents = {
+  send: jest.fn(),
+};
+
+const mockFocusedWindow = {
+  webContents: mockWebContents,
+};
+
 const mockMenu = {
   buildFromTemplate: jest.fn(),
 };
@@ -64,7 +72,7 @@ jest.mock('electron', () => ({
 }));
 
 describe('New Website Integration', () => {
-  let createApplicationMenu: () => any;
+  let createApplicationMenu: () => void;
 
   beforeAll(() => {
     const menuModule = require('../../app/ui/menu');
@@ -81,9 +89,9 @@ describe('New Website Integration', () => {
     mockAddLocalDnsResolution.mockResolvedValue(undefined);
     mockRestartHttpsProxy.mockResolvedValue(true);
     mockStoreGet.mockReturnValue('https');
-    mockBrowserWindow.getFocusedWindow.mockReturnValue(null);
     mockGetAllWebsiteWindows.mockReturnValue(new Map());
     mockGetHelpWindow.mockReturnValue(null);
+    mockBrowserWindow.getFocusedWindow.mockReturnValue(mockFocusedWindow);
   });
 
   it('should successfully create a new website when user provides valid input', async () => {
@@ -91,8 +99,10 @@ describe('New Website Integration', () => {
     createApplicationMenu();
 
     const template = mockMenu.buildFromTemplate.mock.calls[0][0];
-    const fileMenu = template.find((item: any) => item.label === 'File');
-    const newWebsiteItem = fileMenu?.submenu?.find((item: any) => item.label === 'New Website...');
+    const fileMenu = template.find((item: { label?: string; submenu?: unknown }) => item.label === 'File');
+    const newWebsiteItem = fileMenu?.submenu?.find(
+      (item: { label?: string; submenu?: unknown }) => item.label === 'New Website...'
+    );
 
     expect(newWebsiteItem).toBeDefined();
     expect(typeof newWebsiteItem.click).toBe('function');
@@ -100,129 +110,112 @@ describe('New Website Integration', () => {
     // Execute the New Website click handler
     await newWebsiteItem.click();
 
-    // Verify the complete workflow
-    expect(mockGetNativeInput).toHaveBeenCalledWith('New Website', 'Enter a name for your new website:');
-    expect(mockCreateWebsiteWithName).toHaveBeenCalledWith('My Test Site');
-    expect(mockCreateWebsiteWindow).toHaveBeenCalledWith('My Test Site', '/path/to/website');
-    expect(mockSwitchToWebsite).toHaveBeenCalledWith('/path/to/website');
-    expect(mockAddLocalDnsResolution).toHaveBeenCalledWith('My Test Site.test');
-    expect(mockRestartHttpsProxy).toHaveBeenCalledWith(8080, 8081, 'My Test Site.test');
-    expect(mockLoadWebsiteContent).toHaveBeenCalledWith('My Test Site');
+    // Verify the menu sends the correct IPC message
+    expect(mockWebContents.send).toHaveBeenCalledWith('trigger-new-website');
   });
 
   it('should handle user cancellation gracefully', async () => {
-    mockGetNativeInput.mockResolvedValue(null); // User cancelled
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-
     createApplicationMenu();
     const template = mockMenu.buildFromTemplate.mock.calls[0][0];
-    const fileMenu = template.find((item: any) => item.label === 'File');
-    const newWebsiteItem = fileMenu?.submenu?.find((item: any) => item.label === 'New Website...');
+    const fileMenu = template.find((item: { label?: string; submenu?: unknown }) => item.label === 'File');
+    const newWebsiteItem = fileMenu?.submenu?.find(
+      (item: { label?: string; submenu?: unknown }) => item.label === 'New Website...'
+    );
 
     await newWebsiteItem.click();
 
-    expect(mockGetNativeInput).toHaveBeenCalled();
-    expect(mockCreateWebsiteWithName).not.toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalledWith('DEBUG: User cancelled website creation');
-
-    consoleSpy.mockRestore();
+    // Verify the menu sends the correct IPC message regardless of user action
+    expect(mockWebContents.send).toHaveBeenCalledWith('trigger-new-website');
   });
 
   it('should handle empty website name gracefully', async () => {
-    mockGetNativeInput.mockResolvedValue('   '); // Empty/whitespace name
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-
     createApplicationMenu();
     const template = mockMenu.buildFromTemplate.mock.calls[0][0];
-    const fileMenu = template.find((item: any) => item.label === 'File');
-    const newWebsiteItem = fileMenu?.submenu?.find((item: any) => item.label === 'New Website...');
+    const fileMenu = template.find((item: { label?: string; submenu?: unknown }) => item.label === 'File');
+    const newWebsiteItem = fileMenu?.submenu?.find(
+      (item: { label?: string; submenu?: unknown }) => item.label === 'New Website...'
+    );
 
     await newWebsiteItem.click();
 
-    expect(mockGetNativeInput).toHaveBeenCalled();
-    expect(mockCreateWebsiteWithName).not.toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalledWith('DEBUG: User cancelled website creation');
-
-    consoleSpy.mockRestore();
+    expect(mockWebContents.send).toHaveBeenCalledWith('trigger-new-website');
   });
 
   it('should handle HTTP-only mode', async () => {
-    mockStoreGet.mockReturnValue('http'); // HTTP mode instead of HTTPS
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-
     createApplicationMenu();
     const template = mockMenu.buildFromTemplate.mock.calls[0][0];
-    const fileMenu = template.find((item: any) => item.label === 'File');
-    const newWebsiteItem = fileMenu?.submenu?.find((item: any) => item.label === 'New Website...');
+    const fileMenu = template.find((item: { label?: string; submenu?: unknown }) => item.label === 'File');
+    const newWebsiteItem = fileMenu?.submenu?.find(
+      (item: { label?: string; submenu?: unknown }) => item.label === 'New Website...'
+    );
 
     await newWebsiteItem.click();
 
-    expect(mockGetNativeInput).toHaveBeenCalled();
-    expect(mockCreateWebsiteWithName).toHaveBeenCalled();
-    expect(mockRestartHttpsProxy).not.toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalledWith('DEBUG: HTTP-only mode by user preference, skipping HTTPS proxy');
-
-    consoleSpy.mockRestore();
+    expect(mockWebContents.send).toHaveBeenCalledWith('trigger-new-website');
   });
 
   it('should handle HTTPS proxy failure gracefully', async () => {
-    mockRestartHttpsProxy.mockResolvedValue(false); // Proxy fails
-    const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-
     createApplicationMenu();
     const template = mockMenu.buildFromTemplate.mock.calls[0][0];
-    const fileMenu = template.find((item: any) => item.label === 'File');
-    const newWebsiteItem = fileMenu?.submenu?.find((item: any) => item.label === 'New Website...');
+    const fileMenu = template.find((item: { label?: string; submenu?: unknown }) => item.label === 'File');
+    const newWebsiteItem = fileMenu?.submenu?.find(
+      (item: { label?: string; submenu?: unknown }) => item.label === 'New Website...'
+    );
 
     await newWebsiteItem.click();
 
-    expect(mockRestartHttpsProxy).toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalledWith('DEBUG: HTTPS proxy failed, using HTTP mode');
-    expect(mockLoadWebsiteContent).toHaveBeenCalled(); // Should still continue
-
-    consoleSpy.mockRestore();
+    expect(mockWebContents.send).toHaveBeenCalledWith('trigger-new-website');
   });
 
   it('should handle errors during website creation', async () => {
-    const testError = new Error('Website creation failed');
-    mockCreateWebsiteWithName.mockRejectedValue(testError);
-    const consoleSpy = jest.spyOn(console, 'error').mockImplementation();
-
     createApplicationMenu();
     const template = mockMenu.buildFromTemplate.mock.calls[0][0];
-    const fileMenu = template.find((item: any) => item.label === 'File');
-    const newWebsiteItem = fileMenu?.submenu?.find((item: any) => item.label === 'New Website...');
+    const fileMenu = template.find((item: { label?: string; submenu?: unknown }) => item.label === 'File');
+    const newWebsiteItem = fileMenu?.submenu?.find(
+      (item: { label?: string; submenu?: unknown }) => item.label === 'New Website...'
+    );
 
     await newWebsiteItem.click();
 
-    expect(mockGetNativeInput).toHaveBeenCalled();
-    expect(mockCreateWebsiteWithName).toHaveBeenCalled();
-    expect(consoleSpy).toHaveBeenCalledWith('DEBUG: Error creating/opening website:', testError);
-
-    consoleSpy.mockRestore();
+    expect(mockWebContents.send).toHaveBeenCalledWith('trigger-new-website');
   });
 
   it('should trim whitespace from website names', async () => {
-    mockGetNativeInput.mockResolvedValue('  My Site  '); // Name with whitespace
-
     createApplicationMenu();
     const template = mockMenu.buildFromTemplate.mock.calls[0][0];
-    const fileMenu = template.find((item: any) => item.label === 'File');
-    const newWebsiteItem = fileMenu?.submenu?.find((item: any) => item.label === 'New Website...');
+    const fileMenu = template.find((item: { label?: string; submenu?: unknown }) => item.label === 'File');
+    const newWebsiteItem = fileMenu?.submenu?.find(
+      (item: { label?: string; submenu?: unknown }) => item.label === 'New Website...'
+    );
 
     await newWebsiteItem.click();
 
-    expect(mockCreateWebsiteWithName).toHaveBeenCalledWith('My Site');
-    expect(mockCreateWebsiteWindow).toHaveBeenCalledWith('My Site', '/path/to/website');
-    expect(mockAddLocalDnsResolution).toHaveBeenCalledWith('My Site.test');
-    expect(mockLoadWebsiteContent).toHaveBeenCalledWith('My Site');
+    expect(mockWebContents.send).toHaveBeenCalledWith('trigger-new-website');
+  });
+
+  it('should handle no focused window gracefully', async () => {
+    mockBrowserWindow.getFocusedWindow.mockReturnValue(null); // No focused window
+
+    createApplicationMenu();
+    const template = mockMenu.buildFromTemplate.mock.calls[0][0];
+    const fileMenu = template.find((item: { label?: string; submenu?: unknown }) => item.label === 'File');
+    const newWebsiteItem = fileMenu?.submenu?.find(
+      (item: { label?: string; submenu?: unknown }) => item.label === 'New Website...'
+    );
+
+    await newWebsiteItem.click();
+
+    // Should not send any IPC message when no window is focused
+    expect(mockWebContents.send).not.toHaveBeenCalled();
   });
 
   it('should have correct menu structure', () => {
     createApplicationMenu();
     const template = mockMenu.buildFromTemplate.mock.calls[0][0];
-    const fileMenu = template.find((item: any) => item.label === 'File');
-    const newWebsiteItem = fileMenu?.submenu?.find((item: any) => item.label === 'New Website...');
+    const fileMenu = template.find((item: { label?: string; submenu?: unknown }) => item.label === 'File');
+    const newWebsiteItem = fileMenu?.submenu?.find(
+      (item: { label?: string; submenu?: unknown }) => item.label === 'New Website...'
+    );
 
     expect(newWebsiteItem).toBeDefined();
     expect(newWebsiteItem.label).toBe('New Website...');

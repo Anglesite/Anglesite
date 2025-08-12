@@ -8,11 +8,11 @@ import { loadCertificates } from '../certificates';
 let httpsProxyServer: https.Server | null = null;
 
 /**
- * Create and start HTTPS proxy server
- * @param httpsPort - The HTTPS port to listen on
- * @param httpPort - The HTTP port to forward to
- * @param hostname - The hostname to listen on
- * @returns Promise<boolean> - True if started successfully, false if failed
+ * Create and start HTTPS proxy server.
+ * @param httpsPort The HTTPS port to listen on
+ * @param httpPort The HTTP port to forward to
+ * @param hostname The hostname to listen on
+ * @returns Promise&lt;boolean> - True if started successfully, false if failed
  */
 export async function createHttpsProxy(
   httpsPort: number,
@@ -71,7 +71,7 @@ export async function createHttpsProxy(
 }
 
 /**
- * Stop the HTTPS proxy server
+ * Stop the HTTPS proxy server.
  */
 export function stopHttpsProxy(): void {
   if (httpsProxyServer) {
@@ -82,7 +82,7 @@ export function stopHttpsProxy(): void {
 }
 
 /**
- * Restart HTTPS proxy for new hostname
+ * Restart HTTPS proxy for new hostname.
  */
 export async function restartHttpsProxy(httpsPort: number, httpPort: number, hostname: string): Promise<boolean> {
   console.log(`Restarting HTTPS proxy server for new website...`);

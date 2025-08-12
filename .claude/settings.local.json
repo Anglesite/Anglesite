@@ -42,7 +42,9 @@
       "Bash(npm update:*)",
       "Bash(npm view:*)",
       "Bash(npm test:*)",
-      "WebFetch(domain:www.electronjs.org)"
+      "WebFetch(domain:www.electronjs.org)",
+      "Bash(npx eslint:*)",
+      "Bash(eslint:*)"
     ],
     "deny": []
   }

@@ -28,7 +28,7 @@ let mainWindow: Electron.BrowserWindow | null = null;
 let store: Store;
 
 /**
- * Initialize the application
+ * Initialize the application.
  */
 async function initializeApp(): Promise<void> {
   console.log('Initializing Anglesite...');
@@ -81,7 +81,7 @@ async function initializeApp(): Promise<void> {
 }
 
 /**
- * Start the default Eleventy server for docs
+ * Start the default Eleventy server for docs.
  */
 async function startDefaultServer(): Promise<void> {
   const httpsMode = store.get('httpsMode') || 'http';

@@ -74,17 +74,18 @@ anglesite/
 │   │   └── index.ts            # Server module exports
 │   │
 │   ├── ui/                     # User interface components
-│   │   ├── window-manager.ts   # Window and WebContentsView
-│   │   ├── multi-window-manager.ts # Multi-window management
-│   │   ├── menu.ts             # Application menu
-│   │   ├── template-loader.ts  # HTML template loading utility
-│   │   ├── theme-manager.ts    # Dark mode theme management
+│   │   ├── window-manager.ts   # Window and WebContentsView management
+│   │   ├── multi-window-manager.ts # Multi-window architecture
+│   │   ├── menu.ts             # Application menu with context awareness
+│   │   ├── template-loader.ts  # Data URL template loading system
+│   │   ├── theme-manager.ts    # Dynamic dark/light mode theming
 │   │   ├── templates/          # HTML template files
-│   │   │   ├── input-dialog.html      # Input dialog template
-│   │   │   ├── preview-fallback.html  # Preview fallback template
+│   │   │   ├── bagit-metadata.html    # BagIt metadata collection form
+│   │   │   ├── input-dialog.html      # Native input dialog template
+│   │   │   ├── preview-fallback.html  # Preview error fallback
 │   │   │   ├── settings.html          # Settings window template
-│   │   │   ├── website-selection.html # Website selection template
-│   │   │   └── welcome-assistant.html # Welcome assistant template
+│   │   │   ├── website-selection.html # Website selection interface
+│   │   │   └── welcome-assistant.html # First-time setup wizard
 │   │   ├── first-launch.html   # First launch assistant (legacy)
 │   │   └── index.ts            # UI module exports
 │   │
@@ -105,6 +106,12 @@ anglesite/
 │
 ├── docs/                       # Project documentation
 ├── test/                       # Test files
+│   ├── ui/                     # UI component tests
+│   ├── ipc/                    # IPC handler tests
+│   ├── integration/            # Integration tests
+│   └── dns/                    # DNS management tests
+├── types/                      # TypeScript type definitions
+│   └── bagit-fs.d.ts          # BagIt library types
 ├── bin/                        # Legacy shell scripts
 └── package.json                # Dependencies and scripts
 ```
@@ -328,7 +335,7 @@ graph TD
     SystemPref -->|Detect| ThemeManager
     Store -->|Load Preference| ThemeManager
     ThemeManager -->|Apply| AppTheme
-    
+
     AppTheme --> MainWin
     AppTheme --> WebWin
     AppTheme --> Templates
@@ -422,6 +429,7 @@ sequenceDiagram
 - `validate-website-name`: Real-time name validation
 - `rename-website`: Rename existing website
 - `delete-website`: Delete website with confirmation
+- `export-site`: Export website (folder, ZIP, or BagIt format)
 - `preview`: Show preview window
 - `toggle-devtools`: Toggle developer tools
 - `build`: Trigger site build
@@ -429,6 +437,8 @@ sequenceDiagram
 - `show-website-context-menu`: Display right-click menu
 - `get-theme`: Get current theme setting
 - `set-theme`: Update theme preference
+- `bagit-metadata-result`: BagIt metadata collection
+- `input-dialog-result`: Native input dialog responses
 
 ## Security Architecture
 
@@ -522,10 +532,11 @@ stateDiagram-v2
    - Custom build pipelines
    - Third-party integrations
 
-2. **Multi-Site Management**
-   - Concurrent site editing
+2. **Multi-Site Management** ✅ _Partially Implemented_
+   - ✅ Concurrent site editing (multi-window architecture)
    - Site templates and themes
-   - Import/export functionality
+   - ✅ Export functionality (folder, ZIP, BagIt)
+   - ✅ Window state restoration
 
 3. **Deployment Integration**
    - Direct deploy to hosting services
@@ -538,28 +549,125 @@ stateDiagram-v2
 - **Performance**: Handles 100+ websites efficiently
 - **Memory Usage**: ~150MB baseline, scales with preview content
 - **Certificate Management**: Cached, 365-day validity
+- **BagIt Export**: Metadata collection with structured archival format
+- **Multi-Window State**: Persistent window restoration across app restarts
+
+### 9. Export System Architecture
+
+```mermaid
+graph TD
+    subgraph "Export Flow"
+        Start[Export Request]
+        Format{Export Format}
+        Build[Eleventy Build]
+        Package[Package Content]
+        Save[Save to Disk]
+    end
+
+    subgraph "Export Formats"
+        Folder[Folder Export]
+        ZIP[ZIP Archive]
+        BagIt[BagIt Archive]
+    end
+
+    subgraph "BagIt Workflow"
+        Metadata[Collect Metadata]
+        Structure[Create BagIt Structure]
+        Manifest[Generate Manifest]
+        Archive[Create Archive]
+    end
+
+    Start --> Format
+    Format -->|Folder| Build
+    Format -->|ZIP| Build
+    Format -->|BagIt| Metadata
+
+    Build --> Package
+    Package -->|Folder| Folder
+    Package -->|ZIP| ZIP
+
+    Metadata --> Build
+    Build -->|BagIt| Structure
+    Structure --> Manifest
+    Manifest --> Archive
+    Archive --> BagIt
+
+    Folder --> Save
+    ZIP --> Save
+    BagIt --> Save
+```
+
+**Export Features:**
+
+- **Multiple Formats**: Folder, ZIP, and BagIt archival format support
+- **Metadata Collection**: Interactive form for BagIt metadata (Dublin Core)
+- **Build Integration**: Automatic Eleventy build before export
+- **Progress Feedback**: Real-time export progress indicators
+- **Error Handling**: Graceful failure recovery with user notifications
+
+### 10. Code Quality and Type Safety
+
+```mermaid
+graph LR
+    subgraph "Development Quality"
+        TS[TypeScript Strict Mode]
+        ESLint[ESLint v9 Flat Config]
+        Prettier[Code Formatting]
+        Jest[Comprehensive Testing]
+    end
+
+    subgraph "Type Safety"
+        Interfaces[Strong Interface Definitions]
+        Generics[Generic Type Usage]
+        NoAny[No Explicit Any Types]
+        Imports[ES6 Module Imports]
+    end
+
+    TS --> Interfaces
+    ESLint --> NoAny
+    Jest --> Interfaces
+    TS --> Imports
+```
+
+**Quality Standards:**
+
+- **Zero ESLint Violations**: Strict adherence to coding standards
+- **Type Safety**: No `any` types, proper function signatures
+- **Module System**: ES6 imports throughout, dynamic imports for circular dependencies
+- **Test Coverage**: Comprehensive unit and integration test suite
+- **Mock Architecture**: Sophisticated mocking for Electron APIs
 
 ## Technology Stack
 
 ### Core Dependencies
 
-- **Electron**: Desktop application framework
-- **Eleventy**: Static site generator engine
-- **TypeScript**: Type-safe development
-- **Jest**: Testing framework with comprehensive mocking
+- **Electron**: Desktop application framework (>=32.0.0)
+- **Eleventy (@11ty/eleventy)**: Static site generator engine
+- **TypeScript**: Type-safe development with strict mode
+- **Jest**: Testing framework with comprehensive mocking and jsdom
+- **ESLint v9**: Modern flat configuration with TypeScript support
+- **Prettier**: Code formatting with consistent style
 
 ### Authentication & Security
 
-- **sudo-prompt**: Secure privilege escalation (replaced electron-sudo)
+- **sudo-prompt**: Secure privilege escalation with Touch ID support
 - **native-is-elevated**: Cross-platform privilege detection
 - **hostile**: Cross-platform hosts file management
-- **mkcert**: SSL certificate generation
+- **mkcert**: Trusted SSL certificate generation
+
+### Export & Archival
+
+- **archiver**: ZIP file creation for export functionality
+- **bagit-fs**: BagIt digital preservation format support
+- **fs-extra**: Enhanced file system operations
 
 ### UI & Window Management
 
 - **WebContentsView**: Modern preview integration
 - **BrowserWindow**: Multi-window architecture
 - **IPC**: Secure inter-process communication
+- **Template System**: Data URL-based HTML template loading
+- **Theme Manager**: Dynamic dark/light mode with CSS variables
 
 ## Development Workflow
 

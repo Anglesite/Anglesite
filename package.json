@@ -8,6 +8,7 @@
     "build": "npm run build:app && eleventy --config=app/eleventy/.eleventy.js",
     "build:app": "tsc && cp app/ui/*.html dist/app/ui/ 2>/dev/null || true && mkdir -p dist/app/ui/templates && cp app/ui/templates/*.html dist/app/ui/templates/ 2>/dev/null || true",
     "serve": "eleventy --config=app/eleventy/.eleventy.js --serve",
+    "prelint": "npm run format",
     "lint": "eslint . && markdownlint '**/*.md' --ignore node_modules --ignore dist",
     "format": "prettier --write .",
     "pretest": "tsc",
@@ -36,7 +37,7 @@
   "bugs": {
     "url": "https://github.com/anglesite/anglesite/issues"
   },
-  "homepage": "https://github.com/anglesite/anglesite#readme",
+  "homepage": "https://anglesite.dwk.io",
   "devDependencies": {
     "@11ty/eleventy": "^3.1.2",
     "@11ty/eleventy-plugin-webc": "^0.11.2",
@@ -48,6 +49,7 @@
     "electron": "^37.2.6",
     "eslint": "^9.33.0",
     "eslint-config-prettier": "^10.1.8",
+    "eslint-plugin-jsdoc": "^53.0.1",
     "eslint-plugin-prettier": "^5.5.4",
     "globals": "^16.3.0",
     "jest": "^30.0.5",
@@ -64,6 +66,7 @@
   "dependencies": {
     "@types/archiver": "^6.0.3",
     "archiver": "^7.0.1",
+    "bagit-fs": "^1.1.1",
     "hostile": "^1.4.0",
     "native-is-elevated": "^0.7.0",
     "sudo-prompt": "^9.2.1"

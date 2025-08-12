@@ -4,16 +4,16 @@ const Nunjucks = require('nunjucks');
 
 /**
  * Returns an absolute path relative to the project root.
- * @param {string} relativePath Path relative to the project root.
- * @returns {string}
+ * @param relativePath Path relative to the project root.
+ * @returns
  */
 function rootDir(relativePath) {
   return path.resolve(process.cwd(), relativePath);
 }
 
 /**
- * @param {import("@11ty/eleventy").UserConfig} eleventyConfig
- * @returns {ReturnType<import("@11ty/eleventy").UserConfig>}
+ * @param eleventyConfig
+ * @returns
  */
 module.exports = function AnglesiteConfig(eleventyConfig) {
   const absoluteIncludesPath = rootDir('app/eleventy/includes');

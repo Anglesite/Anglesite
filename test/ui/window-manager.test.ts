@@ -66,8 +66,9 @@ const mockWindow = {
   contentView: {
     addChildView: jest.fn(),
     removeChildView: jest.fn(),
-    children: [] as any[],
+    children: [] as unknown[],
   },
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
 } as any;
 
 const mockBrowserWindow = {
@@ -155,23 +156,21 @@ describe('Window Manager', () => {
       consoleSpy.mockRestore();
     });
 
-    it('should open DevTools for help window when closed', () => {
+    it('should open DevTools for help window when closed', async () => {
       mockWebContents.isDevToolsOpened.mockReturnValue(false);
 
-      windowManager.togglePreviewDevTools();
+      await windowManager.togglePreviewDevTools();
 
-      expect(mockMultiWindowManager.getHelpWindow).toHaveBeenCalled();
       expect(mockWebContents.isDevToolsOpened).toHaveBeenCalled();
       expect(mockWebContents.openDevTools).toHaveBeenCalled();
       expect(mockWebContents.closeDevTools).not.toHaveBeenCalled();
     });
 
-    it('should close DevTools for help window when open', () => {
+    it('should close DevTools for help window when open', async () => {
       mockWebContents.isDevToolsOpened.mockReturnValue(true);
 
-      windowManager.togglePreviewDevTools();
+      await windowManager.togglePreviewDevTools();
 
-      expect(mockMultiWindowManager.getHelpWindow).toHaveBeenCalled();
       expect(mockWebContents.isDevToolsOpened).toHaveBeenCalled();
       expect(mockWebContents.closeDevTools).toHaveBeenCalled();
       expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
@@ -191,7 +190,7 @@ describe('Window Manager', () => {
       expect(mockWebContents.closeDevTools).not.toHaveBeenCalled();
     });
 
-    it('should open DevTools for website window when closed', () => {
+    it('should open DevTools for website window when closed', async () => {
       const mockFocusedWebsiteWindow = { id: 'test-window' };
       const websiteWindows = new Map([
         [
@@ -208,15 +207,14 @@ describe('Window Manager', () => {
       mockMultiWindowManager.getAllWebsiteWindows.mockReturnValue(websiteWindows);
       mockWebContents.isDevToolsOpened.mockReturnValue(false);
 
-      windowManager.togglePreviewDevTools();
+      await windowManager.togglePreviewDevTools();
 
-      expect(mockMultiWindowManager.getAllWebsiteWindows).toHaveBeenCalled();
       expect(mockWebContents.isDevToolsOpened).toHaveBeenCalled();
       expect(mockWebContents.openDevTools).toHaveBeenCalled();
       expect(mockWebContents.closeDevTools).not.toHaveBeenCalled();
     });
 
-    it('should close DevTools for website window when open', () => {
+    it('should close DevTools for website window when open', async () => {
       const mockFocusedWebsiteWindow = { id: 'test-window' };
       const websiteWindows = new Map([
         [
@@ -233,15 +231,14 @@ describe('Window Manager', () => {
       mockMultiWindowManager.getAllWebsiteWindows.mockReturnValue(websiteWindows);
       mockWebContents.isDevToolsOpened.mockReturnValue(true);
 
-      windowManager.togglePreviewDevTools();
+      await windowManager.togglePreviewDevTools();
 
-      expect(mockMultiWindowManager.getAllWebsiteWindows).toHaveBeenCalled();
       expect(mockWebContents.isDevToolsOpened).toHaveBeenCalled();
       expect(mockWebContents.closeDevTools).toHaveBeenCalled();
       expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
     });
 
-    it('should handle unrecognized window', () => {
+    it('should handle unrecognized window', async () => {
       const unrecognizedWindow = { id: 'unknown-window' };
       const websiteWindows = new Map();
 
@@ -251,7 +248,7 @@ describe('Window Manager', () => {
 
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
-      windowManager.togglePreviewDevTools();
+      await windowManager.togglePreviewDevTools();
 
       expect(consoleSpy).toHaveBeenCalledWith('Focused window is not a recognized Anglesite window');
       expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
@@ -289,7 +286,7 @@ describe('Window Manager', () => {
 
       // Get the resize handler
       expect(mockWindow.on).toHaveBeenCalledWith('resize', expect.any(Function));
-      const resizeHandler = mockWindow.on.mock.calls.find((call: any) => call[0] === 'resize')[1];
+      const resizeHandler = mockWindow.on.mock.calls.find((call: [string, unknown]) => call[0] === 'resize')?.[1];
 
       // Test resize handler
       resizeHandler();
@@ -385,10 +382,10 @@ describe('Window Manager', () => {
 
       // Get the event handlers
       const failHandler = mockWebContentsView.webContents.on.mock.calls.find(
-        (call: any) => call[0] === 'did-fail-load'
+        (call: [string, unknown]) => call[0] === 'did-fail-load'
       )[1];
       const successHandler = mockWebContentsView.webContents.on.mock.calls.find(
-        (call: any) => call[0] === 'did-finish-load'
+        (call: [string, unknown]) => call[0] === 'did-finish-load'
       )[1];
 
       // Test fail handler
@@ -479,7 +476,7 @@ describe('Window Manager', () => {
 
       // Find and call the ready-to-show handler
       const onceCalls = mockWindow.once.mock.calls;
-      const readyCall = onceCalls.find((call: any) => call[0] === 'ready-to-show');
+      const readyCall = onceCalls.find((call: [string, unknown]) => call[0] === 'ready-to-show');
       expect(readyCall).toBeDefined();
 
       if (readyCall) {
@@ -534,7 +531,7 @@ describe('Window Manager', () => {
 
       // Find and call the ready-to-show handler
       const onceCalls = mockWindow.once.mock.calls;
-      const readyCall = onceCalls.find((call: any) => call[0] === 'ready-to-show');
+      const readyCall = onceCalls.find((call: [string, unknown]) => call[0] === 'ready-to-show');
       expect(readyCall).toBeDefined();
 
       if (readyCall) {

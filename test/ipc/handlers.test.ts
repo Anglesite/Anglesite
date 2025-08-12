@@ -48,6 +48,7 @@ jest.mock('../../app/ui/window-manager', () => ({
   reloadPreview: jest.fn(),
   togglePreviewDevTools: jest.fn(),
   getNativeInput: jest.fn(),
+  getBagItMetadata: jest.fn(),
 }));
 
 jest.mock('../../app/ui/multi-window-manager', () => ({
@@ -61,6 +62,8 @@ jest.mock('../../app/server/eleventy', () => ({
   getCurrentLiveServerUrl: jest.fn(() => 'https://localhost:8080'),
   isLiveServerReady: jest.fn(() => true),
   switchToWebsite: jest.fn(),
+  setLiveServerUrl: jest.fn(),
+  setCurrentWebsiteName: jest.fn(),
 }));
 
 // Mock utils

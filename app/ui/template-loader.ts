@@ -5,16 +5,16 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * Interface for template replacement variables
+ * Interface for template replacement variables.
  */
 interface TemplateVariables {
   [key: string]: string;
 }
 
 /**
- * Load and process an HTML template file with variable substitution
- * @param templateName - Name of the template file (without extension)
- * @param variables - Object containing variables to substitute in template
+ * Load and process an HTML template file with variable substitution.
+ * @param templateName Name of the template file (without extension)
+ * @param variables Object containing variables to substitute in template
  * @returns Processed HTML string
  */
 export function loadTemplate(templateName: string, variables: TemplateVariables = {}): string {
@@ -41,9 +41,9 @@ export function loadTemplate(templateName: string, variables: TemplateVariables 
 }
 
 /**
- * Load template and return as data URL for use with BrowserWindow.loadURL
- * @param templateName - Name of the template file (without extension)
- * @param variables - Object containing variables to substitute in template
+ * Load template and return as data URL for use with BrowserWindow.loadURL.
+ * @param templateName Name of the template file (without extension)
+ * @param variables Object containing variables to substitute in template
  * @returns Data URL string
  */
 export function loadTemplateAsDataUrl(templateName: string, variables: TemplateVariables = {}): string {

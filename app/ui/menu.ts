@@ -7,7 +7,7 @@ import { openSettingsWindow } from './window-manager';
 import { getAllWebsiteWindows, getHelpWindow } from './multi-window-manager';
 
 /**
- * Check if the current focused window is a website window
+ * Check if the current focused window is a website window.
  */
 function isWebsiteWindowFocused(): boolean {
   const focusedWindow = BrowserWindow.getFocusedWindow();
@@ -24,7 +24,7 @@ function isWebsiteWindowFocused(): boolean {
 }
 
 /**
- * Build a list of open windows for the Window menu
+ * Build a list of open windows for the Window menu.
  */
 export function buildWindowList(): MenuItemConstructorOptions[] {
   const windowMenuItems: MenuItemConstructorOptions[] = [];
@@ -71,7 +71,7 @@ export function buildWindowList(): MenuItemConstructorOptions[] {
 }
 
 /**
- * Update the application menu when window focus changes
+ * Update the application menu when window focus changes.
  */
 export function updateApplicationMenu(): void {
   const menu = createApplicationMenu();
@@ -79,7 +79,7 @@ export function updateApplicationMenu(): void {
 }
 
 /**
- * Create the application menu
+ * Constructs the complete application menu structure with all submenus and menu items.
  */
 export function createApplicationMenu(): Menu {
   const template: MenuItemConstructorOptions[] = [
@@ -180,6 +180,15 @@ export function createApplicationMenu(): Menu {
                 console.log('DEBUG: Export to Zip menu clicked');
                 const { exportSiteHandler } = await import('../ipc/handlers');
                 await exportSiteHandler(null, true);
+              },
+            },
+            {
+              label: 'BagIt Archive…',
+              accelerator: 'CmdOrCtrl+Alt+E',
+              click: async () => {
+                console.log('DEBUG: Export to BagIt menu clicked');
+                const { exportSiteHandler } = await import('../ipc/handlers');
+                await exportSiteHandler(null, 'bagit');
               },
             },
           ],

@@ -1,0 +1,292 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <title>BagIt Archive Metadata</title>
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg-primary: #ffffff;
+        --bg-secondary: #f5f5f5;
+        --text-primary: #333333;
+        --border-primary: #dddddd;
+        --button-primary: #007aff;
+        --button-primary-hover: #0056cc;
+        --button-secondary: #e5e5e7;
+        --button-secondary-hover: #d1d1d6;
+        --button-secondary-text: #333;
+        --shadow: rgba(0, 0, 0, 0.1);
+      }
+
+      :root[data-theme='dark'] {
+        --bg-primary: #2d2d2d;
+        --bg-secondary: #1e1e1e;
+        --text-primary: #ffffff;
+        --border-primary: #404040;
+        --button-primary: #0a84ff;
+        --button-primary-hover: #409cff;
+        --button-secondary: #404040;
+        --button-secondary-hover: #525252;
+        --button-secondary-text: #ffffff;
+        --shadow: rgba(255, 255, 255, 0.1);
+      }
+
+      body {
+        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+        margin: 0;
+        padding: 20px;
+        background: Canvas;
+        color: CanvasText;
+        transition:
+          background-color 0.2s ease,
+          color 0.2s ease;
+        min-width: 400px;
+      }
+
+      :root body {
+        background: var(--bg-secondary);
+        color: var(--text-primary);
+      }
+
+      .container {
+        background: var(--bg-primary);
+        border-radius: 8px;
+        padding: 24px;
+        box-shadow: 0 2px 10px var(--shadow);
+        transition: background-color 0.2s ease;
+      }
+
+      h2 {
+        margin-top: 0;
+        margin-bottom: 20px;
+        color: var(--text-primary);
+        font-size: 18px;
+        font-weight: 600;
+      }
+
+      .form-group {
+        margin-bottom: 16px;
+      }
+
+      label {
+        display: block;
+        margin-bottom: 6px;
+        color: var(--text-primary);
+        font-size: 14px;
+        font-weight: 500;
+      }
+
+      input,
+      textarea {
+        width: 100%;
+        padding: 10px 12px;
+        border: 1px solid var(--border-primary);
+        border-radius: 6px;
+        font-size: 14px;
+        box-sizing: border-box;
+        background: var(--bg-primary);
+        color: var(--text-primary);
+        transition:
+          border-color 0.2s ease,
+          background-color 0.2s ease,
+          color 0.2s ease;
+      }
+
+      input:focus,
+      textarea:focus {
+        outline: none;
+        border-color: var(--button-primary);
+        box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+      }
+
+      textarea {
+        resize: vertical;
+        min-height: 80px;
+      }
+
+      .help-text {
+        font-size: 12px;
+        color: #666;
+        margin-top: 4px;
+      }
+
+      .buttons {
+        text-align: right;
+        margin-top: 24px;
+        padding-top: 16px;
+        border-top: 1px solid var(--border-primary);
+      }
+
+      button {
+        background: var(--button-primary);
+        color: white;
+        border: none;
+        padding: 10px 20px;
+        border-radius: 6px;
+        font-size: 14px;
+        cursor: pointer;
+        margin-left: 10px;
+        transition: background-color 0.2s ease;
+        font-weight: 500;
+      }
+
+      button:hover {
+        background: var(--button-primary-hover);
+      }
+
+      button.secondary {
+        background: var(--button-secondary);
+        color: var(--button-secondary-text);
+      }
+
+      button.secondary:hover {
+        background: var(--button-secondary-hover);
+      }
+
+      button:disabled {
+        opacity: 0.6;
+        cursor: not-allowed;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h2>BagIt Archive Metadata</h2>
+      <form id="bagit-form">
+        <div class="form-group">
+          <label for="externalIdentifier">External Identifier (optional)</label>
+          <input type="text" id="externalIdentifier" name="externalIdentifier" />
+          <div class="help-text">A unique identifier for this archive</div>
+        </div>
+
+        <div class="form-group">
+          <label for="externalDescription">External Description (optional)</label>
+          <textarea
+            id="externalDescription"
+            name="externalDescription"
+            placeholder="Describe what this archive contains..."
+          ></textarea>
+          <div class="help-text">A human-readable description of the archive contents</div>
+        </div>
+
+        <div class="form-group">
+          <label for="sourceOrganization">Source Organization (optional)</label>
+          <input type="text" id="sourceOrganization" name="sourceOrganization" />
+          <div class="help-text">The organization or entity responsible for creating this archive</div>
+        </div>
+
+        <div class="form-group">
+          <label for="organizationAddress">Organization Address (optional)</label>
+          <textarea
+            id="organizationAddress"
+            name="organizationAddress"
+            placeholder="Street address, city, state, postal code..."
+            rows="3"
+          ></textarea>
+          <div class="help-text">Physical or mailing address of the source organization</div>
+        </div>
+
+        <div class="form-group">
+          <label for="contactName">Contact Name (optional)</label>
+          <input type="text" id="contactName" name="contactName" />
+          <div class="help-text">Name of the person responsible for this archive</div>
+        </div>
+
+        <div class="form-group">
+          <label for="contactPhone">Contact Phone (optional)</label>
+          <input type="tel" id="contactPhone" name="contactPhone" placeholder="(555) 123-4567" />
+          <div class="help-text">Phone number for archive-related inquiries</div>
+        </div>
+
+        <div class="form-group">
+          <label for="contactEmail">Contact Email (optional)</label>
+          <input type="email" id="contactEmail" name="contactEmail" placeholder="contact@example.com" />
+          <div class="help-text">Email address for archive-related inquiries</div>
+        </div>
+
+        <div class="buttons">
+          <button type="button" class="secondary" onclick="cancel()">Cancel</button>
+          <button type="submit">Create Archive</button>
+        </div>
+      </form>
+    </div>
+
+    <script>
+      const { ipcRenderer } = require('electron');
+
+      // Apply theme when dialog loads
+      document.addEventListener('DOMContentLoaded', () => {
+        // Load theme with delay to not block dialog functionality
+        setTimeout(async () => {
+          try {
+            const themeInfo = await ipcRenderer.invoke('get-current-theme');
+            applyTheme(themeInfo.resolvedTheme);
+
+            ipcRenderer.on('theme-updated', (_event, themeInfo) => {
+              applyTheme(themeInfo.resolvedTheme);
+            });
+          } catch (error) {
+            console.log('Theme loading failed, using default theme');
+          }
+        }, 50);
+
+        // Set default values
+        ipcRenderer.once('bagit-metadata-defaults', (_event, defaults) => {
+          document.getElementById('externalIdentifier').value = defaults.externalIdentifier || '';
+          document.getElementById('externalDescription').value = defaults.externalDescription || '';
+          document.getElementById('sourceOrganization').value = defaults.sourceOrganization || '';
+          document.getElementById('organizationAddress').value = defaults.organizationAddress || '';
+          document.getElementById('contactName').value = defaults.contactName || '';
+          document.getElementById('contactPhone').value = defaults.contactPhone || '';
+          document.getElementById('contactEmail').value = defaults.contactEmail || '';
+        });
+
+        // Request defaults
+        ipcRenderer.send('get-bagit-metadata-defaults');
+      });
+
+      function applyTheme(resolvedTheme) {
+        const root = document.documentElement;
+        if (resolvedTheme === 'dark') {
+          root.setAttribute('data-theme', 'dark');
+        } else {
+          root.removeAttribute('data-theme');
+        }
+      }
+
+      function cancel() {
+        ipcRenderer.send('bagit-metadata-result', null);
+      }
+
+      document.getElementById('bagit-form').addEventListener('submit', (e) => {
+        e.preventDefault();
+
+        const formData = new FormData(e.target);
+        const metadata = {
+          externalIdentifier: formData.get('externalIdentifier').trim(),
+          externalDescription: formData.get('externalDescription').trim(),
+          sourceOrganization: formData.get('sourceOrganization').trim(),
+          organizationAddress: formData.get('organizationAddress').trim(),
+          contactName: formData.get('contactName').trim(),
+          contactPhone: formData.get('contactPhone').trim(),
+          contactEmail: formData.get('contactEmail').trim(),
+        };
+
+        // All fields are optional for BagIt metadata
+        // No validation needed - user can submit with any combination of fields
+
+        ipcRenderer.send('bagit-metadata-result', metadata);
+      });
+
+      // Handle Enter key in single-line inputs
+      document.querySelectorAll('input[type="text"]').forEach((input) => {
+        input.addEventListener('keypress', (e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            document.getElementById('bagit-form').requestSubmit();
+          }
+        });
+      });
+    </script>
+  </body>
+</html>

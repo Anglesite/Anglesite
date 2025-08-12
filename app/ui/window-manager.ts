@@ -1,5 +1,5 @@
 /**
- * @file Window and WebContentsView management
+ * @file Window and WebContentsView management.
  */
 import { BrowserWindow, WebContentsView, ipcMain, WebContents } from 'electron';
 import * as path from 'path';
@@ -12,7 +12,7 @@ let previewWebContentsView: WebContentsView | null = null;
 let settingsWindow: BrowserWindow | null = null;
 
 /**
- * Create the main application window
+ * Create the main application window.
  */
 export function createWindow(): BrowserWindow {
   const win = new BrowserWindow({
@@ -49,7 +49,7 @@ export function createWindow(): BrowserWindow {
 }
 
 /**
- * Create preview WebContentsView for displaying live content
+ * Create preview WebContentsView for displaying live content.
  */
 function createPreviewWebContentsView(): void {
   previewWebContentsView = new WebContentsView({
@@ -87,7 +87,7 @@ function createPreviewWebContentsView(): void {
 }
 
 /**
- * Auto-load preview when server is ready
+ * Auto-load preview when server is ready.
  */
 export function autoLoadPreview(win: BrowserWindow): void {
   if (win && previewWebContentsView && isLiveServerReady()) {
@@ -144,7 +144,7 @@ export function autoLoadPreview(win: BrowserWindow): void {
 }
 
 /**
- * Load local file preview as fallback
+ * Load local file preview as fallback.
  */
 export function loadLocalFilePreview(win: BrowserWindow): void {
   if (win && previewWebContentsView) {
@@ -167,7 +167,7 @@ export function loadLocalFilePreview(win: BrowserWindow): void {
 }
 
 /**
- * Show preview in WebContentsView
+ * Show preview in WebContentsView.
  */
 export function showPreview(win: BrowserWindow): void {
   if (win && previewWebContentsView) {
@@ -212,7 +212,7 @@ export function showPreview(win: BrowserWindow): void {
 }
 
 /**
- * Hide preview WebContentsView
+ * Hide preview WebContentsView.
  */
 export function hidePreview(win: BrowserWindow): void {
   if (win && previewWebContentsView) {
@@ -221,7 +221,7 @@ export function hidePreview(win: BrowserWindow): void {
 }
 
 /**
- * Reload preview content
+ * Reload preview content.
  */
 export function reloadPreview(): void {
   if (previewWebContentsView) {
@@ -230,9 +230,9 @@ export function reloadPreview(): void {
 }
 
 /**
- * Toggle DevTools for the currently focused window
+ * Toggle DevTools for the currently focused window.
  */
-export function togglePreviewDevTools(): void {
+export async function togglePreviewDevTools(): Promise<void> {
   const focusedWindow = BrowserWindow.getFocusedWindow();
   if (!focusedWindow) {
     console.log('No focused window found for DevTools');
@@ -240,8 +240,7 @@ export function togglePreviewDevTools(): void {
   }
 
   // Import here to avoid circular dependency
-  // eslint-disable-next-line @typescript-eslint/no-require-imports
-  const { getAllWebsiteWindows, getHelpWindow } = require('./multi-window-manager');
+  const { getAllWebsiteWindows, getHelpWindow } = await import('./multi-window-manager');
 
   // Check if it's the help window
   const helpWindow = getHelpWindow();
@@ -277,7 +276,113 @@ export function togglePreviewDevTools(): void {
 }
 
 /**
- * Get native input from user
+ * BagIt metadata collection result.
+ */
+export interface BagItMetadata {
+  externalIdentifier: string;
+  externalDescription: string;
+  sourceOrganization: string;
+  organizationAddress: string;
+  contactName: string;
+  contactPhone: string;
+  contactEmail: string;
+}
+
+/**
+ * Show BagIt metadata collection dialog for archival export
+ *
+ * Creates a modal dialog that collects Dublin Core metadata required for BagIt
+ * archival format. The dialog pre-fills the external identifier with the website
+ * name and allows the user to enter additional preservation metadata.
+ * @param websiteName Name of the website being exported (used as default identifier).
+ * @returns Promise resolving to collected metadata object or null if cancelled.
+ * @example
+ * ```typescript
+ * const metadata = await getBagItMetadata('my-website');
+ * if (metadata) {
+ *   // Use metadata for BagIt export
+ *   console.log(metadata.externalIdentifier); // 'my-website'
+ * }
+ * ```
+ */
+export async function getBagItMetadata(websiteName: string): Promise<BagItMetadata | null> {
+  return new Promise((resolve) => {
+    const metadataWindow = new BrowserWindow({
+      width: 500,
+      height: 650,
+      title: 'BagIt Archive Metadata',
+      resizable: false,
+      minimizable: false,
+      maximizable: false,
+      fullscreenable: false,
+      modal: true,
+      show: false,
+      webPreferences: {
+        nodeIntegration: true,
+        contextIsolation: false,
+      },
+    });
+
+    const metadataDataUrl = loadTemplateAsDataUrl('bagit-metadata');
+    metadataWindow.loadURL(metadataDataUrl);
+
+    metadataWindow.once('ready-to-show', () => {
+      if (metadataWindow && !metadataWindow.isDestroyed()) {
+        themeManager.applyThemeToWindow(metadataWindow);
+        metadataWindow.show();
+
+        // Send default values to the dialog
+        metadataWindow.webContents.send('bagit-metadata-defaults', {
+          externalIdentifier: websiteName,
+          externalDescription: '',
+          sourceOrganization: '',
+          organizationAddress: '',
+          contactName: '',
+          contactPhone: '',
+          contactEmail: '',
+        });
+      }
+    });
+
+    const handleMetadataResult = (result: BagItMetadata | null) => {
+      if (!metadataWindow.isDestroyed()) {
+        metadataWindow.close();
+      }
+      resolve(result);
+    };
+
+    metadataWindow.on('closed', () => {
+      resolve(null);
+    });
+
+    // Set up IPC listeners
+    const handleDefaults = () => {
+      if (!metadataWindow.isDestroyed()) {
+        metadataWindow.webContents.send('bagit-metadata-defaults', {
+          externalIdentifier: websiteName,
+          externalDescription: '',
+          sourceOrganization: '',
+          organizationAddress: '',
+          contactName: '',
+          contactPhone: '',
+          contactEmail: '',
+        });
+      }
+    };
+
+    const handleResult = (_event: unknown, result: BagItMetadata | null) => {
+      ipcMain.removeListener('get-bagit-metadata-defaults', handleDefaults);
+      ipcMain.removeListener('bagit-metadata-result', handleResult);
+      handleMetadataResult(result);
+    };
+
+    ipcMain.on('get-bagit-metadata-defaults', handleDefaults);
+    ipcMain.on('bagit-metadata-result', handleResult);
+  });
+}
+
+/**
+ * Get native input from user.
  */
 export async function getNativeInput(title: string, prompt: string): Promise<string | null> {
   return new Promise((resolve) => {
@@ -337,8 +442,8 @@ export async function getNativeInput(title: string, prompt: string): Promise<str
 /**
  * Show first launch setup assistant for HTTPS/HTTP mode selection
  * Displays a modal dialog allowing users to choose between HTTPS (with CA installation)
- * or HTTP (simple) mode for local development
- * @returns Promise resolving to "https", "http", or null if cancelled
+ * or HTTP (simple) mode for local development.
+ * @returns Promise resolving to "https", "http", or null if cancelled.
  */
 export async function showFirstLaunchAssistant(): Promise<'https' | 'http' | null> {
   return new Promise((resolve) => {
@@ -398,7 +503,7 @@ export async function showFirstLaunchAssistant(): Promise<'https' | 'http' | nul
 }
 
 /**
- * Open Website Selection window
+ * Creates and displays a modal window for selecting and opening existing websites.
  */
 export function openWebsiteSelectionWindow(): void {
   const websiteSelectionWindow = new BrowserWindow({
@@ -439,7 +544,7 @@ export function openWebsiteSelectionWindow(): void {
 }
 
 /**
- * Open Settings window
+ * Creates and displays the application settings window, or focuses it if already open.
  */
 export function openSettingsWindow(): void {
   if (settingsWindow && !settingsWindow.isDestroyed()) {

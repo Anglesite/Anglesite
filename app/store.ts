@@ -1,15 +1,15 @@
 /**
  * @file Persistent storage for Anglesite application settings
  *
- * Manages user preferences and configuration state across app sessions
- * Settings are stored in JSON format in the user's application data directory
+ * Manages user preferences and configuration state across app sessions.
+ * Settings are stored in JSON format in the user's application data directory.
  */
 import { app } from 'electron';
 import * as fs from 'fs';
 import * as path from 'path';
 
 /**
- * Interface for persisting website window state
+ * Interface for persisting website window state.
  */
 export interface WindowState {
   /** Name of the website */
@@ -28,7 +28,7 @@ export interface WindowState {
 }
 
 /**
- * Application settings interface defining all configurable options
+ * Application settings interface defining all configurable options.
  */
 export interface AppSettings {
   /** Whether automatic DNS configuration is enabled */
@@ -47,16 +47,16 @@ export interface AppSettings {
 }
 
 /**
- * Persistent settings store with automatic JSON serialization
- * Handles loading, saving, and type-safe access to application settings
+ * Persistent settings store with automatic JSON serialization.
+ * Handles loading, saving, and type-safe access to application settings.
  */
 export class Store {
   private path: string;
   private data: AppSettings;
 
   /**
-   * Initialize the settings store
-   * Loads existing settings from disk or creates default settings if none exist
+   * Initialize the settings store.
+   * Loads existing settings from disk or creates default settings if none exist.
    */
   constructor() {
     const userDataPath = app.getPath('userData');
@@ -74,8 +74,8 @@ export class Store {
   }
 
   /**
-   * Get a setting value by key
-   * @param key - The setting key to retrieve
+   * Get a setting value by key.
+   * @param key The setting key to retrieve
    * @returns The current value of the specified setting
    */
   get<K extends keyof AppSettings>(key: K): AppSettings[K] {
@@ -83,9 +83,9 @@ export class Store {
   }
 
   /**
-   * Set a setting value and persist to disk
-   * @param key - The setting key to update
-   * @param val - The new value to set
+   * Set a setting value and persist to disk.
+   * @param key The setting key to update
+   * @param val The new value to set
    */
   set<K extends keyof AppSettings>(key: K, val: AppSettings[K]): void {
     this.data[key] = val;
@@ -93,7 +93,7 @@ export class Store {
   }
 
   /**
-   * Get all current settings
+   * Get all current settings.
    * @returns Complete settings object
    */
   getAll(): AppSettings {
@@ -101,9 +101,8 @@ export class Store {
   }
 
   /**
-   * Set multiple settings at once
-   * @param {Partial<AppSettings>} settings - Settings to update
-   * @returns {void}
+   * Set multiple settings at once.
+   * @param settings Settings to update
    */
   setAll(settings: Partial<AppSettings>): void {
     this.data = { ...this.data, ...settings };
@@ -111,33 +110,33 @@ export class Store {
   }
 
   /**
-   * Save current window states
-   * @param {WindowState[]} windowStates - Array of window states to save
+   * Save current window states.
+   * @param windowStates Array of window states to save
    */
   saveWindowStates(windowStates: WindowState[]): void {
     this.set('openWebsiteWindows', windowStates);
   }
 
   /**
-   * Get saved window states
-   * @returns {WindowState[]} Array of saved window states
+   * Get saved window states.
+   * @returns Array of saved window states
    */
   getWindowStates(): WindowState[] {
     return this.get('openWebsiteWindows');
   }
 
   /**
-   * Clear saved window states
+   * Clear saved window states.
    */
   clearWindowStates(): void {
     this.set('openWebsiteWindows', []);
   }
 
   /**
-   * Parse data file or return defaults
-   * @param {string} filePath - Path to the settings file
-   * @param {AppSettings} defaults - Default settings
-   * @returns {AppSettings} The parsed settings or defaults
+   * Parse data file or return defaults.
+   * @param filePath Path to the settings file
+   * @param defaults Default settings
+   * @returns The parsed settings or defaults
    */
   private parseDataFile(filePath: string, defaults: AppSettings): AppSettings {
     try {
@@ -152,8 +151,7 @@ export class Store {
   }
 
   /**
-   * Save data to file
-   * @returns {void}
+   * Save data to file.
    */
   private saveData(): void {
     try {
