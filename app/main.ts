@@ -66,7 +66,7 @@ async function initializeApp(): Promise<void> {
   // Start the default Eleventy server for help/docs
   await startDefaultServer();
 
-  console.log('Anglesite initialization complete - Help window ready');
+  console.log('Anglesite initialization complete');
 
   // Restore previously open website windows
   const { restoreWindowStates } = await import('./ui/multi-window-manager');
@@ -111,9 +111,9 @@ app.on('window-all-closed', () => {
 });
 
 // Clean up resources when the app is about to quit
-app.on('before-quit', () => {
+app.on('before-quit', async () => {
   console.log('Cleaning up resources...');
-  cleanupEleventyServer();
+  await cleanupEleventyServer();
   closeAllWindows();
 });
 

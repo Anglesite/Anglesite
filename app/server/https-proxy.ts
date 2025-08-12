@@ -42,9 +42,16 @@ export async function createHttpsProxy(
       );
 
       proxyReq.on('error', (err) => {
-        console.error('HTTPS proxy request error:', err);
-        res.writeHead(500);
-        res.end('Proxy error');
+        console.error(`HTTPS proxy request error for ${hostname}:${httpsPort} -> localhost:${httpPort}:`, err);
+        console.error('Error details:', {
+          code: (err as any).code,
+          message: err.message,
+          hostname: 'localhost',
+          port: httpPort,
+          path: req.url,
+        });
+        res.writeHead(500, { 'Content-Type': 'text/plain' });
+        res.end(`Proxy error: Unable to connect to localhost:${httpPort}\nError: ${err.message}`);
       });
 
       req.pipe(proxyReq);

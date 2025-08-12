@@ -2,11 +2,20 @@
  * @file Eleventy server management.
  */
 import { spawn, ChildProcess } from 'child_process';
+import * as path from 'path';
+import * as fs from 'fs';
+// @ts-expect-error - Eleventy may not have perfect TypeScript types
+import Eleventy from '@11ty/eleventy';
+// @ts-expect-error - Eleventy dev server may not have perfect TypeScript types
+import EleventyDevServer from '@11ty/eleventy-dev-server';
 
 let liveServerProcess: ChildProcess | null = null;
+let devServer: any = null;
+let eleventy: any = null;
 let liveServerReady = false;
 let currentLiveServerUrl = 'https://localhost:8080';
 let currentWebsiteName = 'anglesite';
+let outputDir = '';
 
 /**
  * Generate test domain URL for a website using .test TLD
@@ -76,109 +85,173 @@ export function setCurrentWebsiteName(name: string) {
 }
 
 /**
- * Start Eleventy server for a specific directory.
+ * Start Eleventy server using the official @11ty/eleventy-dev-server with programmatic API.
  */
-export function startEleventyServer(
+export async function startEleventyServer(
   inputDir: string = 'docs',
   port: number = 8081,
   onReady?: (url: string) => void,
   onError?: (error: string) => void
-): void {
+): Promise<void> {
   // Stop existing server first
-  if (liveServerProcess) {
-    stopEleventyServer();
-  }
+  await stopEleventyServer();
 
   console.log(`Starting Eleventy server for: ${inputDir}`);
 
-  liveServerProcess = spawn(
-    'npx',
-    ['eleventy', '--config=app/eleventy/.eleventy.js', `--input="${inputDir}"`, '--serve', `--port=${port}`, '--quiet'],
-    {
-      cwd: process.cwd(),
-      shell: true,
+  try {
+    // Set up output directory
+    outputDir = path.join(process.cwd(), '_site_temp', path.basename(inputDir));
+
+    // Ensure output directory exists
+    if (!fs.existsSync(outputDir)) {
+      fs.mkdirSync(outputDir, { recursive: true });
     }
-  );
 
-  if (liveServerProcess.stdout) {
-    liveServerProcess.stdout.on('data', (data: Buffer) => {
-      const output = data.toString();
-      console.log(`eleventy: ${output}`);
-
-      // Eleventy outputs something like "[11ty] Server at http://localhost:8081/"
-      const urlMatch = output.match(/Server at (https?:\/\/[^\s/]+)/);
-      if (urlMatch) {
-        const httpUrl = urlMatch[1];
-        console.log(`Eleventy HTTP server URL detected: ${httpUrl}`);
-
-        liveServerReady = true;
-        if (onReady) {
-          onReady(httpUrl);
-        }
-      }
+    // Configure Eleventy programmatically
+    // In packaged apps, config file is relative to __dirname, in dev it's relative to cwd
+    const isPackaged = process.env.NODE_ENV === 'production' || !process.env.NODE_ENV;
+    const configPath = isPackaged 
+      ? path.resolve(__dirname, '..', 'eleventy', '.eleventy.js')  // __dirname is in dist/app/server/, so go up one level
+      : path.resolve(process.cwd(), 'app/eleventy/.eleventy.js');
+    
+    eleventy = new Eleventy(inputDir, outputDir, {
+      quietMode: true,
+      configPath: configPath,
     });
-  }
 
-  if (liveServerProcess.stderr) {
-    liveServerProcess.stderr.on('data', (data: Buffer) => {
-      const output = data.toString();
+    // Initial build
+    console.log(`Building website from ${inputDir} to ${outputDir}`);
+    await eleventy.write();
+    console.log('Initial build completed');
 
-      // Check if this is the server ready message in stderr
-      const urlMatch = output.match(/Server at (https?:\/\/[^\s/]+)/);
-      if (urlMatch) {
-        const httpUrl = urlMatch[1];
-        console.log(`Eleventy HTTP server URL detected in stderr: ${httpUrl}`);
-
-        liveServerReady = true;
-        if (onReady) {
-          onReady(httpUrl);
-        }
-        return; // Don't treat this as an error
-      }
-
-      // Only log and handle actual errors
-      if (output.toLowerCase().includes('error')) {
-        console.error(`eleventy error: ${output}`);
-        if (onError) {
-          onError(output);
-        }
-      } else {
-        // Log other stderr output as informational
-        console.log(`eleventy stderr: ${output.trim()}`);
-      }
+    // Create dev server instance
+    devServer = new EleventyDevServer('anglesite', outputDir, {
+      port: port,
+      liveReload: true,
+      domDiff: true,
+      showVersion: false,
+      watch: [inputDir + '/**/*'],
+      logger: {
+        log: console.log,
+        info: console.log,
+        error: console.error,
+      },
     });
-  }
 
-  liveServerProcess.on('close', (code) => {
-    console.log(`eleventy process exited with code ${code}`);
-    liveServerReady = false;
-  });
+    // Set up file watching for rebuilds
+    devServer.watchFiles([inputDir + '/**/*']);
 
-  // Fallback timeout
-  setTimeout(() => {
-    if (!liveServerReady) {
-      console.log(`Eleventy server URL (fallback): http://localhost:${port}`);
-      liveServerReady = true;
-      if (onReady) {
-        onReady(`http://localhost:${port}`);
-      }
+    // Override the default file change handler to trigger Eleventy rebuilds
+    if (devServer.watcher) {
+      // Remove default listeners and add our own
+      devServer.watcher.removeAllListeners('change');
+      devServer.watcher.removeAllListeners('add');
+      devServer.watcher.removeAllListeners('unlink');
+
+      devServer.watcher.on('change', async (filePath: string) => {
+        console.log(`File changed: ${filePath}, rebuilding...`);
+        try {
+          await eleventy.write();
+          console.log('Rebuild completed');
+          // Notify dev server of changes for live reload
+          devServer.reloadFiles([filePath]);
+        } catch (error) {
+          console.error('Rebuild failed:', error);
+          if (onError) {
+            onError(error instanceof Error ? error.message : String(error));
+          }
+        }
+      });
+
+      devServer.watcher.on('add', async (filePath: string) => {
+        console.log(`File added: ${filePath}, rebuilding...`);
+        try {
+          await eleventy.write();
+          console.log('Rebuild completed');
+          devServer.reloadFiles([filePath]);
+        } catch (error) {
+          console.error('Rebuild failed:', error);
+          if (onError) {
+            onError(error instanceof Error ? error.message : String(error));
+          }
+        }
+      });
+
+      devServer.watcher.on('unlink', async (filePath: string) => {
+        console.log(`File removed: ${filePath}, rebuilding...`);
+        try {
+          await eleventy.write();
+          console.log('Rebuild completed');
+          devServer.reloadFiles([filePath]);
+        } catch (error) {
+          console.error('Rebuild failed:', error);
+          if (onError) {
+            onError(error instanceof Error ? error.message : String(error));
+          }
+        }
+      });
     }
-  }, 2000);
+
+    // Start the dev server
+    devServer.serve(port);
+
+    // Wait for server to be ready and call onReady
+    await devServer.ready();
+
+    const httpUrl = `http://localhost:${port}`;
+    console.log(`Eleventy dev server ready at: ${httpUrl}`);
+
+    liveServerReady = true;
+    if (onReady) {
+      onReady(httpUrl);
+    }
+  } catch (error) {
+    console.error('Failed to start Eleventy dev server:', error);
+    if (onError) {
+      onError(error instanceof Error ? error.message : String(error));
+    }
+  }
 }
 
 /**
  * Stop the current Eleventy server.
  */
-export function stopEleventyServer(): void {
+export async function stopEleventyServer(): Promise<void> {
+  console.log('Stopping Eleventy server');
+
+  // Stop dev server
+  if (devServer) {
+    try {
+      await devServer.close();
+      console.log('Dev server stopped');
+    } catch (error) {
+      console.warn('Error stopping dev server:', error);
+    }
+    devServer = null;
+  }
+
+  // Stop legacy CLI process if it exists
   if (liveServerProcess) {
-    console.log('Stopping Eleventy server');
     try {
       liveServerProcess.kill('SIGTERM');
     } catch (error) {
-      console.warn('Error stopping Eleventy server:', error);
+      console.warn('Error stopping legacy Eleventy process:', error);
     }
     liveServerProcess = null;
-    liveServerReady = false;
+  }
+
+  // Clean up Eleventy instance
+  eleventy = null;
+  liveServerReady = false;
+
+  // Clean up temporary output directory
+  if (outputDir && fs.existsSync(outputDir)) {
+    try {
+      fs.rmSync(outputDir, { recursive: true, force: true });
+      console.log('Cleaned up temporary output directory');
+    } catch (error) {
+      console.warn('Error cleaning up output directory:', error);
+    }
   }
 }
 
@@ -203,7 +276,7 @@ export function stopEleventyServer(): void {
 export async function switchToWebsite(websitePath: string): Promise<number> {
   console.log('Switching to website at:', websitePath);
 
-  stopEleventyServer();
+  await stopEleventyServer();
 
   return new Promise((resolve, reject) => {
     startEleventyServer(
@@ -238,7 +311,7 @@ export async function startDefaultEleventyServer(
 ): Promise<void> {
   const defaultWebsiteName = 'anglesite';
 
-  startEleventyServer(
+  await startEleventyServer(
     'docs', // Input directory
     8081, // Port
     async (httpUrl: string) => {
@@ -303,6 +376,6 @@ export async function startDefaultEleventyServer(
 /**
  * Cleanup live server on app exit.
  */
-export function cleanupEleventyServer(): void {
-  stopEleventyServer();
+export async function cleanupEleventyServer(): Promise<void> {
+  await stopEleventyServer();
 }

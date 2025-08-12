@@ -1,6 +1,18 @@
-const webc = require('@11ty/eleventy-plugin-webc');
 const path = require('path');
-const Nunjucks = require('nunjucks');
+
+// Try to load plugins, but handle gracefully if they're not available
+let webc, Nunjucks;
+try {
+  webc = require('@11ty/eleventy-plugin-webc');
+} catch (e) {
+  console.warn('Warning: @11ty/eleventy-plugin-webc not available');
+}
+
+try {
+  Nunjucks = require('nunjucks');
+} catch (e) {
+  console.warn('Warning: nunjucks not available');
+}
 
 /**
  * Returns an absolute path relative to the project root.
@@ -8,7 +20,13 @@ const Nunjucks = require('nunjucks');
  * @returns
  */
 function rootDir(relativePath) {
-  return path.resolve(process.cwd(), relativePath);
+  // In packaged apps, use __dirname to find the app root
+  // In dev, use process.cwd()
+  const isPackaged = process.env.NODE_ENV === 'production' || !process.env.NODE_ENV;
+  const appRoot = isPackaged 
+    ? path.resolve(__dirname, '..', '..')  // From dist/app/eleventy/ to dist/
+    : process.cwd();
+  return path.resolve(appRoot, relativePath);
 }
 
 /**
@@ -16,34 +34,48 @@ function rootDir(relativePath) {
  * @returns
  */
 module.exports = function AnglesiteConfig(eleventyConfig) {
+  console.log('Eleventy config: __dirname =', __dirname);
+  console.log('Eleventy config: process.cwd() =', process.cwd());
+  
   const absoluteIncludesPath = rootDir('app/eleventy/includes');
+  console.log('Eleventy config: absoluteIncludesPath =', absoluteIncludesPath);
 
-  eleventyConfig.addPlugin(webc, {
-    components: path.join(absoluteIncludesPath, '**/*.webc'),
-  });
+  // Only add plugins if they're available
+  if (webc) {
+    eleventyConfig.addPlugin(webc, {
+      components: path.join(absoluteIncludesPath, '**/*.webc'),
+    });
+  }
 
-  eleventyConfig.setLibrary('njk', new Nunjucks.Environment(new Nunjucks.FileSystemLoader(absoluteIncludesPath)));
+  if (Nunjucks) {
+    eleventyConfig.setLibrary('njk', new Nunjucks.Environment(new Nunjucks.FileSystemLoader(absoluteIncludesPath)));
+  }
 
   eleventyConfig.addPassthroughCopy({
     [path.join(absoluteIncludesPath, 'style.css')]: '/style.css',
   });
 
   // Determine the effective input directory
-  let inputDir = 'docs'; // Default input directory
+  // When using programmatic API, Eleventy will handle the input directory
+  // We should not override it in the config
+  let inputDir = '.'; // Default to current directory - Eleventy will override this
   const cliInputArg = process.argv.find((arg) => arg.startsWith('--input='));
   if (cliInputArg) {
     inputDir = cliInputArg.split('=')[1];
   }
+  
+  console.log('Eleventy config: Using inputDir =', inputDir);
 
-  // Calculate includes path relative to the effective input directory
-  const includesPathRelative = path.relative(rootDir(inputDir), absoluteIncludesPath);
+  // Use absolute path for includes to avoid path resolution issues
+  console.log('Eleventy config: Using absoluteIncludesPath for includes =', absoluteIncludesPath);
 
   return {
     markdownTemplateEngine: 'njk',
     dir: {
-      input: inputDir,
+      // Don't specify input when using programmatic API - let Eleventy handle it
+      // input: inputDir,
       output: 'dist',
-      includes: includesPathRelative,
+      includes: absoluteIncludesPath,  // Use absolute path
     },
   };
 };

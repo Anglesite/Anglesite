@@ -3,6 +3,8 @@
  */
 import { ipcMain, BrowserWindow, shell, dialog, Menu, MenuItem, IpcMainEvent } from 'electron';
 import { exec } from 'child_process';
+// @ts-expect-error - Eleventy may not have perfect TypeScript types
+import Eleventy from '@11ty/eleventy';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -433,42 +435,55 @@ export async function exportSiteHandler(event: IpcMainEvent | null, exportFormat
       buildDir = exportPath;
     }
 
-    // Build the current website in the target directory
-    exec(
-      `npx eleventy --config=app/eleventy/.eleventy.js --input="${websitePath}" --output="${buildDir}"`,
-      { cwd: process.cwd() },
-      async (buildErr, buildStdout) => {
-        if (buildErr) {
-          console.error('Build failed:', buildErr);
-          dialog.showMessageBox(win, {
-            type: 'error',
-            title: 'Export Failed',
-            message: 'Failed to build website for export',
-            detail: buildErr.message,
-            buttons: ['OK'],
-          });
+    // Build the current website in the target directory using Eleventy programmatic API
+    try {
+      // In packaged apps, config file is relative to __dirname, in dev it's relative to cwd
+      const isPackaged = process.env.NODE_ENV === 'production' || !process.env.NODE_ENV;
+      const configPath = isPackaged
+        ? path.resolve(__dirname, '..', 'eleventy', '.eleventy.js')  // __dirname is in dist/app/ipc/, so go up one level
+        : path.resolve(process.cwd(), 'app/eleventy/.eleventy.js');
+
+      console.log(`Using Eleventy config: ${configPath}`);
+      console.log(`Config exists: ${require('fs').existsSync(configPath)}`);
+      console.log(`__dirname: ${__dirname}`);
+      console.log(`process.cwd(): ${process.cwd()}`);
+      console.log(`isPackaged: ${isPackaged}`);
+
+      const elev = new Eleventy(websitePath, buildDir, {
+        quietMode: false,
+        configPath: configPath,
+      });
+
+      console.log(`Building website from ${websitePath} to ${buildDir}`);
+      await elev.write();
+      console.log('Build completed successfully');
+
+      // Handle different export formats
+      if (isBagIt) {
+        // Use metadata collected before save dialog
+        if (!metadata) {
+          // This should not happen since we check above, but add safety check
+          fs.rmSync(buildDir, { recursive: true, force: true });
           return;
         }
-
-        console.log('Build completed:', buildStdout);
-
-        // Handle different export formats
-        if (isBagIt) {
-          // Use metadata collected before save dialog
-          if (!metadata) {
-            // This should not happen since we check above, but add safety check
-            fs.rmSync(buildDir, { recursive: true, force: true });
-            return;
-          }
-          await createBagItArchive(buildDir, exportPath, websiteToExport, win, metadata);
-        } else if (isZip) {
-          await createZipArchive(buildDir, exportPath, win);
-        } else {
-          // Folder export - files are already in place
-          console.log(`Folder export completed: ${exportPath}`);
-        }
+        await createBagItArchive(buildDir, exportPath, websiteToExport, win, metadata);
+      } else if (isZip) {
+        await createZipArchive(buildDir, exportPath, win);
+      } else {
+        // Folder export - files are already in place
+        console.log(`Folder export completed: ${exportPath}`);
       }
-    );
+    } catch (buildErr) {
+      console.error('Build failed:', buildErr);
+      dialog.showMessageBox(win, {
+        type: 'error',
+        title: 'Export Failed',
+        message: 'Failed to build website for export',
+        detail: buildErr instanceof Error ? buildErr.message : String(buildErr),
+        buttons: ['OK'],
+      });
+      return;
+    }
   } catch (error) {
     console.error('Export failed:', error);
     dialog.showMessageBox(win, {

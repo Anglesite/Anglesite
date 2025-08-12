@@ -233,9 +233,14 @@ describe('HTTPS Proxy Server', () => {
       // Wait for async operations
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      expect(consoleErrorSpy).toHaveBeenCalledWith('HTTPS proxy request error:', expect.any(Error));
-      expect(mockRes.writeHead).toHaveBeenCalledWith(500);
-      expect(mockRes.end).toHaveBeenCalledWith('Proxy error');
+      expect(consoleErrorSpy).toHaveBeenCalledWith(
+        'HTTPS proxy request error for localhost:8080 -> localhost:3000:',
+        expect.any(Error)
+      );
+      expect(mockRes.writeHead).toHaveBeenCalledWith(500, { 'Content-Type': 'text/plain' });
+      expect(mockRes.end).toHaveBeenCalledWith(
+        expect.stringContaining('Proxy error: Unable to connect to localhost:3000')
+      );
     });
 
     it('should handle undefined status code in proxy response', async () => {

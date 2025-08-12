@@ -21,12 +21,61 @@ import { EventEmitter } from 'events';
 // Mock child_process
 jest.mock('child_process');
 
+// Mock fs
+jest.mock('fs', () => ({
+  existsSync: jest.fn(() => true),
+  mkdirSync: jest.fn(),
+  statSync: jest.fn(() => ({ isDirectory: () => false })),
+  readFile: jest.fn((_path, cb) => cb(null, 'test content')),
+  rmSync: jest.fn(),
+}));
+
+// Mock @11ty/eleventy-dev-server
+jest.mock('@11ty/eleventy-dev-server', () => {
+  const mockDevServer = {
+    serve: jest.fn(),
+    ready: jest.fn().mockResolvedValue(undefined),
+    close: jest.fn().mockResolvedValue(undefined),
+    watchFiles: jest.fn(),
+    reloadFiles: jest.fn(),
+    watcher: {
+      on: jest.fn(),
+      removeAllListeners: jest.fn(),
+    },
+  };
+  return jest.fn().mockImplementation(() => mockDevServer);
+});
+
+// Mock Eleventy
+jest.mock('@11ty/eleventy', () => {
+  const mockEleventy = {
+    write: jest.fn().mockResolvedValue(undefined),
+  };
+  return jest.fn().mockImplementation(() => mockEleventy);
+});
+
 const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
 
-type MockMainWindow = object;
+// Get references to mocked fs functions
+const fs = require('fs');
+const mockFs = {
+  existsSync: fs.existsSync as jest.MockedFunction<typeof fs.existsSync>,
+  mkdirSync: fs.mkdirSync as jest.MockedFunction<typeof fs.mkdirSync>,
+  statSync: fs.statSync as jest.MockedFunction<typeof fs.statSync>,
+  readFile: fs.readFile as jest.MockedFunction<typeof fs.readFile>,
+  rmSync: fs.rmSync as jest.MockedFunction<typeof fs.rmSync>,
+};
+
+// Get references to mocked constructors
+const MockEleventyDevServer = require('@11ty/eleventy-dev-server');
+const MockEleventyConstructor = require('@11ty/eleventy');
+
+// Get mock instances for testing
+let mockDevServer: any;
+let mockEleventy: any;
 
 describe('Eleventy Server Management', () => {
-  let mockProcess: EventEmitter & { kill: jest.Mock; stdout: EventEmitter; stderr: EventEmitter };
+  let mockProcess: any;
   let consoleLogSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
   let consoleWarnSpy: jest.SpyInstance;
@@ -41,12 +90,37 @@ describe('Eleventy Server Management', () => {
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
 
     // Create mock process
-    mockProcess = new EventEmitter() as any;
+    mockProcess = new EventEmitter();
     mockProcess.stdout = new EventEmitter();
     mockProcess.stderr = new EventEmitter();
     mockProcess.kill = jest.fn();
 
     mockSpawn.mockReturnValue(mockProcess as any);
+
+    // Get mock instances (they are created when the constructors are called)
+    // We need to reset them before each test
+    mockDevServer = {
+      serve: jest.fn(),
+      ready: jest.fn().mockResolvedValue(undefined),
+      close: jest.fn().mockResolvedValue(undefined),
+      watchFiles: jest.fn(),
+      reloadFiles: jest.fn(),
+      watcher: {
+        on: jest.fn(),
+        removeAllListeners: jest.fn(),
+      },
+    };
+    mockEleventy = {
+      write: jest.fn().mockResolvedValue(undefined),
+    };
+
+    // Update mocks to return our instances
+    MockEleventyDevServer.mockImplementation(() => mockDevServer);
+    MockEleventyConstructor.mockImplementation(() => mockEleventy);
+
+    // Reset mocks
+    mockFs.existsSync.mockReturnValue(true);
+    mockFs.statSync.mockReturnValue({ isDirectory: () => false });
 
     // Reset server state
     setLiveServerUrl('https://localhost:8080');
@@ -121,13 +195,11 @@ describe('Eleventy Server Management', () => {
   });
 
   describe('Server cleanup', () => {
-    it('should provide cleanup function', () => {
+    it('should provide cleanup function', async () => {
       expect(typeof cleanupEleventyServer).toBe('function');
 
       // Should not throw when called
-      expect(() => {
-        cleanupEleventyServer();
-      }).not.toThrow();
+      await expect(cleanupEleventyServer()).resolves.not.toThrow();
     });
   });
 
@@ -158,175 +230,181 @@ describe('Eleventy Server Management', () => {
 
   describe('Server lifecycle', () => {
     describe('startEleventyServer', () => {
-      it('should start Eleventy server with default parameters', () => {
-        startEleventyServer();
+      it('should start Eleventy server with default parameters', async () => {
+        await startEleventyServer();
 
-        expect(mockSpawn).toHaveBeenCalledWith(
-          'npx',
-          ['eleventy', '--config=app/eleventy/.eleventy.js', '--input="docs"', '--serve', '--port=8081', '--quiet'],
-          {
-            cwd: process.cwd(),
-            shell: true,
-          }
+        expect(MockEleventyConstructor).toHaveBeenCalledWith('docs', expect.stringContaining('docs'), {
+          quietMode: true,
+          configPath: expect.stringContaining('.eleventy.js'),
+        });
+        expect(mockEleventy.write).toHaveBeenCalled();
+        expect(MockEleventyDevServer).toHaveBeenCalledWith(
+          'anglesite',
+          expect.stringContaining('docs'),
+          expect.objectContaining({
+            port: 8081,
+            liveReload: true,
+            domDiff: true,
+            showVersion: false,
+          })
         );
+        expect(mockDevServer.serve).toHaveBeenCalledWith(8081);
+        expect(mockDevServer.ready).toHaveBeenCalled();
         expect(consoleLogSpy).toHaveBeenCalledWith('Starting Eleventy server for: docs');
       });
 
-      it('should start Eleventy server with custom parameters', () => {
-        startEleventyServer('custom-dir', 9000);
+      it('should start Eleventy server with custom parameters', async () => {
+        await startEleventyServer('custom-dir', 9000);
 
-        expect(mockSpawn).toHaveBeenCalledWith(
-          'npx',
-          [
-            'eleventy',
-            '--config=app/eleventy/.eleventy.js',
-            '--input="custom-dir"',
-            '--serve',
-            '--port=9000',
-            '--quiet',
-          ],
-          {
-            cwd: process.cwd(),
-            shell: true,
-          }
+        expect(MockEleventyConstructor).toHaveBeenCalledWith('custom-dir', expect.stringContaining('custom-dir'), {
+          quietMode: true,
+          configPath: expect.stringContaining('.eleventy.js'),
+        });
+        expect(MockEleventyDevServer).toHaveBeenCalledWith(
+          'anglesite',
+          expect.stringContaining('custom-dir'),
+          expect.objectContaining({
+            port: 9000,
+          })
         );
+        expect(mockDevServer.serve).toHaveBeenCalledWith(9000);
         expect(consoleLogSpy).toHaveBeenCalledWith('Starting Eleventy server for: custom-dir');
       });
 
-      it('should stop existing server before starting new one', () => {
+      it('should stop existing server before starting new one', async () => {
         // Start first server
-        startEleventyServer();
-        const firstProcess = mockProcess;
-
-        // Create new mock process for second server
-        const secondMockProcess: EventEmitter & { kill: jest.Mock; stdout: EventEmitter; stderr: EventEmitter } =
-          new EventEmitter();
-        secondMockProcess.stdout = new EventEmitter();
-        secondMockProcess.stderr = new EventEmitter();
-        secondMockProcess.kill = jest.fn();
-        mockSpawn.mockReturnValue(secondMockProcess);
+        await startEleventyServer();
 
         // Start second server
-        startEleventyServer('different-dir');
+        await startEleventyServer('different-dir');
 
-        expect(firstProcess.kill).toHaveBeenCalledWith('SIGTERM');
-        expect(mockSpawn).toHaveBeenCalledTimes(2);
+        expect(mockDevServer.close).toHaveBeenCalled();
+        expect(MockEleventyConstructor).toHaveBeenCalledTimes(2);
+        expect(MockEleventyDevServer).toHaveBeenCalledTimes(2);
       });
 
-      it('should handle server ready message from stdout', () => {
+      it('should call onReady when server starts', async () => {
         const onReady = jest.fn();
-        startEleventyServer('docs', 8081, onReady);
+        await startEleventyServer('docs', 8081, onReady);
 
-        // Simulate Eleventy output
-        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
-
-        expect(consoleLogSpy).toHaveBeenCalledWith('Eleventy HTTP server URL detected: http://localhost:8081');
         expect(onReady).toHaveBeenCalledWith('http://localhost:8081');
         expect(isLiveServerReady()).toBe(true);
       });
 
-      it('should handle server ready message from stderr', () => {
-        const onReady = jest.fn();
-        startEleventyServer('docs', 8081, onReady);
-
-        // Simulate Eleventy output in stderr
-        mockProcess.stderr.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
-
-        expect(consoleLogSpy).toHaveBeenCalledWith(
-          'Eleventy HTTP server URL detected in stderr: http://localhost:8081'
-        );
-        expect(onReady).toHaveBeenCalledWith('http://localhost:8081');
-        expect(isLiveServerReady()).toBe(true);
-      });
-
-      it('should handle error messages from stderr', () => {
+      it('should handle build errors', async () => {
         const onError = jest.fn();
-        startEleventyServer('docs', 8081, undefined, onError);
+        mockEleventy.write.mockRejectedValue(new Error('Build failed'));
 
-        // Simulate error output
-        mockProcess.stderr.emit('data', Buffer.from('Error: Something went wrong'));
+        await startEleventyServer('docs', 8081, undefined, onError);
 
-        expect(consoleErrorSpy).toHaveBeenCalledWith('eleventy error: Error: Something went wrong');
-        expect(onError).toHaveBeenCalledWith('Error: Something went wrong');
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to start Eleventy dev server:', expect.any(Error));
+        expect(onError).toHaveBeenCalledWith('Build failed');
       });
 
-      it('should handle non-error stderr output', () => {
-        startEleventyServer();
+      it('should handle file watcher events', async () => {
+        await startEleventyServer();
 
-        // Simulate non-error stderr output
-        mockProcess.stderr.emit('data', Buffer.from('Some informational message\n'));
+        // Get the file watcher callback
+        const changeCallback = mockDevServer.watcher.on.mock.calls.find((call: any) => call[0] === 'change')[1];
 
-        expect(consoleLogSpy).toHaveBeenCalledWith('eleventy stderr: Some informational message');
-        expect(consoleErrorSpy).not.toHaveBeenCalled();
+        // Simulate file change
+        await changeCallback('test-file.md');
+
+        expect(mockEleventy.write).toHaveBeenCalledTimes(2); // Initial build + rebuild
+        expect(mockDevServer.reloadFiles).toHaveBeenCalledWith(['test-file.md']);
+        expect(consoleLogSpy).toHaveBeenCalledWith('File changed: test-file.md, rebuilding...');
       });
 
-      it('should handle process close event', () => {
-        startEleventyServer();
+      it('should handle file watcher rebuild errors', async () => {
+        const onError = jest.fn();
+        await startEleventyServer('docs', 8081, undefined, onError);
 
-        mockProcess.emit('close', 0);
+        // Mock rebuild failure
+        mockEleventy.write.mockRejectedValueOnce(new Error('Rebuild failed'));
 
-        expect(consoleLogSpy).toHaveBeenCalledWith('eleventy process exited with code 0');
-        expect(isLiveServerReady()).toBe(false);
+        // Get the file watcher callback
+        const changeCallback = mockDevServer.watcher.on.mock.calls.find((call: any) => call[0] === 'change')[1];
+
+        // Simulate file change
+        await changeCallback('test-file.md');
+
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Rebuild failed:', expect.any(Error));
+        expect(onError).toHaveBeenCalledWith('Rebuild failed');
       });
 
-      it('should use fallback timeout when server does not start', () => {
-        const onReady = jest.fn();
-        startEleventyServer('docs', 8081, onReady);
+      it('should create output directory if it does not exist', async () => {
+        mockFs.existsSync.mockReturnValue(false);
 
-        // Advance timer to trigger fallback
-        jest.advanceTimersByTime(2000);
+        await startEleventyServer();
 
-        expect(consoleLogSpy).toHaveBeenCalledWith('Eleventy server URL (fallback): http://localhost:8081');
-        expect(onReady).toHaveBeenCalledWith('http://localhost:8081');
-        expect(isLiveServerReady()).toBe(true);
+        expect(mockFs.mkdirSync).toHaveBeenCalledWith(expect.stringContaining('docs'), { recursive: true });
       });
 
-      it('should not trigger fallback if server already ready', () => {
-        const onReady = jest.fn();
-        startEleventyServer('docs', 8081, onReady);
+      it('should set up file watching with dev server', async () => {
+        await startEleventyServer();
 
-        // Mark server as ready
-        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
+        expect(mockDevServer.watchFiles).toHaveBeenCalledWith(['docs/**/*']);
+        expect(mockDevServer.watcher.removeAllListeners).toHaveBeenCalledWith('change');
+        expect(mockDevServer.watcher.removeAllListeners).toHaveBeenCalledWith('add');
+        expect(mockDevServer.watcher.removeAllListeners).toHaveBeenCalledWith('unlink');
+      });
 
-        // Clear the mock calls
-        onReady.mockClear();
+      it('should configure dev server with correct options', async () => {
+        await startEleventyServer('my-site', 3000);
 
-        // Advance timer
-        jest.advanceTimersByTime(2000);
-
-        // Should not call onReady again
-        expect(onReady).not.toHaveBeenCalled();
+        expect(MockEleventyDevServer).toHaveBeenCalledWith(
+          'anglesite',
+          expect.stringContaining('my-site'),
+          expect.objectContaining({
+            port: 3000,
+            liveReload: true,
+            domDiff: true,
+            showVersion: false,
+            watch: ['my-site/**/*'],
+            logger: expect.objectContaining({
+              log: console.log,
+              info: console.log,
+              error: console.error,
+            }),
+          })
+        );
       });
     });
 
     describe('stopEleventyServer', () => {
-      it('should stop running server', () => {
+      it('should stop running server', async () => {
         // Start server first
-        startEleventyServer();
+        await startEleventyServer();
 
-        stopEleventyServer();
+        await stopEleventyServer();
 
         expect(consoleLogSpy).toHaveBeenCalledWith('Stopping Eleventy server');
-        expect(mockProcess.kill).toHaveBeenCalledWith('SIGTERM');
+        expect(mockDevServer.close).toHaveBeenCalled();
         expect(isLiveServerReady()).toBe(false);
       });
 
-      it('should handle kill error gracefully', () => {
-        startEleventyServer();
-        mockProcess.kill.mockImplementation(() => {
-          throw new Error('Kill failed');
-        });
+      it('should clean up output directory', async () => {
+        await startEleventyServer();
 
-        stopEleventyServer();
+        await stopEleventyServer();
 
-        expect(consoleWarnSpy).toHaveBeenCalledWith('Error stopping Eleventy server:', expect.any(Error));
+        expect(mockFs.rmSync).toHaveBeenCalledWith(expect.stringContaining('docs'), { recursive: true, force: true });
       });
 
-      it('should handle stopping when no server is running', () => {
-        stopEleventyServer();
+      it('should handle stopping when no server is running', async () => {
+        await stopEleventyServer();
 
-        // Should not throw and not attempt to kill
-        expect(mockProcess.kill).not.toHaveBeenCalled();
+        // Should not throw
+        expect(consoleLogSpy).toHaveBeenCalledWith('Stopping Eleventy server');
+      });
+
+      it('should handle dev server close errors gracefully', async () => {
+        await startEleventyServer();
+        mockDevServer.close.mockRejectedValue(new Error('Close failed'));
+
+        await stopEleventyServer();
+
+        expect(consoleWarnSpy).toHaveBeenCalledWith('Error stopping dev server:', expect.any(Error));
       });
     });
 
@@ -334,70 +412,49 @@ describe('Eleventy Server Management', () => {
       it('should switch to new website successfully', async () => {
         const websitePath = '/path/to/website';
 
-        // Start the switch
-        const switchPromise = switchToWebsite(websitePath);
-
-        // Immediately simulate server ready
-        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
-
-        const port = await switchPromise;
+        const port = await switchToWebsite(websitePath);
 
         expect(consoleLogSpy).toHaveBeenCalledWith('Switching to website at:', websitePath);
-        expect(consoleLogSpy).toHaveBeenCalledWith('New website HTTP server ready at: http://localhost:8081');
+        expect(MockEleventyConstructor).toHaveBeenCalledWith(
+          websitePath,
+          expect.stringContaining('website'),
+          expect.any(Object)
+        );
         expect(port).toBe(8081);
       });
 
       it('should handle server start error', async () => {
         const websitePath = '/path/to/website';
+        mockEleventy.write.mockRejectedValue(new Error('Failed to start'));
 
-        // Start the switch
-        const switchPromise = switchToWebsite(websitePath);
-
-        // Immediately simulate server error
-        mockProcess.stderr.emit('data', Buffer.from('Error: Failed to start'));
-
-        await expect(switchPromise).rejects.toThrow('Error: Failed to start');
-        expect(consoleErrorSpy).toHaveBeenCalledWith(
-          'Failed to start server for new website:',
-          'Error: Failed to start'
-        );
+        await expect(switchToWebsite(websitePath)).rejects.toThrow('Failed to start');
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to start server for new website:', 'Failed to start');
       });
 
-      it('should extract port from URL correctly', async () => {
+      it('should use custom port correctly', async () => {
         const websitePath = '/path/to/website';
 
-        const switchPromise = switchToWebsite(websitePath);
+        const port = await switchToWebsite(websitePath);
 
-        // Immediately simulate server ready with different port
-        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:9000/'));
-
-        const port = await switchPromise;
-        expect(port).toBe(9000);
+        expect(mockDevServer.serve).toHaveBeenCalledWith(8081);
+        expect(port).toBe(8081);
       });
     });
 
     describe('startDefaultEleventyServer', () => {
       it('should start default server with HTTPS mode', async () => {
-        const mockMainWindow = {} as MockMainWindow;
+        const mockMainWindow = {} as any;
         const mockAddLocalDnsResolution = jest.fn().mockResolvedValue(undefined);
         const mockCreateHttpsProxy = jest.fn().mockResolvedValue(true);
         const mockAutoLoadPreview = jest.fn();
 
-        startDefaultEleventyServer(
+        await startDefaultEleventyServer(
           'https',
           mockMainWindow,
           mockAddLocalDnsResolution,
           mockCreateHttpsProxy,
           mockAutoLoadPreview
         );
-
-        // Immediately simulate server ready
-        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
-
-        // Wait for multiple async operations to complete
-        await Promise.resolve();
-        await Promise.resolve();
-        await Promise.resolve();
 
         expect(mockAddLocalDnsResolution).toHaveBeenCalledWith('anglesite.test');
         expect(mockCreateHttpsProxy).toHaveBeenCalledWith(8080, 8081, 'anglesite.test');
@@ -407,26 +464,18 @@ describe('Eleventy Server Management', () => {
       });
 
       it('should handle HTTPS proxy failure', async () => {
-        const mockMainWindow = {} as MockMainWindow;
+        const mockMainWindow = {} as any;
         const mockAddLocalDnsResolution = jest.fn().mockResolvedValue(undefined);
         const mockCreateHttpsProxy = jest.fn().mockResolvedValue(false);
         const mockAutoLoadPreview = jest.fn();
 
-        startDefaultEleventyServer(
+        await startDefaultEleventyServer(
           'https',
           mockMainWindow,
           mockAddLocalDnsResolution,
           mockCreateHttpsProxy,
           mockAutoLoadPreview
         );
-
-        // Immediately simulate server ready
-        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
-
-        // Wait for multiple async operations to complete
-        await Promise.resolve();
-        await Promise.resolve();
-        await Promise.resolve();
 
         expect(mockCreateHttpsProxy).toHaveBeenCalled();
         expect(getCurrentLiveServerUrl()).toBe('http://localhost:8081');
@@ -435,24 +484,18 @@ describe('Eleventy Server Management', () => {
       });
 
       it('should start default server with HTTP mode', async () => {
-        const mockMainWindow = {} as MockMainWindow;
+        const mockMainWindow = {} as any;
         const mockAddLocalDnsResolution = jest.fn().mockResolvedValue(undefined);
         const mockCreateHttpsProxy = jest.fn();
         const mockAutoLoadPreview = jest.fn();
 
-        startDefaultEleventyServer(
+        await startDefaultEleventyServer(
           'http',
           mockMainWindow,
           mockAddLocalDnsResolution,
           mockCreateHttpsProxy,
           mockAutoLoadPreview
         );
-
-        // Immediately simulate server ready
-        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
-
-        // Wait for async operations to complete
-        await Promise.resolve();
 
         expect(mockAddLocalDnsResolution).toHaveBeenCalledWith('anglesite.test');
         expect(mockCreateHttpsProxy).not.toHaveBeenCalled();
@@ -466,24 +509,27 @@ describe('Eleventy Server Management', () => {
         const mockCreateHttpsProxy = jest.fn().mockResolvedValue(true);
         const mockAutoLoadPreview = jest.fn();
 
-        startDefaultEleventyServer('https', null, mockAddLocalDnsResolution, mockCreateHttpsProxy, mockAutoLoadPreview);
-
-        // Immediately simulate server ready
-        mockProcess.stdout.emit('data', Buffer.from('[11ty] Server at http://localhost:8081/'));
-
-        // Wait for async operations to complete
-        await Promise.resolve();
+        await startDefaultEleventyServer(
+          'https',
+          null,
+          mockAddLocalDnsResolution,
+          mockCreateHttpsProxy,
+          mockAutoLoadPreview
+        );
 
         expect(mockAutoLoadPreview).not.toHaveBeenCalled();
       });
 
-      it('should handle server error', () => {
-        const mockMainWindow = {} as MockMainWindow;
+      it('should handle server error', async () => {
+        const mockMainWindow = {} as any;
         const mockAddLocalDnsResolution = jest.fn();
         const mockCreateHttpsProxy = jest.fn();
         const mockAutoLoadPreview = jest.fn();
+        const onError = jest.fn();
 
-        startDefaultEleventyServer(
+        mockEleventy.write.mockRejectedValue(new Error('Server failed'));
+
+        await startDefaultEleventyServer(
           'https',
           mockMainWindow,
           mockAddLocalDnsResolution,
@@ -491,10 +537,7 @@ describe('Eleventy Server Management', () => {
           mockAutoLoadPreview
         );
 
-        // Simulate server error
-        mockProcess.stderr.emit('data', Buffer.from('Error: Server failed'));
-
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Eleventy server error:', 'Error: Server failed');
+        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to start Eleventy dev server:', expect.any(Error));
       });
     });
   });

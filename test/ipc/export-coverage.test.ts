@@ -52,6 +52,12 @@ const mockArchiver = jest.fn(() => ({
   }),
 }));
 
+// Mock Eleventy constructor and methods
+const mockEleventy = {
+  write: jest.fn().mockResolvedValue(undefined),
+};
+const MockEleventyConstructor = jest.fn().mockImplementation(() => mockEleventy);
+
 // Apply mocks
 jest.mock('electron', () => ({
   BrowserWindow: mockBrowserWindow,
@@ -63,11 +69,12 @@ jest.mock('electron', () => ({
 }));
 
 jest.mock('fs', () => mockFs);
-jest.mock('path', () => ({ join: (...args: string[]) => args.join('/'), resolve: jest.fn() }));
+jest.mock('path', () => ({ join: (...args: string[]) => args.join('/'), resolve: jest.fn(() => '/resolved/path') }));
 jest.mock('os', () => ({ tmpdir: () => '/tmp' }));
 jest.mock('child_process', () => ({ exec: mockExec }));
 jest.mock('archiver', () => mockArchiver);
 jest.mock('bagit-fs', () => mockBagIt);
+jest.mock('@11ty/eleventy', () => MockEleventyConstructor);
 
 // Mock app modules
 const mockGetBagItMetadata = jest.fn();
@@ -136,6 +143,7 @@ describe('Export Coverage Tests', () => {
     mockBrowserWindow.getFocusedWindow.mockReturnValue(mockWindow);
     mockGetAllWebsiteWindows.mockReturnValue(mockWebsiteWindows);
     mockFs.existsSync.mockReturnValue(true);
+    mockEleventy.write.mockResolvedValue(undefined);
   });
 
   it('should handle folder export successfully', async () => {
@@ -143,15 +151,20 @@ describe('Export Coverage Tests', () => {
       canceled: false,
       filePath: '/test/export-folder',
     });
-    mockExec.mockImplementation((_cmd, _opts, cb) => cb(null, 'Build success'));
 
     await exportSiteHandler(null, false);
 
-    expect(mockExec).toHaveBeenCalledWith(
-      expect.stringContaining('npx eleventy'),
-      { cwd: process.cwd() },
-      expect.any(Function)
-    );
+    // Since we switched to programmatic API, exec should not be called
+    expect(mockExec).not.toHaveBeenCalled();
+
+    // Eleventy constructor should be called with correct parameters
+    expect(MockEleventyConstructor).toHaveBeenCalledWith('/test/path', '/test/export-folder', {
+      quietMode: false,
+      configPath: '/resolved/path',
+    });
+
+    // Eleventy write method should be called
+    expect(mockEleventy.write).toHaveBeenCalled();
   });
 
   it('should handle zip export successfully', async () => {
@@ -159,11 +172,11 @@ describe('Export Coverage Tests', () => {
       canceled: false,
       filePath: '/test/export.zip',
     });
-    mockExec.mockImplementation((_cmd, _opts, cb) => cb(null, 'Build success'));
 
     await exportSiteHandler(null, true);
 
     expect(mockArchiver).toHaveBeenCalledWith('zip', { zlib: { level: 9 } });
+    expect(mockEleventy.write).toHaveBeenCalled();
   });
 
   it('should handle bagit export with metadata collection', async () => {
@@ -172,7 +185,6 @@ describe('Export Coverage Tests', () => {
       canceled: false,
       filePath: '/test/export.bagit.zip',
     });
-    mockExec.mockImplementation((_cmd, _opts, cb) => cb(null, 'Build success'));
 
     await exportSiteHandler(null, 'bagit');
 
@@ -186,6 +198,7 @@ describe('Export Coverage Tests', () => {
         'Source-Organization': mockMetadata.sourceOrganization,
       })
     );
+    expect(mockEleventy.write).toHaveBeenCalled();
   });
 
   it('should handle bagit metadata cancellation', async () => {
@@ -204,29 +217,24 @@ describe('Export Coverage Tests', () => {
     expect(mockExec).not.toHaveBeenCalled();
   });
 
-  it('should handle build errors', (done) => {
+  it('should handle build errors', async () => {
     mockDialog.showSaveDialog.mockResolvedValue({
       canceled: false,
       filePath: '/test/export.zip',
     });
 
-    mockExec.mockImplementation((_cmd, _opts, cb) => {
-      cb(new Error('Build failed'), null);
-      // Verify error handling after callback
-      setTimeout(() => {
-        expect(mockDialog.showMessageBox).toHaveBeenCalledWith(
-          mockWindow,
-          expect.objectContaining({
-            type: 'error',
-            title: 'Export Failed',
-            message: 'Failed to build website for export',
-          })
-        );
-        done();
-      }, 50);
-    });
+    mockEleventy.write.mockRejectedValue(new Error('Build failed'));
 
-    exportSiteHandler(null, true);
+    await exportSiteHandler(null, true);
+
+    expect(mockDialog.showMessageBox).toHaveBeenCalledWith(
+      mockWindow,
+      expect.objectContaining({
+        type: 'error',
+        title: 'Export Failed',
+        message: 'Failed to build website for export',
+      })
+    );
   });
 
   it('should handle no focused window', async () => {
