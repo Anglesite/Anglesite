@@ -69,14 +69,10 @@ async function initializeApp(): Promise<void> {
   console.log('Anglesite initialization complete - Help window ready');
 
   // Restore previously open website windows
-  const { restoreWindowStates, getAllWebsiteWindows } = await import('./ui/multi-window-manager');
+  const { restoreWindowStates } = await import('./ui/multi-window-manager');
   await restoreWindowStates();
 
-  // If no help window was created and no website windows were restored, create a help window
-  if (!mainWindow && getAllWebsiteWindows().size === 0) {
-    mainWindow = createHelpWindow();
-    store.set('showHelpOnStartup', true);
-  }
+  // Note: Help window is now only created when explicitly requested by the user
 }
 
 /**

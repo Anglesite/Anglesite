@@ -55,6 +55,8 @@ export function createHelpWindow(): BrowserWindow {
       preload: path.join(__dirname, '..', 'preload.js'),
     },
     titleBarStyle: 'default',
+    // Enable native macOS window tabbing (same identifier allows tabbing with website windows)
+    tabbingIdentifier: 'anglesite-website',
   });
 
   // Prevent HTML title from overriding window title
@@ -234,6 +236,8 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
       preload: path.join(__dirname, '..', 'preload.js'),
     },
     titleBarStyle: 'default',
+    // Enable native macOS window tabbing
+    tabbingIdentifier: 'anglesite-website',
   });
 
   // Prevent HTML title from overriding window title

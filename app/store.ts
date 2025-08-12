@@ -68,7 +68,7 @@ export class Store {
       httpsMode: null,
       firstLaunchCompleted: false,
       theme: 'system',
-      showHelpOnStartup: true,
+      showHelpOnStartup: false,
       openWebsiteWindows: [],
     });
   }

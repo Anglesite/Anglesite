@@ -348,6 +348,27 @@ export function createApplicationMenu(): Menu {
           type: 'separator',
         },
         {
+          label: 'Merge All Windows',
+          click: () => {
+            const focusedWindow = BrowserWindow.getFocusedWindow();
+            if (focusedWindow) {
+              focusedWindow.mergeAllWindows();
+            }
+          },
+        },
+        {
+          label: 'Move Tab to New Window',
+          click: () => {
+            const focusedWindow = BrowserWindow.getFocusedWindow();
+            if (focusedWindow) {
+              focusedWindow.moveTabToNewWindow();
+            }
+          },
+        },
+        {
+          type: 'separator',
+        },
+        {
           label: 'Bring All to Front',
           role: 'front',
         },
