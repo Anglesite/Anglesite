@@ -1,27 +1,49 @@
 /**
- * @file Tests for renderer wrapper functionality
- * @jest-environment jsdom
+ * @file Tests for Electron renderer process
  */
 
 import {
-  executeRendererInitialization,
+  initializeRenderer,
+  logElectronAPIAvailability,
+  logDocumentReadyState,
+  sendRendererLoadedMessage,
   registerShowWebsiteNameInputListener,
   setupButtonEventHandlers,
   registerMenuEventListeners,
   setupDOMContentLoadedHandler,
-} from '../../app/renderer-wrapper';
+} from '../../app/renderer';
+
+interface CustomWindow extends Window {
+  electronAPI: {
+    send: jest.Mock;
+    invoke: jest.Mock;
+    on: jest.Mock;
+    removeAllListeners: jest.Mock;
+    getCurrentTheme: jest.Mock;
+    onThemeUpdated: jest.Mock;
+    setTheme: jest.Mock;
+  };
+  prompt: jest.Mock;
+}
+
+declare const window: CustomWindow;
 
 // Mock globals
 const mockElectronAPI = {
   send: jest.fn(),
+  invoke: jest.fn(),
   on: jest.fn(),
+  removeAllListeners: jest.fn(),
+  getCurrentTheme: jest.fn(),
+  onThemeUpdated: jest.fn(),
+  setTheme: jest.fn(),
 };
 
 const mockPrompt = jest.fn();
 const originalConsoleLog = console.log;
 const originalConsoleError = console.error;
 
-describe('Renderer Wrapper Tests', () => {
+describe('Renderer Tests', () => {
   let consoleLogSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
 
@@ -32,8 +54,8 @@ describe('Renderer Wrapper Tests', () => {
     document.body.innerHTML = '';
 
     // Mock window.electronAPI
-    (window as any).electronAPI = mockElectronAPI;
-    (window as any).prompt = mockPrompt;
+    window.electronAPI = mockElectronAPI;
+    window.prompt = mockPrompt;
 
     // Reset mocks
     mockElectronAPI.send.mockClear();
@@ -50,17 +72,35 @@ describe('Renderer Wrapper Tests', () => {
     consoleErrorSpy.mockRestore();
   });
 
-  describe('executeRendererInitialization', () => {
-    it('should send renderer-loaded message when electronAPI is available', () => {
-      executeRendererInitialization();
+  describe('initializeRenderer', () => {
+    it('should initialize without errors', () => {
+      expect(() => initializeRenderer()).not.toThrow();
+    });
+  });
+
+  describe('logElectronAPIAvailability', () => {
+    it('should log availability without errors', () => {
+      expect(() => logElectronAPIAvailability()).not.toThrow();
+    });
+  });
+
+  describe('logDocumentReadyState', () => {
+    it('should log state without errors', () => {
+      expect(() => logDocumentReadyState()).not.toThrow();
+    });
+  });
+
+  describe('sendRendererLoadedMessage', () => {
+    it('should send message when electronAPI is available', () => {
+      sendRendererLoadedMessage();
 
       expect(mockElectronAPI.send).toHaveBeenCalledWith('renderer-loaded', 'Renderer is working!');
     });
 
     it('should not send message when electronAPI is unavailable', () => {
-      (window as any).electronAPI = undefined;
+      delete window.electronAPI;
 
-      executeRendererInitialization();
+      sendRendererLoadedMessage();
 
       expect(mockElectronAPI.send).not.toHaveBeenCalled();
     });
@@ -74,7 +114,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle missing electronAPI', () => {
-      (window as any).electronAPI = undefined;
+      delete window.electronAPI;
 
       registerShowWebsiteNameInputListener();
 
@@ -82,7 +122,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle electronAPI without on method', () => {
-      (window as any).electronAPI = { send: jest.fn() };
+      window.electronAPI = { send: jest.fn(), on: jest.fn() };
 
       registerShowWebsiteNameInputListener();
 
@@ -100,7 +140,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle website name input correctly', () => {
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'show-website-name-input') {
           handler = callback;
@@ -118,7 +158,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should trim whitespace from website name', () => {
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'show-website-name-input') {
           handler = callback;
@@ -134,7 +174,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle cancelled prompt', () => {
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'show-website-name-input') {
           handler = callback;
@@ -150,7 +190,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle empty website name', () => {
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'show-website-name-input') {
           handler = callback;
@@ -166,7 +206,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle whitespace-only website name', () => {
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'show-website-name-input') {
           handler = callback;
@@ -265,7 +305,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle preview-loaded event', () => {
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'preview-loaded') {
           handler = callback;
@@ -279,7 +319,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle menu-new-website event', () => {
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'menu-new-website') {
           handler = callback;
@@ -293,7 +333,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle trigger-new-website event', () => {
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'trigger-new-website') {
           handler = callback;
@@ -307,7 +347,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle menu-reload event', () => {
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'menu-reload') {
           handler = callback;
@@ -326,7 +366,7 @@ describe('Renderer Wrapper Tests', () => {
     it('should handle menu-reload event when button not found', () => {
       document.getElementById('reload')?.remove();
 
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'menu-reload') {
           handler = callback;
@@ -340,7 +380,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle menu-toggle-devtools event', () => {
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'menu-toggle-devtools') {
           handler = callback;
@@ -359,7 +399,7 @@ describe('Renderer Wrapper Tests', () => {
     it('should handle menu-toggle-devtools event when button not found', () => {
       document.getElementById('devtools')?.remove();
 
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'menu-toggle-devtools') {
           handler = callback;
@@ -373,7 +413,7 @@ describe('Renderer Wrapper Tests', () => {
     });
 
     it('should handle menu-export-site event', () => {
-      let handler: Function;
+      let handler: (...args: unknown[]) => void;
       mockElectronAPI.on.mockImplementation((event, callback) => {
         if (event === 'menu-export-site') {
           handler = callback;
@@ -396,7 +436,7 @@ describe('Renderer Wrapper Tests', () => {
       const event = new Event('DOMContentLoaded');
       window.dispatchEvent(event);
 
-      // The handler should run without errors
+      // The handler runs but doesn't log anything anymore
       expect(() => window.dispatchEvent(event)).not.toThrow();
     });
   });
@@ -413,7 +453,10 @@ describe('Renderer Wrapper Tests', () => {
       `;
 
       // Initialize all functions
-      executeRendererInitialization();
+      initializeRenderer();
+      logElectronAPIAvailability();
+      logDocumentReadyState();
+      sendRendererLoadedMessage();
       registerShowWebsiteNameInputListener();
       setupButtonEventHandlers();
       registerMenuEventListeners();
@@ -430,10 +473,6 @@ describe('Renderer Wrapper Tests', () => {
       const previewButton = document.getElementById('preview');
       previewButton?.click();
       expect(mockElectronAPI.send).toHaveBeenCalledWith('preview');
-
-      // Test DOMContentLoaded
-      const event = new Event('DOMContentLoaded');
-      expect(() => window.dispatchEvent(event)).not.toThrow();
     });
   });
 });

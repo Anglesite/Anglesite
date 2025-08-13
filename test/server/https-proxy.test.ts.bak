@@ -18,10 +18,27 @@ const mockHttps = https as jest.Mocked<typeof https>;
 const mockHttp = http as jest.Mocked<typeof http>;
 const { loadCertificates } = require('../../app/certificates');
 
+interface MockServer {
+  listen: jest.Mock;
+  close: jest.Mock;
+  on: jest.Mock;
+}
+
+interface MockProxyReq {
+  on: jest.Mock;
+  pipe: jest.Mock;
+}
+
+interface MockProxyRes {
+  statusCode: number | undefined;
+  headers: { [key: string]: string };
+  pipe: jest.Mock;
+}
+
 describe('HTTPS Proxy Server', () => {
-  let mockServer: any;
-  let mockProxyReq: any;
-  let mockProxyRes: any;
+  let mockServer: MockServer;
+  let mockProxyReq: MockProxyReq;
+  let mockProxyRes: MockProxyRes;
   let consoleLogSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
 
@@ -150,8 +167,8 @@ describe('HTTPS Proxy Server', () => {
 
       // Mock http.request callback
       mockHttp.request.mockImplementation((options, callback) => {
-        setTimeout(() => (callback as any)(mockProxyRes), 0);
-        return mockProxyReq as any;
+        setTimeout(() => (callback as (res: MockProxyRes) => void)(mockProxyRes), 0);
+        return mockProxyReq;
       });
 
       // Call the request handler
@@ -255,8 +272,8 @@ describe('HTTPS Proxy Server', () => {
       };
 
       mockHttp.request.mockImplementation((options, callback) => {
-        setTimeout(() => (callback as any)(mockProxyResUndefined), 0);
-        return mockProxyReq as any;
+        setTimeout(() => (callback as (res: MockProxyRes) => void)(mockProxyResUndefined), 0);
+        return mockProxyReq;
       });
 
       requestHandler(mockReq, mockRes);

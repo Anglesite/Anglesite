@@ -2,6 +2,9 @@
  * @file Jest setup file for renderer tests
  */
 
+// Import custom matchers to make them available in all test files
+import './matchers/custom-matchers';
+
 // Setup TextEncoder/TextDecoder for JSDOM
 if (typeof global.TextEncoder === 'undefined') {
   const { TextEncoder, TextDecoder } = require('util');

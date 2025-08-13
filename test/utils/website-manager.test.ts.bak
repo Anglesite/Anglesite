@@ -2,29 +2,16 @@
  * @file Tests for Website Manager functionality
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-
-// Mock Electron dialog module
-jest.mock('electron', () => ({
-  dialog: {
-    showMessageBoxSync: jest.fn(),
-  },
-  BrowserWindow: jest.fn(),
-}));
-
-// Mock fs module
-jest.mock('fs');
-const mockedFs = fs as jest.Mocked<typeof fs>;
-
-// Mock path module
-jest.mock('path');
-const mockedPath = path as jest.Mocked<typeof path>;
-
-// Mock os module
-jest.mock('os');
-const mockedOs = os as jest.Mocked<typeof os>;
+// Import centralized mocks BEFORE importing the modules to test
+import {
+  mockFs as mockedFs,
+  mockPath as mockedPath,
+  mockOs as mockedOs,
+  mockDialog,
+  createMockDirent,
+  resetNodeModuleMocks,
+  resetElectronMocks,
+} from '../mocks';
 
 // Import after mocking
 import {
@@ -43,21 +30,19 @@ const originalEnv = process.env;
 
 describe('Website Manager', () => {
   let consoleSpy: jest.SpyInstance;
-  let mockDialog: any;
 
   beforeEach(() => {
     // Reset all mocks
     jest.clearAllMocks();
-
-    // Get the mocked dialog
-    mockDialog = require('electron').dialog;
+    resetNodeModuleMocks();
+    resetElectronMocks();
 
     // Set up console spy
     consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
     // Set up default mock implementations
     mockedOs.homedir.mockReturnValue('/mock/home');
-    mockedPath.join.mockImplementation((...args) => args.join('/'));
+    mockedPath.join.mockImplementation((...args: string[]) => args.join('/'));
     mockedFs.existsSync.mockReturnValue(false);
 
     // Reset environment
@@ -81,8 +66,6 @@ describe('Website Manager', () => {
         value: 'darwin',
         configurable: true,
       });
-
-      const result = getWebsitePath('test-site');
 
       expect(mockedOs.homedir).toHaveBeenCalled();
       expect(mockedPath.join).toHaveBeenCalledWith('/mock/home', 'Library', 'Application Support', 'Anglesite');
@@ -340,11 +323,11 @@ describe('Website Manager', () => {
     it('should return list of website directories', () => {
       mockedFs.existsSync.mockReturnValue(true);
       mockedFs.readdirSync.mockReturnValue([
-        { name: 'site1', isDirectory: () => true },
-        { name: 'site2', isDirectory: () => true },
-        { name: 'file.txt', isDirectory: () => false },
-        { name: 'site3', isDirectory: () => true },
-      ] as any);
+        createMockDirent('site1', true),
+        createMockDirent('site2', true),
+        createMockDirent('file.txt', false),
+        createMockDirent('site3', true),
+      ]);
 
       const result = listWebsites();
 
@@ -354,10 +337,7 @@ describe('Website Manager', () => {
 
     it('should return empty array when no directories exist', () => {
       mockedFs.existsSync.mockReturnValue(true);
-      mockedFs.readdirSync.mockReturnValue([
-        { name: 'file1.txt', isDirectory: () => false },
-        { name: 'file2.md', isDirectory: () => false },
-      ] as any);
+      mockedFs.readdirSync.mockReturnValue([createMockDirent('file1.txt', false), createMockDirent('file2.md', false)]);
 
       const result = listWebsites();
 
@@ -569,7 +549,7 @@ describe('Website Manager', () => {
 
       // Reset default implementations
       mockedOs.homedir.mockReturnValue('/mock/home');
-      mockedPath.join.mockImplementation((...args) => args.join('/'));
+      mockedPath.join.mockImplementation((...args: string[]) => args.join('/'));
 
       // Setup mocks for creation
       mockedFs.existsSync.mockReturnValue(false);
@@ -581,12 +561,9 @@ describe('Website Manager', () => {
       // 2. List websites (should include our new one)
       jest.clearAllMocks();
       mockedOs.homedir.mockReturnValue('/mock/home');
-      mockedPath.join.mockImplementation((...args) => args.join('/'));
+      mockedPath.join.mockImplementation((...args: string[]) => args.join('/'));
       mockedFs.existsSync.mockReturnValue(true);
-      mockedFs.readdirSync.mockReturnValue([
-        { name: 'my-blog', isDirectory: () => true },
-        { name: 'other-site', isDirectory: () => true },
-      ] as any);
+      mockedFs.readdirSync.mockReturnValue([createMockDirent('my-blog', true), createMockDirent('other-site', true)]);
 
       const websites = listWebsites();
       expect(websites).toContain('my-blog');
@@ -594,7 +571,7 @@ describe('Website Manager', () => {
       // 3. Rename website
       jest.clearAllMocks();
       mockedOs.homedir.mockReturnValue('/mock/home');
-      mockedPath.join.mockImplementation((...args) => args.join('/'));
+      mockedPath.join.mockImplementation((...args: string[]) => args.join('/'));
       mockedFs.existsSync.mockReturnValueOnce(true).mockReturnValueOnce(false);
       // Ensure renameSync works normally
       mockedFs.renameSync.mockImplementation(() => {});
@@ -605,7 +582,7 @@ describe('Website Manager', () => {
       // 4. Delete website
       jest.clearAllMocks();
       mockedOs.homedir.mockReturnValue('/mock/home');
-      mockedPath.join.mockImplementation((...args) => args.join('/'));
+      mockedPath.join.mockImplementation((...args: string[]) => args.join('/'));
       mockedFs.existsSync.mockReturnValue(true);
       mockedFs.rmSync.mockImplementation(() => {}); // Ensure rmSync works
       mockDialog.showMessageBoxSync.mockReturnValue(1); // Delete
@@ -627,11 +604,13 @@ describe('Website Manager', () => {
 
   describe('Error edge cases', () => {
     it('should handle undefined or null website names', () => {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(validateWebsiteName(undefined as any)).toEqual({
         valid: false,
         error: 'Website name cannot be empty',
       });
 
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       expect(validateWebsiteName(null as any)).toEqual({
         valid: false,
         error: 'Website name cannot be empty',

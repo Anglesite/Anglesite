@@ -23,8 +23,10 @@ jest.mock('child_process');
 
 const mockSpawn = spawn as jest.MockedFunction<typeof spawn>;
 
+type MockMainWindow = object;
+
 describe('Eleventy Server Management', () => {
-  let mockProcess: any;
+  let mockProcess: EventEmitter & { kill: jest.Mock; stdout: EventEmitter; stderr: EventEmitter };
   let consoleLogSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
   let consoleWarnSpy: jest.SpyInstance;
@@ -39,7 +41,7 @@ describe('Eleventy Server Management', () => {
     consoleWarnSpy = jest.spyOn(console, 'warn').mockImplementation();
 
     // Create mock process
-    mockProcess = new EventEmitter();
+    mockProcess = new EventEmitter() as any;
     mockProcess.stdout = new EventEmitter();
     mockProcess.stderr = new EventEmitter();
     mockProcess.kill = jest.fn();
@@ -197,11 +199,12 @@ describe('Eleventy Server Management', () => {
         const firstProcess = mockProcess;
 
         // Create new mock process for second server
-        const secondMockProcess: any = new EventEmitter();
+        const secondMockProcess: EventEmitter & { kill: jest.Mock; stdout: EventEmitter; stderr: EventEmitter } =
+          new EventEmitter();
         secondMockProcess.stdout = new EventEmitter();
         secondMockProcess.stderr = new EventEmitter();
         secondMockProcess.kill = jest.fn();
-        mockSpawn.mockReturnValue(secondMockProcess as any);
+        mockSpawn.mockReturnValue(secondMockProcess);
 
         // Start second server
         startEleventyServer('different-dir');
@@ -375,7 +378,7 @@ describe('Eleventy Server Management', () => {
 
     describe('startDefaultEleventyServer', () => {
       it('should start default server with HTTPS mode', async () => {
-        const mockMainWindow = {} as any;
+        const mockMainWindow = {} as MockMainWindow;
         const mockAddLocalDnsResolution = jest.fn().mockResolvedValue(undefined);
         const mockCreateHttpsProxy = jest.fn().mockResolvedValue(true);
         const mockAutoLoadPreview = jest.fn();
@@ -404,7 +407,7 @@ describe('Eleventy Server Management', () => {
       });
 
       it('should handle HTTPS proxy failure', async () => {
-        const mockMainWindow = {} as any;
+        const mockMainWindow = {} as MockMainWindow;
         const mockAddLocalDnsResolution = jest.fn().mockResolvedValue(undefined);
         const mockCreateHttpsProxy = jest.fn().mockResolvedValue(false);
         const mockAutoLoadPreview = jest.fn();
@@ -432,7 +435,7 @@ describe('Eleventy Server Management', () => {
       });
 
       it('should start default server with HTTP mode', async () => {
-        const mockMainWindow = {} as any;
+        const mockMainWindow = {} as MockMainWindow;
         const mockAddLocalDnsResolution = jest.fn().mockResolvedValue(undefined);
         const mockCreateHttpsProxy = jest.fn();
         const mockAutoLoadPreview = jest.fn();
@@ -475,7 +478,7 @@ describe('Eleventy Server Management', () => {
       });
 
       it('should handle server error', () => {
-        const mockMainWindow = {} as any;
+        const mockMainWindow = {} as MockMainWindow;
         const mockAddLocalDnsResolution = jest.fn();
         const mockCreateHttpsProxy = jest.fn();
         const mockAutoLoadPreview = jest.fn();

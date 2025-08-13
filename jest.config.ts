@@ -14,4 +14,9 @@ export default {
   moduleNameMapper: {
     '^../../app/eleventy/.eleventy$': '<rootDir>/app/eleventy/.eleventy.js',
   },
+  // Prevent worker hanging
+  maxWorkers: 1,
+  detectOpenHandles: true,
+  forceExit: true,
+  testTimeout: 10000,
 };

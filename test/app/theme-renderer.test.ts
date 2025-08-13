@@ -1,10 +1,27 @@
 /**
  * @file Tests for renderer-side theme management - actual module testing
- * @jest-environment jsdom
  */
+
+interface CustomWindow extends Window {
+  electronAPI: {
+    send: jest.Mock;
+    invoke: jest.Mock;
+    on: jest.Mock;
+    removeAllListeners: jest.Mock;
+    getCurrentTheme: jest.Mock;
+    onThemeUpdated: jest.Mock;
+    setTheme: jest.Mock;
+  };
+}
+
+declare const window: CustomWindow;
 
 // Mock globals before importing the module
 const mockElectronAPI = {
+  send: jest.fn(),
+  invoke: jest.fn(),
+  on: jest.fn(),
+  removeAllListeners: jest.fn(),
   getCurrentTheme: jest.fn(),
   onThemeUpdated: jest.fn(),
   setTheme: jest.fn(),
@@ -17,7 +34,7 @@ console.log = jest.fn();
 console.error = jest.fn();
 
 // Mock window.electronAPI before the module loads
-(window as any).electronAPI = mockElectronAPI;
+window.electronAPI = mockElectronAPI;
 
 // Mock document.documentElement
 const mockDocumentElement = {
@@ -32,7 +49,7 @@ Object.defineProperty(document, 'documentElement', {
 });
 
 // Now import the actual module
-import { themeRenderer, Theme, ResolvedTheme, ThemeInfo } from '../../app/theme-renderer';
+import { themeRenderer, Theme, ThemeInfo } from '../../app/theme-renderer';
 
 describe('ThemeRenderer Module Tests', () => {
   let consoleLogSpy: jest.SpyInstance;

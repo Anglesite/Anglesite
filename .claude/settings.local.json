@@ -45,7 +45,17 @@
       "WebFetch(domain:www.electronjs.org)",
       "Bash(npx eslint:*)",
       "Bash(eslint:*)",
-      "WebSearch"
+      "WebSearch",
+      "Bash(timeout 30 npm test:*)",
+      "Bash(timeout 10s npm test:*)",
+      "Bash(gtimeout 10s npm test)",
+      "Bash(for file in utils/website-manager.test.ts utils/first-launch.test.ts server/https-proxy.test.ts server/eleventy.test.ts ipc/handlers.test.ts ipc/handlers-coverage.test.ts app/renderer.test.ts app/renderer-wrapper.test.ts certificates.test.ts)",
+      "Bash(do)",
+      "Bash(if [ -f \"$file\" ])",
+      "Bash(then)",
+      "Bash(echo:*)",
+      "Bash(fi)",
+      "Bash(done)"
     ],
     "deny": []
   }

@@ -3,110 +3,20 @@
  */
 
 // Mock dependencies first, before importing main
-const mockCreateHelpWindow = jest.fn();
-const mockCreateApplicationMenu = jest.fn();
-const mockSetupIpcMainListeners = jest.fn();
-const mockCloseAllWindows = jest.fn();
-const mockHandleFirstLaunch = jest.fn();
-const mockCleanupEleventyServer = jest.fn();
-const mockStartDefaultEleventyServer = jest.fn();
-const mockCreateHttpsProxy = jest.fn();
-const mockAddLocalDnsResolution = jest.fn();
-const mockCleanupHostsFile = jest.fn();
-const mockCheckAndSuggestTouchIdSetup = jest.fn();
-const mockRestoreWindowStates = jest.fn();
-const mockGetAllWebsiteWindows = jest.fn();
-const mockApplyThemeToWindow = jest.fn();
 
-// Mock Store
-const mockStore = {
-  get: jest.fn(),
-  set: jest.fn(),
-};
-
-// Mock Electron app
-const mockApp = {
-  setName: jest.fn(),
-  whenReady: jest.fn(),
-  on: jest.fn(),
-  quit: jest.fn(),
-  commandLine: {
-    appendSwitch: jest.fn(),
-  },
-};
-
-const mockMenu = {
-  setApplicationMenu: jest.fn(),
-};
-
-const mockBrowserWindow = jest.fn();
-
-jest.mock('electron', () => ({
-  app: mockApp,
-  Menu: mockMenu,
-  BrowserWindow: mockBrowserWindow,
-}));
-
-jest.mock('../../app/ui/multi-window-manager', () => ({
-  createHelpWindow: mockCreateHelpWindow,
-  closeAllWindows: mockCloseAllWindows,
-  restoreWindowStates: mockRestoreWindowStates,
-  getAllWebsiteWindows: mockGetAllWebsiteWindows,
-}));
-
-jest.mock('../../app/ui/menu', () => ({
-  createApplicationMenu: mockCreateApplicationMenu,
-}));
-
-jest.mock('../../app/ipc/handlers', () => ({
-  setupIpcMainListeners: mockSetupIpcMainListeners,
-}));
-
-const mockStoreInstance = {
-  get: jest.fn(),
-  set: jest.fn(),
-};
-
-jest.mock('../../app/store', () => {
-  return {
-    Store: jest.fn().mockImplementation(() => {
-      return mockStoreInstance;
-    }),
-  };
-});
-
-jest.mock('../../app/utils/first-launch', () => ({
-  handleFirstLaunch: mockHandleFirstLaunch,
-}));
-
-jest.mock('../../app/server/eleventy', () => ({
-  cleanupEleventyServer: mockCleanupEleventyServer,
-  startDefaultEleventyServer: mockStartDefaultEleventyServer,
-}));
-
-jest.mock('../../app/server/https-proxy', () => ({
-  createHttpsProxy: mockCreateHttpsProxy,
-}));
-
-jest.mock('../../app/dns/hosts-manager', () => ({
-  addLocalDnsResolution: mockAddLocalDnsResolution,
-  cleanupHostsFile: mockCleanupHostsFile,
-  checkAndSuggestTouchIdSetup: mockCheckAndSuggestTouchIdSetup,
-}));
-
-const mockThemeManager = {
-  initialize: jest.fn(),
-  applyThemeToWindow: mockApplyThemeToWindow,
-};
-
-jest.mock('../../app/ui/theme-manager', () => ({
-  themeManager: mockThemeManager,
-}));
+import {
+  mockMultiWindowManager,
+  mockAppMenu,
+  mockStoreInstance,
+  mockFirstLaunch,
+  mockEleventy,
+  mockHostsManager,
+  resetAppModulesMocks,
+} from '../mocks/app-modules';
+import { mockApp, resetElectronMocks } from '../mocks/electron';
+import { setupConsoleSpies, restoreConsoleSpies } from '../mocks/utils';
 
 // Mock console methods
-const originalConsoleLog = console.log;
-const originalConsoleError = console.error;
-const originalProcessRemoveAllListeners = process.removeAllListeners;
 
 describe('Main Process', () => {
   let consoleSpy: jest.SpyInstance;
@@ -121,41 +31,18 @@ describe('Main Process', () => {
     // Reset the callback
     initializeAppCallback = null;
 
-    // Set up console spies first
-    consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    // Set up console spies
+    const { consoleSpy: newConsoleSpy, consoleErrorSpy: newConsoleErrorSpy } = setupConsoleSpies();
+    consoleSpy = newConsoleSpy;
+    consoleErrorSpy = newConsoleErrorSpy;
     processRemoveAllListenersSpy = jest.spyOn(process, 'removeAllListeners').mockImplementation();
 
     // Manually clear specific mocks, but NOT mockStoreInstance
-    mockCreateHelpWindow.mockClear();
-    mockCreateApplicationMenu.mockClear();
-    mockSetupIpcMainListeners.mockClear();
-    mockCloseAllWindows.mockClear();
-    mockHandleFirstLaunch.mockClear();
-    mockCleanupEleventyServer.mockClear();
-    mockStartDefaultEleventyServer.mockClear();
-    mockCreateHttpsProxy.mockClear();
-    mockAddLocalDnsResolution.mockClear();
-    mockCleanupHostsFile.mockClear();
-    mockCheckAndSuggestTouchIdSetup.mockClear();
-    mockRestoreWindowStates.mockClear();
-    mockGetAllWebsiteWindows.mockClear();
-    mockApplyThemeToWindow.mockClear();
-    mockThemeManager.initialize.mockClear();
-    mockApp.setName.mockClear();
-    mockApp.whenReady.mockClear();
-    mockApp.on.mockClear();
-    mockApp.quit.mockClear();
-    mockApp.commandLine.appendSwitch.mockClear();
-    mockMenu.setApplicationMenu.mockClear();
+    // Mocks are reset by resetAppModulesMocks() and resetElectronMocks()
+    resetElectronMocks();
+    resetAppModulesMocks();
 
-    // Clear mockStoreInstance but preserve the implementation
-    const getImpl = mockStoreInstance.get.getMockImplementation();
-    const setImpl = mockStoreInstance.set.getMockImplementation();
-    mockStoreInstance.get.mockClear();
-    mockStoreInstance.set.mockClear();
-    if (getImpl) mockStoreInstance.get.mockImplementation(getImpl);
-    if (setImpl) mockStoreInstance.set.mockImplementation(setImpl);
+    // mockStoreInstance is reset by resetAppModulesMocks()
 
     // Set up default mock returns AFTER clearing mocks
     mockStoreInstance.get.mockImplementation((key: string) => {
@@ -171,16 +58,16 @@ describe('Main Process', () => {
       }
     });
 
-    mockCreateHelpWindow.mockReturnValue({ id: 'mock-help-window' });
-    mockCreateApplicationMenu.mockReturnValue({ id: 'mock-menu' });
-    mockGetAllWebsiteWindows.mockReturnValue(new Map());
+    mockMultiWindowManager.createHelpWindow.mockReturnValue({ id: 'mock-help-window' });
+    mockAppMenu.createApplicationMenu.mockReturnValue({ id: 'mock-menu' });
+    mockMultiWindowManager.getAllWebsiteWindows.mockReturnValue(new Map());
 
     // Mock async functions to resolve
-    mockHandleFirstLaunch.mockResolvedValue(undefined);
-    mockCleanupHostsFile.mockResolvedValue(undefined);
-    mockCheckAndSuggestTouchIdSetup.mockResolvedValue(undefined);
-    mockStartDefaultEleventyServer.mockResolvedValue(undefined);
-    mockRestoreWindowStates.mockResolvedValue(undefined);
+    mockFirstLaunch.handleFirstLaunch.mockResolvedValue(undefined);
+    mockHostsManager.cleanupHostsFile.mockResolvedValue(undefined);
+    mockHostsManager.checkAndSuggestTouchIdSetup.mockResolvedValue(undefined);
+    mockEleventy.startDefaultEleventyServer.mockResolvedValue(undefined);
+    mockMultiWindowManager.restoreWindowStates.mockResolvedValue(undefined);
 
     // Capture the initialization callback for testing
     mockApp.whenReady.mockImplementation((callback) => {
@@ -193,8 +80,7 @@ describe('Main Process', () => {
   });
 
   afterEach(() => {
-    consoleSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
+    restoreConsoleSpies(consoleSpy, consoleErrorSpy);
     processRemoveAllListenersSpy.mockRestore();
     delete process.env.NODE_ENV;
     initializeAppCallback = null;
@@ -291,8 +177,8 @@ describe('Main Process', () => {
       beforeQuitHandler?.();
 
       expect(consoleSpy).toHaveBeenCalledWith('Cleaning up resources...');
-      expect(mockCleanupEleventyServer).toHaveBeenCalled();
-      expect(mockCloseAllWindows).toHaveBeenCalled();
+      expect(mockEleventy.cleanupEleventyServer).toHaveBeenCalled();
+      expect(mockMultiWindowManager.closeAllWindows).toHaveBeenCalled();
     });
 
     it('should handle certificate errors for localhost', () => {
@@ -365,7 +251,6 @@ describe('Main Process', () => {
     });
 
     it('should verify module structure', () => {
-      // The main module should set up the basic Electron app structure
       const mainModule = require('../../app/main');
       expect(mainModule).toBeDefined();
     });
@@ -378,7 +263,7 @@ describe('Main Process', () => {
       const activateHandler = mockApp.on.mock.calls.find((call) => call[0] === 'activate')?.[1];
 
       // Mock mainWindow as null (which happens when accessing the exported mainWindow)
-      const mainModule = require('../../app/main');
+      // (No need to assign mainModule if not used)
 
       activateHandler?.();
 
@@ -403,7 +288,7 @@ describe('Main Process', () => {
       }
 
       // Get the callback passed to startDefaultEleventyServer
-      const serverCallback = mockStartDefaultEleventyServer.mock.calls[0]?.[4];
+      const serverCallback = mockEleventy.startDefaultEleventyServer.mock.calls[0]?.[4];
 
       if (serverCallback) {
         serverCallback();

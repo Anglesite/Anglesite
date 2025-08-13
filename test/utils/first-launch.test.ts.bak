@@ -1,0 +1,141 @@
+/**
+ * @file Tests for first launch setup flow
+ */
+
+// Mock certificates module
+const mockIsCAInstalledInSystem = jest.fn();
+const mockInstallCAInSystem = jest.fn();
+jest.mock('../../app/certificates', () => ({
+  isCAInstalledInSystem: mockIsCAInstalledInSystem,
+  installCAInSystem: mockInstallCAInSystem,
+}));
+
+// Mock window manager
+const mockShowFirstLaunchAssistant = jest.fn();
+jest.mock('../../app/ui/window-manager', () => ({
+  showFirstLaunchAssistant: mockShowFirstLaunchAssistant,
+}));
+
+// Import modules after mocking
+import { handleFirstLaunch } from '../../app/utils/first-launch';
+import { Store } from '../../app/store';
+
+// Import centralized mocks
+import { mockApp, mockDialog, resetElectronMocks } from '../mocks';
+
+// Mock store
+const mockStore = {
+  set: jest.fn(),
+  get: jest.fn(),
+};
+
+describe('First Launch Setup', () => {
+  beforeEach(() => {
+    jest.clearAllMocks();
+    resetElectronMocks();
+    mockIsCAInstalledInSystem.mockClear();
+    mockInstallCAInSystem.mockClear();
+    mockShowFirstLaunchAssistant.mockClear();
+  });
+
+  describe('handleFirstLaunch', () => {
+    it('should default to HTTPS mode when CA is already installed', async () => {
+      mockIsCAInstalledInSystem.mockReturnValue(true);
+
+      await handleFirstLaunch(mockStore as unknown as Store);
+
+      expect(mockIsCAInstalledInSystem).toHaveBeenCalled();
+      expect(mockStore.set).toHaveBeenCalledWith('httpsMode', 'https');
+      expect(mockStore.set).toHaveBeenCalledWith('firstLaunchCompleted', true);
+      expect(mockShowFirstLaunchAssistant).not.toHaveBeenCalled();
+    });
+
+    it('should quit app when user cancels setup', async () => {
+      mockIsCAInstalledInSystem.mockReturnValue(false);
+      mockShowFirstLaunchAssistant.mockResolvedValue(null);
+
+      await handleFirstLaunch(mockStore as unknown as Store);
+
+      expect(mockShowFirstLaunchAssistant).toHaveBeenCalled();
+      expect(mockApp.quit).toHaveBeenCalled();
+      expect(mockStore.set).not.toHaveBeenCalledWith('firstLaunchCompleted', true);
+    });
+
+    it('should install CA and set HTTPS mode when user chooses HTTPS', async () => {
+      mockIsCAInstalledInSystem.mockReturnValue(false);
+      mockShowFirstLaunchAssistant.mockResolvedValue('https');
+      mockInstallCAInSystem.mockResolvedValue(true);
+
+      await handleFirstLaunch(mockStore as unknown as Store);
+
+      expect(mockShowFirstLaunchAssistant).toHaveBeenCalled();
+      expect(mockInstallCAInSystem).toHaveBeenCalled();
+      expect(mockStore.set).toHaveBeenCalledWith('httpsMode', 'https');
+      expect(mockStore.set).toHaveBeenCalledWith('firstLaunchCompleted', true);
+      expect(mockDialog.showMessageBoxSync).not.toHaveBeenCalled();
+    });
+
+    it('should fall back to HTTP when CA installation fails', async () => {
+      mockIsCAInstalledInSystem.mockReturnValue(false);
+      mockShowFirstLaunchAssistant.mockResolvedValue('https');
+      mockInstallCAInSystem.mockResolvedValue(false);
+
+      await handleFirstLaunch(mockStore as unknown as Store);
+
+      expect(mockInstallCAInSystem).toHaveBeenCalled();
+      expect(mockStore.set).toHaveBeenCalledWith('httpsMode', 'http');
+      expect(mockStore.set).toHaveBeenCalledWith('firstLaunchCompleted', true);
+      expect(mockDialog.showMessageBoxSync).toHaveBeenCalledWith({
+        type: 'warning',
+        title: 'Certificate Installation Failed',
+        message: 'Failed to install the security certificate.',
+        detail: 'Anglesite will continue in HTTP mode. You can retry HTTPS setup in the settings.',
+        buttons: ['Continue'],
+      });
+    });
+
+    it('should handle CA installation errors gracefully', async () => {
+      mockIsCAInstalledInSystem.mockReturnValue(false);
+      mockShowFirstLaunchAssistant.mockResolvedValue('https');
+      mockInstallCAInSystem.mockRejectedValue(new Error('Installation error'));
+
+      await handleFirstLaunch(mockStore as unknown as Store);
+
+      expect(mockInstallCAInSystem).toHaveBeenCalled();
+      expect(mockStore.set).toHaveBeenCalledWith('httpsMode', 'http');
+      expect(mockStore.set).toHaveBeenCalledWith('firstLaunchCompleted', true);
+      expect(mockDialog.showMessageBoxSync).toHaveBeenCalledWith({
+        type: 'error',
+        title: 'Setup Error',
+        message: 'An error occurred during setup.',
+        detail: 'Anglesite will continue in HTTP mode.',
+        buttons: ['Continue'],
+      });
+    });
+
+    it('should set HTTP mode when user chooses HTTP', async () => {
+      mockIsCAInstalledInSystem.mockReturnValue(false);
+      mockShowFirstLaunchAssistant.mockResolvedValue('http');
+
+      await handleFirstLaunch(mockStore as unknown as Store);
+
+      expect(mockShowFirstLaunchAssistant).toHaveBeenCalled();
+      expect(mockInstallCAInSystem).not.toHaveBeenCalled();
+      expect(mockStore.set).toHaveBeenCalledWith('httpsMode', 'http');
+      expect(mockStore.set).toHaveBeenCalledWith('firstLaunchCompleted', true);
+      expect(mockDialog.showMessageBoxSync).not.toHaveBeenCalled();
+    });
+
+    it('should handle unexpected user choice values', async () => {
+      mockIsCAInstalledInSystem.mockReturnValue(false);
+      mockShowFirstLaunchAssistant.mockResolvedValue('unknown');
+
+      await handleFirstLaunch(mockStore as unknown as Store);
+
+      expect(mockShowFirstLaunchAssistant).toHaveBeenCalled();
+      expect(mockInstallCAInSystem).not.toHaveBeenCalled();
+      expect(mockStore.set).toHaveBeenCalledWith('httpsMode', 'http');
+      expect(mockStore.set).toHaveBeenCalledWith('firstLaunchCompleted', true);
+    });
+  });
+});

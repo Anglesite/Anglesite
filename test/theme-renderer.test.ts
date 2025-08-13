@@ -1,6 +1,5 @@
 /**
  * @file Tests for renderer-side theme management
- * @jest-environment jsdom
  */
 
 import { Theme, ResolvedTheme, ThemeInfo } from '../app/theme-renderer';
@@ -11,10 +10,10 @@ class TestThemeRenderer {
 
   async initialize(): Promise<void> {
     try {
-      const themeInfo = await (window as any).electronAPI.getCurrentTheme();
+      const themeInfo = await window.electronAPI.getCurrentTheme();
       this.applyTheme(themeInfo.resolvedTheme);
 
-      (window as any).electronAPI.onThemeUpdated((themeInfo: ThemeInfo) => {
+      window.electronAPI.onThemeUpdated((themeInfo: ThemeInfo) => {
         console.log('Theme updated in renderer:', themeInfo);
         this.applyTheme(themeInfo.resolvedTheme);
       });
@@ -43,7 +42,7 @@ class TestThemeRenderer {
 
   async setTheme(theme: Theme): Promise<ThemeInfo> {
     try {
-      const themeInfo = await (window as any).electronAPI.setTheme(theme);
+      const themeInfo = await window.electronAPI.setTheme(theme);
       console.log('Theme preference updated:', themeInfo);
       return themeInfo;
     } catch (error) {
@@ -54,7 +53,7 @@ class TestThemeRenderer {
 
   async getThemeInfo(): Promise<ThemeInfo> {
     try {
-      return await (window as any).electronAPI.getCurrentTheme();
+      return await window.electronAPI.getCurrentTheme();
     } catch (error) {
       console.error('Failed to get theme info:', error);
       throw error;
@@ -62,8 +61,26 @@ class TestThemeRenderer {
   }
 }
 
+interface CustomWindow extends Window {
+  electronAPI: {
+    send: jest.Mock;
+    invoke: jest.Mock;
+    on: jest.Mock;
+    removeAllListeners: jest.Mock;
+    getCurrentTheme: jest.Mock;
+    onThemeUpdated: jest.Mock;
+    setTheme: jest.Mock;
+  };
+}
+
+declare const window: CustomWindow;
+
 // Mock window.electronAPI
 const mockElectronAPI = {
+  send: jest.fn(),
+  invoke: jest.fn(),
+  on: jest.fn(),
+  removeAllListeners: jest.fn(),
   getCurrentTheme: jest.fn(),
   onThemeUpdated: jest.fn(),
   setTheme: jest.fn(),
@@ -73,7 +90,7 @@ describe('ThemeRenderer', () => {
   let themeRenderer: TestThemeRenderer;
   let consoleLogSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
-  let documentMock: any;
+  let documentMock: { setAttribute: jest.Mock; removeAttribute: jest.Mock };
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -99,7 +116,7 @@ describe('ThemeRenderer', () => {
     });
 
     // Mock window.electronAPI
-    (window as any).electronAPI = mockElectronAPI;
+    window.electronAPI = mockElectronAPI;
   });
 
   afterEach(() => {

@@ -2,36 +2,31 @@
  * @file Comprehensive coverage tests for IPC handlers
  */
 
-// Mock electron modules
-const mockIpcMain = {
-  on: jest.fn(),
-  handle: jest.fn(),
-  removeListener: jest.fn(),
-};
+// Import centralized mocks
+import {
+  mockFs,
+  mockExec,
+  resetNodeModuleMocks,
+} from '../mocks';
 
-const mockBrowserWindow = {
-  fromWebContents: jest.fn(),
-  getAllWindows: jest.fn(() => []),
-};
+import {
+  mockIpcMain,
+  BrowserWindowConstructor,
+  mockDialog,
+  mockShell,
+  mockMenu,
+  resetElectronMocks,
+} from '../mocks/electron';
 
-const mockDialog = {
-  showMessageBox: jest.fn(),
-  showSaveDialog: jest.fn(),
-};
+// Additional mock setup
+const mockBrowserWindow = BrowserWindowConstructor;
 
-const mockShell = {
-  openExternal: jest.fn(),
-  showItemInFolder: jest.fn(),
-};
-
-const mockMenu = jest.fn().mockImplementation(() => ({
+const mockContextMenu = {
   append: jest.fn(),
   popup: jest.fn(),
-}));
+};
 
 const mockMenuItem = jest.fn().mockImplementation(() => ({}));
-
-const mockExec = jest.fn();
 
 // Mock archiver
 const mockArchive = {
@@ -61,38 +56,15 @@ const mockWriteStream = {
   pipe: jest.fn(),
 };
 
-jest.mock('electron', () => ({
-  ipcMain: mockIpcMain,
-  BrowserWindow: mockBrowserWindow,
-  dialog: mockDialog,
-  shell: mockShell,
-  Menu: mockMenu,
-  MenuItem: mockMenuItem,
-}));
-
-jest.mock('child_process', () => ({
-  exec: mockExec,
-}));
+// These are already mocked by our centralized mocks
+// Just need to mock additional libraries not covered
 
 jest.mock('archiver', () => mockArchiver);
 jest.mock('bagit-fs', () => mockBagIt);
 
-jest.mock('fs', () => ({
-  existsSync: jest.fn(),
-  mkdirSync: jest.fn(),
-  createReadStream: jest.fn(() => mockReadStream),
-  createWriteStream: jest.fn(() => mockWriteStream),
-  readdirSync: jest.fn(),
-}));
-
-jest.mock('path', () => ({
-  join: jest.fn((...args) => args.join('/')),
-  basename: jest.fn((p) => p.split('/').pop()),
-  extname: jest.fn((p) => {
-    const parts = p.split('.');
-    return parts.length > 1 ? '.' + parts.pop() : '';
-  }),
-}));
+// Additional fs functions not in the centralized mock
+mockFs.createReadStream = jest.fn(() => mockReadStream);
+mockFs.createWriteStream = jest.fn(() => mockWriteStream);
 
 // Mock UI modules
 jest.mock('../../app/ui/window-manager', () => ({
@@ -150,9 +122,19 @@ jest.mock('../../app/store', () => ({
   Store: jest.fn(() => mockStore),
 }));
 
+interface Handlers {
+  setupIpcMainListeners: jest.Mock;
+}
+
+interface MockEvent {
+  sender: {
+    send: jest.Mock;
+  };
+}
+
 describe('Handlers Coverage Tests', () => {
-  let handlers: any;
-  let mockEvent: any;
+  let handlers: Handlers;
+  let mockEvent: MockEvent;
 
   beforeAll(() => {
     // Import handlers after mocks are set up to register handlers
@@ -163,6 +145,8 @@ describe('Handlers Coverage Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    resetElectronMocks();
+    resetNodeModuleMocks();
 
     mockEvent = {
       sender: {
@@ -385,15 +369,12 @@ describe('Handlers Coverage Tests', () => {
     });
 
     it('should handle export-folder with successful export', async () => {
-      const fs = require('fs');
-      const mockExecCallback = jest.fn();
-
       mockDialog.showSaveDialog.mockResolvedValue({
         canceled: false,
         filePath: '/export/path',
       });
 
-      fs.existsSync.mockReturnValue(true);
+      mockFs.existsSync.mockReturnValue(true);
 
       // Mock successful cp command
       mockExec.mockImplementation((cmd, callback) => {
@@ -413,8 +394,7 @@ describe('Handlers Coverage Tests', () => {
         filePath: '/export/path',
       });
 
-      const fs = require('fs');
-      fs.existsSync.mockReturnValue(true);
+      mockFs.existsSync.mockReturnValue(true);
 
       const cpError = new Error('Copy failed');
       mockExec.mockImplementation((cmd, callback) => {
@@ -434,8 +414,7 @@ describe('Handlers Coverage Tests', () => {
         filePath: '/export/path',
       });
 
-      const fs = require('fs');
-      fs.existsSync.mockReturnValue(false);
+      mockFs.existsSync.mockReturnValue(false);
 
       const exportFolderCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-folder');
       if (exportFolderCall) {
@@ -462,8 +441,7 @@ describe('Handlers Coverage Tests', () => {
         filePath: '/export/archive.zip',
       });
 
-      const fs = require('fs');
-      fs.existsSync.mockReturnValue(false);
+      mockFs.existsSync.mockReturnValue(false);
 
       const exportZipCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-zip');
       if (exportZipCall) {
@@ -473,15 +451,8 @@ describe('Handlers Coverage Tests', () => {
     });
 
     it('should handle export-zip with successful archive creation', async () => {
-      const fs = require('fs');
-
-      mockDialog.showSaveDialog.mockResolvedValue({
-        canceled: false,
-        filePath: '/export/archive.zip',
-      });
-
-      fs.existsSync.mockReturnValue(true);
-      fs.createWriteStream.mockReturnValue(mockWriteStream);
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.createWriteStream.mockReturnValue(mockWriteStream);
 
       // Mock archive events
       mockArchive.on.mockImplementation((event, callback) => {
@@ -512,15 +483,8 @@ describe('Handlers Coverage Tests', () => {
     });
 
     it('should handle export-zip with archive error', async () => {
-      const fs = require('fs');
-
-      mockDialog.showSaveDialog.mockResolvedValue({
-        canceled: false,
-        filePath: '/export/archive.zip',
-      });
-
-      fs.existsSync.mockReturnValue(true);
-      fs.createWriteStream.mockReturnValue(mockWriteStream);
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.createWriteStream.mockReturnValue(mockWriteStream);
 
       const archiveError = new Error('Archive failed');
 
@@ -700,7 +664,6 @@ describe('Handlers Coverage Tests', () => {
       const addLocalDnsResolutionMock = require('../../app/dns/hosts-manager').addLocalDnsResolution;
       const restartHttpsProxyMock = require('../../app/server/https-proxy').restartHttpsProxy;
       const setLiveServerUrlMock = require('../../app/server/eleventy').setLiveServerUrl;
-      const setCurrentWebsiteNameMock = require('../../app/server/eleventy').setCurrentWebsiteName;
 
       createWebsiteWindowMock.mockReturnValue({ id: 'window1' });
       switchToWebsiteMock.mockResolvedValue(3000);
@@ -730,6 +693,7 @@ describe('Handlers Coverage Tests', () => {
   });
 
   describe('Export BagIt Handler', () => {
+    const getBagItMetadataMock = require('../../app/ui/window-manager').getBagItMetadata;
     it('should handle export-bagit with user cancellation', async () => {
       mockDialog.showSaveDialog.mockResolvedValue({ canceled: true });
 
@@ -746,8 +710,7 @@ describe('Handlers Coverage Tests', () => {
         filePath: '/export/bagit-archive',
       });
 
-      const fs = require('fs');
-      fs.existsSync.mockReturnValue(false);
+      mockFs.existsSync.mockReturnValue(false);
 
       const exportBagItCall = mockIpcMain.handle.mock.calls.find((call) => call[0] === 'export-bagit');
       if (exportBagItCall) {
@@ -757,16 +720,8 @@ describe('Handlers Coverage Tests', () => {
     });
 
     it('should handle export-bagit with successful creation', async () => {
-      const fs = require('fs');
-      const getBagItMetadataMock = require('../../app/ui/window-manager').getBagItMetadata;
-
-      mockDialog.showSaveDialog.mockResolvedValue({
-        canceled: false,
-        filePath: '/export/bagit-archive',
-      });
-
-      fs.existsSync.mockReturnValue(true);
-      fs.readdirSync.mockReturnValue([
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readdirSync.mockReturnValue([
         { name: 'index.html', isDirectory: () => false },
         { name: 'styles', isDirectory: () => true },
       ]);
@@ -792,7 +747,7 @@ describe('Handlers Coverage Tests', () => {
       };
 
       mockBagIt.mockReturnValue(mockBagInstance);
-      fs.createReadStream.mockReturnValue({
+      mockFs.createReadStream.mockReturnValue({
         pipe: jest.fn(),
       });
 
@@ -813,16 +768,8 @@ describe('Handlers Coverage Tests', () => {
     });
 
     it('should handle export-bagit with file copy operations', async () => {
-      const fs = require('fs');
-      const getBagItMetadataMock = require('../../app/ui/window-manager').getBagItMetadata;
-
-      mockDialog.showSaveDialog.mockResolvedValue({
-        canceled: false,
-        filePath: '/export/bagit-archive',
-      });
-
-      fs.existsSync.mockReturnValue(true);
-      fs.readdirSync.mockReturnValue([
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readdirSync.mockReturnValue([
         { name: 'file1.html', isDirectory: () => false },
         { name: 'file2.css', isDirectory: () => false },
       ]);
@@ -852,7 +799,7 @@ describe('Handlers Coverage Tests', () => {
       };
 
       mockBagIt.mockReturnValue(mockBagInstance);
-      fs.createReadStream.mockReturnValue({
+      mockFs.createReadStream.mockReturnValue({
         pipe: jest.fn(),
       });
 
@@ -874,19 +821,11 @@ describe('Handlers Coverage Tests', () => {
     });
 
     it('should handle export-bagit with directory traversal', async () => {
-      const fs = require('fs');
-      const getBagItMetadataMock = require('../../app/ui/window-manager').getBagItMetadata;
-
-      mockDialog.showSaveDialog.mockResolvedValue({
-        canceled: false,
-        filePath: '/export/bagit-archive',
-      });
-
-      fs.existsSync.mockReturnValue(true);
+      mockFs.existsSync.mockReturnValue(true);
 
       // Mock directory structure
       let readdirCalls = 0;
-      fs.readdirSync.mockImplementation((dir: any) => {
+      mockFs.readdirSync.mockImplementation(() => {
         readdirCalls++;
         if (readdirCalls === 1) {
           // Root directory
@@ -932,7 +871,7 @@ describe('Handlers Coverage Tests', () => {
       };
 
       mockBagIt.mockReturnValue(mockBagInstance);
-      fs.createReadStream.mockReturnValue({
+      mockFs.createReadStream.mockReturnValue({
         pipe: jest.fn(),
       });
 
@@ -947,23 +886,15 @@ describe('Handlers Coverage Tests', () => {
 
         const result = await resultPromise;
         expect(result).toEqual({ success: true, message: 'BagIt export completed successfully' });
-        expect(fs.readdirSync).toHaveBeenCalledTimes(2); // Root + subdirectory
+        expect(mockFs.readdirSync).toHaveBeenCalledTimes(2); // Root + subdirectory
 
         jest.useRealTimers();
       }
     });
 
     it('should handle export-bagit with stream error', async () => {
-      const fs = require('fs');
-      const getBagItMetadataMock = require('../../app/ui/window-manager').getBagItMetadata;
-
-      mockDialog.showSaveDialog.mockResolvedValue({
-        canceled: false,
-        filePath: '/export/bagit-archive',
-      });
-
-      fs.existsSync.mockReturnValue(true);
-      fs.readdirSync.mockReturnValue([{ name: 'file.html', isDirectory: () => false }]);
+      mockFs.existsSync.mockReturnValue(true);
+      mockFs.readdirSync.mockReturnValue([{ name: 'file.html', isDirectory: () => false }]);
 
       getBagItMetadataMock.mockReturnValue({
         title: 'Test Site',
@@ -986,7 +917,7 @@ describe('Handlers Coverage Tests', () => {
       };
 
       mockBagIt.mockReturnValue(mockBagInstance);
-      fs.createReadStream.mockReturnValue({
+      mockFs.createReadStream.mockReturnValue({
         pipe: jest.fn(),
       });
 

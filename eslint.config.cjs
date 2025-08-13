@@ -50,7 +50,7 @@ module.exports = [
 
   // Renderer process files (browser environment)
   {
-    files: ['app/renderer.ts', 'app/preload.ts'],
+    files: ['app/renderer.ts', 'app/preload.ts', 'app/renderer-wrapper.ts'],
     languageOptions: {
       parser: tsParser,
       parserOptions: {
@@ -122,6 +122,14 @@ module.exports = [
       ...prettierConfig.rules,
       'prettier/prettier': 'error',
       '@typescript-eslint/no-require-imports': 'off',
+    },
+  },
+
+  // Custom Jest matchers configuration (allow namespace for Jest type extensions)
+  {
+    files: ['test/matchers/**/*.ts'],
+    rules: {
+      '@typescript-eslint/no-namespace': 'off', // Required for extending Jest types
     },
   },
 

@@ -1,3 +1,7 @@
+declare const window: Window & typeof globalThis;
+declare const document: Document;
+declare function prompt(message?: string, defaultValue?: string): string | null;
+
 /**
  * @file Wrapper for renderer.ts to enable testing
  * This file wraps the renderer functionality in exportable functions for testing purposes.

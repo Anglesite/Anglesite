@@ -50,26 +50,28 @@ const mockWebContentsView = {
   setBounds: jest.fn(),
 };
 
-const mockWindow = {
-  getBounds: jest.fn(() => ({ width: 1200, height: 800 })),
-  loadFile: jest.fn(),
-  loadURL: jest.fn(),
-  on: jest.fn(),
-  once: jest.fn(),
-  show: jest.fn(),
-  focus: jest.fn(),
-  close: jest.fn(),
-  isDestroyed: jest.fn(() => false),
-  webContents: {
-    send: jest.fn(),
+const mockWindow = Object.assign(
+  {
+    getBounds: jest.fn(() => ({ width: 1200, height: 800 })),
+    loadFile: jest.fn(),
+    loadURL: jest.fn(),
+    on: jest.fn(),
+    once: jest.fn(),
+    show: jest.fn(),
+    focus: jest.fn(),
+    close: jest.fn(),
+    isDestroyed: jest.fn(() => false),
+    webContents: {
+      send: jest.fn(),
+    },
+    contentView: {
+      addChildView: jest.fn(),
+      removeChildView: jest.fn(),
+      children: [] as unknown[],
+    },
   },
-  contentView: {
-    addChildView: jest.fn(),
-    removeChildView: jest.fn(),
-    children: [] as unknown[],
-  },
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-} as any;
+  {}
+);
 
 const mockBrowserWindow = {
   getFocusedWindow: jest.fn(),

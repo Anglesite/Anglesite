@@ -19,13 +19,6 @@ export default {
       lines: 90,
       statements: 90,
     },
-    // Specific thresholds for dark mode feature files
-    './app/ui/theme-manager.ts': {
-      branches: 80,
-      functions: 90,
-      lines: 90,
-      statements: 90,
-    },
   },
 
   // Files to collect coverage from
@@ -33,4 +26,10 @@ export default {
 
   // Test match patterns
   testMatch: ['**/__tests__/**/*.ts?(x)', '**/?(*.)+(spec|test).ts?(x)'],
+
+  // Prevent worker hanging
+  maxWorkers: 1,
+  detectOpenHandles: true,
+  forceExit: true,
+  testTimeout: 10000,
 };

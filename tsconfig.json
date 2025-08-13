@@ -7,7 +7,9 @@
     "strict": true,
     "skipLibCheck": true,
     "outDir": "dist/app",
-    "allowJs": true // Allow JavaScript files to be processed by TypeScript
+    "allowJs": true, // Allow JavaScript files to be processed by TypeScript
+    "downlevelIteration": true, // Enable iteration over Map and other iterables
+    "types": ["node", "jest"]
   },
   "include": ["app", "app/types.d.ts", "types"]
 }

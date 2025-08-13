@@ -1,11 +1,6 @@
 /**
  * @file Tests for Certificate Authority and SSL certificate management
  */
-import * as fs from 'fs';
-import * as path from 'path';
-import * as os from 'os';
-import { execSync } from 'child_process';
-import { createCA, createCert } from 'mkcert';
 import {
   generateCertificate,
   isCAInstalledInSystem,
@@ -14,33 +9,36 @@ import {
   loadCertificates,
 } from '../app/certificates';
 
-// Mock external dependencies
-jest.mock('mkcert');
-jest.mock('fs');
-jest.mock('child_process');
-jest.mock('os');
-jest.mock('path');
-
-const mockCreateCA = createCA as jest.MockedFunction<typeof createCA>;
-const mockCreateCert = createCert as jest.MockedFunction<typeof createCert>;
-const mockFs = fs as jest.Mocked<typeof fs>;
-const mockExecSync = execSync as jest.MockedFunction<typeof execSync>;
-const mockOs = os as jest.Mocked<typeof os>;
-const mockPath = path as jest.Mocked<typeof path>;
+// Import centralized mocks
+import {
+  mockFs,
+  mockPath,
+  mockOs,
+  mockExecSync,
+  mockCreateCA,
+  mockCreateCert,
+  resetNodeModuleMocks,
+  resetThirdPartyMocks,
+  setupConsoleSpies,
+  restoreConsoleSpies,
+} from './mocks';
 
 describe('Certificates Module', () => {
   let consoleLogSpy: jest.SpyInstance;
   let consoleErrorSpy: jest.SpyInstance;
 
   beforeEach(() => {
-    jest.clearAllMocks();
+    // Reset all mocks
+    resetNodeModuleMocks();
+    resetThirdPartyMocks();
 
     // Reset modules to clear the certificate cache
     jest.resetModules();
 
     // Spy on console methods
-    consoleLogSpy = jest.spyOn(console, 'log').mockImplementation();
-    consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
+    const { consoleSpy, consoleErrorSpy: errorSpy } = setupConsoleSpies();
+    consoleLogSpy = consoleSpy;
+    consoleErrorSpy = errorSpy;
 
     // Mock os methods
     mockOs.homedir.mockReturnValue('/Users/testuser');
@@ -60,8 +58,7 @@ describe('Certificates Module', () => {
   });
 
   afterEach(() => {
-    consoleLogSpy.mockRestore();
-    consoleErrorSpy.mockRestore();
+    restoreConsoleSpies(consoleLogSpy, consoleErrorSpy);
   });
 
   describe('getCAPath', () => {
@@ -71,7 +68,7 @@ describe('Certificates Module', () => {
         configurable: true,
       });
 
-      const result = getCAPath();
+      getCAPath();
 
       expect(mockPath.join).toHaveBeenCalledWith('/Users/testuser', 'Library', 'Application Support', 'Anglesite');
       expect(mockPath.join).toHaveBeenCalledWith(
@@ -87,7 +84,7 @@ describe('Certificates Module', () => {
         configurable: true,
       });
 
-      const result = getCAPath();
+      getCAPath();
 
       expect(mockPath.join).toHaveBeenCalledWith('/Users/testuser/AppData', 'Anglesite');
       expect(mockPath.join).toHaveBeenCalledWith('/Users/testuser/AppData/Anglesite', 'ca', 'ca.crt');
@@ -99,7 +96,7 @@ describe('Certificates Module', () => {
         configurable: true,
       });
 
-      const result = getCAPath();
+      getCAPath();
 
       expect(mockPath.join).toHaveBeenCalledWith('/Users/testuser', '.config', 'anglesite');
       expect(mockPath.join).toHaveBeenCalledWith('/Users/testuser/.config/anglesite', 'ca', 'ca.crt');
@@ -112,7 +109,7 @@ describe('Certificates Module', () => {
       });
       delete process.env.APPDATA;
 
-      const result = getCAPath();
+      getCAPath();
 
       expect(mockPath.join).toHaveBeenCalledWith('', 'Anglesite');
     });
@@ -124,7 +121,7 @@ describe('Certificates Module', () => {
       });
       process.env.APPDATA = '/Windows/AppData';
 
-      const result = getCAPath();
+      getCAPath();
 
       expect(mockPath.join).toHaveBeenCalledWith('/Windows/AppData', 'Anglesite');
     });

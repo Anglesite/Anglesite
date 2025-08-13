@@ -1,6 +1,5 @@
 /**
  * @file Tests for Electron preload script
- * @jest-environment jsdom
  */
 
 // Mock electron modules
@@ -21,8 +20,18 @@ jest.mock('electron', () => ({
   ipcRenderer: mockIpcRenderer,
 }));
 
+interface ElectronAPI {
+  send: jest.Mock;
+  invoke: jest.Mock;
+  on: jest.Mock;
+  removeAllListeners: jest.Mock;
+  getCurrentTheme: jest.Mock;
+  setTheme: jest.Mock;
+  onThemeUpdated: jest.Mock;
+}
+
 describe('Preload Script', () => {
-  let electronAPI: any;
+  let electronAPI: ElectronAPI;
 
   beforeAll(() => {
     // Clear any previous mock calls
@@ -182,7 +191,7 @@ describe('Preload Script', () => {
 
     it('should call callback when event is received', () => {
       const mockCallback = jest.fn();
-      let eventHandler: Function;
+      let eventHandler: (...args: unknown[]) => void;
 
       // Capture the event handler
       mockIpcRenderer.on.mockImplementation((channel, handler) => {
@@ -208,7 +217,7 @@ describe('Preload Script', () => {
 
     it('should handle callback without arguments', () => {
       const mockCallback = jest.fn();
-      let eventHandler: Function;
+      let eventHandler: (...args: unknown[]) => void;
 
       mockIpcRenderer.on.mockImplementation((channel, handler) => {
         eventHandler = handler;
@@ -291,7 +300,7 @@ describe('Preload Script', () => {
 
       it('should call callback when theme-updated event is received', () => {
         const mockCallback = jest.fn();
-        let eventHandler: Function;
+        let eventHandler: (...args: unknown[]) => void;
 
         mockIpcRenderer.on.mockImplementation((channel, handler) => {
           if (channel === 'theme-updated') {

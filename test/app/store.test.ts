@@ -28,7 +28,7 @@ describe('Store', () => {
   let mockUserDataPath: string;
   let mockSettingsPath: string;
   let consoleSpy: jest.SpyInstance;
-  let mockApp: any;
+  let mockApp: { getPath: jest.Mock };
 
   beforeEach(() => {
     // Reset all mocks
@@ -67,7 +67,7 @@ describe('Store', () => {
       expect(store.get('httpsMode')).toBe(null);
       expect(store.get('firstLaunchCompleted')).toBe(false);
       expect(store.get('theme')).toBe('system');
-      expect(store.get('showHelpOnStartup')).toBe(true);
+      expect(store.get('showHelpOnStartup')).toBe(false);
       expect(store.get('openWebsiteWindows')).toEqual([]);
     });
 
@@ -137,7 +137,7 @@ describe('Store', () => {
       expect(store.get('httpsMode')).toBe(null);
       expect(store.get('firstLaunchCompleted')).toBe(false);
       expect(store.get('theme')).toBe('system');
-      expect(store.get('showHelpOnStartup')).toBe(true);
+      expect(store.get('showHelpOnStartup')).toBe(false);
       expect(store.get('openWebsiteWindows')).toEqual([]);
     });
 
@@ -225,7 +225,7 @@ describe('Store', () => {
         httpsMode: null,
         firstLaunchCompleted: false,
         theme: 'system',
-        showHelpOnStartup: true,
+        showHelpOnStartup: false,
         openWebsiteWindows: [],
       });
     });
@@ -261,7 +261,7 @@ describe('Store', () => {
       expect(store.get('autoDnsEnabled')).toBe(true);
       expect(store.get('theme')).toBe('dark');
       expect(store.get('firstLaunchCompleted')).toBe(true);
-      expect(store.get('showHelpOnStartup')).toBe(true); // Unchanged
+      expect(store.get('showHelpOnStartup')).toBe(false); // Unchanged
       expect(mockedFs.writeFileSync).toHaveBeenCalledTimes(1);
     });
 
@@ -455,7 +455,7 @@ describe('Store', () => {
 
   describe('Edge cases and error handling', () => {
     it('should handle undefined userData path', () => {
-      mockApp.getPath.mockReturnValue(undefined as any);
+      mockApp.getPath.mockReturnValue(undefined);
       mockedPath.join.mockReturnValue('undefined/settings.json');
       mockedFs.existsSync.mockReturnValue(false);
 
@@ -544,7 +544,7 @@ describe('Store', () => {
           httpsMode: 'https',
           firstLaunchCompleted: true,
           theme: 'dark',
-          showHelpOnStartup: true,
+          showHelpOnStartup: false,
           openWebsiteWindows: windowStates,
         })
       );

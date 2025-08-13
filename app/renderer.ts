@@ -1,3 +1,7 @@
+declare const window: Window & typeof globalThis;
+declare const document: Document;
+declare function prompt(message?: string, defaultValue?: string): string | null;
+
 /**
  * @file Renderer process for the Electron application.
  * @see {@link https://www.electronjs.org/docs/latest/tutorial/process-model#renderer-process}
