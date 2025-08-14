@@ -3,6 +3,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { app } from 'electron';
 
 /**
  * Interface for template replacement variables.
@@ -19,7 +20,22 @@ interface TemplateVariables {
  */
 export function loadTemplate(templateName: string, variables: TemplateVariables = {}): string {
   try {
-    const templatePath = path.join(__dirname, 'templates', `${templateName}.html`);
+    // Handle both development and packaged app paths
+    let templatePath: string;
+
+    try {
+      if (app.isPackaged) {
+        // In packaged app, use the app resources path
+        templatePath = path.join(process.resourcesPath, 'app', 'ui', 'templates', `${templateName}.html`);
+      } else {
+        // In development, use __dirname
+        templatePath = path.join(__dirname, 'templates', `${templateName}.html`);
+      }
+    } catch (appError) {
+      // Fallback to __dirname if app module access fails
+      console.warn('Failed to access app module, falling back to __dirname:', appError);
+      templatePath = path.join(__dirname, 'templates', `${templateName}.html`);
+    }
 
     if (!fs.existsSync(templatePath)) {
       throw new Error(`Template file not found: ${templatePath}`);

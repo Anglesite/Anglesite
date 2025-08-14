@@ -4,7 +4,7 @@
  */
 import { app, Menu } from 'electron';
 // Import modular components
-import { createHelpWindow, closeAllWindows } from './ui/multi-window-manager';
+import { createHelpWindow, closeAllWindows, restoreWindowStates } from './ui/multi-window-manager';
 import { createApplicationMenu } from './ui/menu';
 import { setupIpcMainListeners } from './ipc/handlers';
 import { Store } from './store';
@@ -69,7 +69,6 @@ async function initializeApp(): Promise<void> {
   console.log('Anglesite initialization complete');
 
   // Restore previously open website windows
-  const { restoreWindowStates } = await import('./ui/multi-window-manager');
   await restoreWindowStates();
 
   // Note: Help window is now only created when explicitly requested by the user
@@ -114,7 +113,7 @@ app.on('window-all-closed', () => {
 app.on('before-quit', async () => {
   console.log('Cleaning up resources...');
   await cleanupEleventyServer();
-  closeAllWindows();
+  await closeAllWindows();
 });
 
 // Handle certificate errors for development

@@ -19,14 +19,13 @@ import {
   getBagItMetadata,
   BagItMetadata,
 } from '../ui/window-manager';
-import { createWebsiteWindow, loadWebsiteContent, getAllWebsiteWindows } from '../ui/multi-window-manager';
 import {
-  getCurrentLiveServerUrl,
-  isLiveServerReady,
-  switchToWebsite,
-  setLiveServerUrl,
-  setCurrentWebsiteName,
-} from '../server/eleventy';
+  createWebsiteWindow,
+  loadWebsiteContent,
+  getAllWebsiteWindows,
+  startWebsiteServerAndUpdateWindow,
+} from '../ui/multi-window-manager';
+import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
 import {
   createWebsiteWithName,
   validateWebsiteName,
@@ -35,9 +34,6 @@ import {
   renameWebsite,
   deleteWebsite,
 } from '../utils/website-manager';
-import { addLocalDnsResolution } from '../dns/hosts-manager';
-import { restartHttpsProxy } from '../server/https-proxy';
-import { Store } from '../store';
 
 /**
  * Setup all IPC message listeners for inter-process communication
@@ -212,6 +208,7 @@ export function setupIpcMainListeners(): void {
 
   // Website opening handler
   ipcMain.on('open-website', async (event, websiteName: string) => {
+    console.log(`DEBUG: Received open-website IPC for: ${websiteName}`);
     try {
       await openWebsiteInNewWindow(websiteName);
       console.log(`Website "${websiteName}" opened successfully in new window`);
@@ -440,11 +437,11 @@ export async function exportSiteHandler(event: IpcMainEvent | null, exportFormat
       // In packaged apps, config file is relative to __dirname, in dev it's relative to cwd
       const isPackaged = process.env.NODE_ENV === 'production' || !process.env.NODE_ENV;
       const configPath = isPackaged
-        ? path.resolve(__dirname, '..', 'eleventy', '.eleventy.js')  // __dirname is in dist/app/ipc/, so go up one level
+        ? path.resolve(__dirname, '..', 'eleventy', '.eleventy.js') // __dirname is in dist/app/ipc/, so go up one level
         : path.resolve(process.cwd(), 'app/eleventy/.eleventy.js');
 
       console.log(`Using Eleventy config: ${configPath}`);
-      console.log(`Config exists: ${require('fs').existsSync(configPath)}`);
+      console.log(`Config exists: ${fs.existsSync(configPath)}`);
       console.log(`__dirname: ${__dirname}`);
       console.log(`process.cwd(): ${process.cwd()}`);
       console.log(`isPackaged: ${isPackaged}`);
@@ -611,6 +608,9 @@ async function createBagItArchive(
 
     // Copy all files from build directory to bag
     await new Promise<void>((resolve, reject) => {
+      // Track created directories to avoid redundant mkdir calls
+      const createdDirs = new Set<string>();
+
       const copyFiles = (sourceDir: string, targetPrefix = '') => {
         const files = fs.readdirSync(sourceDir, { withFileTypes: true });
         let pending = files.length;
@@ -625,14 +625,38 @@ async function createBagItArchive(
           const targetPath = path.join(targetPrefix, file.name);
 
           if (file.isDirectory()) {
-            // Recursively copy directory contents
-            copyFiles(sourcePath, targetPath);
-            pending--;
-            if (pending === 0) resolve();
+            // Create the directory in the bag if it has a path
+            if (targetPath) {
+              const bagDirPath = targetPath;
+              if (!createdDirs.has(bagDirPath)) {
+                createdDirs.add(bagDirPath);
+                bag.mkdir(bagDirPath, (err) => {
+                  if (err) {
+                    console.warn(`Failed to create directory ${bagDirPath}:`, err);
+                  }
+                  // Recursively copy directory contents
+                  copyFiles(sourcePath, targetPath);
+                  pending--;
+                  if (pending === 0) resolve();
+                });
+              } else {
+                // Directory already created, just recurse
+                copyFiles(sourcePath, targetPath);
+                pending--;
+                if (pending === 0) resolve();
+              }
+            } else {
+              // Root level, just recurse
+              copyFiles(sourcePath, targetPath);
+              pending--;
+              if (pending === 0) resolve();
+            }
           } else {
             // Copy file to bag
             const readStream = fs.createReadStream(sourcePath);
-            const writeStream = bag.createWriteStream(`/data${targetPath}`);
+            // Use relative path - BagIt library automatically handles /data/ prefix
+            const bagPath = targetPath;
+            const writeStream = bag.createWriteStream(bagPath);
 
             readStream.pipe(writeStream);
             writeStream.on('finish', () => {
@@ -732,17 +756,55 @@ async function createZipArchiveFromDirectory(sourceDir: string, outputPath: stri
 async function createNewWebsite(websiteName: string): Promise<void> {
   console.log('Creating new website:', websiteName);
 
+  let websiteCreated = false;
+  let newWebsitePath = '';
+
   try {
-    // Create the website files
-    const newWebsitePath = await createWebsiteWithName(websiteName);
+    // Step 1: Create the website files (this validates name and creates directory)
+    newWebsitePath = await createWebsiteWithName(websiteName);
+    websiteCreated = true;
     console.log('New website created at:', newWebsitePath);
 
-    // Open the new website in a new window (with isNewWebsite = true)
+    // Step 2: Open the new website in a new window (with isNewWebsite = true)
     await openWebsiteInNewWindow(websiteName, newWebsitePath, true);
 
     console.log(`Website "${websiteName}" created and opened in new window`);
   } catch (error) {
     console.error('Failed to create new website:', error);
+
+    // If we created the website directory but failed to open it, clean up
+    if (websiteCreated && newWebsitePath) {
+      try {
+        console.log('Cleaning up partially created website directory...');
+        if (fs.existsSync(newWebsitePath)) {
+          fs.rmSync(newWebsitePath, { recursive: true, force: true });
+          console.log('Cleaned up website directory:', newWebsitePath);
+        }
+      } catch (cleanupError) {
+        console.error('Failed to clean up website directory:', cleanupError);
+        // Don't throw cleanup error, let the original error be thrown
+      }
+    }
+
+    // If the error is about website already existing, provide a helpful message
+    if (error instanceof Error && error.message.includes('already exists')) {
+      // Check if the website actually exists and is valid
+      try {
+        const { getWebsitePath } = await import('../utils/website-manager');
+        const existingPath = getWebsitePath(websiteName);
+        if (fs.existsSync(existingPath)) {
+          // Website exists, try to open it instead
+          console.log('Website already exists, attempting to open existing website...');
+          await openWebsiteInNewWindow(websiteName, existingPath, false);
+          console.log(`Opened existing website "${websiteName}" successfully`);
+          return; // Success - exit without throwing
+        }
+      } catch (openError) {
+        console.error('Failed to open existing website:', openError);
+        // Fall through to throw original error
+      }
+    }
+
     throw error;
   }
 }
@@ -750,65 +812,60 @@ async function createNewWebsite(websiteName: string): Promise<void> {
 /**
  * Open a website in a new dedicated window.
  */
-async function openWebsiteInNewWindow(
+export async function openWebsiteInNewWindow(
   websiteName: string,
   websitePath?: string,
   isNewWebsite: boolean = false
 ): Promise<void> {
   console.log(`Opening website "${websiteName}" in new window (new website: ${isNewWebsite})`);
 
+  let windowCreated = false;
+
   try {
-    // Get website path if not provided
+    // Step 1: Get website path if not provided
     const actualWebsitePath = websitePath || getWebsitePath(websiteName);
+    console.log(`Website path resolved to: ${actualWebsitePath}`);
 
-    // Create a new window for this website
-    createWebsiteWindow(websiteName, actualWebsitePath);
-
-    // Switch to the selected website and get the actual port
-    const actualPort = await switchToWebsite(actualWebsitePath);
-
-    // Generate test domain and setup DNS
-    const testDomain = `https://${websiteName}.test:8080`;
-    const hostname = `${websiteName}.test`;
-
-    // Setup DNS resolution
-    await addLocalDnsResolution(hostname);
-
-    // Check user's HTTPS preference
-    const store = new Store();
-    const httpsMode = store.get('httpsMode');
-
-    if (httpsMode === 'https') {
-      // Restart HTTPS proxy for the domain using the actual port
-      const httpsSuccess = await restartHttpsProxy(8080, actualPort, hostname);
-      if (httpsSuccess) {
-        console.log(`Website HTTPS server ready at: ${testDomain}`);
-        // Update the server URL for the new website
-        setLiveServerUrl(testDomain);
-        setCurrentWebsiteName(websiteName);
-      } else {
-        console.log('HTTPS proxy failed, continuing with HTTP-only mode');
-        // Fallback to HTTP URL with actual port
-        setLiveServerUrl(`http://localhost:${actualPort}`);
-        setCurrentWebsiteName(websiteName);
-      }
-    } else {
-      console.log('HTTP-only mode by user preference, skipping HTTPS proxy');
-      // Set HTTP URL with actual port
-      setLiveServerUrl(`http://localhost:${actualPort}`);
-      setCurrentWebsiteName(websiteName);
+    // Verify the website directory exists
+    if (!fs.existsSync(actualWebsitePath)) {
+      throw new Error(`Website directory does not exist: ${actualWebsitePath}`);
     }
 
-    // Load the website content in its window (after HTTPS proxy is ready)
-    // Add a longer delay for new websites to ensure Eleventy has fully processed the files
-    const delay = isNewWebsite ? 2500 : 1000;
-    setTimeout(() => {
-      loadWebsiteContent(websiteName);
-    }, delay);
+    // Step 2: Create a new window for this website
+    createWebsiteWindow(websiteName, actualWebsitePath);
+    windowCreated = true;
+    console.log(`Window created for: ${websiteName}`);
+
+    // Step 3: Try to start individual server for this website, fallback gracefully
+    try {
+      await startWebsiteServerAndUpdateWindow(websiteName, actualWebsitePath);
+      console.log(`Individual server started successfully for: ${websiteName}`);
+    } catch (serverError) {
+      console.warn(`Failed to start individual server for ${websiteName}, using fallback content:`, serverError);
+      // Load with fallback content - this is not a fatal error
+      try {
+        loadWebsiteContent(websiteName);
+        console.log(`Fallback content loaded for: ${websiteName}`);
+      } catch (fallbackError) {
+        console.error(`Failed to load fallback content for ${websiteName}:`, fallbackError);
+        // Don't throw here - window is created, user can manually reload
+      }
+    }
 
     console.log(`Website "${websiteName}" ready in dedicated window`);
   } catch (error) {
     console.error(`Failed to open website "${websiteName}" in new window:`, error);
-    throw error;
+
+    // If we created a window but failed later, the window will remain open
+    // which is probably what the user wants (they can see the error and try to reload)
+    if (windowCreated) {
+      console.log(
+        `Window was created for ${websiteName} but startup failed. Window remains open for manual intervention.`
+      );
+    }
+
+    throw new Error(
+      `Failed to open website "${websiteName}": ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 }

@@ -60,8 +60,22 @@
       "Bash(open:*)",
       "WebFetch(domain:www.11ty.dev)",
       "Bash(sed:*)",
-      "Bash(git checkout:*)"
+      "Bash(git checkout:*)",
+      "Bash(git commit:*)",
+      "Bash(npm audit:*)",
+      "Bash(npx eleventy:*)",
+      "Bash(ln:*)",
+      "Bash(for site in \"asd-test\" \"new-test\" \"test-new\")",
+      "Bash(npm run dist:*)",
+      "Bash(ls:*)",
+      "Bash(open dist/build/mac-arm64/Anglesite.app)",
+      "Bash(./dist/build/mac-arm64/Anglesite.app/Contents/MacOS/Anglesite)",
+      "Bash(npm run clear-cache:*)",
+      "Bash(terminal-notifier:*)",
+      "Bash(timeout 10s npm start:*)",
+      "Bash(gtimeout:*)"
     ],
-    "deny": []
+    "deny": [],
+    "defaultMode": "acceptEdits"
   }
 }

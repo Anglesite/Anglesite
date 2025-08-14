@@ -33,7 +33,7 @@ export const mockArchiver = {
 
 jest.mock('archiver', () => mockArchiver);
 
-// Mock http-proxy module
+// Mock http-proxy module (conditional)
 export const mockHttpProxy = {
   createProxyServer: jest.fn(() => ({
     on: jest.fn(),
@@ -43,15 +43,25 @@ export const mockHttpProxy = {
   })),
 };
 
-jest.mock('http-proxy', () => mockHttpProxy);
+try {
+  require.resolve('http-proxy');
+  jest.mock('http-proxy', () => mockHttpProxy);
+} catch {
+  // Module not found, skip mocking
+}
 
-// Mock live-server module
+// Mock live-server module (conditional)
 export const mockLiveServer = {
   start: jest.fn(),
   shutdown: jest.fn(),
 };
 
-jest.mock('live-server', () => mockLiveServer);
+try {
+  require.resolve('live-server');
+  jest.mock('live-server', () => mockLiveServer);
+} catch {
+  // Module not found, skip mocking
+}
 
 // Mock @11ty/eleventy
 export const mockEleventyClass = jest.fn().mockImplementation(() => ({
@@ -64,6 +74,32 @@ export const mockEleventyClass = jest.fn().mockImplementation(() => ({
 }));
 
 jest.mock('@11ty/eleventy', () => mockEleventyClass);
+
+// Mock @11ty/eleventy-dev-server
+export const mockEleventyDevServerClass = jest.fn().mockImplementation(() => ({
+  serve: jest.fn(),
+  close: jest.fn(),
+  watchFiles: jest.fn(),
+  watcher: {
+    on: jest.fn(),
+    close: jest.fn(),
+  },
+}));
+
+jest.mock('@11ty/eleventy-dev-server', () => mockEleventyDevServerClass);
+
+// Mock bagit-fs
+export const mockBagItFs = jest.fn(() => ({
+  createWriteStream: jest.fn(() => ({
+    on: jest.fn(),
+    write: jest.fn(),
+    end: jest.fn(),
+  })),
+  mkdir: jest.fn((path, callback) => callback && callback()),
+  finalize: jest.fn((callback) => callback && callback()),
+}));
+
+jest.mock('bagit-fs', () => mockBagItFs);
 
 // Reset all third-party mocks
 export const resetThirdPartyMocks = () => {
@@ -89,4 +125,8 @@ export const resetThirdPartyMocks = () => {
 
   // Reset eleventy mocks
   mockEleventyClass.mockClear();
+  mockEleventyDevServerClass.mockClear();
+
+  // Reset bagit-fs mocks
+  mockBagItFs.mockClear();
 };

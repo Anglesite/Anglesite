@@ -1,6 +1,5 @@
 ---
 title: Welcome to Anglesite
-layout: base-layout.njk
 ---
 
 ## Options

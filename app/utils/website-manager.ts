@@ -59,32 +59,93 @@ export async function createWebsiteWithName(websiteName: string): Promise<string
 
   fs.mkdirSync(newWebsitePath, { recursive: true });
 
-  // Create basic website structure
-  const indexContent = [
-    '---',
-    'layout: base-layout.njk',
-    'title: ' + websiteName,
-    '---',
-    '',
-    '# Welcome to ' + websiteName,
-    '',
-    'This is your new website! Edit this file to get started.',
-    '',
-    '## Getting Started',
-    '',
-    '- Edit this markdown file to change the content',
-    '- Add more pages by creating new .md files',
-    '- Customize the layout in the _includes directory',
-    '- Add styles to style.css',
-    '',
-    'Happy building! 🚀',
-    '',
-  ].join('\n');
+  // Use the app/eleventy/src directory as the template source
+  const templateSourcePath = path.join(__dirname, '..', 'eleventy', 'src');
 
-  fs.writeFileSync(path.join(newWebsitePath, 'index.md'), indexContent);
+  // Copy all files from the template directory
+  if (fs.existsSync(templateSourcePath)) {
+    copyDirectoryRecursive(templateSourcePath, newWebsitePath);
+
+    // Now customize the index.md with the website name
+    const indexPath = path.join(newWebsitePath, 'index.md');
+    if (fs.existsSync(indexPath)) {
+      // Read the template content
+      let indexContent = fs.readFileSync(indexPath, 'utf8');
+
+      // Replace the title in frontmatter and content with website-specific values
+      indexContent = indexContent.replace(/title: .*/, `title: Welcome to ${websiteName}!`);
+      indexContent = indexContent.replace(
+        /This is your new website!.*/,
+        `Welcome to ${websiteName}! This is your new Anglesite-powered website.`
+      );
+
+      // Add a personalized welcome section
+      const welcomeSection = `
+
+## About ${websiteName}
+
+Your new website is ready to go! ${websiteName} is powered by Anglesite and uses Eleventy for static site generation.
+
+### Quick Tips
+
+- This site was created from the Anglesite template
+- All your content is stored locally on your computer
+- Changes are automatically detected and rebuilt
+- You can preview your site instantly in the Anglesite app`;
+
+      // Insert the welcome section after the first paragraph
+      indexContent = indexContent.replace(/(Edit this file to get started\.)/, `$1${welcomeSection}`);
+
+      // Write the customized content back
+      fs.writeFileSync(indexPath, indexContent);
+    }
+  }
+
+  // Create _includes directory and copy layout files
+  const includesDir = path.join(newWebsitePath, '_includes');
+  if (!fs.existsSync(includesDir)) {
+    fs.mkdirSync(includesDir, { recursive: true });
+
+    // Copy layout files from app's eleventy includes
+    const sourceIncludesPath = path.join(__dirname, '..', 'eleventy', 'includes');
+    const layoutFiles = ['base-layout.njk', 'header.njk', 'style.css'];
+
+    for (const file of layoutFiles) {
+      const sourcePath = path.join(sourceIncludesPath, file);
+      const destPath = path.join(includesDir, file);
+
+      if (fs.existsSync(sourcePath)) {
+        fs.copyFileSync(sourcePath, destPath);
+        console.log(`Copied layout file: ${file}`);
+      }
+    }
+  }
 
   console.log('New website created at:', newWebsitePath);
   return newWebsitePath;
+}
+
+/**
+ * Recursively copy directory contents.
+ */
+function copyDirectoryRecursive(source: string, target: string): void {
+  if (!fs.existsSync(target)) {
+    fs.mkdirSync(target, { recursive: true });
+  }
+
+  const files = fs.readdirSync(source);
+
+  for (const file of files) {
+    const sourcePath = path.join(source, file);
+    const targetPath = path.join(target, file);
+
+    if (fs.lstatSync(sourcePath).isDirectory()) {
+      copyDirectoryRecursive(sourcePath, targetPath);
+    } else {
+      fs.copyFileSync(sourcePath, targetPath);
+      console.log(`Copied: ${file}`);
+    }
+  }
 }
 
 /**

@@ -1,17 +1,18 @@
 /**
  * @file Eleventy server management.
  */
-import { spawn, ChildProcess } from 'child_process';
+import { ChildProcess } from 'child_process';
 import * as path from 'path';
 import * as fs from 'fs';
+import * as os from 'os';
 // @ts-expect-error - Eleventy may not have perfect TypeScript types
 import Eleventy from '@11ty/eleventy';
 // @ts-expect-error - Eleventy dev server may not have perfect TypeScript types
 import EleventyDevServer from '@11ty/eleventy-dev-server';
 
 let liveServerProcess: ChildProcess | null = null;
-let devServer: any = null;
-let eleventy: any = null;
+let devServer: EleventyDevServer | null = null;
+let eleventy: Eleventy | null = null;
 let liveServerReady = false;
 let currentLiveServerUrl = 'https://localhost:8080';
 let currentWebsiteName = 'anglesite';
@@ -93,14 +94,19 @@ export async function startEleventyServer(
   onReady?: (url: string) => void,
   onError?: (error: string) => void
 ): Promise<void> {
+  // Port is handled by the new per-website server architecture
   // Stop existing server first
   await stopEleventyServer();
 
   console.log(`Starting Eleventy server for: ${inputDir}`);
 
   try {
-    // Set up output directory
-    outputDir = path.join(process.cwd(), '_site_temp', path.basename(inputDir));
+    // Set up output directory - use a writable directory outside the app bundle
+    const isPackaged = process.env.NODE_ENV === 'production' || !process.env.NODE_ENV;
+    const baseDir = isPackaged
+      ? os.tmpdir() // Use system temp directory for packaged apps
+      : process.cwd();
+    outputDir = path.join(baseDir, 'anglesite-temp', '_site_temp', path.basename(inputDir));
 
     // Ensure output directory exists
     if (!fs.existsSync(outputDir)) {
@@ -109,11 +115,10 @@ export async function startEleventyServer(
 
     // Configure Eleventy programmatically
     // In packaged apps, config file is relative to __dirname, in dev it's relative to cwd
-    const isPackaged = process.env.NODE_ENV === 'production' || !process.env.NODE_ENV;
-    const configPath = isPackaged 
-      ? path.resolve(__dirname, '..', 'eleventy', '.eleventy.js')  // __dirname is in dist/app/server/, so go up one level
-      : path.resolve(process.cwd(), 'app/eleventy/.eleventy.js');
-    
+    const configPath = isPackaged
+      ? path.resolve(__dirname, '..', 'eleventy', '.eleventy.js') // __dirname is in dist/app/server/, so go up one level
+      : path.resolve(baseDir, 'app/eleventy/.eleventy.js');
+
     eleventy = new Eleventy(inputDir, outputDir, {
       quietMode: true,
       configPath: configPath,

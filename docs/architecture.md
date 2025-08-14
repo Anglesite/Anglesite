@@ -71,6 +71,7 @@ anglesite/
 │   ├── server/                 # Server components
 │   │   ├── eleventy.ts         # Eleventy server management
 │   │   ├── https-proxy.ts      # HTTPS proxy server
+│   │   ├── per-website-server.ts # Individual website server instances
 │   │   └── index.ts            # Server module exports
 │   │
 │   ├── ui/                     # User interface components
@@ -97,8 +98,14 @@ anglesite/
 │   │
 │   └── eleventy/               # Eleventy configuration
 │       ├── .eleventy.js        # Eleventy config
-│       ├── includes/           # Layout templates
-│       └── src/                # Default content
+│       ├── includes/           # Layout templates (legacy)
+│       └── src/                # Website template source
+│           ├── index.md        # Default homepage template
+│           ├── 404.md          # Error page template
+│           └── _includes/      # Eleventy templates
+│               ├── base-layout.njk
+│               ├── header.njk
+│               └── style.css
 │
 ├── dist/                       # Compiled output
 │   ├── app/                    # Compiled TypeScript
@@ -275,6 +282,9 @@ graph TD
 - **Independent Preview**: Each website window has its own WebContentsView
 - **Window State Management**: Tracks open websites and prevents duplicates
 - **Seamless Editing Workflow**: Direct website creation and editing flow
+- **Individual Server Instances**: Each window runs its own Eleventy dev server
+- **Window State Persistence**: Window positions and open websites restored on app restart
+- **Server Lifecycle Management**: Automatic server cleanup on window close
 
 ### 5. Template System Architecture
 
@@ -358,22 +368,33 @@ graph TD
         NewSite[New Website Request]
         Validate[Validate Name]
         CreateDir[Create Directory]
-        CreateFiles[Create index.md]
-        AddDNS[Add to /etc/hosts]
-        StartServer[Switch Server Context]
+        CopyTemplate[Copy Template Files]
+        CustomizeContent[Customize index.md]
+        OpenWindow[Open in New Window]
+        StartServer[Start Individual Server]
     end
 
     NewSite --> Validate
     Validate -->|Valid| CreateDir
     Validate -->|Invalid| Error[Show Error]
-    CreateDir --> CreateFiles
-    CreateFiles --> AddDNS
-    AddDNS --> StartServer
+    CreateDir --> CopyTemplate
+    CopyTemplate --> CustomizeContent
+    CustomizeContent --> OpenWindow
+    OpenWindow --> StartServer
 
     subgraph "Website Structure"
         WebDir[websites/sitename/]
         IndexMD[index.md]
+        ErrorPage[404.md]
+        Includes[_includes/]
+        Layouts[base-layout.njk]
+        Styles[style.css]
+
         WebDir --> IndexMD
+        WebDir --> ErrorPage
+        WebDir --> Includes
+        Includes --> Layouts
+        Includes --> Styles
     end
 ```
 
@@ -381,25 +402,36 @@ graph TD
 
 ```mermaid
 graph LR
-    subgraph "Development Server Stack"
-        Browser[Browser]
-        HTTPS[HTTPS Proxy<br/>:8080]
-        HTTP[Eleventy Server<br/>:8081]
-        Files[Website Files]
+    subgraph "Per-Website Server Architecture"
+        Window1[Website Window 1]
+        Window2[Website Window 2]
+        WindowN[Website Window N]
+
+        Server1[Eleventy Server<br/>Port: Dynamic]
+        Server2[Eleventy Server<br/>Port: Dynamic]
+        ServerN[Eleventy Server<br/>Port: Dynamic]
+
+        Files1[Website 1 Files]
+        Files2[Website 2 Files]
+        FilesN[Website N Files]
     end
 
-    Browser -->|https://site.test:8080| HTTPS
-    HTTPS -->|Proxy to localhost| HTTP
-    HTTP -->|Serve| Files
+    Window1 -->|WebContentsView| Server1
+    Window2 -->|WebContentsView| Server2
+    WindowN -->|WebContentsView| ServerN
 
-    Browser -->|http://localhost:8081| HTTP
+    Server1 -->|Serve| Files1
+    Server2 -->|Serve| Files2
+    ServerN -->|Serve| FilesN
 ```
 
-**Dual Mode Support:**
+**Individual Server Instances:**
 
-- **HTTPS Mode**: Browser → HTTPS Proxy (:8080) → Eleventy (:8081)
-- **HTTP Mode**: Browser → Eleventy (:8081) directly
-- Hot reload via Eleventy's built-in WebSocket
+- **Per-Website Servers**: Each website window runs its own Eleventy server instance
+- **Dynamic Port Allocation**: Automatically finds available ports for each server
+- **Independent Building**: Each server builds to its own temporary directory
+- **Hot Reload**: File watching and live reload per website
+- **Resource Cleanup**: Servers stop when windows close, temp directories cleaned
 
 ## Data Flow
 
@@ -434,6 +466,8 @@ sequenceDiagram
 - `toggle-devtools`: Toggle developer tools
 - `build`: Trigger site build
 - `open-browser`: Open in external browser
+- `reload-preview`: Reload preview content
+- `toggle-preview-devtools`: Toggle preview dev tools
 - `show-website-context-menu`: Display right-click menu
 - `get-theme`: Get current theme setting
 - `set-theme`: Update theme preference
@@ -532,11 +566,14 @@ stateDiagram-v2
    - Custom build pipelines
    - Third-party integrations
 
-2. **Multi-Site Management** ✅ _Partially Implemented_
+2. **Multi-Site Management** ✅ _Fully Implemented_
    - ✅ Concurrent site editing (multi-window architecture)
-   - Site templates and themes
+   - ✅ Individual server instances per website
+   - ✅ Site templates with customization
    - ✅ Export functionality (folder, ZIP, BagIt)
    - ✅ Window state restoration
+   - ✅ Dynamic port allocation
+   - ✅ Independent build directories
 
 3. **Deployment Integration**
    - Direct deploy to hosting services
@@ -700,6 +737,23 @@ graph LR
     JS --> Static
 ```
 
+## Recent Improvements
+
+### Bug Fixes and Stability
+
+- **Fixed V8 Engine Crashes**: Resolved memory access violations in window management
+- **Fixed App Shutdown Crashes**: Proper cleanup of file watchers (fsevents) on quit
+- **Fixed Eleventy Output Conflicts**: Prevented duplicate index.html/index.md issues
+- **Fixed BagIt Export**: Corrected file path handling and directory creation
+- **Fixed Preview Template**: Improved build log display and error state persistence
+
+### Performance Enhancements
+
+- **Server Isolation**: Each website runs in its own server instance
+- **Dynamic Port Management**: Automatic port allocation prevents conflicts
+- **Optimized File Watching**: Proper watcher cleanup prevents resource leaks
+- **Template Caching**: Improved template loading with data URL conversion
+
 ## Conclusion
 
 Anglesite's architecture prioritizes:
@@ -707,6 +761,8 @@ Anglesite's architecture prioritizes:
 - **Simplicity**: Minimal configuration, works out of the box
 - **Security**: Sandboxed, local-only, user-controlled
 - **Performance**: Efficient resource usage, fast preview updates
+- **Reliability**: Robust error handling and graceful degradation
+- **Scalability**: Multi-window, multi-server architecture
 - **Extensibility**: Modular design allows for future growth
 
-The architecture successfully balances the power of Eleventy with the convenience of a desktop application, providing a seamless local development experience for static sites.
+The architecture successfully balances the power of Eleventy with the convenience of a desktop application, providing a seamless local development experience for static sites with enterprise-grade stability and performance.

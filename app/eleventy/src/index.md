@@ -3,6 +3,13 @@ title: Hello World!
 layout: base-layout.njk
 ---
 
-This is the home page for your new Anglesite website.
+This is your new website! Edit this file to get started.
 
-Change me however you wand and click on the "Publish" button to start your own home on the World Wide Web.
+## Getting Started
+
+- Edit this markdown file to change the content
+- Add more pages by creating new .md files
+- Customize the layout in the \_includes directory
+- Add styles to style.css
+
+Happy building! 🚀

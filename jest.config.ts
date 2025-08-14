@@ -13,7 +13,11 @@ export default {
   testMatch: ['**/__tests__/**/*.ts?(x)', '**/?(*.)+(spec|test).ts?(x)'],
   moduleNameMapper: {
     '^../../app/eleventy/.eleventy$': '<rootDir>/app/eleventy/.eleventy.js',
+    '^@11ty/eleventy$': '<rootDir>/test/mocks/__mocks__/eleventy.js',
+    '^@11ty/eleventy-dev-server$': '<rootDir>/test/mocks/__mocks__/eleventy-dev-server.js',
+    '^bagit-fs$': '<rootDir>/test/mocks/__mocks__/bagit-fs.js',
   },
+  transformIgnorePatterns: ['node_modules/(?!(@11ty/eleventy|@11ty/eleventy-dev-server|bagit-fs)/)'],
   // Prevent worker hanging
   maxWorkers: 1,
   detectOpenHandles: true,

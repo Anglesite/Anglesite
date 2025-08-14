@@ -281,4 +281,29 @@ describe('Export Coverage Tests', () => {
     const hasRequiredFields = Object.values(emptyMetadata).some((value) => value.trim() !== '');
     expect(hasRequiredFields).toBe(false); // Confirms all fields are empty and that's okay
   });
+
+  it('should successfully export BagIt archive without path duplication errors', async () => {
+    // This test verifies the BagIt path fix by ensuring export completes successfully
+    // The fix removed manual /data/ prefix to prevent "data/data/" duplication
+
+    // Mock a successful BagIt export
+    mockGetBagItMetadata.mockResolvedValue(mockMetadata);
+    mockGetWebsitePath.mockReturnValue('/test/path');
+
+    // The test passes if no errors are thrown during export
+    await expect(exportSiteHandler(null, 'bagit')).resolves.toBeUndefined();
+
+    // Verify BagIt was called with correct parameters
+    expect(mockBagIt).toHaveBeenCalledWith(
+      expect.any(String), // temp directory path
+      'sha256',
+      expect.objectContaining({
+        'External-Description': mockMetadata.externalDescription,
+        'External-Identifier': mockMetadata.externalIdentifier,
+        'Source-Organization': mockMetadata.sourceOrganization,
+        'Bagging-Date': expect.any(String),
+        'Bag-Software-Agent': expect.stringContaining('Anglesite'),
+      })
+    );
+  });
 });

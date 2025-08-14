@@ -7,6 +7,7 @@ import * as fs from 'fs';
 import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
 import { themeManager } from './theme-manager';
 import { loadTemplateAsDataUrl } from './template-loader';
+import { getAllWebsiteWindows, getHelpWindow } from './multi-window-manager';
 
 let previewWebContentsView: WebContentsView | null = null;
 let settingsWindow: BrowserWindow | null = null;
@@ -239,8 +240,7 @@ export async function togglePreviewDevTools(): Promise<void> {
     return;
   }
 
-  // Import here to avoid circular dependency
-  const { getAllWebsiteWindows, getHelpWindow } = await import('./multi-window-manager');
+  // Use imported functions (previously dynamic import to avoid circular dependency)
 
   // Check if it's the help window
   const helpWindow = getHelpWindow();
@@ -522,6 +522,15 @@ export function openWebsiteSelectionWindow(): void {
     },
   });
 
+  // Set up ready-to-show event handler before loading content
+  websiteSelectionWindow.once('ready-to-show', () => {
+    if (websiteSelectionWindow && !websiteSelectionWindow.isDestroyed()) {
+      // Apply current theme to the website selection window before showing
+      themeManager.applyThemeToWindow(websiteSelectionWindow);
+      websiteSelectionWindow.show();
+    }
+  });
+
   const htmlFilePath = path.join(__dirname, '..', 'ui', 'website-selection.html');
 
   // Check if file exists, create fallback if not
@@ -529,17 +538,7 @@ export function openWebsiteSelectionWindow(): void {
     websiteSelectionWindow.loadFile(htmlFilePath);
   } else {
     const websiteSelectionDataUrl = loadTemplateAsDataUrl('website-selection');
-
     websiteSelectionWindow.loadURL(websiteSelectionDataUrl);
-
-    // Use ready-to-show event following Electron best practices
-    websiteSelectionWindow.once('ready-to-show', () => {
-      if (websiteSelectionWindow && !websiteSelectionWindow.isDestroyed()) {
-        // Apply current theme to the website selection window before showing
-        themeManager.applyThemeToWindow(websiteSelectionWindow);
-        websiteSelectionWindow.show();
-      }
-    });
   }
 }
 

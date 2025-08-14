@@ -125,6 +125,28 @@ module.exports = [
     },
   },
 
+  // JavaScript mock files configuration (Jest environment)
+  {
+    files: ['test/**/*.js'],
+    languageOptions: {
+      ecmaVersion: 2021,
+      sourceType: 'module',
+      globals: {
+        ...globals.node,
+        ...globals.jest,
+        ...globals.es2021,
+      },
+    },
+    plugins: {
+      prettier: prettier,
+      jsdoc,
+    },
+    rules: {
+      ...prettierConfig.rules,
+      'prettier/prettier': 'error',
+    },
+  },
+
   // Custom Jest matchers configuration (allow namespace for Jest type extensions)
   {
     files: ['test/matchers/**/*.ts'],

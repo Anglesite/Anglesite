@@ -21,9 +21,12 @@ describe('Eleventy Configuration', () => {
       addPlugin: jest.fn(),
       addPassthroughCopy: jest.fn(),
       setLibrary: jest.fn(),
+      ignores: {
+        add: jest.fn(),
+      },
     });
     expect(config.dir).toBeDefined();
-    expect(config.dir.input).toBe('docs');
-    expect(config.dir.output).toBe('dist');
+    expect(config.dir.includes).toBe('_includes');
+    expect(config.dir.layouts).toBe('_includes');
   });
 });

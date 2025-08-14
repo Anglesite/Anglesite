@@ -5,6 +5,9 @@
 // Import custom matchers to make them available in all test files
 import './matchers/custom-matchers';
 
+// Import third-party mocks to ensure they're applied early
+import './mocks/third-party';
+
 // Setup TextEncoder/TextDecoder for JSDOM
 if (typeof global.TextEncoder === 'undefined') {
   const { TextEncoder, TextDecoder } = require('util');

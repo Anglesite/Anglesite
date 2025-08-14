@@ -2,7 +2,7 @@
  * @file Preload script for the Electron application.
  * @see {@link https://www.electronjs.org/docs/latest/tutorial/process-model#preload-scripts}
  */
-import { contextBridge, ipcRenderer } from 'electron';
+import { contextBridge, ipcRenderer, shell } from 'electron';
 
 // Expose protected methods that allow the renderer process to use
 // the ipcRenderer without exposing the entire object
@@ -74,5 +74,10 @@ contextBridge.exposeInMainWorld('electronAPI', {
   setTheme: (theme: string) => ipcRenderer.invoke('set-theme', theme),
   onThemeUpdated: (callback: (...args: unknown[]) => void) => {
     ipcRenderer.on('theme-updated', (_event, ...args) => callback(...args));
+  },
+
+  // External browser API
+  openExternal: (url: string) => {
+    shell.openExternal(url);
   },
 });

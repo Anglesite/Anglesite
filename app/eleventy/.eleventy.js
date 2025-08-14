@@ -4,29 +4,14 @@ const path = require('path');
 let webc, Nunjucks;
 try {
   webc = require('@11ty/eleventy-plugin-webc');
-} catch (e) {
+} catch {
   console.warn('Warning: @11ty/eleventy-plugin-webc not available');
 }
 
 try {
   Nunjucks = require('nunjucks');
-} catch (e) {
+} catch {
   console.warn('Warning: nunjucks not available');
-}
-
-/**
- * Returns an absolute path relative to the project root.
- * @param relativePath Path relative to the project root.
- * @returns
- */
-function rootDir(relativePath) {
-  // In packaged apps, use __dirname to find the app root
-  // In dev, use process.cwd()
-  const isPackaged = process.env.NODE_ENV === 'production' || !process.env.NODE_ENV;
-  const appRoot = isPackaged 
-    ? path.resolve(__dirname, '..', '..')  // From dist/app/eleventy/ to dist/
-    : process.cwd();
-  return path.resolve(appRoot, relativePath);
 }
 
 /**
@@ -36,8 +21,9 @@ function rootDir(relativePath) {
 module.exports = function AnglesiteConfig(eleventyConfig) {
   console.log('Eleventy config: __dirname =', __dirname);
   console.log('Eleventy config: process.cwd() =', process.cwd());
-  
-  const absoluteIncludesPath = rootDir('app/eleventy/includes');
+
+  // The includes directory is always relative to this config file
+  const absoluteIncludesPath = path.resolve(__dirname, 'includes');
   console.log('Eleventy config: absoluteIncludesPath =', absoluteIncludesPath);
 
   // Only add plugins if they're available
@@ -55,6 +41,9 @@ module.exports = function AnglesiteConfig(eleventyConfig) {
     [path.join(absoluteIncludesPath, 'style.css')]: '/style.css',
   });
 
+  // Ignore Claude Code configuration files
+  eleventyConfig.ignores.add('.claude/**');
+
   // Determine the effective input directory
   // When using programmatic API, Eleventy will handle the input directory
   // We should not override it in the config
@@ -63,19 +52,25 @@ module.exports = function AnglesiteConfig(eleventyConfig) {
   if (cliInputArg) {
     inputDir = cliInputArg.split('=')[1];
   }
-  
+
   console.log('Eleventy config: Using inputDir =', inputDir);
 
   // Use absolute path for includes to avoid path resolution issues
   console.log('Eleventy config: Using absoluteIncludesPath for includes =', absoluteIncludesPath);
 
+  // Always use _includes - each directory should have its own copy
+  const includesPath = '_includes';
+
+  console.log('Eleventy config: Using includesPath =', includesPath);
+
   return {
     markdownTemplateEngine: 'njk',
     dir: {
-      // Don't specify input when using programmatic API - let Eleventy handle it
+      // Don't specify input or output when using programmatic API - let Eleventy handle it
       // input: inputDir,
-      output: 'dist',
-      includes: absoluteIncludesPath,  // Use absolute path
+      // output: 'dist', // Remove this - let the programmatic API set the output directory
+      includes: includesPath, // Use computed includes path
+      layouts: includesPath, // Use same path for layouts
     },
   };
 };

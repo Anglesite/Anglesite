@@ -39,43 +39,43 @@ describe('Multi-Window Manager (Simplified)', () => {
 
   describe('Core Functionality', () => {
     it('should create help window without throwing', () => {
-      expect(() => multiWindowManager.createHelpWindow()).toCreateWindowSuccessfully();
+      expect(() => multiWindowManager.createHelpWindow()).not.toThrow();
     });
 
     it('should create website window without throwing', () => {
-      expect(() => multiWindowManager.createWebsiteWindow('test-site')).toCreateWindowSuccessfully();
+      expect(() => multiWindowManager.createWebsiteWindow('test-site')).not.toThrow();
     });
 
     it('should load website content without throwing', () => {
       multiWindowManager.createWebsiteWindow('test-site');
-      expect(() => multiWindowManager.loadWebsiteContent('test-site')).toExecuteWithoutError();
+      expect(() => multiWindowManager.loadWebsiteContent('test-site')).not.toThrow();
     });
 
     it('should handle non-existent website window gracefully', () => {
-      expect(multiWindowManager.loadWebsiteContent).toHandleInvalidInputGracefully();
+      expect(() => multiWindowManager.loadWebsiteContent('')).not.toThrow();
     });
 
     it('should get help window without throwing', () => {
       multiWindowManager.createHelpWindow();
-      expect(() => multiWindowManager.getHelpWindow()).toExecuteWithoutError();
+      expect(() => multiWindowManager.getHelpWindow()).not.toThrow();
     });
 
     it('should get website window without throwing', () => {
       multiWindowManager.createWebsiteWindow('test-site');
-      expect(() => multiWindowManager.getWebsiteWindow('test-site')).toExecuteWithoutError();
+      expect(() => multiWindowManager.getWebsiteWindow('test-site')).not.toThrow();
     });
 
     it('should get all website windows without throwing', () => {
       expect(() => {
         const allWindows = multiWindowManager.getAllWebsiteWindows();
         expect(allWindows).toBeInstanceOf(Map);
-      }).toExecuteWithoutError();
+      }).not.toThrow();
     });
 
     it('should close all windows without throwing', () => {
       multiWindowManager.createHelpWindow();
       multiWindowManager.createWebsiteWindow('test-site');
-      expect(() => multiWindowManager.closeAllWindows()).toExecuteWithoutError();
+      expect(() => multiWindowManager.closeAllWindows()).not.toThrow();
     });
 
     it('should export all required functions', () => {
@@ -94,19 +94,19 @@ describe('Multi-Window Manager (Simplified)', () => {
       multiWindowManager.createWebsiteWindow('test-site');
       mockEleventy.isLiveServerReady.mockReturnValue(false);
 
-      expect(() => multiWindowManager.loadWebsiteContent('test-site')).toExecuteWithoutError();
+      expect(() => multiWindowManager.loadWebsiteContent('test-site')).not.toThrow();
 
       mockEleventy.isLiveServerReady.mockReturnValue(true);
     });
 
     it('should handle duplicate window creation', () => {
-      expect(() => multiWindowManager.createWebsiteWindow('test-site')).toCreateWindowSuccessfully();
-      expect(() => multiWindowManager.createWebsiteWindow('test-site')).toCreateWindowSuccessfully();
+      expect(() => multiWindowManager.createWebsiteWindow('test-site')).not.toThrow();
+      expect(() => multiWindowManager.createWebsiteWindow('test-site')).not.toThrow();
     });
 
     it('should handle duplicate help window creation', () => {
-      expect(() => multiWindowManager.createHelpWindow()).toCreateWindowSuccessfully();
-      expect(() => multiWindowManager.createHelpWindow()).toCreateWindowSuccessfully();
+      expect(() => multiWindowManager.createHelpWindow()).not.toThrow();
+      expect(() => multiWindowManager.createHelpWindow()).not.toThrow();
     });
   });
 });

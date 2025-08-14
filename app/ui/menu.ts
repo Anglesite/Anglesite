@@ -1,10 +1,12 @@
 /**
  * @file Application menu creation
  */
-import { Menu, MenuItemConstructorOptions, shell, WebContents, BrowserWindow } from 'electron';
+import { Menu, MenuItemConstructorOptions, shell, WebContents, BrowserWindow, dialog, clipboard } from 'electron';
 import { getCurrentLiveServerUrl } from '../server/eleventy';
-import { openSettingsWindow } from './window-manager';
-import { getAllWebsiteWindows, getHelpWindow } from './multi-window-manager';
+import { openSettingsWindow, getNativeInput, openWebsiteSelectionWindow } from './window-manager';
+import { getAllWebsiteWindows, getHelpWindow, createHelpWindow } from './multi-window-manager';
+import { createWebsiteWithName, validateWebsiteName } from '../utils/website-manager';
+import { openWebsiteInNewWindow, exportSiteHandler } from '../ipc/handlers';
 
 /**
  * Check if the current focused window is a website window.
@@ -142,18 +144,52 @@ export function createApplicationMenu(): Menu {
           label: 'New Website...',
           accelerator: 'CmdOrCtrl+N',
           click: async () => {
-            // Use the IPC handler which has the proper implementation
-            const focusedWindow = BrowserWindow.getFocusedWindow();
-            if (focusedWindow) {
-              focusedWindow.webContents.send('trigger-new-website');
+            // Create new website directly using imported functions
+
+            try {
+              let websiteName: string | null = null;
+              let validationError = '';
+
+              // Keep asking until user provides valid name or cancels
+              do {
+                let prompt = 'Enter a name for your new website:';
+                if (validationError) {
+                  prompt = `${validationError}\n\nPlease enter a valid website name:`;
+                }
+
+                websiteName = await getNativeInput('New Website', prompt);
+
+                if (!websiteName) {
+                  return; // User cancelled
+                }
+
+                // Validate website name
+                const validation = validateWebsiteName(websiteName);
+                if (!validation.valid) {
+                  validationError = validation.error || 'Invalid website name';
+                  websiteName = null; // Reset to continue the loop
+                } else {
+                  validationError = ''; // Clear any previous error
+                }
+              } while (!websiteName);
+
+              // Create the website and open it
+              const newWebsitePath = await createWebsiteWithName(websiteName);
+              console.log('New website created at:', newWebsitePath);
+
+              // Open the new website in a new window (with isNewWebsite = true)
+              await openWebsiteInNewWindow(websiteName, newWebsitePath, true);
+              console.log(`Website "${websiteName}" created and opened in new window`);
+            } catch (error) {
+              console.error('Failed to create new website:', error);
+              dialog.showErrorBox('Creation Failed', error instanceof Error ? error.message : String(error));
             }
           },
         },
         {
           label: 'Open Website…',
           accelerator: 'CmdOrCtrl+Shift+O',
-          click: async () => {
-            const { openWebsiteSelectionWindow } = await import('./window-manager');
+          click: () => {
             openWebsiteSelectionWindow();
           },
         },
@@ -168,7 +204,6 @@ export function createApplicationMenu(): Menu {
               label: 'Folder…',
               accelerator: 'CmdOrCtrl+E',
               click: async () => {
-                const { exportSiteHandler } = await import('../ipc/handlers');
                 await exportSiteHandler(null, false);
               },
             },
@@ -176,7 +211,6 @@ export function createApplicationMenu(): Menu {
               label: 'Zip Archive…',
               accelerator: 'CmdOrCtrl+Shift+E',
               click: async () => {
-                const { exportSiteHandler } = await import('../ipc/handlers');
                 await exportSiteHandler(null, true);
               },
             },
@@ -184,7 +218,6 @@ export function createApplicationMenu(): Menu {
               label: 'BagIt Archive…',
               accelerator: 'CmdOrCtrl+Alt+E',
               click: async () => {
-                const { exportSiteHandler } = await import('../ipc/handlers');
                 await exportSiteHandler(null, 'bagit');
               },
             },
@@ -310,9 +343,8 @@ export function createApplicationMenu(): Menu {
         },
         {
           label: 'Copy Server URL',
-          click: async (menuItem, browserWindow) => {
+          click: (menuItem, browserWindow) => {
             if (browserWindow && 'webContents' in browserWindow) {
-              const { clipboard } = await import('electron');
               clipboard.writeText(getCurrentLiveServerUrl());
             }
           },
@@ -383,8 +415,7 @@ export function createApplicationMenu(): Menu {
       submenu: [
         {
           label: 'Anglesite Help',
-          click: async () => {
-            const { createHelpWindow } = await import('./multi-window-manager');
+          click: () => {
             createHelpWindow();
           },
         },

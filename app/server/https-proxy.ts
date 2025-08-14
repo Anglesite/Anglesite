@@ -44,7 +44,7 @@ export async function createHttpsProxy(
       proxyReq.on('error', (err) => {
         console.error(`HTTPS proxy request error for ${hostname}:${httpsPort} -> localhost:${httpPort}:`, err);
         console.error('Error details:', {
-          code: (err as any).code,
+          code: (err as Error & { code?: string }).code,
           message: err.message,
           hostname: 'localhost',
           port: httpPort,

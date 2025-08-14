@@ -3,6 +3,14 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+
+// Mock electron before importing template-loader
+jest.mock('electron', () => ({
+  app: {
+    isPackaged: false,
+  },
+}));
+
 import { loadTemplate, loadTemplateAsDataUrl } from '../../app/ui/template-loader';
 
 // Mock fs module

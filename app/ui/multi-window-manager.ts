@@ -3,11 +3,45 @@
  */
 import { BrowserWindow, WebContentsView } from 'electron';
 import * as path from 'path';
-import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
+import * as fs from 'fs';
+import * as net from 'net';
+import {
+  getCurrentLiveServerUrl,
+  isLiveServerReady,
+  setLiveServerUrl,
+  setCurrentWebsiteName,
+} from '../server/eleventy';
+import { startWebsiteServer, stopWebsiteServer, WebsiteServer } from '../server/per-website-server';
+
+/**
+ * Send log message to a website window.
+ */
+export function sendLogToWebsite(websiteName: string, message: string, level: string = 'info') {
+  const websiteWindow = websiteWindows.get(websiteName);
+  if (websiteWindow && !websiteWindow.window.isDestroyed()) {
+    try {
+      const logData = {
+        type: 'log',
+        message,
+        level,
+        timestamp: new Date().toISOString(),
+      };
+      websiteWindow.webContentsView.webContents.executeJavaScript(
+        `window.postMessage(${JSON.stringify(logData)}, '*');`
+      );
+      console.log(`DEBUG: Sent log to ${websiteName}: ${message}`);
+    } catch (error) {
+      console.log(`Could not send log to ${websiteName}:`, error);
+    }
+  } else {
+    console.log(`DEBUG: No window found for ${websiteName} or window destroyed`);
+  }
+}
 import { updateApplicationMenu } from './menu';
 import { themeManager } from './theme-manager';
 import { Store, WindowState } from '../store';
 import { loadTemplateAsDataUrl } from './template-loader';
+import { getWebsitePath } from '../utils/website-manager';
 
 /**
  * Interface for tracking a website window.
@@ -17,10 +51,46 @@ interface WebsiteWindow {
   webContentsView: WebContentsView;
   websiteName: string;
   websitePath?: string;
+  serverUrl?: string; // Store the server URL for this website
+  eleventyPort?: number; // HTTP port for Eleventy dev server
+  httpsProxyPort?: number; // HTTPS proxy port (if using HTTPS mode)
+  server?: WebsiteServer; // Reference to the website's individual server
 }
 
 let helpWindow: BrowserWindow | null = null;
 const websiteWindows: Map<string, WebsiteWindow> = new Map();
+
+/**
+ * Find an available ephemeral port.
+ */
+async function findAvailablePort(startPort: number = 8081): Promise<number> {
+  return new Promise((resolve, reject) => {
+    const server = net.createServer();
+    server.listen(startPort, () => {
+      const port = (server.address() as net.AddressInfo)?.port;
+      server.close(() => {
+        if (port) {
+          resolve(port);
+        } else {
+          reject(new Error('Could not determine port'));
+        }
+      });
+    });
+
+    server.on('error', async (err: Error & { code?: string }) => {
+      if (err.code === 'EADDRINUSE') {
+        try {
+          const nextPort = await findAvailablePort(startPort + 1);
+          resolve(nextPort);
+        } catch (nextErr) {
+          reject(nextErr);
+        }
+      } else {
+        reject(err);
+      }
+    });
+  });
+}
 
 /**
  * Create a dedicated help window for displaying documentation
@@ -288,9 +358,9 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
       const bounds = window.getBounds();
       webContentsView.setBounds({
         x: 0,
-        y: 50,
+        y: 90, // Account for menu bar and button toolbar
         width: bounds.width,
-        height: bounds.height - 50,
+        height: bounds.height - 90,
       });
     }
   });
@@ -299,9 +369,9 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
   const bounds = window.getBounds();
   webContentsView.setBounds({
     x: 0,
-    y: 50,
+    y: 90, // Account for menu bar and button toolbar
     width: bounds.width,
-    height: bounds.height - 50,
+    height: bounds.height - 90,
   });
 
   // Store website window
@@ -313,8 +383,13 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
   };
   websiteWindows.set(websiteName, websiteWindow);
 
-  // Update menu when focus changes
+  // Update menu and server URL when focus changes
   window.on('focus', () => {
+    // Update the global server URL to match this window's website
+    if (websiteWindow.serverUrl) {
+      setLiveServerUrl(websiteWindow.serverUrl);
+      setCurrentWebsiteName(websiteName);
+    }
     updateApplicationMenu();
   });
 
@@ -323,7 +398,16 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
   });
 
   // Clean up when window is closed
-  window.on('closed', () => {
+  window.on('closed', async () => {
+    // Stop the individual server for this website
+    const websiteWindow = websiteWindows.get(websiteName);
+    if (websiteWindow?.server) {
+      try {
+        await stopWebsiteServer(websiteWindow.server);
+      } catch (error) {
+        console.error(`Error stopping server for ${websiteName}:`, error);
+      }
+    }
     websiteWindows.delete(websiteName);
     updateApplicationMenu();
   });
@@ -343,6 +427,53 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
 }
 
 /**
+ * Start individual server for a website and update its window.
+ */
+export async function startWebsiteServerAndUpdateWindow(websiteName: string, websitePath: string): Promise<void> {
+  const websiteWindow = websiteWindows.get(websiteName);
+  if (!websiteWindow || websiteWindow.window.isDestroyed()) {
+    console.error(`Website window not found for server startup: ${websiteName}`);
+    return;
+  }
+
+  try {
+    sendLogToWebsite(websiteName, `🔄 Preparing to start server for ${websiteName}...`, 'startup');
+
+    // Stop existing server if any
+    if (websiteWindow.server) {
+      sendLogToWebsite(websiteName, `🛑 Stopping existing server...`, 'info');
+      await stopWebsiteServer(websiteWindow.server);
+    }
+
+    // Find available port
+    const port = await findAvailablePort();
+    console.log(`Starting server for ${websiteName} on port ${port}`);
+    sendLogToWebsite(websiteName, `🔍 Found available port: ${port}`, 'info');
+
+    // Start individual server
+    sendLogToWebsite(websiteName, `🚀 Starting Eleventy server...`, 'info');
+    const server = await startWebsiteServer(websitePath, websiteName, port);
+
+    // Update website window with server info
+    websiteWindow.server = server;
+    websiteWindow.eleventyPort = port;
+    websiteWindow.serverUrl = `http://localhost:${port}`;
+
+    console.log(`Server ready for ${websiteName} at ${websiteWindow.serverUrl}`);
+    sendLogToWebsite(websiteName, `✅ Server startup completed!`, 'info');
+
+    // Load content in the window
+    sendLogToWebsite(websiteName, `🌐 Loading website content...`, 'info');
+    loadWebsiteContent(websiteName);
+  } catch (error) {
+    console.error(`Failed to start server for ${websiteName}:`, error);
+    // Show fallback content
+    const fallbackDataUrl = loadTemplateAsDataUrl('preview-fallback');
+    websiteWindow.webContentsView.webContents.loadURL(fallbackDataUrl);
+  }
+}
+
+/**
  * Load website content in its window.
  */
 export function loadWebsiteContent(websiteName: string, retryCount: number = 0): void {
@@ -358,9 +489,84 @@ export function loadWebsiteContent(websiteName: string, retryCount: number = 0):
     return;
   }
 
-  // Use the current server URL which should be set correctly by the IPC handler
-  const serverUrl = getCurrentLiveServerUrl();
-  console.log(`Loading website content for ${websiteName} from:`, serverUrl);
+  // For dist builds, try to load website index.md as simple HTML
+  const websitePath = websiteWindow.websitePath;
+  if (websitePath) {
+    const indexMdPath = path.join(websitePath, 'index.md');
+    if (fs.existsSync(indexMdPath)) {
+      console.log(`Found website markdown file: ${indexMdPath}`);
+      try {
+        const mdContent = fs.readFileSync(indexMdPath, 'utf8');
+
+        // Extract title from frontmatter
+        const titleMatch = mdContent.match(/title:\s*(.+)/);
+        const title = titleMatch ? titleMatch[1].replace(/['"]/g, '') : websiteName;
+
+        // Create simple HTML page
+        const simpleHtml = `<!DOCTYPE html>
+<html>
+<head>
+  <title>${title}</title>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: system-ui; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
+    h1 { color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; }
+    h2 { color: #555; margin-top: 30px; }
+    ul { margin: 15px 0; }
+    li { margin: 5px 0; }
+    .website-info { background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0; }
+  </style>
+</head>
+<body>
+  <h1>${title}</h1>
+  <div class="website-info">
+    <p><strong>📁 Website:</strong> ${websiteName}</p>
+    <p><strong>📍 Location:</strong> ${websitePath}</p>
+    <p><strong>⚡ Status:</strong> Loaded directly from files</p>
+  </div>
+  <h2>Getting Started</h2>
+  <ul>
+    <li>Edit the index.md file to change this content</li>
+    <li>Add more pages by creating new .md files</li>
+    <li>Customize the layout in the _includes directory</li>
+    <li>Add styles to style.css</li>
+  </ul>
+  <p>🚀 Happy building with Anglesite!</p>
+</body>
+</html>`;
+
+        const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(simpleHtml)}`;
+        websiteWindow.webContentsView.webContents.loadURL(dataUrl);
+        websiteWindow.window.webContents.send('preview-loaded');
+        console.log(`Loaded simple HTML version for ${websiteName}`);
+        return;
+      } catch (error) {
+        console.error(`Failed to create simple HTML for ${websiteName}:`, error);
+      }
+    }
+  }
+
+  // Use individual server if available
+  if (websiteWindow.serverUrl) {
+    const serverUrl = websiteWindow.serverUrl;
+    console.log(`Loading website content for ${websiteName} from individual server:`, serverUrl);
+  } else {
+    console.log(`No individual server available for ${websiteName}, showing fallback content`);
+
+    try {
+      // Show fallback content
+      const fallbackDataUrl = loadTemplateAsDataUrl('preview-fallback');
+      websiteWindow.webContentsView.webContents.loadURL(fallbackDataUrl);
+      websiteWindow.window.webContents.send('preview-loaded');
+      return;
+    } catch (error) {
+      console.error(`Failed to load fallback content for ${websiteName}:`, error);
+      return;
+    }
+  }
+
+  const serverUrl = websiteWindow.serverUrl;
 
   websiteWindow.webContentsView.webContents.removeAllListeners('did-fail-load');
   websiteWindow.webContentsView.webContents.removeAllListeners('did-finish-load');
@@ -513,61 +719,32 @@ export async function restoreWindowStates(): Promise<void> {
  * Restore a single website window.
  */
 async function restoreWebsiteWindow(windowState: WindowState): Promise<void> {
-  // Functions are already available in this module
-  const { switchToWebsite, setLiveServerUrl, setCurrentWebsiteName } = await import('../server/eleventy');
-  const { addLocalDnsResolution } = await import('../dns/hosts-manager');
-  const { restartHttpsProxy } = await import('../server/https-proxy');
-  const { getWebsitePath } = await import('../utils/website-manager');
-
   try {
     // Get the website path
     const websitePath = windowState.websitePath || getWebsitePath(windowState.websiteName);
+    console.log(`DEBUG: Attempting to restore ${windowState.websiteName} from path: ${websitePath}`);
+
+    // Check if website directory exists
+    if (!fs.existsSync(websitePath)) {
+      console.error(`DEBUG: Website directory does not exist: ${websitePath}`);
+      return; // Skip restoration if directory doesn't exist
+    }
 
     // Create the window
     createWebsiteWindow(windowState.websiteName, websitePath);
+    console.log(`DEBUG: Created window for ${windowState.websiteName}`);
 
-    // Switch to the website and get the actual port
-    const actualPort = await switchToWebsite(websitePath);
-    console.log(
-      'DEBUG: switchToWebsite completed for restored window:',
-      windowState.websiteName,
-      'on port:',
-      actualPort
-    );
-
-    // Generate test domain and setup DNS
-    const testDomain = `https://${windowState.websiteName}.test:8080`;
-    const hostname = `${windowState.websiteName}.test`;
-
-    await addLocalDnsResolution(hostname);
-
-    // Check user's HTTPS preference
-    const store = new Store();
-    const httpsMode = store.get('httpsMode');
-
-    if (httpsMode === 'https') {
-      // Restart HTTPS proxy for the domain using the actual port
-      const httpsSuccess = await restartHttpsProxy(8080, actualPort, hostname);
-      if (httpsSuccess) {
-        console.log(`Restored website HTTPS server ready at: ${testDomain}`);
-        setLiveServerUrl(testDomain);
-        setCurrentWebsiteName(windowState.websiteName);
-      } else {
-        console.log('HTTPS proxy failed for restored window, continuing with HTTP-only mode');
-        setLiveServerUrl(`http://localhost:${actualPort}`);
-        setCurrentWebsiteName(windowState.websiteName);
-      }
-    } else {
-      console.log('HTTP-only mode by user preference, skipping HTTPS proxy for restored window');
-      setLiveServerUrl(`http://localhost:${actualPort}`);
-      setCurrentWebsiteName(windowState.websiteName);
+    try {
+      // Start individual server for this restored website
+      await startWebsiteServerAndUpdateWindow(windowState.websiteName, websitePath);
+      console.log(`DEBUG: Restored website window with individual server: ${windowState.websiteName}`);
+    } catch (serverError) {
+      console.error(
+        `DEBUG: Failed to start server for ${windowState.websiteName}, window will show fallback content:`,
+        serverError
+      );
+      // Don't throw - let the window exist with fallback content rather than failing completely
     }
-
-    // Load the website content with a delay to ensure everything is ready
-    setTimeout(() => {
-      loadWebsiteContent(windowState.websiteName);
-      console.log(`DEBUG: loadWebsiteContent called for restored window: ${windowState.websiteName}`);
-    }, 1500);
   } catch (error) {
     console.error(`Failed to restore website window for ${windowState.websiteName}:`, error);
     throw error;
@@ -577,9 +754,24 @@ async function restoreWebsiteWindow(windowState: WindowState): Promise<void> {
 /**
  * Gracefully closes all open windows (help and website windows) and saves their states.
  */
-export function closeAllWindows(): void {
+export async function closeAllWindows(): Promise<void> {
   // Save window states before closing
   saveWindowStates();
+
+  // Stop all servers first before closing windows to prevent fsevents crashes
+  const stopPromises: Promise<void>[] = [];
+  websiteWindows.forEach((websiteWindow) => {
+    if (websiteWindow.server) {
+      stopPromises.push(
+        stopWebsiteServer(websiteWindow.server).catch((error) => {
+          console.error(`Error stopping server during shutdown:`, error);
+        })
+      );
+    }
+  });
+
+  // Wait for all servers to stop
+  await Promise.all(stopPromises);
 
   if (helpWindow && !helpWindow.isDestroyed()) {
     helpWindow.close();

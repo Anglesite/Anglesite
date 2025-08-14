@@ -171,10 +171,10 @@ describe('Main Process', () => {
       expect(mockApp.quit).not.toHaveBeenCalled();
     });
 
-    it('should cleanup resources on before-quit', () => {
+    it('should cleanup resources on before-quit', async () => {
       const beforeQuitHandler = mockApp.on.mock.calls.find((call) => call[0] === 'before-quit')?.[1];
 
-      beforeQuitHandler?.();
+      await beforeQuitHandler?.();
 
       expect(consoleSpy).toHaveBeenCalledWith('Cleaning up resources...');
       expect(mockEleventy.cleanupEleventyServer).toHaveBeenCalled();

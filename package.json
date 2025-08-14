@@ -14,8 +14,9 @@
     "build:icons": "npm run build:icons:prepare && npm run build:icons:generate",
     "build:icons:prepare": "mkdir -p icons && cp icons/src/icon.svg icons/ 2>/dev/null || true",
     "build:icons:generate": "magick icons/src/icon.svg -resize 1024x1024 icons/icon.png && magick icons/src/icon.svg -resize 512x512 icons/icon@2x.png && magick icons/src/icon.svg -resize 256x256 icons/256x256.png && magick icons/src/icon.svg -resize 128x128 icons/128x128.png && magick icons/src/icon.svg -resize 64x64 icons/64x64.png && magick icons/src/icon.svg -resize 48x48 icons/48x48.png && magick icons/src/icon.svg -resize 32x32 icons/32x32.png && magick icons/src/icon.svg -resize 24x24 icons/24x24.png && magick icons/src/icon.svg -resize 16x16 icons/16x16.png",
-    "build": "npm run build:app && eleventy --config=app/eleventy/.eleventy.js",
-    "dist": "npm run build && npm run build:icons && electron-builder",
+    "build": "npm run build:app && eleventy --input=app/eleventy/src --output=dist --config=app/eleventy/.eleventy.js",
+    "dist": "npm run clear-cache && npm run build && npm run build:icons && electron-builder",
+    "clear-cache": "node bin/clear-cache.js",
     "dist:mac": "npm run build && npm run build:icons && electron-builder --mac",
     "dist:win": "npm run build && npm run build:icons && electron-builder --win",
     "dist:linux": "npm run build && npm run build:icons && electron-builder --linux",
@@ -48,7 +49,13 @@
   "build": {
     "appId": "io.dwk.anglesite",
     "productName": "Anglesite",
-    "asar": false,
+    "asar": true,
+    "asarUnpack": [
+      "app/eleventy/**/*",
+      "dist/app/eleventy/**/*",
+      "app/ui/**/*",
+      "dist/app/ui/**/*"
+    ],
     "directories": {
       "output": "dist/build",
       "buildResources": "icons"
@@ -136,6 +143,10 @@
       {
         "from": "app/eleventy",
         "to": "app/eleventy"
+      },
+      {
+        "from": "app/ui/templates",
+        "to": "app/ui/templates"
       }
     ]
   },
