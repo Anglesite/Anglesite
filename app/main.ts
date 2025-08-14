@@ -4,7 +4,7 @@
  */
 import { app, Menu } from 'electron';
 // Import modular components
-import { createHelpWindow, closeAllWindows, restoreWindowStates } from './ui/multi-window-manager';
+import { closeAllWindows, restoreWindowStates } from './ui/multi-window-manager';
 import { createApplicationMenu } from './ui/menu';
 import { setupIpcMainListeners } from './ipc/handlers';
 import { Store } from './store';
@@ -41,10 +41,7 @@ async function initializeApp(): Promise<void> {
     await handleFirstLaunch(store);
   }
 
-  // Create the help window only if it should be shown on startup
-  if (store.get('showHelpOnStartup')) {
-    mainWindow = createHelpWindow();
-  }
+  // Note: Help window is only created when explicitly requested by the user
 
   // Set up the application menu
   const menu = createApplicationMenu();

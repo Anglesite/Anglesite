@@ -49,8 +49,6 @@ describe('Main Process', () => {
       switch (key) {
         case 'firstLaunchCompleted':
           return true;
-        case 'showHelpOnStartup':
-          return true;
         case 'httpsMode':
           return 'https';
         default:

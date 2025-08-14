@@ -17,7 +17,7 @@ const mockStore = {
   get: mockStoreGet,
 };
 
-const mockDialog = {
+const mockDialogNWI = {
   showErrorBox: jest.fn(),
 };
 
@@ -79,7 +79,7 @@ const mockBrowserWindow = {
 jest.mock('electron', () => ({
   Menu: mockMenu,
   BrowserWindow: mockBrowserWindow,
-  dialog: mockDialog,
+  dialog: mockDialogNWI,
 }));
 
 describe('New Website Integration', () => {

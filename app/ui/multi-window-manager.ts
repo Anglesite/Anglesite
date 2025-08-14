@@ -654,12 +654,7 @@ export function saveWindowStates(): void {
   const store = new Store();
   const windowStates: WindowState[] = [];
 
-  // Save help window state
-  if (helpWindow && !helpWindow.isDestroyed()) {
-    store.set('showHelpOnStartup', true);
-  } else {
-    store.set('showHelpOnStartup', false);
-  }
+  // Note: Help window state is no longer persisted since we don't auto-show it on startup
 
   // Save website window states
   websiteWindows.forEach((websiteWindow, websiteName) => {

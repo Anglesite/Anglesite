@@ -677,7 +677,6 @@ describe('Multi-Window Manager', () => {
       // Reset store mock for each test
       mockStoreInstance.get.mockImplementation((key: string) => {
         if (key === 'httpsMode') return 'http' as any;
-        if (key === 'showHelpOnStartup') return true;
         return [];
       });
       mockStoreInstance.getWindowStates.mockReturnValue([]);
@@ -690,7 +689,6 @@ describe('Multi-Window Manager', () => {
 
       multiWindowManager.saveWindowStates();
 
-      expect(mockStoreInstance.set).toHaveBeenCalledWith('showHelpOnStartup', true);
       expect(mockStoreInstance.saveWindowStates).toHaveBeenCalledWith(
         expect.arrayContaining([
           expect.objectContaining({
@@ -712,7 +710,7 @@ describe('Multi-Window Manager', () => {
       // This test ensures the function handles the case where no help window exists
       expect(() => multiWindowManager.saveWindowStates()).not.toThrow();
 
-      // Verify that saveWindowStates was called (which exercises the showHelpOnStartup logic)
+      // Verify that saveWindowStates was called
       expect(mockStoreInstance.set).toHaveBeenCalled();
     });
 
@@ -832,7 +830,6 @@ describe('Multi-Window Manager', () => {
       // Change store to return HTTP mode
       mockStoreInstance.get.mockImplementation((key: string) => {
         if (key === 'httpsMode') return 'http' as any;
-        if (key === 'showHelpOnStartup') return true;
         return [];
       });
 
@@ -890,13 +887,11 @@ describe('Multi-Window Manager', () => {
 
       jest.clearAllMocks();
       multiWindowManager.saveWindowStates();
-      expect(mockStoreInstance.set).toHaveBeenCalledWith('showHelpOnStartup', true);
 
       // Test with help window destroyed
       mockBrowserWindow.isDestroyed.mockReturnValue(true);
       jest.clearAllMocks();
       multiWindowManager.saveWindowStates();
-      expect(mockStoreInstance.set).toHaveBeenCalledWith('showHelpOnStartup', false);
 
       // Reset mock
       mockBrowserWindow.isDestroyed.mockReturnValue(false);
@@ -909,7 +904,6 @@ describe('Multi-Window Manager', () => {
       mockBrowserWindow.isDestroyed.mockReturnValue(true);
 
       multiWindowManager.saveWindowStates();
-      expect(mockStoreInstance.set).toHaveBeenCalledWith('showHelpOnStartup', false);
 
       // Reset mock
       mockBrowserWindow.isDestroyed.mockReturnValue(false);
@@ -1400,7 +1394,6 @@ describe('Multi-Window Manager', () => {
       // Save states
       multiWindowManager.saveWindowStates();
 
-      expect(mockStoreInstance.set).toHaveBeenCalledWith('showHelpOnStartup', true);
       expect(mockStoreInstance.saveWindowStates).toHaveBeenCalled();
 
       // Simulate window close events

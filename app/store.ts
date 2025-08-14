@@ -39,8 +39,6 @@ export interface AppSettings {
   firstLaunchCompleted: boolean;
   /** Theme preference: 'system', 'light', 'dark' */
   theme: 'system' | 'light' | 'dark';
-  /** Whether to show the help window on startup */
-  showHelpOnStartup: boolean;
   /** List of website windows to restore on startup */
   openWebsiteWindows: WindowState[];
   // Add more settings here as needed
@@ -68,7 +66,6 @@ export class Store {
       httpsMode: null,
       firstLaunchCompleted: false,
       theme: 'system',
-      showHelpOnStartup: false,
       openWebsiteWindows: [],
     });
   }

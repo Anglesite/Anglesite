@@ -67,7 +67,6 @@ describe('Store', () => {
       expect(store.get('httpsMode')).toBe(null);
       expect(store.get('firstLaunchCompleted')).toBe(false);
       expect(store.get('theme')).toBe('system');
-      expect(store.get('showHelpOnStartup')).toBe(false);
       expect(store.get('openWebsiteWindows')).toEqual([]);
     });
 
@@ -77,7 +76,6 @@ describe('Store', () => {
         httpsMode: 'https',
         firstLaunchCompleted: true,
         theme: 'dark',
-        showHelpOnStartup: false,
         openWebsiteWindows: [
           {
             websiteName: 'test-site',
@@ -98,7 +96,6 @@ describe('Store', () => {
       expect(store.get('httpsMode')).toBe('https');
       expect(store.get('firstLaunchCompleted')).toBe(true);
       expect(store.get('theme')).toBe('dark');
-      expect(store.get('showHelpOnStartup')).toBe(false);
       expect(store.get('openWebsiteWindows')).toHaveLength(1);
     });
 
@@ -137,7 +134,6 @@ describe('Store', () => {
       expect(store.get('httpsMode')).toBe(null);
       expect(store.get('firstLaunchCompleted')).toBe(false);
       expect(store.get('theme')).toBe('system');
-      expect(store.get('showHelpOnStartup')).toBe(false);
       expect(store.get('openWebsiteWindows')).toEqual([]);
     });
 
@@ -225,7 +221,6 @@ describe('Store', () => {
         httpsMode: null,
         firstLaunchCompleted: false,
         theme: 'system',
-        showHelpOnStartup: false,
         openWebsiteWindows: [],
       });
     });
@@ -261,20 +256,17 @@ describe('Store', () => {
       expect(store.get('autoDnsEnabled')).toBe(true);
       expect(store.get('theme')).toBe('dark');
       expect(store.get('firstLaunchCompleted')).toBe(true);
-      expect(store.get('showHelpOnStartup')).toBe(false); // Unchanged
       expect(mockedFs.writeFileSync).toHaveBeenCalledTimes(1);
     });
 
     it('should preserve existing settings not being updated', () => {
       store.set('autoDnsEnabled', true);
-      store.set('showHelpOnStartup', false);
 
       jest.clearAllMocks();
 
       store.setAll({ theme: 'light' });
 
       expect(store.get('autoDnsEnabled')).toBe(true); // Preserved
-      expect(store.get('showHelpOnStartup')).toBe(false); // Preserved
       expect(store.get('theme')).toBe('light'); // Updated
     });
 
@@ -383,14 +375,12 @@ describe('Store', () => {
       const httpsMode: 'https' | 'http' | null = store.get('httpsMode');
       const firstLaunch: boolean = store.get('firstLaunchCompleted');
       const theme: 'system' | 'light' | 'dark' = store.get('theme');
-      const showHelp: boolean = store.get('showHelpOnStartup');
       const windows: WindowState[] = store.get('openWebsiteWindows');
 
       expect(typeof autoDns).toBe('boolean');
       expect(httpsMode === null || typeof httpsMode === 'string').toBe(true);
       expect(typeof firstLaunch).toBe('boolean');
       expect(typeof theme).toBe('string');
-      expect(typeof showHelp).toBe('boolean');
       expect(Array.isArray(windows)).toBe(true);
     });
 
@@ -404,7 +394,6 @@ describe('Store', () => {
       store.set('theme', 'system');
       store.set('theme', 'light');
       store.set('theme', 'dark');
-      store.set('showHelpOnStartup', true);
       store.set('openWebsiteWindows', []);
 
       expect(store.get('autoDnsEnabled')).toBe(true);
@@ -544,7 +533,6 @@ describe('Store', () => {
           httpsMode: 'https',
           firstLaunchCompleted: true,
           theme: 'dark',
-          showHelpOnStartup: false,
           openWebsiteWindows: windowStates,
         })
       );
