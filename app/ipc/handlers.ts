@@ -18,6 +18,7 @@ import {
   getNativeInput,
   getBagItMetadata,
   BagItMetadata,
+  openWebsiteSelectionWindow,
 } from '../ui/window-manager';
 import {
   createWebsiteWindow,
@@ -312,6 +313,16 @@ export function setupIpcMainListeners(): void {
           buttons: ['OK'],
         });
       }
+    }
+  });
+
+  // Website selection window handler
+  ipcMain.on('open-website-selection', () => {
+    console.log('DEBUG: Received open-website-selection request');
+    try {
+      openWebsiteSelectionWindow();
+    } catch (error) {
+      console.error('Failed to open website selection window:', error);
     }
   });
 }

@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
     // Whitelist channels for security
     const validChannels = [
       'new-website',
+      'open-website',
       'preview',
       'open-browser',
       'reload-preview',
@@ -22,6 +23,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'input-dialog-result',
       'show-website-context-menu',
       'delete-website',
+      'open-website-selection',
     ];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, ...args);

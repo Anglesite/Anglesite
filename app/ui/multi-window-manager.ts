@@ -383,6 +383,9 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
   };
   websiteWindows.set(websiteName, websiteWindow);
 
+  // Close start screen when first website window is created
+  closeStartScreen();
+
   // Update menu and server URL when focus changes
   window.on('focus', () => {
     // Update the global server URL to match this window's website
@@ -410,6 +413,11 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
     }
     websiteWindows.delete(websiteName);
     updateApplicationMenu();
+
+    // Show start screen if this was the last website window
+    if (websiteWindows.size === 0) {
+      showStartScreenIfNeeded();
+    }
   });
 
   console.log(`Website window created for: ${websiteName}`);
@@ -684,6 +692,8 @@ export async function restoreWindowStates(): Promise<void> {
   const windowStates = store.getWindowStates();
 
   if (windowStates.length === 0) {
+    // Show start screen when no websites are being restored
+    showStartScreenIfNeeded();
     return;
   }
 
@@ -779,4 +789,83 @@ export async function closeAllWindows(): Promise<void> {
   });
 
   websiteWindows.clear();
+}
+
+/**
+ * Start screen window instance
+ */
+let startScreenWindow: BrowserWindow | null = null;
+
+/**
+ * Create and show the start screen window.
+ */
+export function createStartScreen(): BrowserWindow {
+  if (startScreenWindow && !startScreenWindow.isDestroyed()) {
+    startScreenWindow.focus();
+    return startScreenWindow;
+  }
+
+  console.log('Creating start screen...');
+
+  startScreenWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    minWidth: 800,
+    minHeight: 600,
+    title: 'Anglesite',
+    show: false,
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 20, y: 20 },
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, '..', 'preload.js'),
+    },
+  });
+
+  // Load the start screen template
+  const startScreenDataUrl = loadTemplateAsDataUrl('start-screen');
+  startScreenWindow.loadURL(startScreenDataUrl);
+
+  startScreenWindow.once('ready-to-show', () => {
+    if (startScreenWindow && !startScreenWindow.isDestroyed()) {
+      themeManager.applyThemeToWindow(startScreenWindow);
+      startScreenWindow.show();
+      startScreenWindow.focus();
+    }
+  });
+
+  startScreenWindow.on('closed', () => {
+    startScreenWindow = null;
+  });
+
+  console.log('Start screen created');
+  return startScreenWindow;
+}
+
+/**
+ * Close the start screen window if it exists.
+ */
+export function closeStartScreen(): void {
+  if (startScreenWindow && !startScreenWindow.isDestroyed()) {
+    startScreenWindow.close();
+  }
+  startScreenWindow = null;
+}
+
+/**
+ * Get the current start screen window.
+ */
+export function getStartScreen(): BrowserWindow | null {
+  return startScreenWindow && !startScreenWindow.isDestroyed() ? startScreenWindow : null;
+}
+
+/**
+ * Show the start screen if no windows are open and it's appropriate to do so.
+ */
+export function showStartScreenIfNeeded(): void {
+  // Only show start screen if no website windows are open and no start screen is already showing
+  if (websiteWindows.size === 0 && !getStartScreen() && !helpWindow) {
+    createStartScreen();
+  }
 }
