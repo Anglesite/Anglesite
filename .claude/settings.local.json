@@ -73,7 +73,10 @@
       "Bash(npm run clear-cache:*)",
       "Bash(terminal-notifier:*)",
       "Bash(timeout 10s npm start:*)",
-      "Bash(gtimeout:*)"
+      "Bash(gtimeout:*)",
+      "Bash(git fetch:*)",
+      "Bash(git rebase:*)",
+      "Bash(git stash:*)"
     ],
     "deny": [],
     "defaultMode": "acceptEdits"
