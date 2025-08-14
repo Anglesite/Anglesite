@@ -21,11 +21,16 @@ const mockClipboard = {
   writeText: jest.fn(),
 };
 
+const mockApp = {
+  getPath: jest.fn(() => '/mock/user/data'),
+};
+
 jest.mock('electron', () => ({
   Menu: mockMenu,
   BrowserWindow: mockBrowserWindow,
   shell: mockShell,
   clipboard: mockClipboard,
+  app: mockApp,
 }));
 
 // Mock IPC handlers
@@ -65,6 +70,7 @@ jest.mock('../../app/ui/multi-window-manager', () => ({
   getHelpWindow: jest.fn(),
   getAllWebsiteWindows: jest.fn(),
   createHelpWindow: jest.fn(),
+  isWebsiteEditorFocused: jest.fn(),
 }));
 
 jest.mock('../../app/ui/window-manager', () => ({
@@ -93,15 +99,11 @@ describe('Menu', () => {
     openWebsiteSelectionWindow: jest.Mock;
     getNativeInput: jest.Mock;
   };
-  let mockEleventyServer: {
-    getCurrentLiveServerUrl: jest.Mock;
-  };
 
   beforeAll(() => {
     menu = require('../../app/ui/menu');
     mockMultiWindowManager = require('../../app/ui/multi-window-manager');
     mockWindowManager = require('../../app/ui/window-manager');
-    mockEleventyServer = require('../../app/server/eleventy');
   });
 
   beforeEach(() => {
@@ -293,7 +295,8 @@ describe('Menu', () => {
       expect(windowMenu?.submenu).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ label: 'Minimize' }),
-          expect.objectContaining({ label: 'Close' }),
+          expect.objectContaining({ label: 'Merge All Windows' }),
+          expect.objectContaining({ label: 'Move Tab to New Window' }),
           expect.objectContaining({ label: 'Bring All to Front' }),
           expect.objectContaining({ type: 'separator' }),
           expect.objectContaining({ label: 'No Windows Open', enabled: false }),
@@ -441,22 +444,15 @@ describe('Menu', () => {
         expect(mockWindowManager.openWebsiteSelectionWindow).toHaveBeenCalled();
       });
 
-      it('should handle New Website click', async () => {
-        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-
+      it('should have New Website menu item with correct accelerator', () => {
         const fileMenu = template.find((item) => item.label === 'File');
         const newWebsiteItem = (fileMenu?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'New Website...'
+          (item) => item.label === 'New Website…'
         );
 
         expect(newWebsiteItem?.click).toBeDefined();
         expect(newWebsiteItem?.accelerator).toBe('CmdOrCtrl+N');
-
-        // The click handler contains complex async logic with dynamic imports
-        // We can verify it exists but testing the full flow would require complex mocking
         expect(typeof newWebsiteItem?.click).toBe('function');
-
-        consoleSpy.mockRestore();
       });
 
       it('should handle Export to Folder click', async () => {
@@ -465,7 +461,7 @@ describe('Menu', () => {
           (item) => item.label === 'Export To'
         );
         const folderExportItem = (exportToItem?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Folder…'
+          (item) => item.label === 'Folder'
         );
 
         expect(folderExportItem?.click).toBeDefined();
@@ -484,7 +480,7 @@ describe('Menu', () => {
           (item) => item.label === 'Export To'
         );
         const zipExportItem = (exportToItem?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Zip Archive…'
+          (item) => item.label === 'Zip Archive'
         );
 
         expect(zipExportItem?.click).toBeDefined();
@@ -583,142 +579,14 @@ describe('Menu', () => {
       });
     });
 
-    describe('Server Menu', () => {
-      it('should handle Open in Browser click successfully', async () => {
-        mockEleventyServer.getCurrentLiveServerUrl.mockReturnValue('https://test.example.com:8080');
-        mockShell.openExternal.mockResolvedValue(undefined);
-
-        const serverMenu = template.find((item) => item.label === 'Server');
-        const openInBrowserItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Open in Browser'
+    describe('Website Menu Server Actions', () => {
+      it('should handle Server Restart click', () => {
+        const websiteMenu = template.find((item) => item.label === 'Website');
+        const serverSubmenu = (websiteMenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Server'
         );
-
-        expect(openInBrowserItem?.click).toBeDefined();
-        if (openInBrowserItem?.click) {
-          await (
-            openInBrowserItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>
-          )({}, undefined, {});
-        }
-
-        expect(mockShell.openExternal).toHaveBeenCalledWith('https://test.example.com:8080');
-      });
-
-      it('should handle Open in Browser click with fallback to localhost', async () => {
-        mockEleventyServer.getCurrentLiveServerUrl.mockReturnValue('https://mysite.test:8080');
-        mockShell.openExternal
-          .mockRejectedValueOnce(new Error('Failed to open .test domain'))
-          .mockResolvedValueOnce(undefined);
-
-        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-
-        const serverMenu = template.find((item) => item.label === 'Server');
-        const openInBrowserItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Open in Browser'
-        );
-
-        expect(openInBrowserItem?.click).toBeDefined();
-        if (openInBrowserItem?.click) {
-          await (
-            openInBrowserItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>
-          )({}, undefined, {});
-        }
-
-        expect(mockShell.openExternal).toHaveBeenCalledWith('https://mysite.test:8080');
-        expect(mockShell.openExternal).toHaveBeenCalledWith('https://localhost:8080');
-        expect(consoleSpy).toHaveBeenCalledWith('Failed to open .test domain, trying localhost');
-
-        consoleSpy.mockRestore();
-      });
-
-      it('should handle Open in Browser click with both attempts failing', async () => {
-        mockEleventyServer.getCurrentLiveServerUrl.mockReturnValue('https://mysite.test:8080');
-        mockShell.openExternal
-          .mockRejectedValueOnce(new Error('Failed to open .test domain'))
-          .mockRejectedValueOnce(new Error('Failed to open localhost'));
-
-        const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-        const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-
-        const serverMenu = template.find((item) => item.label === 'Server');
-        const openInBrowserItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Open in Browser'
-        );
-
-        expect(openInBrowserItem?.click).toBeDefined();
-        if (openInBrowserItem?.click) {
-          await (
-            openInBrowserItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>
-          )({}, undefined, {});
-        }
-
-        expect(consoleSpy).toHaveBeenCalledWith('Failed to open .test domain, trying localhost');
-        expect(consoleErrorSpy).toHaveBeenCalledWith('Failed to open in browser:', expect.any(Error));
-
-        consoleSpy.mockRestore();
-        consoleErrorSpy.mockRestore();
-      });
-
-      it('should handle Copy Server URL click', async () => {
-        mockEleventyServer.getCurrentLiveServerUrl.mockReturnValue('https://localhost:8080');
-
-        const serverMenu = template.find((item) => item.label === 'Server');
-        const copyUrlItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Copy Server URL'
-        );
-
-        expect(copyUrlItem?.click).toBeDefined();
-        if (copyUrlItem?.click) {
-          await (copyUrlItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>)(
-            {},
-            mockBrowserWindowInstance,
-            {}
-          );
-        }
-
-        expect(mockClipboard.writeText).toHaveBeenCalledWith('https://localhost:8080');
-      });
-
-      it('should handle Copy Server URL click with no browser window', async () => {
-        const serverMenu = template.find((item) => item.label === 'Server');
-        const copyUrlItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Copy Server URL'
-        );
-
-        // Should not throw when no browser window is provided
-        expect(async () => {
-          if (copyUrlItem?.click) {
-            await (copyUrlItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>)(
-              {},
-              null,
-              {}
-            );
-          }
-        }).not.toThrow();
-      });
-
-      it('should handle Copy Server URL click with browser window without webContents', async () => {
-        const browserWindowWithoutWebContents = { someOtherProp: 'value' };
-        const serverMenu = template.find((item) => item.label === 'Server');
-        const copyUrlItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Copy Server URL'
-        );
-
-        // Should not throw when browser window doesn't have webContents
-        expect(async () => {
-          if (copyUrlItem?.click) {
-            await (copyUrlItem.click as (menuItem: unknown, browserWindow: unknown, event: unknown) => Promise<void>)(
-              {},
-              browserWindowWithoutWebContents,
-              {}
-            );
-          }
-        }).not.toThrow();
-      });
-
-      it('should handle Restart Server click', () => {
-        const serverMenu = template.find((item) => item.label === 'Server');
-        const restartServerItem = (serverMenu?.submenu as MenuItemConstructorOptions[])?.find(
-          (item) => item.label === 'Restart Server'
+        const restartServerItem = (serverSubmenu?.submenu as MenuItemConstructorOptions[])?.find(
+          (item) => item.label === 'Restart'
         );
 
         expect(restartServerItem?.click).toBeDefined();

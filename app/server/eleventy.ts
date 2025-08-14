@@ -332,12 +332,11 @@ export async function startDefaultEleventyServer(
       if (httpsMode === 'https') {
         // Start HTTPS proxy server
         console.log('Starting HTTPS proxy server...');
-        console.log(`DEBUG: HTTP URL: ${httpUrl}`);
-        console.log(`DEBUG: Test domain: ${testDomain}`);
-        console.log(`DEBUG: Hostname: ${hostname}`);
+        console.log(`HTTP URL: ${httpUrl}`);
+        console.log(`Test domain: ${testDomain}`);
+        console.log(`Hostname: ${hostname}`);
 
         const httpPort = new URL(httpUrl).port || '8081';
-        console.log(`DEBUG: Extracted HTTP port: ${httpPort}`);
 
         const httpsSuccess = await createHttpsProxy(8080, parseInt(httpPort), hostname);
 

@@ -87,9 +87,8 @@ const mockGetWebsitePath = jest.fn(() => TEST_CONSTANTS.PATHS.TEST_PATH);
 
 jest.mock('../../app/ui/window-manager', () => ({
   getBagItMetadata: mockGetBagItMetadata,
-  showPreview: jest.fn(),
-  hidePreview: jest.fn(),
-  reloadPreview: jest.fn(),
+  openWebsiteSelectionWindow: jest.fn(),
+  openSettingsWindow: jest.fn(),
   togglePreviewDevTools: jest.fn(),
   getNativeInput: jest.fn(),
 }));
@@ -98,6 +97,8 @@ jest.mock('../../app/ui/multi-window-manager', () => ({
   getAllWebsiteWindows: mockGetAllWebsiteWindows,
   createWebsiteWindow: jest.fn(),
   loadWebsiteContent: jest.fn(),
+  isWebsiteEditorFocused: jest.fn(() => true),
+  getCurrentWebsiteEditorProject: jest.fn(() => 'test-site'),
 }));
 
 jest.mock('../../app/utils/website-manager', () => ({
@@ -254,7 +255,9 @@ describe('Export Coverage Tests', () => {
   });
 
   it('should handle no website selected', async () => {
+    const { isWebsiteEditorFocused } = require('../../app/ui/multi-window-manager');
     mockGetAllWebsiteWindows.mockReturnValue(new Map());
+    isWebsiteEditorFocused.mockReturnValue(false);
 
     await exportSiteHandler(null, false);
 

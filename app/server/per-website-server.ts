@@ -38,6 +38,7 @@ export interface WebsiteServer {
   inputDir: string;
   outputDir: string;
   port: number;
+  actualUrl?: string;
 }
 
 /**
@@ -45,7 +46,7 @@ export interface WebsiteServer {
  */
 export async function startWebsiteServer(inputDir: string, websiteName: string, port: number): Promise<WebsiteServer> {
   console.log(`Starting individual Eleventy server for ${websiteName} on port ${port}`);
-  console.log(`DEBUG: Input directory: ${inputDir}`);
+  console.log(`Input directory: ${inputDir}`);
 
   sendLogToWindow(websiteName, `🚀 Starting Eleventy server for ${websiteName}`, 'startup');
   sendLogToWindow(websiteName, `📁 Input directory: ${inputDir}`, 'debug');
@@ -58,9 +59,9 @@ export async function startWebsiteServer(inputDir: string, websiteName: string, 
       : process.cwd();
     const outputDir = path.join(baseDir, 'anglesite-temp', '_site_temp', websiteName);
 
-    console.log(`DEBUG: Base directory: ${baseDir}`);
-    console.log(`DEBUG: Output directory: ${outputDir}`);
-    console.log(`DEBUG: Is packaged: ${isPackaged}`);
+    console.log(`Base directory: ${baseDir}`);
+    console.log(`Output directory: ${outputDir}`);
+    console.log(`Is packaged: ${isPackaged}`);
 
     sendLogToWindow(websiteName, `📂 Setting up build directory...`, 'info');
     sendLogToWindow(websiteName, `📍 Output: ${outputDir}`, 'debug');
@@ -76,8 +77,8 @@ export async function startWebsiteServer(inputDir: string, websiteName: string, 
       ? path.resolve(__dirname, '..', 'eleventy', '.eleventy.js')
       : path.resolve(process.cwd(), 'app/eleventy/.eleventy.js');
 
-    console.log(`DEBUG: Config path: ${configPath}`);
-    console.log(`DEBUG: Config file exists: ${fs.existsSync(configPath)}`);
+    console.log(`Config path: ${configPath}`);
+    console.log(`Config file exists: ${fs.existsSync(configPath)}`);
 
     sendLogToWindow(websiteName, `⚙️ Loading Eleventy configuration...`, 'info');
 
@@ -96,6 +97,9 @@ export async function startWebsiteServer(inputDir: string, websiteName: string, 
     console.log(`[${websiteName}] Initial build completed`);
     sendLogToWindow(websiteName, `✅ Build completed successfully`, 'info');
 
+    // Track the actual server URL
+    let actualServerUrl = '';
+
     // Create dev server instance
     const devServer = new EleventyDevServer(websiteName, outputDir, {
       port: port,
@@ -106,10 +110,22 @@ export async function startWebsiteServer(inputDir: string, websiteName: string, 
       logger: {
         log: (msg: string) => {
           console.log(`[${websiteName}] ${msg}`);
+          // Capture actual server URL from logs
+          const serverUrlMatch = msg.match(/Server at (http:\/\/localhost:\d+)\/?/);
+          if (serverUrlMatch) {
+            actualServerUrl = serverUrlMatch[1]; // Already clean, no trailing slash needed
+            console.log(`[${websiteName}] Captured actual server URL: ${actualServerUrl}`);
+          }
           sendLogToWindow(websiteName, msg, 'info');
         },
         info: (msg: string) => {
           console.log(`[${websiteName}] ${msg}`);
+          // Also check info messages for server URL
+          const serverUrlMatch = msg.match(/Server at (http:\/\/localhost:\d+)\/?/);
+          if (serverUrlMatch) {
+            actualServerUrl = serverUrlMatch[1];
+            console.log(`[${websiteName}] Captured actual server URL from info: ${actualServerUrl}`);
+          }
           sendLogToWindow(websiteName, msg, 'info');
         },
         error: (msg: string) => {
@@ -141,8 +157,15 @@ export async function startWebsiteServer(inputDir: string, websiteName: string, 
 
     await devServer.serve();
 
-    console.log(`[${websiteName}] Server ready at: http://localhost:${port}`);
-    sendLogToWindow(websiteName, `🎉 Server ready at http://localhost:${port}`, 'info');
+    // Wait a moment for the server URL to be captured from logs
+    await new Promise((resolve) => setTimeout(resolve, 1000));
+
+    // Use captured URL if available, otherwise fall back to expected port
+    const finalServerUrl = actualServerUrl || `http://localhost:${port}`;
+    const actualPort = actualServerUrl ? parseInt(actualServerUrl.split(':')[2]) : port;
+
+    console.log(`[${websiteName}] Final server URL: ${finalServerUrl}`);
+    sendLogToWindow(websiteName, `🎉 Server ready at ${finalServerUrl}`, 'info');
     sendLogToWindow(websiteName, `👀 Watching for file changes...`, 'info');
 
     return {
@@ -150,7 +173,8 @@ export async function startWebsiteServer(inputDir: string, websiteName: string, 
       devServer,
       inputDir,
       outputDir,
-      port,
+      port: actualPort,
+      actualUrl: finalServerUrl,
     };
   } catch (error) {
     console.error(`Failed to start server for ${websiteName}:`, error);

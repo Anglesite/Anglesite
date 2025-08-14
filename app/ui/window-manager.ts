@@ -1,234 +1,18 @@
 /**
  * @file Window and WebContentsView management.
  */
-import { BrowserWindow, WebContentsView, ipcMain, WebContents } from 'electron';
+import { BrowserWindow, ipcMain, WebContents, WebContentsView } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
-import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
 import { themeManager } from './theme-manager';
 import { loadTemplateAsDataUrl } from './template-loader';
 import { getAllWebsiteWindows, getHelpWindow } from './multi-window-manager';
+import { updateApplicationMenu } from './menu';
 
-let previewWebContentsView: WebContentsView | null = null;
 let settingsWindow: BrowserWindow | null = null;
-
-/**
- * Create the main application window.
- */
-export function createWindow(): BrowserWindow {
-  const win = new BrowserWindow({
-    width: 1200,
-    height: 800,
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-      preload: path.join(__dirname, '..', 'preload.js'),
-    },
-    titleBarStyle: 'hiddenInset',
-    trafficLightPosition: { x: 20, y: 20 },
-  });
-
-  win.loadFile(path.join(__dirname, '..', 'index.html'));
-
-  // Create preview WebContentsView
-  createPreviewWebContentsView();
-
-  // Handle window resize to reposition WebContentsView
-  win.on('resize', () => {
-    if (previewWebContentsView) {
-      const bounds = win.getBounds();
-      previewWebContentsView.setBounds({
-        x: 0,
-        y: 90, // Height of both menu bars
-        width: bounds.width,
-        height: bounds.height - 90,
-      });
-    }
-  });
-
-  return win;
-}
-
-/**
- * Create preview WebContentsView for displaying live content.
- */
-function createPreviewWebContentsView(): void {
-  previewWebContentsView = new WebContentsView({
-    webPreferences: {
-      nodeIntegration: false,
-      contextIsolation: true,
-    },
-  });
-
-  // Add error handling
-  previewWebContentsView.webContents.on('render-process-gone', (_event, details) => {
-    console.error('WebContentsView render process gone:', details);
-    setTimeout(() => {
-      try {
-        previewWebContentsView?.webContents.reload();
-      } catch (error) {
-        console.error('Failed to reload WebContentsView:', error);
-      }
-    }, 1000);
-  });
-
-  previewWebContentsView.webContents.on('unresponsive', () => {
-    console.error('WebContentsView webContents unresponsive');
-  });
-
-  previewWebContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    console.error('WebContentsView failed to load:', {
-      errorCode,
-      errorDescription,
-      validatedURL,
-    });
-  });
-
-  console.log('WebContentsView created and ready to display content');
-}
-
-/**
- * Auto-load preview when server is ready.
- */
-export function autoLoadPreview(win: BrowserWindow): void {
-  if (win && previewWebContentsView && isLiveServerReady()) {
-    const currentUrl = getCurrentLiveServerUrl();
-    console.log('Auto-loading preview with URL:', currentUrl);
-
-    // Remove existing listeners to avoid duplicates
-    previewWebContentsView.webContents.removeAllListeners('did-fail-load');
-    previewWebContentsView.webContents.removeAllListeners('did-finish-load');
-
-    previewWebContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-      console.error('Auto-load failed for URL:', validatedURL, 'Error:', errorCode, errorDescription);
-      // Fallback to file:// protocol if HTTP fails
-      loadLocalFilePreview(win);
-    });
-
-    previewWebContentsView.webContents.on('did-finish-load', () => {
-      console.log('Auto-loaded preview successfully:', currentUrl);
-    });
-
-    // Load the current live server URL
-    setTimeout(() => {
-      const serverUrl = getCurrentLiveServerUrl();
-      console.log('Auto-loading URL now:', serverUrl);
-
-      previewWebContentsView?.webContents.loadURL(serverUrl).catch((error) => {
-        console.error('Failed to load server URL:', error);
-
-        // Show fallback HTML
-        const fallbackDataUrl = loadTemplateAsDataUrl('preview-fallback');
-        previewWebContentsView?.webContents.loadURL(fallbackDataUrl);
-      });
-    }, 100);
-
-    // Add WebContentsView to window if not already added
-    if (!win.contentView.children.includes(previewWebContentsView)) {
-      win.contentView.addChildView(previewWebContentsView);
-      console.log('WebContentsView added to window');
-    }
-
-    // Position the preview correctly
-    const bounds = win.getBounds();
-    previewWebContentsView.setBounds({
-      x: 0,
-      y: 90, // Height of both menu bars
-      width: bounds.width,
-      height: bounds.height - 90,
-    });
-
-    // Send message to renderer
-    win.webContents.send('preview-loaded');
-    console.log('Auto-preview loaded successfully');
-  }
-}
-
-/**
- * Load local file preview as fallback.
- */
-export function loadLocalFilePreview(win: BrowserWindow): void {
-  if (win && previewWebContentsView) {
-    const distPath = path.resolve(process.cwd(), 'dist');
-    const indexFile = path.join(distPath, 'index.html');
-    const fileUrl = `file://${indexFile}`;
-
-    console.log('Loading local file preview:', fileUrl);
-
-    try {
-      if (fs.existsSync(indexFile)) {
-        previewWebContentsView.webContents.loadFile(indexFile);
-      } else {
-        console.error('Index file not found:', indexFile);
-      }
-    } catch (error) {
-      console.error('Error loading local file preview:', error);
-    }
-  }
-}
-
-/**
- * Show preview in WebContentsView.
- */
-export function showPreview(win: BrowserWindow): void {
-  if (win && previewWebContentsView) {
-    console.log('Showing WebContentsView and loading URL');
-
-    // Add WebContentsView to window if not already added
-    if (!win.contentView.children.includes(previewWebContentsView)) {
-      win.contentView.addChildView(previewWebContentsView);
-    }
-
-    // Remove existing listeners
-    previewWebContentsView.webContents.removeAllListeners('did-fail-load');
-    previewWebContentsView.webContents.removeAllListeners('did-finish-load');
-
-    previewWebContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-      console.error('Failed to load URL:', validatedURL, 'Error:', errorCode, errorDescription);
-    });
-
-    previewWebContentsView.webContents.on('did-finish-load', () => {
-      const serverUrl = getCurrentLiveServerUrl();
-      console.log('WebContentsView successfully loaded:', serverUrl);
-    });
-
-    // Load current server URL directly
-    const serverUrl = getCurrentLiveServerUrl();
-    setTimeout(() => {
-      console.log('MAIN PROCESS: Actually loading URL now:', serverUrl);
-      previewWebContentsView?.webContents.loadURL(serverUrl);
-    }, 100);
-
-    // Position correctly
-    const bounds = win.getBounds();
-    previewWebContentsView.setBounds({
-      x: 0,
-      y: 90,
-      width: bounds.width,
-      height: bounds.height - 90,
-    });
-
-    win.webContents.send('preview-loaded');
-  }
-}
-
-/**
- * Hide preview WebContentsView.
- */
-export function hidePreview(win: BrowserWindow): void {
-  if (win && previewWebContentsView) {
-    win.contentView.removeChildView(previewWebContentsView);
-  }
-}
-
-/**
- * Reload preview content.
- */
-export function reloadPreview(): void {
-  if (previewWebContentsView) {
-    previewWebContentsView.webContents.reload();
-  }
-}
+let websiteEditorWindow: BrowserWindow | null = null;
+let websiteEditorWebContentsView: WebContentsView | null = null;
+let currentWebsiteEditorProject: string | null = null;
 
 /**
  * Toggle DevTools for the currently focused window.
@@ -580,4 +364,190 @@ export function openSettingsWindow(): void {
       settingsWindow.show();
     }
   });
+}
+
+/**
+ * Creates and displays the website editor window with three-panel layout, or focuses it if already open.
+ */
+export function openWebsiteEditorWindow(websiteName?: string, websitePath?: string): void {
+  if (websiteEditorWindow && !websiteEditorWindow.isDestroyed()) {
+    websiteEditorWindow.focus();
+    return;
+  }
+
+  const windowTitle = websiteName ? websiteName : 'Website Editor';
+
+  // Track the current website project
+  currentWebsiteEditorProject = websiteName || null;
+
+  websiteEditorWindow = new BrowserWindow({
+    width: 1200,
+    height: 800,
+    title: windowTitle,
+    resizable: true,
+    minimizable: true,
+    maximizable: true,
+    fullscreenable: true,
+    show: false, // Don't show immediately to prevent white flash
+    titleBarStyle: 'default',
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+      preload: path.join(__dirname, '..', 'preload.js'),
+    },
+  });
+
+  // Create WebContentsView for preview
+  websiteEditorWebContentsView = new WebContentsView({
+    webPreferences: {
+      nodeIntegration: false,
+      contextIsolation: true,
+    },
+  });
+
+  // Add the WebContentsView to the window
+  websiteEditorWindow.contentView.addChildView(websiteEditorWebContentsView);
+
+  const editorDataUrl = loadTemplateAsDataUrl('website-editor');
+
+  websiteEditorWindow.loadURL(editorDataUrl);
+
+  // Handle window resize to reposition the WebContentsView
+  websiteEditorWindow.on('resize', () => {
+    if (websiteEditorWebContentsView && websiteEditorWindow) {
+      positionPreviewWebContentsView();
+    }
+  });
+
+  // Use ready-to-show event following Electron best practices
+  websiteEditorWindow.once('ready-to-show', () => {
+    if (websiteEditorWindow && !websiteEditorWindow.isDestroyed()) {
+      // Apply current theme to the website editor window before showing
+      themeManager.applyThemeToWindow(websiteEditorWindow);
+      websiteEditorWindow.show();
+
+      // Position the WebContentsView
+      positionPreviewWebContentsView();
+
+      // Update menu to reflect the new window state
+      setTimeout(() => {
+        updateApplicationMenu();
+      }, 100);
+
+      // If we have website information, send it to the renderer
+      if (websiteName && websitePath) {
+        console.log(`Sending load-website message to renderer: ${websiteName} at ${websitePath}`);
+        // Add a small delay to ensure the renderer is fully ready
+        setTimeout(() => {
+          if (websiteEditorWindow && !websiteEditorWindow.isDestroyed()) {
+            websiteEditorWindow.webContents.send('load-website', {
+              name: websiteName,
+              path: websitePath,
+            });
+          }
+        }, 100);
+      }
+    }
+  });
+
+  // Update menu when focus changes
+  websiteEditorWindow.on('focus', () => {
+    // Small delay to ensure window state is fully updated
+    setTimeout(() => {
+      updateApplicationMenu();
+    }, 50);
+  });
+
+  websiteEditorWindow.on('blur', () => {
+    updateApplicationMenu();
+  });
+
+  // Handle window close
+  websiteEditorWindow.on('closed', () => {
+    websiteEditorWindow = null;
+    websiteEditorWebContentsView = null;
+    currentWebsiteEditorProject = null;
+    updateApplicationMenu();
+  });
+}
+
+/**
+ * Position the preview WebContentsView in the center panel.
+ */
+function positionPreviewWebContentsView(): void {
+  if (!websiteEditorWebContentsView || !websiteEditorWindow) {
+    return;
+  }
+
+  const bounds = websiteEditorWindow.getBounds();
+
+  // Calculate position for center panel
+  // Left panel: 200px, toolbar: ~48px height, right panel: 200px
+  const leftPanelWidth = 200;
+  const toolbarHeight = 48;
+  const rightPanelWidth = 200;
+
+  const x = leftPanelWidth;
+  const y = toolbarHeight;
+  const width = bounds.width - leftPanelWidth - rightPanelWidth;
+  const height = bounds.height - toolbarHeight;
+
+  websiteEditorWebContentsView.setBounds({
+    x,
+    y,
+    width,
+    height,
+  });
+}
+
+/**
+ * Check if the website editor window is currently focused.
+ */
+export function isWebsiteEditorFocused(): boolean {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  return !!(websiteEditorWindow && !websiteEditorWindow.isDestroyed() && websiteEditorWindow === focusedWindow);
+}
+
+/**
+ * Get the name of the currently loaded website project in the website editor.
+ */
+export function getCurrentWebsiteEditorProject(): string | null {
+  return currentWebsiteEditorProject;
+}
+
+/**
+ * Load website content into the preview WebContentsView with retry logic.
+ */
+export async function loadWebsiteIntoPreview(serverUrl: string): Promise<void> {
+  if (!websiteEditorWebContentsView) {
+    throw new Error('Website editor preview WebContentsView not available');
+  }
+
+  console.log(`Loading website preview from: ${serverUrl}`);
+
+  const maxRetries = 10;
+  let retryCount = 0;
+
+  const tryLoad = async (): Promise<void> => {
+    try {
+      await websiteEditorWebContentsView!.webContents.loadURL(serverUrl);
+      console.log(`Successfully loaded preview: ${serverUrl}`);
+    } catch (error: unknown) {
+      if (
+        error instanceof Error &&
+        'code' in error &&
+        error.code === 'ERR_CONNECTION_REFUSED' &&
+        retryCount < maxRetries
+      ) {
+        retryCount++;
+        console.log(`Retrying preview load (${retryCount}/${maxRetries}) in 500ms...`);
+        await new Promise((resolve) => setTimeout(resolve, 500));
+        return tryLoad();
+      }
+      console.error(`Failed to load preview URL after ${retryCount} retries: ${serverUrl}`, error);
+      throw error;
+    }
+  };
+
+  return tryLoad();
 }

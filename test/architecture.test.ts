@@ -48,7 +48,9 @@ describe('Modular Architecture', () => {
   describe('Function Exports', () => {
     it('should export functions from window manager', () => {
       const windowManager = require('../app/ui/window-manager');
-      expect(typeof windowManager.createWindow).toBe('function');
+      expect(typeof windowManager.openWebsiteSelectionWindow).toBe('function');
+      expect(typeof windowManager.openSettingsWindow).toBe('function');
+      expect(typeof windowManager.getNativeInput).toBe('function');
     });
 
     it('should export functions from menu module', () => {

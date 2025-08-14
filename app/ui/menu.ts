@@ -3,17 +3,22 @@
  */
 import { Menu, MenuItemConstructorOptions, shell, WebContents, BrowserWindow, dialog } from 'electron';
 import { openSettingsWindow, getNativeInput, openWebsiteSelectionWindow } from './window-manager';
-import { getAllWebsiteWindows, getHelpWindow, createHelpWindow } from './multi-window-manager';
+import { getAllWebsiteWindows, getHelpWindow, createHelpWindow, isWebsiteEditorFocused } from './multi-window-manager';
 import { createWebsiteWithName, validateWebsiteName } from '../utils/website-manager';
 import { openWebsiteInNewWindow, exportSiteHandler } from '../ipc/handlers';
 import { Store } from '../store';
 
 /**
- * Check if the current focused window is a website window.
+ * Check if the current focused window is a website window or website editor.
  */
 function isWebsiteWindowFocused(): boolean {
   const focusedWindow = BrowserWindow.getFocusedWindow();
   if (!focusedWindow) return false;
+
+  // Check if the website editor window is focused
+  if (isWebsiteEditorFocused()) {
+    return true;
+  }
 
   // Check if this window is in our website windows map
   const websiteWindows = getAllWebsiteWindows();

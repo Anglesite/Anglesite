@@ -225,27 +225,6 @@ describe('Website Creation Flow', () => {
       await expect(mockStartWebsiteServerAndUpdateWindow()).rejects.toThrow('Server failed');
     });
 
-    it('should create debug logs for website opening process', () => {
-      const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
-
-      // Test that debug logging is properly implemented
-      const testWebsiteName = 'test-debug-site';
-      const testPath = '/test/debug/path';
-
-      // Simulate the debug logging that should occur
-      console.log(`DEBUG: Opening website "${testWebsiteName}" in new window (new website: false)`);
-      console.log(`DEBUG: Website path resolved to: ${testPath}`);
-      console.log(`DEBUG: Window created for: ${testWebsiteName}`);
-
-      expect(consoleSpy).toHaveBeenCalledWith(
-        `DEBUG: Opening website "${testWebsiteName}" in new window (new website: false)`
-      );
-      expect(consoleSpy).toHaveBeenCalledWith(`DEBUG: Website path resolved to: ${testPath}`);
-      expect(consoleSpy).toHaveBeenCalledWith(`DEBUG: Window created for: ${testWebsiteName}`);
-
-      consoleSpy.mockRestore();
-    });
-
     it('should handle fallback content loading when server fails', () => {
       // Test the fallback mechanism when individual server startup fails
       const mockLoadWebsiteContent = jest.fn();

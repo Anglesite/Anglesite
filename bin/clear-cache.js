@@ -37,7 +37,7 @@ function clearUserDataCache() {
 }
 
 function clearTempFiles() {
-  const tempDirs = ['_site_temp', 'dist/build'];
+  const tempDirs = ['_site_temp', 'dist/', '_site'];
 
   tempDirs.forEach((dir) => {
     try {

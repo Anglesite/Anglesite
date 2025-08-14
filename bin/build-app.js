@@ -37,6 +37,11 @@ function buildApp() {
     console.log('Copying UI templates...');
     copyFiles('app/ui/templates', 'dist/app/ui/templates', '*.html');
 
+    // Inject static icons into templates
+    console.log('Injecting static icons into templates...');
+    const { injectStaticIcons } = require('./inject-static-icons');
+    injectStaticIcons();
+
     // Sync Eleventy files
     console.log('Syncing Eleventy files...');
     copyDirectory('app/eleventy', 'dist/app/eleventy');

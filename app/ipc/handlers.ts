@@ -10,23 +10,16 @@ import * as path from 'path';
 import * as os from 'os';
 import archiver from 'archiver';
 import BagIt from 'bagit-fs';
-import {
-  showPreview,
-  hidePreview,
-  reloadPreview,
-  togglePreviewDevTools,
-  getNativeInput,
-  getBagItMetadata,
-  BagItMetadata,
-  openWebsiteSelectionWindow,
-} from '../ui/window-manager';
+import { getNativeInput, getBagItMetadata, BagItMetadata, openWebsiteSelectionWindow } from '../ui/window-manager';
 import {
   createWebsiteWindow,
-  loadWebsiteContent,
-  getAllWebsiteWindows,
   startWebsiteServerAndUpdateWindow,
+  getAllWebsiteWindows,
+  togglePreviewDevTools,
+  isWebsiteEditorFocused,
+  getCurrentWebsiteEditorProject,
 } from '../ui/multi-window-manager';
-import { getCurrentLiveServerUrl, isLiveServerReady } from '../server/eleventy';
+import { getCurrentLiveServerUrl } from '../server/eleventy';
 import {
   createWebsiteWithName,
   validateWebsiteName,
@@ -37,6 +30,15 @@ import {
 } from '../utils/website-manager';
 import { Store } from '../store';
 import { updateApplicationMenu } from '../ui/menu';
+
+interface WebsiteFile {
+  name: string;
+  type: 'directory' | 'file';
+  path: string;
+  extension: string | null;
+  modified: Date;
+  size: number | null;
+}
 
 /**
  * Setup all IPC message listeners for inter-process communication
@@ -69,38 +71,32 @@ export function setupIpcMainListeners(): void {
     });
   });
 
-  // Preview handlers
-  ipcMain.on('preview', (event) => {
-    const serverUrl = getCurrentLiveServerUrl();
-    console.log('Preview requested, using server URL:', serverUrl);
-    console.log('Live server ready:', isLiveServerReady());
-
-    if (!isLiveServerReady()) {
-      console.log('Live server not ready yet, waiting...');
-      event.reply('preview-error', 'Live server is not ready yet. Please wait a moment and try again.');
-      return;
-    }
-
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) {
-      showPreview(win);
-    }
-  });
-
-  ipcMain.on('hide-preview', (event) => {
-    const win = BrowserWindow.fromWebContents(event.sender);
-    if (win) {
-      hidePreview(win);
-    }
-  });
-
   ipcMain.on('toggle-devtools', () => {
     console.log('DevTools toggle requested');
     togglePreviewDevTools();
   });
 
-  ipcMain.on('reload-preview', () => {
-    reloadPreview();
+  // Website Editor mode switching handlers
+  ipcMain.on('website-editor-show-preview', async (event) => {
+    const { showWebsitePreview } = await import('../ui/multi-window-manager');
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window) {
+      const websiteName = getWebsiteNameForWindow(window);
+      if (websiteName) {
+        showWebsitePreview(websiteName);
+      }
+    }
+  });
+
+  ipcMain.on('website-editor-show-edit', async (event) => {
+    const { hideWebsitePreview } = await import('../ui/multi-window-manager');
+    const window = BrowserWindow.fromWebContents(event.sender);
+    if (window) {
+      const websiteName = getWebsiteNameForWindow(window);
+      if (websiteName) {
+        hideWebsitePreview(websiteName);
+      }
+    }
   });
 
   // Browser handlers
@@ -211,20 +207,15 @@ export function setupIpcMainListeners(): void {
 
   // Website opening handler
   ipcMain.on('open-website', async (_, websiteName: string) => {
-    console.log(`DEBUG: Received open-website IPC for: ${websiteName}`);
     try {
       await openWebsiteInNewWindow(websiteName);
       console.log(`Website "${websiteName}" opened successfully in new window`);
     } catch (error) {
       console.error('Failed to open website:', error);
-      const websiteWindow = createWebsiteWindow(websiteName);
-      dialog.showMessageBox(websiteWindow, {
-        type: 'error',
-        title: 'Open Failed',
-        message: 'Failed to open website',
-        detail: error instanceof Error ? error.message : String(error),
-        buttons: ['OK'],
-      });
+      dialog.showErrorBox(
+        'Open Failed',
+        `Failed to open website "${websiteName}": ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   });
 
@@ -266,14 +257,11 @@ export function setupIpcMainListeners(): void {
 
   // Website name validation handler
   ipcMain.handle('validate-website-name', async (_, name: string) => {
-    console.log(`DEBUG: Received validate-website-name request for: "${name}"`);
     return validateWebsiteName(name);
   });
 
   // Website rename handler
   ipcMain.handle('rename-website', async (event, oldName: string, newName: string) => {
-    console.log(`DEBUG: Received rename-website request: "${oldName}" -> "${newName}"`);
-
     try {
       const success = await renameWebsite(oldName, newName);
       console.log(`Website "${oldName}" renamed to "${newName}" successfully`);
@@ -290,8 +278,6 @@ export function setupIpcMainListeners(): void {
 
   // Website delete handler
   ipcMain.on('delete-website', async (event, websiteName: string) => {
-    console.log(`DEBUG: Received delete-website request for: "${websiteName}"`);
-
     try {
       const window = BrowserWindow.fromWebContents(event.sender);
       const deleted = await deleteWebsite(websiteName, window || undefined);
@@ -320,13 +306,95 @@ export function setupIpcMainListeners(): void {
 
   // Website selection window handler
   ipcMain.on('open-website-selection', () => {
-    console.log('DEBUG: Received open-website-selection request');
     try {
       openWebsiteSelectionWindow();
     } catch (error) {
       console.error('Failed to open website selection window:', error);
     }
   });
+
+  // Website editor handlers
+  ipcMain.handle('load-website-files', async (_event, websitePath: string) => {
+    try {
+      return await loadWebsiteFiles(websitePath);
+    } catch (error) {
+      console.error('Failed to load website files:', error);
+      throw error;
+    }
+  });
+
+  ipcMain.handle('start-website-dev-server', async (_event, websiteName: string, websitePath: string) => {
+    try {
+      // Start the Eleventy dev server directly without creating a window
+      const { startWebsiteServer, findAvailablePort } = await import('../ui/multi-window-manager');
+      const port = await findAvailablePort();
+      const server = await startWebsiteServer(websitePath, websiteName, port);
+      const serverUrl = server.actualUrl || `http://localhost:${server.port}`;
+
+      console.log(`Dev server started for ${websiteName} at ${serverUrl}`);
+      return serverUrl;
+    } catch (error) {
+      console.error('Failed to start website dev server:', error);
+      throw error;
+    }
+  });
+
+  // Note: load-website-preview is no longer needed - the multi-window-manager
+  // handles loading content directly when creating and starting website servers
+}
+
+/**
+ * Helper function to get website name from a BrowserWindow.
+ */
+function getWebsiteNameForWindow(window: BrowserWindow): string | null {
+  const websiteWindows = getAllWebsiteWindows();
+  for (const [websiteName, websiteWindow] of websiteWindows) {
+    if (websiteWindow.window === window) {
+      return websiteName;
+    }
+  }
+  return null;
+}
+
+/**
+ * Load website files and directories for the file explorer.
+ */
+async function loadWebsiteFiles(websitePath: string): Promise<WebsiteFile[]> {
+  const files: WebsiteFile[] = [];
+
+  if (!fs.existsSync(websitePath)) {
+    throw new Error(`Website path does not exist: ${websitePath}`);
+  }
+
+  const items = fs.readdirSync(websitePath, { withFileTypes: true });
+
+  for (const item of items) {
+    // Skip hidden files, node_modules, and build output directories
+    if (item.name.startsWith('.') || item.name === 'node_modules' || item.name === '_site' || item.name === 'dist') {
+      continue;
+    }
+
+    const itemPath = path.join(websitePath, item.name);
+    const stats = fs.statSync(itemPath);
+
+    files.push({
+      name: item.name,
+      type: item.isDirectory() ? 'directory' : 'file',
+      path: itemPath,
+      extension: item.isFile() ? path.extname(item.name) : null,
+      modified: stats.mtime,
+      size: item.isFile() ? stats.size : null,
+    });
+  }
+
+  // Sort directories first, then files
+  files.sort((a, b) => {
+    if (a.type === 'directory' && b.type === 'file') return -1;
+    if (a.type === 'file' && b.type === 'directory') return 1;
+    return a.name.localeCompare(b.name);
+  });
+
+  return files;
 }
 
 /**
@@ -353,8 +421,6 @@ export function setupIpcMainListeners(): void {
  * ```
  */
 export async function exportSiteHandler(event: IpcMainEvent | null, exportFormat: boolean | 'bagit'): Promise<void> {
-  console.log(`DEBUG: exportSiteHandler called with exportFormat: ${exportFormat}`);
-
   // Get window from event or focused window
   const win = event ? BrowserWindow.fromWebContents(event.sender) : BrowserWindow.getFocusedWindow();
   if (!win) {
@@ -364,14 +430,19 @@ export async function exportSiteHandler(event: IpcMainEvent | null, exportFormat
   try {
     // Get the currently focused website window to determine which website to export
     const focusedWindow = BrowserWindow.getFocusedWindow();
-    const websiteWindows = getAllWebsiteWindows();
     let websiteToExport: string | null = null;
 
-    // Find which website window is focused
-    for (const [websiteName, websiteWindow] of websiteWindows) {
-      if (websiteWindow.window === focusedWindow) {
-        websiteToExport = websiteName;
-        break;
+    // First check if any website window is focused
+    if (isWebsiteEditorFocused()) {
+      websiteToExport = getCurrentWebsiteEditorProject();
+    } else {
+      // Find which website window is focused from the website windows map
+      const websiteWindows = getAllWebsiteWindows();
+      for (const [websiteName, websiteWindow] of websiteWindows) {
+        if (websiteWindow.window === focusedWindow) {
+          websiteToExport = websiteName;
+          break;
+        }
       }
     }
 
@@ -385,8 +456,6 @@ export async function exportSiteHandler(event: IpcMainEvent | null, exportFormat
       });
       return;
     }
-
-    console.log(`DEBUG: Found website to export: ${websiteToExport}`);
 
     // Determine export format details
     const isBagIt = exportFormat === 'bagit';
@@ -828,16 +897,14 @@ async function createNewWebsite(websiteName: string): Promise<void> {
 }
 
 /**
- * Open a website in a new dedicated window.
+ * Open a website in a new website window using multi-window-manager.
  */
 export async function openWebsiteInNewWindow(
   websiteName: string,
   websitePath?: string,
   isNewWebsite: boolean = false
 ): Promise<void> {
-  console.log(`Opening website "${websiteName}" in new window (new website: ${isNewWebsite})`);
-
-  let windowCreated = false;
+  console.log(`Opening website "${websiteName}" in website window (new website: ${isNewWebsite})`);
 
   try {
     // Step 1: Get website path if not provided
@@ -849,10 +916,13 @@ export async function openWebsiteInNewWindow(
       throw new Error(`Website directory does not exist: ${actualWebsitePath}`);
     }
 
-    // Step 2: Create a new window for this website
+    // Step 2: Create website window using multi-window manager
     createWebsiteWindow(websiteName, actualWebsitePath);
-    windowCreated = true;
-    console.log(`Window created for: ${websiteName}`);
+    console.log(`Website window created for: ${websiteName}`);
+
+    // Step 3: Start the website server for this window
+    await startWebsiteServerAndUpdateWindow(websiteName, actualWebsitePath);
+    console.log(`Website server started for: ${websiteName}`);
 
     // Step 3: Add to recent websites (but only if not a new website)
     if (!isNewWebsite) {
@@ -861,33 +931,9 @@ export async function openWebsiteInNewWindow(
       updateApplicationMenu();
     }
 
-    // Step 4: Try to start individual server for this website, fallback gracefully
-    try {
-      await startWebsiteServerAndUpdateWindow(websiteName, actualWebsitePath);
-      console.log(`Individual server started successfully for: ${websiteName}`);
-    } catch (serverError) {
-      console.warn(`Failed to start individual server for ${websiteName}, using fallback content:`, serverError);
-      // Load with fallback content - this is not a fatal error
-      try {
-        loadWebsiteContent(websiteName);
-        console.log(`Fallback content loaded for: ${websiteName}`);
-      } catch (fallbackError) {
-        console.error(`Failed to load fallback content for ${websiteName}:`, fallbackError);
-        // Don't throw here - window is created, user can manually reload
-      }
-    }
-
-    console.log(`Website "${websiteName}" ready in dedicated window`);
+    console.log(`Website "${websiteName}" ready in website window`);
   } catch (error) {
-    console.error(`Failed to open website "${websiteName}" in new window:`, error);
-
-    // If we created a window but failed later, the window will remain open
-    // which is probably what the user wants (they can see the error and try to reload)
-    if (windowCreated) {
-      console.log(
-        `Window was created for ${websiteName} but startup failed. Window remains open for manual intervention.`
-      );
-    }
+    console.error(`Failed to open website "${websiteName}" in website window:`, error);
 
     throw new Error(
       `Failed to open website "${websiteName}": ${error instanceof Error ? error.message : String(error)}`

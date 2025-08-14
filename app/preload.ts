@@ -24,6 +24,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'show-website-context-menu',
       'delete-website',
       'open-website-selection',
+      'website-editor-show-preview',
+      'website-editor-show-edit',
     ];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, ...args);
@@ -37,6 +39,8 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'rename-website',
       'get-current-theme',
       'set-theme',
+      'load-website-files',
+      'start-website-dev-server',
     ];
     if (validChannels.includes(channel)) {
       return ipcRenderer.invoke(channel, ...args);
@@ -57,6 +61,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'website-operation-completed',
       'theme-updated',
       'trigger-new-website',
+      'load-website',
     ];
     if (validChannels.includes(channel)) {
       ipcRenderer.on(channel, (_event, ...args) => {

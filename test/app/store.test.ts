@@ -77,6 +77,7 @@ describe('Store', () => {
         httpsMode: 'https',
         firstLaunchCompleted: true,
         theme: 'dark',
+        recentWebsites: ['test-site-1', 'test-site-2'],
         openWebsiteWindows: [
           {
             websiteName: TEST_CONSTANTS.WEBSITES.TEST_SITE,
@@ -243,6 +244,7 @@ describe('Store', () => {
         httpsMode: null,
         firstLaunchCompleted: false,
         theme: 'system',
+        recentWebsites: [],
         openWebsiteWindows: [],
       });
     });

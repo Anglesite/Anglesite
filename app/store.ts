@@ -140,19 +140,19 @@ export class Store {
    */
   addRecentWebsite(websiteName: string): void {
     const recentWebsites = this.get('recentWebsites').slice(); // Create a copy
-    
+
     // Remove existing occurrence if present
     const existingIndex = recentWebsites.indexOf(websiteName);
     if (existingIndex !== -1) {
       recentWebsites.splice(existingIndex, 1);
     }
-    
+
     // Add to beginning
     recentWebsites.unshift(websiteName);
-    
+
     // Keep only the 10 most recent
     const limitedRecent = recentWebsites.slice(0, 10);
-    
+
     this.set('recentWebsites', limitedRecent);
   }
 

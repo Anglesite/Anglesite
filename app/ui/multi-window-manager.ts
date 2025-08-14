@@ -1,7 +1,7 @@
 /**
  * @file Multi-window management for website windows and help window.
  */
-import { BrowserWindow, WebContentsView } from 'electron';
+import { BrowserWindow, WebContentsView, Menu, MenuItem } from 'electron';
 import * as path from 'path';
 import * as fs from 'fs';
 import * as net from 'net';
@@ -12,6 +12,9 @@ import {
   setCurrentWebsiteName,
 } from '../server/eleventy';
 import { startWebsiteServer, stopWebsiteServer, WebsiteServer } from '../server/per-website-server';
+
+// Re-export for use in other modules
+export { startWebsiteServer };
 
 /**
  * Send log message to a website window.
@@ -29,12 +32,9 @@ export function sendLogToWebsite(websiteName: string, message: string, level: st
       websiteWindow.webContentsView.webContents.executeJavaScript(
         `window.postMessage(${JSON.stringify(logData)}, '*');`
       );
-      console.log(`DEBUG: Sent log to ${websiteName}: ${message}`);
     } catch (error) {
-      console.log(`Could not send log to ${websiteName}:`, error);
+      console.error(`Could not send log to ${websiteName}:`, error);
     }
-  } else {
-    console.log(`DEBUG: No window found for ${websiteName} or window destroyed`);
   }
 }
 import { updateApplicationMenu } from './menu';
@@ -63,7 +63,7 @@ const websiteWindows: Map<string, WebsiteWindow> = new Map();
 /**
  * Find an available ephemeral port.
  */
-async function findAvailablePort(startPort: number = 8081): Promise<number> {
+export async function findAvailablePort(startPort: number = 8081): Promise<number> {
   return new Promise((resolve, reject) => {
     const server = net.createServer();
     server.listen(startPort, () => {
@@ -315,7 +315,28 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
     event.preventDefault();
   });
 
-  window.loadFile(path.join(__dirname, '..', 'index.html'));
+  // Load the website editor template instead of the simple index.html
+  const websiteEditorDataUrl = loadTemplateAsDataUrl('website-editor');
+  window.loadURL(websiteEditorDataUrl);
+
+  // Add context menu for Anglesite's UI (non-production builds only)
+  if (process.env.NODE_ENV !== 'production') {
+    window.webContents.on('context-menu', (_event, params) => {
+      const contextMenu = new Menu();
+
+      contextMenu.append(
+        new MenuItem({
+          label: 'Inspect Element…',
+          accelerator: 'CmdOrCtrl+Option+I',
+          click: () => {
+            window.webContents.inspectElement(params.x, params.y);
+          },
+        })
+      );
+
+      contextMenu.popup();
+    });
+  }
 
   // Create preview WebContentsView for website content
   const webContentsView = new WebContentsView({
@@ -356,23 +377,32 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
   window.on('resize', () => {
     if (webContentsView) {
       const bounds = window.getBounds();
+      // Website editor layout: left panel (200px) + center panel + right panel (200px)
+      const leftPanelWidth = 200;
+      const rightPanelWidth = 200;
+      const toolbarHeight = 50; // Website editor toolbar: min-height 32px + padding 16px + border
       webContentsView.setBounds({
-        x: 0,
-        y: 90, // Account for menu bar and button toolbar
-        width: bounds.width,
-        height: bounds.height - 90,
+        x: leftPanelWidth,
+        y: toolbarHeight,
+        width: bounds.width - leftPanelWidth - rightPanelWidth,
+        height: bounds.height - toolbarHeight,
       });
     }
   });
 
-  // Position the preview correctly
+  // Position the preview correctly for website editor layout
   const bounds = window.getBounds();
-  webContentsView.setBounds({
-    x: 0,
-    y: 90, // Account for menu bar and button toolbar
-    width: bounds.width,
-    height: bounds.height - 90,
-  });
+  // Website editor layout: left panel (200px) + center panel + right panel (200px)
+  const leftPanelWidth = 200;
+  const rightPanelWidth = 200;
+  const toolbarHeight = 50; // Website editor toolbar: min-height 32px + padding 16px + border
+  const webContentsViewBounds = {
+    x: leftPanelWidth,
+    y: toolbarHeight,
+    width: bounds.width - leftPanelWidth - rightPanelWidth,
+    height: bounds.height - toolbarHeight,
+  };
+  webContentsView.setBounds(webContentsViewBounds);
 
   // Store website window
   const websiteWindow: WebsiteWindow = {
@@ -711,11 +741,10 @@ export async function restoreWindowStates(): Promise<void> {
           } else {
             websiteWindow.window.setBounds(windowState.bounds);
           }
-          console.log(`DEBUG: Restored bounds for ${windowState.websiteName}`);
         }
       }, 1000);
     } catch (error) {
-      console.error(`DEBUG: Failed to restore window for ${windowState.websiteName}:`, error);
+      console.error(`Failed to restore window for ${windowState.websiteName}:`, error);
     }
   }
 }
@@ -727,25 +756,22 @@ async function restoreWebsiteWindow(windowState: WindowState): Promise<void> {
   try {
     // Get the website path
     const websitePath = windowState.websitePath || getWebsitePath(windowState.websiteName);
-    console.log(`DEBUG: Attempting to restore ${windowState.websiteName} from path: ${websitePath}`);
 
     // Check if website directory exists
     if (!fs.existsSync(websitePath)) {
-      console.error(`DEBUG: Website directory does not exist: ${websitePath}`);
+      console.error(`Website directory does not exist: ${websitePath}`);
       return; // Skip restoration if directory doesn't exist
     }
 
     // Create the window
     createWebsiteWindow(windowState.websiteName, websitePath);
-    console.log(`DEBUG: Created window for ${windowState.websiteName}`);
 
     try {
       // Start individual server for this restored website
       await startWebsiteServerAndUpdateWindow(windowState.websiteName, websitePath);
-      console.log(`DEBUG: Restored website window with individual server: ${windowState.websiteName}`);
     } catch (serverError) {
       console.error(
-        `DEBUG: Failed to start server for ${windowState.websiteName}, window will show fallback content:`,
+        `Failed to start server for ${windowState.websiteName}, window will show fallback content:`,
         serverError
       );
       // Don't throw - let the window exist with fallback content rather than failing completely
@@ -867,5 +893,106 @@ export function showStartScreenIfNeeded(): void {
   // Only show start screen if no website windows are open and no start screen is already showing
   if (websiteWindows.size === 0 && !getStartScreen() && !helpWindow) {
     createStartScreen();
+  }
+}
+
+/**
+ * Toggle DevTools for the currently focused window (help or website window).
+ */
+export async function togglePreviewDevTools(): Promise<void> {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (!focusedWindow) {
+    console.log('No focused window found for DevTools');
+    return;
+  }
+
+  // Check if it's the help window
+  if (helpWindow === focusedWindow) {
+    // For help window, find its WebContentsView
+    const helpViews = helpWindow.contentView.children;
+    if (helpViews.length > 0 && 'webContents' in helpViews[0]) {
+      const webContents = (helpViews[0] as WebContentsView).webContents;
+      if (webContents.isDevToolsOpened()) {
+        webContents.closeDevTools();
+      } else {
+        webContents.openDevTools({ mode: 'detach' });
+      }
+    }
+    return;
+  }
+
+  // Check if it's a website window
+  for (const [, websiteWindow] of websiteWindows) {
+    if (websiteWindow.window === focusedWindow) {
+      const webContents = websiteWindow.webContentsView.webContents;
+      if (webContents.isDevToolsOpened()) {
+        webContents.closeDevTools();
+      } else {
+        webContents.openDevTools({ mode: 'detach' });
+      }
+      return;
+    }
+  }
+
+  console.log('Focused window is not a help or website window');
+}
+
+/**
+ * Check if a website window is currently focused.
+ */
+export function isWebsiteEditorFocused(): boolean {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (!focusedWindow) return false;
+
+  // Check if the focused window is any website window
+  for (const [, websiteWindow] of websiteWindows) {
+    if (websiteWindow.window === focusedWindow) {
+      return true;
+    }
+  }
+  return false;
+}
+
+/**
+ * Get the name of the currently focused website project.
+ */
+export function getCurrentWebsiteEditorProject(): string | null {
+  const focusedWindow = BrowserWindow.getFocusedWindow();
+  if (!focusedWindow) return null;
+
+  // Find the website name for the focused window
+  for (const [websiteName, websiteWindow] of websiteWindows) {
+    if (websiteWindow.window === focusedWindow) {
+      return websiteName;
+    }
+  }
+  return null;
+}
+
+/**
+ * Show the WebContentsView for preview mode.
+ */
+export function showWebsitePreview(websiteName: string): void {
+  console.log(`Showing website preview for: ${websiteName}`);
+  const websiteWindow = websiteWindows.get(websiteName);
+  if (websiteWindow && !websiteWindow.window.isDestroyed()) {
+    websiteWindow.webContentsView.setVisible(true);
+    console.log(`WebContentsView made visible for: ${websiteName}`);
+  } else {
+    console.error(`Website window not found for preview show: ${websiteName}`);
+  }
+}
+
+/**
+ * Hide the WebContentsView for edit mode.
+ */
+export function hideWebsitePreview(websiteName: string): void {
+  console.log(`Hiding website preview for: ${websiteName}`);
+  const websiteWindow = websiteWindows.get(websiteName);
+  if (websiteWindow && !websiteWindow.window.isDestroyed()) {
+    websiteWindow.webContentsView.setVisible(false);
+    console.log(`WebContentsView hidden for: ${websiteName}`);
+  } else {
+    console.error(`Website window not found for preview hide: ${websiteName}`);
   }
 }
