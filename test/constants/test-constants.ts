@@ -3,24 +3,23 @@
  * @description Centralizes all test constants to maintain DRY principles across the test suite.
  * This file provides a single source of truth for all test-related constants, improving
  * maintainability and ensuring consistency across different test files.
- * 
  * @example
  * ```typescript
  * import { TEST_CONSTANTS } from './constants/test-constants';
- * 
+ *
  * // Use port constants
  * const port = TEST_CONSTANTS.PORTS.DEFAULT_HTTPS; // 8080
- * 
+ *
  * // Use website names
  * const website = TEST_CONSTANTS.WEBSITES.TEST_SITE; // 'test-site'
- * 
+ *
  * // Use window dimensions
  * const { width, height } = TEST_CONSTANTS.WINDOW_BOUNDS.DEFAULT;
  * ```
  */
 
 export const TEST_CONSTANTS = {
-  /** 
+  /**
    * Port numbers used throughout tests
    * @description Standard port configurations for different server types and protocols
    */
@@ -35,7 +34,7 @@ export const TEST_CONSTANTS = {
     DEFAULT_LOCALHOST: 3000,
   },
 
-  /** 
+  /**
    * Size and dimension constants
    * @description Various size measurements including window dimensions, layout offsets, and data sizes
    */
@@ -71,7 +70,7 @@ export const TEST_CONSTANTS = {
     COMPLEXITY_THRESHOLD: 2000,
   },
 
-  /** 
+  /**
    * Timeout and delay constants
    * @description Time-based constants for async operations and test timing
    */
@@ -84,7 +83,7 @@ export const TEST_CONSTANTS = {
     TIMER_ADVANCE: 2000,
   },
 
-  /** 
+  /**
    * Website names used in tests
    * @description Standardized website identifiers for consistent testing
    */
@@ -111,7 +110,7 @@ export const TEST_CONSTANTS = {
     PROJECT_2: 'project2',
   },
 
-  /** 
+  /**
    * Domain names
    * @description Domain configurations for URL construction and testing
    */
@@ -126,7 +125,7 @@ export const TEST_CONSTANTS = {
     ANGLESITE_TEST: 'anglesite.test',
   },
 
-  /** 
+  /**
    * Full URLs used in tests
    * @description Complete URL patterns for consistent endpoint testing
    */
@@ -145,7 +144,7 @@ export const TEST_CONSTANTS = {
     TEST_HOMEPAGE: 'https://test.com',
   },
 
-  /** 
+  /**
    * File paths used in mocks and tests
    * @description Standardized file and directory paths for consistent mocking
    */
@@ -179,7 +178,7 @@ export const TEST_CONSTANTS = {
     WEBSITE_PATH: '/path/to/website',
   },
 
-  /** 
+  /**
    * Data URLs and templates
    * @description Data URLs and template strings for testing
    */
@@ -188,7 +187,7 @@ export const TEST_CONSTANTS = {
     MOCK_TEMPLATE: 'data:text/html,mock-template',
   },
 
-  /** 
+  /**
    * Application constants
    * @description Application-specific configuration values
    */
@@ -197,7 +196,7 @@ export const TEST_CONSTANTS = {
     NAME: 'Anglesite',
   },
 
-  /** 
+  /**
    * Environment constants
    * @description Environment-specific configuration values
    */
@@ -208,7 +207,7 @@ export const TEST_CONSTANTS = {
     PRODUCTION: 'production',
   },
 
-  /** 
+  /**
    * Window bounds for testing
    * @description Predefined window state configurations for consistent UI testing
    */

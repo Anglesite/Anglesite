@@ -45,6 +45,6 @@ This document contains notes and learned information about the Anglesite project
 ## Development Workflow Notes
 
 - **TypeScript Compilation:** `npx tsc` is used to compile TypeScript files.
-- **Testing Strategy:** Tests are written for all code files with an expected global coverage of 90% for statments, branches, lines, and functions. Use `npm run test:coverage` when running tests.
+- **Testing Strategy:** Tests are written in the AAA pattern for all code files with an expected coverage of 90% for statments, branches, lines, and functions. Use `npm run test:coverage` when running tests.
 - **JSDoc:** Full JSDoc comments have been added to all TypeScript files. Make heavy use of `@see` directives to link to the offical documentation or RFC.
 - **Node Packages:** When adding features use NPM packages when availible for logic, API bridges, and cross-platform user experiences.

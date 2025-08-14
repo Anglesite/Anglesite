@@ -93,24 +93,38 @@ describe('Theme Manager', () => {
 
   describe('User Theme Preferences', () => {
     it('should return user theme preference', () => {
+      // Arrange
       mockStore.get.mockReturnValue('dark');
 
+      // Act
       const preference = themeManager.themeManager.getUserThemePreference();
+
+      // Assert
       expect(preference).toBe('dark');
       expect(mockStore.get).toHaveBeenCalledWith('theme');
     });
 
     it('should set theme preference and update resolved theme', () => {
+      // Arrange
+      // (no setup needed - using default mock state)
+
+      // Act
       themeManager.themeManager.setTheme('light');
 
+      // Assert
       expect(mockStore.set).toHaveBeenCalledWith('theme', 'light');
     });
 
     it('should handle all theme options', () => {
+      // Arrange
       const themes = ['system', 'light', 'dark'] as const;
 
+      // Act & Assert (for each theme)
       themes.forEach((theme) => {
+        // Act
         themeManager.themeManager.setTheme(theme);
+
+        // Assert
         expect(mockStore.set).toHaveBeenCalledWith('theme', theme);
       });
     });
@@ -118,44 +132,60 @@ describe('Theme Manager', () => {
 
   describe('Theme Resolution Logic', () => {
     it('should resolve system theme when preference is system and OS is light', () => {
+      // Arrange
       mockStore.get.mockReturnValue('system');
       mockNativeTheme.shouldUseDarkColors = false;
 
+      // Act
       const resolvedTheme = themeManager.themeManager.getResolvedTheme();
+
+      // Assert
       expect(resolvedTheme).toBe('light');
     });
 
     it('should resolve system theme when preference is system and OS is dark', () => {
+      // Arrange
       mockStore.get.mockReturnValue('system');
       mockNativeTheme.shouldUseDarkColors = true;
 
-      // Simulate theme update
+      // Act
       themeManager.themeManager.setTheme('system');
       const resolvedTheme = themeManager.themeManager.getResolvedTheme();
+
+      // Assert
       expect(resolvedTheme).toBe('dark');
     });
 
     it('should resolve to light when preference is light regardless of system', () => {
+      // Arrange
       mockStore.get.mockReturnValue('light');
       mockNativeTheme.shouldUseDarkColors = true; // System is dark
 
+      // Act
       themeManager.themeManager.setTheme('light');
       const resolvedTheme = themeManager.themeManager.getResolvedTheme();
+
+      // Assert
       expect(resolvedTheme).toBe('light');
     });
 
     it('should resolve to dark when preference is dark regardless of system', () => {
+      // Arrange
       mockStore.get.mockReturnValue('dark');
       mockNativeTheme.shouldUseDarkColors = false; // System is light
 
+      // Act
       themeManager.themeManager.setTheme('dark');
       const resolvedTheme = themeManager.themeManager.getResolvedTheme();
+
+      // Assert
       expect(resolvedTheme).toBe('dark');
     });
   });
 
   describe('Window Theme Application', () => {
     it('should apply theme to all open windows', () => {
+      // Arrange
       const mockWindow1 = {
         isDestroyed: () => false,
         webContents: { send: jest.fn() },
@@ -164,22 +194,21 @@ describe('Theme Manager', () => {
         isDestroyed: () => false,
         webContents: { send: jest.fn() },
       };
-
       mockBrowserWindow.getAllWindows.mockReturnValue([mockWindow1, mockWindow2]);
 
-      // Start with light theme, then switch to dark to trigger a change
+      // Start with light theme to establish baseline
       mockStore.get.mockReturnValue('light');
       themeManager.themeManager.setTheme('light');
-
-      // Clear the calls from the initial theme set
       mockWindow1.webContents.send.mockClear();
       mockWindow2.webContents.send.mockClear();
 
-      // Now change to dark - this should trigger window updates
+      // Setup for the actual test - change to dark theme
       mockStore.get.mockReturnValue('dark');
+
+      // Act
       themeManager.themeManager.setTheme('dark');
 
-      // Should send theme update to all windows
+      // Assert
       expect(mockWindow1.webContents.send).toHaveBeenCalledWith(
         'theme-updated',
         expect.objectContaining({
@@ -197,6 +226,7 @@ describe('Theme Manager', () => {
     });
 
     it('should not apply theme to destroyed windows', () => {
+      // Arrange
       const mockDestroyedWindow = {
         isDestroyed: () => true,
         webContents: { send: jest.fn() },
@@ -205,26 +235,28 @@ describe('Theme Manager', () => {
         isDestroyed: () => false,
         webContents: { send: jest.fn() },
       };
-
       mockBrowserWindow.getAllWindows.mockReturnValue([mockDestroyedWindow, mockValidWindow]);
-
-      // Ensure the store returns 'light' when theme manager calls it
       mockStore.get.mockReturnValue('light');
 
+      // Act
       themeManager.themeManager.setTheme('light');
 
+      // Assert
       expect(mockDestroyedWindow.webContents.send).not.toHaveBeenCalled();
       expect(mockValidWindow.webContents.send).toHaveBeenCalled();
     });
 
     it('should apply theme to specific window', () => {
+      // Arrange
       const mockWindow = {
         isDestroyed: () => false,
         webContents: { send: jest.fn() },
       };
 
+      // Act
       themeManager.themeManager.applyThemeToWindow(mockWindow as unknown as BrowserWindow);
 
+      // Assert
       expect(mockWindow.webContents.send).toHaveBeenCalledWith(
         'theme-updated',
         expect.objectContaining({

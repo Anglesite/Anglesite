@@ -150,48 +150,59 @@ describe('Window Manager', () => {
 
   describe('togglePreviewDevTools', () => {
     it('should handle no focused window', () => {
+      // Arrange
       mockBrowserWindow.getFocusedWindow.mockReturnValue(null);
-
       const consoleSpy = jest.spyOn(console, 'log').mockImplementation();
 
+      // Act
       windowManager.togglePreviewDevTools();
 
+      // Assert
       expect(consoleSpy).toHaveBeenCalledWith('No focused window found for DevTools');
       expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
 
+      // Cleanup
       consoleSpy.mockRestore();
     });
 
     it('should open DevTools for help window when closed', async () => {
+      // Arrange
       mockWebContents.isDevToolsOpened.mockReturnValue(false);
 
+      // Act
       await windowManager.togglePreviewDevTools();
 
+      // Assert
       expect(mockWebContents.isDevToolsOpened).toHaveBeenCalled();
       expect(mockWebContents.openDevTools).toHaveBeenCalled();
       expect(mockWebContents.closeDevTools).not.toHaveBeenCalled();
     });
 
     it('should close DevTools for help window when open', async () => {
+      // Arrange
       mockWebContents.isDevToolsOpened.mockReturnValue(true);
 
+      // Act
       await windowManager.togglePreviewDevTools();
 
+      // Assert
       expect(mockWebContents.isDevToolsOpened).toHaveBeenCalled();
       expect(mockWebContents.closeDevTools).toHaveBeenCalled();
       expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
     });
 
     it('should handle help window with no WebContentsView', () => {
+      // Arrange
       const helpWindowNoViews = {
         contentView: { children: [] },
       };
-
       mockBrowserWindow.getFocusedWindow.mockReturnValue(helpWindowNoViews);
       mockMultiWindowManager.getHelpWindow.mockReturnValue(helpWindowNoViews);
 
+      // Act
       windowManager.togglePreviewDevTools();
 
+      // Assert
       expect(mockWebContents.openDevTools).not.toHaveBeenCalled();
       expect(mockWebContents.closeDevTools).not.toHaveBeenCalled();
     });
@@ -266,11 +277,14 @@ describe('Window Manager', () => {
 
   describe('createWindow', () => {
     it('should create a BrowserWindow with correct configuration', () => {
+      // Arrange
       mockPath.join.mockReturnValueOnce('/mock/preload.js');
       mockPath.join.mockReturnValueOnce('/mock/index.html');
 
+      // Act
       const result = windowManager.createWindow();
 
+      // Assert
       expect(BrowserWindowConstructor).toHaveBeenCalledWith({
         width: 1200,
         height: 800,

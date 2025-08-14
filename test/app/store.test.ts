@@ -155,8 +155,13 @@ describe('Store', () => {
     });
 
     it('should update setting and save to disk', () => {
+      // Arrange
+      // (store already created in beforeEach)
+
+      // Act
       store.set('autoDnsEnabled', true);
 
+      // Assert
       expect(store.get('autoDnsEnabled')).toBe(true);
       expect(mockedFs.writeFileSync).toHaveBeenCalledWith(
         mockSettingsPath,
@@ -165,10 +170,15 @@ describe('Store', () => {
     });
 
     it('should handle different data types correctly', () => {
+      // Arrange
+      // (store already created in beforeEach)
+
+      // Act
       store.set('httpsMode', 'https');
       store.set('firstLaunchCompleted', true);
       store.set('theme', 'light');
 
+      // Assert
       expect(store.get('httpsMode')).toBe('https');
       expect(store.get('firstLaunchCompleted')).toBe(true);
       expect(store.get('theme')).toBe('light');
@@ -176,6 +186,7 @@ describe('Store', () => {
     });
 
     it('should handle array data correctly', () => {
+      // Arrange
       const windowStates: WindowState[] = [
         {
           websiteName: 'site1',
@@ -190,19 +201,24 @@ describe('Store', () => {
         },
       ];
 
+      // Act
       store.set('openWebsiteWindows', windowStates);
 
+      // Assert
       expect(store.get('openWebsiteWindows')).toEqual(windowStates);
       expect(store.get('openWebsiteWindows')).toHaveLength(2);
     });
 
     it('should handle save errors gracefully', () => {
+      // Arrange
       mockedFs.writeFileSync.mockImplementation(() => {
         throw new Error('Disk full');
       });
 
+      // Act
       store.set('autoDnsEnabled', true);
 
+      // Assert
       expect(consoleSpy).toHaveBeenCalledWith('Error saving settings:', expect.any(Error));
       expect(store.get('autoDnsEnabled')).toBe(true); // Setting should still be updated in memory
     });
@@ -215,8 +231,13 @@ describe('Store', () => {
     });
 
     it('should return complete settings object', () => {
+      // Arrange
+      // (store already created in beforeEach with default values)
+
+      // Act
       const allSettings = store.getAll();
 
+      // Assert
       expect(allSettings).toEqual({
         autoDnsEnabled: false,
         httpsMode: null,
@@ -227,11 +248,14 @@ describe('Store', () => {
     });
 
     it('should return updated settings after modifications', () => {
+      // Arrange
       store.set('autoDnsEnabled', true);
       store.set('theme', 'dark');
 
+      // Act
       const allSettings = store.getAll();
 
+      // Assert
       expect(allSettings.autoDnsEnabled).toBe(true);
       expect(allSettings.theme).toBe('dark');
       expect(allSettings.firstLaunchCompleted).toBe(false); // Unchanged
