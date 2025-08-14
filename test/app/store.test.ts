@@ -4,6 +4,7 @@
 
 import * as fs from 'fs';
 import * as path from 'path';
+import { TEST_CONSTANTS } from '../constants/test-constants';
 
 // Mock Electron app module
 jest.mock('electron', () => ({
@@ -78,9 +79,9 @@ describe('Store', () => {
         theme: 'dark',
         openWebsiteWindows: [
           {
-            websiteName: 'test-site',
+            websiteName: TEST_CONSTANTS.WEBSITES.TEST_SITE,
             websitePath: '/path/to/test',
-            bounds: { x: 100, y: 100, width: 800, height: 600 },
+            bounds: TEST_CONSTANTS.WINDOW_BOUNDS.DEFAULT,
             isMaximized: false,
           },
         ],
@@ -178,7 +179,7 @@ describe('Store', () => {
       const windowStates: WindowState[] = [
         {
           websiteName: 'site1',
-          bounds: { x: 0, y: 0, width: 800, height: 600 },
+          bounds: TEST_CONSTANTS.WINDOW_BOUNDS.SMALL,
           isMaximized: false,
         },
         {
@@ -293,7 +294,7 @@ describe('Store', () => {
           {
             websiteName: 'site1',
             websitePath: '/path/to/site1',
-            bounds: { x: 0, y: 0, width: 800, height: 600 },
+            bounds: TEST_CONSTANTS.WINDOW_BOUNDS.SMALL,
             isMaximized: false,
           },
           {
@@ -320,9 +321,9 @@ describe('Store', () => {
       it('should return saved window states', () => {
         const windowStates: WindowState[] = [
           {
-            websiteName: 'test-site',
+            websiteName: TEST_CONSTANTS.WEBSITES.TEST_SITE,
             websitePath: '/test/path',
-            bounds: { x: 50, y: 50, width: 1000, height: 800 },
+            bounds: TEST_CONSTANTS.WINDOW_BOUNDS.LARGE,
             isMaximized: false,
           },
         ];
@@ -342,7 +343,7 @@ describe('Store', () => {
         const windowStates: WindowState[] = [
           {
             websiteName: 'site1',
-            bounds: { x: 0, y: 0, width: 800, height: 600 },
+            bounds: TEST_CONSTANTS.WINDOW_BOUNDS.SMALL,
           },
           {
             websiteName: 'site2',
@@ -509,7 +510,7 @@ describe('Store', () => {
         {
           websiteName: 'project1',
           websitePath: '/projects/project1',
-          bounds: { x: 100, y: 100, width: 1200, height: 800 },
+          bounds: TEST_CONSTANTS.WINDOW_BOUNDS.EXTRA_LARGE,
           isMaximized: false,
         },
         {

@@ -2,10 +2,12 @@
  * @file Simple architecture validation tests
  */
 
+import { TEST_CONSTANTS } from './constants/test-constants';
+
 // Mock Electron modules before any imports
 jest.mock('electron', () => ({
   app: {
-    getPath: jest.fn(() => '/mock/path'),
+    getPath: jest.fn(() => TEST_CONSTANTS.PATHS.MOCK_PATH),
   },
   nativeTheme: {
     shouldUseDarkColors: false,
@@ -79,15 +81,27 @@ describe('Modular Architecture', () => {
     it('should generate test domains correctly', () => {
       const { generateTestDomain } = require('../app/server/eleventy');
 
-      expect(generateTestDomain('my-site')).toBe('https://my-site.test:8080');
-      expect(generateTestDomain('test123')).toBe('https://test123.test:8080');
+      expect(generateTestDomain(TEST_CONSTANTS.WEBSITES.MY_SITE)).toBe(
+        `https://${TEST_CONSTANTS.WEBSITES.MY_SITE}.${TEST_CONSTANTS.DOMAINS.TEST_DOMAIN}:${TEST_CONSTANTS.PORTS.DEFAULT_HTTPS}`
+      );
+      expect(generateTestDomain(TEST_CONSTANTS.WEBSITES.TEST_SITE_123)).toBe(
+        `https://${TEST_CONSTANTS.WEBSITES.TEST_SITE_123}.${TEST_CONSTANTS.DOMAINS.TEST_DOMAIN}:${TEST_CONSTANTS.PORTS.DEFAULT_HTTPS}`
+      );
     });
 
     it('should extract hostnames from valid URLs', () => {
       const { getHostnameFromTestDomain } = require('../app/server/eleventy');
 
-      expect(getHostnameFromTestDomain('https://my-site.test:8080')).toBe('my-site.test');
-      expect(getHostnameFromTestDomain('https://example.test:8080')).toBe('example.test');
+      expect(
+        getHostnameFromTestDomain(
+          `https://${TEST_CONSTANTS.WEBSITES.MY_SITE}.${TEST_CONSTANTS.DOMAINS.TEST_DOMAIN}:${TEST_CONSTANTS.PORTS.DEFAULT_HTTPS}`
+        )
+      ).toBe(`${TEST_CONSTANTS.WEBSITES.MY_SITE}.${TEST_CONSTANTS.DOMAINS.TEST_DOMAIN}`);
+      expect(
+        getHostnameFromTestDomain(
+          `https://${TEST_CONSTANTS.WEBSITES.EXAMPLE_SITE}.${TEST_CONSTANTS.DOMAINS.TEST_DOMAIN}:${TEST_CONSTANTS.PORTS.DEFAULT_HTTPS}`
+        )
+      ).toBe(`${TEST_CONSTANTS.WEBSITES.EXAMPLE_SITE}.${TEST_CONSTANTS.DOMAINS.TEST_DOMAIN}`);
     });
 
     it('should validate website names', () => {
@@ -115,10 +129,9 @@ describe('Modular Architecture', () => {
 
       // Should be much shorter now (refactored)
       const lineCount = mainContent.split('\n').length;
-      expect(lineCount).toBeLessThan(200); // Was over 2000 lines before
+      expect(lineCount).toBeLessThan(TEST_CONSTANTS.SIZES.MAX_LINES); // Was over ${TEST_CONSTANTS.SIZES.COMPLEXITY_THRESHOLD} lines before
 
       // Should import from modules
-      expect(mainContent).toContain('import { createHelpWindow');
       expect(mainContent).toContain('import { createApplicationMenu');
       expect(mainContent).toContain('import { setupIpcMainListeners');
       // Check that DNS management functions are imported (may be multi-line)

@@ -3,6 +3,7 @@
  */
 
 import { IpcMainEvent } from 'electron';
+import { TEST_CONSTANTS } from '../constants/test-constants';
 
 // Mock fs module
 const mockFs = {
@@ -16,7 +17,7 @@ const mockFs = {
   })),
   readdirSync: jest.fn(() => []),
   mkdirSync: jest.fn(),
-  readFileSync: jest.fn(() => JSON.stringify({ version: '1.0.0', homepage: 'https://test.com' })),
+  readFileSync: jest.fn(() => JSON.stringify({ version: '1.0.0', homepage: TEST_CONSTANTS.URLS.TEST_HOMEPAGE })),
   copyFileSync: jest.fn(),
   rmSync: jest.fn(),
   statSync: jest.fn(() => ({ isDirectory: () => false })),
@@ -24,7 +25,7 @@ const mockFs = {
 
 // Mock electron
 const mockDialog = {
-  showSaveDialog: jest.fn().mockResolvedValue({ canceled: false, filePath: '/test/export.zip' }),
+  showSaveDialog: jest.fn().mockResolvedValue({ canceled: false, filePath: TEST_CONSTANTS.PATHS.TEST_EXPORT_ZIP }),
   showMessageBox: jest.fn(),
 };
 const mockBrowserWindow = {
@@ -46,7 +47,7 @@ const mockArchiver = jest.fn(() => ({
   pipe: jest.fn(),
   directory: jest.fn(),
   finalize: jest.fn(),
-  pointer: () => 1024,
+  pointer: () => TEST_CONSTANTS.SIZES.ARCHIVE_BYTES,
   on: jest.fn(() => {
     return { on: jest.fn() };
   }),
@@ -69,8 +70,11 @@ jest.mock('electron', () => ({
 }));
 
 jest.mock('fs', () => mockFs);
-jest.mock('path', () => ({ join: (...args: string[]) => args.join('/'), resolve: jest.fn(() => '/resolved/path') }));
-jest.mock('os', () => ({ tmpdir: () => '/tmp' }));
+jest.mock('path', () => ({
+  join: (...args: string[]) => args.join('/'),
+  resolve: jest.fn(() => TEST_CONSTANTS.PATHS.RESOLVED_PATH),
+}));
+jest.mock('os', () => ({ tmpdir: () => TEST_CONSTANTS.PATHS.TMP_DIR }));
 jest.mock('child_process', () => ({ exec: mockExec }));
 jest.mock('archiver', () => mockArchiver);
 jest.mock('bagit-fs', () => mockBagIt);
@@ -79,7 +83,7 @@ jest.mock('@11ty/eleventy', () => MockEleventyConstructor);
 // Mock app modules
 const mockGetBagItMetadata = jest.fn();
 const mockGetAllWebsiteWindows = jest.fn();
-const mockGetWebsitePath = jest.fn(() => '/test/path');
+const mockGetWebsitePath = jest.fn(() => TEST_CONSTANTS.PATHS.TEST_PATH);
 
 jest.mock('../../app/ui/window-manager', () => ({
   getBagItMetadata: mockGetBagItMetadata,
@@ -106,7 +110,7 @@ jest.mock('../../app/utils/website-manager', () => ({
 }));
 
 jest.mock('../../app/server/eleventy', () => ({
-  getCurrentLiveServerUrl: jest.fn(() => 'https://localhost:8080'),
+  getCurrentLiveServerUrl: jest.fn(() => TEST_CONSTANTS.URLS.HTTPS_LOCALHOST),
   isLiveServerReady: jest.fn(() => true),
   switchToWebsite: jest.fn(),
   setLiveServerUrl: jest.fn(),
@@ -121,7 +125,7 @@ describe('Export Coverage Tests', () => {
   let exportSiteHandler: (event: IpcMainEvent | null, format: boolean | 'bagit') => Promise<void>;
 
   const mockWindow = { webContents: { send: jest.fn() } };
-  const mockWebsiteWindows = new Map([['test-site', { window: mockWindow }]]);
+  const mockWebsiteWindows = new Map([[TEST_CONSTANTS.WEBSITES.TEST_SITE, { window: mockWindow }]]);
 
   const mockMetadata = {
     externalIdentifier: 'test',
@@ -158,10 +162,14 @@ describe('Export Coverage Tests', () => {
     expect(mockExec).not.toHaveBeenCalled();
 
     // Eleventy constructor should be called with correct parameters
-    expect(MockEleventyConstructor).toHaveBeenCalledWith('/test/path', '/test/export-folder', {
-      quietMode: false,
-      configPath: '/resolved/path',
-    });
+    expect(MockEleventyConstructor).toHaveBeenCalledWith(
+      TEST_CONSTANTS.PATHS.TEST_PATH,
+      TEST_CONSTANTS.PATHS.TEST_EXPORT_FOLDER,
+      {
+        quietMode: false,
+        configPath: TEST_CONSTANTS.PATHS.RESOLVED_PATH,
+      }
+    );
 
     // Eleventy write method should be called
     expect(mockEleventy.write).toHaveBeenCalled();
@@ -188,7 +196,7 @@ describe('Export Coverage Tests', () => {
 
     await exportSiteHandler(null, 'bagit');
 
-    expect(mockGetBagItMetadata).toHaveBeenCalledWith('test-site');
+    expect(mockGetBagItMetadata).toHaveBeenCalledWith(TEST_CONSTANTS.WEBSITES.TEST_SITE);
     expect(mockBagIt).toHaveBeenCalledWith(
       expect.stringContaining('/tmp/anglesite_bagit_'),
       'sha256',
@@ -288,7 +296,7 @@ describe('Export Coverage Tests', () => {
 
     // Mock a successful BagIt export
     mockGetBagItMetadata.mockResolvedValue(mockMetadata);
-    mockGetWebsitePath.mockReturnValue('/test/path');
+    mockGetWebsitePath.mockReturnValue(TEST_CONSTANTS.PATHS.TEST_PATH);
 
     // The test passes if no errors are thrown during export
     await expect(exportSiteHandler(null, 'bagit')).resolves.toBeUndefined();

@@ -2,6 +2,8 @@
  * @file Tests for main process functionality
  */
 
+import { TEST_CONSTANTS } from '../constants/test-constants';
+
 // Mock dependencies first, before importing main
 
 import {
@@ -89,7 +91,7 @@ describe('Main Process', () => {
       // Import main.ts to trigger the setName call
       require('../../app/main');
 
-      expect(mockApp.setName).toHaveBeenCalledWith('Anglesite');
+      expect(mockApp.setName).toHaveBeenCalledWith(TEST_CONSTANTS.APP.NAME);
     });
 
     it('should register whenReady handler', () => {
@@ -107,7 +109,7 @@ describe('Main Process', () => {
     });
 
     it('should suppress Node.js warnings in development', () => {
-      process.env.NODE_ENV = 'development';
+      process.env.NODE_ENV = TEST_CONSTANTS.ENV.DEVELOPMENT;
 
       require('../../app/main');
 
@@ -115,7 +117,7 @@ describe('Main Process', () => {
     });
 
     it('should not suppress warnings in production', () => {
-      process.env.NODE_ENV = 'production';
+      process.env.NODE_ENV = TEST_CONSTANTS.ENV.PRODUCTION;
 
       require('../../app/main');
 
@@ -188,13 +190,16 @@ describe('Main Process', () => {
       certificateErrorHandler?.(
         mockEvent,
         null, // webContents
-        'https://localhost:3000',
+        TEST_CONSTANTS.URLS.HTTPS_LOCALHOST_3000,
         'CERT_AUTHORITY_INVALID',
         null, // certificate
         mockCallback
       );
 
-      expect(consoleSpy).toHaveBeenCalledWith('Accepting self-signed certificate for:', 'https://localhost:3000');
+      expect(consoleSpy).toHaveBeenCalledWith(
+        'Accepting self-signed certificate for:',
+        TEST_CONSTANTS.URLS.HTTPS_LOCALHOST_3000
+      );
       expect(mockEvent.preventDefault).toHaveBeenCalled();
       expect(mockCallback).toHaveBeenCalledWith(true);
     });
@@ -205,7 +210,14 @@ describe('Main Process', () => {
       const mockEvent = { preventDefault: jest.fn() };
       const mockCallback = jest.fn();
 
-      certificateErrorHandler?.(mockEvent, null, 'https://example.test', 'CERT_AUTHORITY_INVALID', null, mockCallback);
+      certificateErrorHandler?.(
+        mockEvent,
+        null,
+        TEST_CONSTANTS.URLS.HTTPS_EXAMPLE_TEST,
+        'CERT_AUTHORITY_INVALID',
+        null,
+        mockCallback
+      );
 
       expect(mockEvent.preventDefault).toHaveBeenCalled();
       expect(mockCallback).toHaveBeenCalledWith(true);
@@ -220,7 +232,7 @@ describe('Main Process', () => {
       certificateErrorHandler?.(
         mockEvent,
         null,
-        'https://external-site.com',
+        TEST_CONSTANTS.URLS.HTTPS_EXTERNAL_SITE,
         'CERT_AUTHORITY_INVALID',
         null,
         mockCallback

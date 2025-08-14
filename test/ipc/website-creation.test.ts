@@ -2,10 +2,12 @@
  * @file Tests for website creation flow and timing fixes
  */
 
+import { TEST_CONSTANTS } from '../constants/test-constants';
+
 // Mock Electron first
 jest.mock('electron', () => ({
   app: {
-    getPath: jest.fn(() => '/mock/path'),
+    getPath: jest.fn(() => TEST_CONSTANTS.PATHS.MOCK_PATH),
   },
   nativeTheme: {
     shouldUseDarkColors: false,
@@ -54,8 +56,8 @@ jest.mock('../../app/store', () => ({
 }));
 
 jest.mock('../../app/utils/website-manager', () => ({
-  createWebsiteWithName: jest.fn(() => Promise.resolve('/path/to/website')),
-  getWebsitePath: jest.fn(() => '/path/to/website'),
+  createWebsiteWithName: jest.fn(() => Promise.resolve(TEST_CONSTANTS.PATHS.WEBSITE_PATH)),
+  getWebsitePath: jest.fn(() => TEST_CONSTANTS.PATHS.WEBSITE_PATH),
 }));
 
 describe('Website Creation Flow', () => {
@@ -175,9 +177,9 @@ describe('Website Creation Flow', () => {
 
   describe('URL Generation', () => {
     it('should generate correct test domain URLs', () => {
-      const websiteName = 'my-test-site';
-      const expectedUrl = `https://${websiteName}.test:8080`;
-      const expectedHostname = `${websiteName}.test`;
+      const websiteName = TEST_CONSTANTS.WEBSITES.MY_TEST_SITE;
+      const expectedUrl = `https://${websiteName}.${TEST_CONSTANTS.DOMAINS.TEST_DOMAIN}:${TEST_CONSTANTS.PORTS.DEFAULT_HTTPS}`;
+      const expectedHostname = `${websiteName}.${TEST_CONSTANTS.DOMAINS.TEST_DOMAIN}`;
 
       // The URLs should follow the pattern website-name.test:8080
       expect(expectedUrl).toBe('https://my-test-site.test:8080');

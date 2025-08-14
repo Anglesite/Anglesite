@@ -5,6 +5,8 @@
  * without complex mock call tracking that was causing issues.
  */
 
+import { TEST_CONSTANTS } from '../constants/test-constants';
+
 // Mock all required modules at the top level for Jest hoisting
 jest.mock('electron');
 jest.mock('../../app/server/eleventy');
@@ -43,12 +45,12 @@ describe('Multi-Window Manager (Simplified)', () => {
     });
 
     it('should create website window without throwing', () => {
-      expect(() => multiWindowManager.createWebsiteWindow('test-site')).not.toThrow();
+      expect(() => multiWindowManager.createWebsiteWindow(TEST_CONSTANTS.WEBSITES.TEST_SITE)).not.toThrow();
     });
 
     it('should load website content without throwing', () => {
-      multiWindowManager.createWebsiteWindow('test-site');
-      expect(() => multiWindowManager.loadWebsiteContent('test-site')).not.toThrow();
+      multiWindowManager.createWebsiteWindow(TEST_CONSTANTS.WEBSITES.TEST_SITE);
+      expect(() => multiWindowManager.loadWebsiteContent(TEST_CONSTANTS.WEBSITES.TEST_SITE)).not.toThrow();
     });
 
     it('should handle non-existent website window gracefully', () => {
@@ -61,8 +63,8 @@ describe('Multi-Window Manager (Simplified)', () => {
     });
 
     it('should get website window without throwing', () => {
-      multiWindowManager.createWebsiteWindow('test-site');
-      expect(() => multiWindowManager.getWebsiteWindow('test-site')).not.toThrow();
+      multiWindowManager.createWebsiteWindow(TEST_CONSTANTS.WEBSITES.TEST_SITE);
+      expect(() => multiWindowManager.getWebsiteWindow(TEST_CONSTANTS.WEBSITES.TEST_SITE)).not.toThrow();
     });
 
     it('should get all website windows without throwing', () => {
@@ -74,7 +76,7 @@ describe('Multi-Window Manager (Simplified)', () => {
 
     it('should close all windows without throwing', () => {
       multiWindowManager.createHelpWindow();
-      multiWindowManager.createWebsiteWindow('test-site');
+      multiWindowManager.createWebsiteWindow(TEST_CONSTANTS.WEBSITES.TEST_SITE);
       expect(() => multiWindowManager.closeAllWindows()).not.toThrow();
     });
 
@@ -91,17 +93,17 @@ describe('Multi-Window Manager (Simplified)', () => {
 
   describe('Edge Cases', () => {
     it('should handle server not ready scenario', () => {
-      multiWindowManager.createWebsiteWindow('test-site');
+      multiWindowManager.createWebsiteWindow(TEST_CONSTANTS.WEBSITES.TEST_SITE);
       mockEleventy.isLiveServerReady.mockReturnValue(false);
 
-      expect(() => multiWindowManager.loadWebsiteContent('test-site')).not.toThrow();
+      expect(() => multiWindowManager.loadWebsiteContent(TEST_CONSTANTS.WEBSITES.TEST_SITE)).not.toThrow();
 
       mockEleventy.isLiveServerReady.mockReturnValue(true);
     });
 
     it('should handle duplicate window creation', () => {
-      expect(() => multiWindowManager.createWebsiteWindow('test-site')).not.toThrow();
-      expect(() => multiWindowManager.createWebsiteWindow('test-site')).not.toThrow();
+      expect(() => multiWindowManager.createWebsiteWindow(TEST_CONSTANTS.WEBSITES.TEST_SITE)).not.toThrow();
+      expect(() => multiWindowManager.createWebsiteWindow(TEST_CONSTANTS.WEBSITES.TEST_SITE)).not.toThrow();
     });
 
     it('should handle duplicate help window creation', () => {

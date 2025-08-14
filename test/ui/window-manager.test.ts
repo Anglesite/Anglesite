@@ -3,6 +3,7 @@
  */
 import * as fs from 'fs';
 import * as path from 'path';
+import { TEST_CONSTANTS } from '../constants/test-constants';
 
 // Mock file system
 jest.mock('fs');
@@ -14,12 +15,12 @@ const mockPath = path as jest.Mocked<typeof path>;
 
 // Mock template loader
 jest.mock('../../app/ui/template-loader', () => ({
-  loadTemplateAsDataUrl: jest.fn(() => 'data:text/html,mock-template'),
+  loadTemplateAsDataUrl: jest.fn(() => TEST_CONSTANTS.DATA_URLS.MOCK_TEMPLATE),
 }));
 
 // Mock eleventy server
 const mockEleventyServer = {
-  getCurrentLiveServerUrl: jest.fn(() => 'https://localhost:8080'),
+  getCurrentLiveServerUrl: jest.fn(() => TEST_CONSTANTS.URLS.HTTPS_LOCALHOST),
   isLiveServerReady: jest.fn(() => true),
 };
 jest.mock('../../app/server/eleventy', () => mockEleventyServer);
@@ -52,7 +53,10 @@ const mockWebContentsView = {
 
 const mockWindow = Object.assign(
   {
-    getBounds: jest.fn(() => ({ width: 1200, height: 800 })),
+    getBounds: jest.fn(() => ({
+      width: TEST_CONSTANTS.SIZES.WINDOW_WIDTH,
+      height: TEST_CONSTANTS.SIZES.WINDOW_HEIGHT,
+    })),
     loadFile: jest.fn(),
     loadURL: jest.fn(),
     on: jest.fn(),
@@ -106,7 +110,7 @@ jest.mock('electron', () => ({
   BrowserWindow: BrowserWindowConstructor,
   WebContentsView: WebContentsViewConstructor,
   app: {
-    getPath: jest.fn(() => '/mock/path'),
+    getPath: jest.fn(() => TEST_CONSTANTS.PATHS.MOCK_PATH),
   },
   nativeTheme: {
     shouldUseDarkColors: false,
