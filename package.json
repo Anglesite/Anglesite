@@ -12,7 +12,7 @@
   "scripts": {
     "build:app": "node bin/build-app.js",
     "build:icons": "node bin/build-icons.js",
-    "build": "npm run build:app && eleventy --input=app/eleventy/src --output=dist --config=app/eleventy/.eleventy.js",
+    "build": "npm run build:app",
     "dist": "node bin/dist-build.js",
     "clear-cache": "node bin/clear-cache.js",
     "dist:mac": "node bin/dist-build.js mac",
@@ -23,7 +23,6 @@
     "lint": "eslint . && markdownlint '**/*.md' --ignore node_modules --ignore dist",
     "prelint": "npm run format",
     "pretest": "tsc",
-    "serve": "eleventy --config=app/eleventy/.eleventy.js --serve",
     "start": "electron .",
     "test:coverage": "jest --coverage --config jest.coverage.config.ts",
     "test": "jest"
