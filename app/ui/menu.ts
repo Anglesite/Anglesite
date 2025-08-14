@@ -1,12 +1,12 @@
 /**
  * @file Application menu creation
  */
-import { Menu, MenuItemConstructorOptions, shell, WebContents, BrowserWindow, dialog, clipboard } from 'electron';
-import { getCurrentLiveServerUrl } from '../server/eleventy';
+import { Menu, MenuItemConstructorOptions, shell, WebContents, BrowserWindow, dialog } from 'electron';
 import { openSettingsWindow, getNativeInput, openWebsiteSelectionWindow } from './window-manager';
 import { getAllWebsiteWindows, getHelpWindow, createHelpWindow } from './multi-window-manager';
 import { createWebsiteWithName, validateWebsiteName } from '../utils/website-manager';
 import { openWebsiteInNewWindow, exportSiteHandler } from '../ipc/handlers';
+import { Store } from '../store';
 
 /**
  * Check if the current focused window is a website window.
@@ -23,6 +23,63 @@ function isWebsiteWindowFocused(): boolean {
     }
   }
   return false;
+}
+
+/**
+ * Build a list of recent websites for the Open Recent submenu.
+ */
+export function buildRecentWebsitesList(): MenuItemConstructorOptions[] {
+  const store = new Store();
+  const recentWebsites = store.getRecentWebsites();
+  const menuItems: MenuItemConstructorOptions[] = [];
+
+  if (recentWebsites.length === 0) {
+    menuItems.push({
+      label: 'No Recent Websites',
+      enabled: false,
+    });
+  } else {
+    // Add recent websites
+    recentWebsites.forEach((websiteName, index) => {
+      menuItems.push({
+        label: websiteName,
+        accelerator: index < 9 ? `CmdOrCtrl+${index + 1}` : undefined,
+        click: async () => {
+          try {
+            await openWebsiteInNewWindow(websiteName);
+            console.log(`Opened recent website: ${websiteName}`);
+          } catch (error) {
+            console.error(`Failed to open recent website ${websiteName}:`, error);
+            dialog.showErrorBox(
+              'Failed to Open Website',
+              `Could not open website "${websiteName}": ${error instanceof Error ? error.message : String(error)}`
+            );
+            // Remove invalid website from recent list
+            store.removeRecentWebsite(websiteName);
+            // Update menu to reflect the change
+            updateApplicationMenu();
+          }
+        },
+      });
+    });
+  }
+
+  // Add separator and clear menu option
+  if (recentWebsites.length > 0) {
+    menuItems.push(
+      { type: 'separator' },
+      {
+        label: 'Clear Menu',
+        click: () => {
+          const store = new Store();
+          store.clearRecentWebsites();
+          updateApplicationMenu();
+        },
+      }
+    );
+  }
+
+  return menuItems;
 }
 
 /**
@@ -141,7 +198,7 @@ export function createApplicationMenu(): Menu {
       label: 'File',
       submenu: [
         {
-          label: 'New Website...',
+          label: 'New Website…',
           accelerator: 'CmdOrCtrl+N',
           click: async () => {
             // Create new website directly using imported functions
@@ -179,6 +236,12 @@ export function createApplicationMenu(): Menu {
 
               // Open the new website in a new window (with isNewWebsite = true)
               await openWebsiteInNewWindow(websiteName, newWebsitePath, true);
+
+              // Add to recent websites and update menu
+              const store = new Store();
+              store.addRecentWebsite(websiteName);
+              updateApplicationMenu();
+
               console.log(`Website "${websiteName}" created and opened in new window`);
             } catch (error) {
               console.error('Failed to create new website:', error);
@@ -194,6 +257,62 @@ export function createApplicationMenu(): Menu {
           },
         },
         {
+          label: 'Open Recent',
+          submenu: buildRecentWebsitesList(),
+        },
+        {
+          type: 'separator',
+        },
+        {
+          label: 'Close',
+          accelerator: 'CmdOrCtrl+W',
+          role: 'close',
+          enabled: isWebsiteWindowFocused(),
+        },
+        {
+          label: 'Duplicate',
+          accelerator: 'CmdOrCtrl+D',
+          enabled: isWebsiteWindowFocused(),
+          click: async () => {
+            // TODO: Implement website duplication functionality
+            dialog.showMessageBox({
+              type: 'info',
+              title: 'Feature Coming Soon',
+              message: 'Website duplication is not yet implemented.',
+              buttons: ['OK'],
+            });
+          },
+        },
+        {
+          label: 'Rename',
+          enabled: isWebsiteWindowFocused(),
+          click: async () => {
+            // TODO: Implement website rename functionality
+            dialog.showMessageBox({
+              type: 'info',
+              title: 'Feature Coming Soon',
+              message: 'Website renaming is not yet implemented.',
+              buttons: ['OK'],
+            });
+          },
+        },
+        {
+          type: 'separator',
+        },
+        {
+          label: 'Share…',
+          enabled: isWebsiteWindowFocused(),
+          click: async () => {
+            // TODO: Implement website sharing functionality
+            dialog.showMessageBox({
+              type: 'info',
+              title: 'Feature Coming Soon',
+              message: 'Website sharing is not yet implemented.',
+              buttons: ['OK'],
+            });
+          },
+        },
+        {
           type: 'separator',
         },
         {
@@ -201,21 +320,21 @@ export function createApplicationMenu(): Menu {
           enabled: isWebsiteWindowFocused(),
           submenu: [
             {
-              label: 'Folder…',
+              label: 'Folder',
               accelerator: 'CmdOrCtrl+E',
               click: async () => {
                 await exportSiteHandler(null, false);
               },
             },
             {
-              label: 'Zip Archive…',
+              label: 'Zip Archive',
               accelerator: 'CmdOrCtrl+Shift+E',
               click: async () => {
                 await exportSiteHandler(null, true);
               },
             },
             {
-              label: 'BagIt Archive…',
+              label: 'BagIt Archive',
               accelerator: 'CmdOrCtrl+Alt+E',
               click: async () => {
                 await exportSiteHandler(null, 'bagit');
@@ -269,7 +388,7 @@ export function createApplicationMenu(): Menu {
         {
           label: 'Reload',
           accelerator: 'CmdOrCtrl+R',
-          click: (menuItem, browserWindow) => {
+          click: (_, browserWindow) => {
             if (browserWindow && 'webContents' in browserWindow) {
               (browserWindow.webContents as WebContents).send('reload-preview');
             }
@@ -278,7 +397,7 @@ export function createApplicationMenu(): Menu {
         {
           label: 'Force Reload',
           accelerator: 'CmdOrCtrl+Shift+R',
-          click: (menuItem, browserWindow) => {
+          click: (_, browserWindow) => {
             if (browserWindow && 'webContents' in browserWindow) {
               (browserWindow.webContents as WebContents).reloadIgnoringCache();
             }
@@ -287,7 +406,7 @@ export function createApplicationMenu(): Menu {
         {
           label: 'Toggle Developer Tools',
           accelerator: 'F12',
-          click: (menuItem, browserWindow) => {
+          click: (_, browserWindow) => {
             if (browserWindow && 'webContents' in browserWindow) {
               (browserWindow.webContents as WebContents).send('menu-toggle-devtools');
             }
@@ -322,44 +441,121 @@ export function createApplicationMenu(): Menu {
       ],
     },
     {
-      label: 'Server',
+      label: 'Website',
       submenu: [
         {
-          label: 'Open in Browser',
-          accelerator: 'CmdOrCtrl+Shift+O',
+          label: 'Publish…',
+          enabled: isWebsiteWindowFocused(),
           click: async () => {
-            try {
-              await shell.openExternal(getCurrentLiveServerUrl());
-            } catch {
-              console.log('Failed to open .test domain, trying localhost');
-              const localhostUrl = getCurrentLiveServerUrl().replace(/https:\/\/[^.]+\.test:/, 'https://localhost:');
-              try {
-                await shell.openExternal(localhostUrl);
-              } catch (fallbackError) {
-                console.error('Failed to open in browser:', fallbackError);
-              }
-            }
+            // TODO: Implement website publishing functionality
+            dialog.showMessageBox({
+              type: 'info',
+              title: 'Feature Coming Soon',
+              message: 'Website publishing is not yet implemented.',
+              buttons: ['OK'],
+            });
           },
         },
         {
-          label: 'Copy Server URL',
-          click: (menuItem, browserWindow) => {
-            if (browserWindow && 'webContents' in browserWindow) {
-              clipboard.writeText(getCurrentLiveServerUrl());
-            }
+          label: 'Website Metadata…',
+          enabled: isWebsiteWindowFocused(),
+          click: async () => {
+            // TODO: Implement website metadata editing
+            dialog.showMessageBox({
+              type: 'info',
+              title: 'Feature Coming Soon',
+              message: 'Website metadata editing is not yet implemented.',
+              buttons: ['OK'],
+            });
           },
         },
         {
-          type: 'separator',
+          label: 'Theme',
+          enabled: isWebsiteWindowFocused(),
+          submenu: [
+            {
+              label: 'Change Theme…',
+              click: async () => {
+                // TODO: Implement theme changing functionality
+                dialog.showMessageBox({
+                  type: 'info',
+                  title: 'Feature Coming Soon',
+                  message: 'Theme changing is not yet implemented.',
+                  buttons: ['OK'],
+                });
+              },
+            },
+            {
+              label: 'Save Theme…',
+              click: async () => {
+                // TODO: Implement theme saving functionality
+                dialog.showMessageBox({
+                  type: 'info',
+                  title: 'Feature Coming Soon',
+                  message: 'Theme saving is not yet implemented.',
+                  buttons: ['OK'],
+                });
+              },
+            },
+          ],
         },
         {
-          label: 'Restart Server',
-          accelerator: 'CmdOrCtrl+Shift+R',
-          click: (menuItem, browserWindow) => {
-            if (browserWindow && 'webContents' in browserWindow) {
-              (browserWindow.webContents as WebContents).send('restart-server');
-            }
-          },
+          label: 'Server',
+          enabled: isWebsiteWindowFocused(),
+          submenu: [
+            {
+              label: 'Bonjour',
+              type: 'checkbox',
+              checked: false,
+              click: async () => {
+                // TODO: Implement Bonjour service discovery
+                dialog.showMessageBox({
+                  type: 'info',
+                  title: 'Feature Coming Soon',
+                  message: 'Bonjour service discovery is not yet implemented.',
+                  buttons: ['OK'],
+                });
+              },
+            },
+            {
+              label: 'Restart',
+              click: (_, browserWindow) => {
+                if (browserWindow && 'webContents' in browserWindow) {
+                  (browserWindow.webContents as WebContents).send('restart-server');
+                }
+              },
+            },
+            {
+              label: 'Server Settings…',
+              click: async () => {
+                // TODO: Implement server settings dialog
+                dialog.showMessageBox({
+                  type: 'info',
+                  title: 'Feature Coming Soon',
+                  message: 'Server settings configuration is not yet implemented.',
+                  buttons: ['OK'],
+                });
+              },
+            },
+          ],
+        },
+        {
+          label: 'Advanced',
+          enabled: isWebsiteWindowFocused(),
+          submenu: [
+            {
+              label: 'Language & Region',
+              click: async () => {
+                // TODO: Implement language and region settings
+                dialog.showMessageBox({
+                  type: 'info',
+                  title: 'Feature Coming Soon',
+                  message: 'Language & Region settings are not yet implemented.',
+                  buttons: ['OK'],
+                });
+              },
+            },
+          ],
         },
       ],
     },
@@ -370,11 +566,6 @@ export function createApplicationMenu(): Menu {
           label: 'Minimize',
           accelerator: 'CmdOrCtrl+M',
           role: 'minimize',
-        },
-        {
-          label: 'Close',
-          accelerator: 'CmdOrCtrl+W',
-          role: 'close',
         },
         {
           type: 'separator',

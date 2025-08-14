@@ -35,6 +35,8 @@ import {
   renameWebsite,
   deleteWebsite,
 } from '../utils/website-manager';
+import { Store } from '../store';
+import { updateApplicationMenu } from '../ui/menu';
 
 /**
  * Setup all IPC message listeners for inter-process communication
@@ -184,7 +186,7 @@ export function setupIpcMainListeners(): void {
   });
 
   // File operations
-  ipcMain.on('show-item-in-folder', async (event, filePath: string) => {
+  ipcMain.on('show-item-in-folder', async (_, filePath: string) => {
     if (filePath) {
       shell.showItemInFolder(filePath);
     }
@@ -208,7 +210,7 @@ export function setupIpcMainListeners(): void {
   });
 
   // Website opening handler
-  ipcMain.on('open-website', async (event, websiteName: string) => {
+  ipcMain.on('open-website', async (_, websiteName: string) => {
     console.log(`DEBUG: Received open-website IPC for: ${websiteName}`);
     try {
       await openWebsiteInNewWindow(websiteName);
@@ -263,7 +265,7 @@ export function setupIpcMainListeners(): void {
   });
 
   // Website name validation handler
-  ipcMain.handle('validate-website-name', async (event, name: string) => {
+  ipcMain.handle('validate-website-name', async (_, name: string) => {
     console.log(`DEBUG: Received validate-website-name request for: "${name}"`);
     return validateWebsiteName(name);
   });
@@ -779,6 +781,11 @@ async function createNewWebsite(websiteName: string): Promise<void> {
     // Step 2: Open the new website in a new window (with isNewWebsite = true)
     await openWebsiteInNewWindow(websiteName, newWebsitePath, true);
 
+    // Step 3: Add to recent websites and update menu
+    const store = new Store();
+    store.addRecentWebsite(websiteName);
+    updateApplicationMenu();
+
     console.log(`Website "${websiteName}" created and opened in new window`);
   } catch (error) {
     console.error('Failed to create new website:', error);
@@ -847,7 +854,14 @@ export async function openWebsiteInNewWindow(
     windowCreated = true;
     console.log(`Window created for: ${websiteName}`);
 
-    // Step 3: Try to start individual server for this website, fallback gracefully
+    // Step 3: Add to recent websites (but only if not a new website)
+    if (!isNewWebsite) {
+      const store = new Store();
+      store.addRecentWebsite(websiteName);
+      updateApplicationMenu();
+    }
+
+    // Step 4: Try to start individual server for this website, fallback gracefully
     try {
       await startWebsiteServerAndUpdateWindow(websiteName, actualWebsitePath);
       console.log(`Individual server started successfully for: ${websiteName}`);

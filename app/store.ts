@@ -41,6 +41,8 @@ export interface AppSettings {
   theme: 'system' | 'light' | 'dark';
   /** List of website windows to restore on startup */
   openWebsiteWindows: WindowState[];
+  /** List of recently opened websites (up to 10, most recent first) */
+  recentWebsites: string[];
   // Add more settings here as needed
 }
 
@@ -67,6 +69,7 @@ export class Store {
       firstLaunchCompleted: false,
       theme: 'system',
       openWebsiteWindows: [],
+      recentWebsites: [],
     });
   }
 
@@ -127,6 +130,58 @@ export class Store {
    */
   clearWindowStates(): void {
     this.set('openWebsiteWindows', []);
+  }
+
+  /**
+   * Add a website to the recent websites list.
+   * Moves existing website to top or adds new one at the beginning.
+   * Maintains a maximum of 10 recent websites.
+   * @param websiteName Name of the website to add
+   */
+  addRecentWebsite(websiteName: string): void {
+    const recentWebsites = this.get('recentWebsites').slice(); // Create a copy
+    
+    // Remove existing occurrence if present
+    const existingIndex = recentWebsites.indexOf(websiteName);
+    if (existingIndex !== -1) {
+      recentWebsites.splice(existingIndex, 1);
+    }
+    
+    // Add to beginning
+    recentWebsites.unshift(websiteName);
+    
+    // Keep only the 10 most recent
+    const limitedRecent = recentWebsites.slice(0, 10);
+    
+    this.set('recentWebsites', limitedRecent);
+  }
+
+  /**
+   * Get the list of recent websites.
+   * @returns Array of recent website names, most recent first
+   */
+  getRecentWebsites(): string[] {
+    return this.get('recentWebsites');
+  }
+
+  /**
+   * Clear the recent websites list.
+   */
+  clearRecentWebsites(): void {
+    this.set('recentWebsites', []);
+  }
+
+  /**
+   * Remove a specific website from the recent websites list.
+   * @param websiteName Name of the website to remove
+   */
+  removeRecentWebsite(websiteName: string): void {
+    const recentWebsites = this.get('recentWebsites').slice();
+    const index = recentWebsites.indexOf(websiteName);
+    if (index !== -1) {
+      recentWebsites.splice(index, 1);
+      this.set('recentWebsites', recentWebsites);
+    }
   }
 
   /**
