@@ -119,8 +119,8 @@ describe('Dark Mode Coverage Tests', () => {
       // Apply theme - should not throw
       themeManager.themeManager.applyThemeToWindow(mockWindow as unknown as BrowserWindow);
 
-      // Wait for promise to reject
-      await new Promise((resolve) => setTimeout(resolve, 10));
+      // Wait for the next microtask to allow promise rejection to be handled
+      await Promise.resolve();
 
       expect(consoleErrorSpy).toHaveBeenCalled();
       consoleErrorSpy.mockRestore();
