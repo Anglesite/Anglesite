@@ -4,6 +4,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import * as os from 'os';
+import { EleventyUrlResolver } from './eleventy-url-resolver';
 // @ts-expect-error - Eleventy may not have perfect TypeScript types
 import Eleventy from '@11ty/eleventy';
 // @ts-expect-error - Eleventy dev server may not have perfect TypeScript types
@@ -39,6 +40,7 @@ export interface WebsiteServer {
   outputDir: string;
   port: number;
   actualUrl?: string;
+  urlResolver: EleventyUrlResolver;
 }
 
 /**
@@ -168,6 +170,13 @@ export async function startWebsiteServer(inputDir: string, websiteName: string, 
     sendLogToWindow(websiteName, `🎉 Server ready at ${finalServerUrl}`, 'info');
     sendLogToWindow(websiteName, `👀 Watching for file changes...`, 'info');
 
+    // Initialize URL resolver for file-to-URL mapping
+    console.log(`[${websiteName}] Initializing URL resolver...`);
+    sendLogToWindow(websiteName, `🗺️ Setting up file-to-URL mapping...`, 'info');
+    const urlResolver = new EleventyUrlResolver(inputDir);
+    await urlResolver.initialize();
+    sendLogToWindow(websiteName, `✅ URL resolver ready`, 'info');
+
     return {
       eleventy,
       devServer,
@@ -175,6 +184,7 @@ export async function startWebsiteServer(inputDir: string, websiteName: string, 
       outputDir,
       port: actualPort,
       actualUrl: finalServerUrl,
+      urlResolver,
     };
   } catch (error) {
     console.error(`Failed to start server for ${websiteName}:`, error);

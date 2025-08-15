@@ -76,6 +76,60 @@ export function setupIpcMainListeners(): void {
     togglePreviewDevTools();
   });
 
+  // Website file content handlers
+  ipcMain.handle('get-website-files', async (event, websiteName: string) => {
+    try {
+      const { getWebsiteServer } = await import('../ui/multi-window-manager');
+      const websiteServer = getWebsiteServer(websiteName);
+      if (!websiteServer?.urlResolver) {
+        return [];
+      }
+
+      const fileTree = await websiteServer.urlResolver.getFileTree();
+      return fileTree;
+    } catch (error) {
+      console.error('Error getting website files:', error);
+      return [];
+    }
+  });
+
+  ipcMain.handle('get-file-content', async (event, filePath: string) => {
+    try {
+      const fs = await import('fs');
+      const content = fs.readFileSync(filePath, 'utf8');
+      return content;
+    } catch (error) {
+      console.error('Error reading file:', error);
+      return null;
+    }
+  });
+
+  ipcMain.handle('save-file-content', async (event, filePath: string, content: string) => {
+    try {
+      const fs = await import('fs');
+      fs.writeFileSync(filePath, content, 'utf8');
+      return true;
+    } catch (error) {
+      console.error('Error saving file:', error);
+      return false;
+    }
+  });
+
+  ipcMain.handle('get-file-url', async (event, websiteName: string, filePath: string) => {
+    try {
+      const { getWebsiteServer } = await import('../ui/multi-window-manager');
+      const websiteServer = getWebsiteServer(websiteName);
+      if (!websiteServer?.urlResolver) {
+        return null;
+      }
+
+      return websiteServer.urlResolver.getUrlForFile(filePath);
+    } catch (error) {
+      console.error('Error getting file URL:', error);
+      return null;
+    }
+  });
+
   // Website Editor mode switching handlers
   ipcMain.on('website-editor-show-preview', async (event) => {
     const { showWebsitePreview } = await import('../ui/multi-window-manager');

@@ -41,6 +41,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'set-theme',
       'load-website-files',
       'start-website-dev-server',
+      'get-website-files',
+      'get-file-content',
+      'save-file-content',
+      'get-file-url',
+      'load-website-preview',
     ];
     if (validChannels.includes(channel)) {
       return ipcRenderer.invoke(channel, ...args);

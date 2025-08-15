@@ -180,6 +180,7 @@
     "archiver": "^7.0.1",
     "bagit-fs": "^1.1.1",
     "chokidar": "^3.6.0",
+    "glob": "^11.0.3",
     "hostile": "^1.4.0",
     "live-server": "^1.2.2",
     "lucide-static": "^0.539.0",

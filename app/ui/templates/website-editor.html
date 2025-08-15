@@ -118,12 +118,16 @@
       .center-panel {
         flex: 1;
         background: var(--bg-primary);
+        display: flex;
+        flex-direction: column;
       }
 
       .center-content {
         flex: 1;
         background: var(--bg-primary);
         position: relative;
+        display: flex;
+        flex-direction: column;
       }
 
       .right-panel {
@@ -248,146 +252,7 @@
   <body>
     <div class="main-container">
       <div class="left-panel">
-        <div class="file-item">
-          <svg
-            class="lucide lucide-folder"
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path
-              d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
-            />
-          </svg>
-          _includes
-        </div>
-        <div class="file-item">
-          <svg
-            class="lucide lucide-folder"
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path
-              d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
-            />
-          </svg>
-          _layouts
-        </div>
-        <div class="file-item">
-          <svg
-            class="lucide lucide-folder"
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path
-              d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"
-            />
-          </svg>
-          assets
-        </div>
-        <div class="file-item">
-          <svg
-            class="lucide lucide-file-text"
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-            <path d="M14,2 14,8 20,8" />
-            <line x1="16" x2="8" y1="13" y2="13" />
-            <line x1="16" x2="8" y1="17" y2="17" />
-            <line x1="10" x2="8" y1="9" y2="9" />
-          </svg>
-          index.md
-        </div>
-        <div class="file-item">
-          <svg
-            class="lucide lucide-file-text"
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-            <path d="M14,2 14,8 20,8" />
-            <line x1="16" x2="8" y1="13" y2="13" />
-            <line x1="16" x2="8" y1="17" y2="17" />
-            <line x1="10" x2="8" y1="9" y2="9" />
-          </svg>
-          about.md
-        </div>
-        <div class="file-item">
-          <svg
-            class="lucide lucide-file-text"
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path d="M15 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V7Z" />
-            <path d="M14,2 14,8 20,8" />
-            <line x1="16" x2="8" y1="13" y2="13" />
-            <line x1="16" x2="8" y1="17" y2="17" />
-            <line x1="10" x2="8" y1="9" y2="9" />
-          </svg>
-          contact.md
-        </div>
-        <div class="file-item">
-          <svg
-            class="lucide lucide-settings"
-            xmlns="http://www.w3.org/2000/svg"
-            width="16"
-            height="16"
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-            stroke-linecap="round"
-            stroke-linejoin="round"
-          >
-            <path
-              d="M12.22 2h-.44a2 2 0 0 0-2 2v.18a2 2 0 0 1-1 1.73l-.43.25a2 2 0 0 1-2 0l-.15-.08a2 2 0 0 0-2.73.73l-.22.38a2 2 0 0 0 .73 2.73l.15.1a2 2 0 0 1 1 1.72v.51a2 2 0 0 1-1 1.74l-.15.09a2 2 0 0 0-.73 2.73l.22.38a2 2 0 0 0 2.73.73l.15-.08a2 2 0 0 1 2 0l.43.25a2 2 0 0 1 1 1.73V20a2 2 0 0 0 2 2h.44a2 2 0 0 0 2-2v-.18a2 2 0 0 1 1-1.73l.43-.25a2 2 0 0 1 2 0l.15.08a2 2 0 0 0 2.73-.73l.22-.39a2 2 0 0 0-.73-2.73l-.15-.08a2 2 0 0 1-1-1.74v-.5a2 2 0 0 1 1-1.74l.15-.09a2 2 0 0 0 .73-2.73l-.22-.38a2 2 0 0 0-2.73-.73l-.15.08a2 2 0 0 1-2 0l-.43-.25a2 2 0 0 1-1-1.73V4a2 2 0 0 0-2-2z"
-            />
-            <circle cx="12" cy="12" r="3" />
-          </svg>
-          _config.yml
-        </div>
+        <!-- Files will be populated dynamically by JavaScript -->
       </div>
 
       <div class="content-with-toolbar">
@@ -412,7 +277,7 @@
             </svg>
             New
           </button>
-          <button class="toolbar-button">
+          <button class="toolbar-button" id="save-button">
             <svg
               class="lucide lucide-save"
               xmlns="http://www.w3.org/2000/svg"
@@ -577,6 +442,8 @@ You can create:
       let aceEditor = null;
       let isPreviewMode = true;
       let currentFileContent = '';
+      let currentFilePath = null;
+      let websiteFiles = [];
 
       // Initialize simplified website editor when the page loads
       document.addEventListener('DOMContentLoaded', function () {
@@ -584,7 +451,16 @@ You can create:
         // Static icons - no JavaScript needed
 
         setupSimplePreviewToggle();
+        setupSaveButton();
       });
+
+      // Setup save button
+      function setupSaveButton() {
+        const saveButton = document.getElementById('save-button');
+        if (saveButton) {
+          saveButton.addEventListener('click', saveFileContent);
+        }
+      }
 
       // Simple preview toggle function
       function setupSimplePreviewToggle() {
@@ -610,8 +486,22 @@ You can create:
             // Switch to edit mode
             previewPlaceholder.style.display = 'none';
             aceEditorDiv.style.display = 'block';
-            aceEditorDiv.innerHTML =
-              "<textarea id=\"simple-editor\" style=\"width: 100%; height: 100%; border: none; font-family: 'Monaco', 'Menlo', 'Consolas', monospace; padding: 15px; resize: none; font-size: 14px; line-height: 1.5; background: var(--bg-primary); color: var(--text-primary); outline: none; box-sizing: border-box;\"># Welcome to Your Website\n\nThis is your website's content. You can edit it here!\n\n## Getting Started\n\n- Edit this markdown content\n- Save your changes\n- Switch back to preview to see the result\n\n**Tip:** Use markdown syntax for formatting!</textarea>";
+
+            // Create simple editor if it doesn't exist
+            let simpleEditor = document.getElementById('simple-editor');
+            if (!simpleEditor) {
+              aceEditorDiv.innerHTML =
+                "<textarea id=\"simple-editor\" style=\"width: 100%; height: 100%; border: none; font-family: 'Monaco', 'Menlo', 'Consolas', monospace; padding: 15px; resize: none; font-size: 14px; line-height: 1.5; background: var(--bg-primary); color: var(--text-primary); outline: none; box-sizing: border-box;\"></textarea>";
+              simpleEditor = document.getElementById('simple-editor');
+            }
+
+            // Load current file content or default content
+            if (currentFileContent) {
+              simpleEditor.value = currentFileContent;
+            } else {
+              simpleEditor.value =
+                "# Welcome to Your Website\n\nThis is your website's content. You can edit it here!\n\n## Getting Started\n\n- Edit this markdown content\n- Save your changes\n- Switch back to preview to see the result\n\n**Tip:** Use markdown syntax for formatting!";
+            }
             toggleButton.innerHTML =
               '<svg class="lucide lucide-eye" xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg> Preview';
 
@@ -728,70 +618,168 @@ You can create:
         }
       }
 
-      // Function to populate file explorer
-      function populateFileExplorer(files) {
-        const fileExplorer = document.querySelector('.left-panel');
-        fileExplorer.innerHTML = '';
-
-        files.forEach((file) => {
-          const fileItem = document.createElement('div');
-          fileItem.className = 'file-item';
-          fileItem.innerHTML = `
-            ${getFileIcon(file.name, file.type === 'directory')}
-            ${file.name}
-          `;
-
-          fileItem.addEventListener('click', () => {
-            console.log('Selected file:', file);
-            // TODO: Handle file selection (load content for editing)
-          });
-
-          fileExplorer.appendChild(fileItem);
-        });
-
-        // Re-initialize icons after adding new content
-        // Static icons - no JavaScript needed
-      }
-
-      // Function to start dev server and load preview
-      async function startDevServerAndPreview(websiteName, websitePath) {
+      // Function to load file content for editing
+      async function loadFileContent(filePath) {
         try {
-          console.log('Starting dev server for:', websiteName);
-          const serverUrl = await window.electronAPI.invoke('start-website-dev-server', websiteName, websitePath);
+          console.log('Loading file content:', filePath);
 
-          console.log('Dev server started at:', serverUrl);
+          // Get file content from main process
+          const content = await window.electronAPI.invoke('get-file-content', filePath);
 
-          // Update placeholder to show we're loading preview
-          const placeholder = document.getElementById('preview-placeholder');
-          if (placeholder) {
-            placeholder.innerHTML = '<p>Loading preview...</p>';
+          if (content !== null) {
+            currentFilePath = filePath;
+            currentFileContent = content;
+
+            // Update editor with file content
+            if (aceEditor) {
+              aceEditor.setValue(content, -1);
+            } else {
+              // Update simple editor if ace not loaded
+              const simpleEditor = document.getElementById('simple-editor');
+              if (simpleEditor) {
+                simpleEditor.value = content;
+              }
+            }
+
+            // Update properties panel
+            updatePropertiesPanel(filePath, content);
+
+            console.log('File content loaded successfully');
+          } else {
+            console.error('Failed to load file content');
           }
-
-          // Load the homepage in the WebContentsView (with retry logic in main process)
-          await window.electronAPI.invoke('load-website-preview', serverUrl);
-
-          // Hide the placeholder once preview is loaded
-          if (placeholder) {
-            placeholder.style.display = 'none';
-          }
-
-          console.log('Preview loaded successfully');
-          return serverUrl;
         } catch (error) {
-          console.error('Failed to start dev server or load preview:', error);
-          // Show error message in placeholder
-          const placeholder = document.getElementById('preview-placeholder');
-          if (placeholder) {
-            placeholder.innerHTML = `
-              <div style="text-align: center;">
-                <h3>Failed to load preview</h3>
-                <p>Error: ${error.message}</p>
-                <p><small>Make sure the development server is running</small></p>
-              </div>
-            `;
-          }
+          console.error('Error loading file content:', error);
         }
       }
+
+      // Function to save file content
+      async function saveFileContent() {
+        if (!currentFilePath) {
+          console.warn('No file selected for saving');
+          return;
+        }
+
+        try {
+          let content;
+          if (aceEditor) {
+            content = aceEditor.getValue();
+          } else {
+            const simpleEditor = document.getElementById('simple-editor');
+            content = simpleEditor ? simpleEditor.value : currentFileContent;
+          }
+
+          const success = await window.electronAPI.invoke('save-file-content', currentFilePath, content);
+
+          if (success) {
+            currentFileContent = content;
+            console.log('File saved successfully');
+            // Update properties panel to reflect save
+            updatePropertiesPanel(currentFilePath, content);
+          } else {
+            console.error('Failed to save file');
+          }
+        } catch (error) {
+          console.error('Error saving file:', error);
+        }
+      }
+
+      // Function to update properties panel
+      function updatePropertiesPanel(filePath, content) {
+        const fileName = filePath.split('/').pop();
+        const ext = fileName.split('.').pop().toLowerCase();
+
+        // Update file type
+        const fileTypeEl = document.querySelector('.property-item .property-value');
+        if (fileTypeEl) {
+          switch (ext) {
+            case 'md':
+              fileTypeEl.textContent = 'Markdown';
+              break;
+            case 'html':
+              fileTypeEl.textContent = 'HTML';
+              break;
+            case 'css':
+              fileTypeEl.textContent = 'CSS';
+              break;
+            case 'js':
+              fileTypeEl.textContent = 'JavaScript';
+              break;
+            default:
+              fileTypeEl.textContent = ext.toUpperCase();
+          }
+        }
+
+        // Update word count for text files
+        const wordCountEl = document.querySelectorAll('.property-item .property-value')[1];
+        if (wordCountEl && content) {
+          const wordCount = content.split(/\s+/).filter((word) => word.length > 0).length;
+          wordCountEl.textContent = wordCount.toString();
+        }
+
+        // Update last modified
+        const lastModifiedEl = document.querySelectorAll('.property-item .property-value')[2];
+        if (lastModifiedEl) {
+          lastModifiedEl.textContent = new Date().toLocaleString();
+        }
+      }
+
+      // Function to populate file explorer
+      async function populateFileExplorer() {
+        if (!currentWebsite) {
+          console.warn('No current website to load files from');
+          return;
+        }
+
+        try {
+          // Get files from the URL resolver via IPC
+          console.log('Requesting files for website:', currentWebsite.name);
+          const files = await window.electronAPI.invoke('get-website-files', currentWebsite.name);
+          console.log('Received files:', files);
+          websiteFiles = files;
+
+          const fileExplorer = document.querySelector('.left-panel');
+          fileExplorer.innerHTML = '';
+
+          // Check if files array is empty or null
+          if (!files || files.length === 0) {
+            console.warn('No files received from URL resolver');
+            fileExplorer.innerHTML = '<div style="padding: 10px; color: var(--text-secondary); font-size: 12px;">No files found or URL resolver not ready</div>';
+            return;
+          }
+
+          // Sort files: directories first, then files, both alphabetically
+          const sortedFiles = files.sort((a, b) => {
+            if (a.isDirectory && !b.isDirectory) return -1;
+            if (!a.isDirectory && b.isDirectory) return 1;
+            const aName = a.filePath.split('/').pop().toLowerCase();
+            const bName = b.filePath.split('/').pop().toLowerCase();
+            return aName.localeCompare(bName);
+          });
+
+          sortedFiles.forEach((file) => {
+            const fileItem = document.createElement('div');
+            fileItem.className = 'file-item';
+            const fileName = file.filePath.split('/').pop();
+
+            fileItem.innerHTML = `
+              ${getFileIcon(fileName, file.isDirectory)}
+              ${fileName}
+            `;
+
+            if (!file.isDirectory) {
+              fileItem.addEventListener('click', async () => {
+                await loadFileContent(file.filePath);
+              });
+            }
+
+            fileExplorer.appendChild(fileItem);
+          });
+        } catch (error) {
+          console.error('Error loading website files:', error);
+        }
+      }
+
 
       // Listen for website loading from main process
       if (window.electronAPI) {
@@ -800,13 +788,21 @@ You can create:
           console.log('Loading website:', websiteData);
 
           try {
-            // Load website files
-            const files = await window.electronAPI.invoke('load-website-files', websiteData.path);
-            console.log('Loaded files:', files);
-            populateFileExplorer(files);
+            // The server is already started by multi-window-manager
+            // Just wait a bit for URL resolver to be fully initialized
+            await new Promise(resolve => setTimeout(resolve, 500));
 
-            // Start dev server and show preview
-            await startDevServerAndPreview(websiteData.name, websiteData.path);
+            // Then load website files using the URL resolver
+            await populateFileExplorer();
+            
+            // Auto-load index.md if it exists
+            const indexPath = `${websiteData.path}/index.md`;
+            try {
+              await loadFileContent(indexPath);
+              console.log('Auto-loaded index.md file');
+            } catch (error) {
+              console.log('No index.md file found to auto-load');
+            }
           } catch (error) {
             console.error('Failed to load website:', error);
           }

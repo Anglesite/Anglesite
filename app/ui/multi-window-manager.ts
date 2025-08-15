@@ -59,6 +59,7 @@ interface WebsiteWindow {
 
 let helpWindow: BrowserWindow | null = null;
 const websiteWindows: Map<string, WebsiteWindow> = new Map();
+const websiteServers: Map<string, WebsiteServer> = new Map();
 
 /**
  * Find an available ephemeral port.
@@ -442,6 +443,7 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
       }
     }
     websiteWindows.delete(websiteName);
+    websiteServers.delete(websiteName);
     updateApplicationMenu();
 
     // Show start screen if this was the last website window
@@ -481,6 +483,7 @@ export async function startWebsiteServerAndUpdateWindow(websiteName: string, web
     if (websiteWindow.server) {
       sendLogToWebsite(websiteName, `🛑 Stopping existing server...`, 'info');
       await stopWebsiteServer(websiteWindow.server);
+      websiteServers.delete(websiteName);
     }
 
     // Find available port
@@ -492,17 +495,26 @@ export async function startWebsiteServerAndUpdateWindow(websiteName: string, web
     sendLogToWebsite(websiteName, `🚀 Starting Eleventy server...`, 'info');
     const server = await startWebsiteServer(websitePath, websiteName, port);
 
+    // Store server in registry for global access
+    websiteServers.set(websiteName, server);
+
     // Update website window with server info
     websiteWindow.server = server;
     websiteWindow.eleventyPort = port;
-    websiteWindow.serverUrl = `http://localhost:${port}`;
+    websiteWindow.serverUrl = server.actualUrl || `http://localhost:${server.port}`;
 
     console.log(`Server ready for ${websiteName} at ${websiteWindow.serverUrl}`);
     sendLogToWebsite(websiteName, `✅ Server startup completed!`, 'info');
 
-    // Load content in the window
+    // Send website data to the editor window now that server is ready
+    websiteWindow.window.webContents.send('load-website', {
+      name: websiteName,
+      path: websitePath,
+    });
+
+    // Load content in the window with a delay to ensure WebContentsView is ready
     sendLogToWebsite(websiteName, `🌐 Loading website content...`, 'info');
-    loadWebsiteContent(websiteName);
+    setTimeout(() => loadWebsiteContent(websiteName), 1000);
   } catch (error) {
     console.error(`Failed to start server for ${websiteName}:`, error);
     // Show fallback content
@@ -515,152 +527,53 @@ export async function startWebsiteServerAndUpdateWindow(websiteName: string, web
  * Load website content in its window.
  */
 export function loadWebsiteContent(websiteName: string, retryCount: number = 0): void {
+  console.log(`[DEBUG] loadWebsiteContent called for: ${websiteName}`);
+  
   const websiteWindow = websiteWindows.get(websiteName);
   if (!websiteWindow || websiteWindow.window.isDestroyed()) {
-    console.error(`Website window not found: ${websiteName}`);
+    console.error(`Website window not found or destroyed: ${websiteName}`);
     return;
   }
 
-  if (!isLiveServerReady()) {
-    console.log('Live server not ready yet, retrying in 500ms...');
-    setTimeout(() => loadWebsiteContent(websiteName, retryCount), 500);
+  console.log(`[DEBUG] Website window found for: ${websiteName}`);
+  console.log(`[DEBUG] Server URL: ${websiteWindow.serverUrl}`);
+  console.log(`[DEBUG] WebContentsView exists: ${!!websiteWindow.webContentsView}`);
+
+  // Don't try to load content if we don't have a server URL
+  if (!websiteWindow.serverUrl) {
+    console.log(`No server URL available for ${websiteName}, skipping content load`);
     return;
   }
 
-  // For dist builds, try to load website index.md as simple HTML
-  const websitePath = websiteWindow.websitePath;
-  if (websitePath) {
-    const indexMdPath = path.join(websitePath, 'index.md');
-    if (fs.existsSync(indexMdPath)) {
-      console.log(`Found website markdown file: ${indexMdPath}`);
-      try {
-        const mdContent = fs.readFileSync(indexMdPath, 'utf8');
-
-        // Extract title from frontmatter
-        const titleMatch = mdContent.match(/title:\s*(.+)/);
-        const title = titleMatch ? titleMatch[1].replace(/['"]/g, '') : websiteName;
-
-        // Create simple HTML page
-        const simpleHtml = `<!DOCTYPE html>
-<html>
-<head>
-  <title>${title}</title>
-  <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <style>
-    body { font-family: system-ui; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; }
-    h1 { color: #333; border-bottom: 2px solid #eee; padding-bottom: 10px; }
-    h2 { color: #555; margin-top: 30px; }
-    ul { margin: 15px 0; }
-    li { margin: 5px 0; }
-    .website-info { background: #f5f5f5; padding: 15px; border-radius: 5px; margin: 20px 0; }
-  </style>
-</head>
-<body>
-  <h1>${title}</h1>
-  <div class="website-info">
-    <p><strong>📁 Website:</strong> ${websiteName}</p>
-    <p><strong>📍 Location:</strong> ${websitePath}</p>
-    <p><strong>⚡ Status:</strong> Loaded directly from files</p>
-  </div>
-  <h2>Getting Started</h2>
-  <ul>
-    <li>Edit the index.md file to change this content</li>
-    <li>Add more pages by creating new .md files</li>
-    <li>Customize the layout in the _includes directory</li>
-    <li>Add styles to style.css</li>
-  </ul>
-  <p>🚀 Happy building with Anglesite!</p>
-</body>
-</html>`;
-
-        const dataUrl = `data:text/html;charset=utf-8,${encodeURIComponent(simpleHtml)}`;
-        websiteWindow.webContentsView.webContents.loadURL(dataUrl);
-        websiteWindow.window.webContents.send('preview-loaded');
-        console.log(`Loaded simple HTML version for ${websiteName}`);
-        return;
-      } catch (error) {
-        console.error(`Failed to create simple HTML for ${websiteName}:`, error);
-      }
-    }
-  }
-
-  // Use individual server if available
-  if (websiteWindow.serverUrl) {
-    const serverUrl = websiteWindow.serverUrl;
-    console.log(`Loading website content for ${websiteName} from individual server:`, serverUrl);
-  } else {
-    console.log(`No individual server available for ${websiteName}, showing fallback content`);
-
-    try {
-      // Show fallback content
-      const fallbackDataUrl = loadTemplateAsDataUrl('preview-fallback');
-      websiteWindow.webContentsView.webContents.loadURL(fallbackDataUrl);
+  console.log(`Loading website content for ${websiteName} from: ${websiteWindow.serverUrl}`);
+  
+  // Simple approach - just load the URL without complex retry logic
+  try {
+    if (websiteWindow.webContentsView && websiteWindow.webContentsView.webContents && !websiteWindow.webContentsView.webContents.isDestroyed()) {
+      console.log(`[DEBUG] Loading URL in WebContentsView: ${websiteWindow.serverUrl}`);
+      
+      // Add event listeners to see what happens
+      websiteWindow.webContentsView.webContents.once('did-finish-load', () => {
+        console.log(`[DEBUG] WebContentsView finished loading for: ${websiteName}`);
+      });
+      
+      websiteWindow.webContentsView.webContents.once('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
+        console.error(`[DEBUG] WebContentsView failed to load for: ${websiteName}`, {
+          errorCode,
+          errorDescription,
+          validatedURL
+        });
+      });
+      
+      websiteWindow.webContentsView.webContents.loadURL(websiteWindow.serverUrl);
       websiteWindow.window.webContents.send('preview-loaded');
-      return;
-    } catch (error) {
-      console.error(`Failed to load fallback content for ${websiteName}:`, error);
-      return;
-    }
-  }
-
-  const serverUrl = websiteWindow.serverUrl;
-
-  websiteWindow.webContentsView.webContents.removeAllListeners('did-fail-load');
-  websiteWindow.webContentsView.webContents.removeAllListeners('did-finish-load');
-  websiteWindow.webContentsView.webContents.removeAllListeners('did-fail-provisional-load');
-
-  // Track if we successfully loaded
-  let loadSuccess = false;
-
-  websiteWindow.webContentsView.webContents.on('did-fail-provisional-load', () => {
-    // Provisional load failures often happen when the server isn't quite ready
-    if (retryCount < 3 && !loadSuccess) {
-      console.log(`Provisional load failed for ${websiteName}, retrying (attempt ${retryCount + 1}/3)...`);
-      setTimeout(() => loadWebsiteContent(websiteName, retryCount + 1), 1000);
-    }
-  });
-
-  websiteWindow.webContentsView.webContents.on('did-fail-load', (_event, errorCode, errorDescription, validatedURL) => {
-    console.error(`Failed to load content for ${websiteName}:`, {
-      errorCode,
-      errorDescription,
-      validatedURL,
-    });
-
-    // Retry if we haven't exceeded retry count
-    if (retryCount < 3 && !loadSuccess) {
-      console.log(`Retrying load for ${websiteName} (attempt ${retryCount + 1}/3)...`);
-      setTimeout(() => loadWebsiteContent(websiteName, retryCount + 1), 1000);
-    } else if (!loadSuccess) {
-      // Show fallback after all retries failed
-      const fallbackDataUrl = loadTemplateAsDataUrl('preview-fallback');
-      websiteWindow.webContentsView.webContents.loadURL(fallbackDataUrl);
-    }
-  });
-
-  websiteWindow.webContentsView.webContents.on('did-finish-load', () => {
-    loadSuccess = true;
-    console.log(`Successfully loaded content for ${websiteName}`);
-  });
-
-  // Load the website content
-  websiteWindow.webContentsView.webContents.loadURL(serverUrl).catch((error) => {
-    console.error(`Failed to load content for ${websiteName}:`, error);
-
-    // Retry if we haven't exceeded retry count
-    if (retryCount < 3) {
-      console.log(`Retrying after error for ${websiteName} (attempt ${retryCount + 1}/3)...`);
-      setTimeout(() => loadWebsiteContent(websiteName, retryCount + 1), 1000);
+      console.log(`[DEBUG] loadURL called successfully for: ${websiteName}`);
     } else {
-      // Show fallback after all retries failed
-      const fallbackDataUrl = loadTemplateAsDataUrl('preview-fallback');
-      websiteWindow.webContentsView.webContents.loadURL(fallbackDataUrl);
+      console.error(`[DEBUG] WebContentsView or webContents not available for: ${websiteName}`);
     }
-  });
-
-  // Send message to renderer
-  websiteWindow.window.webContents.send('preview-loaded');
+  } catch (error) {
+    console.error(`Error loading content for ${websiteName}:`, error);
+  }
 }
 
 /**
@@ -683,6 +596,20 @@ export function getWebsiteWindow(websiteName: string): BrowserWindow | null {
  */
 export function getAllWebsiteWindows(): Map<string, WebsiteWindow> {
   return websiteWindows;
+}
+
+/**
+ * Get website server by name.
+ */
+export function getWebsiteServer(websiteName: string): WebsiteServer | undefined {
+  return websiteServers.get(websiteName);
+}
+
+/**
+ * Get all currently running website servers mapped by website name.
+ */
+export function getAllWebsiteServers(): Map<string, WebsiteServer> {
+  return websiteServers;
 }
 
 /**
