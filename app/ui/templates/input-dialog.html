@@ -3,98 +3,57 @@
   <head>
     <meta charset="UTF-8" />
     <title>{{title}}</title>
+    <link rel="stylesheet" href="../default-theme.css" />
     <style>
-      :root {
-        color-scheme: light dark; /* Enable native dark mode support to prevent white flash */
-        --bg-primary: #ffffff;
-        --bg-secondary: #f5f5f5;
-        --text-primary: #333333;
-        --border-primary: #dddddd;
-        --button-primary: #007aff;
-        --button-primary-hover: #0056cc;
-        --button-secondary: #e5e5e7;
-        --button-secondary-hover: #d1d1d6;
-        --button-secondary-text: #333;
-        --shadow: rgba(0, 0, 0, 0.1);
-      }
-
-      :root[data-theme='dark'] {
-        --bg-primary: #2d2d2d;
-        --bg-secondary: #1e1e1e;
-        --text-primary: #ffffff;
-        --border-primary: #404040;
-        --button-primary: #0a84ff;
-        --button-primary-hover: #409cff;
-        --button-secondary: #404040;
-        --button-secondary-hover: #525252;
-        --button-secondary-text: #ffffff;
-        --shadow: rgba(255, 255, 255, 0.1);
-      }
-
+      /* Dialog-specific layout styles */
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        margin: 0;
         padding: 20px;
-        background: Canvas; /* Use system Canvas color as fallback */
-        color: CanvasText; /* Use system CanvasText color as fallback */
-        transition:
-          background-color 0.2s ease,
-          color 0.2s ease;
+      }
+      /* Dialog-specific component styles */
+      .container {
+        background: var(--card-bg);
+        border-radius: var(--border-radius-md);
+        padding: 20px;
+        box-shadow: 0 2px 10px var(--card-shadow);
+        transition: background-color var(--transition-base);
       }
 
-      /* Apply theme variables when data-theme is set */
-      :root body {
-        background: var(--bg-secondary);
-        color: var(--text-primary);
-      }
-      .container {
-        background: var(--bg-primary);
-        border-radius: 8px;
-        padding: 20px;
-        box-shadow: 0 2px 10px var(--shadow);
-        transition: background-color 0.2s ease;
-      }
       .prompt {
         margin-bottom: 15px;
         color: var(--text-primary);
-        font-size: 14px;
+        font-size: var(--font-size-sm);
       }
+
       input {
         width: 100%;
-        padding: 8px 12px;
-        border: 1px solid var(--border-primary);
-        border-radius: 6px;
-        font-size: 14px;
         margin-bottom: 20px;
         box-sizing: border-box;
-        background: var(--bg-primary);
-        color: var(--text-primary);
-        transition:
-          border-color 0.2s ease,
-          background-color 0.2s ease,
-          color 0.2s ease;
       }
+
       .buttons {
         text-align: right;
       }
+
       button {
-        background: var(--button-primary);
-        color: white;
-        border: none;
         padding: 8px 20px;
-        border-radius: 6px;
-        font-size: 13px;
-        cursor: pointer;
         margin-left: 8px;
-        transition: background-color 0.2s ease;
+        font-size: 13px;
       }
-      button:hover {
+
+      button:not(.secondary) {
+        background: var(--button-primary-bg);
+        color: var(--button-primary-text);
+      }
+
+      button:not(.secondary):hover {
         background: var(--button-primary-hover);
       }
+
       button.secondary {
-        background: var(--button-secondary);
+        background: var(--button-secondary-bg);
         color: var(--button-secondary-text);
       }
+
       button.secondary:hover {
         background: var(--button-secondary-hover);
       }

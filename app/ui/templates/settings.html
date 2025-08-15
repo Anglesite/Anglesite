@@ -3,70 +3,30 @@
   <head>
     <meta charset="UTF-8" />
     <title>Settings</title>
+    <link rel="stylesheet" href="../default-theme.css" />
     <style>
-      :root {
-        color-scheme: light dark; /* Enable native dark mode support to prevent white flash */
-        --bg-primary: #ffffff;
-        --bg-secondary: #f5f5f5;
-        --bg-tertiary: #ffffff;
-        --text-primary: #333333;
-        --text-secondary: #666666;
-        --border-primary: #e5e5e7;
-        --button-primary: #007aff;
-        --button-primary-hover: #0056cc;
-        --button-secondary: #e5e5e7;
-        --button-secondary-hover: #d1d1d6;
-        --button-secondary-text: #333;
-      }
-
-      :root[data-theme='dark'] {
-        --bg-primary: #1e1e1e;
-        --bg-secondary: #121212;
-        --bg-tertiary: #2d2d2d;
-        --text-primary: #ffffff;
-        --text-secondary: #b3b3b3;
-        --border-primary: #404040;
-        --button-primary: #0a84ff;
-        --button-primary-hover: #409cff;
-        --button-secondary: #404040;
-        --button-secondary-hover: #525252;
-        --button-secondary-text: #ffffff;
-      }
-
       body {
-        font-family: system-ui;
         margin: 0;
         padding: 20px;
-        background: Canvas; /* Use system Canvas color as fallback */
-        color: CanvasText; /* Use system CanvasText color as fallback */
-        transition:
-          background-color 0.2s ease,
-          color 0.2s ease;
-      }
-
-      /* Apply theme variables when data-theme is set */
-      :root body {
-        background: var(--bg-secondary);
-        color: var(--text-primary);
       }
       .setting-group {
         background: var(--bg-tertiary);
-        border-radius: 6px;
+        border-radius: var(--border-radius-sm);
         padding: 20px;
         margin-bottom: 16px;
         border: 1px solid var(--border-primary);
         transition:
-          background-color 0.2s ease,
-          border-color 0.2s ease;
+          background-color var(--transition-base),
+          border-color var(--transition-base);
       }
       .setting-title {
-        font-size: 13px;
+        font-size: var(--font-size-sm);
         font-weight: 600;
         margin-bottom: 8px;
         color: var(--text-primary);
       }
       .setting-description {
-        font-size: 11px;
+        font-size: var(--font-size-xs);
         color: var(--text-secondary);
         margin-bottom: 16px;
         line-height: 1.4;
@@ -95,21 +55,21 @@
         margin-top: 20px;
       }
       button {
-        background: var(--button-primary);
-        color: white;
+        background: var(--button-primary-bg);
+        color: var(--button-primary-text);
         border: none;
         padding: 8px 20px;
-        border-radius: 6px;
-        font-size: 13px;
+        border-radius: var(--border-radius-sm);
+        font-size: var(--font-size-sm);
         cursor: pointer;
         margin-left: 8px;
-        transition: background-color 0.2s ease;
+        transition: background-color var(--transition-base);
       }
       button:hover {
         background: var(--button-primary-hover);
       }
       button.secondary {
-        background: var(--button-secondary);
+        background: var(--button-secondary-bg);
         color: var(--button-secondary-text);
       }
       button.secondary:hover {

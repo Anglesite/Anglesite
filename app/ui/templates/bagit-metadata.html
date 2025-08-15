@@ -3,64 +3,27 @@
   <head>
     <meta charset="UTF-8" />
     <title>BagIt Archive Metadata</title>
+    <link rel="stylesheet" href="../default-theme.css" />
     <style>
-      :root {
-        color-scheme: light dark;
-        --bg-primary: #ffffff;
-        --bg-secondary: #f5f5f5;
-        --text-primary: #333333;
-        --border-primary: #dddddd;
-        --button-primary: #007aff;
-        --button-primary-hover: #0056cc;
-        --button-secondary: #e5e5e7;
-        --button-secondary-hover: #d1d1d6;
-        --button-secondary-text: #333;
-        --shadow: rgba(0, 0, 0, 0.1);
-      }
-
-      :root[data-theme='dark'] {
-        --bg-primary: #2d2d2d;
-        --bg-secondary: #1e1e1e;
-        --text-primary: #ffffff;
-        --border-primary: #404040;
-        --button-primary: #0a84ff;
-        --button-primary-hover: #409cff;
-        --button-secondary: #404040;
-        --button-secondary-hover: #525252;
-        --button-secondary-text: #ffffff;
-        --shadow: rgba(255, 255, 255, 0.1);
-      }
-
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
         margin: 0;
         padding: 20px;
-        background: Canvas;
-        color: CanvasText;
-        transition:
-          background-color 0.2s ease,
-          color 0.2s ease;
         min-width: 400px;
-      }
-
-      :root body {
-        background: var(--bg-secondary);
-        color: var(--text-primary);
       }
 
       .container {
         background: var(--bg-primary);
-        border-radius: 8px;
+        border-radius: var(--border-radius-md);
         padding: 24px;
-        box-shadow: 0 2px 10px var(--shadow);
-        transition: background-color 0.2s ease;
+        box-shadow: 0 2px 10px var(--card-shadow);
+        transition: background-color var(--transition-base);
       }
 
       h2 {
         margin-top: 0;
         margin-bottom: 20px;
         color: var(--text-primary);
-        font-size: 18px;
+        font-size: var(--font-size-lg);
         font-weight: 600;
       }
 
@@ -72,7 +35,7 @@
         display: block;
         margin-bottom: 6px;
         color: var(--text-primary);
-        font-size: 14px;
+        font-size: var(--font-size-sm);
         font-weight: 500;
       }
 
@@ -81,22 +44,22 @@
         width: 100%;
         padding: 10px 12px;
         border: 1px solid var(--border-primary);
-        border-radius: 6px;
-        font-size: 14px;
+        border-radius: var(--border-radius-sm);
+        font-size: var(--font-size-sm);
         box-sizing: border-box;
         background: var(--bg-primary);
         color: var(--text-primary);
         transition:
-          border-color 0.2s ease,
-          background-color 0.2s ease,
-          color 0.2s ease;
+          border-color var(--transition-base),
+          background-color var(--transition-base),
+          color var(--transition-base);
       }
 
       input:focus,
       textarea:focus {
         outline: none;
-        border-color: var(--button-primary);
-        box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+        border-color: var(--button-primary-bg);
+        box-shadow: 0 0 0 3px var(--focus-ring);
       }
 
       textarea {
@@ -105,8 +68,8 @@
       }
 
       .help-text {
-        font-size: 12px;
-        color: #666;
+        font-size: var(--font-size-xs);
+        color: var(--text-secondary);
         margin-top: 4px;
       }
 
@@ -118,15 +81,15 @@
       }
 
       button {
-        background: var(--button-primary);
-        color: white;
+        background: var(--button-primary-bg);
+        color: var(--button-primary-text);
         border: none;
         padding: 10px 20px;
-        border-radius: 6px;
-        font-size: 14px;
+        border-radius: var(--border-radius-sm);
+        font-size: var(--font-size-sm);
         cursor: pointer;
         margin-left: 10px;
-        transition: background-color 0.2s ease;
+        transition: background-color var(--transition-base);
         font-weight: 500;
       }
 
@@ -135,7 +98,7 @@
       }
 
       button.secondary {
-        background: var(--button-secondary);
+        background: var(--button-secondary-bg);
         color: var(--button-secondary-text);
       }
 

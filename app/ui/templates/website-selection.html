@@ -3,177 +3,136 @@
   <head>
     <meta charset="UTF-8" />
     <title>Open Website</title>
+    <link rel="stylesheet" href="../default-theme.css" />
     <style>
-      :root {
-        color-scheme: light dark; /* Enable native dark mode support to prevent white flash */
-        /* Light theme colors */
-        --bg-primary: #ffffff;
-        --bg-secondary: #f5f5f5;
-        --bg-tertiary: #ffffff;
-        --text-primary: #333333;
-        --text-secondary: #666666;
-        --border-primary: #e1e1e1;
-        --button-primary: #007aff;
-        --button-primary-hover: #0056cc;
-        --button-secondary: #e5e5e7;
-        --button-secondary-hover: #d1d1d6;
-        --button-secondary-text: #333;
-        --card-hover-border: #007aff;
-        --card-hover-shadow: rgba(0, 0, 0, 0.1);
-        --input-border: #007aff;
-        --input-shadow: rgba(0, 122, 255, 0.1);
-        --error-color: #ff3b30;
-        --error-shadow: rgba(255, 59, 48, 0.1);
-      }
-
-      :root[data-theme='dark'] {
-        /* Dark theme colors */
-        --bg-primary: #1e1e1e;
-        --bg-secondary: #121212;
-        --bg-tertiary: #2d2d2d;
-        --text-primary: #ffffff;
-        --text-secondary: #b3b3b3;
-        --border-primary: #404040;
-        --button-primary: #0a84ff;
-        --button-primary-hover: #409cff;
-        --button-secondary: #404040;
-        --button-secondary-hover: #525252;
-        --button-secondary-text: #ffffff;
-        --card-hover-border: #0a84ff;
-        --card-hover-shadow: rgba(255, 255, 255, 0.1);
-        --input-border: #0a84ff;
-        --input-shadow: rgba(10, 132, 255, 0.2);
-        --error-color: #ff453a;
-        --error-shadow: rgba(255, 69, 58, 0.2);
-      }
-
+      /* Website selection specific layout */
       body {
-        font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-        margin: 0;
         padding: 20px 20px 10px 20px;
-        background: Canvas; /* Use system Canvas color as fallback */
-        color: CanvasText; /* Use system CanvasText color as fallback */
-        transition:
-          background-color 0.2s ease,
-          color 0.2s ease;
       }
 
-      /* Apply theme variables when data-theme is set */
-      :root body {
-        background: var(--bg-secondary);
-        color: var(--text-primary);
-      }
+      /* Website selection specific styles */
       .header {
         text-align: center;
         margin-bottom: 30px;
       }
+
       .title {
-        font-size: 24px;
+        font-size: var(--font-size-xl);
         font-weight: 600;
         color: var(--text-primary);
         margin-bottom: 8px;
       }
+
       .subtitle {
-        font-size: 14px;
+        font-size: var(--font-size-sm);
         color: var(--text-secondary);
       }
+
       .websites-grid {
         display: grid;
         grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
         gap: 20px;
         margin-bottom: 30px;
       }
+
       .website-card {
-        background: var(--bg-tertiary);
-        border-radius: 12px;
+        background: var(--card-bg);
+        border-radius: var(--border-radius-lg);
         padding: 20px;
         text-align: center;
         cursor: pointer;
-        transition: all 0.2s ease;
-        border: 1px solid var(--border-primary);
+        transition: all var(--transition-base);
+        border: 1px solid var(--card-border);
       }
+
       .website-card:hover {
         transform: translateY(-2px);
         box-shadow: 0 8px 25px var(--card-hover-shadow);
         border-color: var(--card-hover-border);
       }
+
       .website-icon {
         font-size: 48px;
         margin-bottom: 15px;
       }
+
       .website-name {
-        font-size: 16px;
+        font-size: var(--font-size-base);
         font-weight: 500;
         color: var(--text-primary);
         margin-bottom: 5px;
       }
+
       .website-name.editing {
-        background: var(--bg-primary);
-        border: 2px solid var(--input-border);
-        border-radius: 4px;
+        background: var(--input-bg);
+        border: 2px solid var(--input-border-focus);
+        border-radius: var(--border-radius-sm);
         padding: 4px 8px;
         margin: -4px -8px 5px -8px;
         outline: none;
-        box-shadow: 0 0 0 3px var(--input-shadow);
+        box-shadow: 0 0 0 3px var(--focus-ring);
       }
+
       .website-name.editing.error {
         border-color: var(--error-color);
         box-shadow: 0 0 0 3px var(--error-shadow);
       }
+
       .validation-error {
-        font-size: 12px;
+        font-size: var(--font-size-xs);
         color: var(--error-color);
         margin-top: 5px;
         display: none;
       }
+
       .validation-error.show {
         display: block;
       }
+
       .website-path {
-        font-size: 12px;
+        font-size: var(--font-size-xs);
         color: var(--text-secondary);
         word-break: break-all;
       }
+
       .empty-state {
         text-align: center;
         padding: 60px 20px;
         color: var(--text-secondary);
       }
+
       .empty-icon {
         font-size: 64px;
         margin-bottom: 20px;
       }
+
       .buttons {
         display: flex;
         justify-content: space-between;
         align-items: center;
         padding-top: 20px;
-        border-top: 1px solid var(--border-primary);
+        border-top: 1px solid var(--border-tertiary);
       }
+
       .buttons-left {
         flex: 1;
       }
+
       .buttons-right {
         flex: 0;
       }
+
       button {
-        background: var(--button-secondary);
-        color: var(--button-secondary-text);
-        border: none;
         padding: 10px 24px;
-        border-radius: 6px;
-        font-size: 14px;
-        cursor: pointer;
         margin: 0 8px;
-        transition: background-color 0.2s ease;
+        font-size: var(--font-size-sm);
       }
-      button:hover {
-        background: var(--button-secondary-hover);
-      }
+
       button.primary {
-        background: var(--button-primary);
-        color: white;
+        background: var(--button-primary-bg);
+        color: var(--button-primary-text);
       }
+
       button.primary:hover {
         background: var(--button-primary-hover);
       }
