@@ -6,9 +6,9 @@ const path = require('path');
 
 /**
  * Check if a file needs to be regenerated based on source file modification time.
- * @param {string} sourcePath - Path to the source file
- * @param {string} outputPath - Path to the output file
- * @returns {boolean} - True if output needs to be regenerated
+ * @param sourcePath Path to the source file
+ * @param outputPath Path to the output file
+ * @returns True if output needs to be regenerated
  */
 function needsRegeneration(sourcePath, outputPath) {
   if (!fs.existsSync(outputPath)) {
@@ -80,7 +80,7 @@ function buildIcons() {
 
     if (needsRegeneration(sourceSvg, outputPath)) {
       console.log(`  - Generating ${size} (${output})...`);
-      
+
       try {
         execSync(`magick "${sourceSvg}" -resize ${size} "${outputPath}"`, { stdio: 'ignore' });
         generatedCount++;

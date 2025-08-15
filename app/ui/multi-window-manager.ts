@@ -378,10 +378,10 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
   window.on('resize', () => {
     if (webContentsView) {
       const bounds = window.getBounds();
-      // Website editor layout: left panel (200px) + center panel + right panel (200px)
-      const leftPanelWidth = 200;
-      const rightPanelWidth = 200;
-      const toolbarHeight = 50; // Website editor toolbar: min-height 32px + padding 16px + border
+      // Website editor layout: left panel (240px) + center panel + right panel (280px)
+      const leftPanelWidth = 240;
+      const rightPanelWidth = 280;
+      const toolbarHeight = 48; // Website editor toolbar: 48px height
       webContentsView.setBounds({
         x: leftPanelWidth,
         y: toolbarHeight,
@@ -393,10 +393,10 @@ export function createWebsiteWindow(websiteName: string, websitePath?: string): 
 
   // Position the preview correctly for website editor layout
   const bounds = window.getBounds();
-  // Website editor layout: left panel (200px) + center panel + right panel (200px)
-  const leftPanelWidth = 200;
-  const rightPanelWidth = 200;
-  const toolbarHeight = 50; // Website editor toolbar: min-height 32px + padding 16px + border
+  // Website editor layout: left panel (240px) + center panel + right panel (280px)
+  const leftPanelWidth = 240;
+  const rightPanelWidth = 280;
+  const toolbarHeight = 48; // Website editor toolbar: 48px height
   const webContentsViewBounds = {
     x: leftPanelWidth,
     y: toolbarHeight,

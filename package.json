@@ -177,6 +177,7 @@
   "dependencies": {
     "@11ty/eleventy": "^3.1.2",
     "@11ty/eleventy-dev-server": "^2.0.8",
+    "@json-editor/json-editor": "^2.15.2",
     "@types/archiver": "^6.0.3",
     "ace-builds": "^1.43.2",
     "archiver": "^7.0.1",
@@ -184,6 +185,7 @@
     "chokidar": "^3.6.0",
     "glob": "^11.0.3",
     "hostile": "^1.4.0",
+    "js-yaml": "^4.1.0",
     "live-server": "^1.2.2",
     "lucide-static": "^0.539.0",
     "mkcert": "^3.2.0",

@@ -3,6 +3,10 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta
+      http-equiv="Content-Security-Policy"
+      content="default-src 'self'; script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; style-src 'self' 'unsafe-inline';"
+    />
     <title>Website Editor</title>
     <!-- Static SVG icons instead of dynamic Lucide library -->
     <style>
@@ -21,6 +25,36 @@
         --button-bg: #ffffff;
         --button-hover: #f0f0f0;
         --button-active: #e0e0e0;
+
+        /* Font sizes */
+        --font-size-xs: 11px;
+        --font-size-sm: 12px;
+        --font-size-base: 14px;
+        --font-size-lg: 16px;
+        --font-size-xl: 18px;
+
+        /* Input styles */
+        --input-bg: #ffffff;
+        --input-border: #cccccc;
+        --input-border-focus: #007bff;
+        --input-text: #333333;
+
+        /* Button styles */
+        --button-primary-bg: #007bff;
+        --button-primary-text: #ffffff;
+        --button-primary-hover: #0056b3;
+        --button-secondary-bg: #ffffff;
+        --button-secondary-text: #333333;
+        --button-secondary-hover: #f0f0f0;
+
+        /* Focus and error styles */
+        --focus-ring: rgba(0, 123, 255, 0.25);
+        --error-color: #dc3545;
+        --error-shadow: rgba(220, 53, 69, 0.25);
+
+        /* Border radius */
+        --border-radius-sm: 4px;
+        --border-radius-lg: 8px;
       }
 
       /* Dark theme media query for automatic system preference support */
@@ -36,6 +70,12 @@
           --button-bg: #2d2d2d;
           --button-hover: #404040;
           --button-active: #4d4d4d;
+          --input-bg: #2d2d2d;
+          --input-border: #404040;
+          --input-text: #ffffff;
+          --button-secondary-bg: #2d2d2d;
+          --button-secondary-text: #ffffff;
+          --button-secondary-hover: #404040;
         }
       }
 
@@ -50,6 +90,12 @@
         --button-bg: #2d2d2d;
         --button-hover: #404040;
         --button-active: #4d4d4d;
+        --input-bg: #2d2d2d;
+        --input-border: #404040;
+        --input-text: #ffffff;
+        --button-secondary-bg: #2d2d2d;
+        --button-secondary-text: #ffffff;
+        --button-secondary-hover: #404040;
       }
 
       body {
@@ -62,37 +108,41 @@
         color: var(--text-primary);
         height: 100vh;
         overflow: hidden;
-        display: flex;
       }
 
       .main-container {
-        flex: 1;
         display: flex;
         height: 100vh;
+        overflow: hidden;
+      }
+
+      .left-panel {
+        width: 240px;
+        min-width: 240px;
+        max-width: 240px;
+        background: var(--bg-secondary);
+        border-right: 1px solid var(--border-primary);
+        overflow-y: auto;
+        flex-shrink: 0;
       }
 
       .content-with-toolbar {
         flex: 1;
         display: flex;
         flex-direction: column;
+        min-width: 0;
+        overflow: hidden;
       }
 
       .toolbar {
+        height: 48px;
         background: var(--bg-tertiary);
         border-bottom: 1px solid var(--border-primary);
-        padding: 8px 16px;
         display: flex;
         align-items: center;
+        padding: 0 16px;
         gap: 8px;
-        min-height: 32px;
-      }
-
-      .left-panel {
-        width: 200px;
-        background: var(--bg-secondary);
-        border-right: 1px solid var(--border-primary);
-        padding: 8px;
-        overflow-y: auto;
+        flex-shrink: 0;
       }
 
       .panel-header {
@@ -113,27 +163,32 @@
       .center-right-container {
         flex: 1;
         display: flex;
+        overflow: hidden;
       }
 
       .center-panel {
         flex: 1;
         background: var(--bg-primary);
-        display: flex;
-        flex-direction: column;
+        overflow: hidden;
+        position: relative;
+        min-width: 0;
       }
 
       .center-content {
-        flex: 1;
-        background: var(--bg-primary);
-        position: relative;
-        display: flex;
-        flex-direction: column;
+        height: 100%;
+        overflow: hidden;
       }
 
       .right-panel {
-        width: 200px;
+        width: 280px;
+        min-width: 280px;
+        max-width: 280px;
         background: var(--bg-secondary);
         border-left: 1px solid var(--border-primary);
+        display: flex;
+        flex-direction: column;
+        overflow: hidden;
+        flex-shrink: 0;
       }
 
       .file-list {
@@ -316,6 +371,195 @@
 
       .skip-link:focus {
         top: 6px;
+      }
+
+      .preview-placeholder,
+      .ace-editor,
+      .editor-area {
+        width: 100%;
+        height: 100%;
+      }
+
+      .ace-editor {
+        display: none;
+      }
+
+      .preview-placeholder {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        color: var(--text-secondary);
+        font-size: 16px;
+      }
+
+      .panel-section {
+        border-bottom: 1px solid var(--border-secondary);
+        flex-shrink: 0;
+      }
+
+      .panel-section:first-child {
+        flex: 0 0 auto;
+        max-height: 350px;
+        overflow-y: auto;
+      }
+
+      .panel-section:last-child {
+        border-bottom: none;
+        flex: 1;
+        overflow-y: auto;
+      }
+
+      .panel-section-title {
+        background: var(--bg-tertiary);
+        padding: 12px 16px;
+        margin: 0;
+        font-size: var(--font-size-sm);
+        font-weight: 600;
+        color: var(--text-primary);
+        border-bottom: 1px solid var(--border-secondary);
+      }
+
+      .panel-content {
+        padding: 16px;
+      }
+
+      .property-list {
+        margin: 0;
+      }
+
+      .property-item {
+        display: flex;
+        justify-content: space-between;
+        align-items: flex-start;
+        margin-bottom: 12px;
+        gap: 8px;
+      }
+
+      .property-item:last-child {
+        margin-bottom: 0;
+      }
+
+      .property-label {
+        font-size: var(--font-size-xs);
+        color: var(--text-secondary);
+        font-weight: 500;
+        margin: 0;
+        min-width: 80px;
+      }
+
+      .property-value {
+        font-size: var(--font-size-xs);
+        color: var(--text-primary);
+        margin: 0;
+        text-align: right;
+        word-break: break-all;
+        flex: 1;
+      }
+
+      /* Frontmatter Editor Styles */
+      .frontmatter-container {
+        padding: 12px;
+      }
+
+      .frontmatter-editor {
+        min-height: 120px;
+        max-height: 250px;
+        border: 1px solid var(--border-primary);
+        border-radius: 4px;
+        background: var(--bg-primary);
+        margin-bottom: 8px;
+        overflow-y: auto;
+      }
+
+      .frontmatter-actions {
+        display: flex;
+        gap: 8px;
+        margin-bottom: 8px;
+      }
+
+      .btn {
+        padding: 8px 12px;
+        border: 1px solid var(--border-primary);
+        border-radius: 4px;
+        background: var(--button-bg);
+        color: var(--text-primary);
+        cursor: pointer;
+        font-size: 12px;
+        transition: background-color 0.2s;
+      }
+
+      .btn:hover {
+        background: var(--button-hover);
+      }
+
+      .btn-primary {
+        background: #007bff;
+        color: white;
+        border-color: #007bff;
+      }
+
+      .btn-primary:hover {
+        background: #0056b3;
+        border-color: #0056b3;
+      }
+
+      .btn-secondary {
+        background: var(--button-bg);
+        color: var(--text-primary);
+        border-color: var(--border-primary);
+      }
+
+      .btn-sm {
+        padding: 6px 12px;
+        font-size: 11px;
+      }
+
+      .frontmatter-error {
+        background: var(--error-color);
+        color: white;
+        padding: 8px 12px;
+        border-radius: var(--border-radius-sm);
+        font-size: var(--font-size-xs);
+        margin-top: 8px;
+      }
+
+      /* JSON Editor specific styling */
+      .frontmatter-editor .je-object__container {
+        background: transparent !important;
+        border: none !important;
+      }
+
+      .frontmatter-editor .je-object__title {
+        background: var(--bg-secondary) !important;
+        color: var(--text-primary) !important;
+        border-bottom: 1px solid var(--border-primary) !important;
+      }
+
+      .frontmatter-editor .form-control {
+        background: var(--input-bg) !important;
+        border: 1px solid var(--input-border) !important;
+        color: var(--input-text) !important;
+        font-size: var(--font-size-xs) !important;
+      }
+
+      .frontmatter-editor .form-control:focus {
+        border-color: var(--input-border-focus) !important;
+        box-shadow: 0 0 0 2px var(--focus-ring) !important;
+      }
+
+      .frontmatter-editor .btn {
+        background: var(--button-secondary-bg) !important;
+        border: 1px solid var(--border-primary) !important;
+        color: var(--button-secondary-text) !important;
+        font-size: var(--font-size-xs) !important;
+      }
+
+      .frontmatter-editor .btn:hover {
+        background: var(--button-secondary-hover) !important;
+      }
+
+      .frontmatter-editor .je-object__controls {
+        background: var(--bg-tertiary) !important;
       }
     </style>
   </head>
@@ -503,47 +747,70 @@ You can create:
           </main>
 
           <aside class="right-panel" role="complementary" aria-label="File Properties">
-            <section class="panel-content">
-              <h3 class="sr-only">Current File Properties</h3>
-              <dl class="property-list">
-                <div class="property-item">
-                  <dt class="property-label">File Type</dt>
-                  <dd class="property-value">Markdown</dd>
+            <!-- Frontmatter Editor Section -->
+            <section class="panel-section">
+              <h3 class="panel-section-title">Frontmatter</h3>
+              <div class="frontmatter-container">
+                <div id="frontmatter-editor" class="frontmatter-editor" aria-label="Frontmatter Editor"></div>
+                <div class="frontmatter-actions">
+                  <button id="apply-frontmatter" class="btn btn-primary btn-sm" title="Apply frontmatter changes">
+                    Apply Changes
+                  </button>
+                  <button id="reset-frontmatter" class="btn btn-secondary btn-sm" title="Reset frontmatter to original">
+                    Reset
+                  </button>
                 </div>
-                <div class="property-item">
-                  <dt class="property-label">Word Count</dt>
-                  <dd class="property-value">47</dd>
-                </div>
-                <div class="property-item">
-                  <dt class="property-label">Last Modified</dt>
-                  <dd class="property-value">Today, 2:30 PM</dd>
-                </div>
-                <div class="property-item">
-                  <dt class="property-label">Status</dt>
-                  <dd class="property-value">Draft</dd>
-                </div>
-                <div class="property-item">
-                  <dt class="property-label">Layout</dt>
-                  <dd class="property-value">default</dd>
-                </div>
-                <div class="property-item">
-                  <dt class="property-label">Tags</dt>
-                  <dd class="property-value">blog, markdown</dd>
-                </div>
-              </dl>
+                <div id="frontmatter-error" class="frontmatter-error" style="display: none" role="alert"></div>
+              </div>
+            </section>
+
+            <!-- File Properties Section -->
+            <section class="panel-section">
+              <h3 class="panel-section-title">File Properties</h3>
+              <div class="panel-content">
+                <dl class="property-list">
+                  <div class="property-item">
+                    <dt class="property-label">File Type</dt>
+                    <dd class="property-value" id="file-type">-</dd>
+                  </div>
+                  <div class="property-item">
+                    <dt class="property-label">Word Count</dt>
+                    <dd class="property-value" id="word-count">-</dd>
+                  </div>
+                  <div class="property-item">
+                    <dt class="property-label">Last Modified</dt>
+                    <dd class="property-value" id="last-modified">-</dd>
+                  </div>
+                  <div class="property-item">
+                    <dt class="property-label">File Path</dt>
+                    <dd class="property-value" id="file-path">-</dd>
+                  </div>
+                </dl>
+              </div>
             </section>
           </aside>
         </div>
       </div>
     </div>
 
+    <!-- Load required libraries from CDN since this template is loaded as data URL -->
+    <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@json-editor/json-editor@2.15.2/dist/jsoneditor.min.js"></script>
+
     <script>
+      // Libraries are loaded globally via script tags above
+      const JSONEditor = window.JSONEditor;
+      const yaml = window.jsyaml;
+
+      // Global variables
       let currentWebsite = null;
       let aceEditor = null;
       let isPreviewMode = true;
       let currentFileContent = '';
       let currentFilePath = null;
       let websiteFiles = [];
+      let frontmatterEditor = null;
+      let originalFrontmatter = null;
 
       // Initialize simplified website editor when the page loads
       document.addEventListener('DOMContentLoaded', function () {
@@ -552,6 +819,7 @@ You can create:
 
         setupSimplePreviewToggle();
         setupSaveButton();
+        setupFrontmatterEditor();
       });
 
       // Setup save button
@@ -1047,24 +1315,37 @@ You can create:
           return;
         }
 
+        const fileExplorer = document.querySelector('.left-panel');
+
         try {
-          // Get files from the URL resolver via IPC
+          // Show loading message
+          fileExplorer.innerHTML =
+            '<div style="padding: 10px; color: var(--text-secondary); font-size: 12px;">Loading files...</div>';
+
           console.log('Requesting files for website:', currentWebsite.name);
           const files = await window.electronAPI.invoke('get-website-files', currentWebsite.name);
           console.log('Received files:', files);
-          files.forEach((file) => {
-            console.log(`  ${file.isDirectory ? '[DIR]' : '[FILE]'} ${file.filePath}`);
-          });
-          websiteFiles = files;
 
-          const fileExplorer = document.querySelector('.left-panel');
+          if (files && files.length > 0) {
+            files.forEach((file) => {
+              console.log(`  ${file.isDirectory ? '[DIR]' : '[FILE]'} ${file.filePath}`);
+            });
+          }
+
+          websiteFiles = files;
           fileExplorer.innerHTML = '';
 
           // Check if files array is empty or null
           if (!files || files.length === 0) {
             console.warn('No files received from URL resolver');
             fileExplorer.innerHTML =
-              '<div style="padding: 10px; color: var(--text-secondary); font-size: 12px;">No files found or URL resolver not ready</div>';
+              '<div style="padding: 10px; color: var(--text-secondary); font-size: 12px;">No files found<br><small>URL resolver may not be ready yet</small></div>';
+
+            // Try again after a delay
+            setTimeout(() => {
+              console.log('Retrying file explorer population...');
+              populateFileExplorer();
+            }, 2000);
             return;
           }
 
@@ -1085,6 +1366,16 @@ You can create:
           fileExplorer.appendChild(fileList);
         } catch (error) {
           console.error('Error loading website files:', error);
+          fileExplorer.innerHTML =
+            '<div style="padding: 10px; color: var(--error-color); font-size: 12px;">Error loading files<br><small>' +
+            (error.message || 'Unknown error') +
+            '</small></div>';
+
+          // Try again after a delay
+          setTimeout(() => {
+            console.log('Retrying file explorer population after error...');
+            populateFileExplorer();
+          }, 3000);
         }
       }
 
@@ -1115,6 +1406,274 @@ You can create:
           }
         });
       }
+
+      // ==========================================
+      // FRONTMATTER EDITOR FUNCTIONALITY
+      // ==========================================
+
+      // Setup frontmatter editor
+      function setupFrontmatterEditor() {
+        const container = document.getElementById('frontmatter-editor');
+        const applyButton = document.getElementById('apply-frontmatter');
+        const resetButton = document.getElementById('reset-frontmatter');
+
+        // Initialize JSON Editor with basic schema
+        const schema = {
+          type: 'object',
+          title: 'Frontmatter',
+          properties: {
+            title: {
+              type: 'string',
+              title: 'Title',
+              description: 'Page title',
+            },
+            date: {
+              type: 'string',
+              title: 'Date',
+              format: 'date',
+              description: 'Publication date',
+            },
+            layout: {
+              type: 'string',
+              title: 'Layout',
+              description: 'Template layout to use',
+            },
+            tags: {
+              type: 'array',
+              title: 'Tags',
+              items: {
+                type: 'string',
+              },
+              description: 'Content tags',
+            },
+            description: {
+              type: 'string',
+              title: 'Description',
+              description: 'Page description for SEO',
+            },
+          },
+        };
+
+        frontmatterEditor = new JSONEditor(container, {
+          schema: schema,
+          theme: 'bootstrap4',
+          iconlib: 'fontawesome4',
+          disable_edit_json: false,
+          disable_properties: false,
+          disable_array_reorder: false,
+          array_controls_top: true,
+          show_errors: 'always',
+          no_additional_properties: false,
+          required_by_default: false,
+        });
+
+        // Setup button handlers
+        if (applyButton) {
+          applyButton.addEventListener('click', applyFrontmatterChanges);
+        }
+        if (resetButton) {
+          resetButton.addEventListener('click', resetFrontmatter);
+        }
+
+        // Clear initial display
+        updateFrontmatterDisplay(null);
+      }
+
+      // Parse frontmatter from file content
+      function parseFrontmatter(content) {
+        if (!content || typeof content !== 'string') {
+          return { frontmatter: {}, content: content || '' };
+        }
+
+        const frontmatterRegex = /^---\s*\n([\s\S]*?)\n---\s*\n([\s\S]*)$/;
+        const match = content.match(frontmatterRegex);
+
+        if (match) {
+          try {
+            const frontmatter = yaml.load(match[1]) || {};
+            return {
+              frontmatter: frontmatter,
+              content: match[2],
+            };
+          } catch (error) {
+            console.warn('Failed to parse YAML frontmatter:', error);
+            showFrontmatterError('Invalid YAML syntax in frontmatter');
+            return { frontmatter: {}, content: content };
+          }
+        }
+
+        return { frontmatter: {}, content: content };
+      }
+
+      // Serialize frontmatter back to YAML
+      function serializeFrontmatter(frontmatter, content) {
+        if (!frontmatter || Object.keys(frontmatter).length === 0) {
+          return content;
+        }
+
+        try {
+          const yamlString = yaml.dump(frontmatter, {
+            indent: 2,
+            sortKeys: true,
+            noRefs: true,
+          });
+
+          return `---\n${yamlString}---\n${content}`;
+        } catch (error) {
+          console.error('Failed to serialize frontmatter:', error);
+          showFrontmatterError('Failed to convert frontmatter to YAML');
+          return content;
+        }
+      }
+
+      // Update frontmatter display when file changes
+      function updateFrontmatterDisplay(filePath) {
+        hideFrontmatterError();
+
+        if (!filePath || !currentFileContent) {
+          // No file selected - show empty state
+          if (frontmatterEditor) {
+            frontmatterEditor.setValue({});
+            originalFrontmatter = {};
+          }
+          updateFileProperties(null);
+          return;
+        }
+
+        // Parse frontmatter from current file
+        const { frontmatter, content } = parseFrontmatter(currentFileContent);
+        originalFrontmatter = JSON.parse(JSON.stringify(frontmatter)); // Deep copy
+
+        // Update JSON editor
+        if (frontmatterEditor) {
+          frontmatterEditor.setValue(frontmatter);
+        }
+
+        // Update file properties
+        updateFileProperties(filePath);
+      }
+
+      // Update file properties panel
+      function updateFileProperties(filePath) {
+        const fileTypeEl = document.getElementById('file-type');
+        const wordCountEl = document.getElementById('word-count');
+        const lastModifiedEl = document.getElementById('last-modified');
+        const filePathEl = document.getElementById('file-path');
+
+        if (!filePath) {
+          // Clear properties
+          if (fileTypeEl) fileTypeEl.textContent = '-';
+          if (wordCountEl) wordCountEl.textContent = '-';
+          if (lastModifiedEl) lastModifiedEl.textContent = '-';
+          if (filePathEl) filePathEl.textContent = '-';
+          return;
+        }
+
+        // Determine file type
+        const ext = filePath.split('.').pop().toLowerCase();
+        const fileType =
+          {
+            md: 'Markdown',
+            markdown: 'Markdown',
+            html: 'HTML',
+            htm: 'HTML',
+            js: 'JavaScript',
+            ts: 'TypeScript',
+            css: 'CSS',
+            json: 'JSON',
+            yml: 'YAML',
+            yaml: 'YAML',
+          }[ext] || 'Text';
+
+        // Count words in content (excluding frontmatter)
+        const { content } = parseFrontmatter(currentFileContent);
+        const wordCount = content
+          .trim()
+          .split(/\s+/)
+          .filter((word) => word.length > 0).length;
+
+        // Update display
+        if (fileTypeEl) fileTypeEl.textContent = fileType;
+        if (wordCountEl) wordCountEl.textContent = wordCount.toString();
+        if (lastModifiedEl) lastModifiedEl.textContent = 'Just now'; // Could be enhanced with real timestamps
+        if (filePathEl) filePathEl.textContent = filePath;
+      }
+
+      // Apply frontmatter changes to file content
+      async function applyFrontmatterChanges() {
+        if (!frontmatterEditor || !currentFilePath) {
+          return;
+        }
+
+        try {
+          // Get current frontmatter from editor
+          const newFrontmatter = frontmatterEditor.getValue();
+
+          // Parse current file to get content without frontmatter
+          const { content } = parseFrontmatter(currentFileContent);
+
+          // Create new file content with updated frontmatter
+          const newFileContent = serializeFrontmatter(newFrontmatter, content);
+
+          // Update the file content
+          currentFileContent = newFileContent;
+
+          // Update editors
+          if (aceEditor) {
+            aceEditor.setValue(newFileContent, -1);
+          }
+
+          // Update original frontmatter to match applied changes
+          originalFrontmatter = JSON.parse(JSON.stringify(newFrontmatter));
+
+          hideFrontmatterError();
+          console.log('Frontmatter applied successfully');
+        } catch (error) {
+          console.error('Failed to apply frontmatter changes:', error);
+          showFrontmatterError('Failed to apply frontmatter changes');
+        }
+      }
+
+      // Reset frontmatter to original state
+      function resetFrontmatter() {
+        if (!frontmatterEditor || !originalFrontmatter) {
+          return;
+        }
+
+        try {
+          frontmatterEditor.setValue(JSON.parse(JSON.stringify(originalFrontmatter)));
+          hideFrontmatterError();
+        } catch (error) {
+          console.error('Failed to reset frontmatter:', error);
+          showFrontmatterError('Failed to reset frontmatter');
+        }
+      }
+
+      // Show frontmatter error
+      function showFrontmatterError(message) {
+        const errorEl = document.getElementById('frontmatter-error');
+        if (errorEl) {
+          errorEl.textContent = message;
+          errorEl.style.display = 'block';
+        }
+      }
+
+      // Hide frontmatter error
+      function hideFrontmatterError() {
+        const errorEl = document.getElementById('frontmatter-error');
+        if (errorEl) {
+          errorEl.style.display = 'none';
+        }
+      }
+
+      // Enhanced loadFileContent to update frontmatter
+      const originalLoadFileContent = loadFileContent;
+      loadFileContent = async function (filePath) {
+        await originalLoadFileContent(filePath);
+
+        // Update frontmatter display after loading file
+        updateFrontmatterDisplay(filePath);
+      };
     </script>
   </body>
 </html>
