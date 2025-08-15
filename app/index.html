@@ -1,5 +1,5 @@
 <!doctype html>
-<html>
+<html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta
@@ -64,20 +64,22 @@
     </script>
   </head>
   <body>
-    <div class="top-bar">
-      <button id="preview">Edit</button>
-      <button id="open-browser">Open In Browser</button>
-    </div>
+    <header class="top-bar" role="banner">
+      <button id="preview" aria-label="Switch to edit mode" title="Switch to edit mode">Edit</button>
+      <button id="open-browser" aria-label="Open in external browser" title="Open in external browser">
+        Open In Browser
+      </button>
+    </header>
 
-    <div class="browser-bar">
-      <button id="reload">Reload</button>
-      <div class="site-title" id="site-title">Hello World!</div>
-      <div class="url-display" id="url-display">/index.html</div>
-    </div>
+    <nav class="browser-bar" role="navigation" aria-label="Page navigation">
+      <button id="reload" aria-label="Reload current page" title="Reload current page">Reload</button>
+      <h1 class="site-title" id="site-title">Hello World!</h1>
+      <div class="url-display" id="url-display" role="status" aria-live="polite">/index.html</div>
+    </nav>
 
-    <div class="content-area">
+    <main class="content-area" role="main" aria-label="Website preview">
       <!-- Preview content will be shown here via BrowserView -->
-    </div>
+    </main>
 
     <script src="./renderer.js"></script>
   </body>
