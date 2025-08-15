@@ -130,6 +130,46 @@ export function setupIpcMainListeners(): void {
     }
   });
 
+  ipcMain.handle('get-website-server-url', async (event, websiteName: string) => {
+    try {
+      const { getAllWebsiteWindows } = await import('../ui/multi-window-manager');
+      const websiteWindows = getAllWebsiteWindows();
+      const websiteWindow = websiteWindows.get(websiteName);
+
+      if (!websiteWindow?.serverUrl) {
+        return null;
+      }
+
+      return websiteWindow.serverUrl;
+    } catch (error) {
+      console.error('Error getting website server URL:', error);
+      return null;
+    }
+  });
+
+  ipcMain.on('load-file-preview', async (event, websiteName: string, fileUrl: string) => {
+    try {
+      const { getAllWebsiteWindows } = await import('../ui/multi-window-manager');
+      const websiteWindows = getAllWebsiteWindows();
+      const websiteWindow = websiteWindows.get(websiteName);
+
+      if (!websiteWindow || websiteWindow.window.isDestroyed()) {
+        console.error(`Website window not found for preview load: ${websiteName}`);
+        return;
+      }
+
+      if (!websiteWindow.webContentsView || websiteWindow.webContentsView.webContents.isDestroyed()) {
+        console.error(`WebContentsView not available for preview load: ${websiteName}`);
+        return;
+      }
+
+      console.log(`Loading file preview for ${websiteName}: ${fileUrl}`);
+      websiteWindow.webContentsView.webContents.loadURL(fileUrl);
+    } catch (error) {
+      console.error('Error loading file preview:', error);
+    }
+  });
+
   // Website Editor mode switching handlers
   ipcMain.on('website-editor-show-preview', async (event) => {
     const { showWebsitePreview } = await import('../ui/multi-window-manager');

@@ -136,19 +136,70 @@
         border-left: 1px solid var(--border-primary);
       }
 
+      .file-list {
+        list-style: none;
+        padding: 0;
+        margin: 0;
+      }
+
+      .file-list .file-list {
+        padding-left: 20px;
+        margin-top: 2px;
+      }
+
       .file-item {
         padding: 4px 8px;
         border-radius: 3px;
         cursor: pointer;
         font-size: 12px;
         margin-bottom: 2px;
+        list-style: none;
+        position: relative;
+      }
+
+      .file-item-content {
         display: flex;
         align-items: center;
         gap: 8px;
       }
 
+      .file-item > .file-list {
+        margin-top: 2px;
+        margin-bottom: 2px;
+      }
+
+      .file-item.collapsed > .file-list {
+        display: none;
+      }
+
       .file-item:hover {
         background: var(--button-hover);
+      }
+
+      .file-item.selected {
+        background: var(--button-active);
+        font-weight: 500;
+      }
+
+      .disclosure-triangle {
+        width: 12px;
+        height: 12px;
+        display: inline-block;
+        cursor: pointer;
+        user-select: none;
+        transition: transform 0.2s ease;
+        font-size: 10px;
+        line-height: 12px;
+        text-align: center;
+        transform: rotate(90deg); /* Default: expanded (▶ rotated 90° = ▼) */
+      }
+
+      .disclosure-triangle.collapsed {
+        transform: rotate(0deg); /* Collapsed: ▶ pointing right */
+      }
+
+      .file-item-content.directory {
+        cursor: pointer;
       }
 
       .file-item i {
@@ -618,11 +669,215 @@ You can create:
         }
       }
 
+      // Helper function to read anglesite.json configuration
+      async function getAnglesiteConfig(websitePath) {
+        try {
+          const configPath = `${websitePath}/_data/anglesite.json`;
+          const configContent = await window.electronAPI.invoke('get-file-content', configPath);
+          if (configContent) {
+            return JSON.parse(configContent);
+          }
+        } catch (error) {}
+        return null;
+      }
+
+      // Helper function to build hierarchical file tree structure
+      async function buildFileTree(files, websitePath) {
+        const tree = [];
+
+        // Get configuration to check for WYSIWYG mode
+        const config = await getAnglesiteConfig(websitePath);
+        const isWysiwygMode = config && config.edit_mode === 'WYSIWYG';
+
+        files.forEach((file) => {
+          const relativePath = file.filePath.replace(websitePath + '/', '');
+          const pathParts = relativePath.split('/');
+
+          // In WYSIWYG mode, hide _data, _includes, and _layouts directories
+          if (isWysiwygMode && pathParts.length >= 1) {
+            const rootDir = pathParts[0];
+            if (rootDir === '_data' || rootDir === '_includes' || rootDir === '_layouts') {
+              return; // Skip this file/directory
+            }
+          }
+
+          if (pathParts.length === 1) {
+            // Root level file or directory
+            tree.push({
+              ...file,
+              name: pathParts[0],
+              children: [],
+            });
+          }
+        });
+
+        // Add children to directories
+        files.forEach((file) => {
+          const relativePath = file.filePath.replace(websitePath + '/', '');
+          const pathParts = relativePath.split('/');
+
+          // In WYSIWYG mode, skip files in hidden directories
+          if (isWysiwygMode && pathParts.length >= 1) {
+            const rootDir = pathParts[0];
+            if (rootDir === '_data' || rootDir === '_includes' || rootDir === '_layouts') {
+              return; // Skip this file/directory
+            }
+          }
+
+          if (pathParts.length > 1) {
+            // This is a nested file - find its parent directory
+            const parentDirName = pathParts[0];
+            const parentDir = tree.find((item) => item.name === parentDirName && item.isDirectory);
+
+            if (parentDir) {
+              parentDir.children.push({
+                ...file,
+                name: pathParts[pathParts.length - 1],
+                children: [],
+              });
+            }
+          }
+        });
+
+        // Sort tree: directories first, then alphabetically
+        tree.sort((a, b) => {
+          if (a.isDirectory && !b.isDirectory) return -1;
+          if (!a.isDirectory && b.isDirectory) return 1;
+          return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+        });
+
+        // Sort children in each directory
+        tree.forEach((item) => {
+          if (item.children) {
+            item.children.sort((a, b) => {
+              if (a.isDirectory && !b.isDirectory) return -1;
+              if (!a.isDirectory && b.isDirectory) return 1;
+              return a.name.toLowerCase().localeCompare(b.name.toLowerCase());
+            });
+          }
+        });
+
+        return tree;
+      }
+
+      // Helper function to render file tree as nested ul/li
+      function renderFileTree(tree, parentElement) {
+        tree.forEach((item) => {
+          const listItem = document.createElement('li');
+          listItem.className = 'file-item';
+
+          // Create content with disclosure triangle for directories
+          const hasChildren = item.isDirectory && item.children && item.children.length > 0;
+          const isCollapsedByDefault = false; // Set to true if you want folders collapsed by default
+          const triangleClass = isCollapsedByDefault ? 'disclosure-triangle collapsed' : 'disclosure-triangle';
+          const disclosureTriangle = hasChildren
+            ? `<span class="${triangleClass}">▶</span>`
+            : '<span style="width: 12px; display: inline-block;"></span>';
+
+          // Add collapsed class to list item if starting collapsed
+          if (hasChildren && isCollapsedByDefault) {
+            listItem.classList.add('collapsed');
+          }
+
+          listItem.innerHTML = `
+            <div class="file-item-content ${item.isDirectory ? 'directory' : ''}">
+              ${disclosureTriangle}
+              ${getFileIcon(item.name, item.isDirectory)}
+              ${item.name}
+            </div>
+          `;
+
+          const contentDiv = listItem.querySelector('.file-item-content');
+
+          if (item.isDirectory && hasChildren) {
+            // Add click handler for directories to toggle expand/collapse
+            contentDiv.addEventListener('click', () => {
+              const triangle = listItem.querySelector('.disclosure-triangle');
+              const isCollapsed = listItem.classList.contains('collapsed');
+
+              if (isCollapsed) {
+                // Expand
+                listItem.classList.remove('collapsed');
+                triangle.classList.remove('collapsed');
+              } else {
+                // Collapse
+                listItem.classList.add('collapsed');
+                triangle.classList.add('collapsed');
+              }
+            });
+          } else if (!item.isDirectory) {
+            // Add click handler for files
+            contentDiv.addEventListener('click', async () => {
+              // Add visual feedback for selected file
+              document.querySelectorAll('.file-item').forEach((fileItem) => {
+                fileItem.classList.remove('selected');
+              });
+              listItem.classList.add('selected');
+
+              // Load file content for editing
+              await loadFileContent(item.filePath);
+
+              // Update preview to show this specific file
+              await updatePreviewForFile(item.filePath);
+            });
+          }
+
+          parentElement.appendChild(listItem);
+
+          // If this is a directory with children, create nested ul
+          if (item.isDirectory && item.children && item.children.length > 0) {
+            const nestedList = document.createElement('ul');
+            nestedList.className = 'file-list';
+            renderFileTree(item.children, nestedList);
+            listItem.appendChild(nestedList);
+          }
+        });
+      }
+
+      // Function to update preview pane for a specific file
+      async function updatePreviewForFile(filePath) {
+        try {
+          // Get the URL for this file from the URL resolver
+          const fileUrl = await window.electronAPI.invoke('get-file-url', currentWebsite.name, filePath);
+
+          if (fileUrl) {
+            // Get the base server URL and construct full URL
+            const websiteServer = await window.electronAPI.invoke('get-website-server-url', currentWebsite.name);
+
+            if (websiteServer) {
+              const fullUrl = websiteServer + fileUrl;
+
+              // Update the preview placeholder to show loading
+              const placeholder = document.getElementById('preview-placeholder');
+              if (placeholder) {
+                placeholder.innerHTML = `<p>Loading preview for ${filePath.split('/').pop()}...</p>`;
+              }
+
+              // Load the specific file URL in the preview
+              // Note: This would need to be sent to the main process to update the WebContentsView
+              window.electronAPI.send('load-file-preview', currentWebsite.name, fullUrl);
+            }
+          } else {
+            // Show message for non-previewable files
+            const placeholder = document.getElementById('preview-placeholder');
+            if (placeholder) {
+              placeholder.innerHTML = `<p>Preview not available for ${filePath.split('/').pop()}</p>`;
+            }
+          }
+        } catch (error) {
+          console.error(`Error updating preview for file: ${filePath}`, error);
+
+          const placeholder = document.getElementById('preview-placeholder');
+          if (placeholder) {
+            placeholder.innerHTML = `<p>Error loading preview for ${filePath.split('/').pop()}</p>`;
+          }
+        }
+      }
+
       // Function to load file content for editing
       async function loadFileContent(filePath) {
         try {
-          console.log('Loading file content:', filePath);
-
+  
           // Get file content from main process
           const content = await window.electronAPI.invoke('get-file-content', filePath);
 
@@ -638,18 +893,18 @@ You can create:
               const simpleEditor = document.getElementById('simple-editor');
               if (simpleEditor) {
                 simpleEditor.value = content;
+              } else {
               }
             }
 
             // Update properties panel
             updatePropertiesPanel(filePath, content);
 
-            console.log('File content loaded successfully');
           } else {
-            console.error('Failed to load file content');
+            console.error('[DEBUG] Failed to load file content - content is null');
           }
         } catch (error) {
-          console.error('Error loading file content:', error);
+          console.error('[DEBUG] Error loading file content:', error);
         }
       }
 
@@ -736,6 +991,9 @@ You can create:
           console.log('Requesting files for website:', currentWebsite.name);
           const files = await window.electronAPI.invoke('get-website-files', currentWebsite.name);
           console.log('Received files:', files);
+          files.forEach((file) => {
+            console.log(`  ${file.isDirectory ? '[DIR]' : '[FILE]'} ${file.filePath}`);
+          });
           websiteFiles = files;
 
           const fileExplorer = document.querySelector('.left-panel');
@@ -744,42 +1002,28 @@ You can create:
           // Check if files array is empty or null
           if (!files || files.length === 0) {
             console.warn('No files received from URL resolver');
-            fileExplorer.innerHTML = '<div style="padding: 10px; color: var(--text-secondary); font-size: 12px;">No files found or URL resolver not ready</div>';
+            fileExplorer.innerHTML =
+              '<div style="padding: 10px; color: var(--text-secondary); font-size: 12px;">No files found or URL resolver not ready</div>';
             return;
           }
 
-          // Sort files: directories first, then files, both alphabetically
-          const sortedFiles = files.sort((a, b) => {
-            if (a.isDirectory && !b.isDirectory) return -1;
-            if (!a.isDirectory && b.isDirectory) return 1;
-            const aName = a.filePath.split('/').pop().toLowerCase();
-            const bName = b.filePath.split('/').pop().toLowerCase();
-            return aName.localeCompare(bName);
-          });
+          // Create the main file list
+          const fileList = document.createElement('ul');
+          fileList.className = 'file-list';
 
-          sortedFiles.forEach((file) => {
-            const fileItem = document.createElement('div');
-            fileItem.className = 'file-item';
-            const fileName = file.filePath.split('/').pop();
+          // Build hierarchical structure
+          const websitePath = currentWebsite.path;
+          const fileTree = await buildFileTree(files, websitePath);
 
-            fileItem.innerHTML = `
-              ${getFileIcon(fileName, file.isDirectory)}
-              ${fileName}
-            `;
+          // Render the file tree
+          renderFileTree(fileTree, fileList);
 
-            if (!file.isDirectory) {
-              fileItem.addEventListener('click', async () => {
-                await loadFileContent(file.filePath);
-              });
-            }
-
-            fileExplorer.appendChild(fileItem);
-          });
+          // Add the file list to the explorer
+          fileExplorer.appendChild(fileList);
         } catch (error) {
           console.error('Error loading website files:', error);
         }
       }
-
 
       // Listen for website loading from main process
       if (window.electronAPI) {
@@ -790,11 +1034,11 @@ You can create:
           try {
             // The server is already started by multi-window-manager
             // Just wait a bit for URL resolver to be fully initialized
-            await new Promise(resolve => setTimeout(resolve, 500));
+            await new Promise((resolve) => setTimeout(resolve, 500));
 
             // Then load website files using the URL resolver
             await populateFileExplorer();
-            
+
             // Auto-load index.md if it exists
             const indexPath = `${websiteData.path}/index.md`;
             try {

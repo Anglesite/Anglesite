@@ -26,6 +26,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'open-website-selection',
       'website-editor-show-preview',
       'website-editor-show-edit',
+      'load-file-preview',
     ];
     if (validChannels.includes(channel)) {
       ipcRenderer.send(channel, ...args);
@@ -45,6 +46,7 @@ contextBridge.exposeInMainWorld('electronAPI', {
       'get-file-content',
       'save-file-content',
       'get-file-url',
+      'get-website-server-url',
       'load-website-preview',
     ];
     if (validChannels.includes(channel)) {

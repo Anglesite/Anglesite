@@ -35,7 +35,12 @@ jest.mock('../../app/ui/multi-window-manager', () => ({
   showWebsitePreview: jest.fn(),
   hideWebsitePreview: jest.fn(),
   getAllWebsiteWindows: jest.fn(() => new Map()),
+  getWebsiteServer: jest.fn(),
 }));
+
+// Type definitions for IPC handlers
+type HandleHandler = (event: IpcMainEvent, ...args: unknown[]) => unknown;
+type OnHandler = (event: IpcMainEvent, ...args: unknown[]) => void;
 
 describe('Website Editor IPC Handlers', () => {
   let mockWindow: Partial<BrowserWindow>;
@@ -142,6 +147,161 @@ describe('Website Editor IPC Handlers', () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       expect(hideWebsitePreview).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('get-file-url', () => {
+    it('should return file URL when website server and URL resolver exist', async () => {
+      const { getWebsiteServer } = require('../../app/ui/multi-window-manager');
+      const mockUrlResolver = {
+        getUrlForFile: jest.fn(() => '/test-file.html'),
+      };
+      const mockWebsiteServer = {
+        urlResolver: mockUrlResolver,
+      };
+
+      getWebsiteServer.mockReturnValue(mockWebsiteServer);
+
+      // Set up ipcMain.handle to actually register handlers
+      const handleHandlers = new Map<string, HandleHandler>();
+      (ipcMain.handle as jest.Mock).mockImplementation((channel: string, handler: HandleHandler) => {
+        handleHandlers.set(channel, handler);
+      });
+
+      setupIpcMainListeners();
+
+      const handler = handleHandlers.get('get-file-url');
+      expect(handler).toBeDefined();
+
+      if (handler) {
+        const result = await handler(mockEvent as IpcMainEvent, 'test-website', '/path/to/file.md');
+        expect(result).toBe('/test-file.html');
+        expect(getWebsiteServer).toHaveBeenCalledWith('test-website');
+        expect(mockUrlResolver.getUrlForFile).toHaveBeenCalledWith('/path/to/file.md');
+      }
+    });
+
+    it('should return null when website server does not exist', async () => {
+      const { getWebsiteServer } = require('../../app/ui/multi-window-manager');
+      getWebsiteServer.mockReturnValue(null);
+
+      const handleHandlers = new Map<string, HandleHandler>();
+      (ipcMain.handle as jest.Mock).mockImplementation((channel: string, handler: HandleHandler) => {
+        handleHandlers.set(channel, handler);
+      });
+
+      setupIpcMainListeners();
+
+      const handler = handleHandlers.get('get-file-url');
+      if (handler) {
+        const result = await handler(mockEvent as IpcMainEvent, 'nonexistent-website', '/path/to/file.md');
+        expect(result).toBeNull();
+      }
+    });
+  });
+
+  describe('get-website-server-url', () => {
+    it('should return server URL when website window exists', async () => {
+      const { getAllWebsiteWindows } = require('../../app/ui/multi-window-manager');
+      const mockWebsiteWindows = new Map([
+        [
+          'test-website',
+          {
+            window: mockWindow,
+            serverUrl: 'http://localhost:8080',
+          },
+        ],
+      ]);
+      getAllWebsiteWindows.mockReturnValue(mockWebsiteWindows);
+
+      const handleHandlers = new Map<string, HandleHandler>();
+      (ipcMain.handle as jest.Mock).mockImplementation((channel: string, handler: HandleHandler) => {
+        handleHandlers.set(channel, handler);
+      });
+
+      setupIpcMainListeners();
+
+      const handler = handleHandlers.get('get-website-server-url');
+      if (handler) {
+        const result = await handler(mockEvent as IpcMainEvent, 'test-website');
+        expect(result).toBe('http://localhost:8080');
+      }
+    });
+
+    it('should return null when website window does not exist', async () => {
+      const { getAllWebsiteWindows } = require('../../app/ui/multi-window-manager');
+      getAllWebsiteWindows.mockReturnValue(new Map());
+
+      const handleHandlers = new Map<string, HandleHandler>();
+      (ipcMain.handle as jest.Mock).mockImplementation((channel: string, handler: HandleHandler) => {
+        handleHandlers.set(channel, handler);
+      });
+
+      setupIpcMainListeners();
+
+      const handler = handleHandlers.get('get-website-server-url');
+      if (handler) {
+        const result = await handler(mockEvent as IpcMainEvent, 'nonexistent-website');
+        expect(result).toBeNull();
+      }
+    });
+  });
+
+  describe('load-file-preview', () => {
+    it('should load URL in WebContentsView when website window exists', async () => {
+      const { getAllWebsiteWindows } = require('../../app/ui/multi-window-manager');
+      const mockWebContents = {
+        loadURL: jest.fn(),
+        isDestroyed: jest.fn(() => false),
+      };
+      const mockWebContentsView = {
+        webContents: mockWebContents,
+      };
+      const mockWebsiteWindows = new Map([
+        [
+          'test-website',
+          {
+            window: mockWindow,
+            webContentsView: mockWebContentsView,
+          },
+        ],
+      ]);
+      getAllWebsiteWindows.mockReturnValue(mockWebsiteWindows);
+
+      const onHandlers = new Map<string, OnHandler>();
+      (ipcMain.on as jest.Mock).mockImplementation((channel: string, handler: OnHandler) => {
+        onHandlers.set(channel, handler);
+      });
+
+      setupIpcMainListeners();
+
+      const handler = onHandlers.get('load-file-preview');
+      if (handler) {
+        await handler(mockEvent as IpcMainEvent, 'test-website', 'http://localhost:8080/test.html');
+        expect(mockWebContents.loadURL).toHaveBeenCalledWith('http://localhost:8080/test.html');
+      }
+    });
+
+    it('should handle missing website window gracefully', async () => {
+      const { getAllWebsiteWindows } = require('../../app/ui/multi-window-manager');
+      getAllWebsiteWindows.mockReturnValue(new Map());
+
+      const onHandlers = new Map<string, OnHandler>();
+      (ipcMain.on as jest.Mock).mockImplementation((channel: string, handler: OnHandler) => {
+        onHandlers.set(channel, handler);
+      });
+
+      const consoleSpy = jest.spyOn(console, 'error').mockImplementation(() => {});
+
+      setupIpcMainListeners();
+
+      const handler = onHandlers.get('load-file-preview');
+      if (handler) {
+        await handler(mockEvent as IpcMainEvent, 'nonexistent-website', 'http://localhost:8080/test.html');
+        expect(consoleSpy).toHaveBeenCalledWith('Website window not found for preview load: nonexistent-website');
+      }
+
+      consoleSpy.mockRestore();
     });
   });
 });

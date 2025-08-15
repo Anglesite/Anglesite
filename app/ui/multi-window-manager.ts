@@ -526,18 +526,12 @@ export async function startWebsiteServerAndUpdateWindow(websiteName: string, web
 /**
  * Load website content in its window.
  */
-export function loadWebsiteContent(websiteName: string, retryCount: number = 0): void {
-  console.log(`[DEBUG] loadWebsiteContent called for: ${websiteName}`);
-  
+export function loadWebsiteContent(websiteName: string): void {
   const websiteWindow = websiteWindows.get(websiteName);
   if (!websiteWindow || websiteWindow.window.isDestroyed()) {
     console.error(`Website window not found or destroyed: ${websiteName}`);
     return;
   }
-
-  console.log(`[DEBUG] Website window found for: ${websiteName}`);
-  console.log(`[DEBUG] Server URL: ${websiteWindow.serverUrl}`);
-  console.log(`[DEBUG] WebContentsView exists: ${!!websiteWindow.webContentsView}`);
 
   // Don't try to load content if we don't have a server URL
   if (!websiteWindow.serverUrl) {
@@ -546,30 +540,32 @@ export function loadWebsiteContent(websiteName: string, retryCount: number = 0):
   }
 
   console.log(`Loading website content for ${websiteName} from: ${websiteWindow.serverUrl}`);
-  
+
   // Simple approach - just load the URL without complex retry logic
   try {
-    if (websiteWindow.webContentsView && websiteWindow.webContentsView.webContents && !websiteWindow.webContentsView.webContents.isDestroyed()) {
-      console.log(`[DEBUG] Loading URL in WebContentsView: ${websiteWindow.serverUrl}`);
-      
+    if (
+      websiteWindow.webContentsView &&
+      websiteWindow.webContentsView.webContents &&
+      !websiteWindow.webContentsView.webContents.isDestroyed()
+    ) {
       // Add event listeners to see what happens
-      websiteWindow.webContentsView.webContents.once('did-finish-load', () => {
-        console.log(`[DEBUG] WebContentsView finished loading for: ${websiteName}`);
-      });
-      
-      websiteWindow.webContentsView.webContents.once('did-fail-load', (event, errorCode, errorDescription, validatedURL) => {
-        console.error(`[DEBUG] WebContentsView failed to load for: ${websiteName}`, {
-          errorCode,
-          errorDescription,
-          validatedURL
-        });
-      });
-      
+      websiteWindow.webContentsView.webContents.once('did-finish-load', () => {});
+
+      websiteWindow.webContentsView.webContents.once(
+        'did-fail-load',
+        (event, errorCode, errorDescription, validatedURL) => {
+          console.error(`WebContentsView failed to load for: ${websiteName}`, {
+            errorCode,
+            errorDescription,
+            validatedURL,
+          });
+        }
+      );
+
       websiteWindow.webContentsView.webContents.loadURL(websiteWindow.serverUrl);
       websiteWindow.window.webContents.send('preview-loaded');
-      console.log(`[DEBUG] loadURL called successfully for: ${websiteName}`);
     } else {
-      console.error(`[DEBUG] WebContentsView or webContents not available for: ${websiteName}`);
+      console.error(`WebContentsView or webContents not available for: ${websiteName}`);
     }
   } catch (error) {
     console.error(`Error loading content for ${websiteName}:`, error);
