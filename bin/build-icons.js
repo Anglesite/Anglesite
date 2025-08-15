@@ -5,7 +5,26 @@ const fs = require('fs');
 const path = require('path');
 
 /**
+ * Check if a file needs to be regenerated based on source file modification time.
+ * @param {string} sourcePath - Path to the source file
+ * @param {string} outputPath - Path to the output file
+ * @returns {boolean} - True if output needs to be regenerated
+ */
+function needsRegeneration(sourcePath, outputPath) {
+  if (!fs.existsSync(outputPath)) {
+    return true; // Output doesn't exist, needs generation
+  }
+
+  const sourceStats = fs.statSync(sourcePath);
+  const outputStats = fs.statSync(outputPath);
+
+  // Regenerate if source is newer than output
+  return sourceStats.mtime > outputStats.mtime;
+}
+
+/**
  * Generate application icons from SVG source.
+ * Only generates icons that don't exist or are older than the source SVG.
  */
 function buildIcons() {
   // Check if ImageMagick is installed
@@ -29,8 +48,14 @@ function buildIcons() {
   console.log('Preparing icons directory...');
   fs.mkdirSync('icons', { recursive: true });
 
-  // Copy source SVG to icons directory
-  fs.copyFileSync(sourceSvg, path.join('icons', 'icon.svg'));
+  // Check if main icon.svg needs updating
+  const iconSvgOutput = path.join('icons', 'icon.svg');
+  if (needsRegeneration(sourceSvg, iconSvgOutput)) {
+    console.log('Copying source SVG to icons directory...');
+    fs.copyFileSync(sourceSvg, iconSvgOutput);
+  } else {
+    console.log('Source SVG is up to date, skipping copy.');
+  }
 
   // Icon sizes to generate
   const sizes = [
@@ -45,21 +70,35 @@ function buildIcons() {
     { size: '16x16', output: '16x16.png' },
   ];
 
-  console.log('Generating icon sizes...');
+  console.log('Checking icon sizes...');
+
+  let generatedCount = 0;
+  let skippedCount = 0;
 
   sizes.forEach(({ size, output }) => {
-    console.log(`  - Generating ${size} (${output})...`);
     const outputPath = path.join('icons', output);
 
-    try {
-      execSync(`magick "${sourceSvg}" -resize ${size} "${outputPath}"`, { stdio: 'ignore' });
-    } catch (error) {
-      console.error(`Failed to generate ${output}:`, error.message);
-      process.exit(1);
+    if (needsRegeneration(sourceSvg, outputPath)) {
+      console.log(`  - Generating ${size} (${output})...`);
+      
+      try {
+        execSync(`magick "${sourceSvg}" -resize ${size} "${outputPath}"`, { stdio: 'ignore' });
+        generatedCount++;
+      } catch (error) {
+        console.error(`Failed to generate ${output}:`, error.message);
+        process.exit(1);
+      }
+    } else {
+      console.log(`  - ${output} is up to date, skipping.`);
+      skippedCount++;
     }
   });
 
-  console.log('Icon generation complete!');
+  if (generatedCount > 0) {
+    console.log(`Icon generation complete! Generated ${generatedCount} icons, skipped ${skippedCount}.`);
+  } else {
+    console.log(`All icons are up to date! Skipped ${skippedCount} icons.`);
+  }
 }
 
 // Run the build
