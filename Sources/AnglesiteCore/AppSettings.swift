@@ -82,7 +82,10 @@ public final class AppSettings: @unchecked Sendable {
     /// omits this entitlement (#1038 — it requires a real provisioning profile, breaking the
     /// no-Apple-account Debug build); `Resources/Anglesite-Debug-iCloud.entitlements` is the
     /// opt-in local variant that carries it.
-    static let ubiquityContainerIdentifier = "iCloud.io.dwk.anglesite"
+    /// Public so `AnglesiteIOS`'s site-discovery seam (#866) can reuse the exact same identifier
+    /// instead of duplicating this literal — it's the same physical iCloud container on both
+    /// platforms.
+    public static let ubiquityContainerIdentifier = "iCloud.io.dwk.anglesite"
 
     private let ubiquityCacheLock = NSLock()
     /// `nil` = not resolved yet; `.some(nil)` = resolved, iCloud unavailable.
