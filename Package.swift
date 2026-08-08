@@ -133,7 +133,7 @@ var packageTargets: [Target] = [
     ),
     .target(
         name: "AnglesiteIOS",
-        dependencies: [],
+        dependencies: ["AnglesiteSiteModel", "AnglesiteCore"],
         path: "Sources/AnglesiteIOS",
         swiftSettings: strictConcurrency
     ),
@@ -192,6 +192,15 @@ var packageTargets: [Target] = [
         dependencies: ["AnglesiteBridge", "AnglesiteTestSupport"],
         path: "Tests/AnglesiteBridgeTests",
         swiftSettings: strictConcurrency,
+        linkerSettings: weakLinkFoundationModels
+    ),
+    .testTarget(
+        name: "AnglesiteIOSTests",
+        dependencies: ["AnglesiteIOS", "AnglesiteSiteModel", "AnglesiteCore"],
+        path: "Tests/AnglesiteIOSTests",
+        swiftSettings: strictConcurrency,
+        // Transitively depends on AnglesiteCore (via AnglesiteIOS), so it needs the same #541
+        // weak-link workaround as AnglesiteBridgeTests/AnglesiteBridgeCoreTests above.
         linkerSettings: weakLinkFoundationModels
     )
 ]
