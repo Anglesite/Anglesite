@@ -1262,7 +1262,15 @@ final class SiteWindowModel {
         // spell its own `[weak self]` capture without the compiler flagging the mismatch against an
         // implicitly-captured strong `self` in this outer scope.
         let task = Task { [self] in
-            defer { inFlightOpenFile = nil }
+            // Only clear the record if it's still this call's own — a *different* file's call
+            // that started and overwrote `inFlightOpenFile` while this one was suspended (e.g.
+            // awaiting `leaveCurrentEditor()`) must keep owning it, or a third call for that
+            // other file would wrongly conclude nothing is in flight and race a second `Task`
+            // against it — the exact bug this property exists to prevent, just one file removed
+            // (review finding on this PR). A same-file second call never reaches here at all (the
+            // guard above returns before spawning), so this file-id check is equivalent to (and
+            // simpler than) comparing task identity.
+            defer { if inFlightOpenFile?.file.id == file.id { inFlightOpenFile = nil } }
             guard await leaveCurrentEditor(), await leaveCurrentInspector() else {
                 pendingWebsiteSettingsTab = nil
                 return
