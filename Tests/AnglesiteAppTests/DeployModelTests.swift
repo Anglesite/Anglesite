@@ -811,7 +811,12 @@ struct DeployModelTests {
             discoveryURL: URL(string: "https://dash.cloudflare.com/.well-known/openid-configuration")!,
             transport: { _ in throw Boom() })
         let oauthSignIn = CloudflareOAuthSignIn(client: client, present: { _ in throw Boom() })
-        let model = DeployModel(command: command, logCenter: LogCenter(), oauthSignIn: oauthSignIn)
+        // Without an explicit keychain, `DeployModel` defaults to the real `KeychainStore()` — if
+        // this machine has ever stored a real Cloudflare credential, `hasUsableToken()` returns
+        // true, `deploy()` never parks a `pendingDeploy`, and `signInWithCloudflare()` below fails
+        // with "No deploy is waiting" instead of exercising the sign-in-failure path under test.
+        let keychain = InMemorySecretStore()
+        let model = DeployModel(command: command, logCenter: LogCenter(), keychain: keychain, oauthSignIn: oauthSignIn)
         let directory = FileManager.default.temporaryDirectory
 
         model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
