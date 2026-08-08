@@ -725,7 +725,11 @@ struct DeployModelTests {
         await executor.resumeBuild()
         while model.isRunning { await Task.yield() }
 
-        #expect(!model.tokenPromptPresented)
+        // Bind before asserting — see the comment on `tokenPromptPresented` in
+        // `signInFailureStaysOnSheet` for why a bare `#expect(model.tokenPromptPresented)` risks
+        // a hang on failure.
+        let tokenPromptPresented = model.tokenPromptPresented
+        #expect(!tokenPromptPresented)
     }
 
     @Test("an expired OAuth credential with no refresh token re-presents the sign-in sheet")
@@ -746,8 +750,13 @@ struct DeployModelTests {
 
         model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
 
-        #expect(model.tokenPromptPresented)
-        #expect(!model.isRunning)
+        // Bind before asserting — see the comment on `tokenPromptPresented` in
+        // `signInFailureStaysOnSheet` for why a bare `#expect(model.tokenPromptPresented)` risks
+        // a hang on failure.
+        let tokenPromptPresented = model.tokenPromptPresented
+        let isRunning = model.isRunning
+        #expect(tokenPromptPresented)
+        #expect(!isRunning)
     }
 
     @Test("signInWithCloudflare persists the credential and dispatches the parked deploy on success")
@@ -781,7 +790,11 @@ struct DeployModelTests {
         let directory = FileManager.default.temporaryDirectory
 
         model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
-        #expect(model.tokenPromptPresented)
+        // Bind before asserting — see the comment on `tokenPromptPresented` in
+        // `signInFailureStaysOnSheet` for why a bare `#expect(model.tokenPromptPresented)` risks
+        // a hang on failure.
+        let tokenPromptPresentedAfterDeploy = model.tokenPromptPresented
+        #expect(tokenPromptPresentedAfterDeploy)
 
         // `signInWithCloudflare()` internally calls `deploy(...)` again once sign-in succeeds,
         // which is what actually launches the (previously never-started) build step this time —
@@ -793,7 +806,8 @@ struct DeployModelTests {
         await executor.resumeBuild()
         while model.isRunning { await Task.yield() }
 
-        #expect(!model.tokenPromptPresented)
+        let tokenPromptPresentedAfterSignIn = model.tokenPromptPresented
+        #expect(!tokenPromptPresentedAfterSignIn)
         #expect(try keychain.readCloudflareOAuthCredential()?.accessToken == "new-oauth-tok")
         guard case .succeeded = model.phase else {
             Issue.record("expected the parked deploy to run after sign-in, got \(model.phase)"); return
@@ -811,13 +825,31 @@ struct DeployModelTests {
             discoveryURL: URL(string: "https://dash.cloudflare.com/.well-known/openid-configuration")!,
             transport: { _ in throw Boom() })
         let oauthSignIn = CloudflareOAuthSignIn(client: client, present: { _ in throw Boom() })
-        let model = DeployModel(command: command, logCenter: LogCenter(), oauthSignIn: oauthSignIn)
+        // Unlike every sibling test in this file, this one omitted the `keychain:` override —
+        // `DeployModel`'s default (`KeychainStore()`) reads the real macOS Keychain under the
+        // app's own production service id (`io.dwk.anglesite`). On a machine that has ever
+        // completed a real Cloudflare sign-in, `hasUsableToken()` finds that leftover credential,
+        // `deploy()` skips presenting the token prompt, and `tokenPromptPresented` never flips to
+        // `true` — an environment-dependent flake, not a logic bug in `DeployModel`.
+        let keychain = InMemorySecretStore()
+        let model = DeployModel(command: command, logCenter: LogCenter(), keychain: keychain, oauthSignIn: oauthSignIn)
         let directory = FileManager.default.temporaryDirectory
 
         model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
         await model.signInWithCloudflare()
 
-        #expect(model.tokenPromptPresented)
+        // Bind to a local before asserting rather than `#expect(model.tokenPromptPresented)`:
+        // swift-testing's `#expect` macro decomposes a member-access expression into (subject,
+        // member) and, on failure, recursively `Mirror`-dumps the *subject* too — `model` is a
+        // large, self-referential graph (`inFlight: Task<Void, Never>?` closes over `[weak
+        // self]`) that has been observed to make that dump take a combinatorially long time
+        // (an effective hang, since a synchronous `Mirror` walk doesn't yield for a suite
+        // `.timeLimit`'s cancellation check to land). Keeping `model` out of the `#expect(...)`
+        // call entirely — by asserting a local copy of just the field under test — sidesteps it;
+        // confirmed empirically (a deliberately-failed assertion) that a bare `#expect(model.x)`
+        // recurses through the whole object graph while `#expect(x)` on a local does not.
+        let tokenPromptPresented = model.tokenPromptPresented
+        #expect(tokenPromptPresented)
         guard case .failed = model.tokenVerification else {
             Issue.record("expected .failed, got \(model.tokenVerification)"); return
         }
