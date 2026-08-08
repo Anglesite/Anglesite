@@ -116,7 +116,8 @@ struct DeployModelTests {
         )
         await executor.waitUntilBuildIsParked()
 
-        #expect(model.isRunning)
+        let isRunning = model.isRunning
+        #expect(isRunning)
         #expect(controller.activeLeaseCount == 1)
 
         await executor.resumeBuild()
@@ -154,7 +155,8 @@ struct DeployModelTests {
             Issue.record("expected .workerNameConflict, got \(model.phase)"); return
         }
         #expect(name == "my-site")
-        #expect(model.workerNameConflictPresented)
+        let workerNameConflictPresented = model.workerNameConflictPresented
+        #expect(workerNameConflictPresented)
     }
 
     @Test("Domain config drift blocks the deploy and presents the drift sheet (#1173)")
@@ -184,10 +186,12 @@ struct DeployModelTests {
             Issue.record("expected .domainConfigDrift, got \(model.phase)"); return
         }
         #expect(findings == [finding])
-        #expect(model.domainConfigDriftPresented)
+        let domainConfigDriftPresented = model.domainConfigDriftPresented
+        #expect(domainConfigDriftPresented)
 
         model.dismissDomainConfigDrift()
-        #expect(!model.domainConfigDriftPresented)
+        let domainConfigDriftPresentedAfterDismiss = model.domainConfigDriftPresented
+        #expect(!domainConfigDriftPresentedAfterDismiss)
     }
 
     @Test("Renaming and retrying rewrites wrangler.toml/.site-config and re-deploys under the new name")
@@ -225,7 +229,8 @@ struct DeployModelTests {
         guard case .succeeded = model.phase else {
             Issue.record("expected .succeeded after rename-and-retry, got \(model.phase)"); return
         }
-        #expect(!model.workerNameConflictPresented)
+        let workerNameConflictPresented = model.workerNameConflictPresented
+        #expect(!workerNameConflictPresented)
         let toml = try! String(contentsOf: siteDir.appendingPathComponent("wrangler.toml"), encoding: .utf8)
         #expect(toml.contains(#"name = "my-site-2""#))
     }
@@ -267,7 +272,8 @@ struct DeployModelTests {
             Issue.record("expected .workerNameConflict again after renaming to a taken name, got \(model.phase)"); return
         }
         #expect(secondName == "my-site-2")
-        #expect(model.workerNameConflictPresented)
+        let workerNameConflictPresented = model.workerNameConflictPresented
+        #expect(workerNameConflictPresented)
     }
 
     @Test("A confirmed domain attach swaps the succeeded phase's URL to the custom domain")
@@ -295,8 +301,10 @@ struct DeployModelTests {
             Issue.record("expected .succeeded, got \(model.phase)"); return
         }
         #expect(url.absoluteString == "https://example.com")
-        #expect(model.domainAttachStatus == .confirmed(hostname: "example.com"))
-        #expect(!model.domainConflictPresented)
+        let domainAttachStatus = model.domainAttachStatus
+        #expect(domainAttachStatus == .confirmed(hostname: "example.com"))
+        let domainConflictPresented = model.domainConflictPresented
+        #expect(!domainConflictPresented)
     }
 
     @Test("A second deploy after a successful attach still shows the custom domain, with no network call (#1077)")
@@ -328,7 +336,8 @@ struct DeployModelTests {
             Issue.record("expected .succeeded, got \(model.phase)"); return
         }
         #expect(url.absoluteString == "https://example.com")
-        #expect(model.domainAttachStatus == .confirmed(hostname: "example.com"))
+        let domainAttachStatus = model.domainAttachStatus
+        #expect(domainAttachStatus == .confirmed(hostname: "example.com"))
         #expect(writer.attachCallCount == 0)
     }
 
@@ -356,8 +365,10 @@ struct DeployModelTests {
             Issue.record("expected .succeeded, got \(model.phase)"); return
         }
         #expect(url.host == "test.example.workers.dev")
-        #expect(model.domainAttachStatus == .notConnected(hostname: "example.com"))
-        #expect(!model.domainConflictPresented)
+        let domainAttachStatus = model.domainAttachStatus
+        #expect(domainAttachStatus == .notConnected(hostname: "example.com"))
+        let domainConflictPresented = model.domainConflictPresented
+        #expect(!domainConflictPresented)
     }
 
     @Test("A domain-attach conflict presents the conflict sheet without blocking the succeeded deploy")
@@ -383,11 +394,14 @@ struct DeployModelTests {
         guard case .succeeded = model.phase else {
             Issue.record("expected .succeeded even on a domain conflict, got \(model.phase)"); return
         }
-        #expect(model.domainAttachStatus == .conflict(hostname: "example.com", ownedBy: "other-site"))
-        #expect(model.domainConflictPresented)
+        let domainAttachStatus = model.domainAttachStatus
+        #expect(domainAttachStatus == .conflict(hostname: "example.com", ownedBy: "other-site"))
+        let domainConflictPresented = model.domainConflictPresented
+        #expect(domainConflictPresented)
 
         model.dismissDomainConflict()
-        #expect(!model.domainConflictPresented)
+        let domainConflictPresentedAfterDismiss = model.domainConflictPresented
+        #expect(!domainConflictPresentedAfterDismiss)
     }
 
     @Test("No transfer domain configured reports .skipped and leaves the workers.dev URL")
@@ -408,7 +422,8 @@ struct DeployModelTests {
             Issue.record("expected .succeeded, got \(model.phase)"); return
         }
         #expect(url.host == "test.example.workers.dev")
-        #expect(model.domainAttachStatus == .skipped)
+        let domainAttachStatus = model.domainAttachStatus
+        #expect(domainAttachStatus == .skipped)
     }
 
     @Test("An automatic background deploy defers instead of clobbering a foreground worker-name-conflict sheet (#1076)")
@@ -432,7 +447,8 @@ struct DeployModelTests {
         guard case .workerNameConflict = model.phase else {
             Issue.record("expected .workerNameConflict, got \(model.phase)"); return
         }
-        #expect(model.workerNameConflictPresented)
+        let workerNameConflictPresented = model.workerNameConflictPresented
+        #expect(workerNameConflictPresented)
 
         // The invisible-publish queue (#357) fires an automatic background deploy for the same
         // site while the sheet is still up — resolved via a non-nil container control so it isn't
@@ -447,7 +463,8 @@ struct DeployModelTests {
             Issue.record("expected the automatic deploy to defer while the conflict sheet is up, got \(result)")
             return
         }
-        #expect(model.workerNameConflictPresented, "the foreground conflict sheet must still be showing, not silently dismissed")
+        let workerNameConflictPresentedAfterDefer = model.workerNameConflictPresented
+        #expect(workerNameConflictPresentedAfterDefer, "the foreground conflict sheet must still be showing, not silently dismissed")
         guard case .workerNameConflict = model.phase else {
             Issue.record("expected phase to still be .workerNameConflict, got \(model.phase)"); return
         }
@@ -476,9 +493,12 @@ struct DeployModelTests {
 
         await model.renameWorkerAndRetry("bad name!")
 
-        #expect(!model.isRunning)
-        #expect(model.workerNameConflictPresented)
-        #expect(model.workerNameConflictError == "Worker names can only contain letters, numbers, hyphens, and underscores.")
+        let isRunning = model.isRunning
+        #expect(!isRunning)
+        let workerNameConflictPresented = model.workerNameConflictPresented
+        #expect(workerNameConflictPresented)
+        let workerNameConflictError = model.workerNameConflictError
+        #expect(workerNameConflictError == "Worker names can only contain letters, numbers, hyphens, and underscores.")
     }
 
     @Test("Cancelling the conflict prompt clears the parked deploy and dismisses the sheet")
@@ -500,11 +520,14 @@ struct DeployModelTests {
 
         model.cancelWorkerNameConflictPrompt()
 
-        #expect(!model.workerNameConflictPresented)
+        let workerNameConflictPresented = model.workerNameConflictPresented
+        #expect(!workerNameConflictPresented)
         // A subsequent rename attempt with nothing parked must fail gracefully, not crash.
         await model.renameWorkerAndRetry("anything")
-        #expect(!model.isRunning)
-        #expect(model.workerNameConflictError == "No deploy is waiting — close this and click Deploy again.")
+        let isRunning = model.isRunning
+        #expect(!isRunning)
+        let workerNameConflictError = model.workerNameConflictError
+        #expect(workerNameConflictError == "No deploy is waiting — close this and click Deploy again.")
     }
 
     @Test("a site with no active workers still deploys through the plain static path")
@@ -691,7 +714,8 @@ struct DeployModelTests {
         guard case .succeeded = model.phase else {
             Issue.record("expected .succeeded on first deploy, got \(model.phase)"); return
         }
-        #expect(model.wasFirstDeploy)
+        let wasFirstDeploy = model.wasFirstDeploy
+        #expect(wasFirstDeploy)
 
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
         await executor.waitUntilBuildIsParked()
@@ -700,7 +724,8 @@ struct DeployModelTests {
         guard case .succeeded = model.phase else {
             Issue.record("expected .succeeded on second deploy, got \(model.phase)"); return
         }
-        #expect(!model.wasFirstDeploy)
+        let wasFirstDeployOnSecondDeploy = model.wasFirstDeploy
+        #expect(!wasFirstDeployOnSecondDeploy)
     }
 
     @Test("an OAuth credential in the keychain lets a deploy proceed without the sign-in sheet")
