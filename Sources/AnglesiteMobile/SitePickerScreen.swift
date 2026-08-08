@@ -14,8 +14,12 @@ struct SitePickerScreen: View {
         NavigationStack {
             content
                 .navigationTitle(Text("Your Sites"))
-                .task { await model.refresh() }
         }
+        // Attached to the `NavigationStack`, not to `content`: `content` is a `switch` over
+        // `model.state`, so its view identity changes on every state transition — and `refresh()`
+        // starts by publishing a new state. Hanging `.task` off it risks re-firing discovery on
+        // each transition; the stack's identity is stable, so this runs once on first appearance.
+        .task { await model.refresh() }
     }
 
     @ViewBuilder

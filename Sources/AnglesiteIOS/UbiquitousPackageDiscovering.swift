@@ -23,7 +23,16 @@ public protocol UbiquitousPackageDiscovering: Sendable {
 ///
 /// No stored mutable state: each call creates and tears down its own query and observer, so
 /// concurrent calls can't interfere with each other.
-public final class NSMetadataQueryPackageDiscovery: UbiquitousPackageDiscovering, @unchecked Sendable {
+///
+/// `@MainActor`-isolated on purpose: `NSMetadataQuery` only gathers and delivers its notifications
+/// when started from a thread with a serviced run loop, which in practice means the main thread —
+/// exactly what `SyncModel.observeBundleChanges` (`Sources/AnglesiteApp/SyncModel.swift`) relies on
+/// by virtue of running from a `@MainActor` model. A plain `async` method here would instead run
+/// its body on the cooperative thread pool, where `.NSMetadataQueryDidFinishGathering` may never
+/// fire and the continuation would hang forever. The isolation still satisfies the non-isolated
+/// `async` protocol requirement above — the hop happens transparently at each `await` call site.
+@MainActor
+public final class NSMetadataQueryPackageDiscovery: UbiquitousPackageDiscovering {
     public init() {}
 
     public func discoverPackages() async -> [URL] {
@@ -50,7 +59,18 @@ public final class NSMetadataQueryPackageDiscovery: UbiquitousPackageDiscovering
                 }
                 continuation.resume(returning: urls)
             }
-            query.start()
+            // A `false` return means gathering never begins (malformed predicate or scope), so
+            // `.NSMetadataQueryDidFinishGathering` would never fire and the continuation would
+            // hang forever. Unreachable with the constants above, but the failure mode is a
+            // permanently stuck "Finding your sites…", so tear the observer back down and report
+            // "no packages" instead.
+            guard query.start() else {
+                if let observer {
+                    NotificationCenter.default.removeObserver(observer)
+                }
+                continuation.resume(returning: [])
+                return
+            }
         }
     }
 }

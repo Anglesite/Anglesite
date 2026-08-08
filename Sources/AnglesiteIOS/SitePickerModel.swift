@@ -47,11 +47,28 @@ public final class SitePickerModel {
 
     /// Re-runs discovery from scratch. Safe to call repeatedly (pull-to-refresh, a "Try Again"
     /// button, or the initial `.task` on `SitePickerScreen`).
+    ///
+    /// The `.loading` placeholder is only published when there's nothing on screen yet: a refresh
+    /// from an already-populated list (pull-to-refresh) re-queries quietly underneath the existing
+    /// rows instead of tearing the list down to a spinner mid-gesture.
     public func refresh() async {
-        state = .loading
-        guard ubiquityContainerResolver.url(
-            forUbiquityContainerIdentifier: AppSettings.ubiquityContainerIdentifier
-        ) != nil else {
+        switch state {
+        case .sites:
+            break
+        case .loading, .iCloudUnavailable, .empty:
+            state = .loading
+        }
+        // `url(forUbiquityContainerIdentifier:)` is documented as potentially slow (it may hit the
+        // network) and not to be called on the main thread — see the same warning on
+        // `AppSettings.resolvedUbiquityContainerURL()`, which has to accept that cost because
+        // `sitesRoot` is a synchronous `@MainActor` property. `refresh()` is `async`, so it can
+        // simply hop off instead, matching the `Task.detached(priority:)` IO idiom used across
+        // `AnglesiteApp`'s models.
+        let resolver = ubiquityContainerResolver
+        let hasContainer = await Task.detached(priority: .userInitiated) {
+            resolver.url(forUbiquityContainerIdentifier: AppSettings.ubiquityContainerIdentifier) != nil
+        }.value
+        guard hasContainer else {
             state = .iCloudUnavailable
             return
         }
