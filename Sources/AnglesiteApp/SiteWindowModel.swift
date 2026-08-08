@@ -229,6 +229,17 @@ final class SiteWindowModel {
     /// shape as `pendingRedirectOfferRoute` above. Unused when Website Settings is already open —
     /// that case sets `PlistEditorModel.requestedTab` directly instead, see `openWebsiteSettings`.
     private var pendingWebsiteSettingsTab: SettingsTab?
+    /// The file and `Task` behind an in-flight `openFile` call (#1312, finding 3). `openFile`
+    /// spawns a `Task` per call with no de-duplication; two calls for the *same* file issued
+    /// before the first's `Task` body has run (e.g. a rapid double-click on the security-reports
+    /// badge's "View all" button, both routed through `openWebsiteSettings(landOn:)`) used to race
+    /// each other — each built its own `PlistEditorModel` and stashed/consumed
+    /// `pendingWebsiteSettingsTab` independently, so whichever `Task` assigned `activeEditor` last
+    /// won outright, discarding the other's model and often landing on neither requested tab. A
+    /// second call for the same file now joins the already-in-flight `Task` instead of spawning a
+    /// racing one; any freshly stashed `pendingWebsiteSettingsTab` is still picked up by that one
+    /// `Task` when it reaches its tab-consuming check.
+    private var inFlightOpenFile: (file: FileRef, task: Task<Void, Never>)?
     /// Editor/inspector state closed by a delete, keyed by the deleted file's relative path, so a
     /// ⌘Z restore of that file can put it back (#675). Written by every path that closes surfaces
     /// for a delete (`confirmDelete()` and `applyContentUndo`'s delete branch) and removed the
@@ -1241,10 +1252,17 @@ final class SiteWindowModel {
             mainPaneMode = .editor(file)
             return
         }
+        // A second call for the file an in-flight `Task` is already opening joins that `Task`
+        // rather than racing a second one against it (#1312, finding 3) — see
+        // `inFlightOpenFile`'s doc comment. Calls for a *different* file are unaffected.
+        if let inFlight = inFlightOpenFile, inFlight.file.id == file.id {
+            return
+        }
         // `[self]` is explicit rather than implicit so the `onOpenDependencyFix` closure below can
         // spell its own `[weak self]` capture without the compiler flagging the mismatch against an
         // implicitly-captured strong `self` in this outer scope.
-        Task { [self] in
+        let task = Task { [self] in
+            defer { inFlightOpenFile = nil }
             guard await leaveCurrentEditor(), await leaveCurrentInspector() else {
                 pendingWebsiteSettingsTab = nil
                 return
@@ -1320,6 +1338,7 @@ final class SiteWindowModel {
             }
             await ensureComponentEditorLoaded()
         }
+        inFlightOpenFile = (file, task)
     }
 
     /// Routes a Cleanup-section row: components/layouts/pages open in the existing in-app editor
