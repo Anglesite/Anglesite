@@ -17,4 +17,10 @@ DEVELOPMENT_TEAM =
 // under the ad-hoc signing above, which breaks the no-Apple-account Debug build promise.
 ANGLESITE_DEBUG_ENTITLEMENTS = Resources/Anglesite-Debug.entitlements
 
+// The AnglesiteMobile target's CODE_SIGN_ENTITLEMENTS (Debug config) reads this indirection
+// (#866, mirrors ANGLESITE_DEBUG_ENTITLEMENTS above) so a local override can point at
+// Resources/AnglesiteMobile-Debug-iCloud.entitlements without editing this tracked file. Must
+// stay the no-iCloud file by default — same CI-safe reason as the Mac target above.
+ANGLESITE_MOBILE_DEBUG_ENTITLEMENTS = Resources/AnglesiteMobile-Debug.entitlements
+
 #include? "Signing-Debug.local.xcconfig"

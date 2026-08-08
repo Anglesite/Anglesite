@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- NO iCloud entitlement here (mirrors Resources/Anglesite-Debug.entitlements, #1038): the
+	     iCloud capability needs a real provisioning profile even under ad-hoc/no-Team signing,
+	     which would break the no-Apple-account Debug build CI's ios-build lane (#864) relies on.
+	     SitePickerModel already treats "no ubiquity container" the same as "iCloud unavailable"
+	     and shows that state instead of crashing. Contributors with a real Team who want to
+	     exercise iCloud discovery locally: point ANGLESITE_MOBILE_DEBUG_ENTITLEMENTS at
+	     Resources/AnglesiteMobile-Debug-iCloud.entitlements from
+	     xcconfig/Signing-Debug.local.xcconfig (see Signing-Debug.local.xcconfig.example). -->
+</dict>
+</plist>

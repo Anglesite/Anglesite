@@ -185,6 +185,9 @@ targets:
         PRODUCT_NAME: Anglesite
         INFOPLIST_FILE: Resources/Info-iOS.plist
         GENERATE_INFOPLIST_FILE: NO
+        # Release keeps the clean iCloud entitlements; Debug overrides to the no-iCloud file by
+        # default (#866, mirrors the Anglesite/Mac target's CODE_SIGN_ENTITLEMENTS below).
+        CODE_SIGN_ENTITLEMENTS: Resources/AnglesiteMobile.entitlements
         IPHONEOS_DEPLOYMENT_TARGET: "27.0"
         TARGETED_DEVICE_FAMILY: "1,2"
         SUPPORTS_MACCATALYST: NO
@@ -197,6 +200,8 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: "0.1.0"
       configs:
+        Debug:
+          CODE_SIGN_ENTITLEMENTS: $(ANGLESITE_MOBILE_DEBUG_ENTITLEMENTS)
         Release:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: "Apple Distribution"
