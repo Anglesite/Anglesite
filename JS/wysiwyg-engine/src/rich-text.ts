@@ -55,3 +55,40 @@ function mergeAdjacentTextRuns(runs: RichTextRun[]): RichTextRun[] {
   }
   return merged;
 }
+
+/** Coalesces a burst of changes into a single `commit()` call after `delayMs` of quiet, or
+ *  immediately via `flush()` — the mechanism behind `RichTextEditor`'s debounced `editText`
+ *  commits (design doc §4). Pure timer logic, no DOM dependency. */
+export class DebouncedCommitter {
+  #commit: () => void;
+  #delayMs: number;
+  #timer: ReturnType<typeof setTimeout> | null = null;
+
+  constructor(commit: () => void, delayMs: number) {
+    this.#commit = commit;
+    this.#delayMs = delayMs;
+  }
+
+  notifyChange(): void {
+    this.cancel();
+    this.#timer = setTimeout(() => {
+      this.#timer = null;
+      this.#commit();
+    }, this.#delayMs);
+  }
+
+  /** Commits now if a debounced commit is pending; otherwise does nothing. */
+  flush(): void {
+    const pending = this.#timer !== null;
+    this.cancel();
+    if (pending) this.#commit();
+  }
+
+  /** Discards a pending commit without running it. */
+  cancel(): void {
+    if (this.#timer !== null) {
+      clearTimeout(this.#timer);
+      this.#timer = null;
+    }
+  }
+}

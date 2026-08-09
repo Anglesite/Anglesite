@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
-import { describe, it, expect } from "vitest";
-import { runsFromElement } from "../src/rich-text.js";
+import { describe, it, expect, vi } from "vitest";
+import { runsFromElement, DebouncedCommitter } from "../src/rich-text.js";
 
 function setBody(html: string): Element {
   document.body.innerHTML = `<div id="root">${html}</div>`;
@@ -49,5 +49,61 @@ describe("runsFromElement", () => {
 
   it("returns an empty array for an empty element", () => {
     expect(runsFromElement(setBody(""))).toEqual([]);
+  });
+});
+
+describe("DebouncedCommitter", () => {
+  it("commits once, after the delay, following a burst of notifyChange calls", () => {
+    vi.useFakeTimers();
+    let commits = 0;
+    const committer = new DebouncedCommitter(() => {
+      commits += 1;
+    }, 400);
+
+    committer.notifyChange();
+    vi.advanceTimersByTime(200);
+    committer.notifyChange(); // resets the timer
+    vi.advanceTimersByTime(200);
+    expect(commits).toBe(0); // still within the debounce window from the second call
+
+    vi.advanceTimersByTime(200);
+    expect(commits).toBe(1);
+
+    vi.useRealTimers();
+  });
+
+  it("flush() commits immediately if a commit is pending, and is a no-op otherwise", () => {
+    vi.useFakeTimers();
+    let commits = 0;
+    const committer = new DebouncedCommitter(() => {
+      commits += 1;
+    }, 400);
+
+    committer.flush();
+    expect(commits).toBe(0); // nothing pending
+
+    committer.notifyChange();
+    committer.flush();
+    expect(commits).toBe(1);
+
+    vi.advanceTimersByTime(400);
+    expect(commits).toBe(1); // flush() already cancelled the pending timer
+
+    vi.useRealTimers();
+  });
+
+  it("cancel() discards a pending commit without running it", () => {
+    vi.useFakeTimers();
+    let commits = 0;
+    const committer = new DebouncedCommitter(() => {
+      commits += 1;
+    }, 400);
+
+    committer.notifyChange();
+    committer.cancel();
+    vi.advanceTimersByTime(400);
+    expect(commits).toBe(0);
+
+    vi.useRealTimers();
   });
 });
