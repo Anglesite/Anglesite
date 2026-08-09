@@ -40,7 +40,14 @@ function registerFrames(): void {
   for (const name of frameNames) {
     const iframe = document.getElementById(name) as HTMLIFrameElement | null;
     const frameDoc = iframe?.contentDocument;
-    if (!frameDoc) throw new Error(`missing iframe document for ${name}`);
+    if (!frameDoc) {
+      // This throw can fire from inside an async `load` listener, where it becomes an unhandled
+      // error rather than a rejected promise — log first so a real failure here shows up as more
+      // than an opaque 30s `breakpoints:ready` timeout in the test output.
+      const message = `missing iframe document for ${name}`;
+      console.error(message);
+      throw new Error(message);
+    }
     canvas.registerFrame({ name, doc: frameDoc });
   }
   // Cheap, poll-able readiness signal — engine.onEvent() below overwrites it on any later event.
@@ -52,11 +59,22 @@ const iframes = frameNames
   .filter((el): el is HTMLIFrameElement => el !== null);
 
 let loadedCount = 0;
+function onFrameLoaded(): void {
+  loadedCount += 1;
+  if (loadedCount === iframes.length) registerFrames();
+}
 for (const iframe of iframes) {
-  iframe.addEventListener("load", () => {
-    loadedCount += 1;
-    if (loadedCount === iframes.length) registerFrames();
-  });
+  // An iframe's `load` event is a normal queued task, not deferred until the parent document
+  // finishes parsing — while this script (loaded from a parser-blocking <script> tag after the
+  // three <iframe> elements) was being fetched/compiled, any of those tiny frame.html documents
+  // may already have finished loading. A `load`-listener-only approach misses those and never
+  // reaches `iframes.length`, so check for already-complete frames first.
+  const doc = iframe.contentDocument;
+  if (doc && doc.readyState === "complete" && doc.URL !== "about:blank") {
+    onFrameLoaded();
+    continue;
+  }
+  iframe.addEventListener("load", onFrameLoaded, { once: true });
 }
 
 engine.onEvent((event) => {
