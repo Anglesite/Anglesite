@@ -180,6 +180,45 @@ This slice's only new responsibility is **not swallowing those events**:
   etc.) is a host concern (slice 4); this slice's obligation ends at firing the
   engine event.
 
+## 7a. Known limitations carried into slice 4
+
+Surfaced by the whole-branch review of this slice. None block the slice — each
+is a documented boundary of what "canvas chrome, host-agnostic" covers, and each
+lands squarely on slice 4's host-integration work.
+
+- **Re-render granularity vs. an in-flight `RichTextEditor` session.** Any
+  applied op makes the host replace the whole block subtree — including the
+  editing block's own successful `editText` commit — which disconnects the
+  element `RichTextEditor` holds as its active element. `RichTextEditor` does
+  not subscribe to engine events, so nothing tells it this happened; it recovers
+  only because a disconnected focused element incidentally fires `blur` in a real
+  browser. §7's first bullet ("an in-progress text edit whose commit is rejected
+  discards its local draft and re-renders from the fresh model") therefore has no
+  explicit implementation the way the drag-abort bullet does. A slice-4 host
+  wanting a durable editing session needs either finer-grained re-rendering or an
+  explicit engine-event subscription in the editor — not the current accident.
+- **`DragReorderController` is one-per-document.** Its `container` is captured at
+  construction and every `pointermove` is measured against it, while
+  `startDrag`'s `doc` decides which document's pointer events are observed. A
+  host driving several breakpoint frames needs one controller per frame; a shared
+  instance would measure frame coordinates against another document's container
+  and compute a plausible-looking but wrong drop index. Documented on the class
+  rather than enforced by the signature, since the module's real current usage is
+  a single global-document canvas.
+- **Frame-local coordinate spaces.** `BreakpointCanvas.handleRectsForSelection()`
+  returns rects in each frame's own viewport coordinate space, and
+  `hitTestFrame()` expects its `point` in the target frame's. A host drawing
+  overlay chrome in a parent document over an iframe must translate by that
+  iframe's offset in both directions. The engine deliberately owns no rendering
+  (spec §3.1), so it can't do that translation itself.
+- **Cross-module composition is only spot-covered.** Each of the three modules is
+  unit- and e2e-tested in isolation; the only tests exercising two together are
+  the targeted cross-document regressions this review added (a
+  `RichTextEditor` session against a `BreakpointCanvas` frame document). There is
+  still no test of drag-reorder inside a breakpoint frame, or of an edit and a
+  reorder interleaved. Slice 4's test plan should cover the combinations its own
+  host actually wires up.
+
 ## 8. Testing
 
 Mirrors slice 2's established pattern — no new test infrastructure:

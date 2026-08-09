@@ -109,6 +109,18 @@ describe("DragReorderController", () => {
     };
   }
 
+  function makeThreeBlockModel(): BlockModel {
+    const model = makeTwoBlockModel();
+    return {
+      ...model,
+      rootIds: [...model.rootIds, "b3"],
+      blocks: {
+        ...model.blocks,
+        b3: { id: "b3", kind: "astro", componentName: "Newsletter", props: {}, slots: {}, sourceSpan: [2, 3] },
+      },
+    };
+  }
+
   it("reports an indicator target on pointermove while dragging", () => {
     document.body.innerHTML = `<div id="empty"></div>`;
     const container = document.getElementById("empty");
@@ -128,6 +140,62 @@ describe("DragReorderController", () => {
     // on an empty list) deterministically resolves to index 0 regardless of point — the real
     // point-vs-midpoint geometry needs a layout engine and is e2e-covered (Task 9).
     expect(indicators).toEqual([{ parentId: "__root__", slot: "default", index: 0 }]);
+
+    // This test never releases the pointer, so the document-level listeners startDrag() attached
+    // would outlive it and see the *next* test's synthetic events. Clean up explicitly rather than
+    // relying on test ordering to absorb them.
+    controller.dispose();
+  });
+
+  it("submits a downward same-slot move against post-removal indices", async () => {
+    // computeDropTarget measures with the dragged element still in the DOM; moveBlock.toIndex is
+    // post-removal (types.ts). jsdom reports all-zero rects, so stub the geometry directly — this
+    // is the unit-tier guard for the off-by-one the e2e downward-drag golden covers end to end.
+    // Three blocks are the minimum that can tell the bug apart: with two, an unadjusted index 2 and
+    // a correct index 1 both land at the end of the post-removal list.
+    document.body.innerHTML = `
+      <div id="canvas">
+        <div ${BLOCK_ID_ATTR}="b1"></div>
+        <div ${BLOCK_ID_ATTR}="b2"></div>
+        <div ${BLOCK_ID_ATTR}="b3"></div>
+      </div>
+    `;
+    const container = document.getElementById("canvas");
+    if (!container) throw new Error("fixture missing");
+    const bounds = [
+      { top: 0, bottom: 20 },
+      { top: 20, bottom: 40 },
+      { top: 40, bottom: 60 },
+    ];
+    Array.from(container.children).forEach((child, i) => {
+      const b = bounds[i];
+      if (!b) return;
+      child.getBoundingClientRect = () => ({ ...b, left: 0, right: 10, x: 0, y: b.top, width: 10, height: 20, toJSON: () => ({}) });
+    });
+
+    const model = makeThreeBlockModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const indicators: { index: number }[] = [];
+    const controller = new DragReorderController(engine, (t) => t && indicators.push(t), container);
+
+    const applied = new Promise<void>((resolve) => {
+      const unsubscribe = engine.onEvent((event) => {
+        if (event.type === "applied") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+
+    controller.startDrag("b1");
+    // Below b2's midpoint (30) but above b3's (50) — the indicator reads "between b2 and b3", i.e.
+    // pre-removal index 2.
+    document.dispatchEvent(new PointerEvent("pointermove", { clientX: 5, clientY: 35 }));
+    expect(indicators.map((t) => t.index)).toEqual([2]);
+    document.dispatchEvent(new PointerEvent("pointerup"));
+    await applied;
+
+    expect(engine.modelSync.current.rootIds).toEqual(["b2", "b1", "b3"]);
   });
 
   it("submits a moveBlock op to the indicator target on pointerup", async () => {

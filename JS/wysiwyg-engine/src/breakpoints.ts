@@ -42,6 +42,9 @@ export class BreakpointCanvas {
     return this.#frames;
   }
 
+  /** `point` is in the *named frame's* own viewport coordinate space, not the parent document's — a
+   *  host resolving a pointer event from a parent-document overlay must first subtract the iframe's
+   *  offset. */
   hitTestFrame(name: string, point: { x: number; y: number }): BlockId | null {
     const frame = this.#frames.find((f) => f.name === name);
     if (!frame) return null;
@@ -50,7 +53,10 @@ export class BreakpointCanvas {
 
   /** Selection-handle geometry for every frame currently rendering the selected block — callers
    *  redraw their own outline chrome from this, mirroring how the engine itself owns no rendering
-   *  (spec §3.1). Call after any engine event that could move or reselect a block. */
+   *  (spec §3.1). Call after any engine event that could move or reselect a block.
+   *
+   *  Each rect is in its own frame's viewport coordinate space, not the parent document's — a host
+   *  drawing overlay chrome in the parent document must translate each by that iframe's offset. */
   handleRectsForSelection(): { name: string; rect: HandleRect }[] {
     const selected = this.#engine.selection.current;
     if (!selected) return [];

@@ -70,6 +70,8 @@ export type Op =
       fromIndex: number;
       toParentId: ParentRef;
       toSlot: string;
+      /** Interpreted against the destination slot AFTER `blockId` has been removed from `fromIndex`
+       *  — a same-slot move whose pre-removal target index is `n` submits `n - 1` when moving down. */
       toIndex: number;
     }
   | {

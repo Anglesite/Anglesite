@@ -216,8 +216,12 @@ export class RichTextEditor {
     if (this.#activeBlockId === blockId) return;
     if (this.#activeBlockId !== null) this.exit();
 
-    const el = findBlockElement(blockId, root);
-    if (!(el instanceof HTMLElement)) return;
+    // `root` exists precisely so a caller can pass another frame's Document (BreakpointCanvas), and
+    // an element from another realm is not `instanceof` *this* realm's HTMLElement — an
+    // `instanceof` guard here silently no-ops every cross-document edit. Duck-type on the DOM
+    // interface instead, the way hit-test.ts already does.
+    const el = findBlockElement(blockId, root) as HTMLElement | null;
+    if (el === null || el.nodeType !== 1 /* Node.ELEMENT_NODE */) return;
 
     this.#baselineRuns = this.#engine.modelSync.getBlock(blockId)?.richText ?? [];
     this.#activeBlockId = blockId;
@@ -244,21 +248,26 @@ export class RichTextEditor {
     this.#baselineRuns = [];
   }
 
+  // The three format commands all derive their Document from the active element rather than letting
+  // the format helpers fall back to the global `document`: the active element can live in a
+  // breakpoint frame, whose Selection/Range — and whose ownership of any wrapper element created by
+  // `wrapRange` — belong to that frame's document, not this module's.
+
   toggleFormat(kind: FormatKind): void {
     if (!this.#activeElement) return;
-    toggleInlineFormat(this.#activeElement, kind);
+    toggleInlineFormat(this.#activeElement, kind, this.#activeElement.ownerDocument);
     this.#committer.notifyChange();
   }
 
   setLink(href: string): void {
     if (!this.#activeElement) return;
-    setLinkFormat(this.#activeElement, href);
+    setLinkFormat(this.#activeElement, href, this.#activeElement.ownerDocument);
     this.#committer.notifyChange();
   }
 
   unsetLink(): void {
     if (!this.#activeElement) return;
-    unsetLinkFormat(this.#activeElement);
+    unsetLinkFormat(this.#activeElement, this.#activeElement.ownerDocument);
     this.#committer.notifyChange();
   }
 

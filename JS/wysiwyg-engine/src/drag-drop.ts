@@ -70,6 +70,14 @@ export function submitDrop(engine: WysiwygEngine, target: DropTarget, block: Omi
  * same-document dragging and behaves uniformly whether the block lives in a single canvas or one
  * of several breakpoint frames (design doc §5). Tracks a live `DropTarget` indicator during the
  * drag via `onIndicator` and, on release, submits `moveBlock` to that target.
+ *
+ * **One controller per document.** `container` is captured once at construction and every
+ * `pointermove` is measured against it, but `startDrag`'s `doc` decides which document's pointer
+ * events are listened to. Those two must belong to the same document, or the gesture is measured in
+ * the wrong coordinate space and produces a plausible-looking but wrong drop index. Omitting
+ * `startDrag`'s `doc` therefore requires `container` to come from the global `document`. A host
+ * driving several breakpoint frames needs one `DragReorderController` per frame, not one shared
+ * instance — see the design doc's "Known limitations carried into slice 4".
  */
 export class DragReorderController {
   #engine: WysiwygEngine;
@@ -93,6 +101,9 @@ export class DragReorderController {
     return this.#draggingId !== null;
   }
 
+  /** Begins tracking a drag of `blockId`. `doc` must be the document `container` belongs to (see
+   *  the class doc comment) — pointer coordinates from a different document are measured against
+   *  the wrong coordinate space. */
   startDrag(blockId: BlockId, doc: Document = document): void {
     this.#draggingId = blockId;
     this.#doc = doc;
@@ -131,6 +142,15 @@ export class DragReorderController {
     // rather than submit a moveBlock against a now-invalid index.
     if (fromIndex === -1) return;
 
+    // `computeDropTarget` measures against the DOM *including* the still-present dragged element, so
+    // its index is in pre-removal coordinates; `moveBlock.toIndex` is post-removal (types.ts). Those
+    // agree except when moving a block later in its own slot, where every index past `fromIndex`
+    // shifts down by one once the block is lifted out. This controller only ever moves within the
+    // root slot today, but check the actual from/to slot so a future nested-slot target can't
+    // silently inherit the same-slot adjustment.
+    const sameSlot = target.parentId === ROOT_PARENT_ID && target.slot === "default";
+    const toIndex = sameSlot && fromIndex < target.index ? target.index - 1 : target.index;
+
     await this.#engine.submit({
       kind: "moveBlock",
       blockId,
@@ -139,7 +159,7 @@ export class DragReorderController {
       fromIndex,
       toParentId: target.parentId,
       toSlot: target.slot,
-      toIndex: target.index,
+      toIndex,
     });
   }
 }

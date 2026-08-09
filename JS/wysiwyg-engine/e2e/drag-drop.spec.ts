@@ -17,6 +17,30 @@ test("a real pointer drag reorders blocks via DragReorderController", async ({ p
   expect(order.indexOf("b2")).toBeLessThan(order.indexOf("b1"));
 });
 
+test("a downward pointer drag lands the block where the indicator showed it", async ({ page }) => {
+  // The upward golden above can't catch the off-by-one that `moveBlock`'s post-removal `toIndex`
+  // introduces (types.ts): for fromIndex < toIndex the pre-removal index computeDropTarget measures
+  // is one too high. Only a downward drag exercises that branch.
+  await page.goto("/fixture.html");
+  const b1Box = await page.locator('[data-anglesite-block-id="b1"]').boundingBox();
+  const b2Box = await page.locator('[data-anglesite-block-id="b2"]').boundingBox();
+  if (!b1Box || !b2Box) throw new Error("expected bounding boxes");
+
+  await page.mouse.move(b1Box.x + b1Box.width / 2, b1Box.y + b1Box.height / 2);
+  await page.mouse.down();
+  // Below b2's vertical midpoint but above t1's — the indicator resolves to index 2, i.e. "between
+  // b2 and t1".
+  await page.mouse.move(b2Box.x + b2Box.width / 2, b2Box.y + b2Box.height - 1, { steps: 5 });
+  const indicator = await page.evaluate(() => window.__dropIndicator);
+  expect(indicator?.index).toBe(2);
+  await page.mouse.up();
+
+  await page.waitForFunction(() => document.title === "event:applied");
+
+  const order = await page.evaluate(() => window.__engine.modelSync.current.rootIds);
+  expect(order).toEqual(["b2", "b1", "t1"]);
+});
+
 test("submitDrop inserts a new block at the given target", async ({ page }) => {
   await page.goto("/fixture.html");
   const result = await page.evaluate(() =>

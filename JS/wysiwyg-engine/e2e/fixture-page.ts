@@ -41,8 +41,11 @@ function canvas(): HTMLElement {
   return el;
 }
 
+/** `"` matters as much as `<`/`&` here: renderRuns' `link` case interpolates escaped text into an
+ *  `href="…"` attribute, and this slice's own setLinkFormat can put arbitrary user text into a real
+ *  `link` run through a live edit — so the attribute context is reachable, not hypothetical. */
 function escapeHtml(text: string): string {
-  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
 }
 
 /** Host-owned rendering of RichTextRun[] into markup — the inverse of runsFromElement, and, like
@@ -111,6 +114,8 @@ const disposeExternalDrop = wireExternalDrop(
 );
 
 engine.onEvent((event) => {
+  // A `rejected` event that carries a model carries the host's *fresh* one — the engine has already
+  // adopted it, so the host has to re-render from it too or the DOM silently drifts from the model.
   if (event.type === "model-updated" || event.type === "applied" || (event.type === "rejected" && event.model)) {
     render(engine.modelSync.current);
   }
@@ -146,6 +151,8 @@ window.__host = host;
 window.__richText = richText;
 window.__dragReorder = dragReorder;
 window.__dropIndicator = null;
+// Bridged for e2e/geometry.spec.ts: jsdom's getBoundingClientRect() is all zeros, so the unit tests
+// can only prove computeHandleRect's wiring — real on-screen geometry needs a browser.
 window.__computeHandleRect = (blockId) => computeHandleRect(blockId);
 window.__submitDrop = (target, block) => submitDrop(engine, target, block);
 window.__toggleFormat = (kind) => richText.toggleFormat(kind);
