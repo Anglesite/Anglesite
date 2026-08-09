@@ -1440,6 +1440,14 @@ git commit -m "feat(#1224): add wireExternalDrop for palette/Finder drags"
 
 - [ ] **Step 1: Write the failing test** `JS/wysiwyg-engine/test/breakpoints.test.ts`
 
+This file uses the global `document` (via `document.implementation.createHTMLDocument(...)`), which only exists under jsdom — this project's `vitest.config.ts` defaults to the "node" environment, so the file needs the same per-file opt-in Task 5 used for `drag-drop.test.ts`. Start the file with:
+
+```ts
+// @vitest-environment jsdom
+```
+
+Then:
+
 ```ts
 import { describe, it, expect } from "vitest";
 import { BreakpointCanvas } from "../src/breakpoints.js";
