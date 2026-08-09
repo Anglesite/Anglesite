@@ -268,6 +268,30 @@ describe("RichTextEditor", () => {
     expect(engine.modelSync.getBlock("t1")?.richText).toEqual([{ kind: "text", text: "Hello world" }]);
   });
 
+  it("toggleFormat/setLink/unsetLink commit immediately, not after the debounce window", async () => {
+    document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
+    const model = makeTextModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    // A debounce long enough that this test would time out waiting for it to elapse — proving
+    // the commit did NOT go through the debounce path.
+    const editor = new RichTextEditor(engine, { debounceMs: 10_000 });
+
+    const applied = new Promise<void>((resolve) => {
+      const unsubscribe = engine.onEvent((event) => {
+        if (event.type === "applied") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+
+    editor.enter("t1");
+    editor.toggleFormat("strong");
+    await applied;
+
+    expect(engine.modelSync.getBlock("t1")).toBeDefined();
+  });
+
   it("entering a different block exits the previous one first", () => {
     document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div><div ${BLOCK_ID_ATTR}="t2">World</div>`;
     const base = makeTextModel();

@@ -115,7 +115,9 @@ export class DragReorderController {
     this.#doc?.removeEventListener("pointermove", this.#onMove);
     this.#doc?.removeEventListener("pointerup", this.#onUp);
     this.#draggingId = null;
+    this.#indicatorTarget = null;
     this.#doc = null;
+    this.#onIndicator(null);
   }
 
   #handleMove(event: PointerEvent): void {
@@ -193,7 +195,15 @@ export function wireExternalDrop(
     event.preventDefault();
     onIndicator(computeDropTarget({ x: event.clientX, y: event.clientY }, container, parentId, slot));
   };
-  const onDragLeave = () => onIndicator(null);
+  // dragleave bubbles from every child block element the drag passes over, not just from a true
+  // exit of canvasEl itself — clearing the indicator on every bubbled event would flicker it off
+  // and back on as the drag crosses in-canvas block boundaries. Only clear when the drag has
+  // actually left canvasEl's subtree (relatedTarget is where the pointer went, null at the
+  // viewport edge — that's also a real exit).
+  const onDragLeave = (event: DragEvent) => {
+    if (event.relatedTarget instanceof Node && canvasEl.contains(event.relatedTarget)) return;
+    onIndicator(null);
+  };
   const onDropEvent = (event: DragEvent) => {
     event.preventDefault();
     onIndicator(null);

@@ -112,6 +112,38 @@ test("dragover computes a drop-target indicator; dragleave clears it", async ({ 
   expect(indicatorAfterDragleave).toBeNull();
 });
 
+test("dragleave bubbling from one in-canvas block to another doesn't flicker the indicator", async ({ page }) => {
+  await page.goto("/fixture.html");
+  await page.evaluate(() => {
+    const canvasEl = document.getElementById("canvas");
+    if (!canvasEl) throw new Error("missing #canvas");
+    const rect = canvasEl.getBoundingClientRect();
+    canvasEl.dispatchEvent(
+      new DragEvent("dragover", { clientX: rect.x + 5, clientY: rect.y + 5, bubbles: true, cancelable: true }),
+    );
+  });
+  expect(await page.evaluate(() => window.__dropIndicator)).not.toBeNull();
+
+  // Simulate the drag crossing from over one block to over a sibling block, both still inside
+  // the canvas: dragleave fires on the first block (bubbling to canvasEl) with relatedTarget set
+  // to the second block, not to anything outside the canvas.
+  await page.evaluate(() => {
+    const b1 = document.querySelector('[data-anglesite-block-id="b1"]');
+    const b2 = document.querySelector('[data-anglesite-block-id="b2"]');
+    if (!b1 || !b2) throw new Error("missing block elements");
+    b1.dispatchEvent(new DragEvent("dragleave", { bubbles: true, relatedTarget: b2 }));
+  });
+  expect(await page.evaluate(() => window.__dropIndicator)).not.toBeNull();
+
+  // A real exit (relatedTarget outside the canvas entirely) still clears it.
+  await page.evaluate(() => {
+    const canvasEl = document.getElementById("canvas");
+    const outside = document.body;
+    canvasEl?.dispatchEvent(new DragEvent("dragleave", { bubbles: true, relatedTarget: outside }));
+  });
+  expect(await page.evaluate(() => window.__dropIndicator)).toBeNull();
+});
+
 test("the disposer stops wireExternalDrop from responding to further drags", async ({ page }) => {
   // The other half of Task 7's deferred coverage: the disposer itself has no test at any tier
   // otherwise.

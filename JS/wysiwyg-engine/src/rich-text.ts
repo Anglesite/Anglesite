@@ -257,18 +257,21 @@ export class RichTextEditor {
     if (!this.#activeElement) return;
     toggleInlineFormat(this.#activeElement, kind, this.#activeElement.ownerDocument);
     this.#committer.notifyChange();
+    this.#committer.flush();
   }
 
   setLink(href: string): void {
     if (!this.#activeElement) return;
     setLinkFormat(this.#activeElement, href, this.#activeElement.ownerDocument);
     this.#committer.notifyChange();
+    this.#committer.flush();
   }
 
   unsetLink(): void {
     if (!this.#activeElement) return;
     unsetLinkFormat(this.#activeElement, this.#activeElement.ownerDocument);
     this.#committer.notifyChange();
+    this.#committer.flush();
   }
 
   dispose(): void {

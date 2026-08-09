@@ -250,4 +250,23 @@ describe("DragReorderController", () => {
     expect(moveOps).toEqual([]);
     expect(engine.modelSync.current.rootIds).toEqual(["b2"]);
   });
+
+  it("dispose() mid-drag clears the drop indicator, not just the drag state", () => {
+    document.body.innerHTML = `<div id="empty"></div>`;
+    const container = document.getElementById("empty");
+    if (!container) throw new Error("fixture missing");
+    const model = makeTwoBlockModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const indicators: unknown[] = [];
+    const controller = new DragReorderController(engine, (target) => indicators.push(target), container);
+
+    controller.startDrag("b1");
+    document.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 0 }));
+    expect(indicators).toEqual([{ parentId: "__root__", slot: "default", index: 0 }]);
+
+    controller.dispose();
+
+    expect(indicators).toEqual([{ parentId: "__root__", slot: "default", index: 0 }, null]);
+    expect(controller.isDragging).toBe(false);
+  });
 });
