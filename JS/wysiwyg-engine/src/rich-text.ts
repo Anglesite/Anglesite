@@ -230,15 +230,19 @@ export class RichTextEditor {
   }
 
   enter(blockId: BlockId, root: ParentNode = document): void {
-    if (this.#activeBlockId === blockId) return;
-    if (this.#activeBlockId !== null) this.exit();
-
     // `root` exists precisely so a caller can pass another frame's Document (BreakpointCanvas), and
     // an element from another realm is not `instanceof` *this* realm's HTMLElement — an
     // `instanceof` guard here silently no-ops every cross-document edit. Duck-type on the DOM
     // interface instead, the way hit-test.ts already does.
     const el = findBlockElement(blockId, root) as HTMLElement | null;
     if (el === null || el.nodeType !== 1 /* Node.ELEMENT_NODE */) return;
+
+    // Compare by element identity, not just blockId: BreakpointCanvas renders the same blockId into
+    // every frame simultaneously, so re-entering "the same block" can still mean switching to a
+    // different frame's element. Only a redundant call for the exact element already being edited
+    // is a true no-op.
+    if (this.#activeElement === el) return;
+    if (this.#activeBlockId !== null) this.exit();
 
     this.#baselineRuns = this.#engine.modelSync.getBlock(blockId)?.richText ?? [];
     this.#activeBlockId = blockId;
@@ -297,10 +301,15 @@ export class RichTextEditor {
 
   #commit(): void {
     if (!this.#activeBlockId || !this.#activeElement) return;
+    const runs = runsFromElement(this.#activeElement);
+    // A touch-and-revert (type, then delete back to the exact original text before the debounce or
+    // a blur/Escape flush fires) would otherwise still submit a spurious no-op editText, reaching
+    // the host/undo pipeline for an edit that never actually happened.
+    if (JSON.stringify(runs) === JSON.stringify(this.#baselineRuns)) return;
     void this.#engine.submit({
       kind: "editText",
       blockId: this.#activeBlockId,
-      runs: runsFromElement(this.#activeElement),
+      runs,
       previousRuns: this.#baselineRuns,
     });
   }

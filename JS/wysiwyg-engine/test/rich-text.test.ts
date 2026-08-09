@@ -326,10 +326,15 @@ describe("RichTextEditor", () => {
     });
 
     editor.enter("t1");
+    const el = document.querySelector(`[${BLOCK_ID_ATTR}="t1"]`) as HTMLElement;
+    // A real content change, independent of jsdom's unreliable Selection support — jsdom has no
+    // live Selection, so toggleFormat()'s own DOM wrapping no-ops here (that path is e2e-covered),
+    // but the already-changed content must still flush immediately when toggleFormat is called.
+    el.textContent = "Hello world";
     editor.toggleFormat("strong");
     await applied;
 
-    expect(engine.modelSync.getBlock("t1")).toBeDefined();
+    expect(engine.modelSync.getBlock("t1")?.richText).toEqual([{ kind: "text", text: "Hello world" }]);
   });
 
   it("entering a different block exits the previous one first", () => {
@@ -360,6 +365,73 @@ describe("RichTextEditor", () => {
     expect(editor.activeBlockId).toBe("t2");
     const t1 = document.querySelector(`[${BLOCK_ID_ATTR}="t1"]`) as HTMLElement;
     expect(t1.contentEditable).toBe("false");
+  });
+
+  it("re-entering the same blockId in a different frame switches to that frame's element", () => {
+    // BreakpointCanvas renders the identical blockId into every frame simultaneously — re-entering
+    // "the same block" can still mean switching frames, not a no-op.
+    const phoneDoc = document.implementation.createHTMLDocument("phone");
+    phoneDoc.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
+    const tabletDoc = document.implementation.createHTMLDocument("tablet");
+    tabletDoc.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
+
+    const model = makeTextModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const editor = new RichTextEditor(engine);
+
+    editor.enter("t1", phoneDoc);
+    const phoneEl = phoneDoc.querySelector(`[${BLOCK_ID_ATTR}="t1"]`) as HTMLElement;
+    expect(phoneEl.contentEditable).toBe("true");
+
+    editor.enter("t1", tabletDoc);
+    const tabletEl = tabletDoc.querySelector(`[${BLOCK_ID_ATTR}="t1"]`) as HTMLElement;
+
+    expect(phoneEl.contentEditable).toBe("false");
+    expect(tabletEl.contentEditable).toBe("true");
+  });
+
+  it("re-entering the exact same element is a true no-op (doesn't reset the baseline)", () => {
+    document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
+    const model = makeTextModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const editor = new RichTextEditor(engine);
+
+    editor.enter("t1");
+    const el = document.querySelector(`[${BLOCK_ID_ATTR}="t1"]`) as HTMLElement;
+    el.textContent = "Hello world"; // an in-progress, uncommitted edit
+    editor.enter("t1"); // redundant re-entry of the same element
+
+    // If this had gone through exit()+enter() again, the baseline would have been re-snapshotted
+    // from the (still "Hello") model and the in-progress DOM edit would have been silently
+    // discarded via exit()'s contentEditable=false toggle.
+    expect(el.textContent).toBe("Hello world");
+    expect(el.contentEditable).toBe("true");
+  });
+
+  it("a fully reverted edit (touch-and-revert) does not submit a spurious no-op commit", async () => {
+    document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
+    const model = makeTextModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const applied: unknown[] = [];
+    engine.onEvent((event) => {
+      if (event.type === "applied") applied.push(event.op);
+    });
+    const editor = new RichTextEditor(engine);
+
+    editor.enter("t1");
+    const el = document.querySelector(`[${BLOCK_ID_ATTR}="t1"]`) as HTMLElement;
+    el.textContent = "Hello world";
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.textContent = "Hello"; // revert back to the exact enter()-time baseline before exiting
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+
+    editor.exit();
+    // Nothing to await: a genuinely no-op flush resolves synchronously with no engine.submit() call
+    // at all, so there's no "applied" event to wait for — give any errant async submit one beat.
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(applied).toEqual([]);
   });
 
   it("blur exits editing and flushes a pending commit (design doc §4: commit immediately on blur)", async () => {
