@@ -64,3 +64,82 @@ export function submitDrop(engine: WysiwygEngine, target: DropTarget, block: Omi
     block,
   });
 }
+
+/**
+ * Pointer-based (not HTML5 Drag and Drop) in-canvas block reordering — more reliable for
+ * same-document dragging and behaves uniformly whether the block lives in a single canvas or one
+ * of several breakpoint frames (design doc §5). Tracks a live `DropTarget` indicator during the
+ * drag via `onIndicator` and, on release, submits `moveBlock` to that target.
+ */
+export class DragReorderController {
+  #engine: WysiwygEngine;
+  #container: ParentNode;
+  #onIndicator: (target: DropTarget | null) => void;
+  #draggingId: BlockId | null = null;
+  #indicatorTarget: DropTarget | null = null;
+  #doc: Document | null = null;
+  #onMove = (event: PointerEvent) => this.#handleMove(event);
+  #onUp = () => {
+    void this.#handleUp();
+  };
+
+  constructor(engine: WysiwygEngine, onIndicator: (target: DropTarget | null) => void, container: ParentNode = document) {
+    this.#engine = engine;
+    this.#onIndicator = onIndicator;
+    this.#container = container;
+  }
+
+  get isDragging(): boolean {
+    return this.#draggingId !== null;
+  }
+
+  startDrag(blockId: BlockId, doc: Document = document): void {
+    this.#draggingId = blockId;
+    this.#doc = doc;
+    doc.addEventListener("pointermove", this.#onMove);
+    doc.addEventListener("pointerup", this.#onUp);
+  }
+
+  dispose(): void {
+    this.#doc?.removeEventListener("pointermove", this.#onMove);
+    this.#doc?.removeEventListener("pointerup", this.#onUp);
+    this.#draggingId = null;
+    this.#doc = null;
+  }
+
+  #handleMove(event: PointerEvent): void {
+    if (!this.#draggingId) return;
+    this.#indicatorTarget = computeDropTarget({ x: event.clientX, y: event.clientY }, this.#container);
+    this.#onIndicator(this.#indicatorTarget);
+  }
+
+  async #handleUp(): Promise<void> {
+    this.#doc?.removeEventListener("pointermove", this.#onMove);
+    this.#doc?.removeEventListener("pointerup", this.#onUp);
+    this.#doc = null;
+
+    const blockId = this.#draggingId;
+    const target = this.#indicatorTarget;
+    this.#draggingId = null;
+    this.#indicatorTarget = null;
+    this.#onIndicator(null);
+    if (!blockId || !target) return;
+
+    const model = this.#engine.modelSync.current;
+    const fromIndex = model.rootIds.indexOf(blockId);
+    // The dragged block was removed by a concurrent model update (design doc §7) — abort cleanly
+    // rather than submit a moveBlock against a now-invalid index.
+    if (fromIndex === -1) return;
+
+    await this.#engine.submit({
+      kind: "moveBlock",
+      blockId,
+      fromParentId: ROOT_PARENT_ID,
+      fromSlot: "default",
+      fromIndex,
+      toParentId: target.parentId,
+      toSlot: target.slot,
+      toIndex: target.index,
+    });
+  }
+}

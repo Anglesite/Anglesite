@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 
 import { describe, it, expect } from "vitest";
-import { nearestIndexInSlot, computeDropTarget, generateBlockId, submitDrop } from "../src/drag-drop.js";
+import { nearestIndexInSlot, computeDropTarget, generateBlockId, submitDrop, DragReorderController } from "../src/drag-drop.js";
 import { WysiwygEngine } from "../src/engine.js";
 import { FixtureHost } from "../src/testing/fixture-host.js";
 import { ROOT_PARENT_ID } from "../src/types.js";
@@ -93,5 +93,93 @@ describe("submitDrop", () => {
     const newId = result.model.rootIds.find((id) => id !== "b1");
     expect(newId).toBeDefined();
     expect(newId && result.model.blocks[newId]?.componentName).toBe("Newsletter");
+  });
+});
+
+describe("DragReorderController", () => {
+  function makeTwoBlockModel(): BlockModel {
+    return {
+      path: "src/pages/index.astro",
+      version: "v1",
+      rootIds: ["b1", "b2"],
+      blocks: {
+        b1: { id: "b1", kind: "astro", componentName: "Hero", props: {}, slots: {}, sourceSpan: [0, 1] },
+        b2: { id: "b2", kind: "astro", componentName: "Testimonial", props: {}, slots: {}, sourceSpan: [1, 2] },
+      },
+    };
+  }
+
+  it("reports an indicator target on pointermove while dragging", () => {
+    document.body.innerHTML = `<div id="empty"></div>`;
+    const container = document.getElementById("empty");
+    if (!container) throw new Error("fixture missing");
+    const model = makeTwoBlockModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const indicators: unknown[] = [];
+    const controller = new DragReorderController(engine, (target) => indicators.push(target), container);
+
+    expect(controller.isDragging).toBe(false);
+    controller.startDrag("b1");
+    expect(controller.isDragging).toBe(true);
+
+    document.dispatchEvent(new PointerEvent("pointermove", { clientX: 10, clientY: 20 }));
+
+    // `container` has no BLOCK_ID_ATTR children, so computeDropTarget's fallback (nearestIndexInSlot
+    // on an empty list) deterministically resolves to index 0 regardless of point — the real
+    // point-vs-midpoint geometry needs a layout engine and is e2e-covered (Task 9).
+    expect(indicators).toEqual([{ parentId: "__root__", slot: "default", index: 0 }]);
+  });
+
+  it("submits a moveBlock op to the indicator target on pointerup", async () => {
+    document.body.innerHTML = `<div id="empty"></div>`;
+    const container = document.getElementById("empty");
+    if (!container) throw new Error("fixture missing");
+    const model = makeTwoBlockModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const controller = new DragReorderController(engine, () => {}, container);
+
+    const applied = new Promise<void>((resolve) => {
+      const unsubscribe = engine.onEvent((event) => {
+        if (event.type === "applied") {
+          unsubscribe();
+          resolve();
+        }
+      });
+    });
+
+    controller.startDrag("b2");
+    document.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 0 }));
+    document.dispatchEvent(new PointerEvent("pointerup"));
+    await applied;
+
+    expect(engine.modelSync.current.rootIds).toEqual(["b2", "b1"]);
+    expect(controller.isDragging).toBe(false);
+  });
+
+  it("aborts cleanly, submitting nothing, when the dragged block vanishes mid-drag", () => {
+    document.body.innerHTML = `<div id="empty"></div>`;
+    const container = document.getElementById("empty");
+    if (!container) throw new Error("fixture missing");
+    const model = makeTwoBlockModel();
+    const host = new FixtureHost(model);
+    const engine = new WysiwygEngine(model, host);
+    const moveOps: unknown[] = [];
+    engine.onEvent((event) => {
+      if (event.type === "applied" && event.op.kind === "moveBlock") moveOps.push(event.op);
+    });
+    const controller = new DragReorderController(engine, () => {}, container);
+
+    controller.startDrag("b1");
+    document.dispatchEvent(new PointerEvent("pointermove", { clientX: 0, clientY: 0 }));
+    host.simulateExternalEdit({
+      ...model,
+      version: "v2",
+      rootIds: ["b2"],
+      blocks: { b2: model.blocks.b2 as NonNullable<typeof model.blocks.b2> },
+    });
+    document.dispatchEvent(new PointerEvent("pointerup"));
+
+    expect(moveOps).toEqual([]);
+    expect(engine.modelSync.current.rootIds).toEqual(["b2"]);
   });
 });
