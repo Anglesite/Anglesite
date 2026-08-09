@@ -34,13 +34,22 @@
     "Choose one of your sites to see its posts." : {
 
     },
+    "Cloudflare Container Setup Guide" : {
+
+    },
     "Cloudflare Control Worker" : {
+
+    },
+    "Connect" : {
 
     },
     "Connect via Cloudflare" : {
 
     },
     "Connect your Cloudflare Worker first." : {
+
+    },
+    "Connecting…" : {
 
     },
     "Connect…" : {
@@ -88,7 +97,7 @@
     "Finding your sites…" : {
 
     },
-    "From the one-time Deploy to Cloudflare setup. The token is stored in the Keychain on this device only." : {
+    "From the one-time Cloudflare Container setup. The token is stored in the Keychain on this device only, after the Worker confirms it." : {
 
     },
     "Keep Editing" : {
@@ -152,6 +161,9 @@
 
     },
     "Published — site rebuilding." : {
+
+    },
+    "Reached your Worker" : {
 
     },
     "Refresh" : {

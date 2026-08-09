@@ -108,9 +108,12 @@ private struct RemoteSandboxPreview: View {
     }
 }
 
-/// Connect form: the Worker URL + bearer token from the one-time Deploy-to-Cloudflare
-/// provisioning, plus the site's git coordinates. The token field writes through to the iOS
-/// Keychain (`SecretAccounts.sandboxControlToken`), never to defaults.
+/// Connect form: the Worker URL + bearer token + site ID are local drafts that only persist via
+/// the verify-then-persist Connect flow (#889) — nothing is stored until the Worker actually
+/// answers a status probe with that URL + token. The token then writes through to the iOS
+/// Keychain (`SecretAccounts.sandboxControlToken`), never to defaults. The git coordinates below
+/// stay directly bound: they're not part of the verified secret pair and there's nothing to
+/// verify them against.
 private struct RemoteConnectForm: View {
     @Bindable var model: RemoteSessionModel
     @Environment(\.dismiss) private var dismiss
@@ -118,16 +121,38 @@ private struct RemoteConnectForm: View {
     @State private var isSigningInWithCloudflare = false
     @State private var cloudflareSignInError: String?
 
+    @State private var workerURLDraft: String
+    @State private var tokenDraft: String
+    @State private var siteIDDraft: String
+    @State private var connectTask: Task<Void, Never>?
+
+    /// Interim target until the Control Worker template repo ships (2026-07-21 design §4) —
+    /// labeled as a setup *guide* because tapping it doesn't deploy anything. Swapping in the
+    /// real Deploy-to-Cloudflare URL later is a one-line change.
+    private static let setupGuideURL = URL(string: "https://developers.cloudflare.com/containers/get-started/")!
+
+    init(model: RemoteSessionModel) {
+        self.model = model
+        _workerURLDraft = State(initialValue: model.workerURLString)
+        _tokenDraft = State(initialValue: model.controlToken)
+        _siteIDDraft = State(initialValue: model.siteID)
+    }
+
     var body: some View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("https://anglesite-sandbox.example.workers.dev", text: $model.workerURLString)
+                    Button {
+                        openSetupGuide()
+                    } label: {
+                        Label("Cloudflare Container Setup Guide", systemImage: "book")
+                    }
+                    TextField("https://anglesite-sandbox.example.workers.dev", text: $workerURLDraft)
                         .keyboardType(.URL)
                         .textContentType(.URL)
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
-                    SecureField("Control Worker token", text: $model.controlToken)
+                    SecureField("Control Worker token", text: $tokenDraft)
                         // Disabled alongside the button below: a token pasted while the browser
                         // sheet is up would be silently overwritten when the flow completes.
                         .disabled(isSigningInWithCloudflare)
@@ -143,22 +168,24 @@ private struct RemoteConnectForm: View {
                         }
                     }
                     .disabled(isSigningInWithCloudflare)
+                    TextField("Site ID", text: $siteIDDraft)
+                        .autocorrectionDisabled()
+                        .textInputAutocapitalization(.never)
+                    connectRow
                 } header: {
                     Text("Cloudflare Control Worker")
                 } footer: {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("From the one-time Deploy to Cloudflare setup. The token is stored in the Keychain on this device only.")
+                        connectFooter
                         if let cloudflareSignInError {
                             Text(cloudflareSignInError)
                                 .foregroundStyle(.red)
                         }
                     }
                 }
+                .disabled(model.connectionCheck == .checking)
 
                 Section {
-                    TextField("Site ID", text: $model.siteID)
-                        .autocorrectionDisabled()
-                        .textInputAutocapitalization(.never)
                     TextField("https://github.com/you/site.git", text: $model.gitRemoteString)
                         .keyboardType(.URL)
                         .autocorrectionDisabled()
@@ -179,14 +206,73 @@ private struct RemoteConnectForm: View {
                     Button("Done") { dismiss() }
                 }
             }
+            .onDisappear {
+                // A torn-down form must not let an in-flight connect confirm behind the user's
+                // back — the onboarding re-checks this cancellation before proceeding.
+                connectTask?.cancel()
+            }
+        }
+    }
+
+    private var canConnect: Bool {
+        let blank = { (s: String) in s.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty }
+        return !blank(workerURLDraft) && !blank(tokenDraft) && !blank(siteIDDraft)
+            && model.connectionCheck != .checking && !isSigningInWithCloudflare
+    }
+
+    private var connectRow: some View {
+        Button {
+            let workerURLString = workerURLDraft
+            let token = tokenDraft
+            let siteID = siteIDDraft
+            connectTask = Task {
+                await model.connect(workerURLString: workerURLString, token: token, siteID: siteID)
+            }
+        } label: {
+            if model.connectionCheck == .checking {
+                HStack(spacing: 8) {
+                    ProgressView()
+                    Text("Connecting…")
+                }
+            } else {
+                Text("Connect")
+            }
+        }
+        .disabled(!canConnect)
+    }
+
+    @ViewBuilder
+    private var connectFooter: some View {
+        switch model.connectionCheck {
+        case .connected:
+            Label("Reached your Worker", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+        case .failed(let message):
+            Text(message)
+                .foregroundStyle(.red)
+        case .idle, .checking:
+            Text("From the one-time Cloudflare Container setup. The token is stored in the Keychain on this device only, after the Worker confirms it.")
+        }
+    }
+
+    private func openSetupGuide() {
+        Task {
+            // No callback ever comes back from a docs page — the user reads the guide and
+            // dismisses the sheet manually, so the resulting cancellation error is expected
+            // and swallowed, not surfaced.
+            _ = try? await webAuthenticationSession.authenticate(
+                using: Self.setupGuideURL,
+                callbackURLScheme: "anglesite"
+            )
         }
     }
 
     /// Runs the Cloudflare OAuth flow (#891) via the shared `CloudflareOAuthSignIn`
     /// orchestration (AnglesiteCore — the same sequencing `DeployModel` uses on macOS) and
-    /// fills the token field with the resulting access token — the same field the paste flow
-    /// writes, so nothing downstream changes. The browser sheet's callback is matched via
-    /// Associated Domains against the #891 callback Worker
+    /// fills the token *draft* with the resulting access token — the same draft the paste flow
+    /// writes, so it still only persists via the verify-then-persist Connect flow (#889); OAuth
+    /// is an additional way to populate the draft, not a bypass of verification. The browser
+    /// sheet's callback is matched via Associated Domains against the #891 callback Worker
     /// (`webcredentials:auth.anglesite.dwk.io`). Error split mirrors
     /// `DeployModel.signInWithCloudflare`: cancel and consent-decline are silent, everything
     /// else (including a `state` mismatch, never silently accepted) surfaces as one
@@ -209,7 +295,7 @@ private struct RemoteConnectForm: View {
             })
         do {
             let result = try await signIn.run()
-            model.controlToken = result.token.accessToken
+            tokenDraft = result.token.accessToken
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             // The user dismissed the browser sheet — normal abort, no error banner.
         } catch CloudflareOAuthError.callbackDenied {
