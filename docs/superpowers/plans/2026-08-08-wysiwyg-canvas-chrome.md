@@ -1721,7 +1721,9 @@ git commit -m "feat(#1224): add BreakpointCanvas and export canvas-chrome module
 
 **Interfaces:**
 - Consumes: `RichTextEditor` (rich-text.ts), `DragReorderController`, `wireExternalDrop`, `submitDrop`, `DropTarget` (drag-drop.ts), `BreakpointCanvas` (breakpoints.ts) — all from earlier tasks.
-- Produces: `window.__richText: RichTextEditor`, `window.__dragReorder: DragReorderController`, `window.__submitDrop`, `window.__toggleFormat` on the main fixture page; `window.__canvas: BreakpointCanvas`, `window.__handleRects` on the breakpoints fixture — the surface the three new golden spec files drive.
+- Produces: `window.__richText: RichTextEditor`, `window.__dragReorder: DragReorderController`, `window.__submitDrop`, `window.__toggleFormat`, `window.__disposeExternalDrop: () => void` on the main fixture page; `window.__canvas: BreakpointCanvas`, `window.__handleRects` on the breakpoints fixture — the surface the three new golden spec files drive.
+
+**Coverage note:** Task 7's `wireExternalDrop` shipped with zero unit tests — `DragEvent`/`DataTransfer` are unconstructable under this project's pinned jsdom (verified: `jsdom@30.0.1` throws `"is not a constructor"` for both), so all three of Task 7's planned unit tests were correctly dropped per its brief's own anticipated fallback, deferring 100% of `wireExternalDrop`'s behavioral coverage to this task. The two new `drag-drop.spec.ts` cases below (dragover indicator + dragleave clear, and disposer cleanup) exist specifically to close that gap — do not treat them as optional/nice-to-have additions to this task.
 
 - [ ] **Step 1: Replace `e2e/fixture-page.ts`** with the full updated file (adds a `"text"` block rendered from its `richText` runs, and wires `RichTextEditor`/`DragReorderController`/`wireExternalDrop` onto the same canvas):
 
@@ -1825,7 +1827,7 @@ const dragReorder = new DragReorderController(
   canvas(),
 );
 
-wireExternalDrop(
+const disposeExternalDrop = wireExternalDrop(
   canvas(),
   (target) => {
     window.__dropIndicator = target;
@@ -1865,6 +1867,7 @@ declare global {
     __computeHandleRect: (blockId: string) => HandleRect | null;
     __submitDrop: (target: DropTarget, block: Omit<BlockNode, "id">) => Promise<OpResult>;
     __toggleFormat: (kind: FormatKind) => void;
+    __disposeExternalDrop: () => void;
   }
 }
 
@@ -1876,6 +1879,7 @@ window.__dropIndicator = null;
 window.__computeHandleRect = (blockId) => computeHandleRect(blockId);
 window.__submitDrop = (target, block) => submitDrop(engine, target, block);
 window.__toggleFormat = (kind) => richText.toggleFormat(kind);
+window.__disposeExternalDrop = disposeExternalDrop;
 window.__moveBlock = (blockId, toIndex) => {
   const model = engine.modelSync.current;
   const fromIndex = model.rootIds.indexOf(blockId);
@@ -2031,6 +2035,64 @@ test("an external drop (palette-style payload) inserts a block via wireExternalD
   expect(componentNames).toContain("CallToAction");
 });
 
+test("dragover computes a drop-target indicator; dragleave clears it", async ({ page }) => {
+  // Task 7 shipped wireExternalDrop with zero unit tests (DragEvent/DataTransfer are
+  // unconstructable under this project's pinned jsdom) — this is the only test covering its
+  // dragover/dragleave indicator behavior at any tier.
+  await page.goto("/fixture.html");
+  await page.evaluate(() => {
+    const canvasEl = document.getElementById("canvas");
+    if (!canvasEl) throw new Error("missing #canvas");
+    const rect = canvasEl.getBoundingClientRect();
+    canvasEl.dispatchEvent(
+      new DragEvent("dragover", { clientX: rect.x + 5, clientY: rect.y + 5, bubbles: true, cancelable: true }),
+    );
+  });
+
+  const indicatorAfterDragover = await page.evaluate(() => window.__dropIndicator);
+  expect(indicatorAfterDragover).not.toBeNull();
+  expect(indicatorAfterDragover?.parentId).toBe("__root__");
+
+  await page.evaluate(() => {
+    document.getElementById("canvas")?.dispatchEvent(new DragEvent("dragleave", { bubbles: true }));
+  });
+  const indicatorAfterDragleave = await page.evaluate(() => window.__dropIndicator);
+  expect(indicatorAfterDragleave).toBeNull();
+});
+
+test("the disposer stops wireExternalDrop from responding to further drags", async ({ page }) => {
+  // The other half of Task 7's deferred coverage: the disposer itself has no test at any tier
+  // otherwise.
+  await page.goto("/fixture.html");
+  await page.evaluate(() => window.__disposeExternalDrop());
+
+  const componentNamesBefore = await page.evaluate(() =>
+    Object.values(window.__engine.modelSync.current.blocks).map((b) => b.componentName),
+  );
+
+  await page.evaluate(() => {
+    const canvasEl = document.getElementById("canvas");
+    if (!canvasEl) throw new Error("missing #canvas");
+    const dataTransfer = new DataTransfer();
+    dataTransfer.setData(
+      "application/x-anglesite-block",
+      JSON.stringify({ kind: "astro", componentName: "ShouldNeverAppear", props: {}, slots: {}, sourceSpan: [0, 0] }),
+    );
+    const rect = canvasEl.getBoundingClientRect();
+    canvasEl.dispatchEvent(
+      new DragEvent("drop", { clientX: rect.x + 5, clientY: rect.y + 5, bubbles: true, cancelable: true, dataTransfer }),
+    );
+  });
+
+  // Disposed listeners never run, so no engine event fires and there's nothing to await — give
+  // any errant async work one beat to have shown up, then assert nothing changed.
+  await page.waitForTimeout(100);
+  const componentNamesAfter = await page.evaluate(() =>
+    Object.values(window.__engine.modelSync.current.blocks).map((b) => b.componentName),
+  );
+  expect(componentNamesAfter).toEqual(componentNamesBefore);
+});
+
 test("a version-mismatch rejection during a drop is visible and applies nothing", async ({ page }) => {
   await page.goto("/fixture.html");
   await page.evaluate(() => window.__host.forceReject("version-mismatch", "stale"));
@@ -2053,7 +2115,7 @@ test("a version-mismatch rejection during a drop is visible and applies nothing"
 - [ ] **Step 6: Run the drag-drop goldens**
 
 Run: `cd JS/wysiwyg-engine && npm run test:e2e -- drag-drop`
-Expected: PASS (4 tests)
+Expected: PASS (6 tests)
 
 - [ ] **Step 7: Write `e2e/frame.html`**
 
@@ -2248,7 +2310,7 @@ Expected: PASS (3 tests)
 - [ ] **Step 13: Run the full local check set**
 
 Run: `cd JS/wysiwyg-engine && npm run lint && npm run typecheck && npm test && npm run test:e2e`
-Expected: all PASS (every unit test file from Tasks 1–8, plus all seven e2e spec files — the three pre-existing slice-2 goldens plus this task's four new ones)
+Expected: all PASS (every unit test file from Tasks 1–8, plus all six e2e spec files — the three pre-existing slice-2 goldens plus this task's three new ones)
 
 - [ ] **Step 14: Commit**
 
