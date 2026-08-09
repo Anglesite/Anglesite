@@ -148,7 +148,7 @@ private struct ThemeChooserCard: View {
 
     var body: some View {
         Button(action: onSelect) {
-            ThemePreviewCard(theme: theme, isSelected: isSelected, isHovering: isHoverActive)
+            ThemePreviewCard(theme: theme, isSelected: isSelected, isHoverActive: isHoverActive)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -167,14 +167,14 @@ private struct ThemeChooserCard: View {
 private struct ThemePreviewCard: View {
     let theme: Theme
     let isSelected: Bool
-    let isHovering: Bool
+    let isHoverActive: Bool
 
     private var primary: Color { Color(hex: theme.cssVars["color-primary"] ?? "#333333") }
     private var accent: Color { Color(hex: theme.cssVars["color-accent"] ?? "#888888") }
 
     private var borderColor: Color {
         if isSelected { return Color.accentColor }
-        if isHovering { return Color.accentColor.opacity(0.4) }
+        if isHoverActive { return Color.accentColor.opacity(0.4) }
         return Color.clear
     }
 
@@ -205,7 +205,7 @@ private struct ThemePreviewCard: View {
             Text(theme.blurb).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
         }
         .padding(8)
-        .background(RoundedRectangle(cornerRadius: 8).fill(isHovering ? Color.accentColor.opacity(0.08) : Color.clear))
+        .background(RoundedRectangle(cornerRadius: 8).fill(isHoverActive ? Color.accentColor.opacity(0.08) : Color.clear))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(borderColor, lineWidth: 2))
     }
 }

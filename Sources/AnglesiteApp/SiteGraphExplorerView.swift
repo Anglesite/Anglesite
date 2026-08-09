@@ -314,7 +314,7 @@ private struct SiteGraphNodeButton: View {
 
     /// Hover only paints while the window is key, so Cmd-Tabbing away mid-hover doesn't leave a
     /// ghost highlight behind in an inactive window (#677).
-    private var isHoverActive: Bool { isHovering && controlActiveState != .inactive }
+    private var isHoverActive: Bool { isHovering && controlActiveState != .inactive && !selected }
 
     private var backgroundOpacity: Double {
         if selected { return 0.24 }
