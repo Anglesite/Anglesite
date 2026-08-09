@@ -143,3 +143,52 @@ export class DragReorderController {
     });
   }
 }
+
+export type ExternalDropHandler = (target: DropTarget, dataTransfer: DataTransfer) => void;
+
+export interface WireExternalDropOptions {
+  container?: ParentNode;
+  parentId?: ParentRef;
+  slot?: string;
+}
+
+/**
+ * Wires native `dragover`/`dragleave`/`drop` DOM events on `canvasEl` for external drags (palette,
+ * Finder) — real OS/host-originated drags surface as native drag events even inside a WKWebView.
+ * The engine never interprets `DataTransfer` itself (design doc §5): `onDrop` receives the computed
+ * target and the raw `DataTransfer`, and the host decides what block (if any) to build and calls
+ * `submitDrop`. Returns a disposer that removes all three listeners.
+ */
+export function wireExternalDrop(
+  canvasEl: HTMLElement,
+  onIndicator: (target: DropTarget | null) => void,
+  onDrop: ExternalDropHandler,
+  options: WireExternalDropOptions = {},
+): () => void {
+  const container = options.container ?? canvasEl;
+  const parentId = options.parentId ?? ROOT_PARENT_ID;
+  const slot = options.slot ?? "default";
+
+  const onDragOver = (event: DragEvent) => {
+    event.preventDefault();
+    onIndicator(computeDropTarget({ x: event.clientX, y: event.clientY }, container, parentId, slot));
+  };
+  const onDragLeave = () => onIndicator(null);
+  const onDropEvent = (event: DragEvent) => {
+    event.preventDefault();
+    onIndicator(null);
+    if (!event.dataTransfer) return;
+    const target = computeDropTarget({ x: event.clientX, y: event.clientY }, container, parentId, slot);
+    onDrop(target, event.dataTransfer);
+  };
+
+  canvasEl.addEventListener("dragover", onDragOver);
+  canvasEl.addEventListener("dragleave", onDragLeave);
+  canvasEl.addEventListener("drop", onDropEvent);
+
+  return () => {
+    canvasEl.removeEventListener("dragover", onDragOver);
+    canvasEl.removeEventListener("dragleave", onDragLeave);
+    canvasEl.removeEventListener("drop", onDropEvent);
+  };
+}
