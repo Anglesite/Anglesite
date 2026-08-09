@@ -9,7 +9,7 @@
     "lint": "oxlint src test e2e",
     "test": "vitest run",
     "test:watch": "vitest",
-    "build:e2e": "esbuild e2e/fixture-page.ts --bundle --format=iife --target=es2022 --outfile=e2e/.generated/fixture-bundle.js",
+    "build:e2e": "esbuild e2e/fixture-page.ts --bundle --format=iife --target=es2022 --outfile=e2e/.generated/fixture-bundle.js && esbuild e2e/breakpoints-fixture-page.ts --bundle --format=iife --target=es2022 --outfile=e2e/.generated/breakpoints-bundle.js",
     "test:e2e": "npm run build:e2e && playwright test"
   },
   "devDependencies": {

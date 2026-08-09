@@ -4,14 +4,17 @@ import { join } from "node:path";
 
 const root = new URL(".", import.meta.url).pathname;
 
-// This fixture server has exactly two files to serve — enumerate them explicitly rather than
-// building a filesystem path from the request URL. There is no dynamic path expression here for
-// a path-traversal scanner (or a future edit) to worry about: `route.file` below is always one
-// of these two literals, never derived from `req.url`.
+// This fixture server has a fixed, small set of files to serve — enumerate them explicitly
+// rather than building a filesystem path from the request URL. There is no dynamic path
+// expression here for a path-traversal scanner (or a future edit) to worry about: `route.file`
+// below is always one of these literals, never derived from `req.url`.
 const ROUTES = {
   "/": { file: "fixture.html", type: "text/html" },
   "/fixture.html": { file: "fixture.html", type: "text/html" },
   "/.generated/fixture-bundle.js": { file: ".generated/fixture-bundle.js", type: "text/javascript" },
+  "/breakpoints-fixture.html": { file: "breakpoints-fixture.html", type: "text/html" },
+  "/frame.html": { file: "frame.html", type: "text/html" },
+  "/.generated/breakpoints-bundle.js": { file: ".generated/breakpoints-bundle.js", type: "text/javascript" },
 };
 
 createServer(async (req, res) => {
