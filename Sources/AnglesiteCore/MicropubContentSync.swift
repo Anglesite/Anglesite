@@ -39,7 +39,9 @@ public enum MicropubContentSync {
     /// post gets when its mf2 type wasn't recognized at create time, or a malformed URL. This
     /// bridge only ever reads the collection out of the URL — it never re-derives it from mf2
     /// properties, so classification happens exactly once (Worker-side, at create time).
-    static func collectionAndSlug(from urlString: String) -> (collection: String, slug: String)? {
+    /// Public since #869: the iOS composer's post list uses the same parse to group a
+    /// `q=source` list by content type, so classification stays URL-derived there too.
+    public static func collectionAndSlug(from urlString: String) -> (collection: String, slug: String)? {
         guard let url = URL(string: urlString) else { return nil }
         let segments = url.path.split(separator: "/", omittingEmptySubsequences: true).map(String.init)
         guard segments.count == 2 else { return nil }
@@ -164,7 +166,9 @@ public enum MicropubContentSync {
     /// - `slug`: the post URL's slug, used as a `title`/`name` fallback for a post whose required
     ///   title-like field has no resolvable mf2 value (e.g. a nameless multi-photo post Post Type
     ///   Discovery still routes to `albums`).
-    static func values(
+    /// Public since #869: the iOS composer decodes a `q=source` post into form values through
+    /// this same mapping, so the phone's edit form and the Mac's sync bridge can't diverge.
+    public static func values(
         for descriptor: ContentTypeDescriptor,
         properties: [String: [JSONValue]],
         updatedAt: Int,

@@ -1,0 +1,421 @@
+import Testing
+import Foundation
+// URLRequest/HTTPURLResponse live in FoundationNetworking on non-Darwin platforms
+// (swift-corelibs-foundation); this import is a no-op on macOS.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+@testable import AnglesiteIOS
+@testable import AnglesiteCore
+
+/// A swappable `MicropubClient.Transport`: tests route requests by method/query and swap the
+/// handler mid-test (e.g. heal the network after a failure) — the same faked-seam style as
+/// `MicropubClientTests`, one level up.
+private final class TransportBox: @unchecked Sendable {
+    private let lock = NSLock()
+    private var _handler: @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
+
+    init(_ handler: @escaping @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)) {
+        _handler = handler
+    }
+
+    var handler: @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse) {
+        get { lock.withLock { _handler } }
+        set { lock.withLock { _handler = newValue } }
+    }
+
+    var transport: MicropubClient.Transport {
+        { [self] request in try await handler(request) }
+    }
+}
+
+/// Drives `PostComposerModel`'s publish state machine (#869) against a faked transport: the
+/// foreground-first send, the retryable-failure → queued-draft → retry path, the auth and
+/// terminal failures, and compare-and-swap conflict resolution.
+@MainActor
+struct PostComposerModelTests {
+    nonisolated private static let endpoint = URL(string: "https://owner.example/micropub")!
+    nonisolated private static let postURL = URL(string: "https://owner.example/notes/first-note")!
+
+    nonisolated private static func response(
+        _ code: Int, url: URL = endpoint, headers: [String: String]? = nil
+    ) -> HTTPURLResponse {
+        HTTPURLResponse(url: url, statusCode: code, httpVersion: nil, headerFields: headers)!
+    }
+
+    nonisolated private static func sourceJSON(properties: [String: Any]) -> Data {
+        try! JSONSerialization.data(withJSONObject: [
+            "type": ["h-entry"], "properties": properties,
+        ])
+    }
+
+    nonisolated private static func isSourceFetch(_ request: URLRequest) -> Bool {
+        request.httpMethod == "GET"
+            && request.url?.query()?.contains("q=source") == true
+    }
+
+    private static func scratchStore() -> ComposerDraftStore {
+        ComposerDraftStore(
+            directory: FileManager.default.temporaryDirectory
+                .appendingPathComponent("composer-tests-\(UUID().uuidString)", isDirectory: true))
+    }
+
+    private static func noteDescriptor() -> ContentTypeDescriptor {
+        ContentTypeRegistry.default.descriptor(id: "note")!
+    }
+
+    private static func model(
+        transport: @escaping MicropubClient.Transport,
+        store: ComposerDraftStore = scratchStore(),
+        siteID: UUID = UUID()
+    ) -> PostComposerModel {
+        PostComposerModel(
+            descriptor: noteDescriptor(),
+            siteID: siteID,
+            client: MicropubClient(
+                endpoint: endpoint, mediaEndpoint: URL(string: "https://owner.example/media"),
+                accessToken: "tok", dpopKeyPair: DPoPKeyPair(), transport: transport),
+            draftStore: store
+        )
+    }
+
+    // MARK: - Foreground-first send
+
+    @Test("a successful save lands savedDraft with the created post's URL")
+    func saveDraftCreates() async throws {
+        // The create is a POST; the post-create baseline re-fetch is a q=source GET.
+        let box = TransportBox { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: ["content": ["hi"]]), Self.response(200))
+            }
+            #expect(request.httpMethod == "POST")
+            return (Data(), Self.response(201, headers: ["Location": Self.postURL.absoluteString]))
+        }
+        let model = Self.model(transport: box.transport)
+        model.values["body"] = .text("hi")
+
+        await model.saveDraft()
+
+        let phase = model.phase
+        #expect(phase == .savedDraft(Self.postURL))
+        let url = model.postURL
+        #expect(url == Self.postURL)
+    }
+
+    @Test("publish lands publishedRebuilding — the bake-in-flight state, no faked live URL")
+    func publishShowsRebuilding() async {
+        let box = TransportBox { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: ["content": ["hi"]]), Self.response(200))
+            }
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+                as? [String: Any]
+            let properties = body?["properties"] as? [String: [Any]]
+            #expect(properties?["post-status"] as? [String] == ["published"])
+            return (Data(), Self.response(201, headers: ["Location": Self.postURL.absoluteString]))
+        }
+        let model = Self.model(transport: box.transport)
+        model.values["body"] = .text("hi")
+
+        await model.publish()
+
+        let phase = model.phase
+        #expect(phase == .publishedRebuilding(Self.postURL))
+    }
+
+    // MARK: - Failure routing (#867's taxonomy, surfaced as phases)
+
+    @Test("a 401 routes to authRequired — an IndieAuth matter, not a network failure")
+    func unauthorizedRoutesToReauth() async {
+        let box = TransportBox { _ in (Data(), Self.response(401)) }
+        let model = Self.model(transport: box.transport)
+        model.values["body"] = .text("hi")
+
+        await model.saveDraft()
+
+        let phase = model.phase
+        #expect(phase == .authRequired)
+    }
+
+    @Test("a terminal 4xx routes to failed, not the offline queue")
+    func terminalFailureNotQueued() async {
+        let store = Self.scratchStore()
+        let siteID = UUID()
+        let box = TransportBox { _ in (Data(), Self.response(422)) }
+        let model = Self.model(transport: box.transport, store: store, siteID: siteID)
+        model.values["body"] = .text("hi")
+
+        await model.saveDraft()
+
+        guard case .failed = model.phase else {
+            Issue.record("expected .failed, got \(model.phase)")
+            return
+        }
+        let queued = store.load(forSite: siteID)
+        #expect(queued == nil)
+    }
+
+    @Test("a 5xx queues the draft locally with the explicit waiting-for-network state")
+    func retryableFailureQueuesDraft() async throws {
+        let store = Self.scratchStore()
+        let siteID = UUID()
+        let box = TransportBox { _ in (Data(), Self.response(503)) }
+        let model = Self.model(transport: box.transport, store: store, siteID: siteID)
+        model.values["body"] = .text("composed offline")
+
+        await model.publish()
+
+        let phase = model.phase
+        #expect(phase == .waitingForNetwork)
+        let queued = try #require(store.load(forSite: siteID))
+        #expect(queued.queuedStatus == "published")
+        let body = queued.editorValues["body"]
+        #expect(body == .text("composed offline"))
+    }
+
+    @Test("an unreachable network queues the same way")
+    func unreachableQueuesDraft() async {
+        let box = TransportBox { _ in throw URLError(.notConnectedToInternet) }
+        let model = Self.model(transport: box.transport)
+        model.values["body"] = .text("hi")
+
+        await model.saveDraft()
+
+        let phase = model.phase
+        #expect(phase == .waitingForNetwork)
+    }
+
+    @Test("retry after the network heals sends the queued status and clears the local draft")
+    func retryAfterHealing() async {
+        let store = Self.scratchStore()
+        let siteID = UUID()
+        let box = TransportBox { _ in (Data(), Self.response(503)) }
+        let model = Self.model(transport: box.transport, store: store, siteID: siteID)
+        model.values["body"] = .text("hi")
+        await model.publish()
+
+        box.handler = { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: ["content": ["hi"]]), Self.response(200))
+            }
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+                as? [String: Any]
+            let properties = body?["properties"] as? [String: [Any]]
+            // The retried send must carry the status that was queued, not a default.
+            #expect(properties?["post-status"] as? [String] == ["published"])
+            return (Data(), Self.response(201, headers: ["Location": Self.postURL.absoluteString]))
+        }
+        await model.retry()
+
+        let phase = model.phase
+        #expect(phase == .publishedRebuilding(Self.postURL))
+        let queued = store.load(forSite: siteID)
+        #expect(queued == nil)
+    }
+
+    @Test("a queued draft restores into waitingForNetwork across a relaunch")
+    func queuedDraftRestores() {
+        let siteID = UUID()
+        let draft = ComposerDraft(
+            siteID: siteID, typeID: "note", postURL: nil,
+            values: ["body": .text("restored body")], queuedStatus: "draft")
+        let box = TransportBox { _ in (Data(), Self.response(500)) }
+        let model = PostComposerModel(
+            descriptor: Self.noteDescriptor(), siteID: siteID,
+            client: MicropubClient(
+                endpoint: Self.endpoint, accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+                transport: box.transport),
+            draftStore: Self.scratchStore(),
+            restoringDraft: draft)
+
+        let phase = model.phase
+        #expect(phase == .waitingForNetwork)
+        let body = model.values["body"]
+        #expect(body == .text("restored body"))
+    }
+
+    // MARK: - Editing an existing post (q=source + compare-and-swap)
+
+    private static func existingModel(box: TransportBox) async throws -> PostComposerModel {
+        try await PostComposerModel.openExisting(
+            url: postURL,
+            descriptor: noteDescriptor(),
+            siteID: UUID(),
+            client: MicropubClient(
+                endpoint: endpoint, accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+                transport: box.transport),
+            draftStore: scratchStore()
+        )
+    }
+
+    @Test("openExisting decodes the q=source post into form values")
+    func openExistingDecodes() async throws {
+        let box = TransportBox { request in
+            #expect(Self.isSourceFetch(request))
+            return (
+                Self.sourceJSON(properties: [
+                    "content": ["the body"], "category": ["one", "two"],
+                    "post-status": ["draft"],
+                ]),
+                Self.response(200)
+            )
+        }
+        let model = try await Self.existingModel(box: box)
+
+        let body = model.values["body"]
+        #expect(body == .text("the body"))
+        let tags = model.values["tags"]
+        #expect(tags == .list(["one", "two"]))
+        let url = model.postURL
+        #expect(url == Self.postURL)
+    }
+
+    @Test("a server copy that changed since the baseline surfaces as a conflict, not an update")
+    func concurrentEditConflicts() async throws {
+        let baseline: [String: Any] = ["content": ["original"]]
+        let box = TransportBox { _ in
+            (Self.sourceJSON(properties: baseline), Self.response(200))
+        }
+        let model = try await Self.existingModel(box: box)
+        model.values["body"] = .text("my edit")
+
+        // Another device edited the post: the pre-update CAS re-fetch now sees a new copy.
+        let theirs: [String: Any] = ["content": ["their newer edit"]]
+        box.handler = { request in
+            #expect(Self.isSourceFetch(request), "no update may be sent on a conflict")
+            return (Self.sourceJSON(properties: theirs), Self.response(200))
+        }
+        await model.saveDraft()
+
+        guard case .conflict(let theirPost) = model.phase else {
+            Issue.record("expected .conflict, got \(model.phase)")
+            return
+        }
+        let theirContent = theirPost.firstString("content")
+        #expect(theirContent == "their newer edit")
+    }
+
+    @Test("takeTheirs adopts the site's version and returns to editing")
+    func takeTheirsAdopts() async throws {
+        let box = TransportBox { _ in
+            (Self.sourceJSON(properties: ["content": ["original"]]), Self.response(200))
+        }
+        let model = try await Self.existingModel(box: box)
+        model.values["body"] = .text("my edit")
+        box.handler = { _ in
+            (Self.sourceJSON(properties: ["content": ["their newer edit"]]), Self.response(200))
+        }
+        await model.saveDraft()
+
+        model.takeTheirs()
+
+        let phase = model.phase
+        #expect(phase == .editing)
+        let body = model.values["body"]
+        #expect(body == .text("their newer edit"))
+    }
+
+    @Test("keepMine re-sends over the site's version after re-baselining")
+    func keepMineOverwrites() async throws {
+        let box = TransportBox { _ in
+            (Self.sourceJSON(properties: ["content": ["original"]]), Self.response(200))
+        }
+        let model = try await Self.existingModel(box: box)
+        model.values["body"] = .text("my edit")
+        let theirs: [String: Any] = ["content": ["their newer edit"]]
+        box.handler = { _ in (Self.sourceJSON(properties: theirs), Self.response(200)) }
+        await model.saveDraft()
+
+        // The site still holds "theirs"; keeping mine must now update straight over it.
+        nonisolated(unsafe) var updateBody: [String: Any]?
+        box.handler = { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: theirs), Self.response(200))
+            }
+            updateBody = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+                as? [String: Any]
+            return (Data(), Self.response(204))
+        }
+        await model.keepMine()
+
+        let phase = model.phase
+        #expect(phase == .savedDraft(Self.postURL))
+        let action = updateBody?["action"] as? String
+        #expect(action == "update")
+        let replaced = (updateBody?["replace"] as? [String: [Any]])?["content"] as? [String]
+        #expect(replaced == ["my edit"])
+    }
+
+    @Test("clearing a mapped field deletes its property; unmapped properties stay untouched")
+    func clearedFieldsDelete() async throws {
+        let box = TransportBox { _ in
+            (
+                Self.sourceJSON(properties: [
+                    "content": ["body"], "category": ["old-tag"],
+                    "syndication": ["https://social.example/123"],   // another client's property
+                ]),
+                Self.response(200)
+            )
+        }
+        let model = try await Self.existingModel(box: box)
+        model.values["tags"] = .list([])   // owner cleared the tags in the form
+
+        nonisolated(unsafe) var updateBody: [String: Any]?
+        box.handler = { request in
+            if Self.isSourceFetch(request) {
+                return (
+                    Self.sourceJSON(properties: [
+                        "content": ["body"], "category": ["old-tag"],
+                        "syndication": ["https://social.example/123"],
+                    ]),
+                    Self.response(200)
+                )
+            }
+            updateBody = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+                as? [String: Any]
+            return (Data(), Self.response(204))
+        }
+        await model.saveDraft()
+
+        let deleted = updateBody?["delete"] as? [String]
+        #expect(deleted == ["category"])
+        let replace = updateBody?["replace"] as? [String: [Any]]
+        #expect(replace?["syndication"] == nil)
+    }
+
+    // MARK: - Media guard (§7: error handling before the upload, not compression UX)
+
+    @Test("the media guard rejects before any request; a passing image uploads")
+    func mediaGuardAndUpload() async throws {
+        nonisolated(unsafe) var requestCount = 0
+        let box = TransportBox { _ in
+            requestCount += 1
+            return (Data(), Self.response(
+                201, headers: ["Location": "https://owner.example/media/a.jpg"]))
+        }
+        let model = Self.model(transport: box.transport)
+
+        await #expect(throws: PostComposerModel.MediaUploadError.rejected(.empty)) {
+            _ = try await model.uploadImage(data: Data(), filename: "a.jpg", mimeType: "image/jpeg")
+        }
+        await #expect(throws: PostComposerModel.MediaUploadError.rejected(
+            .unsupportedFormat(mimeType: "image/heic"))
+        ) {
+            _ = try await model.uploadImage(
+                data: Data([1]), filename: "a.heic", mimeType: "image/heic")
+        }
+        let oversized = Data(count: MediaUploadGuard.maximumBytes + 1)
+        await #expect(throws: PostComposerModel.MediaUploadError.rejected(
+            .tooLarge(bytes: oversized.count))
+        ) {
+            _ = try await model.uploadImage(
+                data: oversized, filename: "a.jpg", mimeType: "image/jpeg")
+        }
+        #expect(requestCount == 0, "rejections must never reach the network")
+
+        let url = try await model.uploadImage(
+            data: Data([0xFF, 0xD8]), filename: "a.jpg", mimeType: "image/jpeg")
+        #expect(url == URL(string: "https://owner.example/media/a.jpg")!)
+        #expect(requestCount == 1)
+    }
+}
