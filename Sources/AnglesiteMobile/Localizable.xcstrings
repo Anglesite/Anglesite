@@ -10,6 +10,9 @@
     "Cloudflare Control Worker" : {
 
     },
+    "Connect via Cloudflare" : {
+
+    },
     "Connect your Cloudflare Worker first." : {
 
     },
@@ -22,7 +25,13 @@
     "Couldn't Open Site" : {
 
     },
+    "Couldn't sign in to Cloudflare. Try again in a moment." : {
+
+    },
     "Done" : {
+
+    },
+    "Finding your sites…" : {
 
     },
     "From the one-time Deploy to Cloudflare setup. The token is stored in the Keychain on this device only." : {
@@ -31,10 +40,19 @@
     "No Site Open" : {
 
     },
+    "No Sites Found" : {
+
+    },
+    "No sites found — create a site in Anglesite on your Mac first." : {
+
+    },
     "Open Site" : {
 
     },
     "Open your site in the remote sandbox to preview and edit it." : {
+
+    },
+    "Refresh" : {
 
     },
     "Remote Session" : {
@@ -44,6 +62,9 @@
 
     },
     "Session Settings…" : {
+
+    },
+    "Sign in to iCloud and turn on iCloud Drive to see your Anglesite sites." : {
 
     },
     "Site" : {
@@ -64,10 +85,16 @@
     "Try Again" : {
 
     },
+    "Your Sites" : {
+
+    },
     "https://anglesite-sandbox.example.workers.dev" : {
 
     },
     "https://github.com/you/site.git" : {
+
+    },
+    "iCloud Unavailable" : {
 
     }
   },

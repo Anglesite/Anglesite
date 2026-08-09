@@ -13,5 +13,13 @@
 	<array>
 		<string>CloudDocuments</string>
 	</array>
+	<!-- Cloudflare OAuth callback interception (#891): lets ASWebAuthenticationSession's
+	     .https(host:path:) callback match https://auth.anglesite.dwk.io/oauth-callback, served
+	     by Workers/anglesite-oauth-callback. Must match CloudflareOAuthConfiguration.redirectURI
+	     (AnglesiteCore). -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:auth.anglesite.dwk.io</string>
+	</array>
 </dict>
 </plist>

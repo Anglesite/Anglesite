@@ -1,0 +1,12 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "anglesite-oauth-callback",
+  "main": "src/worker.ts",
+  "compatibility_date": "2025-06-01",
+  "observability": { "enabled": true },
+
+  // Deployed by the app maintainer (DNS + `wrangler deploy`) — the redirect URI registered
+  // with Cloudflare's OAuth client (CloudflareOAuthConfiguration.redirectURI) and the
+  // Associated Domain in Resources/AnglesiteMobile.entitlements both point here.
+  "routes": [{ "pattern": "auth.anglesite.dwk.io", "custom_domain": true }]
+}

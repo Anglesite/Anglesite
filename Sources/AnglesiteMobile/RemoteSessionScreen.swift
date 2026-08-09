@@ -1,5 +1,6 @@
 import SwiftUI
 import WebKit
+import AuthenticationServices
 import AnglesiteCore
 import AnglesiteBridge
 import AnglesiteIOS
@@ -113,6 +114,9 @@ private struct RemoteSandboxPreview: View {
 private struct RemoteConnectForm: View {
     @Bindable var model: RemoteSessionModel
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.webAuthenticationSession) private var webAuthenticationSession
+    @State private var isSigningInWithCloudflare = false
+    @State private var cloudflareSignInError: String?
 
     var body: some View {
         NavigationStack {
@@ -124,10 +128,28 @@ private struct RemoteConnectForm: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                     SecureField("Control Worker token", text: $model.controlToken)
+                    Button {
+                        Task { await connectViaCloudflare() }
+                    } label: {
+                        HStack {
+                            Text("Connect via Cloudflare")
+                            if isSigningInWithCloudflare {
+                                Spacer()
+                                ProgressView()
+                            }
+                        }
+                    }
+                    .disabled(isSigningInWithCloudflare)
                 } header: {
                     Text("Cloudflare Control Worker")
                 } footer: {
-                    Text("From the one-time Deploy to Cloudflare setup. The token is stored in the Keychain on this device only.")
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("From the one-time Deploy to Cloudflare setup. The token is stored in the Keychain on this device only.")
+                        if let cloudflareSignInError {
+                            Text(cloudflareSignInError)
+                                .foregroundStyle(.red)
+                        }
+                    }
                 }
 
                 Section {
@@ -154,6 +176,40 @@ private struct RemoteConnectForm: View {
                     Button("Done") { dismiss() }
                 }
             }
+        }
+    }
+
+    /// Runs the Cloudflare OAuth flow (#891) and fills the token field with the resulting
+    /// access token — the same field the paste flow writes, so nothing downstream changes.
+    /// The browser sheet's callback is matched via Associated Domains against the #891
+    /// callback Worker (`webcredentials:auth.anglesite.dwk.io`). Error split mirrors
+    /// `DeployModel.signInWithCloudflare` on macOS: cancel and consent-decline are silent,
+    /// everything else (including a `state` mismatch, never silently accepted) surfaces as
+    /// one plain-language line — raw errors can carry server response bodies that aren't fit
+    /// to show a non-technical site owner.
+    private func connectViaCloudflare() async {
+        cloudflareSignInError = nil
+        isSigningInWithCloudflare = true
+        defer { isSigningInWithCloudflare = false }
+        do {
+            let client = CloudflareOAuthClient(scope: AnglesiteTokenTemplate.oauthScope)
+            let request = try await client.makeAuthorizationRequest()
+            let callbackURL = try await webAuthenticationSession.authenticate(
+                using: request.authorizeURL,
+                callback: .https(
+                    host: CloudflareOAuthConfiguration.redirectURI.host!,
+                    path: CloudflareOAuthConfiguration.redirectURI.path),
+                additionalHeaderFields: [:])
+            let code = try CloudflareOAuthClient.authorizationCode(from: callbackURL, matching: request)
+            let token = try await client.exchange(code: code, for: request)
+            model.controlToken = token.accessToken
+        } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
+            // The user dismissed the browser sheet — normal abort, no error banner.
+        } catch CloudflareOAuthError.callbackDenied {
+            // The user declined on Cloudflare's own consent screen — same treatment as
+            // cancelling the sheet itself, not a connection failure.
+        } catch {
+            cloudflareSignInError = String(localized: "Couldn't sign in to Cloudflare. Try again in a moment.")
         }
     }
 }

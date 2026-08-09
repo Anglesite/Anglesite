@@ -13,5 +13,11 @@
 	<array>
 		<string>CloudDocuments</string>
 	</array>
+	<!-- Cloudflare OAuth callback interception (#891), mirroring
+	     Resources/AnglesiteMobile.entitlements. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:auth.anglesite.dwk.io</string>
+	</array>
 </dict>
 </plist>
