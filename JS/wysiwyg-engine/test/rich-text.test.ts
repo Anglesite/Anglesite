@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, vi } from "vitest";
-import { runsFromElement, DebouncedCommitter } from "../src/rich-text.js";
+import { runsFromElement, DebouncedCommitter, findAncestorTag, wrapRange, unwrapElement } from "../src/rich-text.js";
 
 function setBody(html: string): Element {
   document.body.innerHTML = `<div id="root">${html}</div>`;
@@ -105,5 +105,41 @@ describe("DebouncedCommitter", () => {
     expect(commits).toBe(0);
 
     vi.useRealTimers();
+  });
+});
+
+describe("findAncestorTag / wrapRange / unwrapElement", () => {
+  it("finds the nearest ancestor with the given tag, stopping at root", () => {
+    document.body.innerHTML = '<div id="root"><strong id="s"><span id="inner">x</span></strong></div>';
+    const root = document.getElementById("root");
+    const inner = document.getElementById("inner");
+    if (!root || !inner) throw new Error("fixture missing");
+    expect(findAncestorTag(inner, "strong", root)?.id).toBe("s");
+    expect(findAncestorTag(inner, "em", root)).toBeNull();
+  });
+
+  it("wrapRange wraps the range's contents in a new element and returns it", () => {
+    document.body.innerHTML = '<div id="root">hello world</div>';
+    const root = document.getElementById("root");
+    const textNode = root?.firstChild;
+    if (!root || !textNode) throw new Error("fixture missing");
+
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, 5); // "hello"
+
+    const wrapped = wrapRange(range, "strong", document);
+    expect(wrapped.tagName.toLowerCase()).toBe("strong");
+    expect(root.innerHTML).toBe("<strong>hello</strong> world");
+  });
+
+  it("unwrapElement replaces the element with its children in place", () => {
+    document.body.innerHTML = '<div id="root">a <strong id="s">bold</strong> b</div>';
+    const root = document.getElementById("root");
+    const strong = document.getElementById("s");
+    if (!root || !strong) throw new Error("fixture missing");
+
+    unwrapElement(strong);
+    expect(root.innerHTML).toBe("a bold b");
   });
 });

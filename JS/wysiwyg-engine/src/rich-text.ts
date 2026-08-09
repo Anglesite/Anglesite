@@ -92,3 +92,84 @@ export class DebouncedCommitter {
     }
   }
 }
+
+/** Walks up from `node` to the nearest ancestor (inclusive) whose tag matches `tagName`, stopping
+ *  at (and not including past) `root`. */
+export function findAncestorTag(node: Node, tagName: string, root: Element): HTMLElement | null {
+  let current: Node | null = node;
+  while (current && current !== root.parentNode) {
+    if (current.nodeType === Node.ELEMENT_NODE && (current as Element).tagName.toLowerCase() === tagName) {
+      return current as HTMLElement;
+    }
+    if (current === root) return null;
+    current = current.parentNode;
+  }
+  return null;
+}
+
+/** Wraps `range`'s contents in a new `tagName` element, replacing the range with it, and leaves
+ *  the element's contents selected (so a follow-up format command composes naturally). */
+export function wrapRange(range: Range, tagName: string, doc: Document = document): HTMLElement {
+  const wrapper = doc.createElement(tagName);
+  wrapper.appendChild(range.extractContents());
+  range.insertNode(wrapper);
+  range.selectNodeContents(wrapper);
+  const selection = doc.getSelection();
+  selection?.removeAllRanges();
+  selection?.addRange(range);
+  return wrapper;
+}
+
+/** Replaces `el` with its own children, at the same position — the inverse of `wrapRange`. */
+export function unwrapElement(el: HTMLElement): void {
+  const parent = el.parentNode;
+  if (!parent) return;
+  while (el.firstChild) parent.insertBefore(el.firstChild, el);
+  parent.removeChild(el);
+}
+
+export type FormatKind = "strong" | "em" | "code";
+
+const FORMAT_TAG: Record<FormatKind, string> = { strong: "strong", em: "em", code: "code" };
+
+/**
+ * Toggles `kind` on the current selection within `root`: unwraps if the selection is already
+ * inside a matching element, otherwise wraps it. Live-`Selection`-dependent — real behavior is
+ * covered by Playwright e2e goldens (Task 9), not jsdom, matching this package's established
+ * test split (jsdom has no real text-selection behavior to verify against).
+ */
+export function toggleInlineFormat(root: HTMLElement, kind: FormatKind, doc: Document = document): void {
+  const selection = doc.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.commonAncestorContainer)) return;
+
+  const tagName = FORMAT_TAG[kind];
+  const existing = findAncestorTag(range.commonAncestorContainer, tagName, root);
+  if (existing) {
+    unwrapElement(existing);
+  } else {
+    wrapRange(range, tagName, doc);
+  }
+}
+
+/** Wraps the current selection in `<a href>`, replacing any existing link ancestor first. */
+export function setLinkFormat(root: HTMLElement, href: string, doc: Document = document): void {
+  const selection = doc.getSelection();
+  if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return;
+  const range = selection.getRangeAt(0);
+  if (!root.contains(range.commonAncestorContainer)) return;
+
+  const existing = findAncestorTag(range.commonAncestorContainer, "a", root);
+  if (existing) unwrapElement(existing);
+  const anchor = wrapRange(range, "a", doc);
+  anchor.setAttribute("href", href);
+}
+
+/** Removes the link ancestor around the current selection or caret, if any. */
+export function unsetLinkFormat(root: HTMLElement, doc: Document = document): void {
+  const selection = doc.getSelection();
+  if (!selection || selection.rangeCount === 0) return;
+  const existing = findAncestorTag(selection.getRangeAt(0).commonAncestorContainer, "a", root);
+  if (existing) unwrapElement(existing);
+}
