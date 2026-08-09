@@ -1,4 +1,7 @@
 import type { RichTextRun } from "./types.js";
+import type { BlockId } from "./types.js";
+import type { WysiwygEngine } from "./engine.js";
+import { findBlockElement } from "./selection.js";
 
 const INLINE_TAG_TO_RUN_KIND: Record<string, RichTextRun["kind"]> = {
   strong: "strong",
@@ -172,4 +175,104 @@ export function unsetLinkFormat(root: HTMLElement, doc: Document = document): vo
   if (!selection || selection.rangeCount === 0) return;
   const existing = findAncestorTag(selection.getRangeAt(0).commonAncestorContainer, "a", root);
   if (existing) unwrapElement(existing);
+}
+
+export interface RichTextEditorOptions {
+  debounceMs?: number;
+}
+
+const DEFAULT_DEBOUNCE_MS = 400;
+
+/**
+ * Contenteditable lifecycle for one text block at a time (design doc §4). `enter()` activates
+ * editing and snapshots the current runs as the commit baseline; an `input` listener schedules a
+ * debounced `editText` commit; `exit()` flushes any pending commit and deactivates. `previousRuns`
+ * on every commit is always the baseline captured at `enter()`, not the prior debounce tick — so a
+ * version-mismatch rejection mid-edit discards the whole in-progress edit in one step rather than
+ * reconstructing intermediate state.
+ */
+export class RichTextEditor {
+  #engine: WysiwygEngine;
+  #committer: DebouncedCommitter;
+  #activeBlockId: BlockId | null = null;
+  #activeElement: HTMLElement | null = null;
+  #baselineRuns: RichTextRun[] = [];
+  #onInput = () => this.#committer.notifyChange();
+  #onBlur = () => this.exit();
+  #onKeydown = (event: KeyboardEvent) => {
+    if (event.key === "Escape") this.exit();
+  };
+
+  constructor(engine: WysiwygEngine, options: RichTextEditorOptions = {}) {
+    this.#engine = engine;
+    this.#committer = new DebouncedCommitter(() => this.#commit(), options.debounceMs ?? DEFAULT_DEBOUNCE_MS);
+  }
+
+  get activeBlockId(): BlockId | null {
+    return this.#activeBlockId;
+  }
+
+  enter(blockId: BlockId, root: ParentNode = document): void {
+    if (this.#activeBlockId === blockId) return;
+    if (this.#activeBlockId !== null) this.exit();
+
+    const el = findBlockElement(blockId, root);
+    if (!(el instanceof HTMLElement)) return;
+
+    this.#baselineRuns = this.#engine.modelSync.getBlock(blockId)?.richText ?? [];
+    this.#activeBlockId = blockId;
+    this.#activeElement = el;
+    el.contentEditable = "true";
+    el.addEventListener("input", this.#onInput);
+    el.addEventListener("blur", this.#onBlur);
+    el.addEventListener("keydown", this.#onKeydown);
+    el.focus();
+  }
+
+  /** Flushes any pending debounced commit and deactivates — called explicitly, or automatically on
+   *  blur/Escape (design doc §4: both commit immediately, alongside a format command). */
+  exit(): void {
+    this.#committer.flush();
+    if (this.#activeElement) {
+      this.#activeElement.removeEventListener("input", this.#onInput);
+      this.#activeElement.removeEventListener("blur", this.#onBlur);
+      this.#activeElement.removeEventListener("keydown", this.#onKeydown);
+      this.#activeElement.contentEditable = "false";
+    }
+    this.#activeBlockId = null;
+    this.#activeElement = null;
+    this.#baselineRuns = [];
+  }
+
+  toggleFormat(kind: FormatKind): void {
+    if (!this.#activeElement) return;
+    toggleInlineFormat(this.#activeElement, kind);
+    this.#committer.notifyChange();
+  }
+
+  setLink(href: string): void {
+    if (!this.#activeElement) return;
+    setLinkFormat(this.#activeElement, href);
+    this.#committer.notifyChange();
+  }
+
+  unsetLink(): void {
+    if (!this.#activeElement) return;
+    unsetLinkFormat(this.#activeElement);
+    this.#committer.notifyChange();
+  }
+
+  dispose(): void {
+    this.exit();
+  }
+
+  #commit(): void {
+    if (!this.#activeBlockId || !this.#activeElement) return;
+    void this.#engine.submit({
+      kind: "editText",
+      blockId: this.#activeBlockId,
+      runs: runsFromElement(this.#activeElement),
+      previousRuns: this.#baselineRuns,
+    });
+  }
 }
