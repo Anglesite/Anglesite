@@ -119,7 +119,7 @@ public final class PostComposerModel {
     ///   - client: The site's Micropub client.
     ///   - draftStore: Where queued/restored drafts persist.
     /// - Returns: A composer editing the post.
-    /// - Throws: ``MicropubError`` when the source fetch fails; the caller surfaces it in the
+    /// - Throws: `MicropubError` when the source fetch fails; the caller surfaces it in the
     ///   list UI rather than opening a broken composer.
     public static func openExisting(
         url: URL,
