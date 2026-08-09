@@ -32,8 +32,9 @@ test("toggling bold on a selection wraps it in <strong>, never a styled span", a
     selection?.addRange(range);
   });
 
+  // No explicit exit()/flush() here — toggleFormat() must commit on its own, immediately, per the
+  // documented contract (design doc §4: "immediately on blur, Escape, or a format command").
   await page.evaluate(() => window.__toggleFormat("strong"));
-  await page.evaluate(() => window.__richText.exit());
   await page.waitForFunction(() => document.title === "event:applied");
 
   const runs = await page.evaluate(() => window.__engine.modelSync.getBlock("t1")?.richText);
@@ -41,6 +42,42 @@ test("toggling bold on a selection wraps it in <strong>, never a styled span", a
     { kind: "strong", text: "Edit" },
     { kind: "text", text: " " },
     { kind: "strong", text: "me" },
+  ]);
+});
+
+test("toggling italic on a selection already inside bold nests the formats — composition survives commit", async ({
+  page,
+}) => {
+  await page.goto("/fixture.html");
+  await page.evaluate(() => window.__richText.enter("t1"));
+
+  const block = page.locator('[data-anglesite-block-id="t1"]');
+  await block.evaluate((el) => {
+    const strong = el.querySelector("strong");
+    const textNode = strong?.firstChild;
+    if (!strong || !textNode) throw new Error("expected an existing <strong> with a text node");
+    const range = document.createRange();
+    range.setStart(textNode, 0);
+    range.setEnd(textNode, 1); // "m" (of "me")
+    const selection = window.getSelection();
+    selection?.removeAllRanges();
+    selection?.addRange(range);
+  });
+
+  await page.evaluate(() => window.__toggleFormat("em"));
+  await page.waitForFunction(() => document.title === "event:applied");
+
+  const runs = await page.evaluate(() => window.__engine.modelSync.getBlock("t1")?.richText);
+  expect(runs).toEqual([
+    { kind: "text", text: "Edit " },
+    {
+      kind: "strong",
+      text: "me",
+      children: [
+        { kind: "em", text: "m" },
+        { kind: "text", text: "e" },
+      ],
+    },
   ]);
 });
 

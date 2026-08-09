@@ -18,6 +18,11 @@ const INLINE_TAG_TO_RUN_KIND: Record<string, RichTextRun["kind"]> = {
  * contenteditable implementation might inject — a stray `<div>` from a paste, a styled `<span>` —
  * is not represented; its text content flattens into the surrounding run. This is the structural
  * backstop for roundtrip honesty, independent of how careful the editing UI upstream is.
+ *
+ * Composing two recognized formats (bold containing italic, etc.) nests one recognized tag inside
+ * another — that nesting is preserved via `RichTextRun.children`, not flattened. `text` on a
+ * composed run still carries the full flattened content, so a consumer that ignores `children`
+ * gets a reasonable plain-text fallback rather than nothing.
  */
 export function runsFromElement(el: Element): RichTextRun[] {
   const runs: RichTextRun[] = [];
@@ -42,8 +47,20 @@ function runFromNode(node: ChildNode): RichTextRun | null {
   if (text.length === 0) return null;
 
   if (!kind) return { kind: "text", text };
-  if (kind === "link") return { kind, text, href: el.getAttribute("href") ?? "" };
-  return { kind, text };
+
+  // Composing two recognized formats (e.g. toggling italic on a selection already inside a bold
+  // run) nests one recognized tag inside another — an entirely ordinary editing gesture. Recurse
+  // so that composition survives a commit instead of collapsing to a single flat run via
+  // `textContent`; `children` is populated only when a genuinely nested format is present, so a
+  // plain (non-composed) recognized run stays exactly as flat as before.
+  const children = runsFromElement(el);
+  const isComposed = children.some((child) => child.kind !== "text");
+
+  if (kind === "link") {
+    const href = el.getAttribute("href") ?? "";
+    return isComposed ? { kind, text, href, children } : { kind, text, href };
+  }
+  return isComposed ? { kind, text, children } : { kind, text };
 }
 
 function mergeAdjacentTextRuns(runs: RichTextRun[]): RichTextRun[] {

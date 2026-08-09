@@ -48,6 +48,46 @@ describe("runsFromElement", () => {
     ]);
   });
 
+  it("preserves nested recognized formats via children, instead of flattening them away", () => {
+    // The ordinary composition gesture: toggling italic on a sub-selection already inside a bold
+    // run nests <em> inside <strong>. Before this test's fix, runFromNode() read el.textContent on
+    // the outer <strong> and discarded the inner <em> entirely.
+    const root = setBody("<strong>Ed<em>i</em>t</strong>");
+    expect(runsFromElement(root)).toEqual([
+      {
+        kind: "strong",
+        text: "Edit",
+        children: [
+          { kind: "text", text: "Ed" },
+          { kind: "em", text: "i" },
+          { kind: "text", text: "t" },
+        ],
+      },
+    ]);
+  });
+
+  it("does not add a children field to a plain (non-composed) recognized run", () => {
+    // children is populated only when genuine composition is present — a plain <strong> stays
+    // exactly as flat as it was before nesting support existed.
+    const root = setBody("<strong>bold</strong>");
+    expect(runsFromElement(root)).toEqual([{ kind: "strong", text: "bold" }]);
+  });
+
+  it("preserves nesting inside a link run alongside its href", () => {
+    const root = setBody('<a href="/x">see <strong>this</strong></a>');
+    expect(runsFromElement(root)).toEqual([
+      {
+        kind: "link",
+        text: "see this",
+        href: "/x",
+        children: [
+          { kind: "text", text: "see " },
+          { kind: "strong", text: "this" },
+        ],
+      },
+    ]);
+  });
+
   it("flattens unrecognized markup to its text content — the honest-runs backstop", () => {
     const root = setBody('<div>block</div><span style="color:red">styled</span>');
     expect(runsFromElement(root)).toEqual([{ kind: "text", text: "blockstyled" }]);
