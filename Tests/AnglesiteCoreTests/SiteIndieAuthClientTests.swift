@@ -238,4 +238,98 @@ struct SiteIndieAuthClientTests {
         }
         #expect(transportCallCount == 2)
     }
+
+    // MARK: App (ASWebAuthenticationSession) redirect flow — #868
+
+    @Test("makeAuthorizationRequest(metadataURL:) fetches exactly the discovered metadata URL")
+    func metadataURLVariantFetchesGivenURL() async throws {
+        // Discovery (rel=indieauth-metadata) can point anywhere — not necessarily the
+        // hardcoded well-known path the siteURL variant assumes.
+        let discovered = URL(string: "https://owner.example/custom/metadata-doc")!
+        let requested = LockedBox<URL?>(nil)
+        let client = SiteIndieAuthClient(transport: { [metadataJSON] request in
+            requested.set(request.url)
+            return (metadataJSON, self.response(200))
+        })
+        let request = try await client.makeAuthorizationRequest(
+            metadataURL: discovered, scope: SiteIndieAuthAppAuth.micropubScope,
+            clientID: SiteIndieAuthAppAuth.clientID(siteURL: siteURL),
+            redirectURI: SiteIndieAuthAppAuth.redirectURI(siteURL: siteURL)
+        )
+        #expect(requested.get() == discovered)
+        #expect(request.authorizeURL.path == "/authorize")
+    }
+
+    @Test("app clientID/redirectURI derive same-origin https URLs on the site itself")
+    func appClientIDAndRedirectDeriveFromSite() {
+        // A trailing slash or path on the stored SITE_URL must not leak into the derivation.
+        let siteWithPath = URL(string: "https://owner.example/blog/")!
+        let clientID = SiteIndieAuthAppAuth.clientID(siteURL: siteWithPath)
+        let redirectURI = SiteIndieAuthAppAuth.redirectURI(siteURL: siteWithPath)
+        #expect(clientID == URL(string: "https://owner.example/indieauth/app"))
+        // The exact path the template worker's bridge route serves.
+        #expect(redirectURI == URL(string: "https://owner.example/indieauth/app-callback"))
+        #expect(clientID.scheme == "https")
+    }
+
+    @Test("micropub scope asks for exactly what @dwk/micropub's endpoints require")
+    func micropubScopeMatchesServer() {
+        #expect(SiteIndieAuthAppAuth.micropubScope == "create update delete media")
+    }
+
+    @Test("a bridged custom-scheme callback yields the code when matched against expectedCallback")
+    func customSchemeCallbackYieldsCode() throws {
+        let request = makeAppRequest(state: "st-868")
+        let callback = URL(string: "io.dwk.anglesite://indieauth-callback?code=the-code&state=st-868")!
+        let code = try SiteIndieAuthClient.authorizationCode(
+            from: callback, matching: request, expectedCallback: SiteIndieAuthAppAuth.expectedCallback)
+        #expect(code == "the-code")
+    }
+
+    @Test("a custom-scheme callback for some other app throws .redirectURIMismatch")
+    func wrongSchemeCallbackMismatch() {
+        let request = makeAppRequest(state: "st-868")
+        let callback = URL(string: "other.app://indieauth-callback?code=the-code&state=st-868")!
+        #expect(throws: SiteIndieAuthError.redirectURIMismatch) {
+            _ = try SiteIndieAuthClient.authorizationCode(
+                from: callback, matching: request, expectedCallback: SiteIndieAuthAppAuth.expectedCallback)
+        }
+    }
+
+    @Test("a bridged callback with a stale state still throws .stateMismatch")
+    func bridgedCallbackStateMismatch() {
+        let request = makeAppRequest(state: "st-fresh")
+        let callback = URL(string: "io.dwk.anglesite://indieauth-callback?code=c&state=st-stale")!
+        #expect(throws: SiteIndieAuthError.stateMismatch) {
+            _ = try SiteIndieAuthClient.authorizationCode(
+                from: callback, matching: request, expectedCallback: SiteIndieAuthAppAuth.expectedCallback)
+        }
+    }
+
+    @Test("the existing two-argument validation still matches against the request's redirectURI")
+    func twoArgumentValidationUnchanged() throws {
+        let request = makeRequest(state: "abc123")
+        let callback = URL(string: "http://127.0.0.1:51789/callback?code=ok&state=abc123")!
+        #expect(try SiteIndieAuthClient.authorizationCode(from: callback, matching: request) == "ok")
+    }
+
+    private func makeAppRequest(state: String) -> SiteIndieAuthRequest {
+        SiteIndieAuthRequest(
+            authorizeURL: URL(string: "https://owner.example/authorize")!,
+            state: state, codeVerifier: "verifier",
+            clientID: SiteIndieAuthAppAuth.clientID(siteURL: siteURL),
+            redirectURI: SiteIndieAuthAppAuth.redirectURI(siteURL: siteURL),
+            tokenEndpoint: URL(string: "https://owner.example/token")!
+        )
+    }
+}
+
+/// Tiny thread-safe box so a `@Sendable` transport closure can report what it saw without
+/// tripping strict-concurrency capture rules.
+private final class LockedBox<Value>: @unchecked Sendable {
+    private let lock = NSLock()
+    private var value: Value
+    init(_ value: Value) { self.value = value }
+    func get() -> Value { lock.withLock { value } }
+    func set(_ newValue: Value) { lock.withLock { value = newValue } }
 }
