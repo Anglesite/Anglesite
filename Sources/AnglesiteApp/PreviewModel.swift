@@ -108,9 +108,23 @@ final class PreviewModel {
     /// `PreviewView`'s `onWebView` callback (`SiteWindow.previewPane(for:)`) and `updateNSView`
     /// (Finding 6's teardown-symmetry fix) calling `mountEngine()` again once the new web view
     /// exists.
-    func enterEditMode(seedModel: BlockModel) async {
+    ///
+    /// `undoManager` seeds the freshly-built canvas's `undoCoordinator.undoManager` (#1225
+    /// final-review round 2, Finding A). `PreviewModel` itself has no way to reach the window's
+    /// `UndoManager` — `SiteWindowModel.windowUndoManager`'s `didSet` fan-out only fires when the
+    /// environment value arrives/changes, which happens once, early (`SiteWindow`'s
+    /// `.onChange(of: undoManager, initial: true)`), well before the owner has toggled edit mode
+    /// on and this `wysiwygCanvas` exists to receive it. Without threading it through here, every
+    /// canvas built by this method would keep a permanently-nil `undoManager` and
+    /// `WYSIWYGUndoCoordinator.register(...)`'s `guard let undoManager else { return nil }` would
+    /// silently drop every canvas edit off the undo stack. The caller
+    /// (`PreviewNavigationCommands`'s Edit Page toggle) reads the current `SiteWindowModel
+    /// .windowUndoManager` at the moment it flips the toggle on, so a later off→on cycle picks up
+    /// whatever manager is current then too — not just the first entry.
+    func enterEditMode(seedModel: BlockModel, undoManager: UndoManager?) async {
         let transport = StubWYSIWYGHostTransport(model: seedModel)
         let canvas = WYSIWYGCanvasController(initialModel: seedModel, transport: transport)
+        canvas.undoCoordinator.undoManager = undoManager
         wysiwygCanvas = canvas
         if let webView {
             canvas.webView = webView
