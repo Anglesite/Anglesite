@@ -25,7 +25,8 @@ the config and prompt below verbatim.
   already pre-approves `swift test`, `swift build`, `xcodebuild`, plus the global
   `defaultMode: auto`)
 - **Schedule:** Custom, every 4 hours — enabled only after a clean dry run (see below)
-- **Routine ID / link:** _(fill in after creation — see the "Creating the routine" section)_
+- **Routine ID / link:** not exposed — see "Creating the routine" below. Identify this
+  routine by its **name** (`anglesite-factory-repro-diagnose`) instead.
 
 ## Prompt
 
@@ -181,11 +182,18 @@ Guardrails — follow strictly:
 
 ## Creating the routine
 
-_(To be filled in as this plan executes: date created, who created it, the assigned routine
-ID/link from the claude.ai Routines page.)_
+Created 2026-08-10 by the repo owner via claude.ai's "New routine → Local" UI, using the
+Config and Prompt above verbatim, with the schedule left on Manual pending the dry run below.
+
+**No routine ID/link is available to record.** Unlike Phase A's cloud routine
+(`docs/issue-intake-routine.md`), a Local routine's numeric ID isn't surfaced in the
+claude.ai app UI, and `RemoteTrigger action:"list"` (this session's API access) only
+returns cloud/`ccr` triggers — Local routines don't appear there either. This routine has
+to be found and managed by its **name** in the Routines UI, not by ID. Recorded here as a
+known platform limitation, not a gap in this doc.
 
 ## Dry-run findings
 
-_(To be filled in by Task 4 below: which issue it picked, what it posted, whether labels
+_(To be filled in by Task 3 below: which issue it picked, what it posted, whether labels
 transitioned correctly, whether the worktree was actually cleaned up afterward, and the
 posting identity it ran under.)_
