@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import AnglesiteAppCore
 @testable import AnglesiteCore
@@ -82,6 +83,19 @@ struct WYSIWYGCanvasControllerTests {
 
         #expect(controller.model.rootIds.isEmpty)
         #expect(controller.selectedBlockId == nil)
+    }
+
+    @Test("insertBlock inserts the palette entry's component at the page root")
+    func insertBlockFromPalette() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+        let entry = WYSIWYGBlockPaletteEntry(id: UUID(), displayName: "Paragraph", kind: .text, componentName: "p")
+
+        await controller.insertBlock(entry)
+
+        #expect(controller.model.rootIds.count == 1)
+        let insertedId = controller.model.rootIds[0]
+        #expect(controller.model.blocks[insertedId]?.componentName == "p")
     }
 }
 

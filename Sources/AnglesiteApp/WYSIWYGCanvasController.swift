@@ -66,6 +66,12 @@ final class WYSIWYGCanvasController {
     /// own pattern.
     weak var webView: WKWebView?
 
+    /// The Insert menu's Component submenu source (#1225 Task 12). Static interim stand-in for
+    /// the real CEM-aligned theme manifest, which needs #1222's sidecar `get_page_model`-shaped
+    /// service that doesn't exist yet — see `WYSIWYGCanvasController.stubBlockPalette`'s doc
+    /// comment below.
+    let blockPalette: [WYSIWYGBlockPaletteEntry] = WYSIWYGCanvasController.stubBlockPalette
+
     init(initialModel: BlockModel, transport: any WYSIWYGHostTransport) {
         self.model = initialModel
         self.transport = transport
@@ -137,6 +143,17 @@ final class WYSIWYGCanvasController {
         selectedBlockId = nil
     }
 
+    /// The Insert menu's Component submenu (#1225 Task 12) — appends a brand-new block built
+    /// from a palette entry at the page root. Unlike `duplicateSelectedBlock()`, this always
+    /// inserts unconditionally at the root regardless of `selectedBlockId`: there's no existing
+    /// block to guard against misplacing, since the whole point is adding a *new* one from the
+    /// palette, not acting on the current selection.
+    func insertBlock(_ entry: WYSIWYGBlockPaletteEntry) async {
+        let newId = UUID().uuidString
+        let content = BlockNodeContent(kind: entry.kind, componentName: entry.componentName, props: [:], slots: [:], sourceSpan: [0, 0])
+        await submit(.insertBlock(parentId: rootParentID, slot: "main", index: model.rootIds.count, newId: newId, block: content))
+    }
+
     /// The Format menu's Strong/Emphasis/Add Link entry point (#1225 Task 10) — posts into the
     /// mounted `RichTextEditor` (`JS/wysiwyg-engine/src/rich-text.ts`) via the same global the
     /// build's `mount.ts` exposes it under. `command` is `"strong"`/`"em"`/`"link"`; `⌘K` (inline
@@ -162,6 +179,25 @@ final class WYSIWYGCanvasController {
             .replacingOccurrences(of: "\"", with: "\\\"")
         return "\"\(escaped)\""
     }
+}
+
+/// One entry in the Insert menu's Component submenu (#1225 Task 12) — what `WYSIWYGCanvasController
+/// .insertBlock(_:)` builds a new `BlockNodeContent` from.
+struct WYSIWYGBlockPaletteEntry: Identifiable, Sendable {
+    let id: UUID
+    let displayName: String
+    let kind: BlockKind
+    let componentName: String
+}
+
+extension WYSIWYGCanvasController {
+    /// Static interim palette until #1222's sidecar model service supplies a real
+    /// CEM-aligned theme manifest. Kept intentionally small — enough to exercise the Insert
+    /// menu's data-driven wiring, not a stand-in for real theme block coverage.
+    static let stubBlockPalette: [WYSIWYGBlockPaletteEntry] = [
+        WYSIWYGBlockPaletteEntry(id: UUID(), displayName: "Paragraph", kind: .text, componentName: "p"),
+        WYSIWYGBlockPaletteEntry(id: UUID(), displayName: "Heading", kind: .text, componentName: "h2"),
+    ]
 }
 
 /// Lets `PreviewView` register `WYSIWYGScriptHandler` directly against the controller instead of

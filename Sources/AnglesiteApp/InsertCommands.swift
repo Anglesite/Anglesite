@@ -7,6 +7,12 @@ import SwiftUI
 /// disabled items here; their variant submenus arrive with the component library.
 struct InsertCommands: Commands {
     @FocusedValue(\.newContentActions) private var actions
+    @FocusedValue(\.preview) private var preview
+
+    /// The focused window's WYSIWYG canvas, when edit mode is on — source of `blockPalette` for
+    /// the Component submenu below (#1225 Task 12). `nil` (no palette entries shown) whenever
+    /// edit mode is off, same as `preview` itself being unfocused.
+    private var wysiwygCanvas: WYSIWYGCanvasController? { preview?.wysiwygCanvas }
 
     var body: some Commands {
         CommandMenu("Insert") {
@@ -17,6 +23,15 @@ struct InsertCommands: Commands {
                     actions?.newComponent()
                 }
                 .disabled(actions == nil)
+
+                if let canvas = wysiwygCanvas {
+                    Divider()
+                    ForEach(canvas.blockPalette) { entry in
+                        Button(entry.displayName) {
+                            Task { await canvas.insertBlock(entry) }
+                        }
+                    }
+                }
             }
 
             Divider()
