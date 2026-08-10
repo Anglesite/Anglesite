@@ -237,6 +237,16 @@ public enum DeployCoordinator {
             ?? SiteSlug.derive(from: siteName ?? siteID)
     }
 
+    /// Whether this site is a hosted community (V-5.1b, #907) — read from `.site-config`'s
+    /// `SITE_TYPE`, the same key `SiteScaffolder.appendSiteConfig` writes from
+    /// `NewSiteDraft.siteType` at creation time. There's no `SiteSettings` field for site kind
+    /// (`SiteType` is a creation-time-only concept), so this is the one read-through-the-file
+    /// check the deploy path needs to decide whether to compose a Group actor.
+    public static func resolveIsHostedCommunity(siteDirectory: URL) -> Bool {
+        let existingConfig = (try? WebsiteAnalyticsAsset.loadConfig(siteDirectory: siteDirectory)) ?? ""
+        return SiteConfigFile.value(forKey: "SITE_TYPE", in: existingConfig) == SiteType.community.rawValue
+    }
+
     /// The site's best-known public URL for `WorkerComposition`'s `SITE_URL` var (#359) — the
     /// address the composed Worker uses for its own outbound requests, e.g. `CommunityMembershipClient`'s
     /// ActivityPub actor ID and outbox (#1085). The workers.dev host `DeployCommand.persistSiteURL`
@@ -384,13 +394,22 @@ public enum DeployCoordinator {
         /// `nil` when ActivityPub isn't active this deploy; leaves the baseline unchanged so a
         /// deactivated-then-reactivated actor is still compared against its real last-served
         /// handle rather than losing the baseline.
-        apUsername: String? = nil
+        apUsername: String? = nil,
+        /// This deploy's resolved ActivityPub actor IRI (`ActivityPubActor.actorURL(siteURL:)`),
+        /// passed only when this site is a hosted community (V-5.1b, #907) whose Worker was just
+        /// composed with a Group actor. Advances `settings.communityActorURL` — the field
+        /// `CommunityMembersSync`/the Moderation section gate on — from inert to live. `nil` for
+        /// every other site, leaving the field untouched (it's already `nil` there).
+        communityActorURL: URL? = nil
     ) async {
         var updated = settings
         updated.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
         updated.provisionedWorkerResources = resources
         if let apUsername {
             updated.lastDeployedAPUsername = apUsername
+        }
+        if let communityActorURL {
+            updated.communityActorURL = communityActorURL
         }
         try? await configStore.save(updated)
     }

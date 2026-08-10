@@ -141,6 +141,23 @@ struct DeployCoordinatorTests {
         #expect(name == SiteSlug.derive(from: "site-1"))
     }
 
+    // MARK: - resolveIsHostedCommunity (#907)
+
+    @Test("resolveIsHostedCommunity reads SITE_TYPE=community from .site-config")
+    func resolveIsHostedCommunityReadsSiteType() throws {
+        let dir = try temporaryDirectory()
+        try "SITE_TYPE=community\n".write(to: dir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
+        #expect(DeployCoordinator.resolveIsHostedCommunity(siteDirectory: dir))
+    }
+
+    @Test("resolveIsHostedCommunity is false for every other site kind, including no .site-config at all")
+    func resolveIsHostedCommunityFalseOtherwise() throws {
+        let dir = try temporaryDirectory()
+        #expect(!DeployCoordinator.resolveIsHostedCommunity(siteDirectory: dir))
+        try "SITE_TYPE=business\n".write(to: dir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
+        #expect(!DeployCoordinator.resolveIsHostedCommunity(siteDirectory: dir))
+    }
+
     // MARK: - deployLogSources
 
     @Test("deployLogSources includes worker-provision:<siteID> so SocialWorkerProvisionCommand's wrangler output reaches the drawer")
@@ -207,6 +224,21 @@ struct DeployCoordinatorTests {
         #expect(saved.provisionedWorkerResources == resources)
         // Unrelated fields on the passed-in settings are preserved, not clobbered.
         #expect(saved.displayName == "Keep Me")
+    }
+
+    @Test("persistProvisionedResources writes communityActorURL when given one")
+    func persistProvisionedResourcesWritesCommunityActorURL() async throws {
+        let dir = try temporaryDirectory()
+        let configStore = SiteConfigStore(configDirectory: dir)
+        let actorURL = URL(string: "https://my-community.example/users/site")!
+
+        await DeployCoordinator.persistProvisionedResources(
+            configStore: configStore, settings: SiteSettings(), effectiveActiveIDs: [],
+            resources: .init(), communityActorURL: actorURL
+        )
+
+        let saved = try await configStore.load()
+        #expect(saved.communityActorURL == actorURL)
     }
 
     // MARK: - ActivityPub handle resolution (#1239)

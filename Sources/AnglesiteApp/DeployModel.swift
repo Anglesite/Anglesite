@@ -837,6 +837,7 @@ final class DeployModel {
         // `provision()` for the wrangler.toml var.
         let resolvedApUsername = DeployCoordinator.resolveEffectiveActivityPubUsername(siteDirectory: siteDirectory)
         let acknowledgesPaidPlan = settings.webmentionReceivePaidPlanAcknowledged ?? false
+        let isHostedCommunity = DeployCoordinator.resolveIsHostedCommunity(siteDirectory: siteDirectory)
         let provisionResult = await socialCommand.provision(
             siteID: siteID,
             siteDirectory: siteDirectory,
@@ -848,7 +849,9 @@ final class DeployModel {
             displayName: settings.displayName,
             apUsername: apUsername,
             acknowledgesPaidPlan: acknowledgesPaidPlan,
-            inboxCaptureEnabled: settings.inboxCaptureEnabled ?? false
+            inboxCaptureEnabled: settings.inboxCaptureEnabled ?? false,
+            activityPubActorType: isHostedCommunity ? "Group" : nil,
+            moderators: isHostedCommunity ? settings.moderators : nil
         )
 
         if case .webmentionPaidPlanConfirmationNeeded = provisionResult {
@@ -877,11 +880,13 @@ final class DeployModel {
         // on a specific provisioned resource). Computed before the persist call below too: it
         // also gates whether this deploy advances the `lastDeployedAPUsername` baseline (#1239).
         let activitypubProvisioned = workers.contains(where: { $0.id == WorkerComposition.activitypubWorkerID })
-        if case .succeeded(_, let resources, _) = provisionResult {
+        if case .succeeded(let deployedURL, let resources, _) = provisionResult {
             await DeployCoordinator.persistProvisionedResources(
                 configStore: configStore, settings: settings,
                 effectiveActiveIDs: effectiveActiveIDs, resources: resources,
-                apUsername: activitypubProvisioned ? resolvedApUsername : nil
+                apUsername: activitypubProvisioned ? resolvedApUsername : nil,
+                communityActorURL: (isHostedCommunity && activitypubProvisioned)
+                    ? ActivityPubActor.actorURL(siteURL: deployedURL) : nil
             )
             websubProvisioned = workers.contains(where: { $0.id == WorkerComposition.websubWorkerID })
                 && resources.websubQueueName != nil
