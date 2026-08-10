@@ -36,6 +36,7 @@ jobs:
       wysiwyg: ${{ steps.filter.outputs.wysiwyg }}
       template: ${{ steps.filter.outputs.template }}
       helpBook: ${{ steps.filter.outputs.helpBook }}
+      workers: ${{ steps.filter.outputs.workers }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -92,18 +93,20 @@ jobs:
             return 1
           }
 
-          swift=false; js=false; wysiwyg=false; template=false; helpBook=false
+          swift=false; js=false; wysiwyg=false; template=false; helpBook=false; workers=false
           matches 'Package.swift' 'Package.resolved' 'project.yml' 'Sources/**' 'Tests/**' 'Resources/Template/**' 'Resources/Attributions/**' 'scripts/**' '.github/workflows/ci.yml' && swift=true
           matches 'JS/edit-overlay/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && js=true
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
           matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
           matches 'Resources/Anglesite.help/**' 'scripts/check-help-links.sh' '.github/workflows/ci.yml' && helpBook=true
+          matches 'Workers/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && workers=true
 
           echo "swift=$swift" >> "$GITHUB_OUTPUT"
           echo "js=$js" >> "$GITHUB_OUTPUT"
           echo "wysiwyg=$wysiwyg" >> "$GITHUB_OUTPUT"
           echo "template=$template" >> "$GITHUB_OUTPUT"
           echo "helpBook=$helpBook" >> "$GITHUB_OUTPUT"
+          echo "workers=$workers" >> "$GITHUB_OUTPUT"
 
   edit-overlay:
     name: JS edit-overlay (lint/typecheck/test)
@@ -188,6 +191,33 @@ jobs:
       # contract or breaks astro build fails this lane.
       - run: npm run check:packs
       - run: npm run build:packs
+
+  workers-tests:
+    name: Workers (vitest)
+    needs: changes
+    if: needs.changes.outputs.workers == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    # Cloudflare Worker projects under Workers/ each carry their own Vitest suite (plain
+    # vitest importing the worker module — this repo's Workers-testing convention). Until
+    # #1368 nothing ran them in CI, so e.g. the oauth-callback Worker's "never reflects the
+    # OAuth code" guarantee only held when someone remembered to run the tests by hand.
+    strategy:
+      fail-fast: false
+      matrix:
+        project: [ControlWorker, anglesite-oauth-callback]
+    defaults:
+      run:
+        working-directory: Workers/${{ matrix.project }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: scripts/node-version.txt
+          cache: npm
+          cache-dependency-path: Workers/${{ matrix.project }}/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm test
 
   help-book-links:
     name: Help Book links
@@ -848,6 +878,7 @@ jobs:
       - edit-overlay
       - wysiwyg-engine
       - help-book-links
+      - workers-tests
       - linux-build-test
       - build-test
       - timing-sensitive-tests

@@ -28,6 +28,13 @@ const CALLBACK_FALLBACK_HTML = `<!doctype html>
 </html>
 `;
 
+// Defense-in-depth on an auth-adjacent surface: neither response reflects request data,
+// but a deny-all CSP and nosniff cost nothing and cap the blast radius if that ever changes.
+const SECURITY_HEADERS = {
+  "content-security-policy": "default-src 'none'",
+  "x-content-type-options": "nosniff",
+};
+
 export default {
   fetch(request: Request): Response {
     const path = new URL(request.url).pathname;
@@ -45,11 +52,11 @@ export default {
     if (path === "/.well-known/apple-app-site-association") {
       // Apple requires this served as application/json, directly (no redirects).
       return new Response(JSON.stringify(APPLE_APP_SITE_ASSOCIATION), {
-        headers: { "content-type": "application/json" },
+        headers: { "content-type": "application/json", ...SECURITY_HEADERS },
       });
     }
     return new Response(CALLBACK_FALLBACK_HTML, {
-      headers: { "content-type": "text/html; charset=utf-8" },
+      headers: { "content-type": "text/html; charset=utf-8", ...SECURITY_HEADERS },
     });
   },
 };

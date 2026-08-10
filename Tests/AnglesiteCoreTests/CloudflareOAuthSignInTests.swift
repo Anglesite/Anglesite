@@ -1,12 +1,11 @@
 import Testing
 import Foundation
-import AnglesiteCore
-@testable import AnglesiteAppCore
+@testable import AnglesiteCore
 
-/// `.timeLimit`: see #1349/#1355 — the full `AnglesiteAppTests` target has hung indefinitely
-/// under local machine contention (many concurrent `swift test` runs oversubscribing the
-/// cooperative thread pool), with this suite one observed stall point. A wedged test now fails
-/// as an unambiguous time-limit violation instead of hanging the whole run for hours.
+/// `.timeLimit`: see #1349/#1355 — under local machine contention (many concurrent `swift test`
+/// runs oversubscribing the cooperative thread pool) this suite was one observed stall point
+/// back when it lived in `AnglesiteAppTests`. A wedged test now fails as an unambiguous
+/// time-limit violation instead of hanging the whole run for hours.
 @Suite(.timeLimit(.minutes(1)))
 struct CloudflareOAuthSignInTests {
     private let discoveryURL = URL(string: "https://dash.cloudflare.com/.well-known/openid-configuration")!

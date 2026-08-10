@@ -128,6 +128,9 @@ private struct RemoteConnectForm: View {
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
                     SecureField("Control Worker token", text: $model.controlToken)
+                        // Disabled alongside the button below: a token pasted while the browser
+                        // sheet is up would be silently overwritten when the flow completes.
+                        .disabled(isSigningInWithCloudflare)
                     Button {
                         Task { await connectViaCloudflare() }
                     } label: {
@@ -179,36 +182,43 @@ private struct RemoteConnectForm: View {
         }
     }
 
-    /// Runs the Cloudflare OAuth flow (#891) and fills the token field with the resulting
-    /// access token — the same field the paste flow writes, so nothing downstream changes.
-    /// The browser sheet's callback is matched via Associated Domains against the #891
-    /// callback Worker (`webcredentials:auth.anglesite.dwk.io`). Error split mirrors
-    /// `DeployModel.signInWithCloudflare` on macOS: cancel and consent-decline are silent,
-    /// everything else (including a `state` mismatch, never silently accepted) surfaces as
-    /// one plain-language line — raw errors can carry server response bodies that aren't fit
-    /// to show a non-technical site owner.
+    /// Runs the Cloudflare OAuth flow (#891) via the shared `CloudflareOAuthSignIn`
+    /// orchestration (AnglesiteCore — the same sequencing `DeployModel` uses on macOS) and
+    /// fills the token field with the resulting access token — the same field the paste flow
+    /// writes, so nothing downstream changes. The browser sheet's callback is matched via
+    /// Associated Domains against the #891 callback Worker
+    /// (`webcredentials:auth.anglesite.dwk.io`). Error split mirrors
+    /// `DeployModel.signInWithCloudflare`: cancel and consent-decline are silent, everything
+    /// else (including a `state` mismatch, never silently accepted) surfaces as one
+    /// plain-language line — raw errors can carry server response bodies that aren't fit to
+    /// show a non-technical site owner, so the real error goes to `LogCenter` instead.
     private func connectViaCloudflare() async {
         cloudflareSignInError = nil
         isSigningInWithCloudflare = true
         defer { isSigningInWithCloudflare = false }
+        let session = webAuthenticationSession
+        let signIn = CloudflareOAuthSignIn(
+            client: CloudflareOAuthClient(scope: AnglesiteTokenTemplate.oauthScope),
+            present: { authorizeURL in
+                try await session.authenticate(
+                    using: authorizeURL,
+                    callback: .https(
+                        host: CloudflareOAuthConfiguration.redirectURI.host!,
+                        path: CloudflareOAuthConfiguration.redirectURI.path),
+                    additionalHeaderFields: [:])
+            })
         do {
-            let client = CloudflareOAuthClient(scope: AnglesiteTokenTemplate.oauthScope)
-            let request = try await client.makeAuthorizationRequest()
-            let callbackURL = try await webAuthenticationSession.authenticate(
-                using: request.authorizeURL,
-                callback: .https(
-                    host: CloudflareOAuthConfiguration.redirectURI.host!,
-                    path: CloudflareOAuthConfiguration.redirectURI.path),
-                additionalHeaderFields: [:])
-            let code = try CloudflareOAuthClient.authorizationCode(from: callbackURL, matching: request)
-            let token = try await client.exchange(code: code, for: request)
-            model.controlToken = token.accessToken
+            let result = try await signIn.run()
+            model.controlToken = result.token.accessToken
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             // The user dismissed the browser sheet — normal abort, no error banner.
         } catch CloudflareOAuthError.callbackDenied {
             // The user declined on Cloudflare's own consent screen — same treatment as
             // cancelling the sheet itself, not a connection failure.
         } catch {
+            await LogCenter.shared.append(
+                source: "cloudflare-oauth-sign-in", stream: .stderr,
+                text: "Cloudflare sign-in failed: \(error)")
             cloudflareSignInError = String(localized: "Couldn't sign in to Cloudflare. Try again in a moment.")
         }
     }

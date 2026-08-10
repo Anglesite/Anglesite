@@ -39,6 +39,16 @@ describe("GET /oauth-callback", () => {
   });
 });
 
+describe("security headers", () => {
+  for (const path of ["/.well-known/apple-app-site-association", "/oauth-callback"]) {
+    it(`sets nosniff and a deny-all CSP on ${path}`, async () => {
+      const response = await get(path);
+      expect(response.headers.get("x-content-type-options")).toBe("nosniff");
+      expect(response.headers.get("content-security-policy")).toBe("default-src 'none'");
+    });
+  }
+});
+
 describe("everything else", () => {
   it("returns 404 for unknown paths", async () => {
     const response = await get("/");
