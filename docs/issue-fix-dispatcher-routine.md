@@ -106,7 +106,13 @@ Your job this run:
      fix until it passes."
    - If none exists: "This issue has no pre-existing failing test. Write one first: a test
      that fails on `main` and demonstrates the issue, confirm it fails, then implement your
-     fix until it passes."
+     fix until it passes. Exception: if this issue is a pure documentation/text change with
+     no testable code path or logic (e.g. a broken link, a typo, wording), a written test is
+     not required — substitute a clearly-labeled manual verification step in the PR's Test
+     plan section instead (state plainly that it's a manual check standing in for an
+     automated test, and exactly what you did to confirm the fix, e.g. a `grep`/inspection
+     command and its output). This substitution must always be explicit and labeled as such
+     in the PR body — never silently skip verification without writing up what you checked."
 
    Fix-session prompt template:
 
@@ -134,10 +140,18 @@ Your job this run:
    > Once your fix is implemented and the test passes, follow `CONTRIBUTING.md` fully: a
    > conventional commit with subject ≤72 characters, worktree per `CLAUDE.md`, and open a
    > PR using `.github/PULL_REQUEST_TEMPLATE.md`'s exact section headings (Summary, Paired
-   > PR check, Test plan) with a `Closes #<N>` keyword. Append this exact line as the last
-   > line of the PR body: `_Opened by the software factory (Phase C) — epic #1256._` — this
-   > is how the dispatcher recognizes factory PRs; it must be that literal text, not your
-   > own paraphrase or sign-off.
+   > PR check, Test plan) with a `Closes #<N>` keyword.
+   >
+   > **Mandatory PR-body footer, overriding your own default sign-off habit:** the last line
+   > of the PR body must be exactly this literal text: `_Opened by the software factory
+   > (Phase C) — epic #1256._` — this is how the dispatcher recognizes factory PRs (its own
+   > concurrency cap and per-issue attempt cap both work by searching PR bodies for this
+   > exact marker); a missing or paraphrased marker silently breaks that bookkeeping. You
+   > likely have a default habit of ending PR bodies with a generic sign-off line such as
+   > `🤖 Generated with [Claude Code](https://claude.com/claude-code)` — **do not let that
+   > habit substitute for this marker.** If you would normally add such a sign-off, either
+   > drop it or put it before the marker, but the marker itself must be the true last line,
+   > verbatim, with nothing after it.
    >
    > If the fix is user-facing/UX-affecting, also add the `✅ Manual QA` label
    > (`gh pr edit --add-label "✅ Manual QA"` once the PR exists) and say what needs manual
@@ -146,7 +160,19 @@ Your job this run:
    > **You never merge this PR, and you never enable auto-merge on it.** That is a human
    > decision, always.
    >
-   > After opening the PR, babysit it: check CI status and review comments
+   > **Self-verify the footer before doing anything else.** Immediately after the PR exists,
+   > run `gh pr view <N> --repo Anglesite/Anglesite --json body --jq .body` and check whether
+   > the output's last line is exactly `_Opened by the software factory (Phase C) — epic
+   > #1256._`. If it is missing, truncated, or reworded, fix it right away — before moving on
+   > to babysitting — with `gh pr edit <N> --repo Anglesite/Anglesite --body "$(gh pr view <N>
+   > --repo Anglesite/Anglesite --json body --jq .body)
+   >
+   > _Opened by the software factory (Phase C) — epic #1256._"` (append the marker to
+   > whatever body is already there; do not overwrite the rest of it). Re-check with
+   > `gh pr view` again until the marker is confirmed present as the literal last line. Do
+   > not proceed to the next step until this passes.
+   >
+   > Once the footer is confirmed, babysit the PR: check CI status and review comments
    > (`gh pr checks <N>`, `gh pr view <N> --json reviews,comments`). If everything is green
    > and there's nothing unresolved, you're done — stop, a human will merge. Otherwise,
    > self-schedule your next check-in by calling `mcp__Claude_Code_Remote__create_trigger`
