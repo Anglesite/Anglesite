@@ -49,20 +49,22 @@ public actor RemoteSessionRegistry {
         let filename = Self.encodedFilename(for: siteID)
         let fileURL = directory.appendingPathComponent(filename)
 
-        // Check if file exists; return nil if not (not an error)
-        guard FileManager.default.fileExists(atPath: fileURL.path) else {
-            return nil
-        }
-
         do {
             let data = try Data(contentsOf: fileURL)
             let decoder = JSONDecoder()
             let claim = try decoder.decode(RemoteSessionClaim.self, from: data)
             return claim
-        } catch {
-            // Log malformed claims but rethrow to surface the corruption
-            Self.logger.error("Malformed claim file at \(fileURL.path): \(error.localizedDescription)")
-            throw error
+        } catch let nsError as NSError where nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileReadNoSuchFileError {
+            // File doesn't exist (never published, or withdrawn by another process) — return nil
+            return nil
+        } catch let decodingError as DecodingError {
+            // Malformed claim — log and rethrow to surface the corruption
+            Self.logger.error("Failed to decode claim at \(fileURL.path)")
+            throw decodingError
+        } catch let ioError {
+            // Other IO errors — log and rethrow
+            Self.logger.error("IO error reading claim at \(fileURL.path): \(ioError.localizedDescription)")
+            throw ioError
         }
     }
 
@@ -71,9 +73,15 @@ public actor RemoteSessionRegistry {
         let filename = Self.encodedFilename(for: siteID)
         let fileURL = directory.appendingPathComponent(filename)
 
-        // Safe to call when none exists — only try to delete if it's there
-        if FileManager.default.fileExists(atPath: fileURL.path) {
+        do {
             try FileManager.default.removeItem(at: fileURL)
+        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+            // File doesn't exist (already withdrawn, or never published, or withdrawn by another process) — no-op
+            return
+        } catch {
+            // Other errors — log and rethrow
+            Self.logger.error("Error removing claim at \(fileURL.path): \(error.localizedDescription)")
+            throw error
         }
     }
 
