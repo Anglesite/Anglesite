@@ -5,6 +5,7 @@
   "description": "Portable, dependency-free TypeScript overlay engine for the WYSIWYG page editor (spec: docs/superpowers/specs/2026-08-03-modern-wysiwyg-editor-design.md). Successor to JS/edit-overlay/ at page level.",
   "type": "module",
   "scripts": {
+    "build": "esbuild src/host/mount.ts --bundle --format=iife --target=es2022 --outfile=../../Resources/wysiwyg-engine/engine.js",
     "typecheck": "tsc --noEmit",
     "lint": "oxlint src test e2e",
     "test": "vitest run",

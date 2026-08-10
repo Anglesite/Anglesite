@@ -49,6 +49,10 @@ targets:
         type: folder
         buildPhase: resources
         optional: true
+      - path: Resources/wysiwyg-engine
+        type: folder
+        buildPhase: resources
+        optional: true
       - path: Resources/Anglesite.help
         type: folder
         buildPhase: resources
@@ -81,6 +85,9 @@ targets:
         basedOnDependencyAnalysis: false
       - name: Build edit overlay
         script: "\"${PROJECT_DIR}/scripts/build-overlay.sh\""
+        basedOnDependencyAnalysis: false
+      - name: Build WYSIWYG engine
+        script: "\"${PROJECT_DIR}/scripts/build-wysiwyg-engine.sh\""
         basedOnDependencyAnalysis: false
       - name: Build Help index
         script: "\"${PROJECT_DIR}/scripts/build-help-index.sh\""
@@ -162,6 +169,10 @@ targets:
         type: folder
         buildPhase: resources
         optional: true
+      - path: Resources/wysiwyg-engine
+        type: folder
+        buildPhase: resources
+        optional: true
     preBuildScripts:
       # See the Anglesite target's matching comment above (#123) — same backstop, this
       # target just doesn't need the container-resources/help-index phases that follow it there.
@@ -175,6 +186,9 @@ targets:
         basedOnDependencyAnalysis: false
       - name: Build edit overlay
         script: "\"${PROJECT_DIR}/scripts/build-overlay.sh\""
+        basedOnDependencyAnalysis: false
+      - name: Build WYSIWYG engine
+        script: "\"${PROJECT_DIR}/scripts/build-wysiwyg-engine.sh\""
         basedOnDependencyAnalysis: false
     # See the Anglesite target's matching comment on configFiles above.
     configFiles:

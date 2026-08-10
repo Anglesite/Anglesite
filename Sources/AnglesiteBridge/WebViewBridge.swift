@@ -19,16 +19,25 @@ public enum WebViewBridge {
     /// the user-content controller under the `anglesite` namespace — that's the JS → native channel
     /// for edit messages from the overlay. The overlay bundle (`edit-overlay/overlay.js`) is
     /// injected via `WKUserScript` at `atDocumentEnd` when present; missing bundle is non-fatal —
-    /// the preview just loads without edit affordances. The configuration is also opted into the
-    /// full inline Writing Tools experience (#91, see `enableWritingTools`) so Apple Intelligence's
-    /// rewrite / proofread / tone / summarize popover is offered in editable Keystatic prose fields.
+    /// the preview just loads without edit affordances. When `wysiwygHandler` is provided it is
+    /// registered under `WYSIWYGOpsDispatcher.scriptMessageNamespace` — the JS → native channel for
+    /// the WYSIWYG page-editor block engine (`wysiwyg-engine/engine.js`, built by
+    /// `scripts/build-wysiwyg-engine.sh`), which is likewise injected via `WKUserScript` at
+    /// `atDocumentEnd` when present, and likewise non-fatal when missing. The configuration is also
+    /// opted into the full inline Writing Tools experience (#91, see `enableWritingTools`) so Apple
+    /// Intelligence's rewrite / proofread / tone / summarize popover is offered in editable
+    /// Keystatic prose fields.
     ///
     /// `@MainActor` because every WebKit type touched here (`WKWebViewConfiguration`,
     /// `WKUserContentController`, `WKWebsiteDataStore`, `WKUserScript`) is main-actor isolated
     /// in modern SDKs. This matches the existing call sites: SwiftUI view bodies and the
     /// `WKScriptMessageHandler` delegate, both of which are already on the main actor.
     @MainActor
-    public static func localDevConfiguration(handler: WKScriptMessageHandler? = nil, bundle: Bundle = .main) -> WKWebViewConfiguration {
+    public static func localDevConfiguration(
+        handler: WKScriptMessageHandler? = nil,
+        wysiwygHandler: WKScriptMessageHandler? = nil,
+        bundle: Bundle = .main
+    ) -> WKWebViewConfiguration {
         let config = WKWebViewConfiguration()
         #if DEBUG
         config.websiteDataStore = .nonPersistent()
@@ -37,8 +46,16 @@ public enum WebViewBridge {
         if let handler {
             config.userContentController.add(handler, name: scriptMessageNamespace)
         }
+        if let wysiwygHandler {
+            config.userContentController.add(wysiwygHandler, name: WYSIWYGOpsDispatcher.scriptMessageNamespace)
+        }
         if let script = makeOverlayUserScript(in: bundle) {
             config.userContentController.addUserScript(script)
+        }
+        if let engineSource = AnglesiteWysiwygEngineBundle.source(in: bundle) {
+            config.userContentController.addUserScript(
+                WKUserScript(source: engineSource, injectionTime: .atDocumentEnd, forMainFrameOnly: false)
+            )
         }
         return config
     }
