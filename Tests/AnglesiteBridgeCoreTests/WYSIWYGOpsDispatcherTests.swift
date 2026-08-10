@@ -54,4 +54,28 @@ struct WYSIWYGOpsDispatcherTests {
         }
         #expect(type == "nope")
     }
+
+    @Test("dispatch routes context-menu to .contextMenu with the reported block and point")
+    func routesContextMenu() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+        let body: [String: Any] = ["type": "context-menu", "blockId": "b1", "x": 12.5, "y": 34.0]
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: body, via: transport)
+        guard case .contextMenu(let blockId, let point) = result else {
+            Issue.record("expected .contextMenu, got \(result)")
+            return
+        }
+        #expect(blockId == "b1")
+        #expect(point.x == 12.5)
+        #expect(point.y == 34.0)
+    }
+
+    @Test("dispatch rejects a context-menu body missing required fields")
+    func rejectsIncompleteContextMenu() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "context-menu", "blockId": "b1"], via: transport)
+        guard case .rejected(.envelopeDecode) = result else {
+            Issue.record("expected .rejected(.envelopeDecode), got \(result)")
+            return
+        }
+    }
 }

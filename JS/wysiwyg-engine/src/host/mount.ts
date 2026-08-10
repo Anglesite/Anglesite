@@ -26,3 +26,20 @@ window.__anglesiteWysiwygMount = {
     return engine;
   },
 };
+
+// Never a web context menu (spec §8.1: "the engine hit-tests and reports the block under the
+// cursor; the host builds the menu"). The engine resolves the right-clicked point to a block id
+// via hit-test; the native host (`WYSIWYGScriptHandler`/`WYSIWYGBlockContextMenu`) builds and pops
+// up a real NSMenu there. A `document`-level listener (rather than scoping to the mounted canvas
+// root) matches `hitTest`'s own `doc.elementFromPoint` — it walks up from whatever's under the
+// cursor to the nearest block-id-bearing ancestor, so it doesn't matter which element the event
+// started on. No engine mounted yet, or the point misses every block (chrome, empty page margin):
+// fall through to the platform's default context menu instead of showing an empty one.
+document.addEventListener("contextmenu", (event) => {
+  const engine = window.__anglesiteWysiwygEngine;
+  if (!engine) return;
+  const blockId = engine.hitTest({ x: event.clientX, y: event.clientY });
+  if (!blockId) return;
+  event.preventDefault();
+  window.webkit?.messageHandlers?.wysiwyg?.postMessage({ type: "context-menu", blockId, x: event.clientX, y: event.clientY });
+});

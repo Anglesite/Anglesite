@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import WebKit
 import AnglesiteCore
 import AnglesiteBridgeCore
@@ -8,10 +9,12 @@ import AnglesiteBridgeCore
 public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
     private let transport: any WYSIWYGHostTransport
     private let logCenter: LogCenter
+    private let onContextMenu: (@Sendable (BlockId, CGPoint) -> Void)?
 
-    public init(transport: any WYSIWYGHostTransport, logCenter: LogCenter = .shared) {
+    public init(transport: any WYSIWYGHostTransport, logCenter: LogCenter = .shared, onContextMenu: (@Sendable (BlockId, CGPoint) -> Void)? = nil) {
         self.transport = transport
         self.logCenter = logCenter
+        self.onContextMenu = onContextMenu
         super.init()
     }
 
@@ -21,8 +24,11 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
         let webView = message.webView
         let transport = self.transport
         let logCenter = self.logCenter
+        let onContextMenu = self.onContextMenu
         Task {
             switch await WYSIWYGOpsDispatcher.dispatch(body: body, via: transport) {
+            case .contextMenu(let blockId, let point):
+                onContextMenu?(blockId, point)
             case .opResult(let requestId, let result):
                 guard let webView else {
                     await logCenter.append(source: "wysiwyg-bridge", stream: .stderr, text: "webView deallocated before submit-op reply for id=\(requestId)")

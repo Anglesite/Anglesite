@@ -54,9 +54,23 @@ struct PreviewView: NSViewRepresentable {
             { @Sendable elements in await provider.update(elements) }
         }
         let handler = AnglesiteScriptHandler(router: router, onVisibleElements: onVisibleElements)
-        let wysiwygHandler = wysiwygTransport.map { WYSIWYGScriptHandler(transport: $0) }
+        // `onContextMenu` needs the `WKWebView` to pop the menu up in (`NSMenu.popUp(positioning:at:in:)`),
+        // but the handler has to exist before the web view does — it's part of the configuration
+        // the web view is constructed from. Resolved the same way `onWebView`/`onWebViewDismantled`
+        // resolve their own "needs the view, doesn't exist yet" problem below: a weak capture of
+        // `context.coordinator`, whose `webView` is set immediately after construction.
+        let wysiwygHandler = wysiwygTransport.map { transport in
+            WYSIWYGScriptHandler(transport: transport) { [weak coordinator = context.coordinator] blockId, point in
+                Task { @MainActor in
+                    guard let webView = coordinator?.webView, let controller = transport as? WYSIWYGCanvasController else { return }
+                    let menu = WYSIWYGBlockContextMenu.build(for: blockId, controller: controller)
+                    menu.popUp(positioning: nil, at: point, in: webView)
+                }
+            }
+        }
         let configuration = WebViewBridge.localDevConfiguration(handler: handler, wysiwygHandler: wysiwygHandler)
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        context.coordinator.webView = webView
         WebViewBridge.applyPreviewDefaults(to: webView)
         if let annotationProvider {
             webView.appEntityUIElementProvider = { [weak annotationProvider] _, hitContext in
@@ -86,9 +100,21 @@ struct PreviewView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator {
+    /// `@MainActor` + `Sendable`: every access happens on the main actor (SwiftUI calls
+    /// `makeNSView`/`updateNSView`/`dismantleNSView` there), so the class is safe to conform
+    /// directly rather than needing per-property isolation — same reasoning as
+    /// `WYSIWYGCanvasController`'s implicit `WYSIWYGHostTransport: Sendable` conformance. Needed
+    /// so `makeNSView`'s `onContextMenu` closure (a `@Sendable` parameter of `WYSIWYGScriptHandler`)
+    /// can weakly capture `webView` below without the compiler rejecting the capture.
+    @MainActor
+    final class Coordinator: Sendable {
         var loadedURL: URL?
         var onDismantle: ((WKWebView) -> Void)?
+        /// Set right after `WKWebView(frame:configuration:)` in `makeNSView`, so the
+        /// `WYSIWYGScriptHandler`'s `onContextMenu` closure — built *before* the web view exists,
+        /// since it's baked into the configuration the web view is constructed from — has
+        /// somewhere to find it once a context-menu message actually arrives.
+        weak var webView: WKWebView?
     }
 }
 

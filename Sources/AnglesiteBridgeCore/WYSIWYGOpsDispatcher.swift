@@ -1,10 +1,13 @@
 import Foundation
+import CoreGraphics
 import AnglesiteCore
 
 /// Webview-agnostic message schema + routing for the `wysiwyg` script-message namespace —
 /// deliberately separate from `AnglesiteMessageDispatcher` (the older edit-overlay protocol).
-/// One message type today: `submit-op`, an `OpEnvelope` the engine sends when the owner performs
-/// a gesture; the reply is the resulting `OpResult`.
+/// Two message types: `submit-op`, an `OpEnvelope` the engine sends when the owner performs a
+/// gesture (the reply is the resulting `OpResult`); and `context-menu`, the engine's hit-test
+/// result on a native `contextmenu` DOM event (spec §8.1 — the host builds a real `NSMenu`, no
+/// reply expected).
 public enum WYSIWYGOpsDispatcher {
     public static let scriptMessageNamespace = "wysiwyg"
 
@@ -12,6 +15,9 @@ public enum WYSIWYGOpsDispatcher {
         /// `submit-op` was applied against the transport; the adapter should reply with `result`
         /// keyed by `requestId` (the envelope's `id`).
         case opResult(requestId: String, result: OpResult)
+        /// `context-menu` reported the block under the right-clicked point; the adapter should
+        /// present a host-native menu there. No reply is sent back to the page.
+        case contextMenu(blockId: BlockId, point: CGPoint)
         case rejected(RejectionReason)
 
         public enum RejectionReason: Sendable, Equatable {
@@ -39,6 +45,13 @@ public enum WYSIWYGOpsDispatcher {
             }
             let result = await transport.sendOp(envelope)
             return .opResult(requestId: envelope.id, result: result)
+        case "context-menu":
+            guard let blockId = dict["blockId"] as? String,
+                  let x = dict["x"] as? Double, let y = dict["y"] as? Double
+            else {
+                return .rejected(.envelopeDecode("could not decode context-menu fields"))
+            }
+            return .contextMenu(blockId: blockId, point: CGPoint(x: x, y: y))
         default:
             return .rejected(.unknownType(typeStr))
         }
