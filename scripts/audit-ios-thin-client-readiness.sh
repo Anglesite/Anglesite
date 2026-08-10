@@ -124,18 +124,21 @@ file_is_ios_gated() {
 }
 
 ios_shell_target_is_safe() {
+    # A dependency on AnglesiteCore/AnglesiteBridge is not itself unsafe: the dedicated checks
+    # below (FSEvents, security-scoped bookmarks, host subprocess backend, local container
+    # runtime, AppKit imports) already verify those modules compile clean for iOS. Phase 8
+    # (#885) made AnglesiteCore iOS-portable specifically so AnglesiteIOS could depend on it for
+    # RemoteSandboxSiteRuntime, KeychainStore, etc. — treating that dependency as a blocker here
+    # would flag the intended, already-vetted shape of the shell target.
     path_exists "Sources/AnglesiteIOS" || return 1
     awk '
         /name: "AnglesiteIOS"/ { inTarget = 1; foundTarget = 1 }
-        inTarget && /dependencies:/ {
-            if ($0 ~ /AnglesiteBridge|AnglesiteCore/) { unsafeDependency = 1 }
-        }
         inTarget && /path: "Sources\/AnglesiteIOS"/ { sawPath = 1 }
         inTarget && /^[[:space:]]*\),[[:space:]]*$/ {
             inTarget = 0
         }
         END {
-            exit (foundTarget == 1 && sawPath == 1 && unsafeDependency != 1) ? 0 : 1
+            exit (foundTarget == 1 && sawPath == 1) ? 0 : 1
         }
     ' Package.swift
 }
