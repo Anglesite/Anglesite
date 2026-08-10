@@ -286,3 +286,23 @@ label). Flagged for Task 4.
 No other defects found. Everything else in this run — issue selection, claim/unclaim
 mechanics, escalation judgment, comment posting, and worktree cleanup — matched the prompt's
 intended behavior.
+
+### Fix verification (second manual run, after the Task 4 fix)
+
+After the fix landed (commit `43e50a87`, mirrored into the live routine's Instructions field)
+and a second "Run now" was triggered, issue #858's timeline shows a new
+`unlabeled 🏭 Needs repro` event at `2026-08-10T20:12:33Z` — actor `davidwkeith`, same
+authenticated identity as every other event on this issue — leaving it with only
+`🏭 Blocked: human`, no longer both. The fix's actual goal (mutual exclusivity restored, no
+issue stuck carrying two `🏭` state labels) is confirmed.
+
+**Worth noting, not a defect:** this run posted no new comment and never re-added
+`🛠️ In Progress`, unlike the first run's full claim→escalate→unclaim sequence. A Claude
+Routine executes its Instructions as prose for an LLM to follow, not as literal step-by-step
+code — a capable agent reading a prompt whose own guardrail text now states "these three
+labels are mutually exclusive" can reasonably clean up a state that already violates that
+invariant without mechanically re-running the full attempt-2 repro cycle to get there. The
+outcome matches every branch's intent (an escalated issue ends up in `🏭 Blocked: human`
+alone), so this doesn't read as a bug — it's a reminder that verifying a routine means
+verifying the outcome, not tracing an exact execution path the way a deterministic script's
+log would let you. No further action needed.
