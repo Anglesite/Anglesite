@@ -1,10 +1,37 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "" : {
+
+    },
+    "%@ images can't be shown on the web." : {
+
+    },
+    "Add" : {
+
+    },
+    "Add Photo" : {
+
+    },
+    "All Posts" : {
+
+    },
     "Anglesite" : {
 
     },
+    "Body" : {
+
+    },
     "Branch" : {
+
+    },
+    "Choose File" : {
+
+    },
+    "Choose Photo" : {
+
+    },
+    "Choose one of your sites to see its posts." : {
 
     },
     "Cloudflare Control Worker" : {
@@ -19,7 +46,16 @@
     "Connect…" : {
 
     },
+    "Content" : {
+
+    },
     "Control Worker token" : {
+
+    },
+    "Couldn't Load Posts" : {
+
+    },
+    "Couldn't Open Post" : {
 
     },
     "Couldn't Open Site" : {
@@ -31,16 +67,46 @@
     "Couldn't sign in to Cloudflare. Try again in a moment." : {
 
     },
+    "Decide Later" : {
+
+    },
     "Deploy this site from Anglesite on your Mac first, then come back to post from here." : {
 
     },
+    "Dismiss" : {
+
+    },
     "Done" : {
+
+    },
+    "Draft" : {
+
+    },
+    "Draft saved to your site." : {
 
     },
     "Finding your sites…" : {
 
     },
     "From the one-time Deploy to Cloudflare setup. The token is stored in the Keychain on this device only." : {
+
+    },
+    "Keep Editing" : {
+
+    },
+    "Keep My Version" : {
+
+    },
+    "Keeping your version replaces the site's copy. Using the site's version discards the changes you made here." : {
+
+    },
+    "Loading posts…" : {
+
+    },
+    "New Post" : {
+
+    },
+    "No Posts Yet" : {
 
     },
     "No Site Open" : {
@@ -55,10 +121,19 @@
     "Not Deployed Yet" : {
 
     },
+    "Nothing Selected" : {
+
+    },
     "Open Site" : {
 
     },
     "Open your site in the remote sandbox to preview and edit it." : {
+
+    },
+    "Pick a Site" : {
+
+    },
+    "Pick a post to edit, or start a new one." : {
 
     },
     "Post to Your Site" : {
@@ -67,10 +142,34 @@
     "Posting Not Available" : {
 
     },
+    "Posting to this site needs a sign-in with your site itself. Site sign-in arrives with IndieAuth onboarding." : {
+
+    },
+    "Posts you create appear here, drafts included." : {
+
+    },
+    "Publish" : {
+
+    },
+    "Published — site rebuilding." : {
+
+    },
     "Refresh" : {
 
     },
     "Remote Session" : {
+
+    },
+    "Remove" : {
+
+    },
+    "Retry" : {
+
+    },
+    "Save Draft" : {
+
+    },
+    "Sending to your site…" : {
 
     },
     "Session Expired" : {
@@ -83,6 +182,12 @@
 
     },
     "Sign In" : {
+
+    },
+    "Sign In Needed" : {
+
+    },
+    "Sign In to Post" : {
 
     },
     "Sign Out" : {
@@ -118,6 +223,9 @@
     "Site Unreachable" : {
 
     },
+    "Sites" : {
+
+    },
     "Something went wrong while signing in. Try again." : {
 
     },
@@ -127,7 +235,37 @@
     "Stop" : {
 
     },
+    "That content type isn't available." : {
+
+    },
+    "That file couldn't be read." : {
+
+    },
+    "That file is empty." : {
+
+    },
+    "That image is %@ — the limit is 25 MB." : {
+
+    },
+    "That photo couldn't be converted for the web." : {
+
+    },
+    "That photo couldn't be read." : {
+
+    },
+    "The post couldn't be loaded from your site." : {
+
+    },
     "The sandbox clones this repository — git stays the source of truth for your site." : {
+
+    },
+    "The upload didn't go through — try again." : {
+
+    },
+    "This post changed on your site since you started editing." : {
+
+    },
+    "This post's type isn't one this app can edit." : {
 
     },
     "This site doesn't offer IndieAuth sign-in yet. Update and redeploy it from Anglesite on your Mac." : {
@@ -139,6 +277,12 @@
     "Try Again" : {
 
     },
+    "Use the Site's Version" : {
+
+    },
+    "Waiting for network — your draft is saved on this device." : {
+
+    },
     "Waiting for sign-in…" : {
 
     },
@@ -146,6 +290,12 @@
 
     },
     "Your Sites" : {
+
+    },
+    "Your site needs you to sign in again before your posts can be shown." : {
+
+    },
+    "Your site needs you to sign in again." : {
 
     },
     "Your site signed you out. Sign in again to keep posting." : {
