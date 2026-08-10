@@ -25,7 +25,11 @@ func die(_ message: String) -> Never {
 }
 
 #if canImport(ServiceManagement)
-try? SMAppServiceLoginItem().register()
+do {
+    try SMAppServiceLoginItem().register()
+} catch {
+    FileHandle.standardError.write(Data("login item registration failed: \(error)\n".utf8))
+}
 #endif
 
 let args = CommandLine.arguments
@@ -41,7 +45,11 @@ let siteID = siteRoot.lastPathComponent
 // falls back to a helper-local temp directory, which degrades "one owner per site" to "one owner
 // per site among helper-only sessions" — an accepted, explicitly-logged P1 limitation.
 let registryDir = FileManager.default.temporaryDirectory.appendingPathComponent("anglesite-remote-sessions")
-try? FileManager.default.createDirectory(at: registryDir, withIntermediateDirectories: true)
+do {
+    try FileManager.default.createDirectory(at: registryDir, withIntermediateDirectories: true)
+} catch {
+    FileHandle.standardError.write(Data("registry directory creation failed: \(error)\n".utf8))
+}
 let containerSession = RemoteContainerSession(
     control: ContainerizationControl(),
     registry: RemoteSessionRegistry(directory: registryDir))
@@ -71,7 +79,24 @@ let heartbeat = ControlHeartbeat(connection: peer, interval: .seconds(10), missL
     if count >= 6 { FileHandle.standardError.write(Data("control link presumed dead\n".utf8)) }
 })
 
-signal(SIGTERM) { _ in exit(0) }
+// A raw C `signal()` handler can't safely call async Swift code (tearDown/peer.close() are
+// actor-isolated), so route SIGTERM through a DispatchSourceSignal instead: it delivers on a
+// normal GCD queue, which is a safe place to kick off a `Task` that closes the peer (letting the
+// `async let`s below unwind naturally) and tears the container session down before exiting.
+// `signal(SIGTERM, SIG_IGN)` first blocks the default disposition (immediate termination) so the
+// dispatch source is the only thing that actually observes the signal. The source itself must be
+// retained for the process lifetime — GCD sources stop firing if deallocated — hence the
+// top-level `let` rather than a throwaway local.
+signal(SIGTERM, SIG_IGN)
+let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+sigtermSource.setEventHandler {
+    Task {
+        await peer.close()
+        await containerSession.tearDown(siteID: siteID)
+        exit(0)
+    }
+}
+sigtermSource.resume()
 
 async let httpTask: Void = httpBridge.run()
 async let mcpTask: Void = mcpResponder.run()
