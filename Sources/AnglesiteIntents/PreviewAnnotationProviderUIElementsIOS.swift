@@ -1,32 +1,28 @@
-// AppKit-only half of `PreviewAnnotationProvider` (B.4 / #148): the
-// `NSView.appEntityUIElementProvider` surface comes from the `_AppIntents_AppKit`
-// cross-import overlay, so this file is macOS-only. The iOS/UIKit equivalent (#1386) lives in
-// `PreviewAnnotationProviderUIElementsIOS.swift`.
-#if os(macOS)
+// UIKit-only half of `PreviewAnnotationProvider` (mirrors B.4 / #148 for iOS, tracked on #1386):
+// the `AppEntityUIElement` surface comes from the `_AppIntents_UIKit` cross-import overlay, so
+// this file is iOS-only. The macOS equivalent lives in `PreviewAnnotationProviderUIElements.swift`
+// — same shape, `AppKit` swapped for `UIKit`. Keeping them as separate files (rather than one
+// file with a platform-conditional import) matches that file's existing split and keeps each
+// half greppable by the framework it depends on.
+#if os(iOS)
 import AppIntents
-import AppKit
+import UIKit
 import CoreGraphics
 import Foundation
 
-// `AppEntityUIElement` and `AppEntityUIElementsContext` are defined by the
-// `_AppIntents_AppKit` cross-import overlay, which auto-loads when both `AppIntents` and
-// `AppKit` are imported explicitly in the consuming file. Swift's `MemberImportVisibility`
-// upcoming-feature (enabled by the macOS 27 SDK module flags) requires both base modules
-// here — transitive imports through other frameworks aren't enough, and the compile error
-// blames the type rather than the missing import.
-
-// `AppEntityUIElement` and `AppEntityUIElementsContext` are macOS 26+ symbols (Xcode 27 /
-// Swift 6.4 SDK). CI's `macos-15` runner currently ships Xcode 26.3 / Swift 6.3 and doesn't
-// have these types, so the methods that reference them are gated. Local Xcode 27 builds get
-// the full surface; CI compiles the library without it. Same pattern as `Package.swift`'s
-// `#if compiler(>=6.4)` gate around `AnglesiteIntentsTests`. Tracked for removal in #128
-// when GH's runner ships Xcode 27.
+// `AppEntityUIElement` and `AppEntityUIElementsContext` are defined by the `_AppIntents_UIKit`
+// cross-import overlay, which auto-loads when both `AppIntents` and `UIKit` are imported
+// explicitly in the consuming file. Swift's `MemberImportVisibility` upcoming-feature (enabled
+// by the iOS 27 SDK module flags) requires both base modules here — transitive imports through
+// other frameworks aren't enough, and the compile error blames the type rather than the missing
+// import. See `PreviewAnnotationProviderUIElements.swift` for the macOS/AppKit precedent this
+// mirrors line-for-line.
 #if compiler(>=6.4)
 extension PreviewAnnotationProvider {
-    /// Shape annotations into `[AppEntityUIElement]` for `NSView.appEntityUIElementProvider`
-    /// (B.4 / #148). The system asks for either `.visible(rect:)` — return everything whose
-    /// stored rect intersects `rect` — or `.selected`. We don't track an in-page selection
-    /// model (the overlay's hover/click states are transient), so `.selected` yields `[]`.
+    /// Shape annotations into `[AppEntityUIElement]` for `WKWebView.appEntityUIElementProvider`
+    /// on iOS. The system asks for either `.visible(rect:)` — return everything whose stored
+    /// rect intersects `rect` — or `.selected`. We don't track an in-page selection model (the
+    /// overlay's hover/click states are transient), so `.selected` yields `[]`.
     public func uiElements(for context: AppEntityUIElementsContext) -> [AppEntityUIElement] {
         uiElements(forRequests: context.requests)
     }
