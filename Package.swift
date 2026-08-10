@@ -389,6 +389,7 @@ packageTargets.append(contentsOf: [
     // genuine linked dependency, not inlined sources of the same target.
     .target(
         name: "AnglesiteRemote",
+        dependencies: ["AnglesiteP2P"],
         path: "Sources/AnglesiteRemote",
         swiftSettings: strictConcurrency
     ),
@@ -396,7 +397,8 @@ packageTargets.append(contentsOf: [
         name: "AnglesiteRemoteTests",
         dependencies: ["AnglesiteRemote"],
         path: "Tests/AnglesiteRemoteTests",
-        swiftSettings: strictConcurrency
+        swiftSettings: strictConcurrency,
+        linkerSettings: weakLinkFoundationModels + webRTCTestRPath
     ),
 ])
 #endif
