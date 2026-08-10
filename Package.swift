@@ -178,6 +178,20 @@ var packageTargets: [Target] = [
         swiftSettings: strictConcurrency,
         linkerSettings: weakLinkFoundationModels
     ),
+    // Glibc-safe subset of what used to live in AnglesiteCoreTests (#1284): rather than
+    // purity-sweep the whole ~300-file AnglesiteCoreTests target (most of it touches Darwin-only
+    // surface — Keychain, NSFileCoordinator, AppleScript, the Darwin-only SwiftGit2 dependency,
+    // etc.), the two PodmanContainerControl test files — already #if canImport(Glibc)-gated, and
+    // depending on nothing but AnglesiteCore/Testing/Foundation — get their own small target so
+    // they actually build and run on the Linux CI leg instead of silently compiling to nothing
+    // everywhere. Depends only on AnglesiteCore, matching those files' actual imports.
+    .testTarget(
+        name: "AnglesiteCorePortableTests",
+        dependencies: ["AnglesiteCore"],
+        path: "Tests/AnglesiteCorePortableTests",
+        swiftSettings: strictConcurrency,
+        linkerSettings: weakLinkFoundationModels
+    ),
     .testTarget(
         name: "AnglesiteBridgeCoreTests",
         dependencies: ["AnglesiteBridgeCore", "AnglesiteCore"],
@@ -456,6 +470,10 @@ if includeContainer {
 // of the former AnglesiteBridge (no WebKit import), split out so the message dispatch logic —
 // and its tests — run on every platform; AnglesiteBridge itself (the WKWebView adapter) stays
 // Darwin-only.
+// AnglesiteCorePortableTests joined at phase 2 as well (#1284): the Glibc-gated
+// PodmanContainerControl tests split out of AnglesiteCoreTests above so they actually run on
+// this leg instead of just compiling out — AnglesiteCoreTests itself is still not in this set,
+// since the rest of its ~300 files aren't purity-swept.
 // Filtering by name here (rather than duplicating target definitions in per-platform
 // lists) keeps the single source of truth above.
 #if !canImport(Darwin)
@@ -464,6 +482,7 @@ let portableTargets: Set<String> = [
     "AnglesiteQuickLookSupport", "AnglesiteQuickLookSupportTests",
     "AnglesiteCore",
     "AnglesiteBridgeCore", "AnglesiteBridgeCoreTests",
+    "AnglesiteCorePortableTests",
 ]
 packageTargets.removeAll { !portableTargets.contains($0.name) }
 // Every library product above is named after its single target, so the same name set

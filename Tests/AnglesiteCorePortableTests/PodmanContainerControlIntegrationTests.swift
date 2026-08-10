@@ -16,6 +16,12 @@
 #if canImport(Glibc)
 import Testing
 import Foundation
+// URLSession/HTTPURLResponse live in FoundationNetworking on non-Darwin platforms
+// (swift-corelibs-foundation); this file only ever builds on Glibc (see the gate above), but
+// matches the rest of the codebase's canImport-gated form rather than an unconditional import.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 @testable import AnglesiteCore
 
 @Suite("PodmanContainerControl (real podman)")
@@ -24,7 +30,7 @@ struct PodmanContainerControlIntegrationTests {
         ProcessInfo.processInfo.environment["ANGLESITE_PODMAN_TESTS"] == "1"
     }
 
-    private func makeTempGitRepo() throws -> URL {
+    private func makeTempGitRepo() async throws -> URL {
         let dir = URL(fileURLWithPath: NSTemporaryDirectory())
             .appendingPathComponent("anglesite-podman-test-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
