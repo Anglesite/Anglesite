@@ -70,4 +70,48 @@ final class NewCommunityWizardModelTests: XCTestCase {
         seenDraft = m.draft
         XCTAssertNotNil(seenDraft)
     }
+
+    /// #1263 final review finding 2: a freshly-scaffolded community must come out of the wizard
+    /// with a live ActivityPub worker — no manual Workers-tab step — since the whole point of
+    /// "New Community" is a working Group actor with no extra owner action.
+    func testBuildActivatesActivityPubWorkerAfterScaffold() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        var registeredConfigDirectory: URL?
+        let m = NewCommunityWizardModel(
+            isNameTaken: { _ in false },
+            resolveConfigDirectory: { _ in registeredConfigDirectory }
+        )
+        m.communityName = "Birding Club"
+
+        let scaffolder = SiteScaffolder(
+            sitesRoot: root,
+            templateURL: URL(fileURLWithPath: "/template"),
+            catalog: ThemeCatalog(themes: [Theme(id: "community", name: "Community", blurb: "", swatch: [], cssVars: [:])]),
+            run: { _, args, cwd in
+                if args.contains(where: { $0.hasSuffix("scaffold.sh") }), let cwd {
+                    let css = cwd.appendingPathComponent("src/styles/global.css")
+                    let astro = cwd.appendingPathComponent("src/pages/index.astro")
+                    try? FileManager.default.createDirectory(at: css.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try? FileManager.default.createDirectory(at: astro.deletingLastPathComponent(), withIntermediateDirectories: true)
+                    try? ":root { --color-primary: #2563eb; }".write(to: css, atomically: true, encoding: .utf8)
+                    try? "<h1>Welcome</h1>".write(to: astro, atomically: true, encoding: .utf8)
+                    try? "ANGLESITE_VERSION=1.0.0".write(to: cwd.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
+                }
+                return ProcessSupervisor.RunResult(stdout: "", stderr: "", exitCode: 0)
+            },
+            gitInit: { _ in },
+            gitCommit: { _ in },
+            register: { pkg in
+                registeredConfigDirectory = pkg.configURL
+                return SiteStore.Site(id: pkg.url.path, name: pkg.url.lastPathComponent, packageURL: pkg.url, isValid: true, missingSentinels: [])
+            },
+            attributionsLoader: { _ in [] }
+        )
+
+        _ = await m.build(using: scaffolder)
+
+        let configDirectory = try XCTUnwrap(registeredConfigDirectory)
+        let settings = try await SiteConfigStore(configDirectory: configDirectory).load()
+        XCTAssertEqual(settings.activeWorkerIDs, [WorkerComposition.activitypubWorkerID])
+    }
 }

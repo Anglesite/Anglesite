@@ -107,4 +107,51 @@ struct ModerationModelTests {
         // The pre-existing member snapshot is still picked up on every reload, not just the first.
         #expect(model.members.count == 1)
     }
+
+    /// #1263 final review finding 5: `SiteSettings.moderators` had no writer anywhere in the
+    /// app — the design doc calls for add/remove, but before this fix the list could only ever
+    /// be empty in production. Confirms a moderator survives a round trip through
+    /// `SiteConfigStore` and that the model's own `moderators` property reflects it immediately.
+    @Test("addModerator persists a well-formed actor URL and removeModerator undoes it")
+    func addAndRemoveModeratorPersistsViaSiteConfigStore() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+            return (Data("{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        #expect(model.moderators.isEmpty)
+
+        let added = await model.addModerator("https://mastodon.social/users/alice")
+        #expect(added)
+        #expect(model.moderators == ["https://mastodon.social/users/alice"])
+        let persisted = try await SiteConfigStore(configDirectory: config).load()
+        #expect(persisted.moderators == ["https://mastodon.social/users/alice"])
+
+        await model.removeModerator("https://mastodon.social/users/alice")
+        #expect(model.moderators.isEmpty)
+        let persistedAfterRemove = try await SiteConfigStore(configDirectory: config).load()
+        #expect(persistedAfterRemove.moderators?.isEmpty ?? true)
+    }
+
+    @Test("addModerator rejects a malformed actor URL without persisting it")
+    func addModeratorRejectsInvalidURL() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+            return (Data("{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+
+        let added = await model.addModerator("not a url")
+        #expect(!added)
+        #expect(model.moderators.isEmpty)
+        #expect(model.errorMessage != nil)
+    }
 }

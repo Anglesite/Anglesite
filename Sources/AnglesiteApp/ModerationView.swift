@@ -6,6 +6,8 @@ import AnglesiteCore
 /// exists upstream yet).
 struct ModerationView: View {
     @Bindable var moderation: ModerationModel
+    /// Bound to the "Add Moderator" text field; cleared after a successful add.
+    @State private var newModeratorIRI = ""
 
     var body: some View {
         List {
@@ -13,7 +15,20 @@ struct ModerationView: View {
                 if moderation.moderators.isEmpty {
                     Text("Only you can moderate this community.").foregroundStyle(.secondary)
                 } else {
-                    ForEach(moderation.moderators, id: \.self) { Text($0) }
+                    ForEach(moderation.moderators, id: \.self) { iri in
+                        HStack {
+                            Text(iri)
+                            Spacer()
+                            Button("Remove") { Task { await moderation.removeModerator(iri) } }
+                        }
+                    }
+                }
+                HStack {
+                    TextField("Actor URL, e.g. https://example.social/users/alice", text: $newModeratorIRI)
+                        .textFieldStyle(.roundedBorder)
+                        .onSubmit(addModerator)
+                    Button("Add", action: addModerator)
+                        .disabled(newModeratorIRI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }
             Section("Members") {
@@ -63,6 +78,16 @@ struct ModerationView: View {
             Button("Cancel", role: .cancel) { moderation.removeConfirmation = nil }
         } message: {
             Text("This removes the post from the community timeline. The author's own copy on their own site is unaffected.")
+        }
+    }
+
+    private func addModerator() {
+        let iri = newModeratorIRI
+        guard !iri.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return }
+        Task {
+            if await moderation.addModerator(iri) {
+                newModeratorIRI = ""
+            }
         }
     }
 }

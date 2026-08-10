@@ -31,8 +31,21 @@ public final class NewCommunityWizardModel {
     /// ``NewSiteWizardModel/init(catalog:isNameTaken:)``'s parameter.
     private let isNameTaken: (String) -> Bool
 
-    public init(isNameTaken: @escaping (String) -> Bool) {
+    /// Resolves a just-registered site id to its `Config/` directory, so ``build(using:)`` can
+    /// seed the ActivityPub worker activation after scaffold completes (#1263 final review
+    /// finding 2). Defaults to the production registry (`SiteScaffolder`'s own `register`
+    /// closure records there too — see `SitesLauncherView.resolveScaffoldingContext`);
+    /// injectable so tests can supply a fake without touching `SiteStore.shared`.
+    private let resolveConfigDirectory: @Sendable (String) async -> URL?
+
+    public init(
+        isNameTaken: @escaping (String) -> Bool,
+        resolveConfigDirectory: @escaping @Sendable (String) async -> URL? = { id in
+            await SiteStore.shared.find(id: id)?.configDirectory
+        }
+    ) {
         self.isNameTaken = isNameTaken
+        self.resolveConfigDirectory = resolveConfigDirectory
     }
 
     /// The draft `build(using:)` will scaffold, computed fresh from ``communityName`` each
@@ -64,7 +77,10 @@ public final class NewCommunityWizardModel {
     public var didCompleteCleanly: Bool { completedSiteID != nil && !hasWarnings }
 
     /// Runs the scaffolder against ``draft``, accumulating progress. Returns the new site id
-    /// on success. Mirrors ``NewSiteWizardModel/build(using:)`` exactly.
+    /// on success. Mirrors ``NewSiteWizardModel/build(using:)`` except for the post-scaffold
+    /// ActivityPub activation below — a hosted community with no active worker is a dead end
+    /// the owner would have to know to fix by hand, so the wizard's own output must be a working
+    /// community with no manual step (owner-confirmed, #1263 final review finding 2).
     public func build(using scaffolder: SiteScaffolder) async -> String? {
         step = .building
         for await s in scaffolder.scaffold(draft) {
@@ -72,6 +88,27 @@ public final class NewCommunityWizardModel {
             if case .failed = s { fatal = s }
             if case .done(let id) = s { completedSiteID = id }
         }
+        if let completedSiteID {
+            await activateActivityPubWorker(siteID: completedSiteID)
+        }
         return completedSiteID
+    }
+
+    /// Seeds `SiteSettings.activeWorkerIDs` with the ActivityPub worker so a freshly-scaffolded
+    /// community deploys with a live Group actor on its very first deploy, with no manual
+    /// Workers-tab step. Best-effort, like every other post-scaffold settings write in the app
+    /// (`SiteStore.setDisplayName`'s sibling pattern): scaffolding itself already succeeded by
+    /// the time this runs, so a settings-write failure here must never be reported as a build
+    /// failure — it only means the owner has to flip the toggle themselves once, same as any
+    /// other site.
+    private func activateActivityPubWorker(siteID: String) async {
+        guard let configDirectory = await resolveConfigDirectory(siteID) else { return }
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        var settings = (try? await store.load()) ?? SiteSettings()
+        var activeIDs = settings.activeWorkerIDs ?? []
+        guard !activeIDs.contains(WorkerComposition.activitypubWorkerID) else { return }
+        activeIDs.append(WorkerComposition.activitypubWorkerID)
+        settings.activeWorkerIDs = activeIDs
+        try? await store.save(settings)
     }
 }

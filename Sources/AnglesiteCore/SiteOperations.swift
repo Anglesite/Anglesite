@@ -144,6 +144,14 @@ public struct SiteOperations: Sendable {
         let workerSiteName = SiteConfigFile.value(forKey: "CF_PROJECT_NAME", in: existingConfig)
             ?? SiteSlug.derive(from: site.name)
 
+        // #1263 final review finding 1: this headless path (App Intents/Shortcuts/Siri) skipped
+        // both the Group actor type and the moderator list before this — since `persistConfig`
+        // regenerates `wrangler.toml` from scratch on every deploy, a community correctly
+        // deployed once via the GUI, then re-deployed headlessly, silently reverted to a Person
+        // actor with no moderators. Mirrors `DeployModel.runDeploy`'s identical
+        // `resolveIsHostedCommunity` read and `activityPubActorType`/`moderators` args exactly.
+        let isHostedCommunity = DeployCoordinator.resolveIsHostedCommunity(siteDirectory: siteDirectory)
+
         onProgress?(.deployBuilding)
         onProgress?(.deployDeploying)
         let provisionResult = await factory.socialWorkerProvision().provision(
@@ -157,14 +165,26 @@ public struct SiteOperations: Sendable {
             // dynamic /.well-known/ claims the GUI Deploy button already threads via
             // `DeployModel.runDeploy`'s custom deployer closure, so #744's collision check blocks
             // identically regardless of trigger.
-            wellKnownDynamicClaims: WorkerRouteClaims.wellKnownClaims(routeClaims)
+            wellKnownDynamicClaims: WorkerRouteClaims.wellKnownClaims(routeClaims),
+            activityPubActorType: isHostedCommunity ? "Group" : nil,
+            moderators: isHostedCommunity ? settings.moderators : nil
         )
         onProgress?(.deployFinalizing)
 
-        if case .succeeded(_, let resources, _) = provisionResult {
+        let activitypubProvisioned = workers.contains(where: { $0.id == WorkerComposition.activitypubWorkerID })
+        if case .succeeded(let deployedURL, let resources, _) = provisionResult {
             var updated = settings
             updated.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
             updated.provisionedWorkerResources = resources
+            if isHostedCommunity && activitypubProvisioned {
+                // Same derivation `DeployModel.runDeploy` and `ModerationModel.ownActorURL` use —
+                // prefer the confirmed site URL (which may already carry a custom domain) over the
+                // workers.dev URL this particular deploy printed, falling back to it only before
+                // any URL has ever been recorded.
+                let communityActorSiteURL =
+                    DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory).flatMap { URL(string: $0) } ?? deployedURL
+                updated.communityActorURL = ActivityPubActor.actorURL(siteURL: communityActorSiteURL)
+            }
             try? await configStore.save(updated)
         }
 

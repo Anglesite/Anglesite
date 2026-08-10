@@ -172,10 +172,11 @@ final class SiteWindowModel {
     /// `loadAndStart()` — the gate for Website ▸ Moderation… (#907/#370). A cached `Bool`
     /// rather than a live synchronous read: `SiteConfigStore.read(from:fileManager:)` is
     /// documented as unsafe to call from `@MainActor` (it blocks on disk I/O), and
-    /// `canOpenModeration` must be synchronous for `.disabled(...)` to read. Known limitation:
-    /// this doesn't live-update if a deploy completes while the window stays open — reopening
-    /// the site picks up the new value. Acceptable for v1 (design doc §5); revisit only if it
-    /// proves confusing in practice.
+    /// `canOpenModeration` must be synchronous for `.disabled(...)` to read. Also re-read after
+    /// every successful deploy (the `deploy.onPhaseTransition` hook in `init` calls
+    /// ``refreshIsHostedCommunity()``, #1263 final review finding 4) — so creating a community
+    /// and deploying it in the same window session enables the menu item live, without requiring
+    /// the owner to close and reopen the site.
     private(set) var isHostedCommunity = false
     var harden = HardenModel()
     var domainConfigAudit = DomainConfigAuditModel()
@@ -363,9 +364,26 @@ final class SiteWindowModel {
         let deploySound: DialupSoundEffectPlaying = DialupSoundEffectPlayer()
         deploy.onPhaseTransition = { [weak self] siteID, phase in
             deployHook?(siteID, phase)
-            if case .succeeded = phase { self?.sync.deployCompleted() }
+            if case .succeeded = phase {
+                self?.sync.deployCompleted()
+                // #1263 final review finding 4: a community created and deployed in the same
+                // window session must not stay stuck on the `loadAndStart()`-time `false` — the
+                // very deploy that provisions the Group actor and writes `communityActorURL` is
+                // exactly the one that should unlock Website ▸ Moderation… live.
+                Task { [weak self] in await self?.refreshIsHostedCommunity() }
+            }
             if case .running = phase { deploySound.play() } else { deploySound.stop() }
         }
+    }
+
+    /// Re-reads `SiteSettings.communityActorURL != nil` from disk and updates the cached
+    /// ``isHostedCommunity`` gate. No-ops until `loadAndStart()` has set ``site``. Called once at
+    /// site open (via `loadAndStart()`) and again after every successful deploy (the
+    /// `deploy.onPhaseTransition` hook above) — see ``isHostedCommunity``'s doc comment for why a
+    /// single load isn't enough.
+    private func refreshIsHostedCommunity() async {
+        guard let site else { return }
+        isHostedCommunity = ((try? await SiteConfigStore(configDirectory: site.configDirectory).load())?.communityActorURL) != nil
     }
 
     var activeEditorFile: FileRef? {
@@ -2001,7 +2019,7 @@ final class SiteWindowModel {
             return
         }
         site = resolved
-        isHostedCommunity = ((try? await SiteConfigStore(configDirectory: resolved.configDirectory).load())?.communityActorURL) != nil
+        await refreshIsHostedCommunity()
         // Constructed once and threaded into every child model below instead of each one
         // separately re-deriving `id`/`sourceDirectory`/`packageURL`/`configDirectory` from
         // `resolved` at its own call site (#822) — see `CurrentSite`'s own doc comment.

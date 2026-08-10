@@ -146,4 +146,57 @@ final class ModerationModel {
         do { try await removePost(post) }
         catch { errorMessage = "Couldn't remove this post: \(error.localizedDescription)" }
     }
+
+    /// Validates and appends an actor IRI to `SiteSettings.moderators`, persisting via
+    /// `SiteConfigStore` (design doc §5 — "Moderators — list of actor IRIs from
+    /// `SiteSettings.moderators`, add/remove"; #1263 final review finding 5: this list was
+    /// previously read-only, so it could never actually be populated in production). Same
+    /// well-formed-URL check `CommunityActorResolver.resolve` uses for a pasted actor IRI: must
+    /// parse as a URL with an `http`/`https` scheme and a host — a low-stakes, owner-only, local
+    /// config list, so no confirmation dialog (unlike ban/remove, which reach the network).
+    /// Returns whether the IRI was accepted (valid and, after any dedup, actually persisted) —
+    /// the view uses this to decide whether to clear the text field, so a rejected/invalid entry
+    /// stays put for the owner to fix instead of silently vanishing.
+    @discardableResult
+    func addModerator(_ iri: String) async -> Bool {
+        let trimmed = iri.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard let url = URL(string: trimmed), let scheme = url.scheme, url.host != nil,
+            ["http", "https"].contains(scheme.lowercased())
+        else {
+            errorMessage = "Enter a valid actor URL, e.g. https://example.social/users/alice."
+            return false
+        }
+        guard let configDirectory else { return false }
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        var settings = (try? await store.load()) ?? SiteSettings()
+        var updated = settings.moderators ?? []
+        guard !updated.contains(trimmed) else { return true }
+        updated.append(trimmed)
+        settings.moderators = updated
+        do {
+            try await store.save(settings)
+            moderators = updated
+            return true
+        } catch {
+            errorMessage = "Couldn't save the moderator: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Removes an actor IRI from `SiteSettings.moderators`. Counterpart to ``addModerator(_:)`` —
+    /// same no-confirmation-dialog rationale.
+    func removeModerator(_ iri: String) async {
+        guard let configDirectory else { return }
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        var settings = (try? await store.load()) ?? SiteSettings()
+        var updated = settings.moderators ?? []
+        updated.removeAll { $0 == iri }
+        settings.moderators = updated
+        do {
+            try await store.save(settings)
+            moderators = updated
+        } catch {
+            errorMessage = "Couldn't remove the moderator: \(error.localizedDescription)"
+        }
+    }
 }
