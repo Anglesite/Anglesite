@@ -55,7 +55,7 @@ struct AnglesiteLinuxApp: App {
                         Text(windowTitle)
                     }
                 }
-                .folderImporter(open: openDialog) { url in
+                .folderImporter(open: $openDialog) { url in
                     open(packageURL: url)
                 }
                 .onAppear {
