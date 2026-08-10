@@ -415,6 +415,26 @@ test("IndieAuth owner consent completes PKCE sign-in and issues a DPoP token", a
   });
 });
 
+test("IndieAuth app callback bridges the redirect into the Anglesite custom scheme", async () => {
+  const response = await fetchWorker(new Request(
+    "https://owner.example/indieauth/app-callback?code=abc%2F123&state=state-868&iss=https%3A%2F%2Fowner.example",
+  ));
+  expect(response.status).toBe(302);
+  // The query string passes through byte-for-byte — the app re-validates state and redeems the
+  // code itself; re-encoding here could corrupt a percent-encoded code.
+  expect(response.headers.get("location")).toBe(
+    "io.dwk.anglesite://indieauth-callback?code=abc%2F123&state=state-868&iss=https%3A%2F%2Fowner.example",
+  );
+  // The URL carries a one-time authorization code — nothing on this path may be cached.
+  expect(response.headers.get("cache-control")).toBe("no-store");
+});
+
+test("IndieAuth app callback with no query still redirects into the app", async () => {
+  const response = await fetchWorker(new Request("https://owner.example/indieauth/app-callback"));
+  expect(response.status).toBe(302);
+  expect(response.headers.get("location")).toBe("io.dwk.anglesite://indieauth-callback");
+});
+
 test("mintAccessToken: issues a token whose DPoP proof (same key pair) is accepted on a resource request", async () => {
   const { token, keyPair } = await mintAccessToken("create update media");
   expect(token.length).toBeGreaterThan(0);

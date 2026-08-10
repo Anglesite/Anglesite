@@ -5,8 +5,8 @@ import AnglesiteIOS
 /// container instead of asking for a typed site URL. Replaces `RemoteSessionScreen` as
 /// `AnglesiteMobileApp`'s root — per #800's owner decision (2026-07-17) that this iCloud-discovery
 /// + Micropub flow, not the older remote-sandbox thin client (#71, deferred to v2.0 under #342),
-/// is the default iOS experience. Picking a site doesn't do anything yet — that's the sibling
-/// IndieAuth-onboarding issue.
+/// is the default iOS experience. Picking a site pushes `SiteSignInScreen`, the per-site
+/// IndieAuth onboarding (#868).
 struct SitePickerScreen: View {
     @State private var model = SitePickerModel()
 
@@ -14,6 +14,9 @@ struct SitePickerScreen: View {
         NavigationStack {
             content
                 .navigationTitle(Text("Your Sites"))
+                .navigationDestination(for: SitePickerModel.DiscoveredSite.self) { site in
+                    SiteSignInScreen(site: site)
+                }
         }
         // Attached to the `NavigationStack`, not to `content`: `content` is a `switch` over
         // `model.state`, so its view identity changes on every state transition — and `refresh()`
@@ -48,7 +51,9 @@ struct SitePickerScreen: View {
             }
         case .sites(let sites):
             List(sites) { site in
-                Text(site.displayName)
+                NavigationLink(value: site) {
+                    Text(verbatim: site.displayName)
+                }
             }
             .refreshable { await model.refresh() }
         }
