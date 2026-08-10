@@ -389,13 +389,17 @@ packageTargets.append(contentsOf: [
     // genuine linked dependency, not inlined sources of the same target.
     .target(
         name: "AnglesiteRemote",
-        dependencies: ["AnglesiteP2P"],
+        // AnglesiteCore is added explicitly (not just relied on transitively through
+        // AnglesiteP2P) because Task 5's RemoteContainerSession consumes
+        // LocalContainerControl/LocalContainerSession directly — see
+        // Sources/AnglesiteCore/LocalContainerControl.swift.
+        dependencies: ["AnglesiteP2P", "AnglesiteCore"],
         path: "Sources/AnglesiteRemote",
         swiftSettings: strictConcurrency
     ),
     .testTarget(
         name: "AnglesiteRemoteTests",
-        dependencies: ["AnglesiteRemote"],
+        dependencies: ["AnglesiteRemote", "AnglesiteCore"],
         path: "Tests/AnglesiteRemoteTests",
         swiftSettings: strictConcurrency,
         linkerSettings: weakLinkFoundationModels + webRTCTestRPath
