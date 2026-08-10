@@ -60,12 +60,19 @@ periodic check-ins). Routine firings should stay short and cheap, like Phase A's
   check-in decides whether to schedule another one, until the PR merges, the 24-hour budget
   expires (§9), or it needs a human.
 
-**Assumption to verify during implementation:** that a routine's `allowed_tools` can include
-`RemoteTrigger` so the dispatcher can create the fix session's one-shot trigger, and so a fix
-session can self-schedule its own check-ins. This environment's own PR-babysitting chains
-prove the mechanism exists for *a* Claude Code session; whether a Cloud-routine-launched
-session has the same access needs confirming in the dry run, the same way Phase B had to
-verify its own environment assumptions empirically rather than by design-time guess.
+**Confirmed via a live probe (2026-08-10), not assumed.** Rather than build the dispatcher
+around this and find out at dry-run time (the mistake Phase B's final review caught — an
+unexercised happy path), a throwaway Cloud routine was created and fired with a trivial
+prompt asking it to check for trigger-management tooling and attempt creating a child
+trigger. Result: Cloud routines have `mcp__Claude_Code_Remote__create_trigger` (plus
+`list_triggers`, `delete_trigger`, `update_trigger`, `fire_trigger`) available via a
+`Claude_Code_Remote` MCP connector — present by default in the environment's `mcp_connections`,
+not something that had to be explicitly requested. The probe's child-trigger creation call
+succeeded (a real one-shot trigger was created and, confirmed separately, fired on its own
+schedule). Both probe triggers were disabled afterward. The dispatcher and fix-session
+prompts (§10, implementation) should reference these exact MCP tool names — not the
+`RemoteTrigger` tool name this session uses locally, which is a different interface to the
+same underlying capability.
 
 ## 5. Scoping pre-check
 
