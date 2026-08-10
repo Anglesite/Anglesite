@@ -431,6 +431,17 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         }
     }
 
+    /// Test-only: the cached session's transcript entries rendered to text, or `nil` if no session
+    /// is cached. `Transcript.Entry` is `CustomStringConvertible` and its `description` captures the
+    /// actual segments (including tool-call arguments) sent to the model — the same proxy
+    /// ``estimatedTranscriptTokens(_:)`` relies on — so tests can assert what the retained window
+    /// still contains after a trim (#456, #1378) without a public surface.
+    var transcriptTextForTesting: String? {
+        session.map { current in
+            current.transcript.map { String(describing: $0) }.joined(separator: "\n")
+        }
+    }
+
     /// Display label for `SpotlightSearchTool` in the `.started` event. `SpotlightSearchTool`
     /// exposes no public `toolName` (unlike `ApplyEditTool`/`SearchContentTool`), so this is a
     /// fixed local label — update it here if a future SDK adds a public name to bind to.
