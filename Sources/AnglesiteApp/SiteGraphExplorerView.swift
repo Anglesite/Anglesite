@@ -308,6 +308,22 @@ private struct SiteGraphNodeButton: View {
     let related: Bool
     let action: () -> Void
 
+    @State private var isHovering = false
+    @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    /// Hover only paints while the window is key, so Cmd-Tabbing away mid-hover doesn't leave a
+    /// ghost highlight behind in an inactive window (#677).
+    private var isHoverActive: Bool { isHovering && controlActiveState != .inactive && !selected }
+
+    private var backgroundOpacity: Double {
+        if selected { return 0.24 }
+        if related || isHoverActive { return 0.16 }
+        return 0.1
+    }
+
+    private var tintBorderOpacity: Double { isHoverActive ? 0.55 : 0.35 }
+
     var body: some View {
         Button(action: action) {
             VStack(spacing: 4) {
@@ -328,14 +344,16 @@ private struct SiteGraphNodeButton: View {
             .padding(.vertical, 7)
             .frame(width: 132)
             .frame(minHeight: 76)
-            .background(node.kind.tint.opacity(selected ? 0.24 : related ? 0.16 : 0.1))
+            .background(node.kind.tint.opacity(backgroundOpacity))
             .overlay {
                 RoundedRectangle(cornerRadius: 8)
-                    .stroke(selected ? Color.accentColor : node.kind.tint.opacity(0.35), lineWidth: selected ? 2 : 1)
+                    .stroke(selected ? Color.accentColor : node.kind.tint.opacity(tintBorderOpacity), lineWidth: selected ? 2 : 1)
             }
             .clipShape(.rect(cornerRadius: 8))
         }
         .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.12), value: isHoverActive)
         .accessibilityLabel("\(node.kind.title), \(node.title)")
         .help(node.detail ?? node.title)
     }
