@@ -76,6 +76,18 @@ public final class WindowRouter {
     /// Called by the launcher once it has consumed the request.
     public func clearNewSiteRequest() { newSiteRequested = false }
 
+    /// Set by File ▸ New Community (which can't host the wizard sheet itself). Mirrors
+    /// ``newSiteRequested``'s set-then-consume contract exactly — see that property's doc
+    /// comment (#907, design doc §3, a distinct flow from New Site since a hosted community
+    /// is a different site kind, not a theme pick).
+    public private(set) var newCommunityRequested = false
+
+    /// Flags a pending File ▸ New Community request for the "Sites" launcher to consume.
+    public func requestNewCommunity() { newCommunityRequested = true }
+
+    /// Called by the launcher once it has consumed the request.
+    public func clearNewCommunityRequest() { newCommunityRequested = false }
+
     /// Opens (or focuses) the "Sites" launcher window. AppKit callers — the Dock menu (#522) —
     /// can't reach SwiftUI's `openWindow`, so the launcher root stashes a captured
     /// `OpenWindowAction` here on appear. `OpenWindowAction` is scene-independent, so the closure
