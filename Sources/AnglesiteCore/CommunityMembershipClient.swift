@@ -85,6 +85,23 @@ public struct CommunityMembershipClient: Sendable {
         _ = try await post(body)
     }
 
+    /// Bans a member or un-announces a member post — one primitive, two moderation effects, per
+    /// workers#473: the Worker's `Remove` handler treats `object` as either a member actor IRI
+    /// (ban) or an announced post's IRI (un-announce), authorized by the owner's bearer
+    /// `publishToken` alone — no `config.moderators` membership required, since the owner is
+    /// implicitly the top moderator of their own actor. `target` is whichever IRI the caller
+    /// wants removed; there's no separate "kind" parameter because the Worker itself dispatches
+    /// on what `target` resolves to, not on anything this client declares up front.
+    public func remove(target: URL) async throws {
+        let body: [String: Any] = [
+            "@context": "https://www.w3.org/ns/activitystreams",
+            "type": "Remove",
+            "actor": ownActorURL.absoluteString,
+            "object": target.absoluteString,
+        ]
+        _ = try await post(body)
+    }
+
     private func post(_ activity: [String: Any]) async throws -> Data {
         var request = URLRequest(url: outboxURL)
         request.httpMethod = "POST"

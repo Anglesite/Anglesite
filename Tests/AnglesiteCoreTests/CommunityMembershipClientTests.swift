@@ -104,4 +104,28 @@ struct CommunityMembershipClientTests {
             _ = try await Self.client(fake).follow(target: target)
         }
     }
+
+    @Test("POSTs a Remove activity to this site's own outbox")
+    func postsRemove() async throws {
+        let fake = FakeTransport()
+        let target = try #require(URL(string: "https://lemmy.ml/u/spammer"))
+
+        try await Self.client(fake).remove(target: target)
+
+        let body = await fake.requestedBodies.first
+        #expect(body?["type"] as? String == "Remove")
+        #expect(body?["object"] as? String == "https://lemmy.ml/u/spammer")
+        #expect(body?["actor"] as? String == "https://example.com/users/site")
+        let headers = await fake.requestedHeaders.first
+        #expect(headers?["Authorization"] == "Bearer secret-token")
+    }
+
+    @Test("remove maps a non-2xx status to requestFailed")
+    func removeMapsNon2xx() async throws {
+        let fake = FakeTransport(status: 403, body: "forbidden")
+        let target = try #require(URL(string: "https://lemmy.ml/u/spammer"))
+        await #expect(throws: CommunityMembershipError.requestFailed(status: 403, body: "forbidden")) {
+            try await Self.client(fake).remove(target: target)
+        }
+    }
 }
