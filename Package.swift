@@ -299,7 +299,7 @@ packageTargets.append(
 packageTargets.append(
     .testTarget(
         name: "AnglesiteIntentsTests",
-        dependencies: ["AnglesiteIntents", "AnglesiteCore"],
+        dependencies: ["AnglesiteIntents", "AnglesiteCore", "AnglesiteSiteModel"],
         path: "Tests/AnglesiteIntentsTests",
         swiftSettings: strictConcurrency,
         linkerSettings: weakLinkFoundationModels
