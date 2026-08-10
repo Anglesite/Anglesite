@@ -37,7 +37,7 @@ still show more than this closes — see §6.
 |---|---|---|
 | D1 | Phasing | Three stacked PRs: creation flow → deploy wiring → moderator UI. Each independently mergeable/testable. |
 | D2 | Creation entry point | A **separate `File ▸ New Community…` flow** (`NewCommunityWizardModel`/`NewCommunityWizard`), not a card in the existing single-question theme chooser (#1071). A hosted community is a different site kind (own Worker, own Group actor, moderators) — not a cosmetic theme pick. |
-| D3 | Community wizard scope | Name + moderator identity only (owner's own actor IRI auto-added). No theme step — one consistent look for v1. |
+| D3 | Community wizard scope | **Name only.** No moderator field: per workers#473/PR#476, the owner is implicitly the top moderator of their own actor via the existing bearer `publishToken` — no `config.moderators` membership needed. `SiteSettings.moderators` is for *delegating* to additional actors beyond the owner, which belongs in the Phase 3 Moderators UI (§5), not the creation wizard. No theme step either — one consistent look for v1. |
 | D4 | Approval-queue (pending joins) | **Deferred.** Listing pending followers is only reachable via the OAuth-gated Mastodon-API `follow_requests` surface (§3.3) — the app has no OAuth client against a site's own Mastodon-API today. File an upstream follow-up (§5) instead of building a new OAuth flow now. Remove/ban ship in this design; approve does not. |
 | D5 | Report queue | **Inert placeholder section** in the Moderation UI. No `Flag`-activity handling exists anywhere upstream (confirmed via repo-wide + upstream search) — this needs a new upstream primitive from scratch, out of scope here. The UI ships the section now so the layout doesn't reshape when report-handling eventually lands. |
 
@@ -65,10 +65,10 @@ still show more than this closes — see §6.
   different concepts and don't collide in code, only in vocabulary. UI copy
   should avoid the word "theme" when talking about hosted communities to
   keep that distinction clear to users.
-- **Post-scaffold:** sets `SiteSettings.moderators = [ownerActorIRI]` via
-  `SiteConfigStore`. `communityActorURL` stays `nil` here — Phase 2 sets it
-  once the Worker is actually deployed and the site's own actor IRI is
-  known.
+- **Post-scaffold:** `SiteSettings.moderators` stays unset (D3) — the owner
+  needs no entry there for their own admin rights. `communityActorURL` also
+  stays `nil` here — Phase 2 sets it once the Worker is actually deployed and
+  the site's own actor IRI is known.
 - **Not building for v1:** a distinct "rules" page. The existing `about.md`
   (already shipped, inert) covers that; no new template content needed.
 
