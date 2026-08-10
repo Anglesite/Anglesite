@@ -377,6 +377,27 @@ packageTargets.append(contentsOf: [
         swiftSettings: strictConcurrency,
         linkerSettings: weakLinkFoundationModels + webRTCTestRPath
     ),
+    // Anywhere runtime P1 (#1208): the Mac helper's implementation library —
+    // LoginItemRegistering today, RemoteSessionRegistry/RemoteContainerSession/etc. added by
+    // later tasks in this plan. Darwin-only, matching AnglesiteP2P above: it wraps
+    // ServiceManagement (macOS-only) and later tasks wire it to AnglesiteP2P (also Darwin-only).
+    // Unlike AnglesiteAppCore (a test-only mirror of the app target's own inlined sources), this
+    // one IS exposed as a real package product (see packageProducts below): the Xcode
+    // AnglesiteRemote app target's own module is named "Anglesite_Remote" (mangled from its
+    // PRODUCT_NAME, "Anglesite Remote") — a different module from "AnglesiteRemote" — so
+    // Sources/anglesite-remote-helper/main.swift's `import AnglesiteRemote` needs this to be a
+    // genuine linked dependency, not inlined sources of the same target.
+    .target(
+        name: "AnglesiteRemote",
+        path: "Sources/AnglesiteRemote",
+        swiftSettings: strictConcurrency
+    ),
+    .testTarget(
+        name: "AnglesiteRemoteTests",
+        dependencies: ["AnglesiteRemote"],
+        path: "Tests/AnglesiteRemoteTests",
+        swiftSettings: strictConcurrency
+    ),
 ])
 #endif
 
@@ -390,6 +411,16 @@ var packageProducts: [Product] = [
     .library(name: "AnglesiteIntents", targets: ["AnglesiteIntents"]),
     .executable(name: "anglesite-lan-host", targets: ["AnglesiteLANHost"])
 ]
+
+// AnglesiteP2P and AnglesiteRemote both need real package products (not just internal targets):
+// project.yml's new AnglesiteRemote app target (#1208 P1) references them via
+// `package: Anglesite, product: AnglesiteP2P` / `product: AnglesiteRemote`, the same mechanism
+// the Anglesite app target uses for AnglesiteCore/AnglesiteBridge/etc. Darwin-gated, matching
+// both targets themselves above.
+#if canImport(Darwin)
+packageProducts.append(.library(name: "AnglesiteP2P", targets: ["AnglesiteP2P"]))
+packageProducts.append(.library(name: "AnglesiteRemote", targets: ["AnglesiteRemote"]))
+#endif
 
 var packageDependencies: [Package.Dependency] = []
 
