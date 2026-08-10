@@ -17,7 +17,7 @@ struct SiteSplitScreen: View {
     var sessions: any MicropubSessionProviding = StoredMicropubSessions()
 
     @State private var sitePicker = SitePickerModel()
-    @State private var selectedSite: SitePickerModel.DiscoveredSite?
+    @State private var siteSelection = SiteSelectionModel()
     /// The sidebar's content-type filter: a registry type id, or `nil` for "All Posts".
     @State private var selectedTypeID: String?
     @State private var selection: PostListItemSelection?
@@ -47,7 +47,12 @@ struct SiteSplitScreen: View {
             detailPane
         }
         .task { await sitePicker.refresh() }
-        .task(id: selectedSite?.id) { await resolveSession() }
+        .task(id: siteSelection.selectedSite?.id) { await resolveSession() }
+        .onChange(of: sitePicker.state) { _, newState in
+            if case .sites(let sites) = newState {
+                siteSelection.restoreSelection(from: sites)
+            }
+        }
     }
 
     // MARK: - Sidebar (sites + content types)
@@ -88,7 +93,7 @@ struct SiteSplitScreen: View {
                         .tag(SidebarSelection.site(site.id))
                     }
                 }
-                if selectedSite != nil {
+                if siteSelection.selectedSite != nil {
                     Section("Content") {
                         Label {
                             Text("All Posts")
@@ -118,6 +123,22 @@ struct SiteSplitScreen: View {
         registry.all.filter { $0.collection != nil }
     }
 
+    /// The discovered site list, or empty when discovery hasn't produced one yet — feeds
+    /// `SiteSwitcherMenu`, which is hidden entirely below 2 sites.
+    private var switcherSites: [SitePickerModel.DiscoveredSite] {
+        guard case .sites(let sites) = sitePicker.state else { return [] }
+        return sites
+    }
+
+    @ToolbarContentBuilder
+    private func siteSwitcherToolbarItem() -> some ToolbarContent {
+        if switcherSites.count >= 2 {
+            ToolbarItem(placement: .navigation) {
+                SiteSwitcherMenu(sites: switcherSites, selected: siteSelection.selectedSite, onSelect: selectSite)
+            }
+        }
+    }
+
     private enum SidebarSelection: Hashable {
         case site(UUID)
         case allPosts
@@ -130,7 +151,7 @@ struct SiteSplitScreen: View {
         Binding(
             get: {
                 if let selectedTypeID { return .type(selectedTypeID) }
-                if selectedSite != nil { return .allPosts }
+                if siteSelection.selectedSite != nil { return .allPosts }
                 return nil
             },
             set: { newValue in
@@ -139,11 +160,7 @@ struct SiteSplitScreen: View {
                     guard case .sites(let sites) = sitePicker.state,
                           let site = sites.first(where: { $0.id == id })
                     else { return }
-                    if site != selectedSite {
-                        selectedSite = site
-                        selectedTypeID = nil
-                        selection = nil
-                    }
+                    selectSite(site)
                 case .allPosts:
                     selectedTypeID = nil
                 case .type(let id):
@@ -166,38 +183,41 @@ struct SiteSplitScreen: View {
 
     @ViewBuilder
     private var contentPane: some View {
-        if selectedSite == nil {
+        if siteSelection.selectedSite == nil {
             ContentUnavailableView {
                 Label("Pick a Site", systemImage: "globe")
             } description: {
                 Text("Choose one of your sites to see its posts.")
             }
         } else {
-            switch sessionState {
-            case .none, .checking:
-                ProgressView()
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .signedOut:
-                // #868's onboarding flow, embedded: when it lands signed-in, re-resolve so
-                // the freshly stored credential becomes this shell's session.
-                if let site = selectedSite {
-                    SiteSignInScreen(site: site) {
-                        Task { await resolveSession() }
+            Group {
+                switch sessionState {
+                case .none, .checking:
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .signedOut:
+                    if let site = siteSelection.selectedSite {
+                        SiteSignInScreen(site: site) {
+                            Task { await resolveSession() }
+                        }
                     }
-                }
-            case .ready:
-                if let postList {
-                    PostListScreen(
-                        model: postList,
-                        collection: selectedCollection,
-                        selection: $selection
-                    )
-                    .toolbar {
-                        ToolbarItem(placement: .primaryAction) {
-                            newPostButton
+                case .ready:
+                    if let postList {
+                        PostListScreen(
+                            model: postList,
+                            collection: selectedCollection,
+                            selection: $selection
+                        )
+                        .toolbar {
+                            ToolbarItem(placement: .primaryAction) {
+                                newPostButton
+                            }
                         }
                     }
                 }
+            }
+            .toolbar {
+                siteSwitcherToolbarItem()
             }
         }
     }
@@ -220,7 +240,7 @@ struct SiteSplitScreen: View {
 
     @ViewBuilder
     private var detailPane: some View {
-        if let session, let site = selectedSite, let selection {
+        if let session, let site = siteSelection.selectedSite, let selection {
             ComposerPane(
                 selection: selection,
                 session: session,
@@ -231,6 +251,9 @@ struct SiteSplitScreen: View {
             )
             // A fresh pane per selection: composer state must never leak across posts.
             .id(selection)
+            .toolbar {
+                siteSwitcherToolbarItem()
+            }
         } else {
             ContentUnavailableView {
                 Label("Nothing Selected", systemImage: "square.and.pencil")
@@ -241,7 +264,7 @@ struct SiteSplitScreen: View {
     }
 
     private func resolveSession() async {
-        guard let site = selectedSite else {
+        guard let site = siteSelection.selectedSite else {
             sessionState = .none
             session = nil
             postList = nil
@@ -250,7 +273,7 @@ struct SiteSplitScreen: View {
         sessionState = .checking
         let resolved = await sessions.session(for: site)
         // The site may have changed while resolving; only publish for the current one.
-        guard site == selectedSite else { return }
+        guard site == siteSelection.selectedSite else { return }
         if let resolved {
             session = resolved
             postList = PostListModel(client: resolved.makeClient(), registry: registry)
@@ -260,6 +283,15 @@ struct SiteSplitScreen: View {
             postList = nil
             sessionState = .signedOut
         }
+    }
+
+    /// Single path for every site-switch trigger (sidebar row, switcher menu) so the
+    /// reset-filter-and-selection side effect can't drift between call sites.
+    private func selectSite(_ site: SitePickerModel.DiscoveredSite) {
+        guard site != siteSelection.selectedSite else { return }
+        siteSelection.select(site)
+        selectedTypeID = nil
+        selection = nil
     }
 }
 
