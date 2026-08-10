@@ -101,6 +101,18 @@ public actor RemoteSiteResolver {
     /// Resolves `siteID` to its `Source/` directory. `expectedPackageURL` is only used to
     /// pre-target the open panel on the non-iCloud path (best-effort UX, not a security check —
     /// the user can navigate elsewhere in the panel, same as the main app's own Import flow).
+    ///
+    /// On the bookmark path, this method calls `bookmarking.startAccessing` on the resolved URL
+    /// and deliberately does **not** pair it with `stopAccessing` before returning: unlike
+    /// `SiteAccess.withScopedAccess`'s short-lived bracketed closure (fits the main app's
+    /// one-shot operations), this resolver's caller is a long-lived helper session — the
+    /// container needs continued read/write access to `Source/` for the entire session (git
+    /// clone, container boot, ongoing edits), not just for the instant of resolving the path.
+    /// The returned URL's security scope is therefore left open and becomes the **caller's**
+    /// responsibility to eventually release via `bookmarking.stopAccessing`; there is no
+    /// release/stop API on this type yet because session teardown wiring is a later task. On the
+    /// iCloud fast path, no bookmark or `startAccessing` call happens at all — sandboxed apps get
+    /// automatic access to their own ubiquity container from the entitlement alone.
     public func resolveSourceDirectory(siteID: String, expectedPackageURL: URL) async throws -> URL {
         // Fast path: the package already sits inside the shared iCloud ubiquity container, which
         // both bundle IDs (main app + helper) carry the same entitlement for — no bookmark needed,
@@ -133,7 +145,8 @@ public actor RemoteSiteResolver {
 
     /// Resolves bookmark `data` — already scoped to the site's `Source/` directory — re-`create`ing
     /// and persisting a fresh bookmark when the platform reports staleness, the same dance
-    /// `SiteAccess` already performs for the main app.
+    /// `SiteAccess` already performs for the main app. Opens (and, deliberately, does not close)
+    /// the resolved URL's security scope — see `resolveSourceDirectory`'s doc comment for why.
     private func resolveAndPersistIfStale(_ data: Data, siteID: String) async throws -> URL {
         let resolution: SecurityScopedBookmarkResolution
         do {
@@ -142,12 +155,12 @@ public actor RemoteSiteResolver {
             throw RemoteSiteResolverError.bookmarkResolutionFailed(String(describing: error))
         }
 
-        if resolution.isStale {
-            _ = bookmarking.startAccessing(resolution.url)
-            defer { bookmarking.stopAccessing(resolution.url) }
-            if let refreshedData = try? bookmarking.create(for: resolution.url) {
-                try await bookmarkStore.setBookmark(refreshedData, for: siteID)
-            }
+        // Held open for the caller's session — not paired with `stopAccessing` here. See the
+        // doc comment on `resolveSourceDirectory` for the rationale.
+        _ = bookmarking.startAccessing(resolution.url)
+
+        if resolution.isStale, let refreshedData = try? bookmarking.create(for: resolution.url) {
+            try await bookmarkStore.setBookmark(refreshedData, for: siteID)
         }
 
         return resolution.url
