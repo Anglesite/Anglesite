@@ -506,6 +506,11 @@ describe("RichTextEditor", () => {
     await engine.submit({ kind: "setProp", blockId: "t1", propName: "x", value: "y", previousValue: "z" });
 
     expect(editor.activeElementForTesting).toBe(replacement);
+    // The pointer moving isn't enough on its own — the replacement arrives from a fresh render as
+    // plain, non-editable DOM. Without making it editable (and focusing it), the owner's
+    // in-progress edit still effectively dies even though RichTextEditor's internal state is
+    // correct (#1225 final-review fix wave, Finding 4).
+    expect(replacement.contentEditable).toBe("true");
   });
 
   it("input on the reattached element still schedules a debounced commit (proves listeners moved, not just the pointer)", async () => {

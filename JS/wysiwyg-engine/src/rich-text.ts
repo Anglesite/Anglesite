@@ -356,6 +356,22 @@ export class RichTextEditor {
       this.#activeElement?.removeEventListener("keydown", this.#onKeydown);
       this.#activeElement = current;
       this.#attach(current);
+      // The replacement node arrives from a fresh render — plain, non-editable DOM, same as any
+      // other block. Without these two lines the pointer moves correctly on the JS side but the
+      // owner's in-progress edit still effectively dies from their perspective: the new node isn't
+      // editable and doesn't hold focus, so the next keystroke goes nowhere (#1225 final-review fix
+      // wave, Finding 4).
+      current.contentEditable = "true";
+      current.focus();
+      // `#baselineRuns` is deliberately NOT re-resolved from `current`'s content here: the whole
+      // point of a fixed enter()-time baseline (see this class's header comment) is that a
+      // version-mismatch rejection mid-edit can discard the whole in-progress edit in one step. The
+      // re-render that triggered this reattach was some *other* op applying to the model (this
+      // block's own content is exactly what's still being locally edited and hasn't been submitted
+      // yet) — re-reading `current`'s content now would just read back the same pre-edit text the
+      // baseline already holds, so there's nothing to gain and re-resolving would risk masking a
+      // real divergence (e.g. a genuinely conflicting concurrent edit) behind a silently-updated
+      // baseline instead of surfacing it through the normal rejection path.
     }
   }
 
