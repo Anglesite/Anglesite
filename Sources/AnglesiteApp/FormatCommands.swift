@@ -16,15 +16,35 @@ struct FormatCommands: Commands {
         return nil
     }
 
+    /// The WYSIWYG canvas's controller, when it holds registry focus (#1225 Task 10) — the
+    /// Strong/Emphasis/Add Link buttons below check this alongside `markdownController` so the
+    /// same shortcuts work against whichever editor currently has focus.
+    private var wysiwygController: WYSIWYGCanvasController? {
+        if case .wysiwygCanvas(let box) = registry.active { return box.value }
+        return nil
+    }
+
     var body: some Commands {
         CommandMenu("Format") {
             Menu("Font") {
-                Button("Strong") { markdownController?.perform(.bold) }
-                    .keyboardShortcut("b")
-                    .disabled(markdownController == nil)
-                Button("Emphasis") { markdownController?.perform(.italic) }
-                    .keyboardShortcut("i")
-                    .disabled(markdownController == nil)
+                Button("Strong") {
+                    if let wysiwygController {
+                        wysiwygController.applyFormat("strong")
+                    } else {
+                        markdownController?.perform(.bold)
+                    }
+                }
+                .keyboardShortcut("b")
+                .disabled(markdownController == nil && wysiwygController == nil)
+                Button("Emphasis") {
+                    if let wysiwygController {
+                        wysiwygController.applyFormat("em")
+                    } else {
+                        markdownController?.perform(.italic)
+                    }
+                }
+                .keyboardShortcut("i")
+                .disabled(markdownController == nil && wysiwygController == nil)
                 PlannedItem("Underline", shortcut: "u")
                 Button("Strikethrough") { markdownController?.perform(.strikethrough) }
                     .disabled(markdownController == nil)
@@ -69,9 +89,15 @@ struct FormatCommands: Commands {
 
             Divider()
 
-            Button("Add Link…") { markdownController?.perform(.link) }
-                .keyboardShortcut("k")
-                .disabled(markdownController == nil)
+            Button("Add Link…") {
+                if let wysiwygController {
+                    wysiwygController.applyFormat("link", href: "")
+                } else {
+                    markdownController?.perform(.link)
+                }
+            }
+            .keyboardShortcut("k")
+            .disabled(markdownController == nil && wysiwygController == nil)
             PlannedItem("Remove Link")
         }
     }

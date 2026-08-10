@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import WebKit
 import AnglesiteCore
 
 /// App-side orchestrator for one mounted WYSIWYG canvas (#1225). Owns the transport and current
@@ -46,6 +47,12 @@ final class WYSIWYGCanvasController {
     /// force a version-mismatch rejection without needing two controllers racing a real one.
     var forceTargetVersion: String?
 
+    /// Set by `PreviewView`'s `onWebView` callback (`SiteWindow.previewPane(for:)`) once the
+    /// underlying `WKWebView` exists, so `applyFormat(_:href:)` (#1225 Task 10) has something to
+    /// call into. Weak: the view owns the web view's lifetime, matching `PreviewModel.webView`'s
+    /// own pattern.
+    weak var webView: WKWebView?
+
     init(initialModel: BlockModel, transport: any WYSIWYGHostTransport) {
         self.model = initialModel
         self.transport = transport
@@ -78,6 +85,32 @@ final class WYSIWYGCanvasController {
             if let freshModel { model = freshModel }
         }
         return result
+    }
+
+    /// The Format menu's Strong/Emphasis/Add Link entry point (#1225 Task 10) — posts into the
+    /// mounted `RichTextEditor` (`JS/wysiwyg-engine/src/rich-text.ts`) via the same global the
+    /// build's `mount.ts` exposes it under. `command` is `"strong"`/`"em"`/`"link"`; `⌘K` (inline
+    /// `code`) is out of scope for this task. Fire-and-forget, same as
+    /// `ComponentStyleInspectorPane`'s canvas-command calls: the JS side no-ops silently if there's
+    /// no active editing session (`RichTextEditor`'s own `#activeElement` guard) or the script
+    /// hasn't mounted yet (`?.`), so there is nothing meaningful to await here.
+    func applyFormat(_ command: String, href: String? = nil) {
+        var script = "window.__anglesiteWysiwygRichTextEditor?.applyFormat(\(Self.jsStringLiteral(command))"
+        if let href {
+            script += ", \(Self.jsStringLiteral(href))"
+        }
+        script += ")"
+        webView?.evaluateJavaScript(script)
+    }
+
+    /// Escapes a Swift string into a double-quoted JS string literal for `evaluateJavaScript`
+    /// interpolation — mirrors `ComponentStyleInspectorPane.jsStringLiteral`, needed here too
+    /// since `href` (a future link-URL prompt's user input) isn't safe to interpolate raw.
+    private static func jsStringLiteral(_ value: String) -> String {
+        let escaped = value
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"\(escaped)\""
     }
 }
 

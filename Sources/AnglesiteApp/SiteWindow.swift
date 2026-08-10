@@ -1055,7 +1055,12 @@ struct SiteWindow: View {
                 router: model.preview.editRouter,
                 annotationProvider: model.annotationProvider,
                 wysiwygTransport: model.preview.wysiwygCanvas,
-                onWebView: { [preview = model.preview] webView in preview.webView = webView },
+                onWebView: { [preview = model.preview] webView in
+                    preview.webView = webView
+                    // #1225 Task 10: gives WYSIWYGCanvasController.applyFormat something to post
+                    // the Format menu's Strong/Emphasis/Add Link commands into once edit mode is on.
+                    preview.wysiwygCanvas?.webView = webView
+                },
                 // Explicit detach: ARC zeroing the model's weak `webView` doesn't fire `didSet`,
                 // so without this the Back/Forward menu enablement would freeze when the dev
                 // server restarts or fails (see PreviewModel.detachWebView).

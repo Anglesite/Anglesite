@@ -463,6 +463,28 @@ describe("RichTextEditor", () => {
     expect(engine.modelSync.getBlock("t1")?.richText).toEqual([{ kind: "text", text: "Hello world" }]);
   });
 
+  it("applyFormat delegates 'strong'/'em' to toggleFormat and 'link' to setLink (#1225 Task 10)", () => {
+    // The native Format menu (Swift `WYSIWYGCanvasController.applyFormat`) calls one JS method
+    // name regardless of which command was requested — this is the dispatcher it calls into.
+    // toggleFormat/setLink's own DOM-selection behavior is already covered above (and by the
+    // e2e goldens for real Selection support); this only proves the dispatch mapping.
+    document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
+    const model = makeTextModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const editor = new RichTextEditor(engine);
+    const toggleSpy = vi.spyOn(editor, "toggleFormat");
+    const setLinkSpy = vi.spyOn(editor, "setLink");
+
+    editor.enter("t1");
+    editor.applyFormat("strong");
+    editor.applyFormat("em");
+    editor.applyFormat("link", "/about");
+    editor.applyFormat("link"); // no href: passes "" through, same as Markdown's empty-URL link
+
+    expect(toggleSpy.mock.calls).toEqual([["strong"], ["em"]]);
+    expect(setLinkSpy.mock.calls).toEqual([["/about"], [""]]);
+  });
+
   it("pressing Escape exits editing (design doc §4: commit immediately on Escape)", () => {
     document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
     const model = makeTextModel();

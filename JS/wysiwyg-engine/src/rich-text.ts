@@ -295,6 +295,25 @@ export class RichTextEditor {
     this.#committer.flush();
   }
 
+  /**
+   * Unified entry point the native host's Format menu calls (#1225 Task 10) — a thin dispatcher
+   * onto `toggleFormat`/`setLink` above, so the Swift bridge (`WYSIWYGCanvasController.applyFormat`)
+   * can post one JS method name regardless of which command was requested instead of needing a
+   * method-per-command mapping on the native side. `strong`/`em` reuse `toggleFormat`'s existing
+   * Range-based wrap/unwrap (already covered above and by the Playwright e2e goldens for real
+   * Selection support); `link` reuses `setLink`. `href` defaults to `""` when omitted, matching
+   * `MarkdownEditorController.perform(.link)`'s empty-URL convention — the selection gets wrapped
+   * in an empty-href link for the user to fill in, rather than being treated as "clear".
+   * `⌘K` (inline `code`) is explicitly out of scope for this task.
+   */
+  applyFormat(command: "strong" | "em" | "link", href?: string): void {
+    if (command === "link") {
+      this.setLink(href ?? "");
+    } else {
+      this.toggleFormat(command);
+    }
+  }
+
   dispose(): void {
     this.exit();
   }

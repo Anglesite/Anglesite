@@ -1,10 +1,12 @@
 import { WysiwygEngine } from "../engine.js";
+import { RichTextEditor } from "../rich-text.js";
 import { NativeHostTransport } from "./native-host-transport.js";
 import type { BlockModel } from "../types.js";
 
 declare global {
   interface Window {
     __anglesiteWysiwygEngine?: WysiwygEngine;
+    __anglesiteWysiwygRichTextEditor?: RichTextEditor;
     __anglesiteWysiwygMount?: { mount: (initialModel: BlockModel) => WysiwygEngine };
   }
 }
@@ -16,6 +18,11 @@ window.__anglesiteWysiwygMount = {
   mount(initialModel: BlockModel): WysiwygEngine {
     const engine = new WysiwygEngine(initialModel, new NativeHostTransport());
     window.__anglesiteWysiwygEngine = engine;
+    // `RichTextEditor` needs an engine to submit `editText` ops through, so it's constructed here
+    // rather than at injection time too — exposed globally so `WYSIWYGCanvasController.applyFormat`
+    // (#1225 Task 10) can reach it via `evaluateJavaScript`. Block selection (`enter()`) is wired by
+    // a different task; this only makes the instance reachable.
+    window.__anglesiteWysiwygRichTextEditor = new RichTextEditor(engine);
     return engine;
   },
 };

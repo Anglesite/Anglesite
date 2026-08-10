@@ -33,6 +33,10 @@ final class EditorFocusRegistry {
     enum Focus {
         case markdown(Weak<MarkdownEditorController>)
         case plainText(isPresented: Binding<Bool>)
+        /// The WYSIWYG canvas (#1225 Task 10) — a third editor kind that can hold focus alongside
+        /// an inspector text field in the same window, the same disambiguation problem this
+        /// registry exists to solve for `.markdown`.
+        case wysiwygCanvas(Weak<WYSIWYGCanvasController>)
     }
 
     private(set) var active: Focus?
