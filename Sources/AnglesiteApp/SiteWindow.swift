@@ -1035,6 +1035,8 @@ struct SiteWindow: View {
             FollowersView(followers: model.followers)
         case .communities:
             CommunitiesView(communities: model.communities)
+        case .moderation:
+            ModerationView(moderation: model.moderation)
         case .preview:
             previewPane(for: site)
         }

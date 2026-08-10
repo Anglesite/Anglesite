@@ -1,50 +1,6 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
-    "Traffic" : {
-
-    },
-    "No traffic recorded in the last 7 days." : {
-
-    },
-    "Last 7 days: %lld pageviews · %lld visits" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "Last 7 days: %1$lld pageviews · %2$lld visits"
-          }
-        }
-      }
-    },
-    "7-day pageviews trend" : {
-
-    },
-    "%lld total pageviews over the last 7 days, %@" : {
-      "localizations" : {
-        "en" : {
-          "stringUnit" : {
-            "state" : "new",
-            "value" : "%1$lld total pageviews over the last 7 days, %2$@"
-          }
-        }
-      }
-    },
-    "trending up" : {
-
-    },
-    "trending down" : {
-
-    },
-    "holding steady" : {
-
-    },
-    "Day" : {
-
-    },
-    "Pageviews" : {
-
-    },
     "" : {
 
     },
@@ -250,6 +206,16 @@
     "%lld selected" : {
 
     },
+    "%lld total pageviews over the last 7 days, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld total pageviews over the last 7 days, %2$@"
+          }
+        }
+      }
+    },
     "%lld%%" : {
 
     },
@@ -269,6 +235,9 @@
 
     },
     "302" : {
+
+    },
+    "7-day pageviews trend" : {
 
     },
     ":" : {
@@ -332,6 +301,9 @@
 
     },
     "Accessibility" : {
+
+    },
+    "Account" : {
 
     },
     "Acknowledgments" : {
@@ -493,6 +465,9 @@
     "Analyze" : {
 
     },
+    "Analyze ${experimentName}" : {
+
+    },
     "Anglesite Debug" : {
 
     },
@@ -548,6 +523,9 @@
 
     },
     "Applied." : {
+
+    },
+    "Applies only to AI agents you haven't refused above — one you've blocked never requests your pages in the first place, so this never overrides that refusal." : {
 
     },
     "Apply" : {
@@ -626,6 +604,9 @@
     "Astro Website…" : {
 
     },
+    "Atmosphere" : {
+
+    },
     "Attributes" : {
 
     },
@@ -671,6 +652,12 @@
     "Backup" : {
 
     },
+    "Ban" : {
+
+    },
+    "Ban this member?" : {
+
+    },
     "Base styles" : {
 
     },
@@ -693,6 +680,15 @@
 
     },
     "Blog" : {
+
+    },
+    "Bluesky" : {
+
+    },
+    "Bluesky account connected" : {
+
+    },
+    "Bluesky account not connected" : {
 
     },
     "Body" : {
@@ -726,6 +722,9 @@
 
     },
     "Build, scan, and run wrangler deploy on this site" : {
+
+    },
+    "Building your community…" : {
 
     },
     "Building your website…" : {
@@ -817,6 +816,9 @@
 
     },
     "Check ${site}" : {
+
+    },
+    "Check Cloudflare's Agent Readiness score for this site's deployed URL" : {
 
     },
     "Check Domain Config" : {
@@ -928,6 +930,9 @@
     "Cloudflare" : {
 
     },
+    "Cloudflare (OAuth)" : {
+
+    },
     "Cloudflare's Agent Readiness score checks whether AI agents and assistants can discover, read, and act on your deployed site — the 2026 equivalent of a Lighthouse score, but for AI agents instead of browsers." : {
 
     },
@@ -971,6 +976,9 @@
 
     },
     "Communities…" : {
+
+    },
+    "Community Name" : {
 
     },
     "Compare anglesite.json's declared domain/DNS/edge config against live Cloudflare state" : {
@@ -1018,6 +1026,9 @@
     "Connect & publish" : {
 
     },
+    "Connect a Bluesky account for POSSE syndication to turn this on." : {
+
+    },
     "Connect a Cloudflare API token first, in Settings → Advanced → Credentials." : {
 
     },
@@ -1034,6 +1045,12 @@
 
     },
     "Connect to GitHub" : {
+
+    },
+    "Connected" : {
+
+    },
+    "Connected (won't auto-refresh)" : {
 
     },
     "Connected to %@" : {
@@ -1164,6 +1181,9 @@
     "Couldn't run the check" : {
 
     },
+    "Couldn't save the Atmosphere setting: %@" : {
+
+    },
     "Couldn't save the inbox capture setting: %@" : {
 
     },
@@ -1225,6 +1245,9 @@
 
     },
     "Dashboard" : {
+
+    },
+    "Day" : {
 
     },
     "Debug builds always show the Debug Pane (View → Show Debug Pane, ⌥⌘D) regardless of this setting." : {
@@ -1462,6 +1485,9 @@
 
     },
     "Experiment" : {
+
+    },
+    "Experiment Results" : {
 
     },
     "Experiment Results…" : {
@@ -1881,6 +1907,16 @@
     "Language & Region…" : {
 
     },
+    "Last 7 days: %lld pageviews · %lld visits" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Last 7 days: %1$lld pageviews · %2$lld visits"
+          }
+        }
+      }
+    },
     "Last checked %@" : {
 
     },
@@ -1983,6 +2019,9 @@
     "Mail domain" : {
 
     },
+    "Members" : {
+
+    },
     "Metadata" : {
 
     },
@@ -2004,6 +2043,15 @@
     "Moderate" : {
 
     },
+    "Moderation" : {
+
+    },
+    "Moderation…" : {
+
+    },
+    "Moderators" : {
+
+    },
     "Move To…" : {
 
     },
@@ -2017,6 +2065,9 @@
 
     },
     "Name" : {
+
+    },
+    "Name Your Community" : {
 
     },
     "Naming" : {
@@ -2038,6 +2089,9 @@
 
     },
     "New Collection…" : {
+
+    },
+    "New Community…" : {
 
     },
     "New Component" : {
@@ -2160,10 +2214,16 @@
     "No redirects yet. Add one below." : {
 
     },
+    "No report handling yet." : {
+
+    },
     "No results. Try a different search." : {
 
     },
     "No scoped styles" : {
+
+    },
+    "No traffic recorded in the last 7 days." : {
 
     },
     "No unused files found" : {
@@ -2176,6 +2236,9 @@
 
     },
     "None" : {
+
+    },
+    "Not Connected" : {
 
     },
     "Not Set" : {
@@ -2226,6 +2289,9 @@
     "Onion Routing…" : {
 
     },
+    "Only you can moderate this community." : {
+
+    },
     "Open" : {
 
     },
@@ -2245,6 +2311,9 @@
 
     },
     "Open Cloudflare Domains" : {
+
+    },
+    "Open Community Anyway" : {
 
     },
     "Open Dashboard" : {
@@ -2331,6 +2400,9 @@
     "Other Mac" : {
 
     },
+    "Others will be able to join and post to it from any fediverse account." : {
+
+    },
     "Other…" : {
 
     },
@@ -2350,6 +2422,9 @@
 
     },
     "Pages using this worker's components" : {
+
+    },
+    "Pageviews" : {
 
     },
     "Page…" : {
@@ -2496,6 +2571,9 @@
     "Publish it at least once, then you can join communities." : {
 
     },
+    "Publish posts to the Atmosphere" : {
+
+    },
     "Publish to GitHub" : {
 
     },
@@ -2535,6 +2613,9 @@
     "Quarantined copies" : {
 
     },
+    "RSL" : {
+
+    },
     "Re-check" : {
 
     },
@@ -2566,6 +2647,9 @@
 
     },
     "Recheck Readiness" : {
+
+    },
+    "Recommend an email provider and pre-fill its DNS records" : {
 
     },
     "Recommended provider" : {
@@ -2643,6 +2727,9 @@
     "Remove from Anglesite…" : {
 
     },
+    "Remove this post?" : {
+
+    },
     "Remove “%@” from Anglesite?" : {
 
     },
@@ -2674,6 +2761,9 @@
 
     },
     "Replies" : {
+
+    },
+    "Reports" : {
 
     },
     "Reports go to %@/%@'s private advisory form." : {
@@ -3369,6 +3459,9 @@
     "This is your home page — search engines won't be able to crawl any page reachable only through it." : {
 
     },
+    "This member's posts will stop appearing. Existing posts stay unless you also remove them." : {
+
+    },
     "This page already links to all related content." : {
 
     },
@@ -3382,6 +3475,9 @@
 
     },
     "This removes it from Anglesite's list only. The files in %@ are left on disk." : {
+
+    },
+    "This removes the post from the community timeline. The author's own copy on their own site is unaffected." : {
 
     },
     "This site does not have any collection-backed content types." : {
@@ -3418,6 +3514,9 @@
 
     },
     "Top" : {
+
+    },
+    "Traffic" : {
 
     },
     "Transfer an existing domain" : {
@@ -3565,6 +3664,9 @@
     "Variant rate" : {
 
     },
+    "Verifies via /.well-known/atproto-did when the site is deployed here; otherwise adds a DNS record." : {
+
+    },
     "Vertically" : {
 
     },
@@ -3643,10 +3745,16 @@
     "What's New in Anglesite" : {
 
     },
+    "When an AI assistant asks for a page, Cloudflare serves it a markdown version instead of the full HTML — a fraction of the tokens your full page costs. Human visitors see no change. Takes effect on your next deploy to a custom domain." : {
+
+    },
     "When you create a page or post, Anglesite uses Apple's on-device model to suggest a short SEO description. Runs locally; requires Apple Intelligence to be enabled. Falls back to a title-derived description when off or unavailable." : {
 
     },
     "When you drop an image onto the preview, Anglesite uses Apple's on-device vision model to write descriptive alt text and applies it automatically. Runs locally; requires Apple Intelligence to be enabled. Purely decorative images get empty alt text and role=\"presentation\"." : {
+
+    },
+    "When your Bluesky account is connected, Anglesite also publishes each post as a Standard.site record in your own account. That gives your posts richer preview cards on Bluesky and makes them discoverable by independent Atmosphere search tools, without changing where your site is hosted." : {
 
     },
     "Whether this Mac can run Siri-driven Anglesite workflows. Per-site readiness is in each site window (Site ▸ Siri AI Readiness)." : {
@@ -3683,6 +3791,12 @@
 
     },
     "Your Cloudflare token can't manage KV namespaces — recreate it from Settings → Tokens." : {
+
+    },
+    "Your community was created with warnings. You can open it anyway and fix it from the community window." : {
+
+    },
+    "Your community was created, but something above needs attention before it can preview. You can open it anyway and fix it from the community window." : {
 
     },
     "Your declared domain configuration (anglesite.json) doesn't match what's live on Cloudflare. Review and reconcile before deploying again." : {
@@ -3739,6 +3853,9 @@
     "handle" : {
 
     },
+    "holding steady" : {
+
+    },
     "https://agent.example.com/acp" : {
 
     },
@@ -3781,6 +3898,12 @@
     "selector" : {
 
     },
+    "trending down" : {
+
+    },
+    "trending up" : {
+
+    },
     "type" : {
 
     },
@@ -3821,42 +3944,6 @@
       }
     },
     "👥" : {
-
-    },
-    "Account" : {
-
-    },
-    "Atmosphere" : {
-
-    },
-    "Bluesky" : {
-
-    },
-    "Bluesky account connected" : {
-
-    },
-    "Bluesky account not connected" : {
-
-    },
-    "Connect a Bluesky account for POSSE syndication to turn this on." : {
-
-    },
-    "Connected" : {
-
-    },
-    "Couldn't save the Atmosphere setting: %@" : {
-
-    },
-    "Learn more about Atmosphere" : {
-
-    },
-    "Not Connected" : {
-
-    },
-    "Publish posts to the Atmosphere" : {
-
-    },
-    "When your Bluesky account is connected, Anglesite also publishes each post as a Standard.site record in your own account. That gives your posts richer preview cards on Bluesky and makes them discoverable by independent Atmosphere search tools, without changing where your site is hosted." : {
 
     }
   },

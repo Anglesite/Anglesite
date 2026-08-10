@@ -16,6 +16,7 @@ enum MainPaneMode: Equatable {
     case reader         // Website ▸ Reader… (V-4.3, #365)
     case followers      // Website ▸ Followers… (V-4.2, #364)
     case communities    // Website ▸ Communities… (V-5.1a, #368)
+    case moderation     // Website ▸ Moderation… (V-5.1b/V-5.3, #907/#370)
 }
 
 enum ActiveEditor {
@@ -164,6 +165,18 @@ final class SiteWindowModel {
     /// Drives the main-pane Communities view (Website ▸ Communities…, V-5.1a #368): join/leave
     /// fediverse Group actors and read a per-group timeline.
     var communities = CommunitiesModel()
+    /// Drives the main-pane Moderation view (Website ▸ Moderation…, V-5.1b/V-5.3 #907/#370):
+    /// moderator display, and ban/remove actions over this site's members and posts.
+    var moderation = ModerationModel()
+    /// Cached `SiteSettings.communityActorURL != nil`, refreshed once per site open in
+    /// `loadAndStart()` — the gate for Website ▸ Moderation… (#907/#370). A cached `Bool`
+    /// rather than a live synchronous read: `SiteConfigStore.read(from:fileManager:)` is
+    /// documented as unsafe to call from `@MainActor` (it blocks on disk I/O), and
+    /// `canOpenModeration` must be synchronous for `.disabled(...)` to read. Known limitation:
+    /// this doesn't live-update if a deploy completes while the window stays open — reopening
+    /// the site picks up the new value. Acceptable for v1 (design doc §5); revisit only if it
+    /// proves confusing in practice.
+    private(set) var isHostedCommunity = false
     var harden = HardenModel()
     var domainConfigAudit = DomainConfigAuditModel()
     /// Cloudflare Agent Readiness score for the deployed site (#1248).
@@ -436,6 +449,17 @@ final class SiteWindowModel {
         }
     }
 
+    /// Switches the main pane to Moderation (Website ▸ Moderation…, V-5.1b/V-5.3 #907/#370).
+    /// Mirrors `presentCommunities()`'s leave-current-surface-first guard. Unlike Communities,
+    /// this is gated (`canOpenModeration`) — see that property's doc comment.
+    func presentModeration() {
+        Task {
+            guard await leaveCurrentEditor(), await leaveCurrentInspector() else { return }
+            activeEditor = nil
+            await clearInspectorThenSwitchPane(to: .moderation)
+        }
+    }
+
     /// Clears the inspector and swaps the main pane, giving the inspector's own
     /// `.inspector(isPresented:)` dismissal a moment to settle in its own SwiftUI transaction
     /// before `mainPaneMode` tears down and rebuilds the entire detail view. Doing both in the
@@ -534,6 +558,13 @@ final class SiteWindowModel {
     }
 
     var canOpenCopyEdit: Bool { site != nil }
+
+    /// Website ▸ Moderation… (#907/#370) is only meaningful once this site is a *deployed*
+    /// hosted community — `communityActorURL` is set by `DeployCoordinator.persistProvisionedResources`
+    /// after a successful deploy with a Group actor (Phase 2), not at creation time. Unlike
+    /// Communities/Followers (always enabled once a site is focused), a personal site or an
+    /// undeployed community never enables this — there's nothing to moderate yet.
+    var canOpenModeration: Bool { isHostedCommunity }
 
     /// Presents the Review Copy sheet (#465). Reconstructs a `ProjectConventionsStore` from the
     /// site's `configDirectory` — the same expression `ProjectConventionsModel.init` uses for
@@ -1963,6 +1994,7 @@ final class SiteWindowModel {
             return
         }
         site = resolved
+        isHostedCommunity = ((try? await SiteConfigStore(configDirectory: resolved.configDirectory).load())?.communityActorURL) != nil
         // Constructed once and threaded into every child model below instead of each one
         // separately re-deriving `id`/`sourceDirectory`/`packageURL`/`configDirectory` from
         // `resolved` at its own call site (#822) — see `CurrentSite`'s own doc comment.
@@ -2232,6 +2264,7 @@ final class SiteWindowModel {
         reader.configure(site: currentSite)
         followers.configure(site: currentSite)
         communities.configure(site: currentSite)
+        moderation.configure(site: currentSite)
         domain.configure(site: currentSite)
         connectDomain.configure(site: currentSite)
         buyDomain.configure(site: currentSite)
