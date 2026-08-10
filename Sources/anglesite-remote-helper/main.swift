@@ -83,11 +83,21 @@ let heartbeat = ControlHeartbeat(connection: peer, interval: .seconds(10), missL
 // actor-isolated), so route SIGTERM through a DispatchSourceSignal instead: it delivers on a
 // normal GCD queue, which is a safe place to kick off a `Task` that closes the peer (letting the
 // `async let`s below unwind naturally) and tears the container session down before exiting.
-// `signal(SIGTERM, SIG_IGN)` first blocks the default disposition (immediate termination) so the
+// `signal(SIGTERM, ...)` first blocks the default disposition (immediate termination) so the
 // dispatch source is the only thing that actually observes the signal. The source itself must be
 // retained for the process lifetime — GCD sources stop firing if deallocated — hence the
 // top-level `let` rather than a throwaway local.
-signal(SIGTERM, SIG_IGN)
+//
+// A non-capturing closure handler is used instead of `SIG_IGN` deliberately, matching
+// `ProcessSupervisor.swift`'s own `ignoreSIGPIPE` precedent: the Swift-vended `Darwin.SIG_IGN`
+// constant is exported from the `libswift_DarwinFoundation3` overlay, which some of this repo's
+// CI images don't ship — referencing it can make a binary fail to load ("Library not loaded:
+// libswift_DarwinFoundation3.dylib"). The closure form avoids adding *this file's own*
+// reference to that symbol. Note this target still ends up linking the dylib regardless, via
+// `AnglesiteContainer`'s `apple/containerization` dependency (`ContainerizationOS/
+// AsyncSignalHandler.swift` references `SIG_IGN` directly) — a pre-existing characteristic
+// already shared by `AnglesiteContainerProbe`, not something this file can avoid on its own.
+signal(SIGTERM, { _ in })
 let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
 sigtermSource.setEventHandler {
     Task {
