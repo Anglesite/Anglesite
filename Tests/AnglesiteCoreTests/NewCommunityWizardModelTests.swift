@@ -35,11 +35,9 @@ final class NewCommunityWizardModelTests: XCTestCase {
         m.communityName = "Birding Club"
 
         var seenDraft: NewSiteDraft?
-        // Use the actual template from Resources/Template to avoid package.json warnings
-        let templateURL = URL(fileURLWithPath: "/Users/dwk/Developer/github.com/Anglesite/Anglesite-app/.claude/worktrees/multi-agent-test-hangs-b849b1/Resources/Template")
         let scaffolder = SiteScaffolder(
             sitesRoot: root,
-            templateURL: templateURL,
+            templateURL: URL(fileURLWithPath: "/template"),
             catalog: ThemeCatalog(themes: [Theme(id: "community", name: "Community", blurb: "", swatch: [], cssVars: [:])]),
             run: { _, args, cwd in
                 if args.contains(where: { $0.hasSuffix("scaffold.sh") }), let cwd {
@@ -58,9 +56,7 @@ final class NewCommunityWizardModelTests: XCTestCase {
             register: { pkg in
                 SiteStore.Site(id: pkg.url.path, name: pkg.url.lastPathComponent, packageURL: pkg.url, isValid: true, missingSentinels: [])
             },
-            attributionsLoader: { _ in [] },
-            appVersion: { "1.0.0" },
-            hostLanguage: { "en" }
+            attributionsLoader: { _ in [] }
         )
 
         let id = await m.build(using: scaffolder)
