@@ -10,6 +10,9 @@
     "Cloudflare Control Worker" : {
 
     },
+    "Connect via Cloudflare" : {
+
+    },
     "Connect your Cloudflare Worker first." : {
 
     },
@@ -23,6 +26,9 @@
 
     },
     "Couldn't reach your site. Check your connection and try again." : {
+
+    },
+    "Couldn't sign in to Cloudflare. Try again in a moment." : {
 
     },
     "Deploy this site from Anglesite on your Mac first, then come back to post from here." : {

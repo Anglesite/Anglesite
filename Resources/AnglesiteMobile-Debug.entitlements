@@ -10,5 +10,14 @@
 	     exercise iCloud discovery locally: point ANGLESITE_MOBILE_DEBUG_ENTITLEMENTS at
 	     Resources/AnglesiteMobile-Debug-iCloud.entitlements from
 	     xcconfig/Signing-Debug.local.xcconfig (see Signing-Debug.local.xcconfig.example). -->
+	<!-- Cloudflare OAuth callback interception (#891), mirroring
+	     Resources/AnglesiteMobile.entitlements. Kept in the ad-hoc Debug entitlements because
+	     simulator builds don't validate entitlements against a provisioning profile; whether the
+	     interception *functions* under ad-hoc signing is the design doc's open item, but it
+	     doesn't break the no-Apple-account Debug build the way iCloud does. -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:auth.anglesite.dwk.io</string>
+	</array>
 </dict>
 </plist>
