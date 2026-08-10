@@ -1,6 +1,6 @@
 import type { RichTextRun } from "./types.js";
 import type { BlockId } from "./types.js";
-import type { WysiwygEngine } from "./engine.js";
+import type { WysiwygEngine, EngineEvent } from "./engine.js";
 import { findBlockElement } from "./selection.js";
 
 const INLINE_TAG_TO_RUN_KIND: Record<string, RichTextRun["kind"]> = {
@@ -214,6 +214,7 @@ export class RichTextEditor {
   #activeBlockId: BlockId | null = null;
   #activeElement: HTMLElement | null = null;
   #baselineRuns: RichTextRun[] = [];
+  #unsubscribeEngine: (() => void) | null = null;
   #onInput = () => this.#committer.notifyChange();
   #onBlur = () => this.exit();
   #onKeydown = (event: KeyboardEvent) => {
@@ -227,6 +228,12 @@ export class RichTextEditor {
 
   get activeBlockId(): BlockId | null {
     return this.#activeBlockId;
+  }
+
+  /** Test-only accessor for the currently-attached DOM node — lets a test prove reattachment
+   *  (identity change) without reaching into private state. */
+  get activeElementForTesting(): HTMLElement | null {
+    return this.#activeElement;
   }
 
   enter(blockId: BlockId, root: ParentNode = document): void {
@@ -248,15 +255,23 @@ export class RichTextEditor {
     this.#activeBlockId = blockId;
     this.#activeElement = el;
     el.contentEditable = "true";
-    el.addEventListener("input", this.#onInput);
-    el.addEventListener("blur", this.#onBlur);
-    el.addEventListener("keydown", this.#onKeydown);
+    this.#attach(el);
     el.focus();
+
+    // Design doc §7a's known limitation: any applied op makes the host re-render the whole block
+    // subtree (BreakpointCanvas#render), which can replace `el` with a fresh node carrying the same
+    // block-id attribute — disconnecting the element above without telling us. Subscribe so a
+    // reattach happens instead of silently editing a detached node. Re-resolved against this call's
+    // `root`, since the active element can live in a specific breakpoint frame's document.
+    this.#unsubscribeEngine?.();
+    this.#unsubscribeEngine = this.#engine.onEvent((event) => this.#onEngineEvent(event, root));
   }
 
   /** Flushes any pending debounced commit and deactivates — called explicitly, or automatically on
    *  blur/Escape (design doc §4: both commit immediately, alongside a format command). */
   exit(): void {
+    this.#unsubscribeEngine?.();
+    this.#unsubscribeEngine = null;
     this.#committer.flush();
     if (this.#activeElement) {
       this.#activeElement.removeEventListener("input", this.#onInput);
@@ -316,6 +331,32 @@ export class RichTextEditor {
 
   dispose(): void {
     this.exit();
+  }
+
+  /** Wires the three listeners `enter()`'s initial attach and the reattach path below both need —
+   *  factored out so the same `addEventListener` triplet isn't duplicated in both places. */
+  #attach(element: HTMLElement): void {
+    element.addEventListener("input", this.#onInput);
+    element.addEventListener("blur", this.#onBlur);
+    element.addEventListener("keydown", this.#onKeydown);
+  }
+
+  /** Any event carrying a model (`model-updated`, `applied`, or a `rejected` that adopted a fresh
+   *  model) is a potential whole-subtree re-render — exactly the events `BreakpointCanvas#render`
+   *  reacts to. Re-resolve the live element for the block currently being edited and reattach if
+   *  its identity changed underneath us. */
+  #onEngineEvent(event: EngineEvent, root: ParentNode): void {
+    if (!("model" in event) || !event.model) return;
+    if (this.#activeBlockId === null) return;
+
+    const current = findBlockElement(this.#activeBlockId, root) as HTMLElement | null;
+    if (current && current !== this.#activeElement) {
+      this.#activeElement?.removeEventListener("input", this.#onInput);
+      this.#activeElement?.removeEventListener("blur", this.#onBlur);
+      this.#activeElement?.removeEventListener("keydown", this.#onKeydown);
+      this.#activeElement = current;
+      this.#attach(current);
+    }
   }
 
   #commit(): void {

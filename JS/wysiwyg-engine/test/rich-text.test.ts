@@ -485,6 +485,56 @@ describe("RichTextEditor", () => {
     expect(setLinkSpy.mock.calls).toEqual([["/about"], [""]]);
   });
 
+  it("reattaches to the replaced DOM node after an applied op re-renders the block (#1225 Task 14)", async () => {
+    // The exact failure mode breakpoints.ts's #render triggers: a whole-subtree re-render replaces
+    // the block's element with a fresh node carrying the same block-id attribute, disconnecting the
+    // element RichTextEditor holds as its active element (design doc §7a's known limitation).
+    document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
+    const model = makeTextModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const editor = new RichTextEditor(engine);
+
+    editor.enter("t1");
+    const original = editor.activeElementForTesting;
+    if (!original) throw new Error("expected an active element after enter()");
+
+    const replacement = document.createElement("p");
+    replacement.setAttribute(BLOCK_ID_ATTR, "t1");
+    replacement.textContent = "hi";
+    original.replaceWith(replacement);
+
+    await engine.submit({ kind: "setProp", blockId: "t1", propName: "x", value: "y", previousValue: "z" });
+
+    expect(editor.activeElementForTesting).toBe(replacement);
+  });
+
+  it("input on the reattached element still schedules a debounced commit (proves listeners moved, not just the pointer)", async () => {
+    vi.useFakeTimers();
+    document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
+    const model = makeTextModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const editor = new RichTextEditor(engine, { debounceMs: 400 });
+
+    editor.enter("t1");
+    const original = editor.activeElementForTesting;
+    if (!original) throw new Error("expected an active element after enter()");
+
+    const replacement = document.createElement("p");
+    replacement.setAttribute(BLOCK_ID_ATTR, "t1");
+    replacement.textContent = "Hello";
+    original.replaceWith(replacement);
+
+    await engine.submit({ kind: "setProp", blockId: "t1", propName: "x", value: "y", previousValue: "z" });
+
+    // The old node no longer has a listener wired to it; typing on the new node must still commit.
+    replacement.textContent = "Hello world";
+    replacement.dispatchEvent(new Event("input", { bubbles: true }));
+    await vi.advanceTimersByTimeAsync(400);
+
+    expect(engine.modelSync.getBlock("t1")?.richText).toEqual([{ kind: "text", text: "Hello world" }]);
+    vi.useRealTimers();
+  });
+
   it("pressing Escape exits editing (design doc §4: commit immediately on Escape)", () => {
     document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello</div>`;
     const model = makeTextModel();
