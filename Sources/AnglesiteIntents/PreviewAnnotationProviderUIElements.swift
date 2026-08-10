@@ -1,21 +1,20 @@
-// AppKit-only half of `PreviewAnnotationProvider` (B.4 / #148): the
-// `NSView.appEntityUIElementProvider` surface comes from the `_AppIntents_AppKit`
-// cross-import overlay, so this file is macOS-only. The iOS thin client (#71) compiles the
-// provider without it; a UIKit equivalent (`_AppIntents_UIKit`) is future work tracked on #71.
+// Shapes `PreviewAnnotationProvider`'s stored annotations into `[AppEntityUIElement]` for
+// `WKWebView.appEntityUIElementProvider` (macOS: B.4 / #148; iOS: #1386). `AppEntityUIElement`/
+// `AppEntityUIElementsContext` come from the `_AppIntents_AppKit` / `_AppIntents_UIKit`
+// cross-import overlays, which auto-load when both `AppIntents` and the platform UI framework
+// are imported explicitly in the consuming file. One shared file (rather than two near-
+// duplicates) means the macOS-only Swift Testing suite (`PreviewAnnotationProviderTests`)
+// exercises the exact code iOS ships too, instead of each platform's copy drifting unchecked.
 #if os(macOS)
-import AppIntents
 import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
+import AppIntents
 import CoreGraphics
 import Foundation
 
-// `AppEntityUIElement` and `AppEntityUIElementsContext` are defined by the
-// `_AppIntents_AppKit` cross-import overlay, which auto-loads when both `AppIntents` and
-// `AppKit` are imported explicitly in the consuming file. Swift's `MemberImportVisibility`
-// upcoming-feature (enabled by the macOS 27 SDK module flags) requires both base modules
-// here — transitive imports through other frameworks aren't enough, and the compile error
-// blames the type rather than the missing import.
-
-// `AppEntityUIElement` and `AppEntityUIElementsContext` are macOS 26+ symbols (Xcode 27 /
+// `AppEntityUIElement` and `AppEntityUIElementsContext` are macOS 26+ / iOS 26+ symbols (Xcode 27 /
 // Swift 6.4 SDK). CI's `macos-15` runner currently ships Xcode 26.3 / Swift 6.3 and doesn't
 // have these types, so the methods that reference them are gated. Local Xcode 27 builds get
 // the full surface; CI compiles the library without it. Same pattern as `Package.swift`'s
@@ -23,10 +22,11 @@ import Foundation
 // when GH's runner ships Xcode 27.
 #if compiler(>=6.4)
 extension PreviewAnnotationProvider {
-    /// Shape annotations into `[AppEntityUIElement]` for `NSView.appEntityUIElementProvider`
-    /// (B.4 / #148). The system asks for either `.visible(rect:)` — return everything whose
-    /// stored rect intersects `rect` — or `.selected`. We don't track an in-page selection
-    /// model (the overlay's hover/click states are transient), so `.selected` yields `[]`.
+    /// Shape annotations into `[AppEntityUIElement]` for `NSView`/`WKWebView`'s
+    /// `appEntityUIElementProvider` (B.4 / #148). The system asks for either
+    /// `.visible(rect:)` — return everything whose stored rect intersects `rect` — or
+    /// `.selected`. We don't track an in-page selection model (the overlay's hover/click
+    /// states are transient), so `.selected` yields `[]`.
     public func uiElements(for context: AppEntityUIElementsContext) -> [AppEntityUIElement] {
         uiElements(forRequests: context.requests)
     }
@@ -72,5 +72,4 @@ extension PreviewAnnotationProvider {
         return AppEntityUIElement(placeholder, bounds: bounds)
     }
 }
-#endif
 #endif

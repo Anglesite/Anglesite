@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import AnglesiteCore
+import AnglesiteIntents
 
 /// Drives one remote sandbox session for the iOS thin client (#71).
 ///
@@ -111,6 +112,13 @@ public final class RemoteSessionModel {
     /// `nil` between sessions; the edit pipeline holds it only while a session runs.
     public private(set) var mcpClient: MCPClient?
 
+    /// Per-session Siri onscreen-entity provider (#1386 — UIKit twin of the macOS
+    /// `SiteWindowModel` wiring). `nil` before the first `start()` call. Recreated only when
+    /// `siteID` actually changes, mirroring `SiteWindowModel.loadAndStart`'s guard — a `nil`
+    /// check alone isn't enough because `start()` can be called again for the same site (Try
+    /// Again after a failure).
+    public private(set) var annotationProvider: PreviewAnnotationProvider?
+
     private var runtime: RemoteSandboxSiteRuntime?
     private var observationTask: Task<Void, Never>?
 
@@ -187,6 +195,16 @@ public final class RemoteSessionModel {
         // this client only ever uses the HTTP transport (`connect(httpEndpoint:)`).
         let client = MCPClient(supervisor: ProcessSupervisor())
         mcpClient = client
+
+        if annotationProvider?.siteID != siteID {
+            if let old = annotationProvider {
+                PreviewAnnotationProviderRegistry.shared.unregister(siteID: old.siteID)
+            }
+            let provider = PreviewAnnotationProvider(siteID: siteID, graph: SiteContentGraph())
+            annotationProvider = provider
+            PreviewAnnotationProviderRegistry.shared.register(provider, for: siteID)
+        }
+
         let runtime = RemoteSandboxSiteRuntime(
             gitRemote: gitRemote,
             gitRef: gitRef,
@@ -215,6 +233,10 @@ public final class RemoteSessionModel {
     /// `.idle` without waiting), then tells the sandbox to shut down asynchronously.
     public func stop() {
         guard let runtime else { return }
+        if let provider = annotationProvider {
+            PreviewAnnotationProviderRegistry.shared.unregister(siteID: provider.siteID)
+        }
+        annotationProvider = nil
         self.runtime = nil
         sessionToken = nil
         mcpClient = nil

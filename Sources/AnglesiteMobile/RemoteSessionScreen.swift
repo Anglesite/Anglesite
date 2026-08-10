@@ -4,6 +4,7 @@ import AuthenticationServices
 import AnglesiteCore
 import AnglesiteBridge
 import AnglesiteIOS
+import AnglesiteIntents
 
 /// Root screen of the iOS thin client: connect form until a session is configured and started,
 /// then the live sandbox preview. iPad-first, but nothing here is size-class-specific yet.
@@ -88,8 +89,13 @@ private struct RemoteSandboxPreview: View {
 
     var body: some View {
         let token = model.sessionToken
+        let annotationProvider = model.annotationProvider
+        let onVisibleElements: AnglesiteScriptHandler.VisibleElementsHandler? = annotationProvider.map { provider in
+            { @Sendable elements in await provider.update(elements) }
+        }
         let handler = AnglesiteScriptHandler(
-            router: MCPApplyEditRouter(mcpClient: { [weak model] in await MainActor.run { model?.mcpClient } })
+            router: MCPApplyEditRouter(mcpClient: { [weak model] in await MainActor.run { model?.mcpClient } }),
+            onVisibleElements: onVisibleElements
         )
         RemotePreviewWebView(
             url: url,
@@ -103,6 +109,20 @@ private struct RemoteSandboxPreview: View {
                     token: token,
                     for: host
                 )
+            },
+            configureWebView: { webView in
+                // `appEntityUIElementProvider` and `uiElements(for:)` are gated behind
+                // `#if compiler(>=6.4)` in AnglesiteIntents (iOS 26+ SDK symbols); CI's
+                // `ios-build` job still resolves an older toolchain (Xcode 26.6 / Swift 6.3.3)
+                // that lacks both, so this call site must stay gated in lockstep or it fails to
+                // compile there even though the surrounding view type-checks fine.
+                #if compiler(>=6.4)
+                guard let annotationProvider else { return }
+                webView.appEntityUIElementProvider = { [weak annotationProvider] _, hitContext in
+                    guard let annotationProvider else { return [] }
+                    return annotationProvider.uiElements(for: hitContext)
+                }
+                #endif
             }
         )
     }
