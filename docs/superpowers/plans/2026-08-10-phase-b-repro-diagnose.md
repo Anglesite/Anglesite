@@ -332,7 +332,7 @@ schedule on Manual.
 
 Confirm the run actually finishes (doesn't hang). Note how long it took — this informs
 whether the every-4-hours cadence chosen in the design doc is realistic or needs adjusting
-before Task 6.
+before Task 5.
 
 - [ ] **Step 3: Verify against the GitHub issue**
 
