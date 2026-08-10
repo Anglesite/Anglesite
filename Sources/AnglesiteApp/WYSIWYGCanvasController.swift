@@ -11,8 +11,20 @@ final class WYSIWYGCanvasController {
     var selectedBlockId: BlockId?
     private let transport: any WYSIWYGHostTransport
 
-    /// Fires after every successfully applied op, with its inverse — `WYSIWYGUndoCoordinator`
-    /// (Task 9) registers one `NSUndoManager` action per firing.
+    /// Bridges this canvas's applied ops into the window's `UndoManager` for real ⌘Z/⇧⌘Z (#1225,
+    /// Task 9). Wired to `onOpApplied` below at `init` time, so callers (`PreviewModel`) don't
+    /// need to know about undo at all — they only set `undoCoordinator.undoManager`. `lazy`,
+    /// same reason as `SiteWindowModel.contentUndoCoordinator`: its `perform` closure captures
+    /// `self`, which isn't available yet inside `init` before all stored properties are set.
+    /// `@ObservationIgnored`: not view-relevant state, same as `SiteWindowModel`'s coordinators.
+    @ObservationIgnored
+    lazy var undoCoordinator = WYSIWYGUndoCoordinator { [weak self] op in
+        Task { await self?.submit(op) }
+    }
+
+    /// Fires after every successfully applied op, with its inverse — set at `init` time to feed
+    /// `undoCoordinator`. Still overridable by tests/other callers that need their own hook,
+    /// same seam as before Task 9.
     var onOpApplied: ((Op, Op, BlockModel) -> Void)?
 
     /// Test-only seam: overrides the `targetVersion` a submitted envelope carries, so a test can
@@ -22,6 +34,9 @@ final class WYSIWYGCanvasController {
     init(initialModel: BlockModel, transport: any WYSIWYGHostTransport) {
         self.model = initialModel
         self.transport = transport
+        onOpApplied = { [weak self] op, inverse, _ in
+            self?.undoCoordinator.registerApplied(op: op, inverse: inverse)
+        }
     }
 
     @discardableResult
