@@ -49,8 +49,11 @@ Your job this run:
    `gh issue view <N> --repo Anglesite/Anglesite --json comments` and count how many contain
    the heading `## Stage 1 — Reproduce report` (comments you, this routine, posted in past
    runs). If the count is already 2, this issue should not have been picked up again — do not
-   attempt a 3rd time. Instead post a comment noting the mismatch, apply `🏭 Blocked: human`
-   if it isn't already set, and stop. Otherwise this run is attempt `count + 1`.
+   attempt a 3rd time. Instead post a comment noting the mismatch, then run
+   `gh issue edit <N> --repo Anglesite/Anglesite --remove-label "🏭 Needs repro" --add-label
+   "🏭 Blocked: human"` so it stops qualifying as a future candidate (harmless if
+   `🏭 Blocked: human` was already present), and stop. Otherwise this run is attempt
+   `count + 1`.
 
 3. Claim the issue: `gh issue edit <N> --repo Anglesite/Anglesite --add-label "🛠️ In Progress"`.
 
@@ -111,15 +114,18 @@ Your job this run:
    TIER_4_ESCALATION, or ENVIRONMENT_ESCALATION).
 
    - If **TIER_4_ESCALATION** or **ENVIRONMENT_ESCALATION**: this does not count as a failed
-     attempt. Remove `🛠️ In Progress` (`gh issue edit <N> --repo Anglesite/Anglesite
-     --remove-label "🛠️ In Progress"`), add `🏭 Blocked: human` if not already present, and
+     attempt. Update labels in one call so the issue stops qualifying as a future
+     `🏭 Needs repro` candidate: `gh issue edit <N> --repo Anglesite/Anglesite --remove-label
+     "🛠️ In Progress" --remove-label "🏭 Needs repro" --add-label "🏭 Blocked: human"`, and
      stop — do not run Stage 2.
    - If **REPRO_POSTED**: continue to step 6.
    - If the subagent ended without any of these three markers (crashed, ran out of turns,
-     produced no comment): treat this as a failed attempt. Remove `🛠️ In Progress`. If this
-     was attempt 2, add `🏭 Blocked: human` with a comment explaining the run failed to
-     produce a report; if attempt 1, leave the issue as `🏭 Needs repro` for a future run to
-     retry. Stop.
+     produced no comment): treat this as a failed attempt. Remove `🛠️ In Progress`
+     (`gh issue edit <N> --repo Anglesite/Anglesite --remove-label "🛠️ In Progress"`). If this
+     was attempt 2, post a comment explaining the run failed to produce a report, then run
+     `gh issue edit <N> --repo Anglesite/Anglesite --remove-label "🏭 Needs repro" --add-label
+     "🏭 Blocked: human"`; if attempt 1, leave the issue as `🏭 Needs repro` for a future run
+     to retry (no further label change). Stop.
 
 6. Spawn a second, independent Stage 2 (Diagnose) subagent via the Agent/Task tool, giving it
    only this instruction (again: do not paste Stage 1's reasoning — only the issue number):
@@ -157,10 +163,11 @@ Your job this run:
      `🏭 Ready` and remove the claim:
      `gh issue edit <N> --repo Anglesite/Anglesite --remove-label "🏭 Needs repro" --add-label "🏭 Ready" --remove-label "🛠️ In Progress"`.
    - If **DIAGNOSIS_FAILED** or no marker at all: this counts as a failed attempt. Remove
-     `🛠️ In Progress`. If this was attempt 2 (this run's attempt number from step 2), add
-     `🏭 Blocked: human` with a comment stating the repro succeeded but diagnosis didn't,
-     across 2 attempts. If this was attempt 1, leave `🏭 Needs repro` in place for a future
-     run.
+     `🛠️ In Progress`. If this was attempt 2 (this run's attempt number from step 2), post a
+     comment stating the repro succeeded but diagnosis didn't, across 2 attempts, then run
+     `gh issue edit <N> --repo Anglesite/Anglesite --remove-label "🏭 Needs repro" --add-label
+     "🏭 Blocked: human"`. If this was attempt 1, leave `🏭 Needs repro` in place for a future
+     run (no further label change).
 
 8. Output a short plain-text summary: which issue (if any) you processed, which attempt
    number it was, and the outcome (Ready / Blocked: human / left for retry / no issues
@@ -174,7 +181,11 @@ Guardrails — follow strictly:
 - Never commit or push anything. Never open a PR. All real code changes (the actual fix)
   belong to a later phase (Phase C), not this one.
 - Never touch an issue that doesn't carry `🏭 Needs repro`, and never remove `🏭 Needs repro`
-  except as described in step 7's success path.
+  except when transitioning it to `🏭 Ready` (step 7's success path) or to `🏭 Blocked: human`
+  (step 2's already-attempted-twice branch; step 5's `TIER_4_ESCALATION`/
+  `ENVIRONMENT_ESCALATION` branch and its no-markers-at-attempt-2 branch; step 7's
+  `DIAGNOSIS_FAILED`-at-attempt-2 branch) — these three `🏭` state labels must stay mutually
+  exclusive.
 - Only process one issue per run (step 1).
 - Do not create a new test target, new `🎯`/`🏭` label, or modify anything outside GitHub
   issue state and your own throwaway worktree.
