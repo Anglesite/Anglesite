@@ -3,7 +3,7 @@ import Foundation
 /// `MCPTransport` over a supervised subprocess's stdio (today's only transport). `send` writes a
 /// newline-framed JSON object to the child's stdin via the supervisor; `inbound()` yields each
 /// stdout line (filtered to this transport's `source`) parsed as a `JSONValue`. On a supervised
-/// respawn the supervisor calls `onReconnect`, which `MCPClient` uses to re-run its handshake.
+/// respawn the supervisor calls `onReconnect`, which `MCPClient` uses to re-probe the fresh process.
 public actor StdioTransport: MCPTransport {
     private let supervisor: ProcessSupervisor
     private let logCenter: LogCenter
@@ -26,8 +26,8 @@ public actor StdioTransport: MCPTransport {
     /// is the ``LogCenter`` tag the child's output is filed under — it doubles as the filter key
     /// `inbound()` uses to pick this process's stdout lines out of the shared log stream, so it
     /// must be unique per transport. `onReconnect` fires after every supervised respawn (never for
-    /// the initial launch), giving `MCPClient` its hook to re-run the MCP handshake against the
-    /// fresh process.
+    /// the initial launch), giving `MCPClient` its hook to fail in-flight requests and re-probe
+    /// the fresh process.
     public init(
         supervisor: ProcessSupervisor,
         logCenter: LogCenter,
@@ -85,8 +85,8 @@ public actor StdioTransport: MCPTransport {
 
     /// Writes `message` to the child's stdin as one newline-terminated JSON line. Both "not yet
     /// opened" and "the write itself failed" surface as `MCPClient.MCPError.notInitialized` — from
-    /// the client's perspective either way means "no usable connection; re-handshake", and the
-    /// respawn path's `onReconnect` is what restores it.
+    /// the client's perspective either way means "no usable connection", and the respawn path's
+    /// `onReconnect` is what restores it.
     public func send(_ message: JSONValue) async throws {
         guard let handle else { throw MCPClient.MCPError.notInitialized }
         var data = try JSONSerialization.data(withJSONObject: message.rawValue, options: [])
