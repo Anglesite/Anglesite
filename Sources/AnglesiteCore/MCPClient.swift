@@ -87,7 +87,7 @@ public indirect enum JSONValue: Sendable, Equatable {
 /// the protocol version, client identity, and client capabilities in its `_meta` envelope
 /// (`io.modelcontextprotocol/*` keys). `start`/`connect` still make one `server/discover` probe
 /// so they keep their historical contract of failing when the server isn't answering — see
-/// ``probeServerReady()``. Server notifications (no `id`) are discarded — the client only
+/// `probeServerReady()`. Server notifications (no `id`) are discarded — the client only
 /// correlates request/response by id.
 ///
 /// The client owns the JSON-RPC id/pending bookkeeping; the transport owns the wire (process
@@ -195,7 +195,7 @@ public actor MCPClient {
     public var isRunning: Bool { transport != nil }
 
     /// Spawn the MCP server and probe it with `server/discover`. Returns once the server has
-    /// answered the probe (any JSON-RPC response — see ``probeServerReady()``). If the server
+    /// answered the probe (any JSON-RPC response — see `probeServerReady()`). If the server
     /// later crashes, `ProcessSupervisor` restarts it per `restartPolicy` and the client
     /// re-probes the fresh process; calls that were in flight at the moment of the crash fail
     /// with `MCPError.reconnecting`.
