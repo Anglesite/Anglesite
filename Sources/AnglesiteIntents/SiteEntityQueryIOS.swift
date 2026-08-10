@@ -6,25 +6,24 @@ import Foundation
 
 /// Resolves `SiteEntity`s on iOS by discovering `.anglesite` packages in the app's iCloud
 /// ubiquity container — the same mechanism `SitePickerModel` uses in production
-/// (`Sources/AnglesiteIOS/SitePickerModel.swift`). All mapping/matching logic lives in
-/// `SiteEntityUbiquitySource`; this type's only job is resolving the discovered `[URL]` list and
-/// handing it off. Not exercised by `swift test` (excluded on a macOS host by this `#if
-/// os(iOS)` gate) — verified by `xcodebuild ... -scheme AnglesiteMobile ... build` only.
+/// (`Sources/AnglesiteIOS/SitePickerModel.swift`). Deliberately holds no logic of its own: the
+/// discovery (cached and coalesced across the several calls one Siri interaction makes) belongs to
+/// ``SiteEntityUbiquityDiscovery``, and the URL-to-entity mapping belongs to
+/// `SiteEntityUbiquitySource` — both gate-free and covered by `swift test`, so this `#if
+/// os(iOS)`-gated wrapper stays small enough to be verified by `xcodebuild ... -scheme
+/// AnglesiteMobile ... build` alone.
 public struct SiteEntityQueryIOS: EntityStringQuery {
-    private let containerResolver: any UbiquityContainerResolving
-    /// `NSMetadataQueryPackageDiscovery` is `@MainActor`-isolated (see
-    /// `Sources/AnglesiteIOS/UbiquitousPackageDiscovering.swift`), so its no-arg initializer can't
-    /// be called synchronously from this struct's plain, non-isolated `init()`. Storing a
-    /// `@MainActor`-isolated factory instead of an already-constructed instance defers that call
-    /// to `discoveredURLs()`, which is `async` and can `await` across the actor hop.
-    private let makePackageDiscovery: @MainActor @Sendable () -> any UbiquitousPackageDiscovering
+    private let discovery: SiteEntityUbiquityDiscovery
 
     /// The no-argument initializer AppIntents requires — binds to the real iCloud container
     /// resolver and `NSMetadataQuery`-backed discovery, matching every other production call
     /// site.
     public init() {
-        self.containerResolver = FileManager.default
-        self.makePackageDiscovery = { NSMetadataQueryPackageDiscovery() }
+        self.discovery = SiteEntityUbiquityDiscovery(
+            containerResolver: FileManager.default,
+            makePackageDiscovery: { NSMetadataQueryPackageDiscovery() },
+            ubiquityContainerIdentifier: AppSettings.ubiquityContainerIdentifier
+        )
     }
 
     /// Test seam: bind the query to fakes instead of real iCloud state.
@@ -32,37 +31,41 @@ public struct SiteEntityQueryIOS: EntityStringQuery {
         containerResolver: any UbiquityContainerResolving,
         packageDiscovery: any UbiquitousPackageDiscovering
     ) {
-        self.containerResolver = containerResolver
-        self.makePackageDiscovery = { packageDiscovery }
+        self.discovery = SiteEntityUbiquityDiscovery(
+            containerResolver: containerResolver,
+            makePackageDiscovery: { packageDiscovery },
+            ubiquityContainerIdentifier: AppSettings.ubiquityContainerIdentifier
+        )
     }
 
-    /// Ubiquity container check, then package discovery. `nil` container → `[]`, matching
-    /// `SitePickerModel.refresh()`'s `.iCloudUnavailable` short-circuit (this type has no
-    /// equivalent state to publish, so an empty result is the only signal available).
-    private func discoveredURLs() async -> [URL] {
-        guard containerResolver.url(
-            forUbiquityContainerIdentifier: AppSettings.ubiquityContainerIdentifier
-        ) != nil else {
-            return []
-        }
-        let packageDiscovery = await makePackageDiscovery()
-        return await packageDiscovery.discoverPackages()
+    /// Maps the discovered package URLs with `body`, off the calling task.
+    ///
+    /// Every `SiteEntityUbiquitySource` entry point calls `AnglesitePackage.readMarker` once per
+    /// package — an `Info.plist` read inside the ubiquity container, which can block on a
+    /// materializing iCloud item. `SitePickerModel.refresh()` gives those reads a
+    /// `Task.detached(priority: .userInitiated)` hop for exactly that reason; this does the same,
+    /// one hop for the whole list rather than one per package.
+    private func mapDiscovered<T: Sendable>(
+        _ body: @escaping @Sendable ([URL]) -> T
+    ) async -> T {
+        let urls = await discovery.discoveredURLs()
+        return await Task.detached(priority: .userInitiated) { body(urls) }.value
     }
 
     public func entities(for identifiers: [String]) async throws -> [SiteEntity] {
-        SiteEntityUbiquitySource.entities(for: identifiers, in: await discoveredURLs())
+        await mapDiscovered { SiteEntityUbiquitySource.entities(for: identifiers, in: $0) }
     }
 
     public func entities(matching string: String) async throws -> [SiteEntity] {
-        SiteEntityUbiquitySource.entities(matching: string, in: await discoveredURLs())
+        await mapDiscovered { SiteEntityUbiquitySource.entities(matching: string, in: $0) }
     }
 
     public func suggestedEntities() async throws -> [SiteEntity] {
-        SiteEntityUbiquitySource.siteEntities(fromPackageURLs: await discoveredURLs())
+        await mapDiscovered { SiteEntityUbiquitySource.siteEntities(fromPackageURLs: $0) }
     }
 
     public func defaultResult() async -> SiteEntity? {
-        SiteEntityUbiquitySource.defaultResult(in: await discoveredURLs())
+        await mapDiscovered { SiteEntityUbiquitySource.defaultResult(in: $0) }
     }
 }
 #endif
