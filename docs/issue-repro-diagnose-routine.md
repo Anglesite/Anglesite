@@ -50,7 +50,11 @@ Your job this run:
 2. Determine the attempt number for that issue: fetch its comments with
    `gh issue view <N> --repo Anglesite/Anglesite --json comments` and count how many contain
    the heading `## Stage 1 — Reproduce report` (comments you, this routine, posted in past
-   runs). If the count is already 2, this issue should not have been picked up again — do not
+   runs). This deliberately excludes `## Stage 1 — Escalation` comments (step 4's
+   `TIER_4_ESCALATION`/`ENVIRONMENT_ESCALATION` branches use that distinct heading precisely
+   so they don't get counted here — see step 5, they route to `🏭 Blocked: human` without
+   consuming an attempt). If the count is already 2, this issue should not have been picked up
+   again — do not
    attempt a 3rd time. Instead post a comment noting the mismatch, then run
    `gh issue edit <N> --repo Anglesite/Anglesite --remove-label "🏭 Needs repro" --add-label
    "🏭 Blocked: human"` so it stops qualifying as a future candidate (harmless if
@@ -77,11 +81,15 @@ Your job this run:
    >
    > If you determine mid-repro that this issue actually needs a hosted running app, UI
    > interaction, container e2e, or MAS/TestFlight verification (Tier 3 or 4 — see the design
-   > doc's Tier table), stop without a fake repro: post a comment on the issue explaining what
-   > is needed and why an automated repro can't reach it, and end your turn saying
-   > "TIER_4_ESCALATION". Same if you hit an environment problem (e.g. a stale `.build` lock,
-   > a genuinely broken toolchain) that isn't the bug itself — post a comment explaining the
-   > environment issue and end your turn saying "ENVIRONMENT_ESCALATION".
+   > doc's Tier table), stop without a fake repro: post exactly one comment on the issue with
+   > `gh issue comment <N> --repo Anglesite/Anglesite --body "..."` that starts with the
+   > heading `## Stage 1 — Escalation` (a heading distinct from the `## Stage 1 — Reproduce
+   > report` template below — step 2's attempt-counting only scans for the latter, so an
+   > escalation comment must never reuse it), explaining what is needed and why an automated
+   > repro can't reach it, and end your turn saying "TIER_4_ESCALATION". Same if you hit an
+   > environment problem (e.g. a stale `.build` lock, a genuinely broken toolchain) that isn't
+   > the bug itself — post a comment using the same `## Stage 1 — Escalation` heading,
+   > explaining the environment issue, and end your turn saying "ENVIRONMENT_ESCALATION".
    >
    > Otherwise, once the test fails as expected, discard your changes (`git checkout -- .` /
    > `git clean -fd` as appropriate — never commit or push) and post exactly one comment on
@@ -108,6 +116,8 @@ Your job this run:
    >
    > **Repro steps (for a human):**
    > 1. ...
+   >
+   > _Stage 1 (Reproduce) — software factory Phase B, epic #1256._
    >
    > End your turn saying exactly "REPRO_POSTED" after the comment is posted, or one of the
    > two escalation phrases above if you stopped early.
@@ -137,10 +147,12 @@ Your job this run:
    > <N> --repo Anglesite/Anglesite --json comments` — in particular the most recent "## Stage
    > 1 — Reproduce report" comment. That comment and the issue body/title are your only
    > inputs; you were not involved in writing the test and should form your own independent
-   > judgment about the root cause, not simply restate Stage 1's framing. You may re-run the
-   > failing test from Stage 1's report and add temporary instrumentation (print statements,
-   > etc.) to investigate, but do NOT write a fix and do NOT commit or push anything — discard
-   > any changes before finishing.
+   > judgment about the root cause, not simply restate Stage 1's framing. You may re-apply the
+   > test diff from Stage 1's report (Stage 1 discarded its working copy before posting — the
+   > diff embedded in the comment is the only surviving artifact) into the same target,
+   > re-run it, and add temporary instrumentation (print statements, etc.) to investigate, but
+   > do NOT write a fix and do NOT commit or push anything — discard any changes again before
+   > finishing.
    >
    > Once you've root-caused it (or determined you genuinely cannot with reasonable
    > confidence), post exactly one comment with `gh issue comment <N> --repo
@@ -153,6 +165,8 @@ Your job this run:
    > **Affected code path(s):** `file:line`, `file:line`
    > **Confidence:** high | medium | low
    > **Suggested fix direction (not a fix):** <1-2 sentences, non-binding>
+   >
+   > _Stage 2 (Diagnose) — software factory Phase B, epic #1256._
    >
    > End your turn saying exactly "DIAGNOSIS_POSTED" once posted. If you cannot form even a
    > low-confidence diagnosis after genuine investigation, post a comment saying so instead
@@ -239,15 +253,14 @@ not a spec violation.
 
 `🛠️ In Progress` was added at claim time and removed at the end of the run, exactly as the
 prompt's step 5 (`TIER_4_ESCALATION` branch) specifies. `🏭 Blocked: human` was added.
-`🏭 Needs repro` was **not** removed — also correct, since step 5's escalation branch only
-touches `🛠️ In Progress` and `🏭 Blocked: human`; removing `🏭 Needs repro` only happens in
-step 7's success path, which this run never reached (Stage 2 was correctly never spawned).
+`🏭 Needs repro` was **not** removed — correct against the prompt as it stood at the time of
+this run (before the fix below); see the defect section that follows.
 
 **Run duration: ~5m 37s** (19:33:45Z claim → 19:39:22Z final label), derived directly from
 the timeline above rather than inferred — this is a single-stage (escalated) run, so a full
 Stage 1 + Stage 2 pass on a Tier 1/2 issue would likely take longer. Five and a half minutes
 for a Tier 4 triage-and-escalate pass is comfortably inside the 4-hour cadence being
-considered for the schedule.
+considered for the schedule (later set to daily at 01:00 instead — see Config).
 
 **Comment structure:** One comment was posted (correct — exactly one report for an escalated
 outcome, no Stage 2 report). It uses the `## Stage 1 — Reproduce report` heading. The prompt

@@ -42,9 +42,10 @@ repo's existing worktree/permission conventions.
 
 - Create: `docs/issue-repro-diagnose-routine.md` — operational record for the routine
   (config + the literal Instructions text + dry-run findings), mirroring
-  `docs/issue-intake-routine.md` for Phase A. This is the only repo file this plan touches;
-  everything else happens in the claude.ai Routines UI, which is outside version control (same
-  situation as Phase A).
+  `docs/issue-intake-routine.md` for Phase A. This is the only repo file this plan's tasks
+  touch (the branch as executed also carries the design doc and this plan file itself, added
+  alongside rather than as plan deliverables); everything else happens in the claude.ai
+  Routines UI, which is outside version control (same situation as Phase A).
 
 ## Task 1: Draft the operational-record doc with the routine's Instructions text
 
@@ -288,7 +289,7 @@ In claude.ai, click **New routine → Local**.
 - **Worktree:** check the box
 - **Permissions:** leave on "Settings default"
 - **Schedule:** select **Manual** for now — do not set the 4-hourly cron yet; that happens
-  in Task 6, only after the dry run in Task 4 comes back clean
+  in Task 5, only after the dry run in Task 3 comes back clean
 
 - [ ] **Step 3: Click Create**
 
@@ -407,6 +408,9 @@ git commit -m "docs(#1260): fix Phase B routine prompt after dry-run finding"
 ---
 
 ## Task 5: Enable the schedule and close out #1260
+
+> **Executed as:** daily at 01:00 instead of every 4 hours — see
+> `docs/issue-repro-diagnose-routine.md`'s Config section for why.
 
 **Interfaces:**
 - Consumes: a clean dry run from Task 3 (or Task 4's re-run).
