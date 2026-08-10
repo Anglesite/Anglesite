@@ -452,10 +452,17 @@ final class SiteWindowModel {
     /// Switches the main pane to Moderation (Website ▸ Moderation…, V-5.1b/V-5.3 #907/#370).
     /// Mirrors `presentCommunities()`'s leave-current-surface-first guard. Unlike Communities,
     /// this is gated (`canOpenModeration`) — see that property's doc comment.
+    ///
+    /// Reloads `moderation`'s member/post snapshots on every presentation, not just once at site
+    /// open (`ModerationModel.configure(site:)`'s own doc comment has the detail): the sync jobs
+    /// that write those snapshot files run later, from `PreviewModel` after the dev server
+    /// starts, so without this a freshly provisioned community would show an empty Moderation
+    /// pane for the rest of the window session.
     func presentModeration() {
         Task {
             guard await leaveCurrentEditor(), await leaveCurrentInspector() else { return }
             activeEditor = nil
+            await moderation.reload()
             await clearInspectorThenSwitchPane(to: .moderation)
         }
     }
@@ -2264,7 +2271,7 @@ final class SiteWindowModel {
         reader.configure(site: currentSite)
         followers.configure(site: currentSite)
         communities.configure(site: currentSite)
-        moderation.configure(site: currentSite)
+        await moderation.configure(site: currentSite)
         domain.configure(site: currentSite)
         connectDomain.configure(site: currentSite)
         buyDomain.configure(site: currentSite)

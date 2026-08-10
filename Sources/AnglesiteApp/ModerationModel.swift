@@ -22,6 +22,7 @@ final class ModerationModel {
 
     private var siteID: String?
     private var sourceDirectory: URL?
+    private var configDirectory: URL?
     private var ownActorURL: URL?
     private let secretStore: any SecretStore
     private let membershipTransport: CommunityMembershipClient.Transport
@@ -35,30 +36,62 @@ final class ModerationModel {
         self.membershipTransport = membershipTransport
     }
 
-    /// Records which site this pane talks to, resolves `ownActorURL`, and reads the moderator
-    /// list plus every member/post snapshot from disk. No network I/O — mirrors
-    /// `CommunitiesModel.configure(site:)`/`resolveSite()`'s split, collapsed into one method
-    /// here since Moderation has no `.noSiteURL`-retry surface of its own (Website ▸
-    /// Moderation… is disabled by `canOpenModeration` whenever there's no site URL yet, so this
-    /// method only ever runs once that's already true).
-    func configure(site: CurrentSite) {
+    /// Records which site this pane talks to, resolves `ownActorURL`, and loads the moderator
+    /// list plus every member/post snapshot once, at site open. No network I/O. Unlike
+    /// `CommunitiesModel.configure(site:)` this is called unconditionally for *every* site
+    /// (including a plain personal one, not just once `canOpenModeration` is already true) —
+    /// Moderation has no `.noSiteURL`-retry surface of its own, so there's nothing here to gate.
+    /// This only loads once: the member/post snapshot files are written later, by
+    /// `CommunityMembersSync`/`AnnouncedPostSync` running from `PreviewModel` after the dev
+    /// server starts, so this alone would show a stale (often empty) list for the rest of the
+    /// window session — ``reload()`` is what `SiteWindowModel.presentModeration()` calls on every
+    /// presentation to pick up whatever's landed since.
+    func configure(site: CurrentSite) async {
         siteID = site.id
         sourceDirectory = site.sourceDirectory
+        configDirectory = site.configDirectory
         if let siteURLString = DeployCoordinator.resolveSiteURL(siteDirectory: site.sourceDirectory),
            let siteURL = URL(string: siteURLString) {
             ownActorURL = ActivityPubActor.actorURL(siteURL: siteURL)
         }
-        let settings = (try? SiteConfigStore.read(from: site.configDirectory)) ?? SiteSettings()
+        await reload()
+    }
+
+    /// Re-reads the moderator list plus every member/post snapshot from disk. No-ops until
+    /// ``configure(site:)`` has run at least once (no `sourceDirectory`/`configDirectory` to read
+    /// yet). Split out of ``configure(site:)`` so `SiteWindowModel.presentModeration()` can call
+    /// it on every presentation, not just once at site open — see that method's doc comment for
+    /// why a single load isn't enough.
+    ///
+    /// The settings load and both directory scans all run off the main actor: `Config/` and
+    /// `Source/` live inside the `.anglesite` package, whose default home is the iCloud Drive
+    /// ubiquity container, so a not-yet-materialized file can block on an iCloud download.
+    /// `SiteConfigStore`'s async `load()` is itself an actor method (hops off `@MainActor` on its
+    /// own); ``decodeAll(_:from:)`` is `nonisolated` for the same reason — its doc comment has the
+    /// detail.
+    func reload() async {
+        guard let sourceDirectory, let configDirectory else { return }
+        let settings = (try? await SiteConfigStore(configDirectory: configDirectory).load()) ?? SiteSettings()
+        async let loadedMembers = Self.decodeAll(
+            CommunityMember.self, from: sourceDirectory.appendingPathComponent("data/community-members"))
+        async let loadedPosts = Self.decodeAll(
+            AnnouncedPost.self, from: sourceDirectory.appendingPathComponent("data/community-posts"))
         moderators = settings.moderators ?? []
-        members = Self.decodeAll(CommunityMember.self, from: site.sourceDirectory.appendingPathComponent("data/community-members"))
-        posts = Self.decodeAll(AnnouncedPost.self, from: site.sourceDirectory.appendingPathComponent("data/community-posts"))
+        members = await loadedMembers
+        posts = await loadedPosts
     }
 
     /// Reads every `.json` file in `directory` and decodes it as `T`, skipping (not throwing on)
     /// any file that fails to decode — a malformed or in-progress-write snapshot must never make
     /// the whole Moderation pane unusable, matching `SiteConfigStore.load()`'s "a bad file falls
     /// back to a safe default" philosophy rather than propagating the failure.
-    private static func decodeAll<T: Decodable>(_ type: T.Type, from directory: URL) -> [T] {
+    ///
+    /// `nonisolated` — and `async` — so this runs on the global concurrent executor instead of
+    /// `ModerationModel`'s `@MainActor` one: a member/post directory can hold many files (each a
+    /// synchronous `Data(contentsOf:)` read), and doing that scan-and-decode pass on the main
+    /// thread would block the UI for however long disk (or, for an un-materialized iCloud file,
+    /// a download) takes. `reload()` awaits this and assigns the result back on the actor.
+    nonisolated private static func decodeAll<T: Decodable>(_ type: T.Type, from directory: URL) async -> [T] {
         guard let entries = try? FileManager.default.contentsOfDirectory(at: directory, includingPropertiesForKeys: nil) else {
             return []
         }

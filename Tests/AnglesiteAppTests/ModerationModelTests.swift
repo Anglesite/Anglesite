@@ -62,7 +62,7 @@ struct ModerationModelTests {
             let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
             return (Data("{}".utf8), http)
         })
-        model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
 
         #expect(model.members.count == 1)
         try await model.ban(model.members[0])
@@ -71,5 +71,40 @@ struct ModerationModelTests {
         #expect(body?["type"] as? String == "Remove")
         #expect(body?["object"] as? String == "https://lemmy.ml/u/spammer")
         #expect(model.members.isEmpty)
+    }
+
+    /// The sync jobs that write member/post snapshot files (`CommunityMembersSync`/
+    /// `AnnouncedPostSync`) run later than `configure(site:)` — from `PreviewModel`, after the dev
+    /// server starts — so a site can genuinely go from zero members at `configure(site:)` time to
+    /// some the next time the pane is opened. `reload()` (what `SiteWindowModel.presentModeration()`
+    /// calls on every presentation) must pick that up without a fresh `configure(site:)`.
+    @Test("reload picks up member/post snapshot files written after configure(site:)")
+    func reloadPicksUpNewlyWrittenSnapshots() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+            return (Data("{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        #expect(model.members.count == 1)
+        #expect(model.posts.isEmpty)
+
+        // Simulates a sync job landing a new post snapshot after `configure(site:)` already ran.
+        let post = try AnnouncedPost(
+            id: "post1", objectType: .note, sourceURL: URL(string: "https://member.example/posts/1")!,
+            author: nil, content: "Hello, community!", published: Date(), announcedAt: Date())
+        let postPath = source.appendingPathComponent(post.gitPath)
+        try FileManager.default.createDirectory(at: postPath.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try JSONEncoder().encode(post).write(to: postPath)
+
+        await model.reload()
+
+        #expect(model.posts.count == 1)
+        #expect(model.posts.first?.id == "post1")
+        // The pre-existing member snapshot is still picked up on every reload, not just the first.
+        #expect(model.members.count == 1)
     }
 }
