@@ -16,7 +16,7 @@ public struct StartDesignInterviewIntent: AppIntent {
     /// so this can't run as a background intent.
     public static let openAppWhenRun = true
 
-    /// The site whose look and feel the interview will redesign, resolved by ``SiteEntityQuery``.
+    /// The site whose look and feel the interview will redesign, resolved by ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
 
     /// Required by `AppIntent`; the AppIntents runtime fills the `@Parameter` value after

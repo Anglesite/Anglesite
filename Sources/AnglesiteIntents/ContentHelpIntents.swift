@@ -7,7 +7,7 @@ import Foundation
 ///
 /// Not registered in AnglesiteShortcuts: only one phrase slot remains under the 10-phrase cap
 /// and it's reserved for higher-traffic intents; ReviewCopyIntent stays discoverable via the
-/// Shortcuts app and via `SiteEntityQuery` resolution.
+/// Shortcuts app and via `SiteEntity.defaultQuery` resolution.
 public struct ReviewCopyIntent: AppIntent {
     /// Action name in the Shortcuts library. Says "Site Copy", not just "Copy", to avoid
     /// reading as a clipboard/duplicate action out of context.
@@ -16,7 +16,7 @@ public struct ReviewCopyIntent: AppIntent {
     public static let description = IntentDescription(
         "Review a site's written copy for clarity, tone, and calls to action.")
 
-    /// The site to audit, resolved by ``SiteEntityQuery`` so "review copy on my portfolio"
+    /// The site to audit, resolved by ``SiteEntity``'s `defaultQuery` so "review copy on my portfolio"
     /// matches by name.
     @Parameter(title: "Site") public var site: SiteEntity
 
@@ -83,7 +83,7 @@ extension ReviewCopyIntent {
 /// before saving like `AddBookingIntent`.
 ///
 /// Not registered in AnglesiteShortcuts: same phrase-budget reasoning as `ReviewCopyIntent` —
-/// stays discoverable via the Shortcuts app and via `SiteEntityQuery` resolution.
+/// stays discoverable via the Shortcuts app and via `SiteEntity.defaultQuery` resolution.
 public struct PlanSocialMediaIntent: AppIntent {
     /// Action name in the Shortcuts library.
     public static let title: LocalizedStringResource = "Plan Social Media"
@@ -92,7 +92,7 @@ public struct PlanSocialMediaIntent: AppIntent {
     public static let description = IntentDescription(
         "Generate a social media plan and content calendar for a site.")
 
-    /// The site to plan for, resolved by ``SiteEntityQuery``.
+    /// The site to plan for, resolved by ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     /// Planning horizon. Defaults to 4; `run()` clamps it to 1…8 rather than erroring, so a
     /// Shortcut passing a wild value still gets a usable plan.
@@ -161,7 +161,7 @@ extension PlanSocialMediaIntent {
 /// dialog, mirroring `ReviewCopyIntent`/`PlanSocialMediaIntent`.
 ///
 /// Not registered in AnglesiteShortcuts: same phrase-budget reasoning as `ReviewCopyIntent`/
-/// `PlanSocialMediaIntent` — stays discoverable via the Shortcuts app and via `SiteEntityQuery`
+/// `PlanSocialMediaIntent` — stays discoverable via the Shortcuts app and via `SiteEntity.defaultQuery`
 /// resolution.
 public struct RepurposePostIntent: AppIntent {
     /// Action name in the Shortcuts library.
@@ -171,7 +171,7 @@ public struct RepurposePostIntent: AppIntent {
     public static let description = IntentDescription(
         "Draft platform-sized social posts from one of a site's blog posts.")
 
-    /// The site owning the post, resolved by ``SiteEntityQuery``.
+    /// The site owning the post, resolved by ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     /// The post to repurpose, identified by slug and loaded straight from the repo via
     /// `PostSource` (not resolved through ``PostEntityQuery``, whose graph is only populated

@@ -378,7 +378,7 @@ to:
 - [ ] **Step 3: Verify the macOS build and tests are unaffected**
 
 Run: `swift test --package-path . --filter SiteEntityUbiquitySourceTests`
-Expected: PASS, same 8 tests (macOS `SiteEntityQuery` itself has no existing dedicated test file to re-run; its behavior is unchanged, only newly gated).
+Expected: PASS, same 8 tests. Also re-run `Tests/AnglesiteIntentsTests/SiteEntityQueryTests.swift` (8 cases covering the macOS `SiteStore`-backed query, whose behavior is unchanged — only newly gated). *(Corrected after the fact: this step originally claimed no such test file existed. It does, and it did run and pass; the claim was a documentation error, not a missed check.)*
 
 Run: `swift build --package-path .`
 Expected: succeeds — confirms `SiteEntity.swift`'s macOS branch still compiles cleanly with the new `#if os(macOS)` wrapping.

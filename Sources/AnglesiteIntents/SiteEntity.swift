@@ -2,16 +2,21 @@ import AppIntents
 import AnglesiteCore
 import Foundation
 
-/// An Anglesite site, addressable by Siri/Shortcuts. Backed live by `SiteStore` — no
-/// cache, so the entity never goes stale relative to the registry.
+/// An Anglesite site, addressable by Siri/Shortcuts. The source behind it is per-platform, via
+/// ``SiteEntity/defaultQuery``: on macOS it's backed live by `SiteStore` — no cache, so the entity
+/// never goes stale relative to the recents registry — while on iOS there is no registry, so
+/// `SiteEntityQueryIOS` discovers `.anglesite` packages in the iCloud ubiquity container and
+/// `SiteEntityUbiquitySource` maps them (briefly cached, see `SiteEntityUbiquityDiscovery`).
 ///
 /// Conforms to the `.wordProcessor.document` AppSchema so Siri/Spotlight treat each site
 /// as a document container. The schema macro synthesises `typeDisplayRepresentation`, so
 /// the explicit override is omitted here (the metadata processor requires its removal).
 @AppEntity(schema: .wordProcessor.document)
 public struct SiteEntity: Sendable {
-    /// The stable site UUID from `SiteStore.Site.id` — path-independent (#242), so a Shortcut
-    /// that captured an entity keeps resolving after the package moves or is renamed.
+    /// The stable site UUID — path-independent (#242), so a Shortcut that captured an entity keeps
+    /// resolving after the package moves or is renamed. Sourced from `SiteStore.Site.id` on macOS
+    /// and from the package's own `AnglesitePackage.Marker.siteID` on iOS; both are the same UUID,
+    /// since the registry stores the marker's.
     public let id: String
     /// The site's display name, exposed as a schema `@Property` so Siri can match it by voice.
     @Property(title: "Name")
@@ -26,10 +31,11 @@ public struct SiteEntity: Sendable {
 
     /// The original display name used by `displayRepresentation` and `SiteEntityQuery`.
     public var displayName: String { name }
-    /// The `.anglesite` **package root** (`SiteStore.Site.packageURL`) — NOT the `Source/` git
-    /// repo, so scaffolding, file scans, and git ops must not use this URL directly: derive
-    /// `AnglesitePackage(url:).sourceURL` from it (see `ApplyThemeIntent`), or resolve the site
-    /// by `id` via `SiteStore`/`SiteAccess.withScopedAccess`, which hands back `sourceDirectory`.
+    /// The `.anglesite` **package root** (`SiteStore.Site.packageURL` on macOS; the discovered
+    /// package URL on iOS) — NOT the `Source/` git repo, so scaffolding, file scans, and git ops
+    /// must not use this URL directly: derive `AnglesitePackage(url:).sourceURL` from it (see
+    /// `ApplyThemeIntent`), or, on macOS, resolve the site by `id` via
+    /// `SiteStore`/`SiteAccess.withScopedAccess`, which hands back `sourceDirectory`.
     /// App-internal rather than a schema `@Property`; nil only if AppIntents ever builds the
     /// entity via the macro init.
     public var directory: URL?

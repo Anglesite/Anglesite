@@ -13,10 +13,16 @@ enum SiteEntityUbiquitySource {
     /// read (mid-materializing iCloud item, corrupt or missing `Info.plist`) is dropped, not
     /// thrown — matches `SitePickerModel.refresh()`'s existing behavior
     /// (`Sources/AnglesiteIOS/SitePickerModel.swift`).
+    ///
+    /// Sorted by display name, for the same reason `SitePickerModel.refresh()` sorts its own
+    /// list: `NSMetadataQuery` result order is an implementation detail that can differ between
+    /// gathers, and a disambiguation list that reshuffles between two calls in one Siri
+    /// interaction is worse than one in a slightly arbitrary but *stable* order. Also brings iOS
+    /// in line with the macOS `SiteStore`-backed query, whose order is the registry's.
     static func siteEntities(
         fromPackageURLs urls: [URL], fileManager: FileManager = .default
     ) -> [SiteEntity] {
-        urls.compactMap { url in
+        urls.compactMap { url -> SiteEntity? in
             let package = AnglesitePackage(url: url)
             guard let marker = try? package.readMarker(fileManager: fileManager) else {
                 return nil
@@ -31,6 +37,7 @@ enum SiteEntityUbiquitySource {
                 directory: url
             )
         }
+        .sorted { $0.name.localizedStandardCompare($1.name) == .orderedAscending }
     }
 
     /// Exact-id resolution — the path Shortcuts uses to re-resolve a previously captured entity.

@@ -30,7 +30,7 @@ public struct SearchContentIntent: AppIntent {
     /// One-line explanation shown under the action in the Shortcuts editor.
     public static let description = IntentDescription("Search a site's pages, posts, and images.")
 
-    /// The site to search, resolved by ``SiteEntityQuery`` from the recents registry.
+    /// The site to search, resolved by ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     /// Free-text term. A blank/whitespace query returns no matches rather than the whole
     /// content graph (#234) — see `matches(graph:siteID:query:)`.
@@ -105,7 +105,7 @@ public struct FindContentByTypeIntent: AppIntent {
     /// One-line explanation shown under the action in the Shortcuts editor.
     public static let description = IntentDescription("List a site's content of a given type, e.g. events or reviews.")
 
-    /// The site whose content to list, resolved by ``SiteEntityQuery``.
+    /// The site whose content to list, resolved by ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     /// The typed kind to filter by — an `AppEnum` so Shortcuts offers a picker instead of a
     /// free-text collection name.
@@ -160,7 +160,7 @@ public struct SiteStatusIntent: AppIntent {
     /// One-line explanation shown under the action in the Shortcuts editor.
     public static let description = IntentDescription("Report how much content a site has.")
 
-    /// The site to report on, resolved by ``SiteEntityQuery``.
+    /// The site to report on, resolved by ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     @Dependency private var graph: SiteContentGraph
 
@@ -206,7 +206,7 @@ public struct PreviewSiteIntent: AppIntent {
     /// seen, so this can't run as a background intent.
     public static let openAppWhenRun = true
 
-    /// The site to preview, resolved by ``SiteEntityQuery``.
+    /// The site to preview, resolved by ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     /// Optional page to navigate to once the dev server is up; `nil` opens the site's root.
     @Parameter(title: "Page") public var page: PageEntity?
@@ -239,7 +239,7 @@ public struct AddPageIntent: AppIntent {
     /// One-line explanation shown under the action in the Shortcuts editor.
     public static let description = IntentDescription("Scaffold a new page on a site with Anglesite.")
 
-    /// The site to add the page to, resolved by ``SiteEntityQuery``.
+    /// The site to add the page to, resolved by ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     /// The page title; also the source of the derived route when none is given.
     @Parameter(
@@ -312,7 +312,7 @@ public struct AddPostIntent: AppIntent {
     /// One-line explanation shown under the action in the Shortcuts editor.
     public static let description = IntentDescription("Scaffold a new draft post on a site with Anglesite.")
 
-    /// The site to add the post to, resolved by ``SiteEntityQuery``.
+    /// The site to add the post to, resolved by ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     /// The post title. Named `title2` only because `title` collides with the `AppIntent.title`
     /// static requirement; it still presents to the user as "Title".

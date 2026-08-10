@@ -18,7 +18,7 @@ public struct ApplyThemeIntent: AppIntent {
     /// One-line explanation shown in the Shortcuts action gallery.
     public static let description = IntentDescription("Apply a built-in visual theme to a site.")
 
-    /// The site whose design tokens the theme rewrites, resolved through ``SiteEntityQuery``.
+    /// The site whose design tokens the theme rewrites, resolved through ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     /// The catalog id of the theme. A plain string (not an `AppEnum`) so the catalog can grow
     /// without a schema change; an unrecognized id gets a dialog listing what's available
