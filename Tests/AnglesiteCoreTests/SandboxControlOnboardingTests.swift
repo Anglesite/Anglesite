@@ -166,6 +166,17 @@ struct SandboxControlOnboardingTests {
         #expect(clientCount == 0)
     }
 
+    @Test("workerURL(from:) accepts http(s) URLs and rejects missing or non-http schemes")
+    func workerURLParsing() {
+        #expect(SandboxControlOnboarding.workerURL(from: "https://sandbox.example.workers.dev")
+            == URL(string: "https://sandbox.example.workers.dev"))
+        #expect(SandboxControlOnboarding.workerURL(from: "http://localhost:8787")
+            == URL(string: "http://localhost:8787"))
+        #expect(SandboxControlOnboarding.workerURL(from: "sandbox.example.workers.dev") == nil)
+        #expect(SandboxControlOnboarding.workerURL(from: "ftp://sandbox.example") == nil)
+        #expect(SandboxControlOnboarding.workerURL(from: "not a url") == nil)
+    }
+
     @Test("A persist failure surfaces as .stay, not .proceed")
     func staysWhenPersistThrows() async {
         struct Boom: Error {}

@@ -76,6 +76,12 @@ public final class RemoteSessionModel {
             token: token,
             siteID: siteID,
             persist: { credentials in
+                // `controlToken`'s `didSet` try?-swallows Keychain errors (a `didSet` can't
+                // throw), which would turn a failed write into a false "connected" flash and a
+                // silently unconfigured app on next launch. Write the token explicitly first so
+                // a Keychain failure genuinely throws and surfaces as `.stay`; the `didSet`'s
+                // repeat write of the same value is then a harmless no-op-equivalent.
+                try self.secretStore.write(credentials.token, account: SecretAccounts.sandboxControlToken)
                 self.workerURLString = credentials.workerURLString
                 self.controlToken = credentials.token
                 self.siteID = credentials.siteID
@@ -147,9 +153,10 @@ public final class RemoteSessionModel {
 
     /// ``workerURLString`` parsed and validated (http/https scheme required); `nil` while the
     /// field is empty or malformed. The form binds the string, everything else consumes this.
+    /// Delegates to the shared rule in `SandboxControlOnboarding` so the start and verify paths
+    /// can't drift on what they accept.
     public var workerURL: URL? {
-        guard let url = URL(string: workerURLString), url.scheme?.hasPrefix("http") == true else { return nil }
-        return url
+        SandboxControlOnboarding.workerURL(from: workerURLString)
     }
 
     /// ``gitRemoteString`` parsed and validated (any scheme accepted — https and ssh remotes are

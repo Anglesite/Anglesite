@@ -45,6 +45,14 @@ public struct SandboxControlOnboarding {
         case abort
     }
 
+    /// The one definition of "a usable Worker base URL" (http/https scheme required) — shared by
+    /// this flow's verify guard and `RemoteSessionModel.workerURL`, so the two paths can't drift
+    /// apart on what they accept.
+    public static func workerURL(from string: String) -> URL? {
+        guard let url = URL(string: string), url.scheme?.hasPrefix("http") == true else { return nil }
+        return url
+    }
+
     private let makeClient: (URL, String) -> any SandboxControlClient
 
     /// The client factory is the only injected dependency — production passes
@@ -74,9 +82,9 @@ public struct SandboxControlOnboarding {
         guard !trimmedURLString.isEmpty, !trimmedToken.isEmpty, !trimmedSiteID.isEmpty else {
             return .stay(message: "Fill in the Worker URL, token, and site ID first.")
         }
-        // Same scheme rule as `RemoteSessionModel.workerURL` — the form's start path would
-        // reject anything else, so the verify path must too.
-        guard let workerURL = URL(string: trimmedURLString), workerURL.scheme?.hasPrefix("http") == true else {
+        // Same rule as the form's start path (`RemoteSessionModel.workerURL`), via the shared
+        // helper so the verify and start paths can't diverge on what they accept.
+        guard let workerURL = Self.workerURL(from: trimmedURLString) else {
             return .stay(message: "That Worker URL doesn’t look valid.")
         }
 
