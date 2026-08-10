@@ -31,6 +31,15 @@ public final class WYSIWYGUndoCoordinator {
 
     private let perform: Performer
 
+    /// The most-recently-registered `editText`'s block id, session baseline (`previousRuns` — the
+    /// design doc says: fixed for a whole `RichTextEditor.enter()` session, see that type's header
+    /// comment, so it's identical across every debounced commit in that session), and `Token` —
+    /// used by `registerApplied(op:inverse:)` to coalesce a burst of same-session debounced
+    /// commits into a single undo entry ("typing coalescing"; #1225 final-review fix wave, Finding
+    /// 5). Cleared the instant an undo/redo actually fires (`register(op:redoOp:)`'s handler
+    /// below), so coalescing never crosses that boundary.
+    private var lastEditTextRegistration: (blockId: BlockId, previousRuns: [RichTextRun], token: Token)?
+
     /// Per-registration marker object, one per call to `register(op:redoOp:)`. `UndoManager`
     /// doesn't retain targets, so each token is kept alive for exactly as long as its stack entry
     /// exists by its own handler capturing it strongly (see `EditUndoCoordinator.Token` for the
@@ -55,7 +64,38 @@ public final class WYSIWYGUndoCoordinator {
     /// this entry point never calls `perform` itself, it only records the step. No-op when no
     /// `undoManager` is attached.
     public func registerApplied(op: Op, inverse: Op) {
-        register(op: inverse, redoOp: op)
+        // Typing coalescing (design doc; #1225 final-review fix wave, Finding 5): without this, a
+        // long typing session emitted one undo entry per debounced commit, every one of them
+        // sharing the SAME `enter()`-time baseline as `previousRuns` — so N stacked undo entries
+        // that don't individually do anything a user would recognize as "one edit."
+        //
+        // When the incoming op is another `editText` on the SAME block, with the SAME
+        // `previousRuns` as the most-recently-registered entry, replace that entry instead of
+        // stacking a new one (same `Token`-scoped `removeAllActions(withTarget:)` pattern the
+        // rejected-perform rollback below already uses). This is correct, not just convenient: the
+        // new `op`'s own `previousRuns` already IS the session's true original baseline (unchanged
+        // since `enter()`, since `RichTextEditor.#commit` always builds `previousRuns` from the
+        // session's fixed baseline, not the prior debounce tick), so nothing from the replaced
+        // registration needs to be preserved — its `inverse` would have restored to that exact
+        // same baseline anyway.
+        //
+        // Comparing `previousRuns` (not just `blockId`) is load-bearing: two genuinely SEPARATE
+        // sessions on the same block (edit, click away, come back, edit again) would otherwise
+        // still match on `blockId` alone, and blindly replacing would silently truncate undo
+        // history — the first session's edit would become unrecoverable through Undo. A second
+        // session's `previousRuns` is whatever the first session's LAST commit's `runs` was
+        // (`enter()` re-reads the live model at entry), which only coincidentally equals the
+        // stored baseline, so this check reliably tells the two cases apart.
+        if case .editText(let blockId, _, let previousRuns) = op,
+           let last = lastEditTextRegistration, last.blockId == blockId, last.previousRuns == previousRuns {
+            undoManager?.removeAllActions(withTarget: last.token)
+        }
+        let token = register(op: inverse, redoOp: op)
+        if case .editText(let blockId, _, let previousRuns) = op, let token {
+            lastEditTextRegistration = (blockId, previousRuns, token)
+        } else {
+            lastEditTextRegistration = nil
+        }
     }
 
     /// Registers `op` as the action a future `undo()`/`redo()` performs. When it fires:
@@ -91,6 +131,10 @@ public final class WYSIWYGUndoCoordinator {
         // `self`) for exactly as long as this stack entry exists.
         undoManager.registerUndo(withTarget: token) { [weak self, token] _ in
             guard let self else { return }
+            // Finding 5: an undo/redo just fired — a same-block `editText` commit that arrives
+            // after this point must start a fresh undo entry, never coalesce into whatever this
+            // fire just put back on top of the stack.
+            self.lastEditTextRegistration = nil
             let optimisticallyRegistered = self.register(op: redoOp, redoOp: op)
             self.pendingPerform = Task { @MainActor [weak self] in
                 guard let self else { return }
