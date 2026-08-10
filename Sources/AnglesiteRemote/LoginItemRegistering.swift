@@ -9,10 +9,23 @@ import ServiceManagement
 public protocol LoginItemRegistering: Sendable {
     /// Current registration status.
     func status() -> LoginItemStatus
-    /// Registers the login item. Idempotent: calling this when already `.enabled` is a no-op.
-    func register() throws
+    /// Performs the actual registration call, unconditionally — no idempotency check here.
+    /// Conformers implement this, not `register()`: the "already enabled" guard lives exactly
+    /// once, in `register()`'s default implementation below, so every conformer (including
+    /// `FakeLoginItemRegistering`) shares the same idempotency logic instead of each
+    /// re-implementing (and potentially diverging from) it.
+    func performRegistration() throws
     /// Unregisters the login item.
     func unregister() throws
+}
+
+extension LoginItemRegistering {
+    /// Registers the login item. Idempotent: calling this when already `.enabled` is a no-op —
+    /// `performRegistration()` is only invoked when `status()` isn't already `.enabled`.
+    public func register() throws {
+        guard status() != .enabled else { return }
+        try performRegistration()
+    }
 }
 
 /// Mirrors `SMAppService.Status`'s cases relevant to this helper's startup decision, without
@@ -46,8 +59,7 @@ public struct SMAppServiceLoginItem: LoginItemRegistering {
         }
     }
 
-    public func register() throws {
-        guard status() != .enabled else { return }
+    public func performRegistration() throws {
         try service.register()
     }
 
@@ -73,7 +85,7 @@ public final class FakeLoginItemRegistering: LoginItemRegistering, @unchecked Se
         return _status
     }
 
-    public func register() throws {
+    public func performRegistration() throws {
         lock.lock(); defer { lock.unlock() }
         registerCallCount += 1
         _status = .enabled
