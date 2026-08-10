@@ -289,13 +289,17 @@ jobs:
     if: needs.changes.outputs.swift == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 30
-    # continue-on-error: adwaita-swift's pinned revision currently fails to build on this
-    # runner's x86_64 toolchain — a transitive-dependency breakage upstream (its own Meta
-    # dependency floats on a branch, and Meta's current main removed a field adwaita-swift
-    # still references at every revision tried, including its own HEAD), not something fixable
-    # from this repo's Package.swift. Tracked in #1385. Non-blocking until upstream resolves it
-    # or a workaround is found — AnglesiteLinux stays behind the ANGLESITE_LINUX_SHELL=1 opt-in
-    # gate regardless, so this doesn't affect what ships.
+    # continue-on-error: adwaita-swift's own dependencies (Meta and friends) float on branch
+    # `main` and cannot be frozen from this repo — SwiftPM rejects a root-level revision pin
+    # of a package another dependency requires by branch, and Package.resolved is gitignored —
+    # so an upstream push can break this lane with no change here. Not hypothetical: #1385 was
+    # exactly that (Meta's main dropped WidgetData.stateManager out from under every
+    # adwaita-swift revision, then restored it days later; the pin bump that closed #1385 rode
+    # the restoration). Non-blocking so upstream drift can't wedge unrelated PRs —
+    # AnglesiteLinux stays behind the ANGLESITE_LINUX_SHELL=1 opt-in gate regardless, so this
+    # doesn't affect what ships. If this lane fails on your PR, check whether the failure is
+    # in .build/checkouts (upstream drift — file an issue like #1385) before suspecting your
+    # own change.
     continue-on-error: true
     # Builds packaging/flatpak/io.dwk.anglesite.linux.yml for real and runs AnglesiteLinuxTests
     # inside the same GNOME-SDK sandbox — the CI lane

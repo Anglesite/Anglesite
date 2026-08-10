@@ -502,9 +502,15 @@ if ProcessInfo.processInfo.environment["ANGLESITE_LINUX_SHELL"] == "1" {
     // Pinned to a commit, matching the SwiftGit2 policy above: adwaita-swift's only tag
     // (0.1.0) predates its current API, and tracking main would silently pick up unreviewed
     // commits. Bump deliberately. (Its own dependencies are branch-based, which SwiftPM
-    // permits under a revision pin.)
+    // permits under a revision pin — but they can only float: SwiftPM rejects a root-level
+    // revision pin of a dependency another package requires by branch ("required using two
+    // different revision-based requirements"), so Meta and friends cannot be frozen from
+    // here, and an upstream push to their main can break this target with no change in this
+    // repo. That is what #1385 was: Meta's main dropped WidgetData.stateManager out from
+    // under every adwaita-swift revision, then restored it a few commits later. This pin
+    // needs Meta main ≥ 266f6eb (WidgetData init's id: parameter).
     packageDependencies.append(
-        .package(url: "https://git.aparoksha.dev/aparoksha/adwaita-swift", revision: "15fe44efffa5c9ad5c2c5a703b104d0180c6af5e")
+        .package(url: "https://git.aparoksha.dev/aparoksha/adwaita-swift", revision: "8c986907fc67a1763fc9cd4334c4b3e515d86e30")
     )
     packageTargets.append(
         .systemLibrary(name: "CWebKitGTK", path: "Sources/CWebKitGTK", pkgConfig: "webkitgtk-6.0")
