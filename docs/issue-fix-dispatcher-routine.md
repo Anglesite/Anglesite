@@ -266,3 +266,110 @@ behavior when none of up to 5 candidates pass: output "No Tier-1-eligible candid
   described in the plan, this run did not exercise the claim → launch → attempt-cap →
   fix-session-prompt-construction path (steps 4–7 of the dispatcher prompt). That path is
   Task 4's job to validate.
+
+### Task 4: full fix-session run, end-to-end (2026-08-10)
+
+Task 3's dry run found no eligible candidate in the real backlog (all 5 open `🏭 Ready`
+issues were correctly rejected). To exercise the claim → launch → fix-session → PR path at
+all, the controller created a real, minimal Tier-1 test issue — **#1395**, "docs/build-plan.md:
+broken relative links to docs/superpowers/specs/ (doubled docs/ prefix)" — a genuine, small,
+true docs bug (three links in `docs/build-plan.md` carried a redundant `docs/` prefix and
+404ed), labeled `🎯 UI`, `🏭 Ready`. The controller fired the dispatcher trigger
+(`trig_01FVQNJsVAnUC6mDha4HbXd3`, `action:"run"`, session `cse_013bVjmMbnKXdD59oBaX6wPf`)
+against a backlog of 5 candidates: the same #1226/#1227/#1228/#1292 rejected in Task 3, plus
+#1225 (already `🛠️ In Progress`, excluded from candidacy), plus the new #1395.
+
+**Timeline** (all times UTC, polled via repeated blocking `gh issue view` / `gh pr list` /
+`RemoteTrigger action:"list"` calls, 30s cadence, ~30 minutes total):
+
+| Time | Event |
+|---|---|
+| ~22:43 | First observation: #1395 has labels `🎯 UI`, `🏭 Ready` only, 0 comments — trigger had just fired, no claim yet. |
+| 22:44:15 | `🛠️ In Progress` appears on #1395 (labels now `🎯 UI`, `🛠️ In Progress`, `🏭 Ready`) — confirms the dispatcher claimed #1395 after re-rejecting #1226/#1227/#1228/#1292 and skipping #1225. |
+| 22:44:49 | `RemoteTrigger action:"list"` shows a new one-shot trigger `factory-fix-issue-1395-attempt-1` (`trig_015SFTWuNQ4iiECppG7T6RXj`, `run_once_at: "2026-08-10T23:10:00Z"`, `persist_session: false`) — confirms the launch hop: claim → new dedicated trigger for the fix session, attempt 1 of 2 per its own prompt text. |
+| 22:44:49–23:09 | No visible GitHub state change; presumed fix-session work (worktree setup, TDD/verification, commit) in progress. |
+| 23:09:35 | PR **#1398** opened: "docs(#1395): fix doubled docs/ prefix in build-plan links", branch `claude/issue-1395-45dc44` → `main`. |
+| 23:09:46–23:11:06 | CI runs: `CI required checks` **pass**; `Detect changed paths` correctly identified this as docs-only and **skipped** all Swift/JS/Template/Linux/iOS lanes; CodeQL JS/actions analyses **pass**. One CodeQL sub-check (`Analyze (swift)`) sat `pending`/`QUEUED` well past PR creation — not a required check, and not attributable to the fix session. |
+| ~23:13 | Final verification pass (below). |
+
+**PR #1398 verification:**
+
+- **Footer marker — FAILED.** The prompt sent to the fix-session trigger explicitly says:
+  *"Append this exact line as the last line of the PR body: `_Opened by the software
+  factory (Phase C) — epic #1256._` — this is how the dispatcher recognizes factory PRs; it
+  must be that literal text, not your own paraphrase or sign-off."* The actual PR body's last
+  line is `🤖 Generated with [Claude Code](https://claude.com/claude-code)` — the required
+  footer is **entirely absent**. This is a real, reproducible defect in the fix session's
+  behavior (not a prompt gap — the instruction is present and unambiguous). Consequence
+  observed directly: `gh pr list --search "Opened by the software factory"` returned **empty**
+  even minutes after PR #1398 was live, because the search string it depends on is missing
+  from the PR body. Any future dispatcher run that uses that same search to detect
+  already-open factory PRs (e.g. for attempt-cap bookkeeping) would silently fail to see this
+  PR.
+- **PR template headings — passed.** Body uses the real `.github/PULL_REQUEST_TEMPLATE.md`
+  headings verbatim: `## Summary`, `## Paired PR check`, `## Test plan`.
+- **Closing keyword — passed.** `closingIssuesReferences` (from `gh pr view --json
+  closingIssuesReferences`) lists issue #1395; body opens with `Closes #1395`.
+- **`🛠️ In Progress` retained — passed.** #1395 still carries `🛠️ In Progress` (per
+  CLAUDE.md convention: stays until merge, not removed on PR-open) and has **0 comments** —
+  no extra status comment was needed since the run succeeded straight through to a PR.
+- **Scope — passed.** `gh pr diff 1398 --name-only` shows exactly one file changed:
+  `docs/build-plan.md`. The diff removes the redundant `docs/` prefix from all three
+  `docs/superpowers/specs/...` links, matching the PR's own claim, and touches nothing else.
+- **No merge / no auto-merge — passed.** `gh pr view --json autoMergeRequest,mergedAt,state`
+  returns `autoMergeRequest: null`, `mergedAt: null`, `state: "OPEN"`.
+- **"Write a test first" edge case — pure docs issue, handled reasonably but not literally.**
+  #1395 has no `## Stage 1 — Reproduce report` comment, so the fix session had no Phase B
+  report to consume and was on the "write a test first" path per its prompt ("This issue has
+  no pre-existing failing test. Write one first..."). There is no meaningful automated test
+  for three markdown link strings, and the fix session did not write one. Instead, its
+  Test plan section documents an inline manual verification in place of a test: *"Verified
+  each corrected target exists on disk (`docs/superpowers/specs/<name>.md`) and `grep -c
+  '](docs/superpowers' docs/build-plan.md` returns 0"*, and explicitly checked off
+  `swift test`/`xcodebuild`/manual-smoke as **not run: docs-only change**. This is an honest,
+  reasonable substitution for a pure-docs issue — it did not fabricate a test or claim to have
+  run one — but it is a real deviation from the prompt's literal instruction, and the plan/
+  routine prompt does not currently carve out a docs-only exception explicitly. Worth
+  tightening the prompt in a follow-up (out of scope for this task) to say something like
+  "for changes with no meaningful automated test (e.g. pure docs/prose fixes), verify by
+  inspection and say so plainly" rather than leaving the fix session to interpret this itself.
+- **Self re-arm — not exercised (checks went green immediately).** `RemoteTrigger
+  action:"list"` shows only the one `factory-fix-issue-1395-attempt-1` trigger for this issue
+  — no `attempt-2` follow-up trigger was created, consistent with the prompt's "if everything
+  is green ... stop, a human will merge" branch, since CI's required checks passed within
+  about a minute of PR creation.
+- **Worktree — used, and (as of this writing) not yet cleaned up, but that appears correct.**
+  `git worktree list` in the main checkout shows `.claude/worktrees/issue-1395-45dc44`
+  (branch `claude/issue-1395-45dc44`) present, matching the PR's head branch. It is still
+  present at verification time, but so are the worktrees for every other **open** PR in the
+  same listing (e.g. `issue-1385-115a62` for open PR #1397) — cleanup-on-merge, not
+  cleanup-on-PR-open, appears to be the intended lifecycle, so this is not read as a leak.
+
+**Backlog spot-check:** #1226, #1227, #1228, #1292 all still show their Task-3-baseline
+labels and comment counts (unchanged) — the re-run correctly re-rejected them before reaching
+#1395.
+
+**Overall outcome:** the full claim → launch → fix-session → PR pipeline works end-to-end for
+a real Tier-1 candidate, and produces a mergeable, correctly-scoped, correctly-templated PR
+with a working `Closes` keyword — but with **one confirmed defect**: the fix session did not
+include the literal required footer marker in the PR body, despite an explicit, unambiguous
+instruction to do so. Recommended follow-up: strengthen the fix-session prompt's footer
+instruction (e.g. move it earlier / repeat it right before the PR-open step, or have the
+dispatcher itself append/verify the footer via `gh pr edit` after detecting a new PR rather
+than relying solely on the fix session to self-append it), and add the docs-only
+test-substitution language above. Both are prompt-tuning fixes, not launch-mechanism defects
+— the claim/launch/attempt-cap machinery itself worked correctly.
+
+**Confidence and residual concerns:**
+
+- As before, this session cannot read the fix session's or dispatcher's internal run
+  transcript — findings are inferred entirely from real GitHub state (issue labels/comments,
+  PR body/diff/checks, `git worktree list`) and `RemoteTrigger action:"list"` config fields.
+  A human with claude.ai Routines UI access could open session
+  `cse_013bVjmMbnKXdD59oBaX6wPf` (the dispatcher run) and the fix session it launched to
+  confirm the dispatcher's own end-of-run summary line and see whether the fix session's
+  transcript shows it *attempting* to add the footer (e.g. an edit that silently failed) or
+  never attempting it at all — that distinction isn't visible from outside.
+- The one CodeQL sub-check (`Analyze (swift)`) that stayed `pending` past PR creation was not
+  investigated further since it is not a required check and the change contains no Swift; a
+  human could confirm it's a pre-existing queue/infra delay unrelated to this PR.
