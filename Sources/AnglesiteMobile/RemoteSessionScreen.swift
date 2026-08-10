@@ -111,11 +111,18 @@ private struct RemoteSandboxPreview: View {
                 )
             },
             configureWebView: { webView in
+                // `appEntityUIElementProvider` and `uiElements(for:)` are gated behind
+                // `#if compiler(>=6.4)` in AnglesiteIntents (iOS 26+ SDK symbols); CI's
+                // `ios-build` job still resolves an older toolchain (Xcode 26.6 / Swift 6.3.3)
+                // that lacks both, so this call site must stay gated in lockstep or it fails to
+                // compile there even though the surrounding view type-checks fine.
+                #if compiler(>=6.4)
                 guard let annotationProvider else { return }
                 webView.appEntityUIElementProvider = { [weak annotationProvider] _, hitContext in
                     guard let annotationProvider else { return [] }
                     return annotationProvider.uiElements(for: hitContext)
                 }
+                #endif
             }
         )
     }
