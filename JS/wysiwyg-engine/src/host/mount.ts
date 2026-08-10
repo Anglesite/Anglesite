@@ -11,11 +11,32 @@ declare global {
   }
 }
 
+// Disposes whatever is currently mounted (if anything) and clears the globals — the shared body
+// of `unmount()` below, factored out so `mount()` can call it too (#1225 final-review round 2,
+// Finding B) rather than only being reachable from the native `unmountEngine()` call. Safe to call
+// when nothing is mounted: both globals are `undefined` and the optional-chained calls no-op.
+function disposeMounted(): void {
+  window.__anglesiteWysiwygRichTextEditor?.dispose();
+  window.__anglesiteWysiwygEngine?.dispose();
+  window.__anglesiteWysiwygRichTextEditor = undefined;
+  window.__anglesiteWysiwygEngine = undefined;
+}
+
 // Injected as a WKUserScript (Task 6); the engine can't self-construct at injection time because
 // WysiwygEngine needs an initialModel, which is only known once the native host has fetched one —
 // so this just exposes a `mount()` entry point the Swift host calls via `evaluateJavaScript`.
 window.__anglesiteWysiwygMount = {
   mount(initialModel: BlockModel): WysiwygEngine {
+    // Idempotent: dispose any already-mounted engine/RichTextEditor first (#1225 final-review
+    // round 2, Finding B). Now that a `WKNavigationDelegate` remounts on every navigation
+    // completion while edit mode is on (`PreviewView.Coordinator.webView(_:didFinish:)`), it's
+    // possible — though not expected in the steady state — for a mount to be requested while one
+    // is already live (e.g. a native-side call racing the navigation-driven one across the same
+    // page instance). Without this, two engine/RichTextEditor pairs would both end up wired to
+    // the same DOM and both listening for the same events, corrupting hit-testing and op
+    // submission. `unmount()` itself calls this same function, so an explicit unmount → mount
+    // pair (the normal edit-mode-off → on cycle) stays exactly as before.
+    disposeMounted();
     const engine = new WysiwygEngine(initialModel, new NativeHostTransport());
     window.__anglesiteWysiwygEngine = engine;
     // `RichTextEditor` needs an engine to submit `editText` ops through, so it's constructed here
@@ -33,10 +54,7 @@ window.__anglesiteWysiwygMount = {
   // globals so a stale `window.__anglesiteWysiwygEngine` can't answer a hit-test or accept an op
   // after the native side considers edit mode off.
   unmount(): void {
-    window.__anglesiteWysiwygRichTextEditor?.dispose();
-    window.__anglesiteWysiwygEngine?.dispose();
-    window.__anglesiteWysiwygRichTextEditor = undefined;
-    window.__anglesiteWysiwygEngine = undefined;
+    disposeMounted();
   },
 };
 

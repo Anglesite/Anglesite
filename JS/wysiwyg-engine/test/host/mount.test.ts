@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, beforeEach } from "vitest";
+import { describe, it, expect, beforeEach, vi } from "vitest";
 import type { BlockModel } from "../../src/types.js";
 import "../../src/host/mount.js";
 
@@ -51,5 +51,24 @@ describe("wysiwyg engine host mount entry point (#1225)", () => {
 
     expect(second).not.toBe(first);
     expect(window.__anglesiteWysiwygEngine).toBe(second);
+  });
+
+  /**
+   * #1225 final-review round 2, Finding B: a `WKNavigationDelegate` now remounts on every
+   * navigation completion while edit mode is on (`PreviewView.Coordinator.webView(_:didFinish:)`),
+   * so `mount()` can be asked to mount a second time without an intervening `unmount()` call (e.g.
+   * a native-side call racing the navigation-driven one). Without disposing the first engine first,
+   * two `WysiwygEngine`/`RichTextEditor` pairs would both end up wired to the same DOM and both
+   * listening for the same events. This proves `mount()` disposes whatever was previously mounted
+   * before constructing the new instance — not just that the global pointer moved on (the
+   * "replaces the previous engine instance" test above already covered that).
+   */
+  it("mount() without an intervening unmount() disposes the previous engine first", () => {
+    const first = window.__anglesiteWysiwygMount!.mount(model);
+    const disposeSpy = vi.spyOn(first, "dispose");
+
+    window.__anglesiteWysiwygMount!.mount({ ...model, version: "v1" });
+
+    expect(disposeSpy).toHaveBeenCalledOnce();
   });
 });

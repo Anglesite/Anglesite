@@ -83,18 +83,18 @@ struct PreviewView: NSViewRepresentable {
                 return annotationProvider.uiElements(for: hitContext)
             }
         }
+        // The `WKNavigationDelegate` below is what actually mounts the JS engine once the page
+        // (and thus the `WKUserScript` that defines `window.__anglesiteWysiwygMount`) has really
+        // finished loading — see `Coordinator.webView(_:didFinish:)`'s doc comment (#1225
+        // final-review round 2, Finding B). Assigning it before `load(_:)` below means it's live
+        // for this very first navigation too, not just later ones.
+        webView.navigationDelegate = context.coordinator
         webView.load(URLRequest(url: url))
         context.coordinator.loadedURL = url
         // Stashed on the coordinator because `dismantleNSView` is static — it has no access to
         // this instance's closures at teardown time.
         context.coordinator.onDismantle = onWebViewDismantled
         onWebView(webView)
-        // Best-effort — mirrors `PreviewModel.enterEditMode`'s own call: covers the case where
-        // this `PreviewView` (and its web view) is being built fresh while edit mode is already on
-        // (a dev-server restart mid-edit re-creates the whole NSView, see the `.ready` branch in
-        // `SiteWindow.previewPane(for:)`). No-op if the page hasn't loaded yet — see
-        // `WYSIWYGCanvasController.mountEngine()`'s doc comment.
-        wysiwygController?.mountEngine()
         return webView
     }
 
@@ -159,8 +159,14 @@ struct PreviewView: NSViewRepresentable {
     /// `WYSIWYGCanvasController`'s implicit `WYSIWYGHostTransport: Sendable` conformance. Needed
     /// so `makeNSView`'s `onContextMenu` closure (a `@Sendable` parameter of `WYSIWYGScriptHandler`)
     /// can weakly capture `webView` below without the compiler rejecting the capture.
+    ///
+    /// Subclasses `NSObject` (rather than a plain Swift class) because `WKNavigationDelegate` is
+    /// an `@objc` protocol — `WKWebView.navigationDelegate` requires its target to be an
+    /// `NSObject`. `webView.navigationDelegate` holds it weakly; SwiftUI's own `Context` is what
+    /// keeps this instance alive for the represented view's lifetime, same as every other
+    /// `NSViewRepresentable.Coordinator`.
     @MainActor
-    final class Coordinator: Sendable {
+    final class Coordinator: NSObject, WKNavigationDelegate, Sendable {
         var loadedURL: URL?
         var onDismantle: ((WKWebView) -> Void)?
         /// Set right after `WKWebView(frame:configuration:)` in `makeNSView`, so the
@@ -173,8 +179,36 @@ struct PreviewView: NSViewRepresentable {
         /// on/off transition (#1225 final-review fix wave, Finding 6). Strong: unlike `webView`,
         /// nothing else on this side keeps the controller alive once edit mode is toggled off, and
         /// `updateNSView` needs it after `wysiwygTransport` has already gone `nil` in order to call
-        /// `unmountEngine()`/`removeScriptMessageHandler(forName:)` on the right instance.
+        /// `unmountEngine()`/`removeScriptMessageHandler(forName:)` on the right instance. Also
+        /// what `webView(_:didFinish:)` below reads to decide whether a finished navigation should
+        /// (re)mount the JS engine.
         var wysiwygController: WYSIWYGCanvasController?
+
+        /// Mounts the JS engine once a navigation has actually finished — the single reliable
+        /// mount point (#1225 final-review round 2, Finding B). Every other `mountEngine()` call
+        /// site in this file/`SiteWindow.swift`/`PreviewModel.swift` fires synchronously right
+        /// after `webView.load(...)` is dispatched, before the page (and the `atDocumentEnd`
+        /// `WKUserScript` that defines `window.__anglesiteWysiwygMount`) has actually loaded — so
+        /// those calls were silent no-ops except in the one case where the page was *already*
+        /// fully loaded when the toggle happened (`PreviewModel.enterEditMode`'s own call,
+        /// `updateNSView`'s edit-mode-transition call). This delegate method is what makes the
+        /// *other* orderings work: the initial load (including when edit mode is already on
+        /// because this whole `PreviewView`/`WKWebView` was just rebuilt, e.g. a dev-server
+        /// restart mid-edit), and every later reload/navigation while edit mode stays on — a
+        /// route change (`updateNSView`'s own `webView.load(...)` path) or ⌘R
+        /// (`PreviewModel.reloadPreview()`) both silently killed the mounted JS engine before this
+        /// fix, since a real navigation discards all page-injected JS state; only the native side's
+        /// `isEditModeEnabled` kept reading "on".
+        ///
+        /// No-op when edit mode is currently off (`wysiwygController` nil) — same guard every
+        /// other `mountEngine()` call site uses. Safe against the double-mount this could
+        /// otherwise cause when a navigation-driven call races one of the toggle-transition call
+        /// sites above (e.g. the page finishes loading in the same beat the owner toggles edit
+        /// mode on): `mount.ts`'s `mount()` now disposes any already-mounted engine first, making
+        /// repeat calls idempotent rather than stacking two live engine instances on one page.
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            wysiwygController?.mountEngine()
+        }
     }
 }
 
