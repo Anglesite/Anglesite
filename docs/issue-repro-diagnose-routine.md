@@ -194,6 +194,84 @@ known platform limitation, not a gap in this doc.
 
 ## Dry-run findings
 
-_(To be filled in by Task 3 below: which issue it picked, what it posted, whether labels
-transitioned correctly, whether the worktree was actually cleaned up afterward, and the
-posting identity it ran under.)_
+Run date: 2026-08-10, triggered manually via the routine's "Run now" action (schedule still
+on Manual at the time). Verified against real GitHub state after the owner confirmed
+completion.
+
+**Issue picked:** #858 ("[Bug]: LAN site runtime UI issues"), correctly the oldest open
+`🏭 Needs repro` issue without `🛠️ In Progress` at the time (created 2026-07-21, vs. #1292
+created 2026-08-06). #1292 was left completely untouched, as expected — confirmed via
+`gh issue view 1292` showing no new comments and no `🛠️ In Progress`/`🏭 Blocked: human`
+label activity.
+
+**Outcome: Tier 4 escalation (correct per the prompt's decision tree).** The Stage 1 subagent
+determined the issue's asks (Settings copy strings and a nonexistent "Find on local network"
+Bonjour button) live in a `private` SwiftUI view with no testable seam and no UI-test target
+in the repo, correctly classified this as Tier 4 per `docs/specs/2026-08-04-software-factory-design.md`
+§4.4, and stopped without writing a fake repro — exactly the behavior the prompt's
+`TIER_4_ESCALATION` branch calls for. It also surfaced a genuinely useful diagnostic finding
+in the same comment (root cause of the port-comma bug: locale-grouping applied via
+`Text("\(4321)")` interpolation) even though diagnosis wasn't its job — a reasonable bonus,
+not a spec violation.
+
+**Label transitions — verified via the issue timeline
+(`gh api repos/Anglesite/Anglesite/issues/858/timeline`), not just current state:**
+
+```
+2026-08-10T19:33:45Z  labeled    🛠️ In Progress
+2026-08-10T19:38:24Z  (Stage 1 — Reproduce report comment posted)
+2026-08-10T19:39:21Z  unlabeled  🛠️ In Progress
+2026-08-10T19:39:22Z  labeled    🏭 Blocked: human
+```
+
+`🛠️ In Progress` was added at claim time and removed at the end of the run, exactly as the
+prompt's step 5 (`TIER_4_ESCALATION` branch) specifies. `🏭 Blocked: human` was added.
+`🏭 Needs repro` was **not** removed — also correct, since step 5's escalation branch only
+touches `🛠️ In Progress` and `🏭 Blocked: human`; removing `🏭 Needs repro` only happens in
+step 7's success path, which this run never reached (Stage 2 was correctly never spawned).
+
+**Run duration: ~5m 37s** (19:33:45Z claim → 19:39:22Z final label), derived directly from
+the timeline above rather than inferred — this is a single-stage (escalated) run, so a full
+Stage 1 + Stage 2 pass on a Tier 1/2 issue would likely take longer. Five and a half minutes
+for a Tier 4 triage-and-escalate pass is comfortably inside the 4-hour cadence being
+considered for the schedule.
+
+**Comment structure:** One comment was posted (correct — exactly one report for an escalated
+outcome, no Stage 2 report). It uses the `## Stage 1 — Reproduce report` heading. The prompt
+only mandates an exact field template (`**Tier assessed:**`, `**Command:**`, `**Result:** FAILS
+on main...`, test diff, failure output, repro steps) for the `REPRO_POSTED` success path; for
+`TIER_4_ESCALATION` it only requires "a comment explaining what is needed and why an automated
+repro can't reach it," which this comment satisfies with a table of asks, a root-cause note,
+and a suggested-routing section. No template violation.
+
+**Posting identity:** confirmed, not assumed — the comment's `author.login` is `davidwkeith`
+with `viewerDidAuthor: true`, i.e. posted by the same GitHub account as this environment's
+authenticated `gh` session (`gh auth status` also reports `davidwkeith`).
+
+**Worktree/git cleanliness:** No leftover worktree. `git worktree list` in the main checkout
+shows no entry with a timestamp near the run window (19:33–19:39Z); the closest pre-existing
+worktrees are from earlier in the day (11:36Z and before) and unrelated to this routine.
+`git status` on `main` is clean (one pre-existing untracked file unrelated to this run,
+`.github/workflows/claude-code-review.yml`), and `git log --oneline -5` shows only prior,
+unrelated commits — nothing was committed or pushed by the routine run.
+
+### Defect found: escalated issues aren't excluded from future candidate selection
+
+This is a real gap in the prompt's own logic, not a hypothetical: step 1's candidate filter
+excludes only issues carrying `🛠️ In Progress` — it does **not** exclude issues that already
+carry `🏭 Blocked: human`. Because the `TIER_4_ESCALATION` branch (step 5) leaves
+`🏭 Needs repro` in place, #858 now carries **both** `🏭 Needs repro` and
+`🏭 Blocked: human` simultaneously, and remains the oldest open `🏭 Needs repro` issue without
+`🛠️ In Progress` in the backlog. On the next scheduled run, the routine will pick #858 again
+(this time as "attempt 2" per step 2's comment-counting, since one `## Stage 1 — Reproduce
+report` comment already exists), almost certainly reach the same Tier 4 escalation, and post a
+near-duplicate comment — burning a full run (~5-6 min) and adding comment noise before it
+finally stops being picked up on a third encounter (step 2's "already attempted twice" branch).
+This should be fixed before the schedule is enabled: either step 1 should also exclude issues
+carrying `🏭 Blocked: human`, or step 5's escalation branches should remove `🏭 Needs repro`
+when adding `🏭 Blocked: human` (mirroring step 7's success path, which does swap the state
+label). Flagged for Task 4.
+
+No other defects found. Everything else in this run — issue selection, claim/unclaim
+mechanics, escalation judgment, comment posting, and worktree cleanup — matched the prompt's
+intended behavior.
