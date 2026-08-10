@@ -20,7 +20,11 @@ and prompt below verbatim.
   needed, unlike Phase B; see design doc §3)
 - **Repo:** `https://github.com/Anglesite/Anglesite`
 - **Model:** `claude-sonnet-5`
-- **Schedule:** Hourly — left disabled/manual until a dry run is verified clean (see below)
+- **Schedule:** Live — `34 * * * *` (hourly, UTC, fires at :34 past the hour). This was
+  requested as `0 * * * *` at enable time; the Routines API applied the same server-side
+  phase shift documented in `docs/issue-intake-routine.md` and the effective
+  `cron_expression` came back as `34 * * * *`, confirmed via `RemoteTrigger action:"get"`
+  after the update call. Enabled 2026-08-10 after Tasks 3-4's clean dry runs (see below).
 - **Tools:** `["Read", "Grep", "Glob", "Task"]` plus `Bash` scoped to `gh issue list`,
   `gh issue view`, `gh issue edit`, `gh issue comment`, `gh pr list`, `gh pr view` (read-only
   and label/comment operations only — this routine never commits, pushes, or opens a PR
