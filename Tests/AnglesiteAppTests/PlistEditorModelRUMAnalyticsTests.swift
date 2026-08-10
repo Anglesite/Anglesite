@@ -88,9 +88,18 @@ struct PlistEditorModelRUMAnalyticsTests {
         #expect(fixture.model.rumSummaryError == "boom")
     }
 
-    @Test("loadRUMSummary surfaces missingToken when no Cloudflare token is configured",
-          .enabled(if: ProcessInfo.processInfo.environment["CLOUDFLARE_API_TOKEN"] == nil))
+    @Test("loadRUMSummary surfaces missingToken when no Cloudflare token is configured")
     func surfacesMissingToken() async throws {
+        // Claim the process-wide `CLOUDFLARE_API_TOKEN` env var in its exclusive "cleared" state:
+        // `CloudflareAPICredentials.resolve()` consults it before the injected keychain, and
+        // sibling setter suites (DomainConfigAuditModelTests, HardenModelTests,
+        // OnionRoutingModelTests) legitimately hold it set to "test-token" while their own tests
+        // run concurrently in this process (#1375). The claim replaces the old
+        // `.enabled(if: env == nil)` trait, which was evaluated once before the body ran and so
+        // couldn't keep a setter's claim window from overlapping it; claiming also lets this test
+        // run (rather than silently skip) on a machine whose shell exports a real token.
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
+        defer { cfToken.release() }
         let fixture = try await makeFixture(token: nil, siteTag: "site-tag-1")
 
         await fixture.model.loadRUMSummary()
