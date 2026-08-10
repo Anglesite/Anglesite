@@ -1,16 +1,17 @@
 # Flatpak manifest for the AnglesiteLinux shell (cross-platform port phase 2, #567).
 #
-# STATUS: scaffold, not yet built or run — see packaging/flatpak/README.md and
-# docs/superpowers/specs/2026-08-06-flatpak-packaging-investigation.md §9 for the manual
-# verification steps a GTK-provisioned Linux box still needs to run before this is trusted.
+# STATUS: live-verified (#1293) — builds and runs end-to-end on a real Ubuntu 26.04/aarch64 GTK
+# box, including a real podman container boot and document-portal bind-mount. See
+# packaging/flatpak/README.md and
+# docs/superpowers/specs/2026-08-06-flatpak-packaging-investigation.md §9 for the verification
+# record. Also built by the `linux-flatpak-build` CI lane on every PR.
 #
 # Modeled on adwaita-swift's own reference manifest for its template app
 # (https://codeberg.org/aparoksha/adwaita-template/raw/branch/main/io.github.AparokshaUI.AdwaitaTemplate.json)
 # — a real, working precedent for this exact stack (Swift + libadwaita via adwaita-swift on a
 # GNOME runtime). org.gnome.Platform bundles WebKitGTK (libwebkitgtk-6.0), so org.gnome.Sdk
-# should carry the webkitgtk-6.0 pkg-config dev files Sources/CWebKitGTK needs without an
-# additional WebKit build module — confirm this against the actual runtime version pinned below
-# when this manifest is first built for real.
+# carries the webkitgtk-6.0 pkg-config dev files Sources/CWebKitGTK needs with no additional
+# WebKit build module — confirmed live against org.gnome.Sdk//50.
 
 app-id: io.dwk.anglesite.linux
 runtime: org.gnome.Platform
@@ -90,13 +91,20 @@ modules:
         --product anglesite-linux
       # SwiftPM's built binary name for an executable product can differ from the product name
       # depending on toolchain version (it may match the underlying target name, "AnglesiteLinux",
-      # instead of the product name, "anglesite-linux") — this manifest hasn't been run against a
-      # real Swift 6 Flatpak SDK extension yet to confirm which. Installing whichever one exists
-      # keeps this build-command correct either way; if a future toolchain produces neither name
-      # this step fails loudly rather than silently installing a stale binary.
+      # instead of the product name, "anglesite-linux") — installing whichever one exists keeps
+      # this build-command correct either way; if a future toolchain produces neither name this
+      # step fails loudly rather than silently installing a stale binary.
+      #
+      # NOT `.build/release/...`: that convenience symlink to the triple-qualified release dir
+      # (`.build/<triple>/release/`) isn't created by every SwiftPM/toolchain combination — verified
+      # live against the org.freedesktop.Sdk.Extension.swift6//25.08 extension (#1293), which
+      # links the product straight to `.build/aarch64-unknown-linux-gnu/release/anglesite-linux`
+      # with no top-level `.build/release` symlink at all. Searching the whole `.build` tree for a
+      # `.../release/<name>` match is robust to that and to whatever triple a given SDK extension
+      # targets (aarch64 here; x86_64 on an Intel build host).
       - >-
         install -Dm755
-        "$(find .build/release -maxdepth 1 -type f \( -name anglesite-linux -o -name AnglesiteLinux \) | head -n1)"
+        "$(find .build -type f \( -name anglesite-linux -o -name AnglesiteLinux \) -path '*/release/*' | head -n1)"
         /app/bin/anglesite-linux
       # Assumes scripts/build-overlay.sh already ran against this checkout (it bundles
       # JS/edit-overlay/ into Resources/edit-overlay/overlay.js — same output the macOS app
