@@ -94,7 +94,7 @@ jobs:
           }
 
           swift=false; js=false; wysiwyg=false; template=false; helpBook=false; workers=false
-          matches 'Package.swift' 'Package.resolved' 'project.yml' 'Sources/**' 'Tests/**' 'Resources/Template/**' 'Resources/Attributions/**' 'scripts/**' '.github/workflows/ci.yml' && swift=true
+          matches 'Package.swift' 'Package.resolved' 'project.yml' 'Sources/**' 'Tests/**' 'Resources/Template/**' 'Resources/Attributions/**' 'scripts/**' 'packaging/flatpak/**' '.github/workflows/ci.yml' && swift=true
           matches 'JS/edit-overlay/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && js=true
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
           matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
@@ -282,6 +282,86 @@ jobs:
 
       - name: Test install-swift-linux.sh retry/backoff loop
         run: scripts/install-swift-linux.test.sh
+
+  linux-flatpak-build:
+    name: Linux (Flatpak manifest + AnglesiteLinux)
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Builds packaging/flatpak/io.dwk.anglesite.linux.yml for real and runs AnglesiteLinuxTests
+    # inside the same GNOME-SDK sandbox — the CI lane
+    # docs/superpowers/specs/2026-08-06-flatpak-packaging-investigation.md §8/§9 and Package.swift's
+    # own comment on the ANGLESITE_LINUX_SHELL=1 gate both named as the blocker for un-gating
+    # AnglesiteLinux from that opt-in. `linux-build-test` above can't cover this: its
+    # swift:6.3.3-noble image lacks libadwaita ≥ 1.7 / webkitgtk-6.0, which only a GNOME-Platform
+    # Flatpak SDK (or an equivalent system install) carries. Live-verified end-to-end on a real
+    # Ubuntu 26.04/aarch64 GTK box for #1293: the manifest builds, the app boots a real podman
+    # container through `flatpak-spawn --host` (no conmon hang), the document-portal bind-mount
+    # resolves correctly, the overlay JS loads, and a long-lived `podman exec -i` interactive
+    # session's stdio survives the same `flatpak-spawn --host` proxy — this job exercises the
+    # first two of those (build + AnglesiteLinuxTests); the rest need a live GTK/podman
+    # environment this headless runner doesn't have and stay manually verified.
+    #
+    # Does NOT run AnglesiteCoreTests (so PodmanContainerControlTests and
+    # DocumentPortalResolutionTests don't execute here either) — that target isn't in
+    # Package.swift's off-Darwin `portableTargets` set yet (confirmed live: it also pulls in
+    # AnglesiteTestSupport, itself not purity-swept), tracked separately in #1284. Only
+    # AnglesiteLinuxTests (ShellModel's pure overlay-candidate logic) is Linux-portable today.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: scripts/node-version.txt
+      - name: Build edit overlay
+        run: scripts/build-overlay.sh
+
+      - name: Install flatpak + flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder dbus-user-session
+
+      - name: Add flathub remote
+        run: flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      # ~3GB (org.gnome.Platform/Sdk + the swift6 SDK extension) — by far the slowest part of a
+      # cold run. Keyed on the manifest itself so a runtime-version/branch bump (the pins below,
+      # and packaging/flatpak/io.dwk.anglesite.linux.yml's own runtime-version/sdk-extensions)
+      # invalidates the cache instead of silently reusing stale runtimes.
+      - name: Cache Flatpak runtimes
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-runtimes-gnome50-swift6-25.08-${{ hashFiles('packaging/flatpak/io.dwk.anglesite.linux.yml') }}
+
+      # `flatpak install --noninteractive` still prompts (and fails outright, non-interactively)
+      # when a ref has more than one matching branch on the remote — verified live against
+      # org.freedesktop.Sdk.Extension.swift6, which resolves to both //24.08 and //25.08 on
+      # Flathub. The branch must be pinned explicitly; org.gnome.Sdk//50 is itself built against
+      # freedesktop runtime 25.08 (confirmed live via its Mesa/codecs-extra extension branches),
+      # so that's the one to pin here.
+      - name: Install GNOME Platform/Sdk + Swift 6 SDK extension
+        run: |
+          dbus-run-session -- flatpak install --user -y --noninteractive flathub \
+            org.gnome.Platform//50 org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.swift6//25.08
+
+      - name: Build the Flatpak manifest
+        run: |
+          dbus-run-session -- flatpak-builder --user --install --force-clean \
+            packaging/flatpak/build-dir packaging/flatpak/io.dwk.anglesite.linux.yml
+
+      # `--build-shell` accepts piped stdin non-interactively (verified live) — the only way to
+      # run `swift test` with the SDK extension's toolchain on PATH, since `flatpak run` against
+      # the *installed* app only mounts the GNOME runtime, not the build-time SDK extension.
+      - name: Run AnglesiteLinuxTests inside the build sandbox
+        run: |
+          dbus-run-session -- flatpak-builder --build-shell=anglesite-linux \
+            packaging/flatpak/build-dir packaging/flatpak/io.dwk.anglesite.linux.yml <<'SHELL_EOF'
+          set -e
+          ANGLESITE_LINUX_SHELL=1 swift test --filter AnglesiteLinuxTests
+          exit
+          SHELL_EOF
 
   build-test:
     # macos-26, not macos-15: the macos-15 image's OS libswift_Concurrency (Swift 6.2.3-era,
@@ -880,6 +960,7 @@ jobs:
       - help-book-links
       - workers-tests
       - linux-build-test
+      - linux-flatpak-build
       - build-test
       - timing-sensitive-tests
       - ios-build

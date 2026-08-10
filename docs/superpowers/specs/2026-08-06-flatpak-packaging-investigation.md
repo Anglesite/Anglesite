@@ -5,10 +5,14 @@
 **Resolves:** cross-platform port design §12 open question — "Flatpak sandbox vs.
 rootless-podman-from-Flatpak interaction (may require `flatpak-spawn` or a host-side helper;
 investigate at Linux MVP)"
-**Status:** Investigation complete; recommended design implemented in this PR for the
-sandbox/podman interaction and resource bundling. Manifest scaffold added but **not yet built or
-run** — no `flatpak-builder`/GTK toolchain is available in this environment (see §9). CI lane and
-end-user image distribution are explicitly deferred (§8).
+**Status:** Investigation complete; recommended design implemented for the sandbox/podman
+interaction and resource bundling. **Live-verified end-to-end for #1293** on a real Ubuntu
+26.04/aarch64 GTK box — the manifest builds, boots a real podman container through
+`flatpak-spawn --host`, resolves the document-portal bind-mount correctly, serves the Astro
+preview with the overlay JS installed, and survives a long-lived interactive `podman exec -i`
+session — see §9's updated verification record. A CI lane (`linux-flatpak-build`) now builds the
+manifest and runs `AnglesiteLinuxTests` on every PR. End-user image distribution is still deferred
+(§8, tracked in #1291).
 
 ## 1. Where things stand
 
@@ -271,34 +275,50 @@ that don't block the phase they're filed under:
   stable release/update channel, and likely scrutiny of `--talk-name=org.freedesktop.Flatpak`'s
   breadth, see §3(a)) hasn't started.
 
-## 9. What still needs a real Flatpak/podman/GTK environment to verify
+## 9. Live verification record (#1293)
 
-This investigation was written in a container with no `flatpak`, `flatpak-builder`, `podman`, or
-GTK4/libadwaita/webkitgtk dev headers available — the same constraint Package.swift's own comment
-already documents for `AnglesiteLinux` itself ("a GTK-provisioned Linux box is the real
-verification"). Before treating this design as load-bearing, a real Ubuntu/Fedora box with Flatpak
-+ podman installed needs to:
+This investigation was originally written in a container with no `flatpak`, `flatpak-builder`,
+`podman`, or GTK4/libadwaita/webkitgtk dev headers available. #1293 ran the checklist below on a
+real Ubuntu 26.04/aarch64 box (flatpak-builder 1.4.8, podman 5.7.0, full GNOME desktop session) —
+every item is now verified, not inferred:
 
-1. `flatpak-builder --user --install --force-clean build-dir packaging/flatpak/io.dwk.anglesite.linux.yml`
-   and confirm it actually builds (Swift SDK extension version, GNOME runtime version, and
-   webkitgtk-6.0 pkg-config availability are all inferred from the adwaita-swift precedent and web
-   research in this doc, not confirmed against this repo's exact dependency pins). The manifest's
-   `build-options.build-args: [--share=network]` (added after review — `flatpak-builder` sandboxes
-   the build step itself with no network by default, and `swift build` needs to fetch SwiftPM's
-   git-pinned dependencies) makes this **local verification** build possible, but it is not
-   Flathub-submittable as-is: a hermetic build needs those dependencies vendored ahead of time,
-   the same unresolved gap the overlay JS's npm dependencies already have (§7) — both tracked in
-   #1293, not solved here.
-2. Run the installed Flatpak, open a `.anglesite` package via the folder picker, and confirm the
-   bind-mount in §6 actually works end-to-end (this is the highest-priority unknown — it blocks
-   the Exit Criterion entirely if it fails). Per §6's reprioritization, implement and test the
-   Documents-portal path-resolution approach (§6 option 1) first, not the FUSE path passed
-   straight through — it's the one expected to work, not just the one tried first for convenience.
-3. Confirm `podman run -d` boots promptly through `flatpak-spawn --host` (§5) rather than hanging.
-4. Confirm the overlay JS actually loads from `/app/share/anglesite/edit-overlay/overlay.js` (§7).
-5. Open an interactive `exec` session (the ACP-agent path, `PodmanContainerControl.
-   execInteractive`) and confirm stdin writes and stdout/stderr reads round-trip correctly through
-   `flatpak-spawn --host` for the life of the session, not just at launch/exit (§5b).
+1. **Manifest build.** `flatpak-builder --user --install --force-clean build-dir
+   packaging/flatpak/io.dwk.anglesite.linux.yml` builds successfully against `org.gnome.Sdk//50` +
+   `org.freedesktop.Sdk.Extension.swift6//25.08` (the extension's branch must be pinned explicitly
+   — Flathub carries both `//24.08` and `//25.08`, and `flatpak install --noninteractive` fails
+   outright on the ambiguous ref rather than picking one). `webkitgtk-6.0` pkg-config resolves fine
+   against the GNOME SDK as expected. Two real bugs surfaced only by this first-ever compile, both
+   fixed: `AnglesiteLinuxApp.swift`'s `content` view pattern-matched `PreviewStatus.ready` with 3
+   wildcards against a 2-value case (would never have compiled outside this manifest, since
+   `AnglesiteLinux` had never been built before); and the manifest's install step assumed a
+   `.build/release` convenience symlink that this Swift 6.3.3/toolchain combination doesn't
+   create — fixed to search the whole `.build` tree for `*/release/anglesite-linux` instead of a
+   hardcoded triple-qualified path.
+2. **Document-portal bind-mount (§6).** Verified end-to-end: registered a real test `.anglesite`
+   package with `xdg-document-portal` via `Documents.AddFull` (granting the sandboxed app read/
+   write, exactly mirroring what the `FileChooser` portal does for a real folder pick), launched
+   the installed Flatpak against the resulting FUSE path, and watched it clone successfully from
+   the resolved host path and boot a real podman container. One design correction versus the
+   original plan: **`Documents.Info` cannot be called from inside the sandbox at all** — it fails
+   with `org.freedesktop.portal.Error.NotAllowed: Not allowed in sandbox` regardless of whether
+   the calling app holds the grant for that doc ID (the portal's sandboxed D-Bus proxy filters the
+   method out entirely; this isn't a per-grant permission check). The fix is mechanical: run the
+   `Info` call itself through `flatpak-spawn --host`, exactly like every podman invocation —
+   confirmed this succeeds unconditionally for any doc ID the caller knows. Implemented in
+   `Sources/AnglesiteCore/Platform/DocumentPortalResolution.swift`.
+3. **`podman run -d` via `flatpak-spawn --host` (§5).** Confirmed: the container boots in ~14
+   seconds with no `conmon`-detach hang, matching the doc's inference that `flatpak-spawn` sits
+   locally in exactly the position `podman` itself used to.
+4. **Overlay JS (§7).** Confirmed `/app/share/anglesite/edit-overlay/overlay.js` is present
+   (25027 bytes, matching `scripts/build-overlay.sh`'s local output byte-for-byte) and readable
+   inside the running sandbox; the full boot (with a real `astro dev` serving) reached `.ready`.
+5. **Interactive `exec` stdio (§5b).** Confirmed: a long-lived `flatpak-spawn --host podman exec
+   -i <container> sh` session, fed three separate delayed writes ~3 seconds apart over a kept-open
+   stdin pipe, echoed all three back correctly with the expected timing — stdio survives the
+   D-Bus-proxied session for its whole life, not just at launch/exit.
+
+Not yet exercised live: a hermetic (no `--share=network`) Flathub-submittable build, and actual
+Flathub submission — both still tracked as open in §8.
 
 None of this PR's Swift changes are behind a new feature flag — `flatpakHostSpawn` only activates
 when `FLATPAK_ID` is set, which is never true outside an actual Flatpak sandbox, so the existing
