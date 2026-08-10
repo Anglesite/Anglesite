@@ -62,7 +62,7 @@ final class NewCommunityWizardModelTests: XCTestCase {
         let id = await m.build(using: scaffolder)
 
         XCTAssertNotNil(id)
-        XCTAssertTrue(m.didCompleteCleanly)
+        XCTAssertNotNil(m.completedSiteID)
         XCTAssertEqual(m.draft.siteType, .community)
         XCTAssertEqual(m.draft.name, "Birding Club")
         XCTAssertEqual(m.draft.themeID, "community")
