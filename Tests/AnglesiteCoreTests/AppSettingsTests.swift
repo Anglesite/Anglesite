@@ -31,7 +31,9 @@ final class AppSettingsTests {
     /// `AppSettings` resolves the (documented-as-slow) ubiquity container only once per instance.
     /// A `final class` because `UbiquityContainerResolving.url(forUbiquityContainerIdentifier:)`
     /// is non-mutating and the counter has to survive being read back through the protocol.
-    private final class CallCountingUbiquityContainerResolver: UbiquityContainerResolving {
+    /// `@unchecked Sendable` because the counter is already `NSLock`-guarded — the protocol
+    /// requires `Sendable` (#866) so callers can resolve the container off the main actor.
+    private final class CallCountingUbiquityContainerResolver: UbiquityContainerResolving, @unchecked Sendable {
         private let result: URL?
         private let lock = NSLock()
         private var _callCount = 0

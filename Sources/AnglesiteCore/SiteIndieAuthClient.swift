@@ -39,6 +39,50 @@ public enum SiteIndieAuthLoopback {
     public static let microsubScope = "read channels follow"
 }
 
+/// The iOS app's identity when signing in against a site's own IndieAuth server via
+/// `ASWebAuthenticationSession` (#868) — as opposed to ``SiteIndieAuthLoopback``'s
+/// copy-the-URL-back Mac flow. The session can only capture a custom-scheme redirect, while
+/// `@dwk/indieauth` only accepts an https `redirect_uri` sharing the client_id's origin — so
+/// both URLs derive from the *site's own origin*, and the template worker's
+/// `/indieauth/app-callback` route bridges the redirect into ``expectedCallback``'s custom
+/// scheme (see `worker.ts`'s `handleIndieAuthAppCallback`). PKCE keeps the bridged hop safe:
+/// an intercepted code is useless without this app's verifier (RFC 8252 §8.1).
+public enum SiteIndieAuthAppAuth {
+    /// The custom scheme the bridge route redirects into — reverse-DNS of the app's bundle ID,
+    /// per RFC 8252 §7.1. Captured by `ASWebAuthenticationSession`, so it needs no
+    /// `CFBundleURLTypes` registration.
+    public static let callbackScheme = "io.dwk.anglesite"
+
+    /// The exact URL shape the bridge route produces (its query carries `code`/`state`) —
+    /// what callback validation matches against instead of the https `redirect_uri`.
+    public static let expectedCallback = URL(string: "io.dwk.anglesite://indieauth-callback")!
+
+    /// The scopes `@dwk/micropub` gates its endpoints on: create/update/delete for posts,
+    /// `media` for the media endpoint (`requireAuth` calls in its `handler.ts`).
+    public static let micropubScope = "create update delete media"
+
+    /// The app's IndieAuth `client_id` for `siteURL`'s server: an https URL on the site's own
+    /// origin, satisfying the server's same-origin redirect policy. Any path or trailing
+    /// slash on the stored site URL is dropped — only the origin matters.
+    public static func clientID(siteURL: URL) -> URL {
+        origin(of: siteURL).appendingPathComponent("indieauth/app")
+    }
+
+    /// The https `redirect_uri` the authorize request carries — the template worker's bridge
+    /// route (`/indieauth/app-callback`), which 302s into ``expectedCallback``.
+    public static func redirectURI(siteURL: URL) -> URL {
+        origin(of: siteURL).appendingPathComponent("indieauth/app-callback")
+    }
+
+    private static func origin(of url: URL) -> URL {
+        var components = URLComponents()
+        components.scheme = url.scheme
+        components.host = url.host
+        components.port = url.port
+        return components.url ?? url
+    }
+}
+
 /// The subset of an IndieAuth server's `.well-known/oauth-authorization-server` metadata
 /// (RFC 8414) a client needs: where to send the user and where to redeem the code.
 struct IndieAuthMetadata: Decodable, Sendable {
@@ -153,7 +197,23 @@ public struct SiteIndieAuthClient: Sendable {
         clientID: URL,
         redirectURI: URL
     ) async throws -> SiteIndieAuthRequest {
-        let metadata = try await discoverMetadata(siteURL: siteURL)
+        try await makeAuthorizationRequest(
+            metadataURL: siteURL.appendingPathComponent(".well-known/oauth-authorization-server"),
+            scope: scope, clientID: clientID, redirectURI: redirectURI
+        )
+    }
+
+    /// Like `makeAuthorizationRequest(siteURL:…)`, but fetches the metadata document from an
+    /// explicitly discovered URL (#868's `rel="indieauth-metadata"` link via
+    /// `MicropubEndpointDiscovery`) instead of assuming the well-known path — the standard
+    /// IndieAuth client behavior once discovery has run.
+    public func makeAuthorizationRequest(
+        metadataURL: URL,
+        scope: String,
+        clientID: URL,
+        redirectURI: URL
+    ) async throws -> SiteIndieAuthRequest {
+        let metadata = try await discoverMetadata(metadataURL: metadataURL)
         let verifier = Self.makeCodeVerifier()
         let state = Self.makeState()
         guard var components = URLComponents(url: metadata.authorizationEndpoint, resolvingAgainstBaseURL: false) else {
@@ -189,10 +249,23 @@ public struct SiteIndieAuthClient: Sendable {
     /// Checking `redirectURI` first, before even reading `state`, turns that into a clear
     /// `.redirectURIMismatch` instead of a confusing `.stateMismatch`.
     public static func authorizationCode(from callbackURL: URL, matching request: SiteIndieAuthRequest) throws -> String {
-        guard callbackURL.scheme == request.redirectURI.scheme,
-              callbackURL.host == request.redirectURI.host,
-              callbackURL.port == request.redirectURI.port,
-              callbackURL.path == request.redirectURI.path
+        try authorizationCode(from: callbackURL, matching: request, expectedCallback: request.redirectURI)
+    }
+
+    /// The three-argument form exists for the app-bridged flow (#868): there the URL the
+    /// session captures is ``SiteIndieAuthAppAuth/expectedCallback`` (the custom scheme the
+    /// template worker's bridge redirects into), not the https `redirect_uri` the server saw —
+    /// so the caller states which shape it expects instead of this function assuming
+    /// `request.redirectURI`.
+    public static func authorizationCode(
+        from callbackURL: URL,
+        matching request: SiteIndieAuthRequest,
+        expectedCallback: URL
+    ) throws -> String {
+        guard callbackURL.scheme == expectedCallback.scheme,
+              callbackURL.host == expectedCallback.host,
+              callbackURL.port == expectedCallback.port,
+              callbackURL.path == expectedCallback.path
         else {
             throw SiteIndieAuthError.redirectURIMismatch
         }
@@ -271,8 +344,7 @@ public struct SiteIndieAuthClient: Sendable {
         }
     }
 
-    private func discoverMetadata(siteURL: URL) async throws -> IndieAuthMetadata {
-        let metadataURL = siteURL.appendingPathComponent(".well-known/oauth-authorization-server")
+    private func discoverMetadata(metadataURL: URL) async throws -> IndieAuthMetadata {
         var request = URLRequest(url: metadataURL)
         request.setValue("application/json", forHTTPHeaderField: "Accept")
         let data: Data, http: HTTPURLResponse

@@ -5,22 +5,21 @@ import Foundation
 import FoundationNetworking
 #endif
 
-/// `MCPTransport` over MCP Streamable HTTP. Each `send` POSTs one JSON-RPC message to the `/mcp`
-/// endpoint; the response (single `application/json` object, or one-or-more messages over a
-/// request-scoped `text/event-stream`) is decoded and funneled into `inbound()`. The session id
-/// returned by `initialize` is captured and replayed on every subsequent request. A `404`/refused
-/// connection clears the session so a future re-`initialize` can recover (full container-restart
-/// recovery lands with #66/#69).
+/// `MCPTransport` over MCP Streamable HTTP (2026-07-28, stateless). Each `send` POSTs one
+/// self-contained JSON-RPC message to the `/mcp` endpoint; the response (single
+/// `application/json` object, or one-or-more messages over a request-scoped `text/event-stream`)
+/// is decoded and funneled into `inbound()`. There is no session: no `Mcp-Session-Id` is ever
+/// sent or stored. Each POST carries the `Mcp-Method` (and, for named calls, `Mcp-Name`) headers
+/// the spec requires so gateways can route without reading the body.
 public actor HTTPTransport: MCPTransport {
-    /// Transport-level failures. Distinguishes "the session is gone" (recoverable by
-    /// re-initializing) from plain HTTP rejections.
+    /// Transport-level failures. Distinguishes "the server is unreachable/not serving" (retryable
+    /// once the runtime is back — e.g. a container mid-restart) from plain HTTP rejections.
     public enum HTTPError: Error, Sendable, Equatable {
-        /// The server answered with a status other than 200/202/404 — no session-state conclusion
-        /// can be drawn, so the session id is kept.
+        /// The server answered with a status other than 200/202/404.
         case http(status: Int)
-        /// The connection failed or the server returned 404 (the Streamable HTTP signal for an
-        /// expired session id). The stored session id is cleared either way, so a future
-        /// `initialize` can start a fresh session.
+        /// The connection failed or the server returned 404 — the endpoint isn't serving (the
+        /// case name predates the stateless protocol, which has no sessions; it now just means
+        /// "server unavailable, retry once the runtime is back up").
         case sessionLost
         /// The response wasn't an HTTP response at all.
         case badResponse
@@ -31,7 +30,6 @@ public actor HTTPTransport: MCPTransport {
     private let urlSession: URLSession
     private let bearerToken: SessionToken?
 
-    private var sessionID: String?
     private let stream: AsyncStream<JSONValue>
     private let continuation: AsyncStream<JSONValue>.Continuation
 
@@ -42,7 +40,7 @@ public actor HTTPTransport: MCPTransport {
     public init(
         endpoint: URL,
         bearerToken: SessionToken? = nil,
-        protocolVersion: String = "2024-11-05",
+        protocolVersion: String = MCPClient.protocolVersion,
         urlSession: URLSession = .shared
     ) {
         self.endpoint = endpoint
@@ -71,7 +69,14 @@ public actor HTTPTransport: MCPTransport {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
         request.setValue(protocolVersion, forHTTPHeaderField: "MCP-Protocol-Version")
-        if let sessionID { request.setValue(sessionID, forHTTPHeaderField: "Mcp-Session-Id") }
+        // 2026-07-28: the RPC method (and, for named calls like tools/call, the target name)
+        // ride as headers so gateways/rate-limiters can decide without parsing the body.
+        if case .object(let obj) = message, case .string(let method)? = obj["method"] {
+            request.setValue(method, forHTTPHeaderField: "Mcp-Method")
+            if case .object(let params)? = obj["params"], case .string(let name)? = params["name"] {
+                request.setValue(name, forHTTPHeaderField: "Mcp-Name")
+            }
+        }
         if let bearerToken { request.setValue("Bearer \(bearerToken.value)", forHTTPHeaderField: "Authorization") }
         request.httpBody = try JSONSerialization.data(withJSONObject: message.rawValue, options: [])
 
@@ -87,7 +92,6 @@ public actor HTTPTransport: MCPTransport {
         do {
             (asyncBytes, response) = try await urlSession.bytes(for: request)
         } catch {
-            sessionID = nil
             throw HTTPError.sessionLost
         }
         guard let http = response as? HTTPURLResponse else { throw HTTPError.badResponse }
@@ -99,21 +103,15 @@ public actor HTTPTransport: MCPTransport {
         do {
             response = try await runner.start(request, configuration: urlSession.configuration)
         } catch {
-            sessionID = nil
             throw HTTPError.sessionLost
         }
         guard let http = response as? HTTPURLResponse else { throw HTTPError.badResponse }
         #endif
 
-        if let sid = http.value(forHTTPHeaderField: "Mcp-Session-Id"), !sid.isEmpty {
-            sessionID = sid
-        }
-
         switch http.statusCode {
         case 202:
             return  // notification accepted; no response body
         case 404:
-            sessionID = nil
             throw HTTPError.sessionLost
         case 200:
             break
@@ -183,20 +181,9 @@ public actor HTTPTransport: MCPTransport {
     /// the first request without an actor hop.
     public nonisolated func inbound() -> AsyncStream<JSONValue> { stream }
 
-    /// Finishes ``inbound()`` and, if a session exists, sends a best-effort `DELETE` so the server
-    /// can reclaim it promptly — failures are ignored because the server expires abandoned
-    /// sessions on its own and there's nothing useful to do about them during teardown.
+    /// Finishes ``inbound()``. Stateless: there is no session to tear down server-side.
     public func close() async {
         continuation.finish()
-        // Best-effort session teardown; ignore failures.
-        if let sessionID {
-            var request = URLRequest(url: endpoint)
-            request.httpMethod = "DELETE"
-            request.setValue(sessionID, forHTTPHeaderField: "Mcp-Session-Id")
-            if let bearerToken { request.setValue("Bearer \(bearerToken.value)", forHTTPHeaderField: "Authorization") }
-            _ = try? await urlSession.data(for: request)
-        }
-        sessionID = nil
     }
 
     private func decode(_ payload: String) -> JSONValue? {

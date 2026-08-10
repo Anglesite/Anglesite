@@ -55,6 +55,41 @@ struct SecretStoreTests {
         #expect(try store.readCloudflareToken() == "cf-456")
     }
 
+    @Test("Micropub session conveniences round-trip the token and DPoP key pair per site")
+    func micropubSessionRoundTrips() throws {
+        let store = InMemorySecretStore()
+        let keyPair = DPoPKeyPair()
+        try store.writeMicropubAccessToken("mp-tok", siteID: "site-a")
+        try store.writeMicropubDPoPKeyPair(keyPair, siteID: "site-a")
+        #expect(try store.readMicropubAccessToken(siteID: "site-a") == "mp-tok")
+        #expect(try store.readMicropubDPoPKeyPair(siteID: "site-a")?.persistedRepresentation
+            == keyPair.persistedRepresentation)
+        // Scoped per site — another site's slots stay empty.
+        #expect(try store.readMicropubAccessToken(siteID: "site-b") == nil)
+    }
+
+    @Test("clearMicropubSession removes the token and key pair as one unit")
+    func clearMicropubSessionClearsBoth() throws {
+        let store = InMemorySecretStore()
+        try store.writeMicropubAccessToken("mp-tok", siteID: "site-a")
+        try store.writeMicropubDPoPKeyPair(DPoPKeyPair(), siteID: "site-a")
+        try store.clearMicropubSession(siteID: "site-a")
+        #expect(try store.readMicropubAccessToken(siteID: "site-a") == nil)
+        #expect(try store.readMicropubDPoPKeyPair(siteID: "site-a") == nil)
+    }
+
+    @Test("the Micropub session is a distinct entry from the Microsub IndieAuth session")
+    func micropubSessionDistinctFromMicrosub() throws {
+        // #868's requirement: the phone's Micropub credential must never clobber (or be
+        // clobbered by) the Mac reader's Microsub credential for the same site.
+        let store = InMemorySecretStore()
+        try store.writeIndieAuthAccessToken("microsub-tok", siteID: "site-a")
+        try store.writeMicropubAccessToken("micropub-tok", siteID: "site-a")
+        #expect(try store.readIndieAuthAccessToken(siteID: "site-a") == "microsub-tok")
+        try store.clearMicropubSession(siteID: "site-a")
+        #expect(try store.readIndieAuthAccessToken(siteID: "site-a") == "microsub-tok")
+    }
+
     @Test("UnavailableSecretStore reads nothing, deletes as no-op, and refuses writes")
     func unavailableStoreBehavior() throws {
         let store = UnavailableSecretStore()

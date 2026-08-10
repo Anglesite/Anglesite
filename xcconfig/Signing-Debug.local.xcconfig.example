@@ -11,3 +11,6 @@ DEVELOPMENT_TEAM = YOUR_TEAM_ID
 // provisioning profile for the iCloud capability, which ad-hoc signing can't self-grant.
 // Uncomment to opt in:
 // ANGLESITE_DEBUG_ENTITLEMENTS = Resources/Anglesite-Debug-iCloud.entitlements
+
+// Same idea for the iOS target (#866):
+// ANGLESITE_MOBILE_DEBUG_ENTITLEMENTS = Resources/AnglesiteMobile-Debug-iCloud.entitlements

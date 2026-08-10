@@ -6,7 +6,7 @@ public struct LocalContainerSession: Sendable, Equatable {
     /// The guest Astro dev server's host-proxied endpoint — what the preview web view loads.
     public let previewURL: URL
     /// The MCP sidecar's host-proxied Streamable-HTTP endpoint — what
-    /// ``MCPClient/connect(httpEndpoint:bearerToken:urlSession:initializeTimeout:clientName:clientVersion:)``
+    /// ``MCPClient/connect(httpEndpoint:bearerToken:urlSession:readyTimeout:clientName:clientVersion:)``
     /// targets.
     public let mcpURL: URL
     /// The local `wrangler dev --local` endpoint, populated only when `startWorkersDev` has been

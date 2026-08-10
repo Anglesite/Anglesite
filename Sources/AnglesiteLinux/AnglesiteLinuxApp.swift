@@ -108,7 +108,7 @@ struct AnglesiteLinuxApp: App {
                 .title("Starting \(name)…")
                 .description("Booting the site container and dev server. First boot clones the site and installs dependencies.")
                 .child { Spinner() }
-        case .ready(_, let url, _):
+        case .ready(_, let url):
             PreviewWebView(
                 url: url,
                 router: router ?? MCPApplyEditRouter(mcpClient: { nil }),

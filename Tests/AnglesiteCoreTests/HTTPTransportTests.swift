@@ -10,8 +10,13 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var lastRequestBodies: [Data] = []
     nonisolated(unsafe) static var lastSessionHeaders: [String?] = []
     nonisolated(unsafe) static var lastAuthHeaders: [String?] = []
+    nonisolated(unsafe) static var lastMethodHeaders: [String?] = []
+    nonisolated(unsafe) static var lastNameHeaders: [String?] = []
 
-    static func reset() { queue = []; lastRequestBodies = []; lastSessionHeaders = []; lastAuthHeaders = [] }
+    static func reset() {
+        queue = []; lastRequestBodies = []; lastSessionHeaders = []; lastAuthHeaders = []
+        lastMethodHeaders = []; lastNameHeaders = []
+    }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -27,6 +32,8 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         }
         Self.lastSessionHeaders.append(request.value(forHTTPHeaderField: "Mcp-Session-Id"))
         Self.lastAuthHeaders.append(request.value(forHTTPHeaderField: "Authorization"))
+        Self.lastMethodHeaders.append(request.value(forHTTPHeaderField: "Mcp-Method"))
+        Self.lastNameHeaders.append(request.value(forHTTPHeaderField: "Mcp-Name"))
 
         let r = Self.queue.isEmpty
             ? Response(status: 500, headers: [:], body: Data())
@@ -49,8 +56,10 @@ struct HTTPTransportTests {
         return (t, session)
     }
 
-    @Test("JSON response is decoded and yielded; session id is captured and replayed") func jsonResponseAndSession() async throws {
+    @Test("JSON response is decoded and yielded; requests are stateless with method headers")
+    func jsonResponseStateless() async throws {
         StubURLProtocol.reset()
+        // A server-sent session header must be ignored — stateless clients never replay one.
         StubURLProtocol.queue.append(.init(
             status: 200,
             headers: ["Content-Type": "application/json", "Mcp-Session-Id": "sess-1"],
@@ -66,14 +75,20 @@ struct HTTPTransportTests {
         try await t.open()
         var iterator = t.inbound().makeAsyncIterator()
 
-        try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(1), "method": .string("initialize")]))
+        try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(1), "method": .string("tools/list")]))
         let first = await iterator.next()
         #expect(first == .object(["jsonrpc": .string("2.0"), "id": .int(1), "result": .object(["ok": .bool(true)])]))
 
-        try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(2), "method": .string("tools/list")]))
+        try await t.send(.object([
+            "jsonrpc": .string("2.0"), "id": .int(2), "method": .string("tools/call"),
+            "params": .object(["name": .string("echo")]),
+        ]))
         _ = await iterator.next()
 
-        #expect(StubURLProtocol.lastSessionHeaders == [nil, "sess-1"])
+        // No Mcp-Session-Id is ever sent — not even after the server offered one.
+        #expect(StubURLProtocol.lastSessionHeaders == [nil, nil])
+        #expect(StubURLProtocol.lastMethodHeaders == ["tools/list", "tools/call"])
+        #expect(StubURLProtocol.lastNameHeaders == [nil, "echo"])
         await t.close()
     }
 
@@ -87,7 +102,7 @@ struct HTTPTransportTests {
         let (t, _) = makeTransport()
         try await t.open()
         var iterator = t.inbound().makeAsyncIterator()
-        try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(7), "method": .string("initialize")]))
+        try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(7), "method": .string("tools/list")]))
         let msg = await iterator.next()
         #expect(msg == .object(["jsonrpc": .string("2.0"), "id": .int(7), "result": .object(["via": .string("sse")])]))
         await t.close()
@@ -115,7 +130,7 @@ struct HTTPTransportTests {
         let token = SessionToken(value: "abcdef1234567890abcdef1234567890abcdef1234567890abcdef1234567890ab")
         let (t, _) = makeTransport(bearerToken: token)
         try await t.open()
-        try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(1), "method": .string("initialize")]))
+        try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(1), "method": .string("tools/list")]))
         #expect(StubURLProtocol.lastAuthHeaders == ["Bearer \(token.value)"])
         await t.close()
     }
@@ -129,26 +144,24 @@ struct HTTPTransportTests {
         ))
         let (t, _) = makeTransport()
         try await t.open()
-        try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(1), "method": .string("initialize")]))
+        try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(1), "method": .string("tools/list")]))
         #expect(StubURLProtocol.lastAuthHeaders == [nil])
         await t.close()
     }
 
-    @Test("MCPClient.connect handshakes and lists tools over HTTP") func clientOverHTTP() async throws {
+    @Test("MCPClient.connect probes and lists tools over HTTP") func clientOverHTTP() async throws {
         StubURLProtocol.reset()
-        // initialize response
+        // server/discover ready-probe response (resultType per 2026-07-28)
         StubURLProtocol.queue.append(.init(
             status: 200,
-            headers: ["Content-Type": "application/json", "Mcp-Session-Id": "s"],
-            body: #"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"0"}}}"#.data(using: .utf8)!
+            headers: ["Content-Type": "application/json"],
+            body: #"{"jsonrpc":"2.0","id":1,"result":{"supportedVersions":["2026-07-28"],"capabilities":{"tools":{}},"resultType":"complete"}}"#.data(using: .utf8)!
         ))
-        // notifications/initialized → 202 (no id, no body)
-        StubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))
         // tools/list response
         StubURLProtocol.queue.append(.init(
             status: 200,
             headers: ["Content-Type": "application/json"],
-            body: #"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"E","inputSchema":{"type":"object"}}]}}"#.data(using: .utf8)!
+            body: #"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"echo","description":"E","inputSchema":{"type":"object"}}],"resultType":"complete","ttlMs":0,"cacheScope":"private"}}"#.data(using: .utf8)!
         ))
 
         let config = URLSessionConfiguration.ephemeral

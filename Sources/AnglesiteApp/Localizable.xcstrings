@@ -1,6 +1,50 @@
 {
   "sourceLanguage" : "en",
   "strings" : {
+    "Traffic" : {
+
+    },
+    "No traffic recorded in the last 7 days." : {
+
+    },
+    "Last 7 days: %lld pageviews · %lld visits" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Last 7 days: %1$lld pageviews · %2$lld visits"
+          }
+        }
+      }
+    },
+    "7-day pageviews trend" : {
+
+    },
+    "%lld total pageviews over the last 7 days, %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$lld total pageviews over the last 7 days, %2$@"
+          }
+        }
+      }
+    },
+    "trending up" : {
+
+    },
+    "trending down" : {
+
+    },
+    "holding steady" : {
+
+    },
+    "Day" : {
+
+    },
+    "Pageviews" : {
+
+    },
     "" : {
 
     },
@@ -33,6 +77,16 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "%1$@ %2$@: couldn't be added."
+          }
+        }
+      }
+    },
+    "%@ (%@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ (%2$@)"
           }
         }
       }
@@ -155,6 +209,9 @@
         }
       }
     },
+    "%@: dependency alert" : {
+
+    },
     "%lld" : {
 
     },
@@ -233,6 +290,9 @@
 
     },
     "A full, growing catalog" : {
+
+    },
+    "A legacy pasted token, read only if no OAuth credential above is connected. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs. An exported `CLOUDFLARE_API_TOKEN` in the shell that launched Anglesite takes precedence over both." : {
 
     },
     "A service or one-off" : {
@@ -677,6 +737,9 @@
     "Built-in themes" : {
 
     },
+    "Bumps to %@" : {
+
+    },
     "Buy %@" : {
 
     },
@@ -762,6 +825,9 @@
     "Check Score" : {
 
     },
+    "Check for Reports" : {
+
+    },
     "Check for domain config drift" : {
 
     },
@@ -772,6 +838,9 @@
 
     },
     "Checking Domain Config…" : {
+
+    },
+    "Checking for open GitHub security advisories and Dependabot alerts…" : {
 
     },
     "Checking token…" : {
@@ -1126,6 +1195,9 @@
 
     },
     "Credentials" : {
+
+    },
+    "Critical" : {
 
     },
     "Custom" : {
@@ -1536,6 +1608,9 @@
     "Forward" : {
 
     },
+    "Forward to Anglesite" : {
+
+    },
     "From %@" : {
 
     },
@@ -1648,6 +1723,9 @@
 
     },
     "Hide this banner — the site stays fully editable; reopen it from the sync status icon" : {
+
+    },
+    "High" : {
 
     },
     "Highlight" : {
@@ -1890,6 +1968,9 @@
     "Looking up registrar info…" : {
 
     },
+    "Low" : {
+
+    },
     "Lower numbers are preferred mail servers, e.g. 10." : {
 
     },
@@ -1918,6 +1999,9 @@
 
     },
     "Model" : {
+
+    },
+    "Moderate" : {
 
     },
     "Move To…" : {
@@ -2067,6 +2151,9 @@
     "No matching graph nodes" : {
 
     },
+    "No open reports." : {
+
+    },
     "No posts yet." : {
 
     },
@@ -2092,6 +2179,12 @@
 
     },
     "Not Set" : {
+
+    },
+    "Not checked yet." : {
+
+    },
+    "Not connected" : {
 
     },
     "Not enabled." : {
@@ -2167,6 +2260,9 @@
 
     },
     "Open Recent" : {
+
+    },
+    "Open Reports" : {
 
     },
     "Open Site…" : {
@@ -2819,13 +2915,22 @@
     "Section" : {
 
     },
+    "Security Reports" : {
+
+    },
     "Security contacts" : {
+
+    },
+    "Security reports" : {
 
     },
     "See and edit this site's learned writing, image, and naming conventions" : {
 
     },
     "Select **All repositories**, then grant **Contents: Read and write** and **Administration: Read and write** (Administration is what lets a new repo be created) — then copy the token and paste it below." : {
+
+    },
+    "Select **All repositories**, then grant **Contents: Read and write**, **Administration: Read and write** (Administration is what lets a new repo be created), **Repository security advisories: Read**, and **Dependabot alerts: Read** (both let Anglesite show open reports for this repo) — then copy the token and paste it below." : {
 
     },
     "Select Parent" : {
@@ -2960,6 +3065,9 @@
     "Shows this site's iCloud sync status" : {
 
     },
+    "Shows this site's open GitHub security advisories and Dependabot alerts" : {
+
+    },
     "Sign In…" : {
 
     },
@@ -2976,6 +3084,9 @@
 
     },
     "Signed in as %@" : {
+
+    },
+    "Signing in to Cloudflare from a Deploy sheet stores this credential; it's what every Cloudflare-backed feature (deploy, Harden, Domain Config Audit, Onion Routing, Analytics, domain buy/transfer, and inbound Webmention/Micropub sync) uses first. Refreshed automatically when it expires." : {
 
     },
     "Signing in…" : {
@@ -3382,6 +3493,9 @@
     "Unpublish" : {
 
     },
+    "Unrated" : {
+
+    },
     "Unsaved changes" : {
 
     },
@@ -3395,6 +3509,9 @@
 
     },
     "Update" : {
+
+    },
+    "Update Available" : {
 
     },
     "Update This File" : {
@@ -3433,6 +3550,9 @@
     "Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write and Administration: Read and write access (Administration is needed to create a new repo when publishing) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs." : {
 
     },
+    "Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write, Administration: Read and write access (Administration is needed to create a new repo when publishing), Repository security advisories: Read, and Dependabot alerts: Read (both are used to show a site's open security reports) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs." : {
+
+    },
     "Uses Apple Intelligence on your device. No content leaves your Mac without your say-so." : {
 
     },
@@ -3452,6 +3572,9 @@
 
     },
     "View" : {
+
+    },
+    "View all in Security Reports" : {
 
     },
     "View and manage this domain's DNS records" : {

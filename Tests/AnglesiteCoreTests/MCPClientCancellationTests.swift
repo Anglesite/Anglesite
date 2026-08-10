@@ -3,8 +3,8 @@ import Testing
 import Foundation
 @testable import AnglesiteCore
 
-/// Transport that answers `initialize` (to let the handshake complete) and records every send,
-/// but never replies to any other request — so a `callTool` hangs until cancelled.
+/// Transport that answers the `server/discover` ready probe (to let `start` complete) and records
+/// every send, but never replies to any other request — so a `callTool` hangs until cancelled.
 private actor HangingTransport: MCPTransport {
     private(set) var sentMethods: [String] = []
     private var continuation: AsyncStream<JSONValue>.Continuation?
@@ -34,12 +34,12 @@ private actor HangingTransport: MCPTransport {
         guard case .object(let obj) = message,
               case .string(let method)? = obj["method"] else { return }
         sentMethods.append(method)
-        if method == "initialize", case .int(let id)? = obj["id"] {
-            // Minimal valid initialize response so the handshake completes.
+        if method == "server/discover", case .int(let id)? = obj["id"] {
+            // Minimal discover response so the ready probe completes.
             continuation?.yield(.object([
                 "jsonrpc": .string("2.0"),
                 "id": .int(id),
-                "result": .object(["protocolVersion": .string("2024-11-05"), "capabilities": .object([:])]),
+                "result": .object(["supportedVersions": .array([.string(MCPClient.protocolVersion)])]),
             ]))
         } else if method == "tools/call" {
             // Signal that the send has fired — the pending continuation is already registered.
@@ -54,7 +54,7 @@ struct MCPClientCancellationTests {
     private func makeInitializedClient() async throws -> (MCPClient, HangingTransport) {
         let transport = HangingTransport()
         let client = MCPClient(supervisor: .shared)
-        try await client.startWithTransport(transport, initializeTimeout: 5, clientName: "test", clientVersion: "0")
+        try await client.startWithTransport(transport, readyTimeout: 5, clientName: "test", clientVersion: "0")
         return (client, transport)
     }
 
@@ -85,7 +85,7 @@ struct MCPClientCancellationTests {
         await #expect(throws: CancellationError.self) { _ = try await task.value }
         let sent = await transport.sentMethodsSnapshot()
         #expect(sent.contains("tools/call") == false)
-        #expect(sent.contains("initialize"))   // handshake still happened
+        #expect(sent.contains("server/discover"))   // ready probe still happened
     }
 }
 

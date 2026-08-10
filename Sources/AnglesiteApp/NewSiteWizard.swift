@@ -36,19 +36,15 @@ struct NewSiteWizard: View {
             ScrollView {
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: 12) {
                     ForEach(model.catalog.themes) { theme in
-                        Button { model.draft.themeID = theme.id } label: {
-                            ThemePreviewCard(theme: theme, isSelected: model.draft.themeID == theme.id)
-                                .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        // Double-click = choose and create, the document-chooser convention.
-                        .simultaneousGesture(TapGesture(count: 2).onEnded {
-                            model.draft.themeID = theme.id
-                            create()
-                        })
-                        .accessibilityElement(children: .combine)
-                        .accessibilityLabel("\(theme.name). \(theme.blurb)")
-                        .accessibilityValue(model.draft.themeID == theme.id ? "Selected" : "")
+                        ThemeChooserCard(
+                            theme: theme,
+                            isSelected: model.draft.themeID == theme.id,
+                            onSelect: { model.draft.themeID = theme.id },
+                            onCreate: {
+                                model.draft.themeID = theme.id
+                                create()
+                            }
+                        )
                     }
                 }
             }
@@ -135,14 +131,52 @@ struct NewSiteWizard: View {
     }
 }
 
+/// One selectable template card in the chooser grid — owns its own hover state so each
+/// `ForEach` item tracks the mouse independently rather than sharing one flag across the grid
+/// (#677).
+private struct ThemeChooserCard: View {
+    let theme: Theme
+    let isSelected: Bool
+    let onSelect: () -> Void
+    let onCreate: () -> Void
+
+    @State private var isHovering = false
+    @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var isHoverActive: Bool { isHovering && controlActiveState != .inactive && !isSelected }
+
+    var body: some View {
+        Button(action: onSelect) {
+            ThemePreviewCard(theme: theme, isSelected: isSelected, isHoverActive: isHoverActive)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        // Double-click = choose and create, the document-chooser convention.
+        .simultaneousGesture(TapGesture(count: 2).onEnded(onCreate))
+        .onHover { isHovering = $0 }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.12), value: isHoverActive)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(theme.name). \(theme.blurb)")
+        .accessibilityValue(isSelected ? "Selected" : "")
+    }
+}
+
 /// One template card: a miniature page mock (nav bar, hero block, text lines) drawn from the
 /// theme's own palette, so each card previews a page rather than a bare swatch strip (#1071).
 private struct ThemePreviewCard: View {
     let theme: Theme
     let isSelected: Bool
+    let isHoverActive: Bool
 
     private var primary: Color { Color(hex: theme.cssVars["color-primary"] ?? "#333333") }
     private var accent: Color { Color(hex: theme.cssVars["color-accent"] ?? "#888888") }
+
+    private var borderColor: Color {
+        if isSelected { return Color.accentColor }
+        if isHoverActive { return Color.accentColor.opacity(0.4) }
+        return Color.clear
+    }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
@@ -171,8 +205,8 @@ private struct ThemePreviewCard: View {
             Text(theme.blurb).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
         }
         .padding(8)
-        .overlay(RoundedRectangle(cornerRadius: 8)
-            .stroke(isSelected ? Color.accentColor : Color.clear, lineWidth: 2))
+        .background(RoundedRectangle(cornerRadius: 8).fill(isHoverActive ? Color.accentColor.opacity(0.08) : Color.clear))
+        .overlay(RoundedRectangle(cornerRadius: 8).stroke(borderColor, lineWidth: 2))
     }
 }
 

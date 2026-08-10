@@ -109,6 +109,20 @@ public enum SecretAccounts {
         "indieauth:\(siteID):dpop-key"
     }
 
+    /// The IndieAuth token the iOS Micropub posting client presents to the site's `/micropub`
+    /// endpoint (#868). A distinct entry from ``indieAuthAccessToken(siteID:)`` (the Mac
+    /// reader's Microsub credential): the two flows request different scopes and sign in
+    /// independently, so one signing out or expiring must never clobber the other.
+    public static func micropubAccessToken(siteID: String) -> String {
+        "micropub:\(siteID):access-token"
+    }
+
+    /// The DPoP key pair bound to ``micropubAccessToken(siteID:)``'s `cnf.jkt` — same
+    /// persist-alongside-the-token reasoning as ``indieAuthDPoPKey(siteID:)``.
+    public static func micropubDPoPKey(siteID: String) -> String {
+        "micropub:\(siteID):dpop-key"
+    }
+
     /// Bearer token for a `.remote` ACP agent connection, keyed by the connection's `id` — there
     /// can be many connections, so this is a function, not a single constant like
     /// `cloudflareToken`/`gitHubToken`.
@@ -212,6 +226,39 @@ public extension SecretStore {
     func clearIndieAuthSession(siteID: String) throws {
         try delete(account: SecretAccounts.indieAuthAccessToken(siteID: siteID))
         try delete(account: SecretAccounts.indieAuthDPoPKey(siteID: siteID))
+    }
+
+    /// Read the site's Micropub-flow IndieAuth access token (#868).
+    func readMicropubAccessToken(siteID: String) throws -> String? {
+        try read(account: SecretAccounts.micropubAccessToken(siteID: siteID))
+    }
+
+    /// Store the site's Micropub-flow IndieAuth access token. Empty string clears.
+    func writeMicropubAccessToken(_ token: String, siteID: String) throws {
+        try write(token, account: SecretAccounts.micropubAccessToken(siteID: siteID))
+    }
+
+    /// Read the DPoP key pair bound to the site's Micropub session, if any. `nil` when unset
+    /// or the stored bytes no longer decode as a P-256 private key.
+    func readMicropubDPoPKeyPair(siteID: String) throws -> DPoPKeyPair? {
+        guard let base64 = try read(account: SecretAccounts.micropubDPoPKey(siteID: siteID)),
+              let data = Data(base64Encoded: base64) else { return nil }
+        return DPoPKeyPair(persistedRepresentation: data)
+    }
+
+    /// Store the DPoP key pair bound to the site's Micropub session.
+    func writeMicropubDPoPKeyPair(_ keyPair: DPoPKeyPair, siteID: String) throws {
+        try write(
+            keyPair.persistedRepresentation.base64EncodedString(),
+            account: SecretAccounts.micropubDPoPKey(siteID: siteID)
+        )
+    }
+
+    /// Clear the site's Micropub token and its bound DPoP key pair together — same one-unit
+    /// reasoning as ``clearIndieAuthSession(siteID:)``.
+    func clearMicropubSession(siteID: String) throws {
+        try delete(account: SecretAccounts.micropubAccessToken(siteID: siteID))
+        try delete(account: SecretAccounts.micropubDPoPKey(siteID: siteID))
     }
 
     /// Read the stored Cloudflare OAuth credential, or `nil` if none is stored (or the stored

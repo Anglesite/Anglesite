@@ -771,6 +771,105 @@ extension SiteWindowModelTests {
         #expect(plistModel.file.group == .metadata)
     }
 
+    /// Review finding on PR #1304: a declined leave (`leaveCurrentEditor`/`leaveCurrentInspector`
+    /// returning `false` on an external conflict) used to return from `openFile`'s guard without
+    /// clearing `pendingWebsiteSettingsTab`, so the stashed tab request would spuriously apply to
+    /// the *next*, unrelated `.plist` editor open. Same real-conflict fixture as
+    /// `presentCleanupAbortsOnEditorConflict`, but on `openWebsiteSettings(landOn:)`.
+    @Test("openWebsiteSettings(landOn:) clears the pending tab when leaveCurrentEditor aborts, so a later unrelated open doesn't inherit it")
+    func openWebsiteSettingsLandOnClearsPendingTabOnAbort() async throws {
+        let (root, packageURL, package) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+
+        let editedFile = root.appendingPathComponent("conflict.txt")
+        try Data("original".utf8).write(to: editedFile)
+        let fileRef = FileRef(url: editedFile, group: .components, name: "conflict.txt")
+        let editorModel = FileEditorModel(file: fileRef)
+        await editorModel.load()
+        editorModel.text = "dirty edit"
+        try Data("changed on disk".utf8).write(to: editedFile)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(2)], ofItemAtPath: editedFile.path
+        )
+        model.mainPaneMode = .editor(fileRef)
+        model.activeEditor = .text(editorModel)
+
+        model.openWebsiteSettings(landOn: .securityReports)
+
+        var iterations = 0
+        while editorModel.conflictDiskContents == nil, iterations < 10_000 {
+            await Task.yield()
+            iterations += 1
+        }
+        guard editorModel.conflictDiskContents != nil else {
+            Issue.record("flushBeforeLeaving never surfaced the external conflict")
+            return
+        }
+        #expect(model.mainPaneMode == .editor(fileRef))
+        #expect(model.activeEditor != nil)
+
+        // Simulate the conflict being resolved (e.g. the user dismissed the alert and moved on)
+        // by clearing the editor directly, then open Website Settings again with no tab request —
+        // exactly like clicking the navigator's Website Settings row afterward. If
+        // `pendingWebsiteSettingsTab` had leaked past the aborted call above, this unrelated open
+        // would spuriously land on `.securityReports` instead of the default (`nil`) tab.
+        model.activeEditor = nil
+        model.mainPaneMode = .preview
+
+        model.openWebsiteSettings()
+
+        while model.activeEditor == nil { await Task.yield() }
+        guard case .plist(let plistModel) = model.activeEditor else {
+            Issue.record("expected the Info.plist to open as a .plist editor")
+            return
+        }
+        #expect(plistModel.file.url == package.infoPlistURL)
+        #expect(plistModel.requestedTab == nil)
+    }
+
+    /// Review finding on PR #1304 (#1312, finding 3): `pendingWebsiteSettingsTab` is a single
+    /// shared `var`, and `openFile` spawns an independent `Task` per call with no de-duplication —
+    /// two `openWebsiteSettings(landOn:)` calls issued back-to-back (e.g. a rapid double-click on
+    /// the security-reports badge's "View all" button) each stash their tab and each spawn a `Task`
+    /// that builds its own `PlistEditorModel`. Pre-fix, whichever `Task` assigns `activeEditor`
+    /// last wins outright — discarding the other's model — and by then `pendingWebsiteSettingsTab`
+    /// has already been consumed by whichever `Task` got there first, so the surviving editor lands
+    /// on neither request. Fix: `openFile` coalesces a second call for the *same* file onto the
+    /// already-in-flight `Task` instead of racing a second one against it.
+    @Test("openWebsiteSettings(landOn:) issued twice back-to-back for the same file lands on the second (most recent) tab, not neither")
+    func openWebsiteSettingsLandOnDoubleInvocationKeepsLatestTab() async throws {
+        let (root, packageURL, package) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+
+        model.openWebsiteSettings(landOn: .analytics)
+        model.openWebsiteSettings(landOn: .securityReports)
+
+        while model.activeEditor == nil { await Task.yield() }
+        // Give a pre-fix second `Task` every chance to also finish and overwrite `activeEditor`
+        // with its own, tab-less model before asserting the settled state (same technique as
+        // `applyNavigatorSelectionDirectoryNavigatesPreview`'s stale-task drain below).
+        for _ in 0..<2_000 { await Task.yield() }
+
+        guard case .plist(let plistModel) = model.activeEditor else {
+            Issue.record("expected the Info.plist to open as a .plist editor")
+            return
+        }
+        #expect(plistModel.file.url == package.infoPlistURL)
+        #expect(plistModel.requestedTab == .securityReports)
+    }
+
     @Test("applyNavigatorSelection navigates the preview to a directory's route for .directory, clearing any open editor/inspector")
     func applyNavigatorSelectionDirectoryNavigatesPreview() async throws {
         let (root, packageURL, package) = try makeSitePackage()

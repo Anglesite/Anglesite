@@ -7,12 +7,16 @@ import Foundation
 /// subprocess-spawning suites under `swift test --parallel`. See #609 / #610.
 @Suite(.serialized)
 struct MCPClientTests {
-    /// In-process fake `MCPTransport` implementing the same `initialize` / `tools/list` /
-    /// `tools/call` behavior the old python fake server used, but with no subprocess, no pipes, and
-    /// no wall-clock dependency — responses are yielded synchronously from `send(_:)`. This is the
-    /// event-driven fix #609 asked for: the CI flake was CPU contention delaying a real python3
-    /// interpreter's startup past a fixed timeout, and the fix is to not depend on process
-    /// scheduling at all for tests that aren't actually exercising subprocess behavior.
+    /// In-process fake `MCPTransport` implementing `tools/list` / `tools/call` (stateless
+    /// 2026-07-28 — no `initialize`; unknown methods, including the `server/discover` ready
+    /// probe, get `-32601`, which the client accepts as proof of life) with no subprocess, no
+    /// pipes, and no wall-clock dependency — responses are yielded synchronously from `send(_:)`.
+    /// This is the event-driven fix #609 asked for: the CI flake was CPU contention delaying a
+    /// real python3 interpreter's startup past a fixed timeout, and the fix is to not depend on
+    /// process scheduling at all for tests that aren't actually exercising subprocess behavior.
+    ///
+    /// Every request must carry the per-request `_meta` envelope — the fake rejects requests
+    /// without it, so a regression that drops the envelope fails these tests.
     private actor FakeMCPServerTransport: MCPTransport {
         private var continuation: AsyncStream<JSONValue>.Continuation?
         private let stream: AsyncStream<JSONValue>
@@ -30,17 +34,15 @@ struct MCPClientTests {
         func send(_ message: JSONValue) async throws {
             guard case .object(let obj) = message, case .string(let method)? = obj["method"] else { return }
             guard case .int(let id)? = obj["id"] else { return }  // notifications get no response
+            // Stateless spec: every request carries the _meta envelope with the protocol version.
+            guard case .object(let params)? = obj["params"],
+                  case .object(let meta)? = params["_meta"],
+                  case .string? = meta["io.modelcontextprotocol/protocolVersion"]
+            else {
+                continuation?.yield(errorResponse(id: id, code: -32602, message: "missing _meta envelope"))
+                return
+            }
             switch method {
-            case "initialize":
-                continuation?.yield(.object([
-                    "jsonrpc": .string("2.0"),
-                    "id": .int(id),
-                    "result": .object([
-                        "protocolVersion": .string("2024-11-05"),
-                        "capabilities": .object(["tools": .object([:])]),
-                        "serverInfo": .object(["name": .string("fake"), "version": .string("0.0.0")]),
-                    ]),
-                ]))
             case "tools/list":
                 continuation?.yield(.object([
                     "jsonrpc": .string("2.0"),
@@ -57,7 +59,19 @@ struct MCPClientTests {
                     ])]),
                 ]))
             case "tools/call":
-                guard case .object(let params)? = obj["params"], case .string(let name)? = params["name"], name == "echo" else {
+                if case .string(let name)? = params["name"], name == "needs-input" {
+                    // MRTR interim result: a flow this client doesn't drive — must throw.
+                    continuation?.yield(.object([
+                        "jsonrpc": .string("2.0"),
+                        "id": .int(id),
+                        "result": .object([
+                            "resultType": .string("input_required"),
+                            "inputRequests": .array([]),
+                        ]),
+                    ]))
+                    return
+                }
+                guard case .string(let name)? = params["name"], name == "echo" else {
                     continuation?.yield(errorResponse(id: id, code: -32601, message: "unknown tool"))
                     return
                 }
@@ -90,7 +104,9 @@ struct MCPClientTests {
     /// Fake server that handles one `crash` tool call (responds, then `exit(1)`) so the supervisor
     /// restarts it. The fresh instance behaves like the standard fake server. Lets us exercise
     /// reconnect — genuinely needs a real subprocess since it tests `ProcessSupervisor`'s
-    /// crash-detection and restart, not just JSON-RPC request/response shape.
+    /// crash-detection and restart, not just JSON-RPC request/response shape. Stateless: no
+    /// `initialize` branch — the client's `server/discover` ready probe falls to the `-32601`
+    /// method-not-found reply, which the client accepts as proof of life.
     private static let crashOnceServerScript = """
     import sys, json
     for line in sys.stdin:
@@ -105,9 +121,7 @@ struct MCPClientTests {
         rid = msg.get("id")
         if rid is None:
             continue
-        if method == "initialize":
-            resp = {"jsonrpc":"2.0","id":rid,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"fake","version":"0.0.0"}}}
-        elif method == "tools/list":
+        if method == "tools/list":
             resp = {"jsonrpc":"2.0","id":rid,"result":{"tools":[{"name":"echo","description":"Echoes back","inputSchema":{"type":"object"}}]}}
         elif method == "tools/call":
             params = msg.get("params", {})
@@ -129,8 +143,8 @@ struct MCPClientTests {
 
     /// Timeout for the one test that still spawns a real python3 subprocess — matches the
     /// already-proven precedent from `AppliesEditEndToEndTests`/`ComponentModelEndToEndTests`
-    /// (heavier real-Node-server handshake) rather than introducing a new number.
-    private static let realSubprocessInitializeTimeout: TimeInterval = 15
+    /// (heavier real-Node-server startup) rather than introducing a new number.
+    private static let realSubprocessReadyTimeout: TimeInterval = 15
 
     private static let pythonURL: URL = {
         for path in ["/usr/bin/python3", "/opt/homebrew/bin/python3", "/usr/local/bin/python3", "/opt/anaconda3/bin/python3"] {
@@ -144,11 +158,11 @@ struct MCPClientTests {
     private func makeFakeClient() async throws -> (MCPClient, FakeMCPServerTransport) {
         let transport = FakeMCPServerTransport()
         let client = MCPClient(supervisor: .shared)
-        try await client.startWithTransport(transport, initializeTimeout: 5, clientName: "test", clientVersion: "0")
+        try await client.startWithTransport(transport, readyTimeout: 5, clientName: "test", clientVersion: "0")
         return (client, transport)
     }
 
-    @Test("Start runs initialize handshake") func startRunsInitializeHandshake() async throws {
+    @Test("Start probes the server and reports running") func startProbesAndReportsRunning() async throws {
         let (client, _) = try await makeFakeClient()
         let running = await client.isRunning
         #expect(running)
@@ -191,6 +205,15 @@ struct MCPClientTests {
         }
     }
 
+    @Test("An input_required result throws invalidResponse") func inputRequiredResultThrows() async throws {
+        let (client, _) = try await makeFakeClient()
+        defer { Task { await client.stop() } }
+
+        await #expect(throws: MCPClient.MCPError.invalidResponse("unsupported resultType 'input_required'")) {
+            _ = try await client.callTool(name: "needs-input")
+        }
+    }
+
     @Test("Call tool before start throws not initialized") func callToolBeforeStartThrowsNotInitialized() async throws {
         let client = MCPClient(supervisor: .shared)
         await #expect(throws: MCPClient.MCPError.notInitialized) {
@@ -207,7 +230,7 @@ struct MCPClientTests {
             arguments: ["-u", "-c", Self.crashOnceServerScript],
             source: "mcp-reconnect",
             restartPolicy: .onCrash(maxAttempts: 3, baseBackoff: 0.05),
-            initializeTimeout: Self.realSubprocessInitializeTimeout
+            readyTimeout: Self.realSubprocessReadyTimeout
         )
         defer { Task { await client.stop() } }
 
@@ -215,11 +238,11 @@ struct MCPClientTests {
         let crashResult = try await client.callTool(name: "crash")
         #expect(crashResult.content.first?.text == "crashing")
 
-        // Fresh instance should answer normally — proves the client reconnected and re-initialized.
-        // Poll instead of a fixed sleep: respawn + handshake comfortably fits in a few hundred ms
-        // locally but can take seconds on a loaded CI runner. .notInitialized / .reconnecting are
-        // the documented transient errors during a supervised respawn; anything else is real.
-        let tools = try await Self.listToolsAwaitingReconnect(client, timeout: Self.realSubprocessInitializeTimeout)
+        // Fresh instance should answer normally — proves the client reconnected. Poll instead of
+        // a fixed sleep: respawn + ready probe comfortably fits in a few hundred ms locally but
+        // can take seconds on a loaded CI runner. .notInitialized / .reconnecting are the
+        // documented transient errors during a supervised respawn; anything else is real.
+        let tools = try await Self.listToolsAwaitingReconnect(client, timeout: Self.realSubprocessReadyTimeout)
         #expect(tools.first?.name == "echo")
 
         let echoed = try await client.callTool(name: "echo", arguments: .object(["text": .string("after-reconnect")]))

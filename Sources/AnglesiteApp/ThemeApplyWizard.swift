@@ -58,47 +58,13 @@ struct ThemeApplyWizard: View {
         ScrollView {
             LazyVGrid(columns: columns, spacing: 12) {
                 ForEach(model.catalog.themes) { theme in
-                    themeCard(theme)
+                    ThemeApplyCard(theme: theme, isSelected: model.selectedBuiltInID == theme.id) {
+                        model.selectedBuiltInID = theme.id
+                    }
                 }
             }
             .padding(.vertical, 4)
         }
-    }
-
-    private func themeCard(_ theme: Theme) -> some View {
-        let isSelected = model.selectedBuiltInID == theme.id
-        return Button {
-            model.selectedBuiltInID = theme.id
-        } label: {
-            VStack(alignment: .leading, spacing: 6) {
-                HStack(spacing: 4) {
-                    ForEach(theme.swatch, id: \.self) { hex in
-                        RoundedRectangle(cornerRadius: 4)
-                            .fill(Color(hex: hex))
-                            .frame(width: 24, height: 24)
-                    }
-                }
-                Text(theme.name)
-                    .font(.subheadline.bold())
-                    .foregroundStyle(.primary)
-                Text(theme.blurb)
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-                    .lineLimit(2)
-                    .multilineTextAlignment(.leading)
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .background(
-                RoundedRectangle(cornerRadius: 8)
-                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.gray.opacity(0.08))
-            )
-            .overlay(
-                RoundedRectangle(cornerRadius: 8)
-                    .strokeBorder(isSelected ? Color.accentColor : Color.clear, lineWidth: 2)
-            )
-        }
-        .buttonStyle(.plain)
     }
 
     private var browseFreedesignmdStep: some View {
@@ -149,5 +115,60 @@ struct ThemeApplyWizard: View {
                     .foregroundStyle(.red)
             }
         }
+    }
+}
+
+/// One selectable built-in theme card — owns its own hover state so each `ForEach` item tracks
+/// the mouse independently rather than sharing one flag across the grid (#677).
+private struct ThemeApplyCard: View {
+    let theme: Theme
+    let isSelected: Bool
+    let onSelect: () -> Void
+
+    @State private var isHovering = false
+    @Environment(\.controlActiveState) private var controlActiveState
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private var isHoverActive: Bool { isHovering && controlActiveState != .inactive && !isSelected }
+
+    private var fillColor: Color {
+        if isSelected { return Color.accentColor.opacity(0.15) }
+        if isHoverActive { return Color.accentColor.opacity(0.08) }
+        return Color.gray.opacity(0.08)
+    }
+
+    private var strokeColor: Color {
+        if isSelected { return Color.accentColor }
+        if isHoverActive { return Color.accentColor.opacity(0.4) }
+        return Color.clear
+    }
+
+    var body: some View {
+        Button(action: onSelect) {
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 4) {
+                    ForEach(theme.swatch, id: \.self) { hex in
+                        RoundedRectangle(cornerRadius: 4)
+                            .fill(Color(hex: hex))
+                            .frame(width: 24, height: 24)
+                    }
+                }
+                Text(theme.name)
+                    .font(.subheadline.bold())
+                    .foregroundStyle(.primary)
+                Text(theme.blurb)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(2)
+                    .multilineTextAlignment(.leading)
+            }
+            .padding(10)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(RoundedRectangle(cornerRadius: 8).fill(fillColor))
+            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(strokeColor, lineWidth: 2))
+        }
+        .buttonStyle(.plain)
+        .onHover { isHovering = $0 }
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.12), value: isHoverActive)
     }
 }

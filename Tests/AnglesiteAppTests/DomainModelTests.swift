@@ -23,8 +23,11 @@ private actor ControllableATProtoDIDTransport {
     func callCount() -> Int { continuations.count }
 }
 
+/// `.timeLimit`: see #1349/#1355/#1366 — a wedged test (e.g. a yield-poll waiting on a transport
+/// call that never comes) must fail as an unambiguous time-limit violation instead of hanging the
+/// whole `AnglesiteAppTests` run indefinitely.
 @MainActor
-@Suite struct DomainModelTests {
+@Suite(.timeLimit(.minutes(1))) struct DomainModelTests {
     private actor RecordingOps: DomainOperationsService {
         var addedPurposes: [String?] = []
         var addedSourceDirectories: [URL?] = []
@@ -168,21 +171,45 @@ private actor ControllableATProtoDIDTransport {
         #expect(draft.context == .bluesky)
     }
 
-    @Test func useAsBlueskyHandleVerifiesTheWellKnownEndpointWhenEligible() async throws {
+    @Test func useAsBlueskyHandleFallsBackToTXTWhenSiteURLIsTheScaffoldPlaceholder() async throws {
+        // ATPROTO_DID is configured and the domain matches SITE_URL's host — but that URL is
+        // still the scaffold's `https://example.com` placeholder, so the site has never really
+        // deployed and the well-known file can't be live (#1320's gate, load-bearing since #1366).
         let (site, tmp) = try makeConfiguredSite(
             siteConfig: "SITE_URL=https://example.com\nATPROTO_DID=\(Self.did)\n")
+        defer { try? FileManager.default.removeItem(at: tmp) }
+        let model = DomainModel(ops: RecordingOps())
+        model.configure(site: site)
+        await loadDomain(model, domain: "example.com")
+
+        model.useAsBlueskyHandle()
+
+        guard case .addingRecord(let draft, _, _) = model.phase else {
+            Issue.record("expected .addingRecord, got \(model.phase)")
+            return
+        }
+        #expect(draft.context == .bluesky)
+        #expect(model.blueskyHandlePhase == .idle)
+    }
+
+    @Test func useAsBlueskyHandleVerifiesTheWellKnownEndpointWhenEligible() async throws {
+        // `mysite.example`, not `example.com`: the scaffold-placeholder gate (#1320) treats a
+        // `SITE_URL` of exactly `https://example.com` as never-deployed, which would silently
+        // divert this test onto the TXT fallback (#1366).
+        let (site, tmp) = try makeConfiguredSite(
+            siteConfig: "SITE_URL=https://mysite.example\nATPROTO_DID=\(Self.did)\n")
         defer { try? FileManager.default.removeItem(at: tmp) }
         let model = DomainModel(ops: RecordingOps(), atprotoDIDTransport: { request in
             let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
             return (Data(Self.did.utf8), http)
         })
         model.configure(site: site)
-        await loadDomain(model, domain: "example.com")
+        await loadDomain(model, domain: "mysite.example")
 
         model.useAsBlueskyHandle()
         repeat { await Task.yield() } while model.isRunning
 
-        #expect(model.blueskyHandlePhase == .verified(domain: "example.com"))
+        #expect(model.blueskyHandlePhase == .verified(domain: "mysite.example"))
         // The DNS record flow was never touched — no draft, still `.loaded`.
         guard case .loaded = model.phase else {
             Issue.record("expected .loaded, got \(model.phase)")
@@ -191,15 +218,16 @@ private actor ControllableATProtoDIDTransport {
     }
 
     @Test func useAsBlueskyHandleReportsFailureOnMismatch() async throws {
+        // Non-scaffold `SITE_URL` — see the comment on the test above (#1320/#1366).
         let (site, tmp) = try makeConfiguredSite(
-            siteConfig: "SITE_URL=https://example.com\nATPROTO_DID=\(Self.did)\n")
+            siteConfig: "SITE_URL=https://mysite.example\nATPROTO_DID=\(Self.did)\n")
         defer { try? FileManager.default.removeItem(at: tmp) }
         let model = DomainModel(ops: RecordingOps(), atprotoDIDTransport: { request in
             let http = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
             return (Data(), http)
         })
         model.configure(site: site)
-        await loadDomain(model, domain: "example.com")
+        await loadDomain(model, domain: "mysite.example")
 
         model.useAsBlueskyHandle()
         repeat { await Task.yield() } while model.isRunning
@@ -211,21 +239,24 @@ private actor ControllableATProtoDIDTransport {
     }
 
     @Test func dismissingSheetDuringVerificationDoesNotClobberResetState() async throws {
+        // Non-scaffold `SITE_URL` — see the comment on `useAsBlueskyHandleVerifiesTheWellKnown…`
+        // (#1320/#1366). With `example.com` here, `useAsBlueskyHandle()` takes the TXT fallback,
+        // the transport is never called, and the yield-poll below spins forever.
         let (site, tmp) = try makeConfiguredSite(
-            siteConfig: "SITE_URL=https://example.com\nATPROTO_DID=\(Self.did)\n")
+            siteConfig: "SITE_URL=https://mysite.example\nATPROTO_DID=\(Self.did)\n")
         defer { try? FileManager.default.removeItem(at: tmp) }
         let transport = ControllableATProtoDIDTransport()
         let model = DomainModel(ops: RecordingOps(), atprotoDIDTransport: { request in
             try await transport.fetch(request)
         })
         model.configure(site: site)
-        await loadDomain(model, domain: "example.com")
+        await loadDomain(model, domain: "mysite.example")
 
         model.useAsBlueskyHandle()
         // Let the spawned `Task` actually start and suspend inside `transport.fetch`, so
         // dismissal below races a verification that's genuinely still in flight.
         while await transport.callCount() == 0 { await Task.yield() }
-        #expect(model.blueskyHandlePhase == .verifying(domain: "example.com"))
+        #expect(model.blueskyHandlePhase == .verifying(domain: "mysite.example"))
 
         model.dismissSheet()
         #expect(model.blueskyHandlePhase == .idle)

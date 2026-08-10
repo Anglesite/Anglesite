@@ -24,8 +24,13 @@ Expected today:
   `LocalContainerSiteRuntime` are `#if !os(iOS)`-gated out of iOS builds, and the
   AppKit-coupled Intents surface lives in its own macOS-gated file.
 
-The SwiftPM `AnglesiteIOS` shell target stays dependency-free (WebKit/SwiftUI only) — the audit
-enforces this. The iOS *app* target (`AnglesiteMobile`, Xcode-only) is where `AnglesiteCore`,
+The SwiftPM `AnglesiteIOS` shell target depends on `AnglesiteSiteModel` and `AnglesiteCore` (post
+Phase 8/#885, `AnglesiteCore` is iOS-portable, so the shell's models — `PostListModel`,
+`MicropubSession`, `SitePickerModel`, etc. — use it directly for `RemoteSandboxSiteRuntime`,
+`KeychainStore`, and the HTTP MCP client). The audit doesn't treat that dependency as unsafe; the
+dedicated checks above it (FSEvents, security-scoped bookmarks, host subprocess backend, local
+container runtime, AppKit imports) already verify `AnglesiteCore`/`AnglesiteBridge` compile clean
+for iOS. The iOS *app* target (`AnglesiteMobile`, Xcode-only) is where `AnglesiteCore`,
 `AnglesiteBridge`, and `AnglesiteIOS` compose; those products all build with
 `--triple arm64-apple-ios27.0`.
 

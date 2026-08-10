@@ -148,7 +148,14 @@ public struct PodmanContainerControl: LocalContainerControl {
         onOutput: @escaping @Sendable (String, LogCenter.Stream) -> Void
     ) async throws -> LocalContainerSession {
         // Resolves the split-repo gitfile layout (#888/#903) — see SourceRepoPrecondition.
-        let cloneSource = try SourceRepoPrecondition.cloneSource(for: sourceRepo)
+        let unresolvedCloneSource = try SourceRepoPrecondition.cloneSource(for: sourceRepo)
+        // Under Flatpak, a folder picked via `.folderImporter` resolves to a document-portal
+        // FUSE path this process can read, but which the host-side podman process below (reached
+        // via `flatpak-spawn --host`) cannot — see DocumentPortalResolution's doc comment and
+        // investigation doc §6. A no-op outside a Flatpak sandbox.
+        let cloneSource = try await DocumentPortalResolution.resolveHostPath(
+            for: unresolvedCloneSource, flatpakHostSpawn: flatpakHostSpawn, supervisor: supervisor,
+            flatpakSpawnExecutable: flatpakSpawnExecutable)
         let name = Self.containerName(for: siteID)
 
         // 1. Boot a bare, long-lived container (podman's equivalent of Apple Containerization's

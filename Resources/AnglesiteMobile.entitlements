@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- iCloud site discovery (#866): must match AppSettings.ubiquityContainerIdentifier
+	     (AnglesiteCore) and the NSUbiquitousContainers key in Resources/Info-iOS.plist. Same
+	     container the Mac app's default site storage (#865) writes into. -->
+	<key>com.apple.developer.icloud-container-identifiers</key>
+	<array>
+		<string>iCloud.io.dwk.anglesite</string>
+	</array>
+	<key>com.apple.developer.icloud-services</key>
+	<array>
+		<string>CloudDocuments</string>
+	</array>
+	<!-- Cloudflare OAuth callback interception (#891): lets ASWebAuthenticationSession's
+	     .https(host:path:) callback match https://auth.anglesite.dwk.io/oauth-callback, served
+	     by Workers/anglesite-oauth-callback. Must match CloudflareOAuthConfiguration.redirectURI
+	     (AnglesiteCore). -->
+	<key>com.apple.developer.associated-domains</key>
+	<array>
+		<string>webcredentials:auth.anglesite.dwk.io</string>
+	</array>
+</dict>
+</plist>
