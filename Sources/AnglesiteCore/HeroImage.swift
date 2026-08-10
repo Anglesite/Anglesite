@@ -57,6 +57,7 @@ public enum HeroImage {
         case .blog:         return "editorial abstract header illustration"
         case .portfolio:    return "creative abstract portfolio illustration"
         case .organization: return "welcoming community abstract illustration"
+        case .community:    return "collaborative group abstract illustration"
         case .blank:        return "simple abstract geometric illustration"
         }
     }

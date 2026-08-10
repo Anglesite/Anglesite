@@ -5,7 +5,7 @@ import Foundation
 public enum SiteType: String, Sendable, CaseIterable, Codable {
     /// The selectable categories, in the order the Type step lists them. `blank` is the
     /// deliberate escape hatch — a minimal scaffold for owners who don't fit the other four.
-    case business, personal, blog, portfolio, organization, blank
+    case business, personal, blog, portfolio, organization, community, blank
 
     /// Owner-facing label for the Type step.
     public var label: String {
@@ -15,6 +15,7 @@ public enum SiteType: String, Sendable, CaseIterable, Codable {
         case .blog:         return "Blog"
         case .portfolio:    return "Portfolio"
         case .organization: return "Organization website"
+        case .community:    return "Hosted community"
         case .blank:        return "Blank website"
         }
     }
@@ -27,6 +28,7 @@ public enum SiteType: String, Sendable, CaseIterable, Codable {
         case .blog:         return "Publish posts, articles, or updates over time."
         case .portfolio:    return "Showcase selected work, case studies, or creative projects."
         case .organization: return "Share a group mission, programs, events, and ways to get involved."
+        case .community:    return "Host a fediverse community others can join and post to."
         case .blank:        return "Start with a simple empty website you can shape yourself."
         }
     }
@@ -39,6 +41,7 @@ public enum SiteType: String, Sendable, CaseIterable, Codable {
         case .blog:         return "text.alignleft"
         case .portfolio:    return "square.grid.2x2"
         case .organization: return "person.3"
+        case .community:    return "person.3.sequence"
         case .blank:        return "doc"
         }
     }
