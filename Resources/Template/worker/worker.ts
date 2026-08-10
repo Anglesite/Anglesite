@@ -580,6 +580,27 @@ export async function handleIndieAuthConsent(request: Request, env: WorkerEnv): 
 }
 
 /**
+ * The Anglesite app's IndieAuth callback bridge (#868). `ASWebAuthenticationSession` can only
+ * capture a custom-scheme (or Associated-Domains https) redirect, while `@dwk/indieauth` only
+ * accepts an https (or http-loopback) `redirect_uri` that shares the client_id's origin — so the
+ * app signs in with `redirect_uri` pointing here, and this route immediately re-issues the
+ * redirect into the app's custom scheme. The query string passes through byte-for-byte: the app
+ * re-validates `state` and redeems `code` itself (PKCE makes an intercepted code useless without
+ * the app's verifier, per RFC 8252 §8.1), and re-encoding could corrupt a percent-encoded code.
+ */
+export function handleIndieAuthAppCallback(request: Request): Response {
+  const { search } = new URL(request.url);
+  return new Response(null, {
+    status: 302,
+    headers: {
+      location: `io.dwk.anglesite://indieauth-callback${search}`,
+      // The query carries a one-time authorization code — never cacheable anywhere.
+      "cache-control": "no-store",
+    },
+  });
+}
+
+/**
  * Solid-OIDC's login/consent bridge — reuses the exact same owner-password check
  * `handleIndieAuthConsent` gates on (`secretsMatch` against `INDIEAUTH_OWNER_PASSWORD`), so the
  * pod's owner authenticates with the same one credential IndieAuth already uses. On success,
@@ -1666,6 +1687,14 @@ export const ROUTES: readonly WorkerRoute[] = [
     match: "exact",
     methods: ["POST"],
     handler: (request, env) => handleIndieAuthConsent(request, env),
+  },
+  {
+    // Bridges the IndieAuth redirect into the Anglesite app's custom scheme (#868) — see
+    // `handleIndieAuthAppCallback`.
+    path: "/indieauth/app-callback",
+    match: "exact",
+    methods: ["GET"],
+    handler: (request) => handleIndieAuthAppCallback(request),
   },
   {
     // Solid-OIDC discovery (identity layer for `@dwk/solid-pod`). Authority-bound to this fixed

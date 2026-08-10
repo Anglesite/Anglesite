@@ -8,3 +8,6 @@ export * from "./hit-test.js";
 export * from "./selection.js";
 export * from "./op-queue.js";
 export * from "./engine.js";
+export * from "./rich-text.js";
+export * from "./drag-drop.js";
+export * from "./breakpoints.js";

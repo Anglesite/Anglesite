@@ -10,8 +10,9 @@ import AnglesiteSiteModel
 @MainActor
 @Observable
 public final class SitePickerModel {
-    /// A discovered `.anglesite` package, ready to show in the picker.
-    public struct DiscoveredSite: Identifiable, Sendable, Equatable {
+    /// A discovered `.anglesite` package, ready to show in the picker. `Hashable` so it can be
+    /// a `NavigationLink` value (the picker pushes the #868 sign-in screen for it).
+    public struct DiscoveredSite: Identifiable, Sendable, Hashable {
         /// The package's stable site UUID (`AnglesitePackage.Marker.siteID`) — path-independent,
         /// matching how `SiteStore.Site` identifies sites on the Mac.
         public let id: UUID

@@ -25,7 +25,13 @@
     "Couldn't Open Site" : {
 
     },
+    "Couldn't reach your site. Check your connection and try again." : {
+
+    },
     "Couldn't sign in to Cloudflare. Try again in a moment." : {
+
+    },
+    "Deploy this site from Anglesite on your Mac first, then come back to post from here." : {
 
     },
     "Done" : {
@@ -46,10 +52,19 @@
     "No sites found — create a site in Anglesite on your Mac first." : {
 
     },
+    "Not Deployed Yet" : {
+
+    },
     "Open Site" : {
 
     },
     "Open your site in the remote sandbox to preview and edit it." : {
+
+    },
+    "Post to Your Site" : {
+
+    },
+    "Posting Not Available" : {
 
     },
     "Refresh" : {
@@ -58,19 +73,52 @@
     "Remote Session" : {
 
     },
+    "Session Expired" : {
+
+    },
     "Session Settings" : {
 
     },
     "Session Settings…" : {
 
     },
+    "Sign In" : {
+
+    },
+    "Sign Out" : {
+
+    },
     "Sign in to iCloud and turn on iCloud Drive to see your Anglesite sites." : {
+
+    },
+    "Sign in with your site to create and edit posts from this device." : {
+
+    },
+    "Sign-In Canceled" : {
+
+    },
+    "Sign-In Failed" : {
+
+    },
+    "Sign-In Not Available" : {
+
+    },
+    "Signed In" : {
+
+    },
+    "Signing in…" : {
 
     },
     "Site" : {
 
     },
     "Site ID" : {
+
+    },
+    "Site Unreachable" : {
+
+    },
+    "Something went wrong while signing in. Try again." : {
 
     },
     "Starting %@ in the sandbox…" : {
@@ -82,10 +130,25 @@
     "The sandbox clones this repository — git stays the source of truth for your site." : {
 
     },
+    "This site doesn't offer IndieAuth sign-in yet. Update and redeploy it from Anglesite on your Mac." : {
+
+    },
+    "This site's Worker doesn't include Micropub yet. Update and redeploy it from Anglesite on your Mac." : {
+
+    },
     "Try Again" : {
 
     },
+    "Waiting for sign-in…" : {
+
+    },
+    "You closed the sign-in page before finishing. Sign in when you're ready." : {
+
+    },
     "Your Sites" : {
+
+    },
+    "Your site signed you out. Sign in again to keep posting." : {
 
     },
     "https://anglesite-sandbox.example.workers.dev" : {
