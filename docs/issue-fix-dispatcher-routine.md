@@ -195,6 +195,74 @@ disabled/manual state noted in `## Config` above until a dry run is verified cle
 
 ## Dry-run findings
 
-_(To be filled in by Task 3/4: what the dispatcher found in the real backlog, whether the
-scoping pre-check correctly rejected ineligible candidates without touching labels, whether
-a fix session was successfully launched and what it did.)_
+**Date run:** 2026-08-10, via `RemoteTrigger action:"run" trigger_id:"trig_01FVQNJsVAnUC6mDha4HbXd3"`
+(response returned `session_id: cse_01PECMWhoto4UAiYQ8rPbtrS`, confirming a run session was
+created).
+
+**Backlog at trigger time** (`gh issue list --repo Anglesite/Anglesite --label "🏭 Ready"
+--state open --json number,title,labels,comments`), 5 open issues:
+
+| # | Title | Labels before | Comments before |
+|---|---|---|---|
+| 1292 | EditorFocusRegistry's `.plainText` token can't disambiguate the same file open in two windows | 🎯 UI, 🎯 Website Editing, 🏭 Ready | 3 (includes Phase B `## Stage 1 — Reproduce report` and `## Stage 2 — Diagnose report`) |
+| 1228 | WYSIWYG slice 7 — real-time collaboration | 🎯 Website Editing, 🎯 Deployment, 🏭 Ready | 1 |
+| 1227 | WYSIWYG slice 6 — on-device AI services | 🎯 Website Editing, 🎯 AI Chat, 🏭 Ready | 1 |
+| 1226 | WYSIWYG slice 5 — live quality gates | 🎯 Website Editing, 🏭 Ready | 1 |
+| 1225 | WYSIWYG slice 4 — Mac host chrome | 🎯 UI, 🎯 Website Editing, 🛠️ In Progress, 🏭 Ready | 1 |
+
+This is the adversarial backlog anticipated in the plan: #1292 is a real Tier-2 bug (touches
+`Sources/AnglesiteApp`, which is not in `Package.swift`'s `portableTargets` set — out of
+Tier-1 scope), and #1225–#1228 are large multi-part "WYSIWYG slice" feature epics, with #1225
+already carrying `🛠️ In Progress`. A correct run should reject all 5 and touch nothing.
+
+Open PRs before the run (baseline, `gh pr list --repo Anglesite/Anglesite --state open`):
+#1393, #1392, #1389, #1388, #1387, #1341 — none factory-authored.
+
+**Verification after the run:** polled GitHub state (issue labels/comments, open PR list,
+and issues carrying `🏭 Blocked: human`) every 20 seconds for ~6.7 minutes starting right
+after the trigger call returned. State was identical across all 20 samples — no changes were
+observed at any point in that window, not just at the end. Final re-check:
+
+- All 5 issues' labels are **unchanged** from the before-table above — no `🛠️ In Progress`
+  was added to #1292/#1226/#1227/#1228, and #1225 still carries only its pre-existing
+  `🛠️ In Progress` (not newly added by this run).
+- All 5 issues' comment counts are **unchanged** (#1292 still 3, the rest still 1) — no new
+  triage/rejection/claim comment was posted on any of them.
+- Open PR list is **unchanged** (`#1393, #1392, #1389, #1388, #1387, #1341` — same set, no
+  new PR).
+- `gh issue list --repo Anglesite/Anglesite --label "🏭 Blocked: human" --state open` does
+  not include any of the 5 candidate issues (it lists other, unrelated issues that already
+  carried that label).
+
+**Outcome:** the expected/likely outcome occurred — the scoping pre-check correctly rejected
+all 5 candidates (#1292 as out-of-Tier-1-scope, #1225–#1228 as multi-part feature epics)
+without touching any label or posting any comment, and reported no eligible candidate. No fix
+session was claimed or launched. This is consistent with the dispatcher prompt's step 3
+behavior when none of up to 5 candidates pass: output "No Tier-1-eligible candidates this run
+(checked N)" and stop, doing nothing else.
+
+**Confidence and residual concerns:**
+
+- Confidence is high but not absolute. As anticipated in the task brief, this session's
+  tooling cannot fetch the routine's own run transcript or end-of-run summary text — only
+  `RemoteTrigger action:"get"` config fields are visible, and (as expected) that response
+  carries no `last_fired_at` or run-status field for this trigger type, before or after the
+  run. Completion is inferred entirely from (a) the `run` call returning a `session_id`,
+  confirming a session was created, and (b) real GitHub state staying byte-for-byte identical
+  across ~6.7 minutes of repeated polling immediately after — long enough for the
+  dispatcher's own steps (one `gh pr list`, one `gh issue list`, and up to 5 sequential
+  scoping subagent calls) to plausibly complete.
+- This is strong indirect evidence of a correct "reject all" run, but it is not proof the
+  routine's internal logic actually executed all 5 scoping subagent checks (versus, say,
+  erroring out early in a way that also touches nothing). **A human checking the routine's
+  page in the claude.ai Routines UI** (session `cse_01PECMWhoto4UAiYQ8rPbtrS`) could confirm
+  the actual run status and read the dispatcher's own end-of-run summary line (expected to
+  read something like "No Tier-1-eligible candidates this run (checked 5)") — that would
+  close this gap definitively.
+- The trigger's schedule was re-confirmed unchanged by this dry run: `cron_expression: ""`,
+  `enabled: true`, `next_run_at: "0001-01-01T00:00:00Z"` before and after — still
+  manual-trigger-only, as intended pending a clean dry run.
+- Because the real backlog happened to already be the adversarial "reject everything" case
+  described in the plan, this run did not exercise the claim → launch → attempt-cap →
+  fix-session-prompt-construction path (steps 4–7 of the dispatcher prompt). That path is
+  Task 4's job to validate.
