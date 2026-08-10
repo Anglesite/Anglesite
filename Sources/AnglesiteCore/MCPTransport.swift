@@ -1,7 +1,7 @@
 import Foundation
 
 /// A duplex channel for MCP JSON-RPC messages. `MCPClient` owns all id-correlation, timeout, and
-/// handshake logic and delegates raw message send/receive to a transport. The shape mirrors stdio's
+/// ready-probe logic and delegates raw message send/receive to a transport. The shape mirrors stdio's
 /// model — a write side plus one inbound stream of decoded messages — so HTTP and stdio share the
 /// same client code path.
 ///

@@ -63,7 +63,7 @@ final class AppliesEditEndToEndTests {
             arguments: [serverPath.path],
             environment: ["ANGLESITE_PROJECT_ROOT": tmpSite.path],
             source: "mcp:e2e",
-            initializeTimeout: 15
+            readyTimeout: 15
         )
         defer { Task { await mcp.stop() } }
 
@@ -129,7 +129,7 @@ final class AppliesEditEndToEndTests {
             arguments: [serverPath.path],
             environment: ["ANGLESITE_PROJECT_ROOT": tmpSite.path],
             source: "mcp:e2e-dryrun",
-            initializeTimeout: 15
+            readyTimeout: 15
         )
         defer { Task { await mcp.stop() } }
 

@@ -77,23 +77,29 @@ public indirect enum JSONValue: Sendable, Equatable {
     }
 }
 
-/// JSON-RPC 2.0 client speaking the Model Context Protocol over a pluggable `MCPTransport`.
+/// JSON-RPC 2.0 client speaking the Model Context Protocol (2026-07-28, stateless) over a
+/// pluggable `MCPTransport`.
 ///
 /// The surface is intentionally narrow: `start(executable:…)` spawns a server over stdio (a
 /// `StdioTransport`) or `connect(httpEndpoint:)` reaches one over Streamable HTTP (an
-/// `HTTPTransport`), both running the `initialize` handshake; `listTools()` and
-/// `callTool(name:arguments:)` cover what the app needs. Server notifications (no `id`) are
-/// discarded — the client only correlates request/response by id.
+/// `HTTPTransport`); `listTools()` and `callTool(name:arguments:)` cover what the app needs.
+/// There is no `initialize` handshake and no session: every request is self-contained, carrying
+/// the protocol version, client identity, and client capabilities in its `_meta` envelope
+/// (`io.modelcontextprotocol/*` keys). `start`/`connect` still make one `server/discover` probe
+/// so they keep their historical contract of failing when the server isn't answering — see
+/// ``probeServerReady()``. Server notifications (no `id`) are discarded — the client only
+/// correlates request/response by id.
 ///
-/// The client owns the JSON-RPC id/pending bookkeeping and the handshake; the transport owns the
-/// wire (process pipes vs HTTP). For the stdio transport, protocol traffic also flows through
-/// `LogCenter`, so the Debug pane can see it.
+/// The client owns the JSON-RPC id/pending bookkeeping; the transport owns the wire (process
+/// pipes vs HTTP). For the stdio transport, protocol traffic also flows through `LogCenter`, so
+/// the Debug pane can see it.
 public actor MCPClient {
     /// Failures the client layer itself produces (a server-reported JSON-RPC error surfaces as
     /// ``rpcError(code:message:)``, passed through rather than reinterpreted).
     public enum MCPError: Error, Sendable, Equatable {
-        /// No transport is connected and handshaken — `start(...)`/`connect(...)` hasn't run,
-        /// failed, or a post-crash re-handshake didn't succeed.
+        /// No usable transport — `start(...)`/`connect(...)` hasn't run, failed, or a
+        /// post-crash respawn hasn't come back up yet. (The case name predates the stateless
+        /// protocol; it means "not started", there is no initialize handshake anymore.)
         case notInitialized
         /// `start(...)`/`connect(...)` was called while a transport is already up; call
         /// ``MCPClient/stop()`` first.
@@ -109,7 +115,7 @@ public actor MCPClient {
         /// so a caller never hangs on a wedged server.
         case timeout
         /// In-flight request failed because the server process crashed and is being restarted;
-        /// the client re-runs `initialize` against the fresh process. Retry the call.
+        /// the fresh process serves statelessly once up. Retry the call.
         case reconnecting
     }
 
@@ -165,11 +171,15 @@ public actor MCPClient {
 
     private var nextRequestID: Int = 1
     private var pending: [Int: CheckedContinuation<JSONValue, Error>] = [:]
-    private var initialized: Bool = false
+    private var started: Bool = false
+
+    /// The MCP protocol revision this client speaks — replayed in every request's `_meta`
+    /// envelope (and, by ``HTTPTransport``, in the `MCP-Protocol-Version` header).
+    public static let protocolVersion = "2026-07-28"
 
     private var clientName: String = "Anglesite"
     private var clientVersion: String = "0.1.0"
-    private var initializeTimeout: TimeInterval = 10
+    private var readyTimeout: TimeInterval = 10
 
     /// `supervisor`/`logCenter` are retained for the stdio path only — `start(...)` needs them
     /// to build a ``StdioTransport``. They're taken at construction even for an HTTP-only
@@ -184,10 +194,11 @@ public actor MCPClient {
     /// client whose startup failed).
     public var isRunning: Bool { transport != nil }
 
-    /// Spawn the MCP server and run the `initialize` handshake. Returns once the server has
-    /// responded with its capabilities. If the server later crashes, `ProcessSupervisor` restarts
-    /// it per `restartPolicy` and the client re-runs `initialize` against the fresh process; calls
-    /// that were in flight at the moment of the crash fail with `MCPError.reconnecting`.
+    /// Spawn the MCP server and probe it with `server/discover`. Returns once the server has
+    /// answered the probe (any JSON-RPC response — see ``probeServerReady()``). If the server
+    /// later crashes, `ProcessSupervisor` restarts it per `restartPolicy` and the client
+    /// re-probes the fresh process; calls that were in flight at the moment of the crash fail
+    /// with `MCPError.reconnecting`.
     public func start(
         executable: URL,
         arguments: [String],
@@ -195,7 +206,7 @@ public actor MCPClient {
         source: String = "mcp",
         currentDirectoryURL: URL? = nil,
         restartPolicy: ProcessSupervisor.RestartPolicy = .onCrash(maxAttempts: 3, baseBackoff: 1.0),
-        initializeTimeout: TimeInterval = 10,
+        readyTimeout: TimeInterval = 10,
         clientName: String = "Anglesite",
         clientVersion: String = "0.1.0"
     ) async throws {
@@ -210,27 +221,27 @@ public actor MCPClient {
             restartPolicy: restartPolicy,
             onReconnect: { [weak self] in await self?.handleRespawn() }
         )
-        try await startWithTransport(t, initializeTimeout: initializeTimeout, clientName: clientName, clientVersion: clientVersion)
+        try await startWithTransport(t, readyTimeout: readyTimeout, clientName: clientName, clientVersion: clientVersion)
     }
 
-    /// Connect to an MCP server over Streamable HTTP at `httpEndpoint` (the full `…/mcp` URL) and run
-    /// the initialize handshake. Mirrors `start(...)` but for the HTTP transport.
+    /// Connect to an MCP server over Streamable HTTP at `httpEndpoint` (the full `…/mcp` URL) and
+    /// probe it with `server/discover`. Mirrors `start(...)` but for the HTTP transport.
     public func connect(
         httpEndpoint: URL,
         bearerToken: SessionToken? = nil,
         urlSession: URLSession = .shared,
-        initializeTimeout: TimeInterval = 10,
+        readyTimeout: TimeInterval = 10,
         clientName: String = "Anglesite",
         clientVersion: String = "0.1.0"
     ) async throws {
         let t = HTTPTransport(endpoint: httpEndpoint, bearerToken: bearerToken, urlSession: urlSession)
-        try await startWithTransport(t, initializeTimeout: initializeTimeout, clientName: clientName, clientVersion: clientVersion)
+        try await startWithTransport(t, readyTimeout: readyTimeout, clientName: clientName, clientVersion: clientVersion)
     }
 
-    /// Shared start path for any transport: open, start the reader, run the initialize handshake.
+    /// Shared start path for any transport: open, start the reader, probe the server.
     func startWithTransport(
         _ t: any MCPTransport,
-        initializeTimeout: TimeInterval,
+        readyTimeout: TimeInterval,
         clientName: String,
         clientVersion: String
     ) async throws {
@@ -238,7 +249,7 @@ public actor MCPClient {
         self.transport = t
         self.clientName = clientName
         self.clientVersion = clientVersion
-        self.initializeTimeout = initializeTimeout
+        self.readyTimeout = readyTimeout
         do {
             try await t.open()
         } catch {
@@ -250,43 +261,42 @@ public actor MCPClient {
             await self.consumeResponses(t.inbound())
         }
         do {
-            try await runInitializeHandshake()
-            self.initialized = true
+            try await probeServerReady()
+            self.started = true
         } catch {
             await teardown()
             throw error
         }
     }
 
-    /// Sends `initialize` (and the required `notifications/initialized` follow-up). Used both at
-    /// `start(...)` and after a supervised respawn.
-    private func runInitializeHandshake() async throws {
-        let params: JSONValue = .object([
-            "protocolVersion": .string("2024-11-05"),
-            "capabilities": .object([:]),
-            "clientInfo": .object([
-                "name": .string(clientName),
-                "version": .string(clientVersion),
-            ]),
-        ])
-        _ = try await sendRequest(method: "initialize", params: params, timeout: initializeTimeout)
-        // Notifications expect no response and the server may not care — ignore failure.
-        try? await sendNotification(method: "notifications/initialized", params: nil)
+    /// The stateless protocol needs no handshake, but `start`/`connect` still must fail when the
+    /// server isn't answering — the e2e tests and the container runtimes retry `connect` as their
+    /// readiness gate. One `server/discover` (the 2026-07-28 spec's designated probe) provides
+    /// that: a result means the server is up; a JSON-RPC *error* still proves a live responder
+    /// (the reference stdio server answers `-32601` while serving every real method), so only a
+    /// transport failure or timeout fails the probe.
+    private func probeServerReady() async throws {
+        do {
+            _ = try await sendRequest(method: "server/discover", params: nil, timeout: readyTimeout)
+        } catch MCPError.rpcError {
+            // A live server rejecting the method is still a live server.
+        }
     }
 
     /// Fired by `ProcessSupervisor` after it restarts the crashed server. The old stdin is gone
-    /// (`send` writes by `Handle` through the supervisor, which targets the fresh pipe) and
-    /// any in-flight requests can never be answered — fail them, drop `initialized`, then re-handshake.
+    /// (`send` writes by `Handle` through the supervisor, which targets the fresh pipe) and any
+    /// in-flight requests can never be answered — fail them, then re-probe the fresh process
+    /// (statelessly: there is nothing to re-establish beyond "it answers").
     private func handleRespawn() async {
         let waiters = pending
         pending.removeAll()
         for cont in waiters.values { cont.resume(throwing: MCPError.reconnecting) }
-        initialized = false
+        started = false
         do {
-            try await runInitializeHandshake()
-            initialized = true
+            try await probeServerReady()
+            started = true
         } catch {
-            // Reconnect failed; stays un-initialized. The next call throws `.notInitialized`.
+            // Re-probe failed; stays stopped. The next call throws `.notInitialized`.
         }
     }
 
@@ -294,7 +304,7 @@ public actor MCPClient {
     /// failing the whole list; a top-level shape without a `tools` array throws
     /// ``MCPError/invalidResponse(_:)``.
     public func listTools() async throws -> [ToolDescriptor] {
-        guard initialized else { throw MCPError.notInitialized }
+        guard started else { throw MCPError.notInitialized }
         let result = try await sendRequest(method: "tools/list", params: .object([:]), timeout: 5)
         guard case .object(let dict) = result, case .array(let tools)? = dict["tools"] else {
             throw MCPError.invalidResponse("tools/list missing 'tools' array")
@@ -316,7 +326,7 @@ public actor MCPClient {
     /// Cancellation is checked before sending so an already-cancelled task never reaches the
     /// wire; a cancel while awaiting surfaces as `CancellationError`.
     public func callTool(name: String, arguments: JSONValue = .object([:])) async throws -> ToolCallResult {
-        guard initialized else { throw MCPError.notInitialized }
+        guard started else { throw MCPError.notInitialized }
         try Task.checkCancellation()   // pre-call guard: never send for an already-cancelled task
         let params: JSONValue = .object([
             "name": .string(name),
@@ -352,6 +362,29 @@ public actor MCPClient {
 
     // MARK: Internals
 
+    /// Wraps `params` with the per-request `_meta` envelope the stateless protocol requires:
+    /// every request carries the protocol version, client identity, and client capabilities.
+    /// `params` may be nil (the envelope alone becomes the params object); an existing `_meta`
+    /// keeps its other keys.
+    private func envelopedParams(_ params: JSONValue?) -> JSONValue {
+        var obj: [String: JSONValue] = {
+            if case .object(let p)? = params { return p }
+            return [:]
+        }()
+        var meta: [String: JSONValue] = {
+            if case .object(let m)? = obj["_meta"] { return m }
+            return [:]
+        }()
+        meta["io.modelcontextprotocol/protocolVersion"] = .string(Self.protocolVersion)
+        meta["io.modelcontextprotocol/clientInfo"] = .object([
+            "name": .string(clientName),
+            "version": .string(clientVersion),
+        ])
+        meta["io.modelcontextprotocol/clientCapabilities"] = .object([:])
+        obj["_meta"] = .object(meta)
+        return .object(obj)
+    }
+
     private func sendRequest(
         method: String,
         params: JSONValue?,
@@ -360,13 +393,12 @@ public actor MCPClient {
         let id = nextRequestID
         nextRequestID += 1
 
-        var obj: [String: JSONValue] = [
+        let message = JSONValue.object([
             "jsonrpc": .string("2.0"),
             "id": .int(id),
             "method": .string(method),
-        ]
-        if let params { obj["params"] = params }
-        let message = JSONValue.object(obj)
+            "params": envelopedParams(params),
+        ])
 
         // Bound the wait: fail the pending request if no response arrives in time.
         let timeoutTask = Task { [weak self] in
@@ -375,7 +407,7 @@ public actor MCPClient {
         }
         defer { timeoutTask.cancel() }
 
-        return try await withTaskCancellationHandler {
+        let result: JSONValue = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { (cont: CheckedContinuation<JSONValue, Error>) in
                 // This closure runs synchronously on the actor, so the continuation is registered
                 // *before* the send — a response (which the HTTP transport produces during `send`)
@@ -399,15 +431,16 @@ public actor MCPClient {
             // arrived, `failPending` finds no entry and no-ops, preserving single-resume.
             Task { [self] in await self.failPending(id: id, error: CancellationError()) }
         }
-    }
 
-    private func sendNotification(method: String, params: JSONValue?) async throws {
-        var obj: [String: JSONValue] = [
-            "jsonrpc": .string("2.0"),
-            "method": .string(method),
-        ]
-        if let params { obj["params"] = params }
-        try await send(.object(obj))
+        // 2026-07-28 results carry a `resultType` discriminator. An absent field MUST be read as
+        // "complete" (earlier-protocol servers omit it). Anything else — today only
+        // "input_required", the MRTR elicitation interim — is a flow this client doesn't drive.
+        if case .object(let dict) = result,
+           case .string(let kind)? = dict["resultType"],
+           kind != "complete" {
+            throw MCPError.invalidResponse("unsupported resultType '\(kind)'")
+        }
+        return result
     }
 
     private func send(_ value: JSONValue) async throws {
@@ -451,7 +484,7 @@ public actor MCPClient {
         readerTask = nil
         if let transport { await transport.close() }
         transport = nil
-        initialized = false
+        started = false
         for (_, cont) in pending { cont.resume(throwing: MCPError.notInitialized) }
         pending.removeAll()
     }

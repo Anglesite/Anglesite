@@ -74,7 +74,7 @@ struct ComponentModelEndToEndTests {
             arguments: [serverPath.path],
             environment: ["ANGLESITE_PROJECT_ROOT": projectRoot.path],
             source: "mcp:e2e-component-model",
-            initializeTimeout: 15
+            readyTimeout: 15
         )
         return mcp
     }
