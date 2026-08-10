@@ -1,6 +1,18 @@
 import Foundation
-import CoreGraphics
 import AnglesiteCore
+
+/// A portable 2D point — `AnglesiteBridgeCore` is built on Linux (no `CoreGraphics`), so
+/// `DispatchResult.contextMenu` can't carry a `CGPoint` directly. Darwin-only consumers
+/// (`WYSIWYGScriptHandler`) convert this to `CGPoint` at their own boundary.
+public struct WYSIWYGPoint: Sendable, Equatable {
+    public let x: Double
+    public let y: Double
+
+    public init(x: Double, y: Double) {
+        self.x = x
+        self.y = y
+    }
+}
 
 /// Webview-agnostic message schema + routing for the `wysiwyg` script-message namespace —
 /// deliberately separate from `AnglesiteMessageDispatcher` (the older edit-overlay protocol).
@@ -17,7 +29,7 @@ public enum WYSIWYGOpsDispatcher {
         case opResult(requestId: String, result: OpResult)
         /// `context-menu` reported the block under the right-clicked point; the adapter should
         /// present a host-native menu there. No reply is sent back to the page.
-        case contextMenu(blockId: BlockId, point: CGPoint)
+        case contextMenu(blockId: BlockId, point: WYSIWYGPoint)
         case rejected(RejectionReason)
 
         public enum RejectionReason: Sendable, Equatable {
@@ -51,7 +63,7 @@ public enum WYSIWYGOpsDispatcher {
             else {
                 return .rejected(.envelopeDecode("could not decode context-menu fields"))
             }
-            return .contextMenu(blockId: blockId, point: CGPoint(x: x, y: y))
+            return .contextMenu(blockId: blockId, point: WYSIWYGPoint(x: x, y: y))
         default:
             return .rejected(.unknownType(typeStr))
         }
