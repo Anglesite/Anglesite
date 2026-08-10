@@ -42,7 +42,11 @@ public struct SiteEntity: Sendable {
 
     /// `AppEntity` requirement — the query the system uses whenever it must resolve a
     /// ``SiteEntity`` on its own (Shortcuts re-resolution, Siri disambiguation).
+    #if os(macOS)
     public static let defaultQuery = SiteEntityQuery()
+    #elseif os(iOS)
+    public static let defaultQuery = SiteEntityQueryIOS()
+    #endif
 
     /// Memberwise initializer. Prefer `init(_:)` from a `SiteStore.Site` — it fills the dates
     /// from the filesystem and sets `directory` correctly; this one exists for tests and for
@@ -71,6 +75,7 @@ public struct SiteEntity: Sendable {
     }
 }
 
+#if os(macOS)
 /// Resolves sites by id (Shortcuts re-resolution) and by name (Siri "my portfolio site").
 /// `load()` is called first so a cold background intent process sees the persisted registry.
 public struct SiteEntityQuery: EntityStringQuery {
@@ -119,3 +124,4 @@ public struct SiteEntityQuery: EntityStringQuery {
         return sites.count == 1 ? sites.first.map(SiteEntity.init) : nil
     }
 }
+#endif
