@@ -274,6 +274,27 @@ if includeContainer {
             linkerSettings: weakLinkFoundationModels
         )
     )
+    // The actual Anywhere-runtime helper CLI (#1208 P1, Task 7): links AnglesiteContainer
+    // directly (RemoteContainerSession -> ContainerizationControl), so — like
+    // AnglesiteContainerProbe above — it lives inside `includeContainer` rather than the
+    // unconditional `#if canImport(Darwin)` block below that defines its AnglesiteRemote/
+    // AnglesiteP2P dependencies (those two have no AnglesiteContainer dependency of their own,
+    // so they stay available even under ANGLESITE_SKIP_CONTAINER=1; this target can't).
+    // Exposed as an SPM executableTarget — not just the Xcode `AnglesiteRemote` app target in
+    // project.yml — so `swift build --product anglesite-remote-helper` produces a real binary
+    // Task 8's HelperContainerE2ETests can spawn as a second process next to the test binary,
+    // matching how P0's `TwoProcessE2ETests` spawns `anglesite-p2p-demo` the same way. No
+    // explicit product entry needed below (mirrors anglesite-p2p-demo): SwiftPM synthesizes an
+    // implicit product for every executable target.
+    packageTargets.append(
+        .executableTarget(
+            name: "anglesite-remote-helper",
+            dependencies: ["AnglesiteRemote", "AnglesiteCore", "AnglesiteContainer", "AnglesiteP2P"],
+            path: "Sources/anglesite-remote-helper",
+            swiftSettings: strictConcurrency,
+            linkerSettings: weakLinkFoundationModels
+        )
+    )
 }
 
 // canImport(Darwin) joins the compiler gate: these targets depend on AnglesiteBridge /
