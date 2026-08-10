@@ -183,7 +183,15 @@ Guardrails — follow strictly:
 
 ## Creating the routine
 
-_(To be filled in by Task 2: date created, routine ID/link.)_
+- **Date created:** 2026-08-10
+- **Routine ID:** `trig_01FVQNJsVAnUC6mDha4HbXd3`
+- **Link:** https://claude.ai/code/routines/trig_01FVQNJsVAnUC6mDha4HbXd3
+
+Created via the `RemoteTrigger` tool (`action: "create"`) with the exact `job_config` body
+shape given in the plan's Task 2, `content` set verbatim to the `## Prompt` section above.
+The create response confirmed `enabled: true`, `cron_expression: ""`, and
+`next_run_at: "0001-01-01T00:00:00Z"` — manual-trigger-only, no schedule, matching the
+disabled/manual state noted in `## Config` above until a dry run is verified clean.
 
 ## Dry-run findings
 
