@@ -80,7 +80,7 @@ public enum MicropubComposerProjection {
             return [.bool(b)]
         case .date(let d):
             guard let d else { return nil }
-            let full = Self.iso.string(from: d)
+            let full = MicropubContentSync.isoWithFractionalSeconds.string(from: d)
             return [.string(kind == .date ? String(full.prefix(10)) : full)]
         case .number(let n):
             guard let n else { return nil }
@@ -99,12 +99,4 @@ public enum MicropubComposerProjection {
         }
     }
 
-    /// Same format as `TypedContentEditor`'s frontmatter dates (internet date-time with
-    /// fractional seconds; `.date` kinds truncate to the `yyyy-MM-dd` prefix), so a value
-    /// round-trips identically whether it reaches the site over Micropub or through a file.
-    private static let iso: ISO8601DateFormatter = {
-        let f = ISO8601DateFormatter()
-        f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        return f
-    }()
 }

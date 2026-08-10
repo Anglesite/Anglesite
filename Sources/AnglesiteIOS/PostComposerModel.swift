@@ -93,17 +93,20 @@ public final class PostComposerModel {
         }
         var restoredURL: URL?
         var restoredStatus: MicropubPostStatus?
+        var restoredBaseline: MicropubPost?
         if let restoringDraft, restoringDraft.typeID == descriptor.id {
             let restored = restoringDraft.editorValues
             for field in descriptor.fields {
                 if let value = restored[field.name] { values[field.name] = value }
             }
             restoredURL = restoringDraft.postURL
+            restoredBaseline = restoringDraft.baseline
             restoredStatus = restoringDraft.queuedStatus
                 .flatMap(MicropubPostStatus.init(rawValue:))
         }
         self.values = values
         self.postURL = restoredURL
+        self.baseline = restoredBaseline
         self.queuedStatus = restoredStatus
         if restoredStatus != nil { self.phase = .waitingForNetwork }
     }
@@ -131,23 +134,30 @@ public final class PostComposerModel {
         let post = try await client.source(url: url)
         let model = PostComposerModel(
             descriptor: descriptor, siteID: siteID, client: client, draftStore: draftStore)
-        model.adopt(post: post, url: url)
+        guard model.adopt(post: post, url: url) else {
+            throw MicropubError.decodingFailed(
+                "post at \(url.absoluteString) doesn't decode into \(descriptor.id)'s fields")
+        }
         return model
     }
 
     /// Replaces the composition's values and baseline with `post` — the open-existing path and
-    /// ``takeTheirs()`` both land here.
-    private func adopt(post: MicropubPost, url: URL) {
+    /// ``takeTheirs()`` both land here. `false` when the post doesn't decode into this
+    /// descriptor's fields (a required field with no resolvable value): adopting it anyway
+    /// would blank the form over a real baseline, and the next save's cleared-property delete
+    /// pass would then wipe the post's actual content server-side (#1370 review) — so the
+    /// caller must surface an error instead.
+    private func adopt(post: MicropubPost, url: URL) -> Bool {
         let slug = MicropubContentSync.collectionAndSlug(from: url.absoluteString)?.slug ?? ""
-        let decoded = MicropubContentSync.values(
+        guard let decoded = MicropubContentSync.values(
             for: descriptor,
             properties: post.properties,
             updatedAt: Int(Date.now.timeIntervalSince1970),
             slug: slug
-        )
+        ) else { return false }
         var values = TypedContentEditor.Values()
         for field in descriptor.fields {
-            values[field.name] = decoded?[field.name]
+            values[field.name] = decoded[field.name]
                 ?? TypedContentEditor.defaultValue(for: field.kind)
         }
         self.values = values
@@ -155,6 +165,7 @@ public final class PostComposerModel {
         self.postURL = url
         self.baseline = post
         self.phase = .editing
+        return true
     }
 
     // MARK: - Send path
@@ -189,10 +200,15 @@ public final class PostComposerModel {
     }
 
     /// Discards this composition's changes in favor of the server's current copy — the owner
-    /// chose the other device's version. Back to editing with the fresh values.
+    /// chose the other device's version. Back to editing with the fresh values; if the site's
+    /// copy doesn't decode into this type's fields, the composition fails visibly instead of
+    /// silently blanking the form over a live baseline.
     public func takeTheirs() {
         guard case .conflict(let theirs) = phase, let url = postURL else { return }
-        adopt(post: theirs, url: url)
+        guard adopt(post: theirs, url: url) else {
+            phase = .failed("The site's copy of this post couldn't be read.")
+            return
+        }
         clearQueuedDraft()
     }
 
@@ -209,18 +225,18 @@ public final class PostComposerModel {
             if let url = postURL {
                 // Compare-and-swap: an existing post is only updated if the server still holds
                 // the copy this composition was loaded from (§6). New posts skip this — there is
-                // nothing to conflict with.
+                // nothing to conflict with. The compare ignores server-injected bookkeeping
+                // (`url`) and stripped-on-store commands (`mp-*`) so only real content edits
+                // read as conflicts.
                 let current = try await client.source(url: url)
-                if let baseline, current != baseline {
+                if let baseline, Self.casComparable(current) != Self.casComparable(baseline) {
                     phase = .conflict(current)
                     return
                 }
                 try await update(url: url, status: status)
-                baseline = try? await client.source(url: url)
             } else {
                 let url = try await create(status: status)
                 postURL = url
-                baseline = try? await client.source(url: url)
             }
             clearQueuedDraft()
             if let url = postURL {
@@ -235,11 +251,28 @@ public final class PostComposerModel {
                 persistQueuedDraft(status: status)
                 phase = .waitingForNetwork
             } else {
+                // Terminal: the same payload can never succeed, so a draft queued by an
+                // earlier retryable failure must not resurrect it as "waiting for network"
+                // on the next launch (#1370 review).
+                clearQueuedDraft()
                 phase = .failed(Self.describe(error))
             }
         } catch {
+            clearQueuedDraft()
             phase = .failed(error.localizedDescription)
         }
+    }
+
+    /// A post's properties with server-side bookkeeping removed, for the compare-and-swap
+    /// equality: `url` (injected by the server, never a content edit) and `mp-*` commands
+    /// (stripped before storing, so a locally-constructed baseline may carry them while a
+    /// `q=source` read never does).
+    private static func casComparable(_ post: MicropubPost) -> MicropubPost {
+        var normalized = post
+        normalized.properties = post.properties.filter { key, _ in
+            key != "url" && !key.hasPrefix("mp-")
+        }
+        return normalized
     }
 
     private func create(status: MicropubPostStatus) async throws -> URL {
@@ -254,7 +287,14 @@ public final class PostComposerModel {
         if let slug = MicropubClient.deriveSlug(title: title) {
             properties["mp-slug"] = [.string(slug)]
         }
-        return try await client.create(MicropubPost(properties: properties))
+        let post = MicropubPost(properties: properties)
+        let url = try await client.create(post)
+        // The new CAS baseline is what was just stored, constructed locally rather than
+        // re-fetched: a failed `try?` refetch used to null the baseline and silently disable
+        // both the conflict check and cleared-property deletes for the rest of the session
+        // (#1370 review). `casComparable` strips the create-only `mp-*` commands on compare.
+        baseline = post
+        return url
     }
 
     private func update(url: URL, status: MicropubPostStatus) async throws {
@@ -271,6 +311,13 @@ public final class PostComposerModel {
             replace: replace,
             delete: cleared.isEmpty ? nil : .properties(cleared)
         )
+        // New baseline = the update applied to the old one, constructed locally (same
+        // no-refetch reasoning as `create`): replaced properties overwrite, cleared ones go,
+        // untouched ones — including other clients' vocabulary — carry over unchanged.
+        var properties = baseline?.properties ?? [:]
+        for name in cleared { properties[name] = nil }
+        for (name, values) in replace { properties[name] = values }
+        baseline = MicropubPost(type: baseline?.type ?? ["h-entry"], properties: properties)
     }
 
     // MARK: - Media
@@ -316,13 +363,22 @@ public final class PostComposerModel {
         let draft = ComposerDraft(
             siteID: siteID, typeID: descriptor.id, postURL: postURL,
             editorValues: values, fieldNames: descriptor.fields.map(\.name),
-            queuedStatus: status?.rawValue)
+            queuedStatus: status?.rawValue,
+            // The CAS baseline persists with a queued update so restoring the draft restores
+            // the conflict guard too, not just the values (#1370 review).
+            baseline: postURL != nil ? baseline : nil)
         try? draftStore.save(draft)
     }
 
     private func clearQueuedDraft() {
         queuedStatus = nil
-        draftStore.clear(forSite: siteID)
+        // Both identities this composition may have persisted under: its pre-create
+        // "new:<type>" file and, once created, its "post:<url>" file — a create transitions
+        // from the first to the second mid-session.
+        draftStore.clear(forSite: siteID, postURL: nil, typeID: descriptor.id)
+        if let postURL {
+            draftStore.clear(forSite: siteID, postURL: postURL, typeID: descriptor.id)
+        }
     }
 
     private static func describe(_ error: MicropubError) -> String {
@@ -383,7 +439,9 @@ public final class PostComposerModel {
             get: { [weak self] in
                 guard let self else { return "" }
                 if let draft = self.numberDrafts[name] { return draft }
-                if case .number(let n?)? = self.values[name] { return Self.displayNumber(n) }
+                if case .number(let n?)? = self.values[name] {
+                    return ComposerNumberFormat.display(n)
+                }
                 return ""
             },
             set: { [weak self] raw in
@@ -421,8 +479,15 @@ public final class PostComposerModel {
         )
     }
 
-    /// Integral values render without a trailing ".0" — same rule as the Mac form.
-    private static func displayNumber(_ n: Double) -> String {
+}
+
+/// The composer's one number-display rule, shared by the top-level form bindings and the
+/// nested record editor so the two can't drift (#1370 review): integral values render without
+/// a trailing ".0" (the magnitude guard avoids the `Int(_:)` overflow trap), mirroring the Mac
+/// form's convention.
+public enum ComposerNumberFormat {
+    /// The display string for a stored number.
+    public static func display(_ n: Double) -> String {
         if n == n.rounded(), abs(n) < 1e15 { return String(Int(n)) }
         return String(n)
     }

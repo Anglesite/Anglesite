@@ -83,11 +83,8 @@ struct PostComposerModelTests {
 
     @Test("a successful save lands savedDraft with the created post's URL")
     func saveDraftCreates() async throws {
-        // The create is a POST; the post-create baseline re-fetch is a q=source GET.
+        // A create is exactly one POST — the CAS baseline is constructed locally, no refetch.
         let box = TransportBox { request in
-            if Self.isSourceFetch(request) {
-                return (Self.sourceJSON(properties: ["content": ["hi"]]), Self.response(200))
-            }
             #expect(request.httpMethod == "POST")
             return (Data(), Self.response(201, headers: ["Location": Self.postURL.absoluteString]))
         }
@@ -151,7 +148,7 @@ struct PostComposerModelTests {
             Issue.record("expected .failed, got \(model.phase)")
             return
         }
-        let queued = store.load(forSite: siteID)
+        let queued = store.loadNewDraft(forSite: siteID, typeID: "note")
         #expect(queued == nil)
     }
 
@@ -167,7 +164,7 @@ struct PostComposerModelTests {
 
         let phase = model.phase
         #expect(phase == .waitingForNetwork)
-        let queued = try #require(store.load(forSite: siteID))
+        let queued = try #require(store.loadNewDraft(forSite: siteID, typeID: "note"))
         #expect(queued.queuedStatus == "published")
         let body = queued.editorValues["body"]
         #expect(body == .text("composed offline"))
@@ -209,7 +206,7 @@ struct PostComposerModelTests {
 
         let phase = model.phase
         #expect(phase == .publishedRebuilding(Self.postURL))
-        let queued = store.load(forSite: siteID)
+        let queued = store.loadNewDraft(forSite: siteID, typeID: "note")
         #expect(queued == nil)
     }
 
@@ -417,5 +414,212 @@ struct PostComposerModelTests {
             data: Data([0xFF, 0xD8]), filename: "a.jpg", mimeType: "image/jpeg")
         #expect(url == URL(string: "https://owner.example/media/a.jpg")!)
         #expect(requestCount == 1)
+    }
+
+    // MARK: - #1370 review regressions
+
+    @Test("a terminal 4xx on retry clears the previously queued draft")
+    func terminalRetryClearsQueuedDraft() async {
+        let store = Self.scratchStore()
+        let siteID = UUID()
+        let box = TransportBox { _ in (Data(), Self.response(503)) }
+        let model = Self.model(transport: box.transport, store: store, siteID: siteID)
+        model.values["body"] = .text("hi")
+        await model.saveDraft()
+        #expect(store.loadNewDraft(forSite: siteID, typeID: "note") != nil)
+
+        // The retry is answered with a validation rejection: the payload can never succeed,
+        // so the on-disk draft must not resurrect it as "waiting for network" next launch.
+        box.handler = { _ in (Data(), Self.response(422)) }
+        await model.retry()
+
+        guard case .failed = model.phase else {
+            Issue.record("expected .failed, got \(model.phase)")
+            return
+        }
+        let queued = store.loadNewDraft(forSite: siteID, typeID: "note")
+        #expect(queued == nil)
+    }
+
+    @Test("CAS survives a completed update — no refetch, baseline constructed locally")
+    func casSurvivesCompletedUpdate() async throws {
+        let original: [String: Any] = ["content": ["original"], "category": ["keep-me"]]
+        nonisolated(unsafe) var capturedReplace: [String: [Any]]?
+        let box = TransportBox { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: original), Self.response(200))
+            }
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+                as? [String: Any]
+            capturedReplace = body?["replace"] as? [String: [Any]]
+            return (Data(), Self.response(204))
+        }
+        let model = try await Self.existingModel(box: box)
+        model.values["body"] = .text("first edit")
+        await model.saveDraft()
+        let firstPhase = model.phase
+        #expect(firstPhase == .savedDraft(Self.postURL))
+
+        // The server now holds exactly what the update wrote. The next save's CAS fetch
+        // returns that state — it must match the locally-constructed baseline (which the old
+        // `try?`-refetch code silently nulled on any blip), so no conflict fires...
+        var serverNow = original
+        for (name, values) in capturedReplace ?? [:] { serverNow[name] = values }
+        model.resumeEditing()
+        model.values["body"] = .text("second edit")
+        box.handler = { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: serverNow), Self.response(200))
+            }
+            return (Data(), Self.response(204))
+        }
+        await model.saveDraft()
+        let secondPhase = model.phase
+        #expect(secondPhase == .savedDraft(Self.postURL))
+
+        // ...while a genuinely concurrent edit still does.
+        model.resumeEditing()
+        model.values["body"] = .text("third edit")
+        box.handler = { request in
+            #expect(Self.isSourceFetch(request), "no update may be sent on a conflict")
+            return (
+                Self.sourceJSON(properties: ["content": ["their concurrent edit"]]),
+                Self.response(200)
+            )
+        }
+        await model.saveDraft()
+        guard case .conflict = model.phase else {
+            Issue.record("expected .conflict, got \(model.phase)")
+            return
+        }
+    }
+
+    @Test("cleared fields still delete on the save after a completed save")
+    func clearedFieldsDeleteAfterPriorSave() async throws {
+        let original: [String: Any] = ["content": ["body"], "category": ["old-tag"]]
+        nonisolated(unsafe) var capturedReplace: [String: [Any]]?
+        let box = TransportBox { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: original), Self.response(200))
+            }
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+                as? [String: Any]
+            capturedReplace = body?["replace"] as? [String: [Any]]
+            return (Data(), Self.response(204))
+        }
+        let model = try await Self.existingModel(box: box)
+        await model.saveDraft()
+
+        // Clear the tags only on the SECOND save: the delete is computed against the
+        // locally-updated baseline, which must still know `category` exists server-side.
+        var serverNow = original
+        for (name, values) in capturedReplace ?? [:] { serverNow[name] = values }
+        model.resumeEditing()
+        model.values["tags"] = .list([])
+        nonisolated(unsafe) var capturedDelete: [String]?
+        box.handler = { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: serverNow), Self.response(200))
+            }
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+                as? [String: Any]
+            capturedDelete = body?["delete"] as? [String]
+            return (Data(), Self.response(204))
+        }
+        await model.saveDraft()
+
+        #expect(capturedDelete == ["category"])
+    }
+
+    @Test("a restored queued update keeps its CAS baseline — retry over a concurrent edit conflicts")
+    func restoredQueuedUpdateKeepsCASBaseline() async {
+        let siteID = UUID()
+        let baseline = MicropubPost(properties: ["content": [.string("original")]])
+        let draft = ComposerDraft(
+            siteID: siteID, typeID: "note", postURL: Self.postURL,
+            values: ["body": .text("my queued edit")], queuedStatus: "draft",
+            baselineJSON: ComposerDraft.encodeBaseline(baseline))
+        let box = TransportBox { request in
+            #expect(Self.isSourceFetch(request), "no update may be sent on a conflict")
+            return (
+                Self.sourceJSON(properties: ["content": ["their concurrent edit"]]),
+                Self.response(200)
+            )
+        }
+        let model = PostComposerModel(
+            descriptor: Self.noteDescriptor(), siteID: siteID,
+            client: MicropubClient(
+                endpoint: Self.endpoint, accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+                transport: box.transport),
+            draftStore: Self.scratchStore(),
+            restoringDraft: draft)
+        let restoredPhase = model.phase
+        #expect(restoredPhase == .waitingForNetwork)
+
+        await model.retry()
+
+        guard case .conflict(let theirs) = model.phase else {
+            Issue.record("expected .conflict, got \(model.phase)")
+            return
+        }
+        let theirContent = theirs.firstString("content")
+        #expect(theirContent == "their concurrent edit")
+    }
+
+    @Test("openExisting throws for a post whose required field can't be decoded")
+    func openExistingUndecodableThrows() async {
+        // `photo` requires its `image` field, which has no decode fallback — a source post
+        // without `photo` must fail the open, never silently blank the form over a live
+        // baseline (whose delete pass would then wipe the post server-side).
+        let box = TransportBox { _ in
+            (Self.sourceJSON(properties: ["summary": ["a caption, no image"]]), Self.response(200))
+        }
+        let photo = ContentTypeRegistry.default.descriptor(id: "photo")!
+        do {
+            _ = try await PostComposerModel.openExisting(
+                url: URL(string: "https://owner.example/photos/p1")!,
+                descriptor: photo,
+                siteID: UUID(),
+                client: MicropubClient(
+                    endpoint: Self.endpoint, accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+                    transport: box.transport))
+            Issue.record("expected openExisting to throw")
+        } catch let error as MicropubError {
+            guard case .decodingFailed = error else {
+                Issue.record("expected .decodingFailed, got \(error)")
+                return
+            }
+        } catch {
+            Issue.record("expected MicropubError, got \(error)")
+        }
+    }
+
+    @Test("queued-update and new-composition drafts coexist per site, each behind its own key")
+    func draftStoreKeysByIdentity() throws {
+        let store = Self.scratchStore()
+        let siteID = UUID()
+        let newNote = ComposerDraft(
+            siteID: siteID, typeID: "note", postURL: nil,
+            values: ["body": .text("fresh note")])
+        let queuedUpdate = ComposerDraft(
+            siteID: siteID, typeID: "article", postURL: Self.postURL,
+            values: ["body": .text("queued update")], queuedStatus: "published")
+        try store.save(newNote)
+        try store.save(queuedUpdate)
+
+        // Neither overwrote the other, and neither entry point sees the wrong one: "New Post"
+        // never surfaces a queued update, and the post's own reopen path finds its edit.
+        let restoredNew = store.loadNewDraft(forSite: siteID, typeID: "note")
+        #expect(restoredNew == newNote)
+        let restoredQueued = store.loadDraft(forSite: siteID, postURL: Self.postURL)
+        #expect(restoredQueued == queuedUpdate)
+        let noArticleNew = store.loadNewDraft(forSite: siteID, typeID: "article")
+        #expect(noArticleNew == nil)
+
+        store.clear(queuedUpdate)
+        let cleared = store.loadDraft(forSite: siteID, postURL: Self.postURL)
+        #expect(cleared == nil)
+        let survivor = store.loadNewDraft(forSite: siteID, typeID: "note")
+        #expect(survivor == newNote)
     }
 }

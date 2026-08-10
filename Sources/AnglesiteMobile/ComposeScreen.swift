@@ -149,18 +149,61 @@ struct ComposeScreen: View {
     /// Resolves when the network path is satisfied — the waiting-for-network state's automatic
     /// retry trigger while the app is running. (OS-scheduled background retry after the app
     /// exits is the design's noted follow-up; the queued draft persists either way.)
+    ///
+    /// Honors task cancellation: SwiftUI cancels the enclosing `.task` when the composer goes
+    /// away, and a bare `withCheckedContinuation` would leave the monitor and a suspended
+    /// continuation alive until the device's network actually returned (#1370 review). The
+    /// caller re-checks `Task.isCancelled` after this returns, so an early cancel-resume never
+    /// triggers a retry.
     private static func waitForNetwork() async {
         let monitor = NWPathMonitor()
         defer { monitor.cancel() }
-        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-            monitor.pathUpdateHandler = { path in
-                if path.status == .satisfied {
-                    monitor.pathUpdateHandler = nil
-                    continuation.resume()
+        let gate = ContinuationGate()
+        await withTaskCancellationHandler {
+            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+                gate.arm(continuation)
+                monitor.pathUpdateHandler = { path in
+                    if path.status == .satisfied { gate.resume() }
                 }
+                monitor.start(queue: DispatchQueue(label: "io.dwk.anglesite.network-wait"))
             }
-            monitor.start(queue: DispatchQueue(label: "io.dwk.anglesite.network-wait"))
+        } onCancel: {
+            gate.resume()
         }
+    }
+}
+
+/// Resumes a `Void` continuation exactly once, from whichever of the path-satisfied callback or
+/// the cancellation handler fires first — both race on background queues, and a double resume
+/// is a crash while a dropped one is a leak.
+private final class ContinuationGate: @unchecked Sendable {
+    private let lock = NSLock()
+    private var continuation: CheckedContinuation<Void, Never>?
+    /// Set when `resume()` ran before `arm(_:)` — cancellation can fire before the
+    /// continuation exists; arming after that resumes immediately.
+    private var resumedEarly = false
+
+    func arm(_ continuation: CheckedContinuation<Void, Never>) {
+        lock.lock()
+        if resumedEarly {
+            lock.unlock()
+            continuation.resume()
+            return
+        }
+        self.continuation = continuation
+        lock.unlock()
+    }
+
+    func resume() {
+        lock.lock()
+        guard let continuation else {
+            resumedEarly = true
+            lock.unlock()
+            return
+        }
+        self.continuation = nil
+        lock.unlock()
+        continuation.resume()
     }
 }
 
@@ -590,7 +633,7 @@ private struct ObjectArrayEditor: View {
             get: {
                 if let draft = numberDrafts[rowID]?[name] { return draft }
                 if case .number(let n?)? = values.wrappedValue[name] {
-                    return Self.displayNumber(n)
+                    return ComposerNumberFormat.display(n)
                 }
                 return ""
             },
@@ -604,10 +647,5 @@ private struct ObjectArrayEditor: View {
                 }
             }
         )
-    }
-
-    private static func displayNumber(_ n: Double) -> String {
-        if n == n.rounded(), abs(n) < 1e15 { return String(Int(n)) }
-        return String(n)
     }
 }

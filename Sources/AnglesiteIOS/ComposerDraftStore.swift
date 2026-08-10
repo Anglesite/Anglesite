@@ -1,5 +1,6 @@
 // Sources/AnglesiteIOS/ComposerDraftStore.swift
 import Foundation
+import CryptoKit
 import AnglesiteCore
 
 /// One in-progress or queued composition, as plain `Codable` state on disk — the iOS design's
@@ -19,17 +20,22 @@ public struct ComposerDraft: Codable, Equatable, Sendable {
     /// The status the pending send should stamp (`draft` for Save, `published` for Publish);
     /// `nil` while merely composing (nothing queued yet).
     public var queuedStatus: String?
+    /// The compare-and-swap baseline for a queued *update* — the `{type, properties}` JSON of
+    /// the post as it was when editing began — so restoring the draft restores the CAS guard
+    /// too, not just the values (#1370 review). `nil` for new posts.
+    public var baselineJSON: Data?
 
     /// Creates a draft snapshot.
     public init(
         siteID: UUID, typeID: String, postURL: URL? = nil,
-        values: [String: Value], queuedStatus: String? = nil
+        values: [String: Value], queuedStatus: String? = nil, baselineJSON: Data? = nil
     ) {
         self.siteID = siteID
         self.typeID = typeID
         self.postURL = postURL
         self.values = values
         self.queuedStatus = queuedStatus
+        self.baselineJSON = baselineJSON
     }
 
     /// A `Codable` mirror of `TypedContentEditor.FieldValue` (which is deliberately not
@@ -70,7 +76,8 @@ public struct ComposerDraft: Codable, Equatable, Sendable {
     /// Snapshot of a live editing session's values.
     public init(
         siteID: UUID, typeID: String, postURL: URL?,
-        editorValues: TypedContentEditor.Values, fieldNames: [String], queuedStatus: String? = nil
+        editorValues: TypedContentEditor.Values, fieldNames: [String],
+        queuedStatus: String? = nil, baseline: MicropubPost? = nil
     ) {
         var values: [String: Value] = [:]
         for name in fieldNames {
@@ -78,7 +85,8 @@ public struct ComposerDraft: Codable, Equatable, Sendable {
         }
         self.init(
             siteID: siteID, typeID: typeID, postURL: postURL,
-            values: values, queuedStatus: queuedStatus)
+            values: values, queuedStatus: queuedStatus,
+            baselineJSON: baseline.flatMap(Self.encodeBaseline))
     }
 
     /// The editor values this draft restores to.
@@ -87,12 +95,43 @@ public struct ComposerDraft: Codable, Equatable, Sendable {
         for (name, value) in values { out[name] = value.fieldValue }
         return out
     }
+
+    /// The restored CAS baseline, when one was captured and still decodes.
+    public var baseline: MicropubPost? {
+        baselineJSON.flatMap(Self.decodeBaseline)
+    }
+
+    /// Serializes a post's `{type, properties}` through its `JSONValue` raw form — the same
+    /// wire shape `q=source` returns, so the round-trip is lossless for anything the server
+    /// can store.
+    static func encodeBaseline(_ post: MicropubPost) -> Data? {
+        let object: [String: Any] = [
+            "type": post.type,
+            "properties": post.properties.mapValues { $0.map(\.rawValue) },
+        ]
+        return try? JSONSerialization.data(withJSONObject: object)
+    }
+
+    static func decodeBaseline(_ data: Data) -> MicropubPost? {
+        guard let object = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let rawType = object["type"] as? [Any],
+              let rawProperties = object["properties"] as? [String: [Any]]
+        else { return nil }
+        let type = rawType.compactMap { $0 as? String }
+        guard !type.isEmpty else { return nil }
+        var properties: [String: [JSONValue]] = [:]
+        for (key, values) in rawProperties {
+            properties[key] = values.compactMap(JSONValue.from)
+        }
+        return MicropubPost(type: type, properties: properties)
+    }
 }
 
-/// Reads and writes the single per-site current draft under Application Support — one file per
-/// site (`micropub-draft-<siteID>.json`), because the composer edits one post at a time and the
-/// restore contract covers "any in-progress draft", singular (§3). Injectable directory so tests
-/// point it at a scratch location.
+/// Reads and writes composer drafts under Application Support, one file per draft identity —
+/// a queued update keyed by its post URL, a new composition keyed by its content type — so a
+/// failed "note" send is never silently clobbered by a later "article" composition on the same
+/// site (#1370 review; the original single-per-site file lost queued sends that way).
+/// Injectable directory so tests point it at a scratch location.
 public struct ComposerDraftStore: Sendable {
     private let directory: URL
 
@@ -103,26 +142,63 @@ public struct ComposerDraftStore: Sendable {
                 .appendingPathComponent("Anglesite", isDirectory: true)
     }
 
-    private func fileURL(forSite siteID: UUID) -> URL {
-        directory.appendingPathComponent("micropub-draft-\(siteID.uuidString).json")
+    /// A draft's stable identity: the post it updates, or — for a not-yet-created post — the
+    /// content type it composes. Two different posts (or a post and a new composition) never
+    /// share a file.
+    static func key(postURL: URL?, typeID: String) -> String {
+        postURL.map { "post:\($0.absoluteString)" } ?? "new:\(typeID)"
     }
 
-    /// Persists `draft` as its site's current draft, replacing any previous one.
+    private func fileURL(forSite siteID: UUID, key: String) -> URL {
+        // Hashed: post URLs aren't filesystem-safe and can exceed name-length limits.
+        let digest = SHA256.hash(data: Data(key.utf8))
+            .map { String(format: "%02x", $0) }.joined().prefix(16)
+        return directory.appendingPathComponent(
+            "micropub-draft-\(siteID.uuidString)-\(digest).json")
+    }
+
+    /// Persists `draft` under its identity, replacing any previous draft of the same identity
+    /// only.
     public func save(_ draft: ComposerDraft) throws {
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         let data = try JSONEncoder().encode(draft)
-        try data.write(to: fileURL(forSite: draft.siteID), options: .atomic)
+        let key = Self.key(postURL: draft.postURL, typeID: draft.typeID)
+        try data.write(to: fileURL(forSite: draft.siteID, key: key), options: .atomic)
     }
 
-    /// The site's current draft, or `nil` when none is stored (or the stored one no longer
-    /// decodes — stale-format state restores as a fresh start, never a crash).
-    public func load(forSite siteID: UUID) -> ComposerDraft? {
-        guard let data = try? Data(contentsOf: fileURL(forSite: siteID)) else { return nil }
+    /// The site's in-progress *new* composition of `typeID`, or `nil`. Never returns a queued
+    /// update to an existing post — the "New Post" entry point must never silently resume an
+    /// unrelated post's pending edit (#1370 review).
+    public func loadNewDraft(forSite siteID: UUID, typeID: String) -> ComposerDraft? {
+        guard let draft = load(forSite: siteID, key: Self.key(postURL: nil, typeID: typeID)),
+              draft.postURL == nil
+        else { return nil }
+        return draft
+    }
+
+    /// The site's queued/in-progress draft for the existing post at `postURL`, or `nil` — how
+    /// reopening a post from the list discovers its own pending edit (#1370 review).
+    public func loadDraft(forSite siteID: UUID, postURL: URL) -> ComposerDraft? {
+        load(forSite: siteID, key: Self.key(postURL: postURL, typeID: ""))
+    }
+
+    private func load(forSite siteID: UUID, key: String) -> ComposerDraft? {
+        guard let data = try? Data(contentsOf: fileURL(forSite: siteID, key: key)) else {
+            return nil
+        }
+        // Stale-format state restores as a fresh start, never a crash.
         return try? JSONDecoder().decode(ComposerDraft.self, from: data)
     }
 
-    /// Removes the site's current draft (after a successful send, or an explicit discard).
-    public func clear(forSite siteID: UUID) {
-        try? FileManager.default.removeItem(at: fileURL(forSite: siteID))
+    /// Removes the draft with `draft`'s identity (after a successful send, a terminal
+    /// rejection, or an explicit discard).
+    public func clear(_ draft: ComposerDraft) {
+        clear(forSite: draft.siteID, postURL: draft.postURL, typeID: draft.typeID)
+    }
+
+    /// Removes the draft for the given identity.
+    public func clear(forSite siteID: UUID, postURL: URL?, typeID: String) {
+        let key = Self.key(postURL: postURL, typeID: typeID)
+        try? FileManager.default.removeItem(at: fileURL(forSite: siteID, key: key))
     }
 }

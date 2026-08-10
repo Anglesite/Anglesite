@@ -309,17 +309,35 @@ private struct ComposerPane: View {
                 return
             }
             let store = ComposerDraftStore()
-            let draft = store.load(forSite: siteID)
             model = PostComposerModel(
                 descriptor: descriptor,
                 siteID: siteID,
                 client: session.makeClient(),
                 draftStore: store,
-                restoringDraft: draft?.typeID == typeID ? draft : nil
+                // Only a genuinely-new draft of this type restores here — a queued *update*
+                // to an existing post must never resume from the "New Post" entry point
+                // (#1370 review); it surfaces when that post itself is reopened, below.
+                restoringDraft: store.loadNewDraft(forSite: siteID, typeID: typeID)
             )
         case .existing(let item):
             guard let descriptor = postList?.descriptor(for: item) else {
                 loadFailure = String(localized: "This post's type isn't one this app can edit.")
+                return
+            }
+            let store = ComposerDraftStore()
+            // A queued/pending edit for this very post takes precedence over the server copy:
+            // reopening the post is the natural recovery path after a failed send, so the
+            // pending edit (and its waiting-for-network state) must be discoverable here, not
+            // hidden behind a fresh fetch (#1370 review).
+            if let pending = store.loadDraft(forSite: siteID, postURL: item.id),
+               pending.typeID == descriptor.id {
+                model = PostComposerModel(
+                    descriptor: descriptor,
+                    siteID: siteID,
+                    client: session.makeClient(),
+                    draftStore: store,
+                    restoringDraft: pending
+                )
                 return
             }
             do {
@@ -327,7 +345,8 @@ private struct ComposerPane: View {
                     url: item.id,
                     descriptor: descriptor,
                     siteID: siteID,
-                    client: session.makeClient()
+                    client: session.makeClient(),
+                    draftStore: store
                 )
             } catch {
                 loadFailure = String(localized: "The post couldn't be loaded from your site.")

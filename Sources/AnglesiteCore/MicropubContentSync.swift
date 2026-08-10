@@ -93,7 +93,9 @@ public enum MicropubContentSync {
         slug.split(separator: "-").map { $0.capitalized }.joined(separator: " ")
     }
 
-    private static let isoWithFractionalSeconds: ISO8601DateFormatter = {
+    /// Internal (not file-private) so `MicropubComposerProjection` shares this instance rather
+    /// than declaring an identically-configured duplicate (#1370 review).
+    static let isoWithFractionalSeconds: ISO8601DateFormatter = {
         let f = ISO8601DateFormatter()
         f.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         return f
