@@ -25,6 +25,10 @@ private struct SessionWebAuthenticator: SiteWebAuthenticating {
 /// web-auth sheet; the resulting token stays in the Keychain, scoped to this site.
 struct SiteSignInScreen: View {
     let site: SitePickerModel.DiscoveredSite
+    /// Fired whenever this screen's flow reaches the signed-in state — including a restore
+    /// found on configure — so an embedding shell (`SiteSplitScreen`, #869) can re-resolve the
+    /// site's session and swap in the posting surfaces.
+    var onAuthenticated: () -> Void = {}
 
     @Environment(\.webAuthenticationSession) private var webAuthenticationSession
     @State private var model: MicropubOnboardingModel?
@@ -42,7 +46,12 @@ struct SiteSignInScreen: View {
                     webAuthenticator: SessionWebAuthenticator(session: webAuthenticationSession))
                 self.model = model
                 await model.configure(site: site)
+                notifyIfSignedIn()
             }
+    }
+
+    private func notifyIfSignedIn() {
+        if case .signedIn = model?.state { onAuthenticated() }
     }
 
     @ViewBuilder
@@ -94,7 +103,10 @@ struct SiteSignInScreen: View {
                 .multilineTextAlignment(.center)
                 .foregroundStyle(.secondary)
             Button {
-                Task { await model?.signIn() }
+                Task {
+                    await model?.signIn()
+                    notifyIfSignedIn()
+                }
             } label: {
                 Text("Sign In")
                     .frame(maxWidth: .infinity)
@@ -164,7 +176,10 @@ struct SiteSignInScreen: View {
 
     private var retryButton: some View {
         Button("Try Again") {
-            Task { await model?.signIn() }
+            Task {
+                await model?.signIn()
+                notifyIfSignedIn()
+            }
         }
         .buttonStyle(.borderedProminent)
     }

@@ -7,13 +7,14 @@ import AnglesiteCore
 /// iPad (sites/content-types sidebar, post list, composer), collapsing to a single
 /// `NavigationStack` on iPhone. Single scene, no multi-window for v1.
 ///
-/// Sessions come from a ``MicropubSessionProviding`` — the seam the IndieAuth onboarding issue
-/// (#868) fills in. Until a site has a session, its panes show the sign-in-required state; there
-/// is no unauthenticated browse path (design §6).
+/// Sessions come from a ``MicropubSessionProviding`` — in production
+/// ``StoredMicropubSessions``, which assembles a session from the credential the IndieAuth
+/// onboarding flow (#868) stored plus a fresh endpoint discovery. A site with no stored
+/// credential shows `SiteSignInScreen` in the content pane; there is no unauthenticated browse
+/// path (design §6).
 struct SiteSplitScreen: View {
-    /// The session source; the default reads every site as signed out until #868's provider
-    /// replaces it.
-    var sessions: any MicropubSessionProviding = NoMicropubSessions()
+    /// The session source; previews/tests can substitute ``NoMicropubSessions`` or a fake.
+    var sessions: any MicropubSessionProviding = StoredMicropubSessions()
 
     @State private var sitePicker = SitePickerModel()
     @State private var selectedSite: SitePickerModel.DiscoveredSite?
@@ -177,7 +178,13 @@ struct SiteSplitScreen: View {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .signedOut:
-                signInRequired
+                // #868's onboarding flow, embedded: when it lands signed-in, re-resolve so
+                // the freshly stored credential becomes this shell's session.
+                if let site = selectedSite {
+                    SiteSignInScreen(site: site) {
+                        Task { await resolveSession() }
+                    }
+                }
             case .ready:
                 if let postList {
                     PostListScreen(
@@ -206,16 +213,6 @@ struct SiteSplitScreen: View {
             selection = .new(typeID: selectedTypeID ?? "note")
         } label: {
             Label("New Post", systemImage: "square.and.pencil")
-        }
-    }
-
-    /// The conformance/onboarding gate state: names the requirement instead of degrading
-    /// silently (design §1/§7). The actual sign-in flow is #868's.
-    private var signInRequired: some View {
-        ContentUnavailableView {
-            Label("Sign In to Post", systemImage: "person.badge.key")
-        } description: {
-            Text("Posting to this site needs a sign-in with your site itself. Site sign-in arrives with IndieAuth onboarding.")
         }
     }
 
@@ -251,7 +248,7 @@ struct SiteSplitScreen: View {
             return
         }
         sessionState = .checking
-        let resolved = await sessions.session(forSite: site.id)
+        let resolved = await sessions.session(for: site)
         // The site may have changed while resolving; only publish for the current one.
         guard site == selectedSite else { return }
         if let resolved {
