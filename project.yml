@@ -211,6 +211,8 @@ targets:
       - package: Anglesite
         product: AnglesiteBridge
       - package: Anglesite
+        product: AnglesiteIntents
+      - package: Anglesite
         product: AnglesiteIOS
 
   AnglesiteQuickLookPreview:
