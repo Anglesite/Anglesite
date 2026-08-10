@@ -52,7 +52,7 @@ extension WYSIWYGCanvasController: WYSIWYGHostTransport {
     /// No-op for now: PR1 has no host-initiated push into an already-mounted controller (no
     /// external-edit trigger exists yet — see `StubWYSIWYGHostTransport.onModelUpdate`). `async`
     /// to match `WYSIWYGHostTransport`'s protocol requirement.
-    func onModelUpdate(_ listener: @escaping @Sendable (BlockModel) -> Void) async -> () -> Void {
+    func onModelUpdate(_ listener: @escaping @Sendable (BlockModel) -> Void) async -> @Sendable () -> Void {
         {}
     }
 }
