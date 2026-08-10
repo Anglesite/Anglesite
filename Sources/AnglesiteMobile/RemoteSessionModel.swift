@@ -41,6 +41,64 @@ public final class RemoteSessionModel {
         }
     }
 
+    // MARK: Connect flow
+
+    /// Progress of the verify-then-persist connect flow (#889), consumed by the connect form's
+    /// status line. Mirrors `DeployModel.TokenVerification` on macOS.
+    public enum ConnectionCheck: Equatable {
+        /// Nothing in flight — the form's resting state.
+        case idle
+        /// The status probe against the drafted Worker URL + token is running.
+        case checking
+        /// The Worker answered — the success flash, before settling back to ``idle``.
+        case connected
+        /// Verification failed; the form stays editable with `message` inline.
+        case failed(message: String)
+    }
+
+    /// SwiftUI-observable progress of the connect flow. Only ``connect(workerURLString:token:siteID:)``
+    /// writes it.
+    public private(set) var connectionCheck: ConnectionCheck = .idle
+
+    /// Verify the drafted Worker URL / token / site ID against the Worker, and persist them into
+    /// the existing stores (UserDefaults / Keychain, via the property `didSet`s) only if the
+    /// Worker answers. The drafts live in the form; nothing here is stored until verification
+    /// succeeds — the whole point of #889's verify-then-persist rework.
+    public func connect(workerURLString: String, token: String, siteID: String) async {
+        guard connectionCheck != .checking else { return }
+        connectionCheck = .checking
+
+        let onboarding = SandboxControlOnboarding(makeClient: {
+            HTTPSandboxControlClient(workerBaseURL: $0, apiToken: $1)
+        })
+        let outcome = await onboarding.run(
+            workerURLString: workerURLString,
+            token: token,
+            siteID: siteID,
+            persist: { credentials in
+                // `controlToken`'s `didSet` try?-swallows Keychain errors (a `didSet` can't
+                // throw), which would turn a failed write into a false "connected" flash and a
+                // silently unconfigured app on next launch. Write the token explicitly first so
+                // a Keychain failure genuinely throws and surfaces as `.stay`; the `didSet`'s
+                // repeat write of the same value is then a harmless no-op-equivalent.
+                try self.secretStore.write(credentials.token, account: SecretAccounts.sandboxControlToken)
+                self.workerURLString = credentials.workerURLString
+                self.controlToken = credentials.token
+                self.siteID = credentials.siteID
+            },
+            onConnected: { _ in self.connectionCheck = .connected },
+            delay: { try? await Task.sleep(for: .milliseconds(700)) },
+            isCancelled: { Task.isCancelled }
+        )
+
+        switch outcome {
+        case .proceed, .abort:
+            connectionCheck = .idle
+        case .stay(let message):
+            connectionCheck = .failed(message: message)
+        }
+    }
+
     // MARK: Session
 
     /// SwiftUI-observable mirror of the runtime's state stream. Read-only to views: state
@@ -95,9 +153,10 @@ public final class RemoteSessionModel {
 
     /// ``workerURLString`` parsed and validated (http/https scheme required); `nil` while the
     /// field is empty or malformed. The form binds the string, everything else consumes this.
+    /// Delegates to the shared rule in `SandboxControlOnboarding` so the start and verify paths
+    /// can't drift on what they accept.
     public var workerURL: URL? {
-        guard let url = URL(string: workerURLString), url.scheme?.hasPrefix("http") == true else { return nil }
-        return url
+        SandboxControlOnboarding.workerURL(from: workerURLString)
     }
 
     /// ``gitRemoteString`` parsed and validated (any scheme accepted — https and ssh remotes are
