@@ -131,20 +131,14 @@ struct PlistEditorModelInboxCaptureTests {
     @Test("without a token, leaves the toggle off with an error and makes no capability-probe call")
     func turnOnWithoutToken() async throws {
         // `cloudflareToken()` falls back to the process-wide `CLOUDFLARE_API_TOKEN` env var when
-        // the keychain is empty. A couple of sibling test files (DomainConfigAuditModelTests,
-        // OnionRoutingModelTests) `setenv` that var without restoring it, and Swift Testing runs
-        // same-target tests concurrently in one process — so without this save/clear/restore,
-        // this test is flaky under a full-suite parallel run whenever one of those leaks the var
-        // into this test's window.
-        let previousEnvToken = ProcessInfo.processInfo.environment["CLOUDFLARE_API_TOKEN"]
-        unsetenv("CLOUDFLARE_API_TOKEN")
-        defer {
-            if let previousEnvToken {
-                setenv("CLOUDFLARE_API_TOKEN", previousEnvToken, 1)
-            } else {
-                unsetenv("CLOUDFLARE_API_TOKEN")
-            }
-        }
+        // the keychain is empty, and sibling suites (DomainConfigAuditModelTests, HardenModelTests,
+        // OnionRoutingModelTests) legitimately hold that var *set* while their own tests run, via
+        // `CloudflareAPITokenTestEnvironment`. Claim the exclusive "cleared" state through that
+        // same coordinator rather than calling `unsetenv` directly: a raw unset yanks the var out
+        // from under a concurrent setter's claim, and a snapshot/restore `defer` can re-plant a
+        // stale value after that setter has released — both were real cross-suite flakes (#1375).
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
+        defer { cfToken.release() }
 
         let fixture = try await makeFixture(token: nil, proberTransport: { _ in
             Issue.record("capability prober must not be called without a token")
