@@ -85,6 +85,63 @@ struct WYSIWYGCanvasControllerTests {
         #expect(controller.selectedBlockId == nil)
     }
 
+    @Test("sendOp forwards the envelope's own targetVersion verbatim instead of re-deriving from model.version")
+    func sendOpForwardsRealTargetVersion() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let transport = StubWYSIWYGHostTransport(model: initial)
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        // Simulate the model having moved on natively (e.g. a menu-driven edit) since the JS
+        // engine last synced — its stale envelope should be rejected as a version mismatch, not
+        // silently re-targeted against the controller's current `model.version` and accepted.
+        await controller.submit(.setDesignToken(tokenName: "t", value: "a", previousValue: "b"))
+        let currentVersion = controller.model.version
+        #expect(currentVersion != "v0")
+
+        let staleOp = Op.insertBlock(parentId: rootParentID, slot: "main", index: 0, newId: "b1", block: BlockNodeContent(kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0]))
+        let staleEnvelope = OpEnvelope(id: "req-1", targetVersion: "v0", op: staleOp) // stale: model has since moved to `currentVersion`
+        let result = await controller.sendOp(staleEnvelope)
+
+        guard case .rejected(let reason, _, _) = result else {
+            Issue.record("expected .rejected for a stale targetVersion, got \(result)")
+            return
+        }
+        #expect(reason == .versionMismatch)
+        #expect(controller.model.rootIds.isEmpty) // the stale insert must not have landed
+
+        // A correctly-versioned envelope still applies and fires onOpApplied with the real op.
+        var reported: (op: Op, inverse: Op)?
+        controller.onOpApplied = { op, inverse, _ in reported = (op, inverse) }
+        let freshEnvelope = OpEnvelope(id: "req-2", targetVersion: controller.model.version, op: staleOp)
+        let freshResult = await controller.sendOp(freshEnvelope)
+
+        #expect(freshResult.isApplied)
+        #expect(controller.model.rootIds == ["b1"])
+        #expect(reported?.op == staleOp)
+        #expect(reported?.inverse == WYSIWYGOpInverter.invert(staleOp))
+    }
+
+    @Test("mountScript(for:) builds a mount(...) call carrying the model's exact JSON encoding")
+    func mountScriptBuildsCall() throws {
+        let node = BlockNode(id: "b1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 5])
+        let model = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["b1"], blocks: ["b1": node])
+
+        let script = WYSIWYGCanvasController.mountScript(for: model)
+
+        #expect(script.hasPrefix("window.__anglesiteWysiwygMount?.mount("))
+        #expect(script.hasSuffix(")"))
+        // Round-trip the embedded JSON back through BlockModel to prove it's a faithful encoding,
+        // not just a prefix/suffix match on the wrapper string.
+        let jsonStart = script.index(script.startIndex, offsetBy: "window.__anglesiteWysiwygMount?.mount(".count)
+        let json = String(script[jsonStart..<script.index(before: script.endIndex)])
+        let decoded = try JSONDecoder().decode(BlockModel.self, from: Data(json.utf8))
+        #expect(decoded == model)
+    }
+
+    @Test("unmountScript is the literal unmount() call")
+    func unmountScriptLiteral() {
+        #expect(WYSIWYGCanvasController.unmountScript == "window.__anglesiteWysiwygMount?.unmount?.()")
+    }
+
     @Test("insertBlock inserts the palette entry's component at the page root")
     func insertBlockFromPalette() async {
         let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])

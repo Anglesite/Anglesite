@@ -68,6 +68,35 @@ struct PreviewNavigationCommands: Commands {
             .disabled(focusedPreview?.hasWebView != true || focusedPreview?.canZoomOut != true)
 
             Divider()
+
+            // Site ▸ Edit Page (#1225): the WYSIWYG canvas toggle — mounts/tears down
+            // `WYSIWYGCanvasController` against the existing preview pane (`PreviewModel
+            // .enterEditMode(seedModel:)`/`.exitEditMode()`). `Toggle` (not `Button`) so the menu
+            // shows a checkmark while edit mode is on, same convention `ViewMenuCommands`'s pane
+            // switcher uses. Gated on `hasWebView` (not `canDeploy`/`state`) since edit mode reuses
+            // the live preview web view directly and has no requirements beyond it existing.
+            Toggle("Edit Page", isOn: editModeBinding)
+                .disabled(focusedPreview?.hasWebView != true)
         }
+    }
+
+    /// Drives `PreviewModel.enterEditMode(seedModel:)`/`.exitEditMode()` from the Toggle above.
+    /// `seedModel` is a placeholder empty page — #1222's sidecar `get_page_model` fetch is still
+    /// blocked, so there is no real page model to seed the canvas with yet; this exists purely to
+    /// exercise the vertical slice (mount → context menu → ops → undo) until that lands.
+    private var editModeBinding: Binding<Bool> {
+        Binding(
+            get: { focusedPreview?.isEditModeEnabled ?? false },
+            set: { isOn in
+                guard let focusedPreview else { return }
+                if isOn {
+                    let seed = BlockModel(
+                        path: focusedPreview.activeRoute ?? "/", version: "v0", rootIds: [], blocks: [:])
+                    Task { await focusedPreview.enterEditMode(seedModel: seed) }
+                } else {
+                    focusedPreview.exitEditMode()
+                }
+            }
+        )
     }
 }

@@ -7,7 +7,7 @@ declare global {
   interface Window {
     __anglesiteWysiwygEngine?: WysiwygEngine;
     __anglesiteWysiwygRichTextEditor?: RichTextEditor;
-    __anglesiteWysiwygMount?: { mount: (initialModel: BlockModel) => WysiwygEngine };
+    __anglesiteWysiwygMount?: { mount: (initialModel: BlockModel) => WysiwygEngine; unmount: () => void };
   }
 }
 
@@ -24,6 +24,19 @@ window.__anglesiteWysiwygMount = {
     // a different task; this only makes the instance reachable.
     window.__anglesiteWysiwygRichTextEditor = new RichTextEditor(engine);
     return engine;
+  },
+  // The counterpart to `mount` — called by `WYSIWYGCanvasController.unmountEngine()` (#1225
+  // final-review fix wave, Findings 1/6) when Site ▸ Edit Page toggles off, or `PreviewView`'s
+  // `updateNSView` observes the mounted controller change out from under an already-loaded page.
+  // Disposes both globals' listeners (`WysiwygEngine.dispose()`/`RichTextEditor.dispose()` — the
+  // latter also exits any in-progress edit, flushing a pending debounced commit) and clears the
+  // globals so a stale `window.__anglesiteWysiwygEngine` can't answer a hit-test or accept an op
+  // after the native side considers edit mode off.
+  unmount(): void {
+    window.__anglesiteWysiwygRichTextEditor?.dispose();
+    window.__anglesiteWysiwygEngine?.dispose();
+    window.__anglesiteWysiwygRichTextEditor = undefined;
+    window.__anglesiteWysiwygEngine = undefined;
   },
 };
 

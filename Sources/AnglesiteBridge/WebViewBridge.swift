@@ -13,6 +13,13 @@ public enum WebViewBridge {
     /// `AnglesiteMessageDispatcher.scriptMessageNamespace`.
     public static let scriptMessageNamespace = AnglesiteMessageDispatcher.scriptMessageNamespace
 
+    /// The WYSIWYG ops-protocol script-message namespace — see
+    /// `WYSIWYGOpsDispatcher.scriptMessageNamespace`. Re-exported here (mirroring
+    /// `scriptMessageNamespace` above) so `AnglesiteApp`'s `PreviewView` can register/unregister
+    /// the WYSIWYG `WKScriptMessageHandler` from `updateNSView` (#1225 final-review fix wave,
+    /// Finding 6) without needing a direct `AnglesiteBridgeCore` package dependency.
+    public static let wysiwygScriptMessageNamespace = WYSIWYGOpsDispatcher.scriptMessageNamespace
+
     /// A `WKWebViewConfiguration` tuned for previewing a local Astro dev server. In Debug builds it
     /// uses a non-persistent data store so nothing is cached between launches (the dev server moves
     /// fast); in Release it uses the default store. When `handler` is provided it is registered on

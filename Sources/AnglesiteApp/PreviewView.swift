@@ -44,6 +44,13 @@ struct PreviewView: NSViewRepresentable {
     /// Defaults to a no-op for callers that don't track the web view.
     var onWebViewDismantled: (WKWebView) -> Void = { _ in }
 
+    /// DOM `clientX`/`clientY` (top-left origin) → AppKit view space (bottom-left origin, since
+    /// `WKWebView` is non-flipped) for `NSMenu.popUp(positioning:at:in:)`. A pure function so it's
+    /// testable without a real `WKWebView` (#1225 final-review fix wave, Finding 3).
+    static func convertContextMenuPoint(_ domPoint: CGPoint, viewHeight: CGFloat) -> CGPoint {
+        CGPoint(x: domPoint.x, y: viewHeight - domPoint.y)
+    }
+
     func makeNSView(context: Context) -> WKWebView {
         let onVisibleElements: AnglesiteScriptHandler.VisibleElementsHandler? = annotationProvider.map { provider in
             // `provider` is `@MainActor`, so the implicit hop happens at the `update(_:)` call.
@@ -54,23 +61,21 @@ struct PreviewView: NSViewRepresentable {
             { @Sendable elements in await provider.update(elements) }
         }
         let handler = AnglesiteScriptHandler(router: router, onVisibleElements: onVisibleElements)
+        // `wysiwygTransport` is always a `WYSIWYGCanvasController` in production
+        // (`PreviewModel.wysiwygCanvas`'s concrete type); casting once here — rather than inside
+        // the handler closure on every message — is what lets `updateNSView` below compare "is
+        // this the same controller as last render" by plain reference identity.
+        let wysiwygController = wysiwygTransport as? WYSIWYGCanvasController
         // `onContextMenu` needs the `WKWebView` to pop the menu up in (`NSMenu.popUp(positioning:at:in:)`),
         // but the handler has to exist before the web view does — it's part of the configuration
         // the web view is constructed from. Resolved the same way `onWebView`/`onWebViewDismantled`
         // resolve their own "needs the view, doesn't exist yet" problem below: a weak capture of
         // `context.coordinator`, whose `webView` is set immediately after construction.
-        let wysiwygHandler = wysiwygTransport.map { transport in
-            WYSIWYGScriptHandler(transport: transport) { [weak coordinator = context.coordinator] blockId, point in
-                Task { @MainActor in
-                    guard let webView = coordinator?.webView, let controller = transport as? WYSIWYGCanvasController else { return }
-                    let menu = WYSIWYGBlockContextMenu.build(for: blockId, controller: controller)
-                    menu.popUp(positioning: nil, at: point, in: webView)
-                }
-            }
-        }
+        let wysiwygHandler = wysiwygController.map { makeWYSIWYGHandler(for: $0, coordinator: context.coordinator) }
         let configuration = WebViewBridge.localDevConfiguration(handler: handler, wysiwygHandler: wysiwygHandler)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         context.coordinator.webView = webView
+        context.coordinator.wysiwygController = wysiwygController
         WebViewBridge.applyPreviewDefaults(to: webView)
         if let annotationProvider {
             webView.appEntityUIElementProvider = { [weak annotationProvider] _, hitContext in
@@ -84,11 +89,59 @@ struct PreviewView: NSViewRepresentable {
         // this instance's closures at teardown time.
         context.coordinator.onDismantle = onWebViewDismantled
         onWebView(webView)
+        // Best-effort — mirrors `PreviewModel.enterEditMode`'s own call: covers the case where
+        // this `PreviewView` (and its web view) is being built fresh while edit mode is already on
+        // (a dev-server restart mid-edit re-creates the whole NSView, see the `.ready` branch in
+        // `SiteWindow.previewPane(for:)`). No-op if the page hasn't loaded yet — see
+        // `WYSIWYGCanvasController.mountEngine()`'s doc comment.
+        wysiwygController?.mountEngine()
         return webView
+    }
+
+    /// Wraps `controller` as the WYSIWYG `WKScriptMessageHandler` — shared by `makeNSView` (initial
+    /// registration) and `updateNSView` (registration on an edit-mode-off → on transition, #1225
+    /// final-review fix wave, Finding 6) so the two don't drift.
+    private func makeWYSIWYGHandler(for controller: WYSIWYGCanvasController, coordinator: Coordinator) -> WYSIWYGScriptHandler {
+        WYSIWYGScriptHandler(transport: controller) { [weak coordinator] blockId, point in
+            Task { @MainActor in
+                guard let webView = coordinator?.webView else { return }
+                let menu = WYSIWYGBlockContextMenu.build(for: blockId, controller: controller)
+                // `point` is the DOM `contextmenu` event's `clientX`/`clientY` (top-left origin);
+                // `WKWebView` is a non-flipped AppKit view (bottom-left origin), so popping the
+                // menu up at the raw DOM point mirrors it vertically — near the top of the page it
+                // appeared near the bottom of the view (#1225 final-review fix wave, Finding 3).
+                let converted = Self.convertContextMenuPoint(point, viewHeight: webView.bounds.height)
+                menu.popUp(positioning: nil, at: converted, in: webView)
+            }
+        }
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onDismantle = onWebViewDismantled
+
+        // `makeNSView` only ever registers the WYSIWYG handler / mounts the JS engine once, at
+        // construction — a `PreviewView` whose `wysiwygTransport` flips from nil to non-nil (Site ▸
+        // Edit Page toggled on against an already-built preview pane) or non-nil to nil (toggled
+        // off) re-renders through `updateNSView`, not `makeNSView`, since SwiftUI reuses the
+        // existing `WKWebView` rather than tearing it down. Without this block the handler/engine
+        // stayed permanently out of sync with `isEditModeEnabled` after the very first toggle
+        // (#1225 final-review fix wave, Finding 6 — the mirror-image gap to Finding 1's "never
+        // mounted at all"). Compared by reference identity via the coordinator's stashed
+        // controller, matching `Coordinator`'s other stored-state pattern (`loadedURL`).
+        let newController = wysiwygTransport as? WYSIWYGCanvasController
+        if newController !== context.coordinator.wysiwygController {
+            if let previous = context.coordinator.wysiwygController {
+                webView.configuration.userContentController.removeScriptMessageHandler(forName: WebViewBridge.wysiwygScriptMessageNamespace)
+                previous.unmountEngine()
+            }
+            context.coordinator.wysiwygController = newController
+            if let newController {
+                let handler = makeWYSIWYGHandler(for: newController, coordinator: context.coordinator)
+                webView.configuration.userContentController.add(handler, name: WebViewBridge.wysiwygScriptMessageNamespace)
+                newController.mountEngine()
+            }
+        }
+
         guard context.coordinator.loadedURL != url else { return }
         context.coordinator.loadedURL = url
         webView.load(URLRequest(url: url))
@@ -115,6 +168,13 @@ struct PreviewView: NSViewRepresentable {
         /// since it's baked into the configuration the web view is constructed from — has
         /// somewhere to find it once a context-menu message actually arrives.
         weak var webView: WKWebView?
+        /// The controller last registered/mounted against `webView` — `updateNSView` diffs this
+        /// against the current `wysiwygTransport` (by reference identity) to detect an edit-mode
+        /// on/off transition (#1225 final-review fix wave, Finding 6). Strong: unlike `webView`,
+        /// nothing else on this side keeps the controller alive once edit mode is toggled off, and
+        /// `updateNSView` needs it after `wysiwygTransport` has already gone `nil` in order to call
+        /// `unmountEngine()`/`removeScriptMessageHandler(forName:)` on the right instance.
+        var wysiwygController: WYSIWYGCanvasController?
     }
 }
 

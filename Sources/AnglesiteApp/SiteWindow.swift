@@ -1060,6 +1060,11 @@ struct SiteWindow: View {
                     // #1225 Task 10: gives WYSIWYGCanvasController.applyFormat something to post
                     // the Format menu's Strong/Emphasis/Add Link commands into once edit mode is on.
                     preview.wysiwygCanvas?.webView = webView
+                    // Covers the ordering where edit mode was already on when this web view was
+                    // (re)created (e.g. a dev-server restart while editing) — `enterEditMode`'s own
+                    // `mountEngine()` call only handles the "edit mode turned on against an
+                    // already-live web view" ordering (final-review fix wave, Finding 1).
+                    preview.wysiwygCanvas?.mountEngine()
                 },
                 // Explicit detach: ARC zeroing the model's weak `webView` doesn't fire `didSet`,
                 // so without this the Back/Forward menu enablement would freeze when the dev

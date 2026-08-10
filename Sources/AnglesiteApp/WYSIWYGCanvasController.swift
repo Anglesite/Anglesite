@@ -91,11 +91,23 @@ final class WYSIWYGCanvasController {
 
     /// Sends `op` to the transport and updates `model` — the shared core of `submit(_:)`, minus
     /// the `onOpApplied` notification. `submit(_:)` is for ops with a *new* opposite direction to
-    /// register (user edits, JS-originated ops via `sendOp(_:)`); `undoCoordinator`'s `Performer`
-    /// calls this directly instead, since undo/redo replays must not re-fire `onOpApplied` — see
-    /// `undoCoordinator`'s doc comment for why that would double-register.
+    /// register (user edits); `undoCoordinator`'s `Performer` calls this directly instead, since
+    /// undo/redo replays must not re-fire `onOpApplied` — see `undoCoordinator`'s doc comment for
+    /// why that would double-register. Builds its own envelope from the *current* `model.version`
+    /// (or `forceTargetVersion`'s test-only override) — unlike `sendOp(_:)` below, which already
+    /// has a real envelope from the JS engine and must not re-derive one.
     private func apply(_ op: Op) async -> OpResult {
         let envelope = OpEnvelope(id: UUID().uuidString, targetVersion: forceTargetVersion ?? model.version, op: op)
+        return await sendAndApply(envelope)
+    }
+
+    /// Sends `envelope` to the transport verbatim and applies the result to `model` — the shared
+    /// core of both `apply(_:)` (which builds a fresh envelope from `model.version`) and
+    /// `sendOp(_:)` (the `WYSIWYGHostTransport` conformance below, whose caller — the JS engine —
+    /// already computed `targetVersion` and must not have it silently replaced). Does not fire
+    /// `onOpApplied`; callers that need the notification do so themselves after inspecting the
+    /// result, same division of responsibility `apply(_:)`/`submit(_:)` already had.
+    private func sendAndApply(_ envelope: OpEnvelope) async -> OpResult {
         let result = await transport.sendOp(envelope)
         switch result {
         case .applied(let newModel):
@@ -170,6 +182,53 @@ final class WYSIWYGCanvasController {
         webView?.evaluateJavaScript(script)
     }
 
+    /// Mounts the JS engine (`JS/wysiwyg-engine/src/host/mount.ts`) against this controller's
+    /// current `model` — without this call, `window.__anglesiteWysiwygMount.mount(...)` is never
+    /// invoked, so `window.__anglesiteWysiwygEngine`/`__anglesiteWysiwygRichTextEditor` are never
+    /// set: the right-click context menu never fires, `applyFormat(_:href:)` above is a permanent
+    /// no-op, and no `submit-op` message is ever posted from JS (#1225 final-review fix wave,
+    /// Finding 1 — the whole bridge was dead code at runtime before this). Called from
+    /// `PreviewModel.enterEditMode(seedModel:)` (if the web view is already live) and from
+    /// `PreviewView`'s `onWebView`/`updateNSView` (once the web view (re)appears while edit mode is
+    /// already on) — see those call sites' doc comments for why both orderings need a call site.
+    /// Best-effort: if the page hasn't finished loading yet, `evaluateJavaScript` will report an
+    /// error (surfaced nowhere today) or `window.__anglesiteWysiwygMount` won't exist yet, and the
+    /// call silently does nothing (JS's own `?.`); the realistic path (the user toggles the Site ▸
+    /// Edit Page menu item against an already-`.ready` preview) always has a loaded page.
+    func mountEngine() {
+        guard let webView else { return }
+        webView.evaluateJavaScript(Self.mountScript(for: model))
+    }
+
+    /// The `unmount()` counterpart — disposes the mounted engine/rich-text-editor and clears their
+    /// globals so a stale reference can't answer a hit-test or accept an op after the native side
+    /// considers edit mode off. Called from `PreviewModel.exitEditMode()` and from `PreviewView`'s
+    /// `updateNSView` when it observes the mounted controller change out from under an
+    /// already-loaded page (Finding 6's teardown gap — see that method's doc comment).
+    func unmountEngine() {
+        guard let webView else { return }
+        webView.evaluateJavaScript(Self.unmountScript)
+    }
+
+    /// Builds the `mount(...)` `evaluateJavaScript` string for `model` — factored out of
+    /// `mountEngine()` so it's testable without a real `WKWebView` (`swift test` can't drive one;
+    /// see `WYSIWYGCanvasControllerTests`). JSON-encodes `model` with `JSONEncoder` (matching
+    /// `BlockModel`'s `Codable` conformance, which mirrors `JS/wysiwyg-engine/src/types.ts`'s wire
+    /// format exactly — see `WYSIWYGOps.swift`'s header comment) and splices it into the call
+    /// `mount.ts` exposes. Returns a no-op script (rather than crashing/force-unwrapping) on the
+    /// unexpected case that `model` fails to encode, since `BlockModel`'s fields are all
+    /// straightforwardly `Codable`.
+    static func mountScript(for model: BlockModel) -> String {
+        guard let data = try? JSONEncoder().encode(model), let json = String(data: data, encoding: .utf8) else {
+            return "" // unreachable in practice — BlockModel's fields are all plain Codable
+        }
+        return "window.__anglesiteWysiwygMount?.mount(\(json))"
+    }
+
+    /// The `unmount()` counterpart to `mountScript(for:)` — no model to encode, so this is just the
+    /// literal call string, kept as a `static let` for the same test-without-`WKWebView` reason.
+    static let unmountScript = "window.__anglesiteWysiwygMount?.unmount?.()"
+
     /// Escapes a Swift string into a double-quoted JS string literal for `evaluateJavaScript`
     /// interpolation — mirrors `ComponentStyleInspectorPane.jsStringLiteral`, needed here too
     /// since `href` (a future link-URL prompt's user input) isn't safe to interpolate raw.
@@ -206,8 +265,19 @@ extension WYSIWYGCanvasController {
 /// with ops that arrive from JS, exactly like ops submitted natively (menu commands, Task 9's
 /// undo coordinator).
 extension WYSIWYGCanvasController: WYSIWYGHostTransport {
+    /// Forwards `envelope` to the underlying transport **unchanged** — critically, `targetVersion`
+    /// is the version the JS engine actually computed `envelope.op` against, not re-derived from
+    /// this controller's current `model.version` (that used to happen implicitly by routing through
+    /// `submit(_:)`, which silently re-targeted a stale JS-originated op instead of correctly
+    /// rejecting it as a version-mismatch conflict — #1225 final-review fix wave, Finding 2). Mirrors
+    /// `submit(_:)`'s own "apply, then notify" shape rather than calling `submit(_:)` itself, since
+    /// `submit(_:)` builds its own envelope from `model.version`.
     func sendOp(_ envelope: OpEnvelope) async -> OpResult {
-        await submit(envelope.op)
+        let result = await sendAndApply(envelope)
+        if case .applied(let newModel) = result {
+            onOpApplied?(envelope.op, WYSIWYGOpInverter.invert(envelope.op), newModel)
+        }
+        return result
     }
 
     /// No-op for now: PR1 has no host-initiated push into an already-mounted controller (no

@@ -99,14 +99,30 @@ final class PreviewModel {
 
     /// Site ▸ Edit Page toggle (#1225). `seedModel` stands in for a real `get_page_model` fetch
     /// (#1222) until the sidecar backend exists.
+    ///
+    /// Also mounts the JS engine (`WYSIWYGCanvasController.mountEngine()`) if this model's own
+    /// `webView` is already live — the ordering where the user toggles edit mode against an
+    /// already-`.ready`, already-loaded preview, which is the realistic path (the menu item that
+    /// drives this is disabled until `hasWebView` is true). The other ordering — edit mode already
+    /// on when the web view itself is (re)created, e.g. a dev-server restart — is covered by
+    /// `PreviewView`'s `onWebView` callback (`SiteWindow.previewPane(for:)`) and `updateNSView`
+    /// (Finding 6's teardown-symmetry fix) calling `mountEngine()` again once the new web view
+    /// exists.
     func enterEditMode(seedModel: BlockModel) async {
         let transport = StubWYSIWYGHostTransport(model: seedModel)
-        wysiwygCanvas = WYSIWYGCanvasController(initialModel: seedModel, transport: transport)
+        let canvas = WYSIWYGCanvasController(initialModel: seedModel, transport: transport)
+        wysiwygCanvas = canvas
+        if let webView {
+            canvas.webView = webView
+            canvas.mountEngine()
+        }
     }
 
-    /// Site ▸ Edit Page toggle-off: tears down the mounted canvas controller so `PreviewView`
-    /// stops registering the WYSIWYG ops handler on the next render.
+    /// Site ▸ Edit Page toggle-off: unmounts the JS engine (best-effort — a no-op if the web view
+    /// has already gone away) and tears down the mounted canvas controller so `PreviewView` stops
+    /// registering the WYSIWYG ops handler on the next render.
     func exitEditMode() {
+        wysiwygCanvas?.unmountEngine()
         wysiwygCanvas = nil
     }
 
