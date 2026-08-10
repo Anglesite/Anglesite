@@ -17,9 +17,24 @@ final class WYSIWYGCanvasController {
     /// same reason as `SiteWindowModel.contentUndoCoordinator`: its `perform` closure captures
     /// `self`, which isn't available yet inside `init` before all stored properties are set.
     /// `@ObservationIgnored`: not view-relevant state, same as `SiteWindowModel`'s coordinators.
+    ///
+    /// Awaits `apply(_:)` — not `submit(_:)` — to completion and reports whether the op actually
+    /// landed. Using `apply(_:)` (which skips `onOpApplied`) is load-bearing, not a style choice:
+    /// `WYSIWYGUndoCoordinator.register` already re-registers the opposite undo/redo direction
+    /// itself once this `Performer` returns `true`. If this replayed through `submit(_:)`
+    /// instead, `submit`'s own `onOpApplied` firing would *also* call `registerApplied`, double-
+    /// registering the same step and corrupting `UndoManager`'s undo/redo stacks. `.applied` vs.
+    /// `.rejected` (e.g. a version-mismatch conflict) decides `true`/`false`, so a rejection that
+    /// left the document unchanged never re-registers a (now-wrong) next step either.
     @ObservationIgnored
     lazy var undoCoordinator = WYSIWYGUndoCoordinator { [weak self] op in
-        Task { await self?.submit(op) }
+        guard let self else { return false }
+        switch await self.apply(op) {
+        case .applied:
+            return true
+        case .rejected:
+            return false
+        }
     }
 
     /// Fires after every successfully applied op, with its inverse — set at `init` time to feed
@@ -41,12 +56,24 @@ final class WYSIWYGCanvasController {
 
     @discardableResult
     func submit(_ op: Op) async -> OpResult {
+        let result = await apply(op)
+        if case .applied(let newModel) = result {
+            onOpApplied?(op, WYSIWYGOpInverter.invert(op), newModel)
+        }
+        return result
+    }
+
+    /// Sends `op` to the transport and updates `model` — the shared core of `submit(_:)`, minus
+    /// the `onOpApplied` notification. `submit(_:)` is for ops with a *new* opposite direction to
+    /// register (user edits, JS-originated ops via `sendOp(_:)`); `undoCoordinator`'s `Performer`
+    /// calls this directly instead, since undo/redo replays must not re-fire `onOpApplied` — see
+    /// `undoCoordinator`'s doc comment for why that would double-register.
+    private func apply(_ op: Op) async -> OpResult {
         let envelope = OpEnvelope(id: UUID().uuidString, targetVersion: forceTargetVersion ?? model.version, op: op)
         let result = await transport.sendOp(envelope)
         switch result {
         case .applied(let newModel):
             model = newModel
-            onOpApplied?(op, WYSIWYGOpInverter.invert(op), newModel)
         case .rejected(_, _, let freshModel):
             if let freshModel { model = freshModel }
         }
