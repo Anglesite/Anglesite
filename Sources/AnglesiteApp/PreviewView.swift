@@ -91,3 +91,58 @@ struct PreviewView: NSViewRepresentable {
         var onDismantle: ((WKWebView) -> Void)?
     }
 }
+
+/// Watches whether the WYSIWYG canvas (#1225) holds real AppKit keyboard focus, so
+/// `WYSIWYGCanvasController.hasKeyboardFocus` (Task 11) and `EditorFocusRegistry`'s
+/// `.wysiwygCanvas` case (added inert in Task 10 — `FormatCommands`/`EditMenuSkeletonCommands`
+/// already read it, nothing wrote it until now) reflect reality.
+///
+/// Reuses `SentinelView` (`MarkdownTextView.swift`) rather than re-deriving the same mechanism:
+/// `PreviewView` wraps a raw `WKWebView` directly as its `NSViewRepresentable.NSViewType` (Task 8
+/// mounted the canvas onto the existing preview pane, not a purpose-built SwiftUI-native host), so
+/// a plain `.focused($binding)` has nothing AppKit-focusable of SwiftUI's own to bind to — the
+/// same "raw AppKit view embedded via NSViewRepresentable" shape `SentinelView` was already built
+/// to solve for `NativeTextViewWrapper` (see that file's header comment for why `.focused` /
+/// documented `NSText` notifications were tried and dropped in favor of `NSWindow.firstResponder`
+/// KVO + geometry containment). Placed as a `.background` on `PreviewView` in
+/// `SiteWindow.previewPane(for:)` — sharing that exact frame is what makes the plain geometry
+/// containment check correct without needing a `webView` reference here at all.
+private struct WYSIWYGCanvasFocusSentinel: NSViewRepresentable {
+    let canvas: WYSIWYGCanvasController
+
+    func makeNSView(context: Context) -> SentinelView {
+        let view = SentinelView()
+        view.onFocusChange = { [weak canvas] focused in
+            guard let canvas else { return }
+            canvas.hasKeyboardFocus = focused
+            let token = ObjectIdentifier(canvas)
+            if focused {
+                EditorFocusRegistry.shared.activate(.wysiwygCanvas(Weak(canvas)), token: token)
+            } else {
+                EditorFocusRegistry.shared.resign(token: token)
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: SentinelView, context: Context) {}
+
+    static func dismantleNSView(_ nsView: SentinelView, coordinator: ()) {
+        nsView.prepareForRemoval()
+    }
+}
+
+/// `SiteWindow.previewPane(for:)`'s hook for mounting `WYSIWYGCanvasFocusSentinel` — kept here
+/// (rather than exposing the private type directly) so the sentinel's implementation stays a
+/// `PreviewView.swift`-local concern, mirroring `EditorFocusSentinel`'s privacy in
+/// `MarkdownTextView.swift`.
+extension View {
+    @ViewBuilder
+    func wysiwygCanvasFocusTracking(_ canvas: WYSIWYGCanvasController?) -> some View {
+        if let canvas {
+            background(WYSIWYGCanvasFocusSentinel(canvas: canvas))
+        } else {
+            self
+        }
+    }
+}

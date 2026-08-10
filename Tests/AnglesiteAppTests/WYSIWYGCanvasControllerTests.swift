@@ -40,6 +40,33 @@ struct WYSIWYGCanvasControllerTests {
         }
         #expect(applied == false)
     }
+
+    @Test("duplicateSelectedBlock submits an insertBlock op for a copy of the selected block")
+    func duplicateSelectedBlockSubmitsInsert() async {
+        let existing = BlockNode(id: "b1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["b1"], blocks: ["b1": existing])
+        let transport = StubWYSIWYGHostTransport(model: initial)
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        controller.selectedBlockId = "b1"
+
+        await controller.duplicateSelectedBlock()
+
+        #expect(controller.model.rootIds.count == 2)
+    }
+
+    @Test("deleteSelectedBlock submits a deleteBlock op and clears the selection")
+    func deleteSelectedBlockSubmitsDelete() async {
+        let existing = BlockNode(id: "b1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["b1"], blocks: ["b1": existing])
+        let transport = StubWYSIWYGHostTransport(model: initial)
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        controller.selectedBlockId = "b1"
+
+        await controller.deleteSelectedBlock()
+
+        #expect(controller.model.rootIds.isEmpty)
+        #expect(controller.selectedBlockId == nil)
+    }
 }
 
 private extension OpResult {

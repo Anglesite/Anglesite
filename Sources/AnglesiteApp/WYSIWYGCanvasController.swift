@@ -12,6 +12,19 @@ final class WYSIWYGCanvasController {
     var selectedBlockId: BlockId?
     private let transport: any WYSIWYGHostTransport
 
+    /// True while the canvas holds real AppKit keyboard focus — distinct from `selectedBlockId
+    /// != nil`, which persists even after focus moves to the Navigator or an inspector field.
+    /// Set by `WYSIWYGCanvasFocusSentinel` (`PreviewView.swift`), the `NSWindow.firstResponder`
+    /// KVO watcher `previewPane(for:)` layers under the mounted `PreviewView` — mirrors
+    /// `MarkdownTextView.swift`'s `SentinelView`, reused directly rather than re-implemented,
+    /// since a plain `.focused($binding)` can't reach through `PreviewView`'s raw-`WKWebView`
+    /// `NSViewRepresentable` (`MarkdownTextView.swift`'s header comment documents why an
+    /// `NSHostingView`/SwiftUI-native indirection was tried and dropped for the same reason).
+    /// Read by `SiteWindow.navigatorSelectionActions(for:)` to decide whether ⌘D's Duplicate acts
+    /// on this canvas's block selection or the Navigator's row selection (menu-bar IA spec: "⌘D
+    /// Duplicate is one focus-scoped command").
+    var hasKeyboardFocus = false
+
     /// Bridges this canvas's applied ops into the window's `UndoManager` for real ⌘Z/⇧⌘Z (#1225,
     /// Task 9). Wired to `onOpApplied` below at `init` time, so callers (`PreviewModel`) don't
     /// need to know about undo at all — they only set `undoCoordinator.undoManager`. `lazy`,
@@ -85,6 +98,37 @@ final class WYSIWYGCanvasController {
             if let freshModel { model = freshModel }
         }
         return result
+    }
+
+    /// The Edit-menu Duplicate button's canvas-focused target (#1225 Task 11) — extends
+    /// `NavigatorEditCommands.Duplicate` (⌘D) rather than adding a second menu item, per the
+    /// menu-bar IA spec's "one focus-scoped command" rule (`SiteWindow.navigatorSelectionActions(for:)`
+    /// picks this over the Navigator's own duplicate when `hasKeyboardFocus` is true).
+    ///
+    /// PR1 duplicates at the page root only — locating the block's real parent/slot to insert the
+    /// copy adjacent to it needs a parent-lookup helper the model doesn't expose yet; kept out of
+    /// scope here and flagged for a PR2 follow-up once the native palette (Task 13) needs the same
+    /// lookup for drop-target computation.
+    func duplicateSelectedBlock() async {
+        guard let id = selectedBlockId, let node = model.blocks[id] else { return }
+        let newId = UUID().uuidString
+        let content = BlockNodeContent(
+            kind: node.kind, componentName: node.componentName, props: node.props,
+            slots: node.slots, sourceSpan: node.sourceSpan, richText: node.richText)
+        await submit(.insertBlock(parentId: rootParentID, slot: "main", index: model.rootIds.count, newId: newId, block: content))
+    }
+
+    /// The canvas's own `.onDeleteCommand` target (#1225 Task 11) — reachable only when the
+    /// canvas holds real keyboard focus (`hasKeyboardFocus`), so AppKit's responder chain decides
+    /// whether a bare Delete keypress reaches this or `SiteNavigatorView`'s `.onDeleteCommand`,
+    /// rather than a second Commands-level Delete button (menu-bar IA spec, same rule as
+    /// `duplicateSelectedBlock()` above). PR1 only supports root-level blocks (see
+    /// `duplicateSelectedBlock()`'s doc comment) — `rootIds.firstIndex(of:)` returning `nil` for a
+    /// nested block just no-ops, same as `guard let node` above.
+    func deleteSelectedBlock() async {
+        guard let id = selectedBlockId, let node = model.blocks[id], let index = model.rootIds.firstIndex(of: id) else { return }
+        await submit(.deleteBlock(parentId: rootParentID, slot: "main", index: index, blockId: id, block: node))
+        selectedBlockId = nil
     }
 
     /// The Format menu's Strong/Emphasis/Add Link entry point (#1225 Task 10) — posts into the
