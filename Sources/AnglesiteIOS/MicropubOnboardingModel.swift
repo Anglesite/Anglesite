@@ -100,11 +100,12 @@ public final class MicropubOnboardingModel {
     }
 
     /// Records which site this model signs in for, resolves its deployed URL from
-    /// `Source/.site-config`, and restores an already-signed-in session from the Keychain.
-    /// No network I/O. The `.site-config` read is real file I/O inside a possibly-still-
-    /// materializing iCloud package, so it hops off the main actor like `SitePickerModel`'s
-    /// marker reads.
-    public func configure(site: SitePickerModel.DiscoveredSite, fileManager: FileManager = .default) async {
+    /// `Source/.site-config` (via `DeployCoordinator.resolveSiteURL`, which does its own
+    /// default-`FileManager` I/O), and restores an already-signed-in session from the
+    /// Keychain. No network I/O. The `.site-config` read is real file I/O inside a
+    /// possibly-still-materializing iCloud package, so it hops off the main actor like
+    /// `SitePickerModel`'s marker reads.
+    public func configure(site: SitePickerModel.DiscoveredSite) async {
         let id = site.id.uuidString
         siteID = id
         let sourceURL = AnglesitePackage(url: site.packageURL).sourceURL
@@ -153,7 +154,11 @@ public final class MicropubOnboardingModel {
             state = .failed(Self.reason(for: error))
             return
         } catch {
-            state = .failed(.siteUnreachable(String(describing: error)))
+            // Anything past homepage discovery — e.g. `SiteIndieAuthError.discoveryUnavailable`
+            // for a reachable-but-broken metadata document — is a sign-in failure, not a
+            // connectivity problem: "check your connection" would be wrong guidance when the
+            // fix is server-side.
+            state = .failed(.signInFailed(String(describing: error)))
             return
         }
 

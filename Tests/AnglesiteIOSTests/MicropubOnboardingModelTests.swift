@@ -190,6 +190,32 @@ struct MicropubOnboardingModelTests {
         #expect(state == .failed(.micropubNotSupported))
     }
 
+    @Test("a reachable site with a broken metadata document is a sign-in failure, not 'unreachable'")
+    func brokenMetadataIsSignInFailureNotUnreachable() async throws {
+        // Homepage discovery succeeds, but the advertised metadata endpoint returns JSON
+        // missing its endpoints — a server misconfiguration. "Check your connection" would be
+        // actively wrong guidance here.
+        let model = makeModel(transport: { request in
+            let respond = { (body: String) -> (Data, HTTPURLResponse) in
+                (Data(body.utf8), HTTPURLResponse(
+                    url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }
+            if request.url!.path.contains("oauth-authorization-server") {
+                return respond(#"{"issuer":"https://owner.example"}"#)
+            }
+            return respond(#"""
+                <link rel="indieauth-metadata" href="/.well-known/oauth-authorization-server" />
+                <link rel="micropub" href="/micropub" />
+                """#)
+        })
+        await model.configure(site: try makePackage(siteURL: Self.siteOrigin))
+        await model.signIn()
+        guard case .failed(.signInFailed) = model.state else {
+            Issue.record("expected .failed(.signInFailed), got \(model.state)")
+            return
+        }
+    }
+
     @Test("an unreachable site fails as unreachable, not as a missing capability")
     func unreachableSiteNamed() async throws {
         struct Offline: Error {}
