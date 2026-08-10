@@ -3,9 +3,9 @@ import Foundation
 import Observation
 
 /// Owns which site the iOS shell (`SiteSplitScreen`, #869) currently has selected, and persists
-/// that choice across launches (#71 "multi-site UX" follow-up). Deliberately separate from
-/// `SitePickerModel`, which only discovers sites and is also used standalone by `SitePickerScreen`
-/// (no selection concept there) — folding selection into it would blur that model's one job.
+/// that choice across launches (#71 "multi-site UX" follow-up). Kept separate from
+/// `SitePickerModel`, which owns pure discovery with no selection concept of its own — folding
+/// selection in would blur that responsibility.
 @MainActor
 @Observable
 public final class SiteSelectionModel {

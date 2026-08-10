@@ -131,10 +131,10 @@ struct SiteSplitScreen: View {
     }
 
     @ToolbarContentBuilder
-    private func siteSwitcherToolbarItem() -> some ToolbarContent {
+    private func siteSwitcherToolbarItem(site: SitePickerModel.DiscoveredSite) -> some ToolbarContent {
         if switcherSites.count >= 2 {
             ToolbarItem(placement: .navigation) {
-                SiteSwitcherMenu(sites: switcherSites, selected: siteSelection.selectedSite, onSelect: selectSite)
+                SiteSwitcherMenu(sites: switcherSites, selected: site, onSelect: selectSite)
             }
         }
     }
@@ -183,23 +183,17 @@ struct SiteSplitScreen: View {
 
     @ViewBuilder
     private var contentPane: some View {
-        if siteSelection.selectedSite == nil {
-            ContentUnavailableView {
-                Label("Pick a Site", systemImage: "globe")
-            } description: {
-                Text("Choose one of your sites to see its posts.")
-            }
-        } else {
+        if let site = siteSelection.selectedSite {
             Group {
                 switch sessionState {
                 case .none, .checking:
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 case .signedOut:
-                    if let site = siteSelection.selectedSite {
-                        SiteSignInScreen(site: site) {
-                            Task { await resolveSession() }
-                        }
+                    // #868's onboarding flow, embedded: when it lands signed-in, re-resolve so
+                    // the freshly stored credential becomes this shell's session.
+                    SiteSignInScreen(site: site) {
+                        Task { await resolveSession() }
                     }
                 case .ready:
                     if let postList {
@@ -217,7 +211,13 @@ struct SiteSplitScreen: View {
                 }
             }
             .toolbar {
-                siteSwitcherToolbarItem()
+                siteSwitcherToolbarItem(site: site)
+            }
+        } else {
+            ContentUnavailableView {
+                Label("Pick a Site", systemImage: "globe")
+            } description: {
+                Text("Choose one of your sites to see its posts.")
             }
         }
     }
@@ -252,7 +252,7 @@ struct SiteSplitScreen: View {
             // A fresh pane per selection: composer state must never leak across posts.
             .id(selection)
             .toolbar {
-                siteSwitcherToolbarItem()
+                siteSwitcherToolbarItem(site: site)
             }
         } else {
             ContentUnavailableView {
@@ -288,8 +288,12 @@ struct SiteSplitScreen: View {
     /// Single path for every site-switch trigger (sidebar row, switcher menu) so the
     /// reset-filter-and-selection side effect can't drift between call sites.
     private func selectSite(_ site: SitePickerModel.DiscoveredSite) {
-        guard site != siteSelection.selectedSite else { return }
+        guard site.id != siteSelection.selectedSite?.id else { return }
         siteSelection.select(site)
+        // Drop to the loading state synchronously — otherwise the previous site's session/post
+        // list keeps rendering under the new site's name until `.task(id:)` re-resolves a frame
+        // or two later.
+        sessionState = .checking
         selectedTypeID = nil
         selection = nil
     }

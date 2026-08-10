@@ -8,7 +8,7 @@ import AnglesiteIOS
 /// visible even when the sidebar column isn't (iPhone's collapsed `NavigationStack`).
 struct SiteSwitcherMenu: View {
     let sites: [SitePickerModel.DiscoveredSite]
-    let selected: SitePickerModel.DiscoveredSite?
+    let selected: SitePickerModel.DiscoveredSite
     var onSelect: (SitePickerModel.DiscoveredSite) -> Void
 
     var body: some View {
@@ -17,16 +17,22 @@ struct SiteSwitcherMenu: View {
                 Button {
                     onSelect(site)
                 } label: {
-                    if site == selected {
+                    if site.id == selected.id {
                         Label(site.displayName, systemImage: "checkmark")
+                            .accessibilityAddTraits(.isSelected)
                     } else {
                         Text(verbatim: site.displayName)
                     }
                 }
             }
         } label: {
-            Label(selected?.displayName ?? "", systemImage: "chevron.down")
-                .labelStyle(.titleAndIcon)
+            HStack {
+                Text(verbatim: selected.displayName)
+                Image(systemName: "chevron.down")
+                    .font(.caption)
+            }
+            .accessibilityElement(children: .combine)
+            .accessibilityLabel(Text("Current site: \(selected.displayName)"))
         }
     }
 }

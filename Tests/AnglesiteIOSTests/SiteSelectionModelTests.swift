@@ -93,4 +93,32 @@ final class SiteSelectionModelTests {
 
         #expect(model.selectedSite == active)
     }
+
+    @Test("restoreSelection treats a corrupt persisted value as nothing persisted")
+    func restoreLeavesNilWhenPersistedValueIsCorrupt() {
+        defaults.set("not-a-uuid", forKey: "siteSelection.selectedSiteID")
+
+        let model = SiteSelectionModel(defaults: defaults)
+        model.restoreSelection(from: [makeSite(name: "My Blog")])
+
+        #expect(model.selectedSite == nil)
+    }
+
+    @Test("restoreSelection matches by id, not whole-struct equality")
+    func restoreMatchesByIDNotWholeStructEquality() {
+        let id = UUID()
+        let original = makeSite(name: "My Blog", id: id)
+        let writer = SiteSelectionModel(defaults: defaults)
+        writer.select(original)
+
+        // Same site, renamed/moved since persisting — same id, different displayName/packageURL.
+        let renamed = SitePickerModel.DiscoveredSite(
+            id: id, displayName: "My Renamed Blog", packageURL: URL(fileURLWithPath: "/tmp/moved.anglesite"))
+
+        let restored = SiteSelectionModel(defaults: defaults)
+        restored.restoreSelection(from: [renamed])
+
+        #expect(restored.selectedSite == renamed)
+        #expect(restored.selectedSite?.displayName == "My Renamed Blog")
+    }
 }
