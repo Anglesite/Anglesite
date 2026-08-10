@@ -11,8 +11,10 @@ interaction and resource bundling. **Live-verified end-to-end for #1293** on a r
 `flatpak-spawn --host`, resolves the document-portal bind-mount correctly, serves the Astro
 preview with the overlay JS installed, and survives a long-lived interactive `podman exec -i`
 session — see §9's updated verification record. A CI lane (`linux-flatpak-build`) now builds the
-manifest and runs `AnglesiteLinuxTests` on every PR. End-user image distribution is still deferred
-(§8, tracked in #1291).
+manifest and runs `AnglesiteLinuxTests` on every PR — currently `continue-on-error: true`, since
+`adwaita-swift`'s x86_64 build breaks on GitHub's runner for reasons unrelated to this repo (its
+own `Meta` dependency floats on a branch that moved out from under it; see #1385). End-user image
+distribution is still deferred (§8, tracked in #1291).
 
 ## 1. Where things stand
 
