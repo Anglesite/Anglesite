@@ -54,6 +54,22 @@ struct WYSIWYGCanvasControllerTests {
         #expect(controller.model.rootIds.count == 2)
     }
 
+    @Test("duplicateSelectedBlock no-ops for a nested (non-root) block instead of misplacing a copy at the root")
+    func duplicateSelectedBlockNoOpsForNestedBlock() async {
+        let nested = BlockNode(id: "b2", kind: .text, componentName: "span", props: [:], slots: [:], sourceSpan: [10, 20])
+        let container = BlockNode(id: "b1", kind: .astro, componentName: "Container", props: [:], slots: ["main": ["b2"]], sourceSpan: [0, 30])
+        let initial = BlockModel(
+            path: "src/pages/index.astro", version: "v0", rootIds: ["b1"],
+            blocks: ["b1": container, "b2": nested])
+        let transport = StubWYSIWYGHostTransport(model: initial)
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        controller.selectedBlockId = "b2" // exists in model.blocks, but not in model.rootIds
+
+        await controller.duplicateSelectedBlock()
+
+        #expect(controller.model == initial)
+    }
+
     @Test("deleteSelectedBlock submits a deleteBlock op and clears the selection")
     func deleteSelectedBlockSubmitsDelete() async {
         let existing = BlockNode(id: "b1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0])

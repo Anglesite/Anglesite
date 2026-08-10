@@ -108,9 +108,15 @@ final class WYSIWYGCanvasController {
     /// PR1 duplicates at the page root only — locating the block's real parent/slot to insert the
     /// copy adjacent to it needs a parent-lookup helper the model doesn't expose yet; kept out of
     /// scope here and flagged for a PR2 follow-up once the native palette (Task 13) needs the same
-    /// lookup for drop-target computation.
+    /// lookup for drop-target computation. `rootIds.contains(id)` is load-bearing, not defensive
+    /// filler: without it, a `selectedBlockId` pointing at a nested block (inside a slot/container
+    /// — not reachable today, but will be once Task 12/13 wire up real block selection) would
+    /// still pass the `model.blocks[id]` lookup and get "duplicated" as a brand-new *root-level*
+    /// block built from the nested block's content — silently detaching it from its real
+    /// structural context instead of no-op'ing, same failure mode `deleteSelectedBlock()` below
+    /// already guards against with `rootIds.firstIndex(of:)`.
     func duplicateSelectedBlock() async {
-        guard let id = selectedBlockId, let node = model.blocks[id] else { return }
+        guard let id = selectedBlockId, let node = model.blocks[id], model.rootIds.contains(id) else { return }
         let newId = UUID().uuidString
         let content = BlockNodeContent(
             kind: node.kind, componentName: node.componentName, props: node.props,
