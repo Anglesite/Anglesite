@@ -46,26 +46,38 @@ are out of scope here and untouched by this work; #1386's own PR is not blocked 
 
 ## Components
 
-### 1. `SiteEntityQueryIOS` (`Sources/AnglesiteIntents/SiteEntityQueryIOS.swift`, new, `#if os(iOS)`)
+### 1a. `SiteEntityUbiquitySource` (`Sources/AnglesiteIntents/SiteEntityUbiquitySource.swift`, new, **no platform gate**)
 
-Same four `EntityStringQuery` methods as the existing (implicitly-macOS) `SiteEntityQuery`, all
-funneling through one `allSites() async -> [SiteEntity]` helper:
+A small, pure, platform-neutral enum (no stored state) holding the actual mapping/matching logic,
+operating on an already-resolved `[URL]` list rather than doing discovery itself — so it depends on
+nothing beyond `AnglesiteSiteModel` (`AnglesitePackage`) and `Foundation`, and is fully exercisable
+by plain `swift test` on the macOS host, unlike a `#if os(iOS)`-gated type. Four static functions,
+mirroring `EntityStringQuery`'s shape one level removed from the protocol itself:
 
-1. Resolve the ubiquity container via `UbiquityContainerResolving.url(forUbiquityContainerIdentifier:)`
-   (using `AppSettings.ubiquityContainerIdentifier`, matching `SitePickerModel.refresh()`) — `nil`
-   → return `[]` from every method (see Error Handling).
-2. `UbiquitousPackageDiscovering.discoverPackages()` → `[URL]`.
-3. For each `URL`: `AnglesitePackage(url:).readMarker(fileManager:)` → on success, build a
-   `SiteEntity` (`id: marker.siteID.uuidString`, `name: marker.displayName`, `directory: url`,
-   `creationDate`/`modificationDate` read off `AnglesitePackage(url:).sourceURL`'s resource values,
-   same keys `SiteEntity.init(_ site: SiteStore.Site)` already reads). On failure, drop the entry
-   (`compactMap` + `try?`, matching `SitePickerModel.refresh()`).
+- `siteEntities(fromPackageURLs:fileManager:) -> [SiteEntity]` — for each `URL`,
+  `AnglesitePackage(url:).readMarker(fileManager:)` → on success, build a `SiteEntity`
+  (`id: marker.siteID.uuidString`, `name: marker.displayName`, `directory: url`,
+  `creationDate`/`modificationDate` read off `AnglesitePackage(url:).sourceURL`'s resource values,
+  same keys `SiteEntity.init(_ site: SiteStore.Site)` already reads). On failure, drop the entry
+  (`compactMap` + `try?`, matching `SitePickerModel.refresh()`).
+- `entities(for identifiers:, in:, fileManager:) -> [SiteEntity]` — `siteEntities(fromPackageURLs:)`
+  filtered by id (no id-indexed lookup exists in the discovery API — full list + filter, same shape
+  the existing macOS query already uses).
+- `entities(matching:, in:, fileManager:) -> [SiteEntity]` — case-insensitive substring match on
+  `name`.
+- `defaultResult(in:, fileManager:) -> SiteEntity?` — the single site when `siteEntities` returns
+  exactly one, `nil` otherwise — identical semantics to the macOS query, just a different backing
+  store.
 
-`entities(for identifiers:)` filters `allSites()` by id (no id-indexed lookup exists in the
-discovery API — full list + filter, same shape the existing macOS query already uses).
-`entities(matching:)` is a case-insensitive substring match on `name`. `suggestedEntities()` returns
-everything. `defaultResult()` returns the single site when there is exactly one, `nil` otherwise —
-identical semantics to the macOS query, just a different backing store.
+### 1b. `SiteEntityQueryIOS` (`Sources/AnglesiteIntents/SiteEntityQueryIOS.swift`, new, `#if os(iOS)`)
+
+A thin `EntityStringQuery` conformance — all four protocol methods do exactly one thing: resolve
+`discoveredURLs() async -> [URL]` (ubiquity container check via `UbiquityContainerResolving` +
+`AppSettings.ubiquityContainerIdentifier`, `nil` → `[]`; then `UbiquitousPackageDiscovering
+.discoverPackages()`), then hand the result to the matching `SiteEntityUbiquitySource` function.
+No logic of its own beyond that orchestration — everything worth unit-testing lives in 1a. This
+type itself is verified by compiling (`xcodebuild ... AnglesiteMobile ... build`), not `swift test`
+— see Testing.
 
 ### 2. `Package.swift` dependency edge
 
@@ -109,12 +121,25 @@ comment already expects: "the package root... NOT the `Source/` git repo").
 
 ## Testing
 
-- `SiteEntityQueryIOSTests` (new, `Tests/AnglesiteIntentsTests/`), `swift test`-only (no
-  `xcodebuild`/simulator needed — matches how the macOS `SiteEntityQuery` is tested today). Inject
-  fake `UbiquityContainerResolving`/`UbiquitousPackageDiscovering` implementations. Covers:
-  container unavailable → empty; empty discovery → empty; a marker-read failure → dropped, not
-  thrown; multiple sites → all returned; `entities(for:)` exact-id match; `entities(matching:)`
-  substring match (case-insensitive); `defaultResult()` non-nil only when exactly one site exists.
+- `SiteEntityUbiquitySourceTests` (new, `Tests/AnglesiteIntentsTests/`), plain `swift test` — no
+  platform gate on the type under test, so this runs on the macOS host like any other SwiftPM
+  test. Build fixture packages with `AnglesitePackage.createSkeleton(at:displayName:)` (same helper
+  `SitePickerModelTests` already uses) in a scratch directory, then call `SiteEntityUbiquitySource`'s
+  functions directly with the fixture URLs — no fakes of `UbiquityContainerResolving`/
+  `UbiquitousPackageDiscovering` needed at this layer, since discovery is already resolved to a
+  `[URL]` list before this type ever sees it. Covers: a marker-read failure (malformed package) →
+  dropped, not thrown; multiple sites → all returned; `entities(for:)` exact-id match;
+  `entities(matching:)` substring match (case-insensitive); `defaultResult()` non-nil only when
+  exactly one site exists.
+- `SiteEntityQueryIOS` itself (1b) is **not** exercised by `swift test` — it's `#if os(iOS)`-gated,
+  so a macOS-hosted test binary never compiles it, the same limitation `Sources/AnglesiteIntents
+  /PreviewAnnotationProviderUIElementsIOS.swift` already carries (merged into
+  `PreviewAnnotationProviderUIElements.swift` as of #1386's fix wave, but the *limitation* — no
+  `swift test` coverage for `#if os(iOS)`-only code — is unchanged). Verified only by
+  `xcodebuild -project Anglesite.xcodeproj -scheme AnglesiteMobile -configuration Debug
+  -destination 'generic/platform=iOS Simulator' build` compiling successfully. Flagged, not
+  silently skipped: the container-resolution/discovery *orchestration* in 1b has no automated
+  coverage; only the mapping/matching logic it delegates to (1a) does.
 - **Not covered by automated tests** (flagged, not silently skipped): live `NSMetadataQuery`
   behavior against a real iCloud container — the same limitation `SitePickerModel` itself already
   carries (no existing test exercises real iCloud I/O either).
