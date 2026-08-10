@@ -139,7 +139,10 @@ var packageTargets: [Target] = [
     ),
     .target(
         name: "AnglesiteIntents",
-        dependencies: ["AnglesiteCore"],
+        dependencies: [
+            "AnglesiteCore",
+            .target(name: "AnglesiteIOS", condition: .when(platforms: [.iOS])),
+        ],
         path: "Sources/AnglesiteIntents",
         swiftSettings: strictConcurrency
     ),
