@@ -55,6 +55,11 @@ struct NewCommunityWizard: View {
                     .accessibilityLabel("Build failed")
                     .accessibilityValue(msg)
             }
+            if model.completedSiteID != nil && model.hasWarnings {
+                Text("Your community was created, but something above needs attention before it can preview. You can open it anyway and fix it from the community window.")
+                    .font(.caption).foregroundStyle(.secondary).textSelection(.enabled)
+                    .accessibilityLabel("Your community was created with warnings. You can open it anyway and fix it from the community window.")
+            }
         }.padding(24).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 
@@ -94,6 +99,8 @@ struct NewCommunityWizard: View {
                     .keyboardShortcut(.cancelAction)
                 Button("Create") { create() }
                     .keyboardShortcut(.defaultAction).disabled(!model.canCreate)
+            } else if let id = model.completedSiteID, model.hasWarnings {
+                Button("Open Community Anyway") { onComplete(id) }.keyboardShortcut(.defaultAction)
             } else if model.completedSiteID == nil && model.fatal != nil {
                 Button("Close") { onCancel() }
             }
