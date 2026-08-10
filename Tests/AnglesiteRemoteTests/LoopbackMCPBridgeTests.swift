@@ -3,10 +3,25 @@ import Foundation
 import AnglesiteCore
 @testable import AnglesiteRemote
 
+final class MCPMockURLProtocol: URLProtocol {
+    nonisolated(unsafe) static var handler: ((URLRequest) -> (HTTPURLResponse, Data))?
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        guard let handler = Self.handler else { fatalError("no handler set") }
+        let (response, data) = handler(request)
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @Suite(.serialized) struct LoopbackMCPBridgeTests {
     static func makeSession() -> URLSession {
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [MockURLProtocol.self]
+        config.protocolClasses = [MCPMockURLProtocol.self]
         return URLSession(configuration: config)
     }
 
@@ -31,8 +46,8 @@ import AnglesiteCore
 
     @Test func requestGetsMatchingResponse() async throws {
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [MockURLProtocol.self]
-        MockURLProtocol.handler = { request in
+        config.protocolClasses = [MCPMockURLProtocol.self]
+        MCPMockURLProtocol.handler = { request in
             let bodyData = Self.httpBodyAsData(request) ?? Data()
             let body = try! JSONSerialization.jsonObject(with: bodyData) as! [String: Any]
             let id = body["id"] as! Int
@@ -58,8 +73,8 @@ import AnglesiteCore
     @Test func notificationReturnsNilAndStillSends() async throws {
         var sawNotification = false
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [MockURLProtocol.self]
-        MockURLProtocol.handler = { request in
+        config.protocolClasses = [MCPMockURLProtocol.self]
+        MCPMockURLProtocol.handler = { request in
             sawNotification = true
             return (HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: [:])!, Data())
         }
