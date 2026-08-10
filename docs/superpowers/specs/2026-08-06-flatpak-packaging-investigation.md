@@ -113,6 +113,15 @@ macOS CI leg today. Pre-existing, not introduced by this PR (see §9) — tracke
 disclosure, since it means `podmanInvocation`'s rewrite logic is currently unverified by any CI
 run, only reviewed by hand.
 
+> **Resolved by #1284:** both files moved to a new `AnglesiteCorePortableTests` target (not the
+> full `AnglesiteCoreTests`, which is still not purity-swept) and joined the off-Darwin
+> `portableTargets` set, so they now actually build and run on the Linux CI leg. That move also
+> caught two real bugs neither file had ever been compiled against before: `PodmanContainer-
+> ControlIntegrationTests.makeTempGitRepo()` was missing `async` despite an internal `await`, and
+> the file's `URLSession`/`HTTPURLResponse` use needed the usual `canImport(FoundationNetworking)`
+> import for non-Darwin `swift-corelibs-foundation` — concrete evidence for this section's own
+> "unverified by any CI run" concern.
+
 The manifest (`packaging/flatpak/io.dwk.anglesite.linux.yml`, §7) grants exactly
 `--talk-name=org.freedesktop.Flatpak` for this — no `--filesystem=host`.
 
