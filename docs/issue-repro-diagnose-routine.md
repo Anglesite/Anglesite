@@ -24,7 +24,9 @@ the config and prompt below verbatim.
 - **Permissions:** Settings default (inherits this repo's `.claude/settings.json`, which
   already pre-approves `swift test`, `swift build`, `xcodebuild`, plus the global
   `defaultMode: auto`)
-- **Schedule:** Custom, every 4 hours — enabled only after a clean dry run (see below)
+- **Schedule:** Live — Daily at 01:00 (set directly in the claude.ai UI after a clean dry
+  run; not every 4 hours as originally recommended in the design doc §7, given how little
+  🏭 Needs repro activity the backlog has)
 - **Routine ID / link:** not exposed — see "Creating the routine" below. Identify this
   routine by its **name** (`anglesite-factory-repro-diagnose`) instead.
 
