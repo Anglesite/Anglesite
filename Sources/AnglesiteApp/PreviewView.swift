@@ -24,6 +24,13 @@ struct PreviewView: NSViewRepresentable {
     let router: EditRouter
     let annotationProvider: PreviewAnnotationProvider?
 
+    /// The mounted WYSIWYG canvas controller (#1225), or `nil` when edit mode is off. When
+    /// non-nil, `makeNSView` registers a `WYSIWYGScriptHandler` wrapping it as a second
+    /// `WKScriptMessageHandler` alongside the overlay's — `WYSIWYGCanvasController` forwards to
+    /// its own transport, so no separate transport type is needed here. `PreviewModel.wysiwygCanvas`
+    /// is the source of truth; `SiteWindow.previewPane(for:)` passes it straight through.
+    var wysiwygTransport: (any WYSIWYGHostTransport)?
+
     /// Called with the `WKWebView` once it's created, so the owning `PreviewModel` can hold a weak
     /// reference and drive the View-menu preview commands (reload/history/zoom).
     /// Defaults to a no-op for callers (e.g. tests) that don't need it.
@@ -47,7 +54,8 @@ struct PreviewView: NSViewRepresentable {
             { @Sendable elements in await provider.update(elements) }
         }
         let handler = AnglesiteScriptHandler(router: router, onVisibleElements: onVisibleElements)
-        let configuration = WebViewBridge.localDevConfiguration(handler: handler)
+        let wysiwygHandler = wysiwygTransport.map { WYSIWYGScriptHandler(transport: $0) }
+        let configuration = WebViewBridge.localDevConfiguration(handler: handler, wysiwygHandler: wysiwygHandler)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         WebViewBridge.applyPreviewDefaults(to: webView)
         if let annotationProvider {

@@ -1054,6 +1054,7 @@ struct SiteWindow: View {
                 url: model.preview.displayURL ?? url,
                 router: model.preview.editRouter,
                 annotationProvider: model.annotationProvider,
+                wysiwygTransport: model.preview.wysiwygCanvas,
                 onWebView: { [preview = model.preview] webView in preview.webView = webView },
                 // Explicit detach: ARC zeroing the model's weak `webView` doesn't fire `didSet`,
                 // so without this the Back/Forward menu enablement would freeze when the dev

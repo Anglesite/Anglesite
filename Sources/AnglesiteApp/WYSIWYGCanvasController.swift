@@ -38,3 +38,21 @@ final class WYSIWYGCanvasController {
         return result
     }
 }
+
+/// Lets `PreviewView` register `WYSIWYGScriptHandler` directly against the controller instead of
+/// reaching into its private `transport` — the handler only ever needs the `WYSIWYGHostTransport`
+/// surface, and routing submitted ops through `submit(_:)` keeps `model`/`onOpApplied` in sync
+/// with ops that arrive from JS, exactly like ops submitted natively (menu commands, Task 9's
+/// undo coordinator).
+extension WYSIWYGCanvasController: WYSIWYGHostTransport {
+    func sendOp(_ envelope: OpEnvelope) async -> OpResult {
+        await submit(envelope.op)
+    }
+
+    /// No-op for now: PR1 has no host-initiated push into an already-mounted controller (no
+    /// external-edit trigger exists yet — see `StubWYSIWYGHostTransport.onModelUpdate`). `async`
+    /// to match `WYSIWYGHostTransport`'s protocol requirement.
+    func onModelUpdate(_ listener: @escaping @Sendable (BlockModel) -> Void) async -> () -> Void {
+        {}
+    }
+}

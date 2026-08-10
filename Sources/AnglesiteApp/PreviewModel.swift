@@ -84,6 +84,32 @@ final class PreviewModel {
     /// failure), `MCPApplyEditRouter` returns `.failed("MCP not running")` per its existing shape.
     private(set) var editRouter: EditRouter
 
+    /// The mounted WYSIWYG canvas controller (#1225), non-nil only while edit mode is active.
+    /// Reuses the existing `.preview` `WKWebView` rather than a dedicated pane: `PreviewView`
+    /// registers `WYSIWYGScriptHandler` against this controller (it forwards to
+    /// `WYSIWYGHostTransport` itself, see the `WYSIWYGCanvasController` conformance) whenever it's
+    /// non-nil. Constructed against a `StubWYSIWYGHostTransport` seeded with `enterEditMode`'s
+    /// `seedModel` — the real sidecar-backed transport is a follow-up once #1222 lands (design
+    /// doc §1).
+    private(set) var wysiwygCanvas: WYSIWYGCanvasController?
+
+    /// Whether the Site ▸ Edit Page toggle is currently on. Equivalent to `wysiwygCanvas != nil`,
+    /// exposed separately so callers don't have to spell out the nil check.
+    var isEditModeEnabled: Bool { wysiwygCanvas != nil }
+
+    /// Site ▸ Edit Page toggle (#1225). `seedModel` stands in for a real `get_page_model` fetch
+    /// (#1222) until the sidecar backend exists.
+    func enterEditMode(seedModel: BlockModel) async {
+        let transport = StubWYSIWYGHostTransport(model: seedModel)
+        wysiwygCanvas = WYSIWYGCanvasController(initialModel: seedModel, transport: transport)
+    }
+
+    /// Site ▸ Edit Page toggle-off: tears down the mounted canvas controller so `PreviewView`
+    /// stops registering the WYSIWYG ops handler on the next render.
+    func exitEditMode() {
+        wysiwygCanvas = nil
+    }
+
     /// `contentGraph` is the app-lifetime `SiteContentGraph` (held by `AppDelegate`); it's threaded
     /// into the live runtime factory so opening this site populates the shared graph (A.8,
     /// #142). Tests can inject an explicit `runtime` and leave the graph `nil`.
