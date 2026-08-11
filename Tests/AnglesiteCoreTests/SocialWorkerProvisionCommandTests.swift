@@ -108,6 +108,57 @@ struct SocialWorkerProvisionCommandTests {
         #expect(!toml.contains("[[r2_buckets]]"))
     }
 
+    @Test("threads activityPubActorType and moderators into the deployed wrangler.toml")
+    func provisionsGroupActorWithModerators() async throws {
+        let site = try temporaryDirectory()
+        let recorder = WranglerRecorder([:])
+        let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
+        let command = SocialWorkerProvisionCommand(
+            tokenSource: { "token" },
+            runner: recorder.runner,
+            keyPairSource: { _ in
+                .init(privateKeyPem: "PRIVATE-PEM", publicKeyPem: "PUBLIC-PEM", publishToken: "TOKEN-VALUE")
+            },
+            secretRunner: { _, _, _, _, _ in .init(stdout: "Success!", stderr: "", exitCode: 0) },
+            deployer: deployer.deployer
+        )
+        // AP_ACTOR_TYPE/AP_MODERATORS are gated on `hasActivityPub`
+        // (`WorkerComposition.swift`'s `workers.contains(where: { $0.id == activitypubWorkerID })`),
+        // so the activitypub worker must be active for this test to observe the threaded values.
+        let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
+
+        let result = await command.provision(
+            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [activitypub],
+            activityPubActorType: "Group", moderators: ["https://mod.example/actor"]
+        )
+
+        guard case .succeeded = result else {
+            Issue.record("expected success, got \(result)")
+            return
+        }
+        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        #expect(toml.contains("AP_ACTOR_TYPE = \"Group\""))
+        #expect(toml.contains("AP_MODERATORS = \"https://mod.example/actor\""))
+    }
+
+    @Test("omitting activityPubActorType leaves an ordinary Person actor, unaffected")
+    func provisionsWithoutActorTypeStaysUnaffected() async throws {
+        let site = try temporaryDirectory()
+        let recorder = WranglerRecorder([:])
+        let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
+        let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, runner: recorder.runner, deployer: deployer.deployer)
+
+        let result = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [])
+
+        guard case .succeeded = result else {
+            Issue.record("expected success, got \(result)")
+            return
+        }
+        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        #expect(!toml.contains("AP_ACTOR_TYPE"))
+        #expect(!toml.contains("AP_MODERATORS"))
+    }
+
     @Test("forwards wellKnownDynamicClaims to the deployer so #744's collision check sees them (#934)")
     func forwardsWellKnownDynamicClaimsToDeployer() async throws {
         let site = try temporaryDirectory()

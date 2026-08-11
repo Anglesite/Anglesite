@@ -69,6 +69,7 @@ struct ThemeCatalogTests {
         #expect(catalog.defaultThemeID(for: .blog) == "warm")
         #expect(catalog.defaultThemeID(for: .portfolio) == "bold")
         #expect(catalog.defaultThemeID(for: .organization) == "community")
+        #expect(catalog.defaultThemeID(for: .community) == "community")
     }
 
     @Test func testParseDecodesPackFields() throws {

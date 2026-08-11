@@ -65,6 +65,9 @@ struct WebsiteCommands: Commands {
             Button("Communities…") { model?.presentCommunities() }
                 .disabled(model == nil)
 
+            Button("Moderation…") { model?.presentModeration() }
+                .disabled(model?.canOpenModeration != true)
+
             // Ellipsis items open a sheet for further input, per the HIG.
             Button("Harden…") { model?.harden.openSheet() }
                 .disabled(model?.canRunHarden != true)

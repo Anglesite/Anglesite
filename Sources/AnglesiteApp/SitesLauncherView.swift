@@ -49,6 +49,16 @@ struct SitesLauncherView: View {
     }
     /// Non-nil while the New Site wizard is showing; nil dismisses it.
     @State private var newSiteSession: NewSiteSession?
+    private struct NewCommunitySession: Identifiable {
+        let id = UUID()
+        let model: NewCommunityWizardModel
+        let scaffolder: SiteScaffolder
+    }
+    /// Non-nil while the New Community wizard is showing; nil dismisses it.
+    @State private var newCommunitySession: NewCommunitySession?
+    /// Guards `presentNewCommunity()` against a double-trigger while it is preparing — mirrors
+    /// `preparingNewSite`'s note above.
+    @State private var preparingNewCommunity = false
     @State private var sitesRootScopedURL: URL?
     @State private var router = WindowRouter.shared
 
@@ -76,6 +86,11 @@ struct SitesLauncherView: View {
             router.clearNewSiteRequest()
             Task { await presentNewSite() }
         }
+        .onChange(of: router.newCommunityRequested) { _, requested in
+            guard requested else { return }
+            router.clearNewCommunityRequest()
+            Task { await presentNewCommunity() }
+        }
         // Attached here (not inside `launcherUI`) so it still presents while `deciding`
         // is showing the blank placeholder above — a File ▸ New Site launch keeps
         // `deciding` true so only the wizard sheet is visible, not the full Sites picker
@@ -96,6 +111,28 @@ struct SitesLauncherView: View {
                     newSiteSession = nil
                     // Reveal the picker now that the wizard is gone — mirrors the
                     // presentNewSite()-failed path in onFirstAppear() below.
+                    deciding = false
+                }
+            )
+            .onDisappear {
+                sitesRootScopedURL?.stopAccessingSecurityScopedResource()
+                sitesRootScopedURL = nil
+            }
+        }
+        .sheet(item: $newCommunitySession) { session in
+            NewCommunityWizard(
+                model: session.model,
+                scaffolder: session.scaffolder,
+                onComplete: { siteID in
+                    newCommunitySession = nil
+                    Task {
+                        await refreshSites()
+                        openWindow(value: siteID)
+                        dismissWindow()
+                    }
+                },
+                onCancel: {
+                    newCommunitySession = nil
                     deciding = false
                 }
             )
@@ -403,19 +440,26 @@ struct SitesLauncherView: View {
         }
     }
 
+    private struct ScaffoldingContext {
+        let catalog: ThemeCatalog
+        let scaffolder: SiteScaffolder
+        let isNameTaken: (String) -> Bool
+    }
+
+    /// Everything both `presentNewSite()` and `presentNewCommunity()` need before they can
+    /// construct their own wizard model: template/theme catalog, sites-root resolution (with
+    /// MAS security-scope handling), name-uniqueness check, and a ready `SiteScaffolder`.
+    /// Extracted so the two flows (#907, design doc §3) don't duplicate this setup.
     @MainActor
-    private func presentNewSite() async {
-        guard newSiteSession == nil, !preparingNewSite else { return }
-        preparingNewSite = true
-        defer { preparingNewSite = false }
+    private func resolveScaffoldingContext() async -> ScaffoldingContext? {
         let resolution = TemplateRuntime.resolve()
         guard let templateURL = resolution.url else {
             loadError = "Template not found — can't create a site. Reinstall the app."
-            return
+            return nil
         }
         let catalog: ThemeCatalog
         do { catalog = try ThemeCatalog.load(templateURL: templateURL) }
-        catch { loadError = "Couldn't load themes: \(error.localizedDescription)"; return }
+        catch { loadError = "Couldn't load themes: \(error.localizedDescription)"; return nil }
 
         // Effective sites root (the app's iCloud container by default since #865; an override or
         // the ~/Sites fallback otherwise) — the same accessor SiteStore uses.
@@ -432,7 +476,7 @@ struct SitesLauncherView: View {
         // final review). `ensureSitesRootAccess` is shared with `SiteActions.importPackage()` —
         // see that enum's doc comment on keeping MAS bookmark minting in exactly one place.
         if AppSettings.shared.sitesRootSource != .iCloudContainer {
-            guard let rootScope = await SiteActions.ensureSitesRootAccess(sitesRoot) else { return }  // user cancelled
+            guard let rootScope = await SiteActions.ensureSitesRootAccess(sitesRoot) else { return nil }  // user cancelled
             sitesRootScopedURL = rootScope
         }
         #endif
@@ -446,10 +490,10 @@ struct SitesLauncherView: View {
         // "Untitled N" availability (#1071): taken if it collides with a registered site's slug
         // OR a package already on disk in the sites root (registered or not) — silent save must
         // never clobber an existing folder.
-        let model = NewSiteWizardModel(catalog: catalog, isNameTaken: { name in
+        let isNameTaken: (String) -> Bool = { name in
             takenSlugs.contains(SiteSlug.derive(from: name))
                 || FileManager.default.fileExists(atPath: sitesRoot.appendingPathComponent("\(name).anglesite").path)
-        })
+        }
 
         let scaffolder = SiteScaffolder(
             sitesRoot: sitesRoot,
@@ -482,7 +526,27 @@ struct SitesLauncherView: View {
                 return site
             }
         )
-        newSiteSession = NewSiteSession(model: model, scaffolder: scaffolder)
+        return ScaffoldingContext(catalog: catalog, scaffolder: scaffolder, isNameTaken: isNameTaken)
+    }
+
+    @MainActor
+    private func presentNewSite() async {
+        guard newSiteSession == nil, !preparingNewSite else { return }
+        preparingNewSite = true
+        defer { preparingNewSite = false }
+        guard let context = await resolveScaffoldingContext() else { return }
+        let model = NewSiteWizardModel(catalog: context.catalog, isNameTaken: context.isNameTaken)
+        newSiteSession = NewSiteSession(model: model, scaffolder: context.scaffolder)
+    }
+
+    @MainActor
+    private func presentNewCommunity() async {
+        guard newCommunitySession == nil, !preparingNewCommunity else { return }
+        preparingNewCommunity = true
+        defer { preparingNewCommunity = false }
+        guard let context = await resolveScaffoldingContext() else { return }
+        let model = NewCommunityWizardModel(isNameTaken: context.isNameTaken)
+        newCommunitySession = NewCommunitySession(model: model, scaffolder: context.scaffolder)
     }
 
     // MARK: - Lifecycle
@@ -502,6 +566,16 @@ struct SitesLauncherView: View {
             // cancelled), fall through to the picker so the resulting error/list is
             // visible instead of a dead blank window.
             if newSiteSession == nil {
+                deciding = false
+            }
+            return
+        }
+
+        // Mirrors the New Site consume above, for File ▸ New Community.
+        if router.newCommunityRequested {
+            router.clearNewCommunityRequest()
+            await presentNewCommunity()
+            if newCommunitySession == nil {
                 deciding = false
             }
             return

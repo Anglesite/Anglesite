@@ -73,6 +73,11 @@ struct NewContentCommands: Commands {
             }
             .keyboardShortcut("n", modifiers: [.command, .shift])
 
+            Button("New Community…") {
+                openWindow(id: "sites")
+                WindowRouter.shared.requestNewCommunity()
+            }
+
             Button("Open Site…") {
                 Task { await openSiteFromMenu() }
             }

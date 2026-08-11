@@ -837,6 +837,7 @@ final class DeployModel {
         // `provision()` for the wrangler.toml var.
         let resolvedApUsername = DeployCoordinator.resolveEffectiveActivityPubUsername(siteDirectory: siteDirectory)
         let acknowledgesPaidPlan = settings.webmentionReceivePaidPlanAcknowledged ?? false
+        let isHostedCommunity = DeployCoordinator.resolveIsHostedCommunity(siteDirectory: siteDirectory)
         let provisionResult = await socialCommand.provision(
             siteID: siteID,
             siteDirectory: siteDirectory,
@@ -848,7 +849,9 @@ final class DeployModel {
             displayName: settings.displayName,
             apUsername: apUsername,
             acknowledgesPaidPlan: acknowledgesPaidPlan,
-            inboxCaptureEnabled: settings.inboxCaptureEnabled ?? false
+            inboxCaptureEnabled: settings.inboxCaptureEnabled ?? false,
+            activityPubActorType: isHostedCommunity ? "Group" : nil,
+            moderators: isHostedCommunity ? settings.moderators : nil
         )
 
         if case .webmentionPaidPlanConfirmationNeeded = provisionResult {
@@ -877,11 +880,22 @@ final class DeployModel {
         // on a specific provisioned resource). Computed before the persist call below too: it
         // also gates whether this deploy advances the `lastDeployedAPUsername` baseline (#1239).
         let activitypubProvisioned = workers.contains(where: { $0.id == WorkerComposition.activitypubWorkerID })
-        if case .succeeded(_, let resources, _) = provisionResult {
+        if case .succeeded(let deployedURL, let resources, _) = provisionResult {
+            // The actor IRI must be derived the same way `ModerationModel.ownActorURL` derives
+            // "this site's own actor" (`DeployCoordinator.resolveSiteURL`), not from the
+            // workers.dev URL this particular deploy happened to print — `resolveSiteURL`
+            // deliberately prefers a confirmed-attached custom domain, and `persistSiteURL`
+            // (called above, before `provision()` ran) has already recorded whatever domain state
+            // is current by this point. Falls back to `deployedURL` only for the very first
+            // deploy, before any URL has ever been recorded (#1263 final review finding 3).
+            let communityActorSiteURL =
+                DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory).flatMap { URL(string: $0) } ?? deployedURL
             await DeployCoordinator.persistProvisionedResources(
                 configStore: configStore, settings: settings,
                 effectiveActiveIDs: effectiveActiveIDs, resources: resources,
-                apUsername: activitypubProvisioned ? resolvedApUsername : nil
+                apUsername: activitypubProvisioned ? resolvedApUsername : nil,
+                communityActorURL: (isHostedCommunity && activitypubProvisioned)
+                    ? ActivityPubActor.actorURL(siteURL: communityActorSiteURL) : nil
             )
             websubProvisioned = workers.contains(where: { $0.id == WorkerComposition.websubWorkerID })
                 && resources.websubQueueName != nil

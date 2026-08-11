@@ -327,6 +327,52 @@ struct SiteOperationsTests {
         #expect(saved.lastDeployedWorkerIDs == ["indieauth"])
     }
 
+    /// #1263 final review finding 1: this headless path (App Intents/Shortcuts/Siri) used to call
+    /// `provision()` with no `activityPubActorType`/`moderators` at all — since `persistConfig`
+    /// regenerates `wrangler.toml` from scratch on every deploy, a community correctly deployed
+    /// once via the GUI then re-deployed headlessly silently reverted to a Person actor with no
+    /// moderators, and `communityActorURL` was never written by this path either. Confirms both
+    /// are now threaded through, mirroring `DeployModel.runDeploy`'s GUI-path wiring.
+    @Test("headless deploy of a hosted community composes a Group actor with moderators and persists communityActorURL")
+    func headlessDeployOfHostedCommunityComposesGroupActor() async throws {
+        let package = try temporaryPackage()
+        defer { try? FileManager.default.removeItem(at: package) }
+        let site = makeSite(name: "Birding Club", packageURL: package)
+        let configStore = SiteConfigStore(configDirectory: site.configDirectory)
+        try await configStore.save(SiteSettings(
+            activeWorkerIDs: ["activitypub"],
+            moderators: ["https://mastodon.social/users/mod"]
+        ))
+        let siteConfigContents = SiteConfigFile.upsert([("SITE_TYPE", SiteType.community.rawValue)], into: "")
+        try siteConfigContents.write(
+            to: site.sourceDirectory.appendingPathComponent(WebsiteAnalyticsAsset.configRelativePath),
+            atomically: true,
+            encoding: .utf8
+        )
+
+        let recorder = SocialWorkerRecorder()
+        let ops = SiteOperations(
+            factory: SocialWorkerFactory(recorder: recorder),
+            store: throwawayStore(),
+            socialWorkerAccess: { site, store, body in try await SiteAccess.withScopedAccess(to: site, in: store, body) },
+            cachedWorkerCatalog: { [self.descriptor(id: "activitypub")] }
+        )
+
+        let result = await ops.deploy(site: site)
+
+        guard case .succeeded = result else {
+            Issue.record("expected success, got \(result)")
+            return
+        }
+        let wranglerToml = try String(
+            contentsOf: site.sourceDirectory.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        #expect(wranglerToml.contains(#"AP_ACTOR_TYPE = "Group""#))
+        #expect(wranglerToml.contains(#"AP_MODERATORS = "https://mastodon.social/users/mod""#))
+
+        let saved = try await configStore.load()
+        #expect(saved.communityActorURL == URL(string: "https://blue-bottle-cafe.example.workers.dev/users/site"))
+    }
+
     @Test("headless deploy resolves the Worker name from CF_PROJECT_NAME before deriving from the site's display name")
     func headlessDeployUsesConfiguredProjectNameOverDerivedSlug() async throws {
         let package = try temporaryPackage()
@@ -528,6 +574,10 @@ private struct SocialWorkerFactory: CommandFactory {
         SocialWorkerProvisionCommand(
             tokenSource: { "token" },
             runner: { _, arguments, _, _ in await recorder.run(arguments: arguments) },
+            // Only exercised when the activitypub worker is active (it's the only one that pushes
+            // a secret, `AP_PRIVATE_KEY`) — always-succeeds is fine for the indieauth/webfinger
+            // fixtures elsewhere in this file, which never call it.
+            secretRunner: { _, _, _, _, _ in .init(stdout: "Success!", stderr: "", exitCode: 0) },
             deployer: { token, siteID, siteDirectory, wellKnownDynamicClaims in
                 await recorder.deploy(
                     token: token, siteID: siteID, siteDirectory: siteDirectory,
