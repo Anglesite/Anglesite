@@ -25,6 +25,22 @@ public struct LoopbackHTTPExecutor: HTTPExecutor {
     /// production container preview serving.
     public func execute(_ request: BridgeRequestHead, body: Data?) async throws
         -> (head: BridgeResponseHead, body: AsyncThrowingStream<Data, Error>) {
+        // `request.path` is peer-supplied and unvalidated at every layer above this (decoded
+        // straight off the wire in `AnglesiteP2P/P2PFraming`, passed through untouched by
+        // `FetchBridge`). `URL(string:relativeTo:)` below performs full RFC 3986 reference
+        // resolution, which — unlike the plain string splice this comment used to describe —
+        // also honors network-path references (`//evil.example/x`, host becomes `evil.example`)
+        // and absolute references (`http://evil.example/x`, `baseURL` ignored entirely). Left
+        // unchecked, a peer can redirect this host-side helper's request to an arbitrary
+        // scheme/host/port (SSRF into localhost services and the LAN) with attacker-chosen
+        // method/headers/body, and get the response back over the bridge. A legitimate
+        // same-origin request target is always a plain absolute-path reference: a single leading
+        // `/` and nothing that could be mistaken for a scheme or authority.
+        guard request.path.hasPrefix("/"), !request.path.hasPrefix("//") else {
+            Self.report("rejected unsafe bridged request path \(request.path)")
+            throw URLError(.badURL)
+        }
+
         // `request.path` arrives ALREADY percent-encoded — it's the raw request target off the
         // wire, the same contract P0's `DirectoryHTTPExecutor` relies on when it calls
         // `removingPercentEncoding` on this field. So it must be spliced onto `baseURL` verbatim:
@@ -33,7 +49,8 @@ public struct LoopbackHTTPExecutor: HTTPExecutor {
         // 404ing every filename with a space or non-ASCII character. `URL(string:relativeTo:)`
         // does RFC 3986 reference resolution without re-encoding what's already encoded — and,
         // unlike `URLComponents.percentEncodedPath`, returns `nil` on a malformed target instead
-        // of trapping, so a bad request from the peer can't take the helper down.
+        // of trapping, so a bad request from the peer can't take the helper down. The leading-`/`
+        // guard above ensures this resolution can only ever stay within `baseURL`'s origin.
         guard let url = URL(string: request.path, relativeTo: baseURL)?.absoluteURL else {
             Self.report("unroutable bridged request path \(request.path)")
             throw URLError(.badURL)

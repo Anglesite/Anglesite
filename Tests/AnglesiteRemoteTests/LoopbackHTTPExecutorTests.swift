@@ -97,6 +97,32 @@ final class MockURLProtocol: URLProtocol {
         #expect(capturedBody == Data("payload".utf8))
     }
 
+    /// SSRF regression: a network-path reference (`//host/...`) is an RFC 3986 reference that
+    /// `URL(string:relativeTo:)` resolves against a *different* host, ignoring `baseURL`'s host
+    /// entirely. `request.path` is peer-supplied and unvalidated, so an unchecked splice would
+    /// let a WebRTC peer redirect this host-side helper's request to an arbitrary host. The mock
+    /// handler `fatalError`s if invoked — proof the executor never makes a real network call.
+    @Test func rejectsNetworkPathReferenceAsUnsafe() async {
+        MockURLProtocol.handler = { _ in fatalError("should not be called: network-path reference must be rejected before dispatch") }
+        let executor = LoopbackHTTPExecutor(baseURL: URL(string: "http://127.0.0.1:4321")!, urlSession: Self.makeSession())
+        await #expect(throws: URLError.self) {
+            _ = try await executor.execute(
+                BridgeRequestHead(method: "GET", path: "//evil.example/x", headers: [:]), body: nil)
+        }
+    }
+
+    /// SSRF regression: an absolute reference (`scheme://host/...`) resolves to itself under RFC
+    /// 3986 resolution, ignoring `baseURL` entirely. Same proof shape as the network-path case
+    /// above — the mock handler must never be invoked.
+    @Test func rejectsAbsoluteURLReferenceAsUnsafe() async {
+        MockURLProtocol.handler = { _ in fatalError("should not be called: absolute URL reference must be rejected before dispatch") }
+        let executor = LoopbackHTTPExecutor(baseURL: URL(string: "http://127.0.0.1:4321")!, urlSession: Self.makeSession())
+        await #expect(throws: URLError.self) {
+            _ = try await executor.execute(
+                BridgeRequestHead(method: "GET", path: "http://evil.example/x", headers: [:]), body: nil)
+        }
+    }
+
     @Test func propagatesConnectionFailureAsThrow() async {
         MockURLProtocol.handler = { _ in fatalError("should not be called") }
         let unreachable = URLSession(configuration: {
