@@ -24,9 +24,14 @@ import AnglesiteCore
 
     @Test func reusesExistingClaimWithoutBooting() async throws {
         let registry = try Self.makeRegistry()
+        // Must be a genuinely live PID — RemoteContainerSession's liveness check (see
+        // reusesClaimWhoseOwnerProcessIsAlive) discards a claim whose owner is dead, and a fixed
+        // magic number isn't guaranteed alive on every machine (it happened to be a real
+        // long-lived process locally but not on a fresh CI runner).
+        let livePID = ProcessInfo.processInfo.processIdentifier
         try await registry.publish(RemoteSessionClaim(
             siteID: "site-1", previewURL: URL(string: "http://127.0.0.1:9001")!,
-            mcpURL: URL(string: "http://127.0.0.1:9002")!, ownerPID: 999))
+            mcpURL: URL(string: "http://127.0.0.1:9002")!, ownerPID: livePID))
         let control = FakeLocalContainerControl()
         let session = RemoteContainerSession(control: control, registry: registry, pid: 111)
         let result = try await session.ensureRunning(
@@ -38,7 +43,9 @@ import AnglesiteCore
     @Test func tearDownWithdrawsOwnClaimOnlyWhenOwner() async throws {
         let control = FakeLocalContainerControl()
         let registry = try Self.makeRegistry()
-        let owner = RemoteContainerSession(control: control, registry: registry, pid: 111)
+        // The owner's pid becomes the published claim's ownerPID, which the borrower's lookup
+        // liveness-checks — must be genuinely alive (see reusesExistingClaimWithoutBooting).
+        let owner = RemoteContainerSession(control: control, registry: registry, pid: ProcessInfo.processInfo.processIdentifier)
         _ = try await owner.ensureRunning(
             siteID: "site-1", sourceRepo: URL(fileURLWithPath: "/tmp/site"), ref: "HEAD", onOutput: { _, _ in })
         let borrower = RemoteContainerSession(control: control, registry: registry, pid: 222)
