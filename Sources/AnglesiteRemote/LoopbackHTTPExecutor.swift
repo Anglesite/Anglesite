@@ -1,10 +1,13 @@
 import Foundation
+import os.log
 import AnglesiteP2P
 
 /// Replays a bridged HTTP request against a real base URL (the container's `previewURL`) via
 /// `URLSession`. The production `HTTPExecutor` for P1+ — `DirectoryHTTPExecutor` (P0) stays
 /// test-only infra.
 public struct LoopbackHTTPExecutor: HTTPExecutor {
+    private static let logger = os.Logger(subsystem: "io.dwk.anglesite.remote", category: "LoopbackHTTPExecutor")
+
     private let baseURL: URL
     private let urlSession: URLSession
 
@@ -22,16 +25,17 @@ public struct LoopbackHTTPExecutor: HTTPExecutor {
     /// production container preview serving.
     public func execute(_ request: BridgeRequestHead, body: Data?) async throws
         -> (head: BridgeResponseHead, body: AsyncThrowingStream<Data, Error>) {
-        // Parse the path to separate path and query string.
-        let (path, query) = parsePath(request.path)
-
-        // Build the full URL from baseURL + path + query.
-        var urlComponents = URLComponents(url: baseURL.appendingPathComponent(path), resolvingAgainstBaseURL: true)
-        if let query, !query.isEmpty {
-            urlComponents?.query = query
-        }
-
-        guard let url = urlComponents?.url else {
+        // `request.path` arrives ALREADY percent-encoded — it's the raw request target off the
+        // wire, the same contract P0's `DirectoryHTTPExecutor` relies on when it calls
+        // `removingPercentEncoding` on this field. So it must be spliced onto `baseURL` verbatim:
+        // routing it through `appendingPathComponent`/`URLComponents.query` re-encodes the `%`
+        // itself, turning `/img/My%20Photo.jpg` into a request for `/img/My%2520Photo.jpg` and
+        // 404ing every filename with a space or non-ASCII character. `URL(string:relativeTo:)`
+        // does RFC 3986 reference resolution without re-encoding what's already encoded — and,
+        // unlike `URLComponents.percentEncodedPath`, returns `nil` on a malformed target instead
+        // of trapping, so a bad request from the peer can't take the helper down.
+        guard let url = URL(string: request.path, relativeTo: baseURL)?.absoluteURL else {
+            Self.report("unroutable bridged request path \(request.path)")
             throw URLError(.badURL)
         }
 
@@ -44,16 +48,28 @@ public struct LoopbackHTTPExecutor: HTTPExecutor {
             urlRequest.setValue(value, forHTTPHeaderField: key)
         }
 
-        // Set the request body if provided.
+        // Set the request body if provided. A plain `Data` body rather than an `InputStream`:
+        // `URLProtocol` converts it to a stream on its own anyway, and `Data` is replayable
+        // (a consumed stream is not) should URLSession ever retry the request.
         if let body {
-            urlRequest.httpBodyStream = InputStream(data: body)
+            urlRequest.httpBody = body
         }
 
         // Execute the request.
-        let (responseData, urlResponse) = try await urlSession.data(for: urlRequest)
+        let responseData: Data
+        let urlResponse: URLResponse
+        do {
+            (responseData, urlResponse) = try await urlSession.data(for: urlRequest)
+        } catch {
+            // `String(describing:)`, not `localizedDescription`: the latter flattens a plain Swift
+            // error enum into an opaque "error 1", and even a `URLError` reads better raw here.
+            Self.report("\(request.method) \(request.path) failed: \(String(describing: error))")
+            throw error
+        }
 
         // Extract the HTTP response.
         guard let httpResponse = urlResponse as? HTTPURLResponse else {
+            Self.report("\(request.method) \(request.path): non-HTTP response")
             throw URLError(.badServerResponse)
         }
 
@@ -72,15 +88,13 @@ public struct LoopbackHTTPExecutor: HTTPExecutor {
         return (head: responseHead, body: stream)
     }
 
-    /// Parses the path to separate the path component from the query string.
-    /// For example, "/blog/?draft=1" becomes ("/blog/", "draft=1").
-    private func parsePath(_ path: String) -> (path: String, query: String?) {
-        if let questionMarkIndex = path.firstIndex(of: "?") {
-            let pathPart = String(path[..<questionMarkIndex])
-            let queryPart = String(path[path.index(after: questionMarkIndex)...])
-            return (pathPart, queryPart)
-        }
-        return (path, nil)
+    /// Reports a bridge-level failure to **both** the system log and this process's stderr.
+    /// Logs are sacred (CLAUDE.md): `os.Logger` alone never reaches the helper's stderr
+    /// transcript, which is what `ProcessOutputCapture`, the E2E suite, and an operator
+    /// debugging a live session actually read.
+    private static func report(_ message: String) {
+        logger.error("LoopbackHTTPExecutor: \(message, privacy: .public)")
+        FileHandle.standardError.write(Data("LoopbackHTTPExecutor: \(message)\n".utf8))
     }
 
     /// Flattens HTTPURLResponse.allHeaderFields (which may have NSString keys) to [String: String].

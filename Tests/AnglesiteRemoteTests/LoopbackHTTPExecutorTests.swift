@@ -40,16 +40,45 @@ final class MockURLProtocol: URLProtocol {
         var collected = Data()
         for try await chunk in body { collected.append(chunk) }
         #expect(String(decoding: collected, as: UTF8.self) == "<h1>hi</h1>")
+        // `/blog`, not `/blog/`: `URL.path`'s getter strips a trailing slash. The request really
+        // does carry `/blog/` on the wire (see `absoluteString` below) — don't "fix" this to
+        // `/blog/`, it only reintroduces a false failure.
         #expect(capturedRequest?.url?.path == "/blog")
+        #expect(capturedRequest?.url?.absoluteString == "http://127.0.0.1:4321/blog/?draft=1")
         #expect(capturedRequest?.url?.query == "draft=1")
         #expect(capturedRequest?.httpMethod == "GET")
         #expect(capturedRequest?.value(forHTTPHeaderField: "Accept") == "text/html")
     }
 
+    /// `BridgeRequestHead.path` arrives already percent-encoded (the contract P0's
+    /// `DirectoryHTTPExecutor` relies on when it percent-*decodes* the same field), so the
+    /// executor must splice it on verbatim. Building the URL through `appendingPathComponent`
+    /// re-encoded the `%` itself and turned every filename with a space or non-ASCII character
+    /// into a 404.
+    @Test func forwardsPercentEncodedPathWithoutDoubleEncoding() async throws {
+        var capturedRequest: URLRequest?
+        MockURLProtocol.handler = { request in
+            capturedRequest = request
+            return (HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: [:])!, Data())
+        }
+        let executor = LoopbackHTTPExecutor(baseURL: URL(string: "http://127.0.0.1:4321")!, urlSession: Self.makeSession())
+        _ = try await executor.execute(
+            BridgeRequestHead(method: "GET", path: "/img/My%20Photo.jpg?w=64%2C64", headers: [:]), body: nil)
+        // The SAME encoded path the peer sent — not `/img/My%2520Photo.jpg`.
+        #expect(capturedRequest?.url?.absoluteString == "http://127.0.0.1:4321/img/My%20Photo.jpg?w=64%2C64")
+        // And it still decodes back to the filename the site actually has on disk.
+        #expect(capturedRequest?.url?.path == "/img/My Photo.jpg")
+        #expect(capturedRequest?.url?.query == "w=64%2C64")
+    }
+
     @Test func forwardsRequestBody() async throws {
         var capturedBody: Data?
         MockURLProtocol.handler = { request in
-            capturedBody = request.httpBodyStream.map { stream -> Data in
+            // The executor sets `httpBody` (replayable), but `URLProtocol` hands the protocol
+            // implementation a request whose body has been converted to a stream — so read
+            // whichever form is actually present rather than assuming one.
+            if let direct = request.httpBody { capturedBody = direct }
+            capturedBody = capturedBody ?? request.httpBodyStream.map { stream -> Data in
                 stream.open(); defer { stream.close() }
                 var data = Data(); var buf = [UInt8](repeating: 0, count: 1024)
                 while stream.hasBytesAvailable {
