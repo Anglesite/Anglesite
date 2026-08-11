@@ -1,0 +1,23 @@
+// Copy this file to Signing-Release.local.xcconfig (same directory) to pin your own
+// Apple Developer Team for local Release builds/archives — e.g. #81's real-signed smoke
+// test, or preparing a TestFlight/App Store build. That filename is gitignored, so it
+// survives `xcodegen generate` without affecting CI or other contributors.
+//
+// CODE_SIGN_STYLE = Automatic + CODE_SIGN_IDENTITY = Apple Development lets Xcode
+// auto-manage a Mac Development profile for your team once you're signed in (Settings >
+// Apple Accounts) — a Release-configuration build signed for development, which is
+// exactly what #81's smoke test accepts ("Apple Development or distribution signing
+// identity"). CODE_SIGN_IDENTITY must be overridden here too, not left to inherit
+// Signing-Release.xcconfig's "Apple Distribution": pairing Automatic style with the
+// Distribution identity is a conflicting-provisioning-settings build error.
+//
+// For an actual App Store Connect upload you need real distribution signing instead:
+// set CODE_SIGN_STYLE = Manual (drop the CODE_SIGN_IDENTITY override below, so it
+// inherits "Apple Distribution" from Signing-Release.xcconfig) and add
+// PROVISIONING_PROFILE_SPECIFIER pointing at a profile you've created in App Store
+// Connect / the developer portal.
+//
+// Find your Team ID in System Settings > Apple Accounts > (your Apple ID) > (team).
+CODE_SIGN_STYLE = Automatic
+CODE_SIGN_IDENTITY = Apple Development
+DEVELOPMENT_TEAM = YOUR_TEAM_ID

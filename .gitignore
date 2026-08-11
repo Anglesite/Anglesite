@@ -114,6 +114,7 @@ Resources/Anglesite.help/**/*.helpindex
 .playwright-mcp/
 build-smoke/
 
-# Personal signing override (see xcconfig/Signing-Debug.xcconfig) — machine-specific
-# Apple Developer Team, never shared.
+# Personal signing override (see xcconfig/Signing-Debug.xcconfig and
+# xcconfig/Signing-Release.xcconfig) — machine-specific Apple Developer Team, never shared.
 xcconfig/Signing-Debug.local.xcconfig
+xcconfig/Signing-Release.local.xcconfig

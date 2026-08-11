@@ -1,0 +1,13 @@
+// Shared Release-config code-signing defaults, wired in via each target's `configFiles`
+// entry in project.yml — mirrors Signing-Debug.xcconfig. Tracked — keep these values
+// CI-safe (no team) so a fresh clone or CI runner never accidentally attempts a Release
+// build/archive against someone else's Apple Developer Team.
+//
+// To build or archive Release locally with your own Team (e.g. for #81's real-signed
+// smoke test, or Xcode Cloud/TestFlight prep), copy Signing-Release.local.xcconfig.example
+// to Signing-Release.local.xcconfig (gitignored) next to this file and fill in your Team ID.
+CODE_SIGN_STYLE = Manual
+CODE_SIGN_IDENTITY = Apple Distribution
+DEVELOPMENT_TEAM =
+
+#include? "Signing-Release.local.xcconfig"
