@@ -46,6 +46,14 @@ public struct ApplyEditTool: Tool, Sendable {
         guard let selector = resolveSelector(arguments.selector) else {
             return "Couldn't identify which element to edit — select one in the preview, or name a simple tag like h1."
         }
+        // #1410: the bare-tag fallback path (below) has no `textContent` — and the sidecar
+        // locates the target element by searching for its *current* text/attribute value for
+        // every op except applyInstruction. Sending that incomplete selector downstream is
+        // guaranteed to fail two layers away with a confusing message; refuse clearly up front.
+        if contextSelector == nil, Self.requiresCurrentText(arguments.operation) {
+            return "I don't know this element's current text, so I can't find it in the page's source. "
+                + "Select it in the preview, or tell me its exact current text, and try again."
+        }
         let reply = await bridge.applyEdit(
             siteID: siteID,
             filePath: arguments.filePath,
@@ -92,6 +100,17 @@ public struct ApplyEditTool: Tool, Sendable {
     private static func isBareTag(_ s: String) -> Bool {
         guard let first = s.first, first.isLetter else { return false }
         return s.allSatisfy { $0.isLetter || $0.isNumber }
+    }
+
+    /// Ops whose server-side resolver locates the target element by searching for its *current*
+    /// text/attribute value (`selector.textContent` — see anglesite-skills' `patcher.mjs`,
+    /// `resolveAstro`/`getAttrSearchValue`). `applyInstruction` forwards the raw instruction for
+    /// server-side interpretation instead, so it needs no textContent hint.
+    private static func requiresCurrentText(_ op: EditOperation) -> Bool {
+        switch op {
+        case .replaceText, .replaceAttr, .replaceImageSrc: return true
+        case .applyInstruction: return false
+        }
     }
 
     /// Map the #154 ``EditOperation`` onto the `EditMessage.Op` string vocabulary (the bridge
