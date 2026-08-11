@@ -34,7 +34,12 @@ _version_ge() {
 # the mismatch before a `tools/call` 400s at runtime.
 require_min_sidecar_version() {
     local sidecar_src="$1" min_version="$2" pkg_json="$1/package.json" found
-    found="$(grep -m1 '"version"[[:space:]]*:' "$pkg_json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/')"
+    # sed -n prints nothing (and still exits 0) when the pattern doesn't match, unlike a
+    # grep|sed pipeline: under this file's callers' `set -euo pipefail`, a no-match grep exits
+    # 1, pipefail propagates that to the pipeline, and — because this is a plain assignment, not
+    # `local`-combined — errexit fires right here, skipping the `-z "$found"` message below
+    # entirely and aborting with no explanation on stderr. Confirmed the hard way in review.
+    found="$(sed -nE 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]*)".*/\1/p' "$pkg_json" | head -n1)"
     if [[ -z "$found" ]]; then
         echo "ERROR: could not read a \"version\" field from $pkg_json" >&2
         exit 1
