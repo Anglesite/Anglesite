@@ -149,6 +149,69 @@ struct HTTPTransportTests {
         await t.close()
     }
 
+    @Test("400 with a session-shaped JSON-RPC error is recognized as a stale sidecar")
+    func staleSidecar400IsDetected() async throws {
+        StubURLProtocol.reset()
+        StubURLProtocol.queue.append(.init(
+            status: 400,
+            headers: ["Content-Type": "application/json"],
+            body: #"{"jsonrpc":"2.0","error":{"code":-32000,"message":"Bad Request: Server not initialized"},"id":null}"#.data(using: .utf8)!
+        ))
+        let (t, _) = makeTransport()
+        try await t.open()
+        do {
+            try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(1), "method": .string("server/discover")]))
+            Issue.record("expected HTTPError.staleSidecarProtocol to be thrown")
+        } catch HTTPTransport.HTTPError.staleSidecarProtocol(let detail) {
+            #expect(detail == "Bad Request: Server not initialized")
+        }
+        await t.close()
+    }
+
+    @Test("400 with an unrelated JSON-RPC error stays a plain HTTP error")
+    func unrelated400StaysPlain() async throws {
+        StubURLProtocol.reset()
+        StubURLProtocol.queue.append(.init(
+            status: 400,
+            headers: ["Content-Type": "application/json"],
+            body: #"{"jsonrpc":"2.0","error":{"code":-32600,"message":"Invalid Request"},"id":null}"#.data(using: .utf8)!
+        ))
+        let (t, _) = makeTransport()
+        try await t.open()
+        do {
+            try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(1), "method": .string("server/discover")]))
+            Issue.record("expected HTTPError.http(status: 400) to be thrown")
+        } catch HTTPTransport.HTTPError.http(let status) {
+            #expect(status == 400)
+        }
+        await t.close()
+    }
+
+    @Test("MCPClient.connect surfaces a stale-sidecar 400 as MCPError.staleSidecarProtocol and logs it")
+    func staleSidecarSurfacesFromConnect() async throws {
+        StubURLProtocol.reset()
+        StubURLProtocol.queue.append(.init(
+            status: 400,
+            headers: ["Content-Type": "application/json"],
+            body: #"{"jsonrpc":"2.0","error":{"code":-32000,"message":"Bad Request: No valid session ID provided"},"id":null}"#.data(using: .utf8)!
+        ))
+        let config = URLSessionConfiguration.ephemeral
+        config.protocolClasses = [StubURLProtocol.self]
+        let session = URLSession(configuration: config)
+        let logCenter = LogCenter()
+        let client = MCPClient(supervisor: ProcessSupervisor(), logCenter: logCenter)
+
+        do {
+            try await client.connect(httpEndpoint: URL(string: "http://127.0.0.1:4399/mcp")!, urlSession: session)
+            Issue.record("expected connect() to throw")
+        } catch MCPClient.MCPError.staleSidecarProtocol(let detail) {
+            #expect(detail == "Bad Request: No valid session ID provided")
+        }
+
+        let logged = await logCenter.snapshot()
+        #expect(logged.contains { $0.source == "mcp" && $0.stream == .stderr && $0.text.contains("#1277") })
+    }
+
     @Test("MCPClient.connect probes and lists tools over HTTP") func clientOverHTTP() async throws {
         StubURLProtocol.reset()
         // server/discover ready-probe response (resultType per 2026-07-28)
