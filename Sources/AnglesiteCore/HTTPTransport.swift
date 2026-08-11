@@ -17,6 +17,16 @@ public actor HTTPTransport: MCPTransport {
     public enum HTTPError: Error, Sendable, Equatable {
         /// The server answered with a status other than 200/202/404.
         case http(status: Int)
+        /// A 400 whose JSON-RPC error body reads as a pre-2026-07-28 (sessionful) MCP server
+        /// rejecting a client that never sends `initialize` — see `staleSidecarDetail(in:)`.
+        /// The stateless protocol this client speaks has no concept of sessions or `initialize`,
+        /// so a rejection naming either almost certainly means the sidecar the container is
+        /// running predates v1.9.0 (#1277) rather than a genuine protocol violation. Distinguished
+        /// from the generic `.http(status: 400)` so `MCPClient` can log an actionable diagnostic
+        /// instead of a bare status code — `scripts/lib/stage-dev-image-context.sh` refuses to
+        /// stage a too-old sidecar into a *new* image build, but this is the safety net for an
+        /// image that was already vendored before that guard existed.
+        case staleSidecarProtocol(detail: String)
         /// The connection failed or the server returned 404 — the endpoint isn't serving (the
         /// case name predates the stateless protocol, which has no sessions; it now just means
         /// "server unavailable, retry once the runtime is back up").
@@ -115,6 +125,17 @@ public actor HTTPTransport: MCPTransport {
             throw HTTPError.sessionLost
         case 200:
             break
+        case 400:
+            var body = Data()
+            #if canImport(Darwin)
+            for try await byte in asyncBytes { body.append(byte) }
+            #else
+            for try await chunk in runner.bodyStream { body.append(chunk) }
+            #endif
+            if let detail = Self.staleSidecarDetail(in: body) {
+                throw HTTPError.staleSidecarProtocol(detail: detail)
+            }
+            throw HTTPError.http(status: 400)
         default:
             throw HTTPError.http(status: http.statusCode)
         }
@@ -194,5 +215,22 @@ public actor HTTPTransport: MCPTransport {
     private func decodeData(_ data: Data) -> JSONValue? {
         guard let raw = try? JSONSerialization.jsonObject(with: data) else { return nil }
         return JSONValue.from(raw)
+    }
+
+    /// Heuristic for distinguishing a stale-sidecar 400 from a genuine one. This client's
+    /// stateless protocol never sends `initialize` and has no session concept, so it cannot
+    /// itself trigger a rejection that talks about either — a JSON-RPC error message mentioning
+    /// "session"/"initialize" on a 400 is a reliable (version-independent) signal that the
+    /// server on the other end is still running the old sessionful transport, without needing to
+    /// match its exact wording (which varies across SDK versions). Returns the extracted message
+    /// when the heuristic matches, `nil` otherwise — callers fall back to plain `.http(status:)`.
+    private static func staleSidecarDetail(in body: Data) -> String? {
+        guard let raw = try? JSONSerialization.jsonObject(with: body) as? [String: Any],
+              let error = raw["error"] as? [String: Any],
+              let message = error["message"] as? String
+        else { return nil }
+        let lowered = message.lowercased()
+        guard lowered.contains("session") || lowered.contains("initializ") else { return nil }
+        return message
     }
 }

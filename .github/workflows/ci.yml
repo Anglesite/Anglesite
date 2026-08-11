@@ -283,6 +283,11 @@ jobs:
       - name: Test install-swift-linux.sh retry/backoff loop
         run: scripts/install-swift-linux.test.sh
 
+      # Pure-bash unit test, no Apple `container` CLI/podman needed — cheap to run here even
+      # though stage-dev-image-context.sh backs the macOS/podman image-vendoring scripts.
+      - name: Test stage-dev-image-context.sh sidecar version guard
+        run: scripts/lib/stage-dev-image-context.test.sh
+
   linux-flatpak-build:
     name: Linux (Flatpak manifest + AnglesiteLinux)
     needs: changes

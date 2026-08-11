@@ -117,6 +117,12 @@ public actor MCPClient {
         /// In-flight request failed because the server process crashed and is being restarted;
         /// the fresh process serves statelessly once up. Retry the call.
         case reconnecting
+        /// The HTTP transport's server answered a stateless request with a rejection that reads
+        /// as a pre-2026-07-28 sessionful server (see
+        /// ``HTTPTransport/HTTPError/staleSidecarProtocol(detail:)``) — most likely a container
+        /// image vendored from a sidecar checkout older than v1.9.0 (#1277). `detail` carries the
+        /// server's own error message for diagnostics; `send(_:)` also logs it to `LogCenter`.
+        case staleSidecarProtocol(detail: String)
     }
 
     /// One tool advertised by the server's `tools/list` response.
@@ -443,9 +449,26 @@ public actor MCPClient {
         return result
     }
 
+    /// Every request (stdio or HTTP) funnels through here, so this is the one place that needs
+    /// to recognize an `HTTPTransport` sessionful-sidecar rejection and turn it into an
+    /// actionable diagnostic instead of a bare HTTP 400 further up the call stack.
     private func send(_ value: JSONValue) async throws {
         guard let transport else { throw MCPError.notInitialized }
-        try await transport.send(value)
+        do {
+            try await transport.send(value)
+        } catch HTTPTransport.HTTPError.staleSidecarProtocol(let detail) {
+            await logCenter.append(
+                source: "mcp",
+                stream: .stderr,
+                text: """
+                MCP sidecar rejected a request with a pre-2026-07-28 (sessionful) error: \
+                "\(detail)". The container's vendored MCP sidecar likely predates v1.9.0 (#1277) \
+                — update the sidecar checkout and re-run scripts/vendor-container-image.sh (or \
+                build-podman-image.sh).
+                """
+            )
+            throw MCPError.staleSidecarProtocol(detail: detail)
+        }
     }
 
     private func failPending(id: Int, error: Error) {
