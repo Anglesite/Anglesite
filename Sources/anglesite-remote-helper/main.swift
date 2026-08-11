@@ -63,6 +63,14 @@ do {
     die("container boot failed: \(error)")
 }
 
+// Lifecycle markers on stderr, alongside the guest's own `[stdout]`/`[stderr]` lines. Logs are
+// sacred (CLAUDE.md), and until now this process reported nothing about its *own* state — the
+// guest chatter stops after boot and a session waiting for a peer looked identical to a hung one.
+// `HelperContainerE2ETests` also uses the first marker as its sync point: it waits for it before
+// offering, so the client never trickles ICE into a directory nobody is polling yet.
+FileHandle.standardError.write(Data(
+    "remote-helper: container ready (preview \(session.previewURL), mcp \(session.mcpURL)); waiting for peer\n".utf8))
+
 let peer: WebRTCPeer
 do {
     peer = try await WebRTCPeer.connect(
@@ -71,6 +79,7 @@ do {
     await containerSession.tearDown(siteID: siteID)
     die("P2P connect failed: \(error)")
 }
+FileHandle.standardError.write(Data("remote-helper: peer connected; bridging\n".utf8))
 
 let httpBridge = FetchBridgeServer(connection: peer, executor: LoopbackHTTPExecutor(baseURL: session.previewURL))
 let mcpBridge = LoopbackMCPBridge(mcpURL: session.mcpURL)
