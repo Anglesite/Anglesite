@@ -321,6 +321,9 @@
     "Active — used on ^[%lld page](inflect: true)" : {
 
     },
+    "Actor URL, e.g. https://example.social/users/alice" : {
+
+    },
     "Actual Size" : {
 
     },
