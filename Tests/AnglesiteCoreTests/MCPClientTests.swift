@@ -101,6 +101,69 @@ struct MCPClientTests {
         }
     }
 
+    /// Fake server advertising an `apply_edit` tool with a deliberately narrow `op` enum in its
+    /// `inputSchema` — mirrors what a real sidecar's zod-derived JSON Schema looks like (#1415) —
+    /// so `MCPClient.callTool`'s client-side op-support gate has something real to check against.
+    /// Never actually applies anything; `tools/call` just echoes success for any op the schema
+    /// admits, since these tests only exercise the gate, not `apply-edit-dispatcher.mjs`.
+    private actor FakeApplyEditServerTransport: MCPTransport {
+        private var continuation: AsyncStream<JSONValue>.Continuation?
+        private let stream: AsyncStream<JSONValue>
+        static let supportedOps = ["replace-text", "replace-attr"]
+
+        init() {
+            var cont: AsyncStream<JSONValue>.Continuation!
+            stream = AsyncStream { cont = $0 }
+            continuation = cont
+        }
+
+        func open() async throws {}
+        nonisolated func inbound() -> AsyncStream<JSONValue> { stream }
+        func close() async { continuation?.finish() }
+
+        func send(_ message: JSONValue) async throws {
+            guard case .object(let obj) = message, case .string(let method)? = obj["method"] else { return }
+            guard case .int(let id)? = obj["id"] else { return }
+            switch method {
+            case "tools/list":
+                continuation?.yield(.object([
+                    "jsonrpc": .string("2.0"),
+                    "id": .int(id),
+                    "result": .object(["tools": .array([
+                        .object([
+                            "name": .string("apply_edit"),
+                            "description": .string("Applies a structured edit"),
+                            "inputSchema": .object([
+                                "type": .string("object"),
+                                "properties": .object([
+                                    "op": .object([
+                                        "type": .string("string"),
+                                        "enum": .array(Self.supportedOps.map { .string($0) }),
+                                    ]),
+                                ]),
+                            ]),
+                        ]),
+                    ])]),
+                ]))
+            case "tools/call":
+                continuation?.yield(.object([
+                    "jsonrpc": .string("2.0"),
+                    "id": .int(id),
+                    "result": .object([
+                        "content": .array([.object(["type": .string("text"), "text": .string("applied")])]),
+                        "isError": .bool(false),
+                    ]),
+                ]))
+            default:
+                continuation?.yield(.object([
+                    "jsonrpc": .string("2.0"),
+                    "id": .int(id),
+                    "error": .object(["code": .int(-32601), "message": .string("method not found")]),
+                ]))
+            }
+        }
+    }
+
     /// Fake server that handles one `crash` tool call (responds, then `exit(1)`) so the supervisor
     /// restarts it. The fresh instance behaves like the standard fake server. Lets us exercise
     /// reconnect — genuinely needs a real subprocess since it tests `ProcessSupervisor`'s
@@ -218,6 +281,47 @@ struct MCPClientTests {
         let client = MCPClient(supervisor: .shared)
         await #expect(throws: MCPClient.MCPError.notInitialized) {
             _ = try await client.callTool(name: "echo")
+        }
+    }
+
+    // MARK: apply_edit op-support gate (#1415)
+
+    @Test("apply_edit call for an op missing from the advertised schema throws unsupportedOp")
+    func applyEditUnadvertisedOpThrowsUnsupportedOp() async throws {
+        let transport = FakeApplyEditServerTransport()
+        let client = MCPClient(supervisor: .shared)
+        try await client.startWithTransport(transport, readyTimeout: 5, clientName: "test", clientVersion: "0")
+        defer { Task { await client.stop() } }
+
+        // "insert-image" isn't in FakeApplyEditServerTransport.supportedOps — mirrors #1415's
+        // stale-vendored-image repro, where the app sent an op the sidecar's schema didn't know.
+        await #expect(throws: MCPClient.MCPError.unsupportedOp(op: "insert-image")) {
+            _ = try await client.callTool(name: "apply_edit", arguments: .object(["op": .string("insert-image")]))
+        }
+    }
+
+    @Test("apply_edit call for an op present in the advertised schema goes through")
+    func applyEditAdvertisedOpSucceeds() async throws {
+        let transport = FakeApplyEditServerTransport()
+        let client = MCPClient(supervisor: .shared)
+        try await client.startWithTransport(transport, readyTimeout: 5, clientName: "test", clientVersion: "0")
+        defer { Task { await client.stop() } }
+
+        let result = try await client.callTool(name: "apply_edit", arguments: .object(["op": .string("replace-text")]))
+        #expect(result.isError == false)
+        #expect(result.content.first?.text == "applied")
+    }
+
+    @Test("apply_edit call fails open when the server doesn't advertise an apply_edit tool")
+    func applyEditFailsOpenWithoutSchema() async throws {
+        // Reuses the plain echo-only fake — no `apply_edit` tool in its tools/list at all, e.g. a
+        // very old sidecar predating this check. The gate must not invent a refusal; it should let
+        // the call through to the normal path, which then fails the ordinary way (unknown tool).
+        let (client, _) = try await makeFakeClient()
+        defer { Task { await client.stop() } }
+
+        await #expect(throws: MCPClient.MCPError.rpcError(code: -32601, message: "unknown tool")) {
+            _ = try await client.callTool(name: "apply_edit", arguments: .object(["op": .string("replace-text")]))
         }
     }
 

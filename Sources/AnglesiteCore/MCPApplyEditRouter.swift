@@ -144,6 +144,20 @@ public struct MCPApplyEditRouter: EditRouter {
             return reply
         } catch is CancellationError {
             return EditReply(id: message.id, status: .failed, message: "canceled")
+        } catch MCPClient.MCPError.unsupportedOp(let op) {
+            // The connected sidecar's own `tools/list` schema doesn't list `op` — almost always a
+            // vendored container image older than a paired app/sidecar PR that added it (#1415),
+            // the per-op sibling of #1407's protocol-version guard. Name the likely cause instead
+            // of letting this fall to the generic catch below, which would stuff the raw
+            // `MCPError.unsupportedOp(op: "...")` enum dump into the toast text.
+            return EditReply(
+                id: message.id,
+                status: .failed,
+                message: "This site's preview server doesn't support the \"\(op)\" edit yet. "
+                    + "If you're developing Anglesite, the vendored container image is probably "
+                    + "older than a paired sidecar change — re-run scripts/vendor-container-image.sh.",
+                reason: "unsupported-op"
+            )
         } catch {
             return EditReply(id: message.id, status: .failed, message: "\(error)")
         }
