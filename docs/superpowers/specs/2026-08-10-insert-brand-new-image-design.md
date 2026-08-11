@@ -178,3 +178,11 @@ Blocked on the sidecar PR merging and its image being re-vendored
 - Any change to the Component Editor's own drag-and-drop `insert-node` flow
   for the "img" palette entry, or to its attribute inspector — unaffected by
   this design.
+
+## 8. Amendments (found while writing the plan)
+
+1. **No `selector`-anchored variant for v1.** Both entry points always insert at the page's content root — dropping anywhere on an empty page behaves the same as `Insert ▸ Image`. *Reason: matching an arbitrary DOM container against raw `.astro` source turned out to be the highest-risk, most speculative part of the original design; the issue's own scope note treats selector-anchored insertion as an example, not a requirement.*
+
+2. **Root-append means "inside the page's Layout wrapper," not literally the file's top-level nodes.** Every template page wraps its content in exactly one Layout component (e.g. `<BaseLayout>...</BaseLayout>` in `Resources/Template/src/pages/index.astro`) — appending at the literal AST fragment root would insert the `<img>` as a *sibling* of `<BaseLayout>`, outside the rendered page content entirely. The resolver descends one level into a sole wrapping component child before appending. *Reason: ensures the inserted image appears inside the rendered page layout instead of floating outside it as a sibling of the wrapper.*
+
+3. **Pages only for v1, not component files.** `insert-image` addresses its target via a URL page path (`location.pathname` semantics, resolved through the existing `pathToAstroCandidates` helper), matching `replace-image-src`/`replace-text`'s existing shape — not a project-relative file path, which is what `src/components/*.astro` addressing would need. `Insert ▸ Image` is enabled whenever a page is loaded in the focused window's preview, not gated on `EditorKind`. *Reason: keeps the initial scope focused and reuses the established page-addressing pattern; component-file insertion can follow as a separate feature once the page case is stable.*
