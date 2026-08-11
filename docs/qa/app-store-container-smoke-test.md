@@ -82,7 +82,7 @@ Re-run 2026-07-27, real-signed Debug build of `main` @ `13131027`, Apple Develop
 | Runtime selection logs `LocalContainerSiteRuntime` | PASS | Debug pane `runtime` source: repeated `selected LocalContainerSiteRuntime`. |
 | No host Node preview fallback starts | PASS | Debug pane search for `LocalSiteRuntime`: zero matches. |
 | Preview loads through loopback proxy | PASS | `http://127.0.0.1:<port>` preview loads and live-reloads (Astro HMR) on edit. |
-| MCP/edit path applies a text edit through the in-container sidecar | **FAIL** (regression) | Heading edit committed in preview + container (MCP `accepted`/`dial-ok`, Astro HMR reload). But host `Source/index.astro` never changed: `git status --short` clean immediately, after an 8s wait, and after ⌘S. Reopening the site (fresh container clone from host) reverted the heading to its original text; `git log --all` has zero mentions of the edited text anywhere. Reproduces #718 despite merged #737. Filed as [#1066](https://github.com/Anglesite/Anglesite/issues/1066). |
+| MCP/edit path applies a text edit through the in-container sidecar | **PASS** (2026-08-10, was FAIL/regression) | Originally: heading edit committed in preview + container (MCP `accepted`/`dial-ok`, Astro HMR reload), but host `Source/index.astro` never changed — reproduced #718 despite merged #737, filed as [#1066](https://github.com/Anglesite/Anglesite/issues/1066). Root cause (missing guest git identity) fixed upstream and now confirmed against a real container guest boot via `scripts/run-container-probe.sh apply-edit` — see "Case 8 root-cause fix landed and confirmed in the real container guest" below. |
 | Example photo highlights as an image drop target; dropping a Finder image writes optimized assets under `Source/public/images/` | **INCONCLUSIVE** | The drop-zone highlight + "Drop onto a highlighted image to replace it" tooltip fires reproducibly on a synthetic Finder-desktop-icon drag (`left_click_drag`, tried 2x, plus a manual multi-step press/move/release, 2x). But no in-preview image change and no host `public/images/` write occurred either way — can't tell whether that's the same persistence bug as the text-edit case or whether the synthetic drag simply doesn't carry a real file payload (CGEventPost-based drags are a known-hard case for Finder→WebView file promises). Still needs a literal human hand to resolve, as originally noted. |
 | Build/preflight/deploy path reaches the expected Cloudflare token or wrangler result | PASS (partial) | Deploy button correctly opens the "Connect to Cloudflare" one-time API token dialog (link to Cloudflare API tokens page, paste-token field, disabled "Connect & deploy" until filled). Stopped there — entering/creating a Cloudflare API token is credential entry an agent should not perform; a full real `wrangler deploy` round-trip needs a human to paste their own token. |
 | Foundation Models chat is present | PASS | Chat toolbar icon opens a working "Ask the assistant…" panel. |
@@ -199,7 +199,7 @@ identity — see the Smoke Matrix above for full per-row evidence. Summary:
 [#1066](https://github.com/Anglesite/Anglesite/issues/1066)) and the
 still-unresolved image-drop row.
 
-### Case 8 root-cause fix landed, not yet re-verified in-guest (2026-08-10)
+### Case 8 root-cause fix landed and confirmed in the real container guest (2026-08-10)
 
 [#1066](https://github.com/Anglesite/Anglesite/issues/1066)'s root cause (guest
 `commit-tree` calls had no git identity, so `recordEdit` silently returned
@@ -210,16 +210,35 @@ env into every `commit-tree` call. Released in `anglesite-skills` v1.8.0; the
 app's CI pin was bumped to consume it in
 [#1070](https://github.com/Anglesite/Anglesite/pull/1070) (merged 2026-07-28).
 
-Verified from a non-GUI session against the sibling checkout at v1.9.0:
+First verified from a non-GUI session against the sibling checkout at v1.9.0:
 `AppliesEditEndToEndTests` passes, and `recordEdit` was exercised directly
-against a repo with no git identity configured anywhere (fresh `$HOME`, no
-global or repo-local config) — it now returns a real commit SHA. However, a
+against a repo with no git identity configured anywhere — it returns a real
+commit SHA. But that check runs the sidecar directly on the host, and a
 negative control (calling `commit-tree` with no identity env at all, in the
 same identity-less setup) *also* succeeded on macOS — its git falls back to a
 guessed identity in a way the original bug report says the Linux container
-guest's `node:22-bookworm-slim` base image does not (unresolvable hostname, so
-git refuses to guess an email). So this only confirms the fix is real and
-correctly wired, not a true before/after inside the failure environment. **Case
-8 still needs an actual re-run inside the real container guest** (signed app,
-or `scripts/run-container-probe.sh`) before #81 can mark it passing — a Swift
-test or host-level script can't substitute for that.
+guest's `node:22-bookworm-slim` base image does not. So it confirmed the fix
+was real and correctly wired, but not a true before/after inside the actual
+failure environment.
+
+**Since resolved for real:** `scripts/run-container-probe.sh` gained a new
+`apply-edit` subcommand (added alongside this note) that boots a real
+`LocalContainerSiteRuntime` under `com.apple.security.virtualization`, drives
+an actual `apply_edit` through `MCPApplyEditRouter` wired exactly like
+production (`PreviewModel.editPersister` — `persistEdit` only runs when the
+reply carries a non-nil `commit`), and asserts the host-side `Source/` file
+changed. Run twice against a real Apple Containerization VM (not a synthetic
+host-level substitute):
+
+```
+APPLY-EDIT: PASS (boot: 44.1s, commit: ea79416f9ca2de095b160b005dd445510cca4175, host Source/ updated)
+APPLY-EDIT: PASS (boot: 41.9s, commit: cca7fcfb22dfe9e1e74d333504ee0ba7836c85a5, host Source/ updated)
+```
+
+Two different real commit SHAs, two independent VM boots — case 8's specific
+regression (an `.applied` reply with a nil `commit`, silently skipping
+persistence) is confirmed fixed in the real guest. This subcommand is now the
+repeatable, no-GUI-required gate for this row: rerun it any time #81's
+persistence case needs re-checking (e.g. after a future sidecar bump) instead
+of a full manual smoke pass. It does **not** cover the image-drop row, which
+still has no non-human substitute (see above).

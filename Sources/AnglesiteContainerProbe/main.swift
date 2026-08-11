@@ -38,6 +38,13 @@ private struct PauseResumeProbeTimeout: Error {}
 //           confirm the resume-before-stop ordering: a direct `container.stop()` call while still
 //           paused must throw, and a resume-then-stop must succeed cleanly. The decision gate for
 //           the suspend-on-window-close plan.
+//   apply-edit — boots a `LocalContainerSiteRuntime`, drives a real `apply_edit` through
+//           `MCPApplyEditRouter` wired exactly like production (`PreviewModel.editPersister`:
+//           `persistEdit` only invoked when the reply carries a non-nil `commit`), and asserts
+//           both that the reply's `commit` is non-nil (the #718/#1066 regression — the in-guest
+//           `recordEdit` silently returning `undefined` on a missing git identity) and that the
+//           host `Source/` file actually changed. The #81 smoke matrix's "case 8" persistence
+//           gate, runnable without a GUI or a literal human hand.
 
 @main
 struct AnglesiteContainerProbe {
@@ -45,7 +52,7 @@ struct AnglesiteContainerProbe {
         let args = CommandLine.arguments.dropFirst()
         guard let subcommand = args.first else {
             FileHandle.standardError.write(
-                Data("usage: anglesite-container-probe <echo|boot|workers-dev|worker-toggle|pause-resume>\n".utf8))
+                Data("usage: anglesite-container-probe <echo|boot|workers-dev|worker-toggle|pause-resume|apply-edit>\n".utf8))
             exit(2)
         }
 
@@ -61,9 +68,11 @@ struct AnglesiteContainerProbe {
             exitCode = await runWorkerToggle()
         case "pause-resume":
             exitCode = await runPauseResume()
+        case "apply-edit":
+            exitCode = await runApplyEdit()
         default:
             FileHandle.standardError.write(
-                Data("unknown subcommand '\(subcommand)' (expected echo|boot|workers-dev|worker-toggle|pause-resume)\n".utf8))
+                Data("unknown subcommand '\(subcommand)' (expected echo|boot|workers-dev|worker-toggle|pause-resume|apply-edit)\n".utf8))
             exitCode = 2
         }
         exit(exitCode)
@@ -504,6 +513,118 @@ struct AnglesiteContainerProbe {
 
         print("GATE: PASS")
         await runtime.stop()
+        return 0
+    }
+
+    // MARK: - apply-edit
+
+    /// The #81 smoke matrix's "case 8" (MCP edit persistence) as an entitled CLI gate rather
+    /// than a GUI walkthrough. Boots a real `LocalContainerSiteRuntime` against a throwaway git
+    /// repo, drives a real `apply_edit` for its `<h1>` through a real `MCPApplyEditRouter` wired
+    /// exactly like `PreviewModel.editPersister` (`persistEdit` only invoked when the reply's
+    /// `commit` is non-nil), and asserts:
+    ///   1. the reply is `.applied` with a non-nil `commit` — the #718/#1066 regression was the
+    ///      in-guest `recordEdit` silently returning `undefined` on a missing git identity, which
+    ///      surfaces here as a nil `commit` (production then never calls `persistEdit` at all);
+    ///   2. the host-side `Source/` file (this repo's throwaway working tree, standing in for the
+    ///      package's `Source/`) actually reflects the edit once `router.apply` returns — that
+    ///      call already awaits `persistEdit` before yielding an `.applied` reply, so no
+    ///      additional wait/poll is needed.
+    private static func runApplyEdit() async -> Int32 {
+        let siteID = "apply-edit-probe"
+        let originalHeading = "Anglesite probe"
+        let newHeading = "Anglesite probe — apply-edit gate"
+
+        let repo: URL
+        do {
+            repo = try makeThrowawayAstroRepo()
+        } catch {
+            print("APPLY-EDIT: FAIL — could not create throwaway Astro repo: \(error)")
+            return 1
+        }
+        defer { try? FileManager.default.removeItem(at: repo) }
+
+        let runtime = LocalContainerSiteRuntime(
+            ref: "HEAD",
+            control: ContainerizationControl(),
+            mcpClient: MCPClient(supervisor: .shared))
+
+        let clock = ContinuousClock()
+        let bootStart = clock.now
+        await runtime.start(siteID: siteID, siteDirectory: repo)
+        guard case .ready = await runtime.state else {
+            print("APPLY-EDIT: FAIL — expected .ready after boot, got \(await runtime.state)")
+            await runtime.stop()
+            return 1
+        }
+        let bootElapsed = clock.now - bootStart
+
+        let pagePath = repo.appendingPathComponent("src/pages/index.astro")
+        guard let before = try? String(contentsOf: pagePath, encoding: .utf8), before.contains(originalHeading) else {
+            print("APPLY-EDIT: FAIL — fixture heading '\(originalHeading)' not found in \(pagePath.path) before the edit")
+            await runtime.stop()
+            return 1
+        }
+
+        // Mirrors `PreviewModel.editPersister(for:)` exactly: `persistEdit` only runs when the
+        // reply carries a commit, and any thrown error there downgrades the reply to `.failed`
+        // with `commit` cleared — see `MCPApplyEditRouter.apply`'s hook-ordering doc.
+        let router = MCPApplyEditRouter(
+            mcpClient: { await runtime.mcpClient },
+            persistEdit: { reply in
+                guard reply.commit != nil else { return }
+                try await runtime.persistEdit(commit: reply.commit)
+            }
+        )
+
+        let message = EditMessage(
+            id: "apply-edit-probe-1",
+            type: .applyEdit,
+            path: "/",
+            selector: .object([
+                "tag": .string("H1"),
+                "classes": .array([]),
+                "nthChild": .int(1),
+                "textContent": .string(originalHeading),
+            ]),
+            op: "replace-text",
+            value: .string(newHeading)
+        )
+
+        let reply = await router.apply(message)
+
+        guard reply.status == .applied else {
+            print("APPLY-EDIT: FAIL — apply_edit did not succeed: status=\(reply.status) message=\(reply.message ?? "nil")")
+            await runtime.stop()
+            return 1
+        }
+
+        guard let commit = reply.commit, !commit.isEmpty else {
+            print(
+                "APPLY-EDIT: FAIL — apply_edit applied but returned no commit. This IS the #718/"
+                + "#1066 regression: the in-guest recordEdit silently failed (most likely a "
+                + "missing git identity for its commit-tree call), so production's "
+                + "editPersister never even calls persistEdit and the write never reaches host "
+                + "Source/.")
+            await runtime.stop()
+            return 1
+        }
+
+        guard let after = try? String(contentsOf: pagePath, encoding: .utf8) else {
+            print("APPLY-EDIT: FAIL — could not re-read \(pagePath.path) after the edit")
+            await runtime.stop()
+            return 1
+        }
+        guard after.contains(newHeading), !after.contains(">\(originalHeading)<") else {
+            print(
+                "APPLY-EDIT: FAIL — apply_edit reported commit \(commit) but host Source/ still "
+                + "reads:\n\(after)")
+            await runtime.stop()
+            return 1
+        }
+
+        await runtime.stop()
+        print("APPLY-EDIT: PASS (boot: \(bootElapsed), commit: \(commit), host Source/ updated)")
         return 0
     }
 
