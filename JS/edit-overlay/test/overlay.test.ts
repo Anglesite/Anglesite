@@ -236,6 +236,26 @@ describe("image drop", () => {
     expect(img.classList.contains(IMAGE_DROP_ACTIVE_CLASS)).toBe(true);
   });
 
+  it("accepts the drop anywhere on a page with no images, not just directly over an image", () => {
+    // Regression guard: dropEffect must become "copy" here, or the OS rejects the drop (macOS's
+    // "poof back to origin" animation) before the `drop` handler's insert-new-image branch ever
+    // runs — the exact bug this test would have caught.
+    const file = new File([new Uint8Array([0xff, 0xd8])], "vacation.jpg", { type: "image/jpeg" });
+
+    const event = dragOn("dragover", document.body, file);
+
+    expect((event as unknown as { dataTransfer: { dropEffect: string } }).dataTransfer.dropEffect).toBe("copy");
+  });
+
+  it("keeps rejecting drops away from any image when the page already has one (replace-only stays gated)", () => {
+    makeImg("/images/hero.jpg");
+    const file = new File([new Uint8Array([0xff, 0xd8])], "vacation.jpg", { type: "image/jpeg" });
+
+    const event = dragOn("dragover", document.body, file);
+
+    expect((event as unknown as { dataTransfer: { dropEffect: string } }).dataTransfer.dropEffect).toBe("none");
+  });
+
   it("clears image targets when the drag leaves the page", () => {
     const img = makeImg("/images/hero.jpg");
     const file = new File([new Uint8Array([0xff, 0xd8])], "vacation.jpg", { type: "image/jpeg" });
