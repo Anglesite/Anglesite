@@ -62,9 +62,16 @@ public actor RemoteBookmarkStore {
 /// Resolves a siteID to its `Source/` directory for the helper — independent of `SiteStore`
 /// (that type's `recents.json` lives in the MAIN APP's sandbox container, which this helper's
 /// distinct bundle ID cannot read without an App Group; see Step 5). Two paths, per design spec
-/// §2 "File access": iCloud-stored sites resolve with zero prompts (both bundle IDs carry the
-/// same ubiquity-container entitlement); everything else needs a one-time bookmark this resolver
-/// mints and persists itself.
+/// §2 "File access": iCloud-stored sites resolve with zero prompts, and everything else needs a
+/// one-time bookmark this resolver mints and persists itself.
+///
+/// **The iCloud fast path is dormant in the shipped helper today.** It assumes both bundle IDs
+/// (main app + helper) carry the same ubiquity-container entitlement, but
+/// `Resources/AnglesiteRemote.entitlements` deliberately omits the iCloud entitlement — see that
+/// file's own comments; granting it is a separately tracked step. Until then
+/// `ubiquityContainerURLProvider` returns `nil` in production and every real resolution takes the
+/// bookmark path. The fast path is still fully exercised by this type's unit tests, which inject
+/// a provider pointing at a temp directory standing in for the container.
 public actor RemoteSiteResolver {
     private let bookmarkStore: RemoteBookmarkStore
     private let bookmarking: any SecurityScopedBookmarking
@@ -114,9 +121,9 @@ public actor RemoteSiteResolver {
     /// iCloud fast path, no bookmark or `startAccessing` call happens at all — sandboxed apps get
     /// automatic access to their own ubiquity container from the entitlement alone.
     public func resolveSourceDirectory(siteID: String, expectedPackageURL: URL) async throws -> URL {
-        // Fast path: the package already sits inside the shared iCloud ubiquity container, which
-        // both bundle IDs (main app + helper) carry the same entitlement for — no bookmark needed,
-        // no prompt, no persisted grant.
+        // Fast path: the package already sits inside the shared iCloud ubiquity container — no
+        // bookmark, no prompt, no persisted grant. Dormant in the shipped helper until its bundle
+        // ID gains the ubiquity-container entitlement; see this type's doc comment.
         if let ubiquityRoot = ubiquityContainerURLProvider(),
            isURL(expectedPackageURL, containedIn: ubiquityRoot) {
             return expectedPackageURL.appendingPathComponent("Source")

@@ -50,4 +50,72 @@ import AnglesiteCore
         #expect(try await registry.lookup(siteID: "site-1") == nil)
         #expect(await control.stopCallCount == 1)  // only the real owner's teardown stopped the container
     }
+
+    /// Nothing withdraws a claim when its owner is SIGKILLed, so a claim is only worth trusting
+    /// while `ownerPID` is still alive. A dead owner must be treated exactly like no claim at all
+    /// — otherwise every future session for this site bridges to ports nobody is listening on.
+    @Test func discardsClaimWhoseOwnerProcessIsGone() async throws {
+        let registry = try Self.makeRegistry()
+        let deadPID = try Self.reapedProcessIdentifier()
+        try await registry.publish(RemoteSessionClaim(
+            siteID: "site-1", previewURL: URL(string: "http://127.0.0.1:9001")!,
+            mcpURL: URL(string: "http://127.0.0.1:9002")!, ownerPID: deadPID))
+        let control = FakeLocalContainerControl()
+        let session = RemoteContainerSession(control: control, registry: registry, pid: 111)
+        let result = try await session.ensureRunning(
+            siteID: "site-1", sourceRepo: URL(fileURLWithPath: "/tmp/site"), ref: "HEAD", onOutput: { _, _ in })
+        #expect(await control.startCallCount == 1)  // booted fresh rather than reusing the corpse
+        #expect(result.previewURL == URL(string: "http://127.0.0.1:4321")!)
+        let claim = try await registry.lookup(siteID: "site-1")
+        #expect(claim?.ownerPID == 111)  // and the stale claim was replaced by this session's own
+    }
+
+    /// A live owner's claim is still honoured — the liveness check above must not turn every
+    /// reuse into a second boot. This session's own PID stands in for "a process that exists".
+    @Test func reusesClaimWhoseOwnerProcessIsAlive() async throws {
+        let registry = try Self.makeRegistry()
+        let livePID = ProcessInfo.processInfo.processIdentifier
+        try await registry.publish(RemoteSessionClaim(
+            siteID: "site-1", previewURL: URL(string: "http://127.0.0.1:9001")!,
+            mcpURL: URL(string: "http://127.0.0.1:9002")!, ownerPID: livePID))
+        let control = FakeLocalContainerControl()
+        let session = RemoteContainerSession(control: control, registry: registry, pid: 111)
+        let result = try await session.ensureRunning(
+            siteID: "site-1", sourceRepo: URL(fileURLWithPath: "/tmp/site"), ref: "HEAD", onOutput: { _, _ in })
+        #expect(await control.startCallCount == 0)
+        #expect(result.previewURL == URL(string: "http://127.0.0.1:9001")!)
+    }
+
+    /// A registry write that fails AFTER a successful boot must not lose the container: ownership
+    /// is recorded before `publish` runs, so `tearDown` still stops the VM. The publish failure is
+    /// logged, not rethrown — reporting a "boot failure" that didn't happen while abandoning a
+    /// running VM is strictly worse than an unpublished claim.
+    @Test func publishFailureAfterBootStillLeavesTheContainerOwned() async throws {
+        // A registry directory that doesn't exist: `lookup` reads it as "no claim" and `publish`'s
+        // write throws — the real type, no fake seam needed.
+        let missing = FileManager.default.temporaryDirectory
+            .appendingPathComponent("session-missing-\(UUID().uuidString)", isDirectory: true)
+        let registry = RemoteSessionRegistry(directory: missing)
+        let control = FakeLocalContainerControl()
+        let session = RemoteContainerSession(control: control, registry: registry, pid: 111)
+
+        let result = try await session.ensureRunning(
+            siteID: "site-1", sourceRepo: URL(fileURLWithPath: "/tmp/site"), ref: "HEAD", onOutput: { _, _ in })
+        #expect(result.previewURL == URL(string: "http://127.0.0.1:4321")!)
+        #expect(await control.startCallCount == 1)
+        #expect(try await registry.lookup(siteID: "site-1") == nil)  // the claim really didn't land
+
+        await session.tearDown(siteID: "site-1")
+        #expect(await control.stopCallCount == 1, "the container leaked — ownership wasn't recorded")
+    }
+
+    /// A PID guaranteed not to name a live process: spawn a trivial command, wait for it to exit,
+    /// and reuse its (now reaped) identifier. More reliable than picking a large number and hoping.
+    private static func reapedProcessIdentifier() throws -> Int32 {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/true")
+        try process.run()
+        process.waitUntilExit()
+        return process.processIdentifier
+    }
 }

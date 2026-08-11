@@ -54,7 +54,7 @@ public actor RemoteSessionRegistry {
             let decoder = JSONDecoder()
             let claim = try decoder.decode(RemoteSessionClaim.self, from: data)
             return claim
-        } catch let nsError as NSError where nsError.domain == NSCocoaErrorDomain && nsError.code == NSFileReadNoSuchFileError {
+        } catch let nsError as NSError where Self.isNoSuchFile(nsError) {
             // File doesn't exist (never published, or withdrawn by another process) — return nil
             return nil
         } catch let decodingError as DecodingError {
@@ -75,7 +75,7 @@ public actor RemoteSessionRegistry {
 
         do {
             try FileManager.default.removeItem(at: fileURL)
-        } catch let error as NSError where error.domain == NSCocoaErrorDomain && error.code == NSFileNoSuchFileError {
+        } catch let error as NSError where Self.isNoSuchFile(error) {
             // File doesn't exist (already withdrawn, or never published, or withdrawn by another process) — no-op
             return
         } catch {
@@ -83,6 +83,16 @@ public actor RemoteSessionRegistry {
             Self.logger.error("Error removing claim at \(fileURL.path): \(error.localizedDescription)")
             throw error
         }
+    }
+
+    /// True for the "that file isn't there" Cocoa errors. Both codes are matched everywhere:
+    /// which one surfaces depends on the failing call (`Data(contentsOf:)` reports
+    /// `NSFileReadNoSuchFileError`, `FileManager.removeItem` reports `NSFileNoSuchFileError`),
+    /// and matching only one risks misclassifying a legitimate "no claim published" as
+    /// corruption — or, on withdraw, rethrowing where a no-op was correct.
+    private static func isNoSuchFile(_ error: NSError) -> Bool {
+        error.domain == NSCocoaErrorDomain
+            && (error.code == NSFileNoSuchFileError || error.code == NSFileReadNoSuchFileError)
     }
 
     /// Encodes a siteID into a filesystem-safe filename using percent-encoding.

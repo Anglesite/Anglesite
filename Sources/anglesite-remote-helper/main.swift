@@ -38,7 +38,10 @@ guard args.count == 4, args[1] == "session" else {
 }
 let signalDir = URL(fileURLWithPath: args[2], isDirectory: true)
 let siteRoot = URL(fileURLWithPath: args[3], isDirectory: true)
-let siteID = siteRoot.lastPathComponent
+// NOT `siteRoot.lastPathComponent`: `<site-root>` is a site's `Source/` git repo, so that is the
+// literal string "Source" for every site on the machine — and this key names both the registry
+// claim file and the container's on-disk boot artifacts. See `RemoteSiteIdentity`.
+let siteID = RemoteSiteIdentity.siteID(forSourceDirectory: siteRoot)
 
 // Production wiring of RemoteSessionRegistry at a *shared* (App Group) location is blocked on an
 // owner-side provisioning-portal change (see the plan's Task 2/5 manual note); until then this

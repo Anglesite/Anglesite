@@ -37,8 +37,10 @@ import AnglesiteP2P
 /// future persist step would need to export. See this task's report for the recommended
 /// follow-ups.
 ///
-/// Gated on all three of `ANGLESITE_CONTAINER_TESTS=1` (which is also what adds the container
-/// targets to `Package.swift` at all), `ANGLESITE_CONTAINER_E2E=1`, and `ANGLESITE_P2P_E2E=1` —
+/// Gated on all three of `ANGLESITE_CONTAINER_TESTS=1` (which is also what adds the
+/// `AnglesiteContainerLocalTests` test target to `Package.swift` at all — the helper *executable*
+/// is gated separately, by `includeContainer`, i.e. Darwin without `ANGLESITE_SKIP_CONTAINER=1`),
+/// `ANGLESITE_CONTAINER_E2E=1`, and `ANGLESITE_P2P_E2E=1` —
 /// the union of `ContainerizationControlTests`'s and `TwoProcessE2ETests`'s own gates, since this
 /// needs both an entitled Apple-Silicon Mac with vendored boot artifacts and a real WebRTC
 /// handshake. Run it with:
