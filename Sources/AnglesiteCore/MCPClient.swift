@@ -125,7 +125,7 @@ public actor MCPClient {
         case staleSidecarProtocol(detail: String)
         /// `callTool(name:arguments:)` refused to send an `apply_edit` call because `op` isn't in
         /// the set the connected sidecar's `tools/list` advertises for that tool (`apply_edit`'s
-        /// JSON-Schema `inputSchema.properties.op.enum` — see ``cachedApplyEditOps()``). The
+        /// JSON-Schema `inputSchema.properties.op.enum` — see `cachedApplyEditOps()`). The
         /// sibling failure mode to ``staleSidecarProtocol(detail:)``: same root cause (a vendored
         /// container image older than a paired app/sidecar PR), but a per-op *schema* mismatch
         /// rather than a transport-*protocol-version* one, so it surfaces on one specific edit
@@ -187,8 +187,8 @@ public actor MCPClient {
     private var nextRequestID: Int = 1
     private var pending: [Int: CheckedContinuation<JSONValue, Error>] = [:]
 
-    /// Cache for ``cachedApplyEditOps()`` — the `apply_edit` tool's advertised `op` enum, fetched
-    /// at most once per connection and cleared on ``teardown()`` so a reconnect (possibly to a
+    /// Cache for `cachedApplyEditOps()` — the `apply_edit` tool's advertised `op` enum, fetched
+    /// at most once per connection and cleared on `teardown()` so a reconnect (possibly to a
     /// different container image) re-fetches rather than trusting a stale set.
     private var applyEditOpsCache: Set<String>?
     private var started: Bool = false
