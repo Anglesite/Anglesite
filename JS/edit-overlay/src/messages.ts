@@ -12,8 +12,9 @@ export interface EditMessage {
   type: "anglesite:apply-edit";
   path: string;
   /** Structured element metadata; the server resolves it to a CSS selector via
-   *  `selector.mjs.buildSelector(info)` (decided in #18). */
-  selector: ElementInfo;
+   *  `selector.mjs.buildSelector(info)` (decided in #18). Absent for `insert-image` — it always
+   *  targets the page's content root, resolved server-side; every other op still sets it. */
+  selector?: ElementInfo;
   op: string;
   value?: unknown;
 }

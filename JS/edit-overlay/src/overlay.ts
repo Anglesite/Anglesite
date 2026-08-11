@@ -147,7 +147,7 @@ function attachImageDrop(awaitReply: (id: string, handler: (r: EditReply) => voi
     }
     hint.textContent = targets.length > 0
       ? "Drop onto a highlighted image to replace it"
-      : "This page has no images to replace";
+      : "Drop anywhere to add this page's first image";
   };
 
   const clearTargets = (): void => {
@@ -192,40 +192,7 @@ function attachImageDrop(awaitReply: (id: string, handler: (r: EditReply) => voi
     ev.preventDefault();
     if (ev.dataTransfer) ev.dataTransfer.dropEffect = target ? "copy" : "none";
   });
-  document.addEventListener("drop", (ev) => {
-    const file = (ev as DragEvent).dataTransfer?.files[0];
-    if (!file) {
-      // dragover already recognized this as a file drag (dragIsFile true) using the always-
-      // available types/items — but dataTransfer.files can still come back empty at drop time
-      // for some promise-backed/multi-item drag sources. Still prevent WKWebView's default file
-      // navigation and clear the stuck highlight state instead of silently discarding the drop.
-      if (dragIsFile) {
-        ev.preventDefault();
-        clearTargets();
-        showToast("Couldn't read the dropped file");
-      }
-      return;
-    }
-    ev.preventDefault();
-    const target = imageAtEvent(ev as DragEvent);
-    const hadTargets = imageTargets().length > 0;
-    const isImageFile = file.type.startsWith("image/");
-    clearTargets();
-    // Target-existence is checked before file-type so a dropped non-image file never gets the
-    // has-a-target wording ("replace this image") when there wasn't a target to replace.
-    if (!target) {
-      showToast(!hadTargets
-        ? "This page has no images to replace"
-        : isImageFile
-          ? "Drop onto a highlighted image to replace it"
-          : "Drop an image file onto a highlighted image to replace it");
-      return;
-    }
-    if (!isImageFile) {
-      showToast("Choose an image file to replace this image");
-      return;
-    }
-
+  const replaceImage = (target: HTMLImageElement, file: File): void => {
     // Save originals before the optimistic swap so we can revert on failure.
     const savedSrc = target.src;
     const savedSrcset = target.getAttribute("srcset");
@@ -296,6 +263,108 @@ function attachImageDrop(awaitReply: (id: string, handler: (r: EditReply) => voi
     };
     reader.onerror = () => revertWithToast("Couldn't read the dropped file");
     reader.readAsDataURL(file);
+  };
+
+  const insertNewImage = (file: File): void => {
+    const element = document.createElement("img");
+    const blobURL = URL.createObjectURL(file);
+    element.src = blobURL;
+    document.body.appendChild(element);
+
+    const id = nextEditID();
+    let settled = false;
+
+    const revertWithToast = (text: string): void => {
+      if (settled) return;
+      settled = true;
+      element.remove();
+      URL.revokeObjectURL(blobURL);
+      showToast(text);
+    };
+
+    const settleOnReply = (reply: EditReply): void => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timeoutHandle);
+      if (reply.status === "applied" && reply.result) {
+        element.src = reply.result.src;
+        if (reply.result.srcset !== undefined) element.setAttribute("srcset", reply.result.srcset);
+        URL.revokeObjectURL(blobURL);
+      } else {
+        element.remove();
+        URL.revokeObjectURL(blobURL);
+        showToast(reply.detail ?? reply.message ?? reply.reason ?? "Image insert failed");
+      }
+    };
+
+    const timeoutHandle = setTimeout(() => {
+      revertWithToast("Image insert timed out");
+    }, 30_000);
+
+    awaitReply(id, settleOnReply);
+
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataURL = reader.result;
+      if (typeof dataURL !== "string") {
+        revertWithToast("Couldn't read the dropped file");
+        return;
+      }
+      const msg: EditMessage = {
+        id,
+        type: "anglesite:apply-edit",
+        path: location.pathname,
+        op: "insert-image",
+        value: { filename: file.name, mimeType: file.type, dataURL },
+      };
+      const ok = postEdit(msg);
+      if (!ok) {
+        clearTimeout(timeoutHandle);
+        revertWithToast("Not running inside the Anglesite app");
+      }
+    };
+    reader.onerror = () => revertWithToast("Couldn't read the dropped file");
+    reader.readAsDataURL(file);
+  };
+
+  document.addEventListener("drop", (ev) => {
+    const file = (ev as DragEvent).dataTransfer?.files[0];
+    if (!file) {
+      // dragover already recognized this as a file drag (dragIsFile true) using the always-
+      // available types/items — but dataTransfer.files can still come back empty at drop time
+      // for some promise-backed/multi-item drag sources. Still prevent WKWebView's default file
+      // navigation and clear the stuck highlight state instead of silently discarding the drop.
+      if (dragIsFile) {
+        ev.preventDefault();
+        clearTargets();
+        showToast("Couldn't read the dropped file");
+      }
+      return;
+    }
+    ev.preventDefault();
+    const target = imageAtEvent(ev as DragEvent);
+    const hadTargets = imageTargets().length > 0;
+    const isImageFile = file.type.startsWith("image/");
+    clearTargets();
+
+    if (!target) {
+      if (!hadTargets && isImageFile) {
+        insertNewImage(file);
+        return;
+      }
+      showToast(!hadTargets
+        ? "Drop an image file anywhere to add this page's first image"
+        : isImageFile
+          ? "Drop onto a highlighted image to replace it"
+          : "Drop an image file onto a highlighted image to replace it");
+      return;
+    }
+    if (!isImageFile) {
+      showToast("Choose an image file to replace this image");
+      return;
+    }
+
+    replaceImage(target, file);
   });
   document.addEventListener("dragleave", () => {
     if (!dragIsFile) return;

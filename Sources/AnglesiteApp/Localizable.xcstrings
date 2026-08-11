@@ -888,6 +888,9 @@
     "Choose an existing Anglesite site folder to import." : {
 
     },
+    "Choose an image to insert into this page." : {
+
+    },
     "Choose where to save the local .anglesite file." : {
 
     },
@@ -1161,6 +1164,9 @@
 
     },
     "Couldn't finish setup" : {
+
+    },
+    "Couldn't insert that image" : {
 
     },
     "Couldn't load more followers" : {
@@ -1794,6 +1800,9 @@
 
     },
     "Images" : {
+
+    },
+    "Image…" : {
 
     },
     "Impact" : {

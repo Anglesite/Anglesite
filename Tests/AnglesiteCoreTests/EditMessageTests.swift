@@ -161,4 +161,25 @@ struct EditMessageTests {
             Issue.record("expected decode success, got \(error)")
         }
     }
+
+    @Test("Op.insertImage matches the sidecar's wire string") func opInsertImageMatchesWireString() {
+        #expect(EditMessage.Op.insertImage == "insert-image")
+    }
+
+    @Test("Decodes a valid insert-image message with no selector") func decodesInsertImageWithoutSelector() {
+        let body: [String: Any] = [
+            "id": "edit-2",
+            "type": "anglesite:apply-edit",
+            "path": "/",
+            "op": "insert-image",
+            "value": ["filename": "photo.jpg", "mimeType": "image/jpeg", "dataURL": "data:image/jpeg;base64,AA=="],
+        ]
+        let result = EditMessage.decode(from: body)
+        guard case .success(let msg) = result else {
+            Issue.record("expected success, got \(result)")
+            return
+        }
+        #expect(msg.op == "insert-image")
+        #expect(msg.selector == nil)
+    }
 }
