@@ -1,4 +1,7 @@
+import AppKit
 import SwiftUI
+import UniformTypeIdentifiers
+import AnglesiteCore
 
 /// The Insert menu (menu-bar spec §2.4). Every item emits semantic HTML/MDX into the page
 /// source through the Component Editor write path (#496) — the menu is grammar, the editor
@@ -13,6 +16,53 @@ struct InsertCommands: Commands {
     /// the Component submenu below (#1225 Task 12). `nil` (no palette entries shown) whenever
     /// edit mode is off, same as `preview` itself being unfocused.
     private var wysiwygCanvas: WYSIWYGCanvasController? { preview?.wysiwygCanvas }
+
+    /// `Insert ▸ Image…`'s action: pick a file, write it through the same `insert-image` op the
+    /// overlay's empty-page drop branch uses, via the focused window's real `MCPApplyEditRouter`
+    /// (`preview.editRouter` — shared with the overlay and the Component Editor, per
+    /// `SiteWindowModel.makeComponentEditorContext`'s doc comment).
+    @MainActor
+    private static func insertImage(into preview: PreviewModel) async {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowsMultipleSelection = false
+        panel.allowedContentTypes = [.image]
+        panel.prompt = String(localized: "Insert")
+        panel.message = String(localized: "Choose an image to insert into this page.")
+        guard panel.runModal() == .OK, let url = panel.url else { return }
+
+        let bytes: Data
+        do {
+            bytes = try Data(contentsOf: url)
+        } catch {
+            presentFailureAlert(detail: error.localizedDescription)
+            return
+        }
+
+        let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
+        let dataURL = InsertImageEditBuilder.dataURL(bytes: bytes, mimeType: mimeType)
+        let message = InsertImageEditBuilder.message(
+            path: preview.activeRoute ?? "/",
+            filename: url.lastPathComponent,
+            mimeType: mimeType,
+            dataURL: dataURL
+        )
+
+        let reply = await preview.editRouter.apply(message)
+        if reply.status != .applied {
+            presentFailureAlert(detail: reply.message ?? "Unknown error")
+        }
+    }
+
+    @MainActor
+    private static func presentFailureAlert(detail: String) {
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Couldn't insert that image")
+        alert.informativeText = detail
+        alert.alertStyle = .warning
+        alert.runModal()
+    }
 
     var body: some Commands {
         CommandMenu("Insert") {
@@ -65,7 +115,11 @@ struct InsertCommands: Commands {
             Divider()
 
             PlannedItem("Table")
-            PlannedItem("Image")
+            Button("Image…") {
+                guard let preview else { return }
+                Task { await InsertCommands.insertImage(into: preview) }
+            }
+            .disabled(preview == nil)
             PlannedItem("Video")
             PlannedItem("Audio")
             PlannedItem("Image Gallery")
