@@ -427,7 +427,15 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
                 onOutput: { line, stream in continuation.yield((line, stream)) })
             containerStarted = true
             guard stateMachine.isCurrent(gen) else { await abandonSupersededAttempt(); return }
-            try await connect(mcpClient, session.mcpURL)
+            do {
+                try await connect(mcpClient, session.mcpURL)
+            } catch {
+                // Distinguished from other start() failures so friendlyMessage(for:) can point at
+                // re-vendoring the local sidecar image instead of surfacing the raw transport
+                // error (#1407) — this is exactly where an MCP-protocol mismatch between the app
+                // and a stale bundled image surfaces.
+                throw LocalContainerError.mcpHandshakeFailed("\(error)")
+            }
             guard stateMachine.isCurrent(gen) else { await abandonSupersededAttempt(); return }
             await knowledgeIndex?.rebuild(siteID: siteID, projectRoot: siteDirectory)
             await conventionsEngine?.rebuild(siteID: siteID, projectRoot: siteDirectory)
@@ -656,6 +664,10 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
             return "Couldn't start the local preview: \(m)"
         case LocalContainerError.cloneFailed(let m):
             return "Couldn't load this site into the preview: \(m)"
+        case LocalContainerError.mcpHandshakeFailed(let m):
+            return "The local preview sidecar rejected the connection (\(m)). If you're developing "
+                + "this app, the bundled container image may be out of date for this build's MCP "
+                + "protocol — run scripts/vendor-container-image.sh to rebuild it."
         default:
             return "Couldn't start the local preview: \(error)"
         }

@@ -12,12 +12,17 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 source "$ROOT/scripts/lib/container-cli.sh"
 source "$ROOT/scripts/lib/stage-dev-image-context.sh"
+source "$ROOT/scripts/lib/mcp-protocol-version.sh"
 # Fail fast, before staging work: no point copying the sidecar/template if the CLI is missing.
 ensure_container_cli
 CTX="$ROOT/Containers/anglesite-dev"
 OUT="$ROOT/Resources/container-image"
 
 stage_dev_image_context "$CTX"
+
+# Captured now, before stage_dev_image_context's EXIT trap removes the staged sidecar copy — used
+# below to stamp vendor-manifest.json once the image itself is built.
+SIDECAR_VERSION="$(grep -m1 '"version"' "$CTX/mcp-sidecar/package.json" | sed -E 's/.*"version"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
 
 echo "Building anglesite-dev:latest (linux/arm64)…"
 
@@ -52,6 +57,19 @@ rm -f "$ARCHIVE"
 for f in oci-layout index.json blobs/sha256; do
     [[ -e "$OUT/$f" ]] || { echo "ERROR: OCI layout missing $f" >&2; exit 1; }
 done
+
+# Stamp the vendored image with the MCP protocol version this app build expects and the sidecar
+# version it was built from — scripts/check-container-resources.sh compares the protocol version
+# against the app's current expectation on every build, so a sidecar/app protocol drift (e.g. a
+# later `git pull` that bumps MCPClient.protocolVersion) is caught before it surfaces as an
+# opaque MCP-connect HTTP error at preview time (#1407).
+cat > "$OUT/vendor-manifest.json" <<EOF
+{
+  "mcpProtocolVersion": "$(mcp_protocol_version)",
+  "sidecarVersion": "$SIDECAR_VERSION",
+  "vendoredAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+}
+EOF
 
 echo "Done. Resources/container-image/ now holds an OCI layout."
 echo "Contents:"

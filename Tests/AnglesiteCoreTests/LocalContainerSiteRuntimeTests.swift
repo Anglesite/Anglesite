@@ -162,6 +162,23 @@ struct LocalContainerSiteRuntimeTests {
         #expect(await box.url == Self.ok.mcpURL)
     }
 
+    /// Regression test for #1407: a failed MCP connect (e.g. a stale vendored sidecar image
+    /// rejecting this build's protocol version) must not surface as a bare "http(status: 400)" —
+    /// it should point the developer at re-vendoring instead.
+    @Test("a failed MCP handshake settles to .failed with a re-vendor hint")
+    func startMCPHandshakeFailureSurfacesRevendorHint() async {
+        struct FakeTransportError: Error, CustomStringConvertible {
+            var description: String { "http(status: 400)" }
+        }
+        let (rt, _) = makeRuntime(.success(Self.ok), connect: { _, _ in throw FakeTransportError() })
+        await rt.start(siteID: "s1", siteDirectory: URL(fileURLWithPath: "/unused"))
+        if case .failed(let id, let msg) = await rt.state {
+            #expect(id == "s1")
+            #expect(msg.contains("scripts/vendor-container-image.sh"))
+            #expect(msg.contains("http(status: 400)"))
+        } else { Issue.record("expected .failed, got \(await rt.state)") }
+    }
+
     @Test("persistEdit hands the guest commit back to canonical Source")
     func persistEditRunsCanonicalGitHandoff() async throws {
         let commit = "abc1234567890abcdef1234567890abcdef12345"

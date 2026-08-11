@@ -42,6 +42,7 @@ SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 RESOURCES="$REPO_ROOT/Resources"
 source "$SCRIPT_DIR/lib/artifact-lock.sh"
+source "$SCRIPT_DIR/lib/mcp-protocol-version.sh"
 
 # Appends to `missing` iff the lock has a real pin for $1 that disagrees with $2 (the digest/hash
 # just computed from the on-disk artifact). Silent no-op when unpinned ("null") — see comment
@@ -70,6 +71,27 @@ check_vminit_layout() {
     fi
 }
 
+# Appends to `missing` iff the vendored image's protocol-version stamp (vendor-manifest.json,
+# written by vendor-container-image.sh) is missing or disagrees with this app build's current
+# MCPClient.protocolVersion. Unlike check_digest above, there is no external pin to compare
+# against — the image is a non-deterministic local build (#616 excluded it from digest-pinning
+# for exactly that reason) — so this checks the stamp against the app's own live source of truth
+# instead. A missing stamp (image vendored before this check existed) is flagged the same as a
+# mismatch: both mean the bundled sidecar's MCP protocol support is unverified (#1407).
+check_mcp_protocol_stamp() {
+    local manifest="$1" label="$2"
+    local expected actual
+    expected="$(mcp_protocol_version)"
+    if [[ ! -f "$manifest" ]]; then
+        missing+=("$label has no vendor-manifest.json (vendored before the MCP-protocol staleness check existed) — re-run scripts/vendor-container-image.sh so the bundled sidecar matches MCP-Protocol-Version $expected.")
+        return
+    fi
+    actual="$(grep -m1 '"mcpProtocolVersion"' "$manifest" | sed -E 's/.*"mcpProtocolVersion"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+    if [[ "$actual" != "$expected" ]]; then
+        missing+=("$label was vendored for MCP protocol $actual but this app build now expects $expected — re-run scripts/vendor-container-image.sh, or the local preview's MCP handshake will fail with an opaque HTTP error.")
+    fi
+}
+
 # Per-artifact runtime overrides (BundledImage honors these at runtime, so a dev
 # running against external artifacts shouldn't be nagged about unvendored dirs).
 # Mirror BundledImage.swift exactly: a set override still gets its own
@@ -81,9 +103,13 @@ missing=()
 if [[ -n "${ANGLESITE_CONTAINER_IMAGE:-}" ]]; then
     if [[ ! -f "$ANGLESITE_CONTAINER_IMAGE/index.json" ]]; then
         missing+=("ANGLESITE_CONTAINER_IMAGE=$ANGLESITE_CONTAINER_IMAGE has no index.json — fix or unset the override")
+    else
+        check_mcp_protocol_stamp "$ANGLESITE_CONTAINER_IMAGE/vendor-manifest.json" "ANGLESITE_CONTAINER_IMAGE"
     fi
 elif [[ ! -f "$RESOURCES/container-image/index.json" ]]; then
     missing+=("Resources/container-image is unvendored (no index.json) — run scripts/vendor-container-image.sh")
+else
+    check_mcp_protocol_stamp "$RESOURCES/container-image/vendor-manifest.json" "Resources/container-image"
 fi
 
 if [[ -n "${ANGLESITE_CONTAINER_KERNEL:-}" ]]; then

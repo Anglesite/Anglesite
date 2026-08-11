@@ -35,6 +35,12 @@ public enum LocalContainerError: Error, Equatable {
     case bootFailed(String)
     /// git clone of `Source/` into the guest failed.
     case cloneFailed(String)
+    /// The container booted, but `MCPClient.connect` couldn't complete its handshake with the
+    /// sidecar (e.g. an `HTTPTransport.HTTPError` — see `LocalContainerSiteRuntime.start()`). The
+    /// most common cause in local dev is a `Resources/container-image/` vendored before an
+    /// MCP-protocol bump (#1407); `friendlyMessage(for:)` points at re-vendoring rather than
+    /// surfacing the raw transport error.
+    case mcpHandshakeFailed(String)
 }
 
 /// Hydration precondition: a `LocalContainerControl.start()` implementation hard-depends on
