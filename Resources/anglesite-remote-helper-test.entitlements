@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!--
+      Entitlements for the bare `anglesite-remote-helper` SwiftPM executable when it is spawned
+      as a second process by HelperContainerE2ETests (#1208 P1 exit criterion).
+
+      Same rationale as Resources/container-probe.entitlements: swiftpm-testing-helper (the
+      process `swift test` actually runs) cannot carry com.apple.security.virtualization, so a
+      test that boots a container has to put the entitlement on a *separate* binary it spawns.
+      Here that binary is the helper itself, which calls ContainerizationControl.start() — an
+      unsigned `swift build` product would fail with LocalContainerError.virtualizationUnavailable
+      before ever reaching a VM. The test ad-hoc code-signs the built binary against this file
+      (an ad-hoc `codesign` invocation passing this path as its entitlements) exactly as
+      scripts/run-container-probe.sh does for anglesite-container-probe. Note the comment text
+      here must avoid a doubled hyphen: AMFI's XML parser rejects one inside a comment, which is
+      illegal XML, and codesign then fails with "AMFIUnserializeXML: syntax error".
+
+      Deliberately NOT Resources/AnglesiteRemote.entitlements: that one is for the real, bundled,
+      provisioned `Anglesite Remote.app` and declares com.apple.security.app-sandbox. Sandboxing
+      a bare, non-bundled CLI with no provisioning profile is a different (and broken) code path,
+      so — like container-probe.entitlements — this file stays minimal and sandbox-free.
+
+      Networking is included on top of the probe's single entitlement because the helper does more
+      than boot a VM: it dials the container's loopback preview/MCP ports (client) and terminates
+      a real WebRTC peer connection (server).
+    -->
+
+    <key>com.apple.security.virtualization</key><true/>
+    <key>com.apple.security.network.client</key><true/>
+    <key>com.apple.security.network.server</key><true/>
+</dict>
+</plist>
