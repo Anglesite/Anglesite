@@ -80,15 +80,40 @@ struct ApplyEditToolTests {
         #expect(msg?.op == expectedOp)
     }
 
-    @Test("no context selector + bare-tag selector builds a minimal ElementInfo")
-    func bareTagBuildsMinimalElementInfo() async throws {
+    /// #1410: without a real overlay selection, the bare-tag fallback has no `textContent` — and
+    /// the sidecar's `.astro` resolver locates the target element by searching for its *current*
+    /// text/attribute value for every op except `applyInstruction` (`patcher.mjs`'s `resolveAstro`
+    /// / `getAttrSearchValue`). Sending that incomplete selector downstream was guaranteed to fail
+    /// with a confusing message; refusing here up front is both correct and clearer.
+    @Test("no context selector + bare-tag selector refuses ops that need the element's current text", arguments: [
+        EditOperation.replaceText, EditOperation.replaceAttr, EditOperation.replaceImageSrc,
+    ])
+    func bareTagRefusesOpsThatNeedCurrentText(operation: EditOperation) async throws {
         let router = FakeEditRouter(reply: EditReply(id: "test-id", status: .applied, message: nil))
         let tool = ApplyEditTool(bridge: makeBridge(router), siteID: "site1", contextSelector: nil)
         let cmd = GeneratedEditCommand(
             filePath: "src/pages/index.md",
             selector: "H1",
-            operation: .replaceAttr,
+            operation: operation,
             value: "hello",
+            explanation: "x"
+        )
+
+        let out = try await tool.call(arguments: cmd)
+
+        #expect(await router.received == nil)
+        #expect(out.contains("Select it in the preview"))
+    }
+
+    @Test("no context selector + bare-tag selector still forwards apply-instruction (no current text needed)")
+    func bareTagAllowsApplyInstruction() async throws {
+        let router = FakeEditRouter(reply: EditReply(id: "test-id", status: .applied, message: nil))
+        let tool = ApplyEditTool(bridge: makeBridge(router), siteID: "site1", contextSelector: nil)
+        let cmd = GeneratedEditCommand(
+            filePath: "src/pages/index.md",
+            selector: "H1",
+            operation: .applyInstruction,
+            value: "make it punchier",
             explanation: "x"
         )
 
