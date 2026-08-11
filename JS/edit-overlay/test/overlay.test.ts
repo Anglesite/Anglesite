@@ -387,4 +387,40 @@ describe("image drop", () => {
       vi.useRealTimers();
     }
   });
+
+  it("shows an insert hint instead of a replace hint when the page has no images", () => {
+    const file = new File([new Uint8Array([0xff, 0xd8])], "vacation.jpg", { type: "image/jpeg" });
+
+    const event = dragOn("dragenter", document.body, file);
+
+    expect(event.defaultPrevented).toBe(true);
+    expect(document.querySelector(`[${IMAGE_DROP_HINT_ATTRIBUTE}]`)?.textContent).toMatch(/add this page's first image/i);
+  });
+
+  it("inserts a new image when dropped anywhere on a page with no images", async () => {
+    const file = new File([new Uint8Array([0xff, 0xd8])], "vacation.jpg", { type: "image/jpeg" });
+
+    dropOn(document.body, file);
+    await flushFileReader();
+
+    expect(sent.length).toBe(1);
+    const msg = sent[0] as { op: string; selector?: unknown; value: { filename: string } };
+    expect(msg.op).toBe("insert-image");
+    expect(msg.selector).toBeUndefined();
+    expect(msg.value.filename).toBe("vacation.jpg");
+    // Optimistic insert: a new <img> is in the DOM immediately, pointing at a blob URL.
+    const inserted = document.querySelector("img");
+    expect(inserted).not.toBeNull();
+    expect(inserted?.src).toMatch(/^blob:/);
+  });
+
+  it("explains a non-image file dropped on a page with no images without implying insert", () => {
+    const file = new File(["notes"], "notes.txt", { type: "text/plain" });
+
+    dropOn(document.body, file);
+
+    expect(sent.length).toBe(0);
+    expect(document.querySelector(".anglesite-toast")?.textContent).toMatch(/image file/i);
+    expect(document.querySelector("img")).toBeNull();
+  });
 });
