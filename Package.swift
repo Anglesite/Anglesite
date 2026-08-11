@@ -274,6 +274,27 @@ if includeContainer {
             linkerSettings: weakLinkFoundationModels
         )
     )
+    // The actual Anywhere-runtime helper CLI (#1208 P1, Task 7): links AnglesiteContainer
+    // directly (RemoteContainerSession -> ContainerizationControl), so — like
+    // AnglesiteContainerProbe above — it lives inside `includeContainer` rather than the
+    // unconditional `#if canImport(Darwin)` block below that defines its AnglesiteRemote/
+    // AnglesiteP2P dependencies (those two have no AnglesiteContainer dependency of their own,
+    // so they stay available even under ANGLESITE_SKIP_CONTAINER=1; this target can't).
+    // Exposed as an SPM executableTarget — not just the Xcode `AnglesiteRemote` app target in
+    // project.yml — so `swift build --product anglesite-remote-helper` produces a real binary
+    // Task 8's HelperContainerE2ETests can spawn as a second process next to the test binary,
+    // matching how P0's `TwoProcessE2ETests` spawns `anglesite-p2p-demo` the same way. No
+    // explicit product entry needed below (mirrors anglesite-p2p-demo): SwiftPM synthesizes an
+    // implicit product for every executable target.
+    packageTargets.append(
+        .executableTarget(
+            name: "anglesite-remote-helper",
+            dependencies: ["AnglesiteRemote", "AnglesiteCore", "AnglesiteContainer", "AnglesiteP2P"],
+            path: "Sources/anglesite-remote-helper",
+            swiftSettings: strictConcurrency,
+            linkerSettings: weakLinkFoundationModels
+        )
+    )
 }
 
 // canImport(Darwin) joins the compiler gate: these targets depend on AnglesiteBridge /
@@ -377,6 +398,33 @@ packageTargets.append(contentsOf: [
         swiftSettings: strictConcurrency,
         linkerSettings: weakLinkFoundationModels + webRTCTestRPath
     ),
+    // Anywhere runtime P1 (#1208): the Mac helper's implementation library —
+    // LoginItemRegistering today, RemoteSessionRegistry/RemoteContainerSession/etc. added by
+    // later tasks in this plan. Darwin-only, matching AnglesiteP2P above: it wraps
+    // ServiceManagement (macOS-only) and later tasks wire it to AnglesiteP2P (also Darwin-only).
+    // Unlike AnglesiteAppCore (a test-only mirror of the app target's own inlined sources), this
+    // one IS exposed as a real package product (see packageProducts below): the Xcode
+    // AnglesiteRemote app target's own module is named "Anglesite_Remote" (mangled from its
+    // PRODUCT_NAME, "Anglesite Remote") — a different module from "AnglesiteRemote" — so
+    // Sources/anglesite-remote-helper/main.swift's `import AnglesiteRemote` needs this to be a
+    // genuine linked dependency, not inlined sources of the same target.
+    .target(
+        name: "AnglesiteRemote",
+        // AnglesiteCore is added explicitly (not just relied on transitively through
+        // AnglesiteP2P) because Task 5's RemoteContainerSession consumes
+        // LocalContainerControl/LocalContainerSession directly — see
+        // Sources/AnglesiteCore/LocalContainerControl.swift.
+        dependencies: ["AnglesiteP2P", "AnglesiteCore"],
+        path: "Sources/AnglesiteRemote",
+        swiftSettings: strictConcurrency
+    ),
+    .testTarget(
+        name: "AnglesiteRemoteTests",
+        dependencies: ["AnglesiteRemote", "AnglesiteCore"],
+        path: "Tests/AnglesiteRemoteTests",
+        swiftSettings: strictConcurrency,
+        linkerSettings: weakLinkFoundationModels + webRTCTestRPath
+    ),
 ])
 #endif
 
@@ -390,6 +438,16 @@ var packageProducts: [Product] = [
     .library(name: "AnglesiteIntents", targets: ["AnglesiteIntents"]),
     .executable(name: "anglesite-lan-host", targets: ["AnglesiteLANHost"])
 ]
+
+// AnglesiteP2P and AnglesiteRemote both need real package products (not just internal targets):
+// project.yml's new AnglesiteRemote app target (#1208 P1) references them via
+// `package: Anglesite, product: AnglesiteP2P` / `product: AnglesiteRemote`, the same mechanism
+// the Anglesite app target uses for AnglesiteCore/AnglesiteBridge/etc. Darwin-gated, matching
+// both targets themselves above.
+#if canImport(Darwin)
+packageProducts.append(.library(name: "AnglesiteP2P", targets: ["AnglesiteP2P"]))
+packageProducts.append(.library(name: "AnglesiteRemote", targets: ["AnglesiteRemote"]))
+#endif
 
 var packageDependencies: [Package.Dependency] = []
 

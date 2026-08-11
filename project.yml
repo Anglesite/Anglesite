@@ -156,6 +156,16 @@ targets:
         embed: true
       - target: AnglesiteQuickLookThumbnail
         embed: true
+      - target: AnglesiteRemote
+        embed: true
+        codeSign: true
+        # `copy:` (not `buildPhase:` — that key only applies to `sources:` entries) is
+        # XcodeGen's Dependency-level custom embed destination: without it, `embed: true`
+        # defaults an application-type dependency to a bare Resources copy, not
+        # Contents/Library/LoginItems (SMAppService.agent's documented discovery location).
+        copy:
+          destination: wrapper
+          subpath: Contents/Library/LoginItems
 
   # iOS thin client (#71): remote-only shell over RemoteSandboxSiteRuntime. Links only the
   # shared pieces it can use (Core's HTTP MCP client + sandbox control, the Bridge boundary,
@@ -288,6 +298,64 @@ targets:
     dependencies:
       - package: Anglesite
         product: AnglesiteQuickLookSupport
+
+  # Anywhere runtime (#1208 P1): faceless helper, login item via SMAppService.agent, embedded
+  # inside Anglesite.app so one install covers both. No Dock icon, no windows (LSUIElement).
+  #
+  # sources: only the thin executable (Sources/anglesite-remote-helper) — the app target's own
+  # module name is derived from PRODUCT_NAME ("Anglesite Remote" -> "Anglesite_Remote"), a
+  # *different* module from the "AnglesiteRemote" library main.swift imports. So the reusable
+  # implementation (Sources/AnglesiteRemote) is linked as a real SwiftPM library product (see
+  # `dependencies:` below + Package.swift's matching product), not compiled directly into this
+  # target's own sources — mirroring how the Anglesite target links AnglesiteCore/etc. as
+  # packages rather than inlining their source directories.
+  AnglesiteRemote:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/anglesite-remote-helper
+      # Filename must match LoginItemRegistering.swift's SMAppServiceLoginItem default
+      # `plistName` ("io.dwk.anglesite.remote.plist") — SMAppService.agent(plistName:) looks up
+      # this exact filename under the bundle's Contents/Library/LaunchAgents/, and XcodeGen's
+      # copy phase preserves the source file's basename (no rename-on-copy).
+      - path: Resources/io.dwk.anglesite.remote.plist
+        buildPhase:
+          copyFiles:
+            destination: wrapper
+            subpath: Contents/Library/LaunchAgents
+    # See the Anglesite target's matching comment on configFiles above. Embedded targets need
+    # matching signing style/team for automatic signing to resolve.
+    configFiles:
+      Debug: xcconfig/Signing-Debug.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.dwk.anglesite.remote
+        PRODUCT_NAME: "Anglesite Remote"
+        INFOPLIST_FILE: Resources/AnglesiteRemote-Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Resources/AnglesiteRemote.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
+        SWIFT_VERSION: "5.10"
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "0.1.0"
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) ANGLESITE_MAS"
+        SKIP_INSTALL: YES
+        # Embedded helper apps live under the parent's Contents/Library/LoginItems/ —
+        # SMAppService.agent's documented discovery location.
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: "Apple Distribution"
+    dependencies:
+      - package: Anglesite
+        product: AnglesiteRemote
+      - package: Anglesite
+        product: AnglesiteCore
+      - package: Anglesite
+        product: AnglesiteContainer
+      - package: Anglesite
+        product: AnglesiteP2P
 
 schemes:
   Anglesite:

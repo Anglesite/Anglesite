@@ -53,7 +53,14 @@ Operationally: **File ▸ Import** copies a plain Anglesite directory into a new
 
 ## Build target
 
-`Anglesite` is the only app target. It sets `ANGLESITE_MAS` via `SWIFT_ACTIVE_COMPILATION_CONDITIONS`, is sandboxed, holds a per-`SiteWindow` security-scoped bookmark grant, and links `AnglesiteContainer` for the local Apple Containerization runtime. Direct-download distribution is retired.
+`Anglesite` is the primary app target. It sets `ANGLESITE_MAS` via `SWIFT_ACTIVE_COMPILATION_CONDITIONS`, is sandboxed, holds a per-`SiteWindow` security-scoped bookmark grant, and links `AnglesiteContainer` for the local Apple Containerization runtime. Direct-download distribution is retired.
+
+A second, embedded app target — `AnglesiteRemote`
+(#1208 P1, "Anywhere runtime") — is a faceless (`LSUIElement`) login-item helper living in
+`Anglesite.app/Contents/Library/LoginItems/`, registered via `SMAppService.agent`. It has no
+UI of its own, links `AnglesiteContainer` + `AnglesiteP2P`, and exists to serve P2P sessions
+(container boot + MCP/preview bridging) when the main app is closed. It is never launched
+directly by the user or Finder.
 
 ## Editing guidelines
 

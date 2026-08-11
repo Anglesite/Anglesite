@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- Bridges P2P channels to the container's loopback proxies, and (eventually) accepts
+         inbound WebRTC ICE hole-punch traffic — see design spec §2 "no standing listening ports"
+         (ICE binds ephemeral ports; that's not a stable inbound service). -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <!-- Own bookmark store for non-iCloud sites (design spec §2 "File access") — the main app's
+         bookmarks are app-scoped and don't transfer to this bundle ID. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+    <!-- Apple Containerization framework (#69): boot local OCI containers, same as Anglesite.app. -->
+    <key>com.apple.security.virtualization</key>
+    <true/>
+    <!-- NO com.apple.developer.icloud-container-identifiers and NO
+         com.apple.security.application-groups here yet — both require a provisioning profile
+         even under ad-hoc/Manual signing (see Resources/Anglesite-Debug.entitlements' identical
+         note re: #1038). Task 6 Step 5 documents the manual Apple Developer portal step that
+         unblocks adding them; until then this file matches the CI-safe, no-Team-required shape
+         every other Debug entitlements file in this repo keeps. -->
+</dict>
+</plist>

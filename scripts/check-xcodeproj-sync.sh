@@ -86,6 +86,11 @@ pbx_json = sys.argv[1]
 SOURCES_ROOTS = {
     "Anglesite": "Sources/AnglesiteApp",
     "AnglesiteMobile": "Sources/AnglesiteMobile",
+    # The AnglesiteRemote *app target* only directly compiles the thin executable — the
+    # reusable AnglesiteRemote library (Sources/AnglesiteRemote) is linked in as a SwiftPM
+    # package product (project.yml dependencies:), not inlined into this target's own
+    # sources, so this root matches what the target actually compiles.
+    "AnglesiteRemote": "Sources/anglesite-remote-helper",
 }
 
 def on_disk_swift(sources_root):
