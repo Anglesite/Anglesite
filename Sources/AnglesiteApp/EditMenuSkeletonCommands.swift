@@ -6,7 +6,9 @@ import SwiftUI
 /// or plain text (which also covers the Component Editor's Source-mode `TextEditor`, #517
 /// follow-up) — and Search Site… against the focused window's toolbar search field (#520); the
 /// rest are editor/subsystem-gated PlannedItems. NavigatorEditCommands owns the live
-/// Delete/Duplicate next to them.
+/// Delete/Duplicate next to them. The WYSIWYG canvas (`.wysiwygCanvas`, #1225 Task 10) has no
+/// find UI of its own yet, so it's grouped with `.plainText` below wherever Find behavior
+/// branches on the registry's active case.
 struct EditMenuSkeletonCommands: Commands {
     private let registry = EditorFocusRegistry.shared
     @FocusedValue(\.siteSearchActions) private var searchActions
@@ -26,7 +28,7 @@ struct EditMenuSkeletonCommands: Commands {
             Menu("Find") {
                 Button("Find…") { performFind() }
                     .keyboardShortcut("f")
-                    .disabled(registry.active == nil)
+                    .disabled(!supportsFind)
                 Button("Find Next") { performFindNext() }
                     .keyboardShortcut("g")
                     .disabled(!supportsNextPrevious)
@@ -58,7 +60,16 @@ struct EditMenuSkeletonCommands: Commands {
     private var supportsNextPrevious: Bool {
         switch registry.active {
         case .markdown: true
-        case .plainText, nil: false
+        case .plainText, .wysiwygCanvas, nil: false
+        }
+    }
+
+    /// Whether the currently-focused editor has any Find UI at all — `.wysiwygCanvas` doesn't yet
+    /// (#1225 Task 10), unlike `.markdown`/`.plainText`.
+    private var supportsFind: Bool {
+        switch registry.active {
+        case .markdown, .plainText: true
+        case .wysiwygCanvas, nil: false
         }
     }
 
@@ -66,28 +77,28 @@ struct EditMenuSkeletonCommands: Commands {
         switch registry.active {
         case .markdown(let box): box.value?.showFind()
         case .plainText(let isPresented): isPresented.wrappedValue = true
-        case nil: break
+        case .wysiwygCanvas, nil: break
         }
     }
 
     private func performFindNext() {
         switch registry.active {
         case .markdown(let box): box.value?.findNext()
-        case .plainText, nil: break
+        case .plainText, .wysiwygCanvas, nil: break
         }
     }
 
     private func performFindPrevious() {
         switch registry.active {
         case .markdown(let box): box.value?.findPrevious()
-        case .plainText, nil: break
+        case .plainText, .wysiwygCanvas, nil: break
         }
     }
 
     private func performFindReplace() {
         switch registry.active {
         case .markdown(let box): box.value?.showFind(withReplace: true)
-        case .plainText, nil: break
+        case .plainText, .wysiwygCanvas, nil: break
         }
     }
 }

@@ -24,6 +24,13 @@ struct PreviewView: NSViewRepresentable {
     let router: EditRouter
     let annotationProvider: PreviewAnnotationProvider?
 
+    /// The mounted WYSIWYG canvas controller (#1225), or `nil` when edit mode is off. When
+    /// non-nil, `makeNSView` registers a `WYSIWYGScriptHandler` wrapping it as a second
+    /// `WKScriptMessageHandler` alongside the overlay's — `WYSIWYGCanvasController` forwards to
+    /// its own transport, so no separate transport type is needed here. `PreviewModel.wysiwygCanvas`
+    /// is the source of truth; `SiteWindow.previewPane(for:)` passes it straight through.
+    var wysiwygTransport: (any WYSIWYGHostTransport)?
+
     /// Called with the `WKWebView` once it's created, so the owning `PreviewModel` can hold a weak
     /// reference and drive the View-menu preview commands (reload/history/zoom).
     /// Defaults to a no-op for callers (e.g. tests) that don't need it.
@@ -37,6 +44,13 @@ struct PreviewView: NSViewRepresentable {
     /// Defaults to a no-op for callers that don't track the web view.
     var onWebViewDismantled: (WKWebView) -> Void = { _ in }
 
+    /// DOM `clientX`/`clientY` (top-left origin) → AppKit view space (bottom-left origin, since
+    /// `WKWebView` is non-flipped) for `NSMenu.popUp(positioning:at:in:)`. A pure function so it's
+    /// testable without a real `WKWebView` (#1225 final-review fix wave, Finding 3).
+    static func convertContextMenuPoint(_ domPoint: CGPoint, viewHeight: CGFloat) -> CGPoint {
+        CGPoint(x: domPoint.x, y: viewHeight - domPoint.y)
+    }
+
     func makeNSView(context: Context) -> WKWebView {
         let onVisibleElements: AnglesiteScriptHandler.VisibleElementsHandler? = annotationProvider.map { provider in
             // `provider` is `@MainActor`, so the implicit hop happens at the `update(_:)` call.
@@ -47,8 +61,21 @@ struct PreviewView: NSViewRepresentable {
             { @Sendable elements in await provider.update(elements) }
         }
         let handler = AnglesiteScriptHandler(router: router, onVisibleElements: onVisibleElements)
-        let configuration = WebViewBridge.localDevConfiguration(handler: handler)
+        // `wysiwygTransport` is always a `WYSIWYGCanvasController` in production
+        // (`PreviewModel.wysiwygCanvas`'s concrete type); casting once here — rather than inside
+        // the handler closure on every message — is what lets `updateNSView` below compare "is
+        // this the same controller as last render" by plain reference identity.
+        let wysiwygController = wysiwygTransport as? WYSIWYGCanvasController
+        // `onContextMenu` needs the `WKWebView` to pop the menu up in (`NSMenu.popUp(positioning:at:in:)`),
+        // but the handler has to exist before the web view does — it's part of the configuration
+        // the web view is constructed from. Resolved the same way `onWebView`/`onWebViewDismantled`
+        // resolve their own "needs the view, doesn't exist yet" problem below: a weak capture of
+        // `context.coordinator`, whose `webView` is set immediately after construction.
+        let wysiwygHandler = wysiwygController.map { makeWYSIWYGHandler(for: $0, coordinator: context.coordinator) }
+        let configuration = WebViewBridge.localDevConfiguration(handler: handler, wysiwygHandler: wysiwygHandler)
         let webView = WKWebView(frame: .zero, configuration: configuration)
+        context.coordinator.webView = webView
+        context.coordinator.wysiwygController = wysiwygController
         WebViewBridge.applyPreviewDefaults(to: webView)
         if let annotationProvider {
             webView.appEntityUIElementProvider = { [weak annotationProvider] _, hitContext in
@@ -56,6 +83,12 @@ struct PreviewView: NSViewRepresentable {
                 return annotationProvider.uiElements(for: hitContext)
             }
         }
+        // The `WKNavigationDelegate` below is what actually mounts the JS engine once the page
+        // (and thus the `WKUserScript` that defines `window.__anglesiteWysiwygMount`) has really
+        // finished loading — see `Coordinator.webView(_:didFinish:)`'s doc comment (#1225
+        // final-review round 2, Finding B). Assigning it before `load(_:)` below means it's live
+        // for this very first navigation too, not just later ones.
+        webView.navigationDelegate = context.coordinator
         webView.load(URLRequest(url: url))
         context.coordinator.loadedURL = url
         // Stashed on the coordinator because `dismantleNSView` is static — it has no access to
@@ -65,8 +98,50 @@ struct PreviewView: NSViewRepresentable {
         return webView
     }
 
+    /// Wraps `controller` as the WYSIWYG `WKScriptMessageHandler` — shared by `makeNSView` (initial
+    /// registration) and `updateNSView` (registration on an edit-mode-off → on transition, #1225
+    /// final-review fix wave, Finding 6) so the two don't drift.
+    private func makeWYSIWYGHandler(for controller: WYSIWYGCanvasController, coordinator: Coordinator) -> WYSIWYGScriptHandler {
+        WYSIWYGScriptHandler(transport: controller) { [weak coordinator] blockId, point in
+            Task { @MainActor in
+                guard let webView = coordinator?.webView else { return }
+                let menu = WYSIWYGBlockContextMenu.build(for: blockId, controller: controller)
+                // `point` is the DOM `contextmenu` event's `clientX`/`clientY` (top-left origin);
+                // `WKWebView` is a non-flipped AppKit view (bottom-left origin), so popping the
+                // menu up at the raw DOM point mirrors it vertically — near the top of the page it
+                // appeared near the bottom of the view (#1225 final-review fix wave, Finding 3).
+                let converted = Self.convertContextMenuPoint(point, viewHeight: webView.bounds.height)
+                menu.popUp(positioning: nil, at: converted, in: webView)
+            }
+        }
+    }
+
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onDismantle = onWebViewDismantled
+
+        // `makeNSView` only ever registers the WYSIWYG handler / mounts the JS engine once, at
+        // construction — a `PreviewView` whose `wysiwygTransport` flips from nil to non-nil (Site ▸
+        // Edit Page toggled on against an already-built preview pane) or non-nil to nil (toggled
+        // off) re-renders through `updateNSView`, not `makeNSView`, since SwiftUI reuses the
+        // existing `WKWebView` rather than tearing it down. Without this block the handler/engine
+        // stayed permanently out of sync with `isEditModeEnabled` after the very first toggle
+        // (#1225 final-review fix wave, Finding 6 — the mirror-image gap to Finding 1's "never
+        // mounted at all"). Compared by reference identity via the coordinator's stashed
+        // controller, matching `Coordinator`'s other stored-state pattern (`loadedURL`).
+        let newController = wysiwygTransport as? WYSIWYGCanvasController
+        if newController !== context.coordinator.wysiwygController {
+            if let previous = context.coordinator.wysiwygController {
+                webView.configuration.userContentController.removeScriptMessageHandler(forName: WebViewBridge.wysiwygScriptMessageNamespace)
+                previous.unmountEngine()
+            }
+            context.coordinator.wysiwygController = newController
+            if let newController {
+                let handler = makeWYSIWYGHandler(for: newController, coordinator: context.coordinator)
+                webView.configuration.userContentController.add(handler, name: WebViewBridge.wysiwygScriptMessageNamespace)
+                newController.mountEngine()
+            }
+        }
+
         guard context.coordinator.loadedURL != url else { return }
         context.coordinator.loadedURL = url
         webView.load(URLRequest(url: url))
@@ -78,8 +153,116 @@ struct PreviewView: NSViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
-    final class Coordinator {
+    /// `@MainActor` + `Sendable`: every access happens on the main actor (SwiftUI calls
+    /// `makeNSView`/`updateNSView`/`dismantleNSView` there), so the class is safe to conform
+    /// directly rather than needing per-property isolation — same reasoning as
+    /// `WYSIWYGCanvasController`'s implicit `WYSIWYGHostTransport: Sendable` conformance. Needed
+    /// so `makeNSView`'s `onContextMenu` closure (a `@Sendable` parameter of `WYSIWYGScriptHandler`)
+    /// can weakly capture `webView` below without the compiler rejecting the capture.
+    ///
+    /// Subclasses `NSObject` (rather than a plain Swift class) because `WKNavigationDelegate` is
+    /// an `@objc` protocol — `WKWebView.navigationDelegate` requires its target to be an
+    /// `NSObject`. `webView.navigationDelegate` holds it weakly; SwiftUI's own `Context` is what
+    /// keeps this instance alive for the represented view's lifetime, same as every other
+    /// `NSViewRepresentable.Coordinator`.
+    @MainActor
+    final class Coordinator: NSObject, WKNavigationDelegate, Sendable {
         var loadedURL: URL?
         var onDismantle: ((WKWebView) -> Void)?
+        /// Set right after `WKWebView(frame:configuration:)` in `makeNSView`, so the
+        /// `WYSIWYGScriptHandler`'s `onContextMenu` closure — built *before* the web view exists,
+        /// since it's baked into the configuration the web view is constructed from — has
+        /// somewhere to find it once a context-menu message actually arrives.
+        weak var webView: WKWebView?
+        /// The controller last registered/mounted against `webView` — `updateNSView` diffs this
+        /// against the current `wysiwygTransport` (by reference identity) to detect an edit-mode
+        /// on/off transition (#1225 final-review fix wave, Finding 6). Strong: unlike `webView`,
+        /// nothing else on this side keeps the controller alive once edit mode is toggled off, and
+        /// `updateNSView` needs it after `wysiwygTransport` has already gone `nil` in order to call
+        /// `unmountEngine()`/`removeScriptMessageHandler(forName:)` on the right instance. Also
+        /// what `webView(_:didFinish:)` below reads to decide whether a finished navigation should
+        /// (re)mount the JS engine.
+        var wysiwygController: WYSIWYGCanvasController?
+
+        /// Mounts the JS engine once a navigation has actually finished — the single reliable
+        /// mount point (#1225 final-review round 2, Finding B). Every other `mountEngine()` call
+        /// site in this file/`SiteWindow.swift`/`PreviewModel.swift` fires synchronously right
+        /// after `webView.load(...)` is dispatched, before the page (and the `atDocumentEnd`
+        /// `WKUserScript` that defines `window.__anglesiteWysiwygMount`) has actually loaded — so
+        /// those calls were silent no-ops except in the one case where the page was *already*
+        /// fully loaded when the toggle happened (`PreviewModel.enterEditMode`'s own call,
+        /// `updateNSView`'s edit-mode-transition call). This delegate method is what makes the
+        /// *other* orderings work: the initial load (including when edit mode is already on
+        /// because this whole `PreviewView`/`WKWebView` was just rebuilt, e.g. a dev-server
+        /// restart mid-edit), and every later reload/navigation while edit mode stays on — a
+        /// route change (`updateNSView`'s own `webView.load(...)` path) or ⌘R
+        /// (`PreviewModel.reloadPreview()`) both silently killed the mounted JS engine before this
+        /// fix, since a real navigation discards all page-injected JS state; only the native side's
+        /// `isEditModeEnabled` kept reading "on".
+        ///
+        /// No-op when edit mode is currently off (`wysiwygController` nil) — same guard every
+        /// other `mountEngine()` call site uses. Safe against the double-mount this could
+        /// otherwise cause when a navigation-driven call races one of the toggle-transition call
+        /// sites above (e.g. the page finishes loading in the same beat the owner toggles edit
+        /// mode on): `mount.ts`'s `mount()` now disposes any already-mounted engine first, making
+        /// repeat calls idempotent rather than stacking two live engine instances on one page.
+        func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+            wysiwygController?.mountEngine()
+        }
+    }
+}
+
+/// Watches whether the WYSIWYG canvas (#1225) holds real AppKit keyboard focus, so
+/// `WYSIWYGCanvasController.hasKeyboardFocus` (Task 11) and `EditorFocusRegistry`'s
+/// `.wysiwygCanvas` case (added inert in Task 10 — `FormatCommands`/`EditMenuSkeletonCommands`
+/// already read it, nothing wrote it until now) reflect reality.
+///
+/// Reuses `SentinelView` (`MarkdownTextView.swift`) rather than re-deriving the same mechanism:
+/// `PreviewView` wraps a raw `WKWebView` directly as its `NSViewRepresentable.NSViewType` (Task 8
+/// mounted the canvas onto the existing preview pane, not a purpose-built SwiftUI-native host), so
+/// a plain `.focused($binding)` has nothing AppKit-focusable of SwiftUI's own to bind to — the
+/// same "raw AppKit view embedded via NSViewRepresentable" shape `SentinelView` was already built
+/// to solve for `NativeTextViewWrapper` (see that file's header comment for why `.focused` /
+/// documented `NSText` notifications were tried and dropped in favor of `NSWindow.firstResponder`
+/// KVO + geometry containment). Placed as a `.background` on `PreviewView` in
+/// `SiteWindow.previewPane(for:)` — sharing that exact frame is what makes the plain geometry
+/// containment check correct without needing a `webView` reference here at all.
+private struct WYSIWYGCanvasFocusSentinel: NSViewRepresentable {
+    let canvas: WYSIWYGCanvasController
+
+    func makeNSView(context: Context) -> SentinelView {
+        let view = SentinelView()
+        view.onFocusChange = { [weak canvas] focused in
+            guard let canvas else { return }
+            canvas.hasKeyboardFocus = focused
+            let token = ObjectIdentifier(canvas)
+            if focused {
+                EditorFocusRegistry.shared.activate(.wysiwygCanvas(Weak(canvas)), token: token)
+            } else {
+                EditorFocusRegistry.shared.resign(token: token)
+            }
+        }
+        return view
+    }
+
+    func updateNSView(_ nsView: SentinelView, context: Context) {}
+
+    static func dismantleNSView(_ nsView: SentinelView, coordinator: ()) {
+        nsView.prepareForRemoval()
+    }
+}
+
+/// `SiteWindow.previewPane(for:)`'s hook for mounting `WYSIWYGCanvasFocusSentinel` — kept here
+/// (rather than exposing the private type directly) so the sentinel's implementation stays a
+/// `PreviewView.swift`-local concern, mirroring `EditorFocusSentinel`'s privacy in
+/// `MarkdownTextView.swift`.
+extension View {
+    @ViewBuilder
+    func wysiwygCanvasFocusTracking(_ canvas: WYSIWYGCanvasController?) -> some View {
+        if let canvas {
+            background(WYSIWYGCanvasFocusSentinel(canvas: canvas))
+        } else {
+            self
+        }
     }
 }

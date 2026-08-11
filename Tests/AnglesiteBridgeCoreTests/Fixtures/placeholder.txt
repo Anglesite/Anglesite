@@ -1,0 +1,5 @@
+This file exists only so SwiftPM synthesizes `Bundle.module` for
+AnglesiteBridgeCoreTests — see the comment on the `resources:` entry
+for this target in Package.swift. AnglesiteWysiwygEngineBundleTests relies on
+Bundle.module *not* containing an "engine.js" resource under wysiwyg-engine/
+to exercise the "bundle absent" lookup path.

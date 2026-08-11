@@ -196,6 +196,12 @@ var packageTargets: [Target] = [
         name: "AnglesiteBridgeCoreTests",
         dependencies: ["AnglesiteBridgeCore", "AnglesiteCore"],
         path: "Tests/AnglesiteBridgeCoreTests",
+        // AnglesiteWysiwygEngineBundleTests exercises the "resource absent" path (no engine.js
+        // under wysiwyg-engine/ in the test bundle), but still needs SwiftPM to synthesize
+        // `Bundle.module` for this target — that accessor is only generated when the target
+        // has at least one real declared resource, so Fixtures/placeholder.txt exists purely
+        // to trigger it (Tests/AnglesiteBridgeCoreTests/Fixtures/placeholder.txt).
+        resources: [.copy("Fixtures")],
         swiftSettings: strictConcurrency,
         // Depends on AnglesiteCore, so the bundle needs the same #541 weak link as its siblings —
         // without it dyld can't load the bundle on an SDK/OS mangling-skewed Xcode 27 beta host.

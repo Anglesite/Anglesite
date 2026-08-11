@@ -48,6 +48,7 @@ fastlane/test_output
 # (Resources/plugin stays listed only to keep stale pre-#466 build output out of git.)
 Resources/plugin
 Resources/edit-overlay/
+Resources/wysiwyg-engine/
 node_modules/
 JS/wysiwyg-engine/e2e/.generated/
 JS/wysiwyg-engine/test-results/

@@ -128,12 +128,15 @@ final class SiteWindowModel {
     /// `@Environment(\.undoManager)` so applied edits register for Edit ▸ Undo (#527). Weak +
     /// `@ObservationIgnored`: the window owns it and it isn't render state. Forwarded on set
     /// (environment arrives/changes) and again in `loadAndStart` (chat is created after the
-    /// first set on cold open).
+    /// first set on cold open). Also forwarded to `preview.wysiwygCanvas`'s
+    /// `WYSIWYGUndoCoordinator` (#1225, Task 9) when a canvas is mounted — `nil` while edit mode
+    /// is off, same as the `chat` case above.
     @ObservationIgnored
     weak var windowUndoManager: UndoManager? {
         didSet {
             chat?.editUndoCoordinator.undoManager = windowUndoManager
             contentUndoCoordinator.undoManager = windowUndoManager
+            preview.wysiwygCanvas?.undoCoordinator.undoManager = windowUndoManager
         }
     }
     /// Bridges structural content operations — New / Duplicate / Delete / Rename — into the

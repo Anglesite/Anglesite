@@ -1054,12 +1054,36 @@ struct SiteWindow: View {
                 url: model.preview.displayURL ?? url,
                 router: model.preview.editRouter,
                 annotationProvider: model.annotationProvider,
-                onWebView: { [preview = model.preview] webView in preview.webView = webView },
+                wysiwygTransport: model.preview.wysiwygCanvas,
+                onWebView: { [preview = model.preview] webView in
+                    preview.webView = webView
+                    // #1225 Task 10: gives WYSIWYGCanvasController.applyFormat something to post
+                    // the Format menu's Strong/Emphasis/Add Link commands into once edit mode is on.
+                    preview.wysiwygCanvas?.webView = webView
+                    // No `mountEngine()` call here (unlike the final-review fix wave's Finding 1
+                    // fix): this closure fires synchronously right after `webView.load(...)` is
+                    // dispatched in `PreviewView.makeNSView` — before the page (and the
+                    // `WKUserScript` that defines `window.__anglesiteWysiwygMount`) has actually
+                    // finished loading, so a call here was *always* a silent no-op (JS's own `?.`
+                    // swallows it). `PreviewView`'s own `WKNavigationDelegate` now mounts reliably
+                    // once the page really finishes loading, covering both this initial-load
+                    // ordering and every later reload/navigation (#1225 final-review round 2,
+                    // Finding B) — see `PreviewView.Coordinator.webView(_:didFinish:)`.
+                },
                 // Explicit detach: ARC zeroing the model's weak `webView` doesn't fire `didSet`,
                 // so without this the Back/Forward menu enablement would freeze when the dev
                 // server restarts or fails (see PreviewModel.detachWebView).
                 onWebViewDismantled: { [preview = model.preview] webView in preview.detachWebView(webView) }
             )
+            .wysiwygCanvasFocusTracking(model.preview.wysiwygCanvas)
+            // #1225 Task 11: the canvas's own Delete target, reachable only while the sentinel
+            // above reports real keyboard focus on the canvas — bare Delete otherwise belongs to
+            // `SiteNavigatorView`'s `.onDeleteCommand` (menu-bar IA spec's "one focus-scoped
+            // command" rule; no second Commands-level Delete button).
+            .onDeleteCommand {
+                guard let canvas = model.preview.wysiwygCanvas else { return }
+                Task { await canvas.deleteSelectedBlock() }
+            }
         case .starting, .ready:
             // `.ready` reaches here only while `isShowingCompletionHold` is true (see the guarded
             // case above) — a brief window so the fully-filled phase progress strip is actually
@@ -1131,12 +1155,23 @@ struct SiteWindow: View {
             .background(Color(NSColor.windowBackgroundColor))
     }
 
-    /// Builds the Edit-menu Duplicate/Publish/Unpublish actions for the current Navigator
-    /// selection, or nil when there's no site or no selection. Each is individually nil when the
-    /// selected row doesn't support that verb (`canDuplicate`/`canPublish`/`canUnpublish`), which
-    /// is what disables the individual menu items rather than hiding the whole group. Delete has
-    /// no action built here (#989) — see `NavigatorSelectionActions`.
+    /// Builds the Edit-menu Duplicate/Publish/Unpublish actions for whichever selection currently
+    /// owns keyboard focus — the WYSIWYG canvas's block selection (#1225 Task 11) if it holds
+    /// real focus, otherwise the Navigator's row selection — or nil when neither applies. This is
+    /// the "one focus-scoped command" rule from the menu-bar IA spec: ⌘D Duplicate has exactly one
+    /// live target at a time, decided by which surface has focus, not two competing menu items.
+    /// Publish/Unpublish have no canvas equivalent, so the canvas branch always reports them nil;
+    /// each Navigator action is individually nil when the selected row doesn't support that verb
+    /// (`canDuplicate`/`canPublish`/`canUnpublish`), which is what disables the individual menu
+    /// items rather than hiding the whole group. Delete has no action built here (#989) — see
+    /// `NavigatorSelectionActions`; the canvas's own Delete is wired directly onto `PreviewView`
+    /// via `.onDeleteCommand` in `previewPane(for:)`, same reasoning.
     private func navigatorSelectionActions(for model: SiteWindowModel) -> NavigatorSelectionActions? {
+        if let canvas = model.preview.wysiwygCanvas, canvas.hasKeyboardFocus, canvas.selectedBlockId != nil {
+            return NavigatorSelectionActions(
+                duplicate: { Task { await canvas.duplicateSelectedBlock() } },
+                publish: nil, unpublish: nil)
+        }
         guard model.site != nil, let navigator = model.navigator, let id = navigator.selection else {
             return nil
         }

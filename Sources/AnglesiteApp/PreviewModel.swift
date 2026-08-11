@@ -84,6 +84,62 @@ final class PreviewModel {
     /// failure), `MCPApplyEditRouter` returns `.failed("MCP not running")` per its existing shape.
     private(set) var editRouter: EditRouter
 
+    /// The mounted WYSIWYG canvas controller (#1225), non-nil only while edit mode is active.
+    /// Reuses the existing `.preview` `WKWebView` rather than a dedicated pane: `PreviewView`
+    /// registers `WYSIWYGScriptHandler` against this controller (it forwards to
+    /// `WYSIWYGHostTransport` itself, see the `WYSIWYGCanvasController` conformance) whenever it's
+    /// non-nil. Constructed against a `StubWYSIWYGHostTransport` seeded with `enterEditMode`'s
+    /// `seedModel` — the real sidecar-backed transport is a follow-up once #1222 lands (design
+    /// doc §1).
+    private(set) var wysiwygCanvas: WYSIWYGCanvasController?
+
+    /// Whether the Site ▸ Edit Page toggle is currently on. Equivalent to `wysiwygCanvas != nil`,
+    /// exposed separately so callers don't have to spell out the nil check.
+    var isEditModeEnabled: Bool { wysiwygCanvas != nil }
+
+    /// Site ▸ Edit Page toggle (#1225). `seedModel` stands in for a real `get_page_model` fetch
+    /// (#1222) until the sidecar backend exists.
+    ///
+    /// Also mounts the JS engine (`WYSIWYGCanvasController.mountEngine()`) if this model's own
+    /// `webView` is already live — the ordering where the user toggles edit mode against an
+    /// already-`.ready`, already-loaded preview, which is the realistic path (the menu item that
+    /// drives this is disabled until `hasWebView` is true). The other ordering — edit mode already
+    /// on when the web view itself is (re)created, e.g. a dev-server restart — is covered by
+    /// `PreviewView`'s `onWebView` callback (`SiteWindow.previewPane(for:)`) and `updateNSView`
+    /// (Finding 6's teardown-symmetry fix) calling `mountEngine()` again once the new web view
+    /// exists.
+    ///
+    /// `undoManager` seeds the freshly-built canvas's `undoCoordinator.undoManager` (#1225
+    /// final-review round 2, Finding A). `PreviewModel` itself has no way to reach the window's
+    /// `UndoManager` — `SiteWindowModel.windowUndoManager`'s `didSet` fan-out only fires when the
+    /// environment value arrives/changes, which happens once, early (`SiteWindow`'s
+    /// `.onChange(of: undoManager, initial: true)`), well before the owner has toggled edit mode
+    /// on and this `wysiwygCanvas` exists to receive it. Without threading it through here, every
+    /// canvas built by this method would keep a permanently-nil `undoManager` and
+    /// `WYSIWYGUndoCoordinator.register(...)`'s `guard let undoManager else { return nil }` would
+    /// silently drop every canvas edit off the undo stack. The caller
+    /// (`PreviewNavigationCommands`'s Edit Page toggle) reads the current `SiteWindowModel
+    /// .windowUndoManager` at the moment it flips the toggle on, so a later off→on cycle picks up
+    /// whatever manager is current then too — not just the first entry.
+    func enterEditMode(seedModel: BlockModel, undoManager: UndoManager?) async {
+        let transport = StubWYSIWYGHostTransport(model: seedModel)
+        let canvas = WYSIWYGCanvasController(initialModel: seedModel, transport: transport)
+        canvas.undoCoordinator.undoManager = undoManager
+        wysiwygCanvas = canvas
+        if let webView {
+            canvas.webView = webView
+            canvas.mountEngine()
+        }
+    }
+
+    /// Site ▸ Edit Page toggle-off: unmounts the JS engine (best-effort — a no-op if the web view
+    /// has already gone away) and tears down the mounted canvas controller so `PreviewView` stops
+    /// registering the WYSIWYG ops handler on the next render.
+    func exitEditMode() {
+        wysiwygCanvas?.unmountEngine()
+        wysiwygCanvas = nil
+    }
+
     /// `contentGraph` is the app-lifetime `SiteContentGraph` (held by `AppDelegate`); it's threaded
     /// into the live runtime factory so opening this site populates the shared graph (A.8,
     /// #142). Tests can inject an explicit `runtime` and leave the graph `nil`.

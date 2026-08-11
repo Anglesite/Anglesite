@@ -15,13 +15,17 @@ struct NewContentActions {
     let newComponent: @MainActor () -> Void
 }
 
-/// Duplicate/Publish/Unpublish acting on the Navigator's current selection (#516, #798). Each
-/// action is `nil` when there is no selection, or the selection doesn't support that verb
-/// (`SiteNavigatorModel.canDuplicate`/`canPublish`/`canUnpublish`) — that's what lets the
-/// Edit-menu items enable/disable correctly without the menu needing to know Navigator internals.
-/// Delete has no field here (#989) — it's driven entirely by `SiteNavigatorView`'s
-/// `.onDeleteCommand`, which is also what AppKit's standard Edit ▸ Delete menu item invokes; a
-/// second Commands-level Delete button here would just re-create the duplicate-item bug.
+/// Duplicate/Publish/Unpublish acting on whichever selection currently owns keyboard focus — the
+/// Navigator's row selection, or (#1225 Task 11) the WYSIWYG canvas's block selection while the
+/// canvas holds focus. Each action is `nil` when there is no selection, or the selection doesn't
+/// support that verb (`SiteNavigatorModel.canDuplicate`/`canPublish`/`canUnpublish`; the canvas
+/// branch always reports `publish`/`unpublish` nil, having no equivalent) — that's what lets the
+/// Edit-menu items enable/disable correctly without the menu needing to know either surface's
+/// internals. Delete has no field here (#989) — it's driven entirely by `SiteNavigatorView`'s
+/// `.onDeleteCommand` / the canvas's own `.onDeleteCommand` (`SiteWindow.previewPane(for:)`),
+/// whichever is reachable through AppKit's responder chain, which is also what AppKit's standard
+/// Edit ▸ Delete menu item invokes; a second Commands-level Delete button here would just
+/// re-create the duplicate-item bug.
 struct NavigatorSelectionActions {
     let duplicate: (@MainActor () -> Void)?
     let publish: (@MainActor () -> Void)?
@@ -91,12 +95,14 @@ struct NewContentCommands: Commands {
     }
 }
 
-/// Edit ▸ Duplicate (⌘D) / Publish / Unpublish for the focused window's Navigator selection
-/// (#516, #798). Placed in the Edit menu next to Cut/Copy/Paste — the macOS convention for
-/// selection-scoped duplicate/destructive actions — rather than the File menu. Delete is
-/// deliberately not a Commands item here (#989): AppKit's standard Edit ▸ Delete already appears
-/// in this group and is wired to the same action via `SiteNavigatorView`'s `.onDeleteCommand`, so
-/// a second one just duplicated it with no distinguishing label.
+/// Edit ▸ Duplicate (⌘D) / Publish / Unpublish for the focused window's current selection — the
+/// Navigator's row selection, or (#1225 Task 11) the WYSIWYG canvas's block selection while the
+/// canvas holds keyboard focus (#516, #798). Placed in the Edit menu next to Cut/Copy/Paste — the
+/// macOS convention for selection-scoped duplicate/destructive actions — rather than the File
+/// menu. Delete is deliberately not a Commands item here (#989): AppKit's standard Edit ▸ Delete
+/// already appears in this group and is wired to the same action via `SiteNavigatorView`'s /
+/// the canvas's own `.onDeleteCommand`, so a second one just duplicated it with no distinguishing
+/// label.
 struct NavigatorEditCommands: Commands {
     @FocusedValue(\.navigatorSelectionActions) private var actions
 
