@@ -139,7 +139,13 @@ var packageTargets: [Target] = [
     ),
     .target(
         name: "AnglesiteIntents",
-        dependencies: ["AnglesiteCore"],
+        // `AnglesiteIOS` is unconditional despite the name: `UbiquityContainerResolving`,
+        // `UbiquitousPackageDiscovering`, and `NSMetadataQueryPackageDiscovery` are all
+        // platform-neutral and already build and test on the macOS host (see the unconditional
+        // `AnglesiteIOSTests` target below). Keeping the dependency gated to `.iOS` would force
+        // `SiteEntityUbiquityDiscovery`'s orchestration behind an `#if os(iOS)` gate that
+        // `swift test` can never reach (#1394).
+        dependencies: ["AnglesiteCore", "AnglesiteIOS"],
         path: "Sources/AnglesiteIntents",
         swiftSettings: strictConcurrency
     ),
@@ -305,7 +311,9 @@ packageTargets.append(
 packageTargets.append(
     .testTarget(
         name: "AnglesiteIntentsTests",
-        dependencies: ["AnglesiteIntents", "AnglesiteCore"],
+        // `AnglesiteIOS` for the `UbiquitousPackageDiscovering` fakes `SiteEntityUbiquityDiscovery`
+        // is tested against; see the note on `AnglesiteIntents`' own dependency on it.
+        dependencies: ["AnglesiteIntents", "AnglesiteCore", "AnglesiteSiteModel", "AnglesiteIOS"],
         path: "Tests/AnglesiteIntentsTests",
         swiftSettings: strictConcurrency,
         linkerSettings: weakLinkFoundationModels

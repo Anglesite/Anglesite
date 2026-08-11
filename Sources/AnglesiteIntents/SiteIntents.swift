@@ -23,7 +23,7 @@ public struct DeploySiteIntent: AppIntent {
     /// One-line explanation shown in the Shortcuts action gallery.
     public static let description = IntentDescription("Deploy a site to production with Anglesite.")
 
-    /// The site to deploy, resolved through ``SiteEntityQuery``.
+    /// The site to deploy, resolved through ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     @Dependency private var ops: any SiteOperationsService
 
@@ -89,7 +89,7 @@ public struct BackupSiteIntent: AppIntent {
     /// One-line explanation shown in the Shortcuts action gallery.
     public static let description = IntentDescription("Commit and push a site backup with Anglesite.")
 
-    /// The site to back up, resolved through ``SiteEntityQuery``.
+    /// The site to back up, resolved through ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     @Dependency private var ops: any SiteOperationsService
 
@@ -141,7 +141,7 @@ public struct AuditSiteIntent: AppIntent {
     /// One-line explanation shown in the Shortcuts action gallery.
     public static let description = IntentDescription("Run an Anglesite audit and report findings.")
 
-    /// The site to check, resolved through ``SiteEntityQuery``.
+    /// The site to check, resolved through ``SiteEntity``'s `defaultQuery`.
     @Parameter(title: "Site") public var site: SiteEntity
     @Dependency private var ops: any SiteOperationsService
 
