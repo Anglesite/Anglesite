@@ -198,3 +198,28 @@ identity — see the Smoke Matrix above for full per-row evidence. Summary:
 #81 stays open on the strength of case 8 (tracked at
 [#1066](https://github.com/Anglesite/Anglesite/issues/1066)) and the
 still-unresolved image-drop row.
+
+### Case 8 root-cause fix landed, not yet re-verified in-guest (2026-08-10)
+
+[#1066](https://github.com/Anglesite/Anglesite/issues/1066)'s root cause (guest
+`commit-tree` calls had no git identity, so `recordEdit` silently returned
+`undefined` and the app's persistence hook never fired) is fixed upstream:
+`anglesite-skills` [#429](https://github.com/Anglesite/anglesite-skills/pull/429)
+adds `server/git-identity.mjs`, passing explicit `GIT_AUTHOR_*`/`GIT_COMMITTER_*`
+env into every `commit-tree` call. Released in `anglesite-skills` v1.8.0; the
+app's CI pin was bumped to consume it in
+[#1070](https://github.com/Anglesite/Anglesite/pull/1070) (merged 2026-07-28).
+
+Verified from a non-GUI session against the sibling checkout at v1.9.0:
+`AppliesEditEndToEndTests` passes, and `recordEdit` was exercised directly
+against a repo with no git identity configured anywhere (fresh `$HOME`, no
+global or repo-local config) — it now returns a real commit SHA. However, a
+negative control (calling `commit-tree` with no identity env at all, in the
+same identity-less setup) *also* succeeded on macOS — its git falls back to a
+guessed identity in a way the original bug report says the Linux container
+guest's `node:22-bookworm-slim` base image does not (unresolvable hostname, so
+git refuses to guess an email). So this only confirms the fix is real and
+correctly wired, not a true before/after inside the failure environment. **Case
+8 still needs an actual re-run inside the real container guest** (signed app,
+or `scripts/run-container-probe.sh`) before #81 can mark it passing — a Swift
+test or host-level script can't substitute for that.
