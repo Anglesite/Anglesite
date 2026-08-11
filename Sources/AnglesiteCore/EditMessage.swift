@@ -27,6 +27,10 @@ public struct EditMessage: Sendable, Equatable {
         public static let replaceText = "replace-text"
         /// `"replace-image-src"` — overlay image-drop replacement.
         public static let replaceImageSrc = "replace-image-src"
+        /// `"insert-image"` — overlay drop-to-insert / Insert ▸ Image: writes a brand-new
+        /// optimized asset and inserts a new `<img>` into the page, no existing image required.
+        /// No `selector` — always targets the page's content root (server-resolved).
+        public static let insertImage = "insert-image"
         /// `"replace-attr"` — generic attribute set (e.g. `href`, `alt`).
         public static let replaceAttr = "replace-attr"
         /// `"apply-instruction"` — natural-language edit forwarded to the plugin for
