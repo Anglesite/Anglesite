@@ -12,7 +12,7 @@ struct WYSIWYGCanvasControllerTests {
         let transport = StubWYSIWYGHostTransport(model: initial)
         let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
         var reported: (op: Op, inverse: Op, model: BlockModel)?
-        controller.onOpApplied = { op, inverse, model in reported = (op, inverse, model) }
+        controller.addOpAppliedListener { op, inverse, model in reported = (op, inverse, model) }
 
         let op = Op.insertBlock(parentId: rootParentID, slot: "main", index: 0, newId: "b1", block: BlockNodeContent(kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0]))
         let result = await controller.submit(op)
@@ -30,7 +30,7 @@ struct WYSIWYGCanvasControllerTests {
         let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
         controller.forceTargetVersion = "stale" // test-only seam, see Step 3
         var applied = false
-        controller.onOpApplied = { _, _, _ in applied = true }
+        controller.addOpAppliedListener { _, _, _ in applied = true }
 
         let op = Op.setDesignToken(tokenName: "t", value: "a", previousValue: "b")
         let result = await controller.submit(op)
@@ -110,7 +110,7 @@ struct WYSIWYGCanvasControllerTests {
 
         // A correctly-versioned envelope still applies and fires onOpApplied with the real op.
         var reported: (op: Op, inverse: Op)?
-        controller.onOpApplied = { op, inverse, _ in reported = (op, inverse) }
+        controller.addOpAppliedListener { op, inverse, _ in reported = (op, inverse) }
         let freshEnvelope = OpEnvelope(id: "req-2", targetVersion: controller.model.version, op: staleOp)
         let freshResult = await controller.sendOp(freshEnvelope)
 

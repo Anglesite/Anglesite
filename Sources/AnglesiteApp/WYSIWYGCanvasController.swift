@@ -51,10 +51,19 @@ final class WYSIWYGCanvasController {
         }
     }
 
-    /// Fires after every successfully applied op, with its inverse — set at `init` time to feed
-    /// `undoCoordinator`. Still overridable by tests/other callers that need their own hook,
-    /// same seam as before Task 9.
-    var onOpApplied: ((Op, Op, BlockModel) -> Void)?
+    /// Fires after every successfully applied op, with its inverse. Multiple listeners can coexist
+    /// — `undoCoordinator`'s registration (added at `init`) and `QualityGateRunner`'s re-analysis
+    /// trigger (added by `PreviewModel.enterEditMode`, Task 10) both need this without either
+    /// silently overwriting the other, the failure mode a single-closure property would have.
+    private var opAppliedListeners: [(Op, Op, BlockModel) -> Void] = []
+
+    func addOpAppliedListener(_ listener: @escaping (Op, Op, BlockModel) -> Void) {
+        opAppliedListeners.append(listener)
+    }
+
+    private func fireOpApplied(_ op: Op, _ inverse: Op, _ model: BlockModel) {
+        for listener in opAppliedListeners { listener(op, inverse, model) }
+    }
 
     /// Test-only seam: overrides the `targetVersion` a submitted envelope carries, so a test can
     /// force a version-mismatch rejection without needing two controllers racing a real one.
@@ -75,7 +84,7 @@ final class WYSIWYGCanvasController {
     init(initialModel: BlockModel, transport: any WYSIWYGHostTransport) {
         self.model = initialModel
         self.transport = transport
-        onOpApplied = { [weak self] op, inverse, _ in
+        addOpAppliedListener { [weak self] op, inverse, _ in
             self?.undoCoordinator.registerApplied(op: op, inverse: inverse)
         }
     }
@@ -84,7 +93,7 @@ final class WYSIWYGCanvasController {
     func submit(_ op: Op) async -> OpResult {
         let result = await apply(op)
         if case .applied(let newModel) = result {
-            onOpApplied?(op, WYSIWYGOpInverter.invert(op), newModel)
+            fireOpApplied(op, WYSIWYGOpInverter.invert(op), newModel)
         }
         return result
     }
@@ -279,7 +288,7 @@ extension WYSIWYGCanvasController: WYSIWYGHostTransport {
     func sendOp(_ envelope: OpEnvelope) async -> OpResult {
         let result = await sendAndApply(envelope)
         if case .applied(let newModel) = result {
-            onOpApplied?(envelope.op, WYSIWYGOpInverter.invert(envelope.op), newModel)
+            fireOpApplied(envelope.op, WYSIWYGOpInverter.invert(envelope.op), newModel)
         }
         return result
     }
