@@ -6,8 +6,8 @@ import Foundation
 import OSLog
 #endif
 
-/// Detects which app-owned `scripts/` files a site needs refreshed, and which have been
-/// customized in a way the app can't silently resolve (design doc, #1053). Unlike
+/// Detects which app-owned files (`scripts/`, `src/lib/`) a site needs refreshed, and which have
+/// been customized in a way the app can't silently resolve (design doc, #1053). Unlike
 /// `DependencySyncChecker`, this type performs its own `Config/`-only baseline bookkeeping
 /// (backfilling a missing entry, initializing a first-encounter baseline) as it goes — see the
 /// design doc's "Note on checker purity." It never writes anything under `Source/`; only
@@ -26,7 +26,7 @@ public enum TemplateScriptsSyncChecker {
         #endif
     }
 
-    /// Compares every app-owned template `scripts/` file against the site's copy and the
+    /// Compares every app-owned template file against the site's copy and the
     /// recorded baseline, classifying each as silently appliable (missing, or unmodified-but-
     /// stale) vs. a divergence needing the owner (customized *and* the template moved on).
     /// Side effects are `Config/`-only: matching or first-encounter files get their baseline
