@@ -26,6 +26,18 @@ final class Weak<T: AnyObject> {
 /// that view in favor of a bare SwiftUI `TextEditor`, and this case followed it once the Source
 /// pane got the same `.findNavigator` treatment as the plain-text editor rather than an
 /// AppKit-bridged one.
+///
+/// `.plainText`'s payload (`Binding<Bool>`) has no identity of its own, so call sites token
+/// `activate`/`resign` by `ObjectIdentifier` of the owning `FileEditorModel` rather than by the
+/// case's associated value. Earlier revisions tokened by `FileRef.id` (the file's absolute path)
+/// instead — that collided when the same file was focused from two different windows, since both
+/// windows' `activate()` calls would carry the identical path and the guard below would treat the
+/// second as a redundant no-op rather than a different editor taking real focus (#1292). Filing
+/// the issue confirmed the app's `WindowGroup(for:)` dedup (`SiteWindow.swift`) already makes that
+/// specific scenario unreachable through today's UI, but `FileEditorModel` is created fresh per
+/// window per open file (`SiteWindowModel.openFile`) regardless, so tokening by its
+/// `ObjectIdentifier` is the correct fix on its own terms — the registry no longer depends on the
+/// window layer's dedup to stay correct.
 @MainActor @Observable
 final class EditorFocusRegistry {
     static let shared = EditorFocusRegistry()

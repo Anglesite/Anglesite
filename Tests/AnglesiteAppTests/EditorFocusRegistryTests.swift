@@ -55,6 +55,34 @@ struct EditorFocusRegistryTests {
         #expect(isPresented == true)
     }
 
+    @Test("plainText activation from a different owning FileEditorModel always takes over (#1292)")
+    func plainTextDisambiguatesByOwnerIdentity() {
+        let registry = EditorFocusRegistry()
+        // Stand-ins for two windows' own `FileEditorModel` instances for the *same* open file —
+        // `MainPaneEditorView`/`ComponentEditorView` token by `ObjectIdentifier(model)`, not by
+        // `FileRef.id`, specifically so that two distinct instances (as two windows would each
+        // own for an identical path) never compare equal here. Before the fix, both call sites
+        // tokened by the shared file path, so the second `activate` below would have compared
+        // equal to the first and been silently dropped.
+        let owners = [NSObject(), NSObject()]
+
+        var presentedA = false
+        let bindingA = Binding(get: { presentedA }, set: { presentedA = $0 })
+        registry.activate(.plainText(isPresented: bindingA), token: ObjectIdentifier(owners[0]))
+
+        var presentedB = false
+        let bindingB = Binding(get: { presentedB }, set: { presentedB = $0 })
+        registry.activate(.plainText(isPresented: bindingB), token: ObjectIdentifier(owners[1]))
+
+        guard case .plainText(let presented) = registry.active else {
+            Issue.record("expected the second window's .plainText activation to be active")
+            return
+        }
+        presented.wrappedValue = true
+        #expect(presentedB == true)
+        #expect(presentedA == false)
+    }
+
     @Test("a deallocated weak reference reads as nil without crashing")
     func weakBoxReflectsDeallocation() {
         var controller: MarkdownEditorController? = MarkdownEditorController()
