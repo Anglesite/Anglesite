@@ -183,6 +183,7 @@ public struct CommunityMembershipClient: Sendable {
         request.setValue("application/activity+json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(publishToken)", forHTTPHeaderField: "Authorization")
         request.httpBody = try JSONSerialization.data(withJSONObject: activity)
+        request.timeoutInterval = ActorProfileFetcher.timeout
         return try await send(request)
     }
 

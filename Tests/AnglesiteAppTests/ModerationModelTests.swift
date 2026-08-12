@@ -206,6 +206,28 @@ struct ModerationModelTests {
         #expect(model.errorMessage == nil)
     }
 
+    /// Only a 404 is the expected "route not yet released" case (see the test above). Any other
+    /// failure — an expired/revoked publish token, a genuinely broken deploy — must surface via
+    /// `errorMessage` like `ban(_:)`/`removePost(_:)` do, rather than swallowing it the same way
+    /// as the 404 case: silently hiding a real regression on this endpoint would leave the owner
+    /// with no signal that requests might be piling up unseen.
+    @Test("a non-404 failure from follow_requests surfaces via errorMessage")
+    func reloadSurfacesNon404FollowRequestsFailure() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            let http = HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!
+            return (Data("server error".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+
+        #expect(model.pendingFollowers.isEmpty)
+        #expect(model.errorMessage != nil)
+    }
+
     @Test("approving a follower POSTs Accept and drops them from the pending list")
     func approveAcceptsAndRemovesFromPendingList() async throws {
         let (config, source) = try Self.makeSiteDirectories()

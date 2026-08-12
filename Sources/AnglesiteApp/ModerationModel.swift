@@ -81,25 +81,36 @@ final class ModerationModel {
             CommunityMember.self, from: sourceDirectory.appendingPathComponent("data/community-members"))
         async let loadedPosts = Self.decodeAll(
             AnnouncedPost.self, from: sourceDirectory.appendingPathComponent("data/community-posts"))
+        async let loadedPending = loadPendingFollowers()
         moderators = settings.moderators ?? []
         members = await loadedMembers
         posts = await loadedPosts
-        pendingFollowers = await loadPendingFollowers()
+        pendingFollowers = await loadedPending
     }
 
     /// Fetches pending join requests from this site's own Worker
-    /// (`CommunityMembershipClient.listFollowRequests()`). Fails silently to an empty list — same
-    /// "a bad read must never make the pane unusable" philosophy ``decodeAll(_:from:)`` follows for
-    /// member/post snapshots — because the underlying `GET <actor>/follow_requests` route
-    /// (`davidwkeith/workers` PR #488) postdates the latest tagged `@dwk/workers` release as of
-    /// this writing: a deployed community's Worker will 404 until it redeploys against a newer
-    /// one, and that expected 404 must never pop a blocking alert on every pane open. No-ops
+    /// (`CommunityMembershipClient.listFollowRequests()`). A 404 fails silently to an empty list
+    /// — same "a bad read must never make the pane unusable" philosophy ``decodeAll(_:from:)``
+    /// follows for member/post snapshots — because the underlying `GET <actor>/follow_requests`
+    /// route (`davidwkeith/workers` PR #488) postdates the latest tagged `@dwk/workers` release
+    /// as of this writing: a deployed community's Worker will 404 until it redeploys against a
+    /// newer one, and that expected 404 must never pop a blocking alert on every pane open. Any
+    /// other failure (an expired/revoked `publishToken`, a genuinely broken deploy) surfaces via
+    /// `errorMessage`, same as ``ban(_:)``/``removePost(_:)`` — swallowing *every* failure would
+    /// make a real regression on this endpoint invisible to the owner indefinitely. No-ops
     /// (returns `[]`) until `ownActorURL`/`publishToken` are both available, same guard
     /// ``ban(_:)``/``removePost(_:)`` use.
     private func loadPendingFollowers() async -> [PendingFollower] {
         guard let ownActorURL, let publishToken else { return [] }
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
-        return (try? await client.listFollowRequests()) ?? []
+        do {
+            return try await client.listFollowRequests()
+        } catch CommunityMembershipError.requestFailed(status: 404, body: _) {
+            return []
+        } catch {
+            errorMessage = "Couldn't load pending join requests: \(error.localizedDescription)"
+            return []
+        }
     }
 
     /// Reads every `.json` file in `directory` and decodes it as `T`, skipping (not throwing on)

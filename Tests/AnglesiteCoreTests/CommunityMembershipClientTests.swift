@@ -13,6 +13,7 @@ struct CommunityMembershipClientTests {
         private(set) var requestedURLs: [URL] = []
         private(set) var requestedHeaders: [[String: String]] = []
         private(set) var requestedBodies: [[String: Any]] = []
+        private(set) var requestedTimeouts: [TimeInterval] = []
 
         init(status: Int = 202, body: String = "{}") {
             self.status = status
@@ -22,6 +23,7 @@ struct CommunityMembershipClientTests {
         private func respond(to request: URLRequest) throws -> (Data, HTTPURLResponse) {
             requestedURLs.append(request.url!)
             requestedHeaders.append(request.allHTTPHeaderFields ?? [:])
+            requestedTimeouts.append(request.timeoutInterval)
             if let bodyData = request.httpBody,
                let json = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any] {
                 requestedBodies.append(json)
@@ -142,6 +144,7 @@ struct CommunityMembershipClientTests {
         #expect(body?["actor"] as? String == "https://example.com/users/site")
         let headers = await fake.requestedHeaders.first
         #expect(headers?["Authorization"] == "Bearer secret-token")
+        #expect(await fake.requestedTimeouts.first == ActorProfileFetcher.timeout)
     }
 
     @Test("acceptFollow maps a non-2xx status to requestFailed")
@@ -166,6 +169,7 @@ struct CommunityMembershipClientTests {
         #expect(await fake.requestedURLs.first?.absoluteString == "https://example.com/users/site/follow_requests")
         let headers = await fake.requestedHeaders.first
         #expect(headers?["Authorization"] == "Bearer secret-token")
+        #expect(await fake.requestedTimeouts.first == ActorProfileFetcher.timeout)
     }
 
     @Test("listFollowRequests returns an empty list when there are none")
