@@ -68,6 +68,20 @@ struct MCPApplyEditRouterTests {
         #expect(reply.message != nil)
     }
 
+    @Test("unsupportedOp maps to a clear message and machine-readable reason, not the raw error dump")
+    func unsupportedOpMapsToClearMessage() async {
+        // #1415: a stale vendored sidecar's tools/list schema doesn't list this op. The router
+        // must not fall through to its generic `"\(error)"` catch, which would surface the raw
+        // `unsupportedOp(op: "insert-image")` Swift enum dump as the toast text.
+        let recorder = ToolCallRecorder(result: .failure(MCPClient.MCPError.unsupportedOp(op: "insert-image")))
+        let router = MCPApplyEditRouter(toolCaller: { try await recorder.call(name: $0, arguments: $1) })
+        let reply = await router.apply(sampleMessage)
+        #expect(reply.status == .failed)
+        #expect(reply.reason == "unsupported-op")
+        #expect(reply.message?.contains("insert-image") == true)
+        #expect(reply.message?.contains("unsupportedOp") == false)
+    }
+
     // MARK: structured reply parse
 
     @Test("Successful reply with structured body exposes structured fields") func successfulReplyWithStructuredBodyExposesStructuredFields() async {

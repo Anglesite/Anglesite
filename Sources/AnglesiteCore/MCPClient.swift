@@ -123,6 +123,15 @@ public actor MCPClient {
         /// image vendored from a sidecar checkout older than v1.9.0 (#1277). `detail` carries the
         /// server's own error message for diagnostics; `send(_:)` also logs it to `LogCenter`.
         case staleSidecarProtocol(detail: String)
+        /// `callTool(name:arguments:)` refused to send an `apply_edit` call because `op` isn't in
+        /// the set the connected sidecar's `tools/list` advertises for that tool (`apply_edit`'s
+        /// JSON-Schema `inputSchema.properties.op.enum` — see `cachedApplyEditOps()`). The
+        /// sibling failure mode to ``staleSidecarProtocol(detail:)``: same root cause (a vendored
+        /// container image older than a paired app/sidecar PR), but a per-op *schema* mismatch
+        /// rather than a transport-*protocol-version* one, so it surfaces on one specific edit
+        /// instead of at connect time — see #1415, where a stale image predating sidecar PR #439
+        /// made every `insert-image` call fail as an opaque zod "Invalid params" RPC error.
+        case unsupportedOp(op: String)
     }
 
     /// One tool advertised by the server's `tools/list` response.
@@ -177,6 +186,11 @@ public actor MCPClient {
 
     private var nextRequestID: Int = 1
     private var pending: [Int: CheckedContinuation<JSONValue, Error>] = [:]
+
+    /// Cache for `cachedApplyEditOps()` — the `apply_edit` tool's advertised `op` enum, fetched
+    /// at most once per connection and cleared on `teardown()` so a reconnect (possibly to a
+    /// different container image) re-fetches rather than trusting a stale set.
+    private var applyEditOpsCache: Set<String>?
     private var started: Bool = false
 
     /// The MCP protocol revision this client speaks — replayed in every request's `_meta`
@@ -325,6 +339,30 @@ public actor MCPClient {
         }
     }
 
+    /// Lazily fetches and caches the connected sidecar's advertised `apply_edit` op set, read
+    /// straight out of `tools/list`'s standard JSON-Schema `inputSchema` — no bespoke capability
+    /// protocol needed, since the MCP tool catalog already carries this (zod's `editOps` enum,
+    /// converted to `{"properties": {"op": {"enum": [...]}}}` server-side). Returns `nil` — meaning
+    /// "unknown, don't gate on this" — when the server has no `apply_edit` tool, its schema
+    /// doesn't shape up as expected (e.g. a very old sidecar predating this check), or the fetch
+    /// itself fails; callers must treat `nil` as "fail open," not "no ops supported."
+    private func cachedApplyEditOps() async -> Set<String>? {
+        if let applyEditOpsCache { return applyEditOpsCache }
+        guard let tools = try? await listTools(),
+              let tool = tools.first(where: { $0.name == "apply_edit" }),
+              case .object(let schema)? = tool.inputSchema,
+              case .object(let properties)? = schema["properties"],
+              case .object(let opSchema)? = properties["op"],
+              case .array(let values)? = opSchema["enum"]
+        else { return nil }
+        let ops = Set(values.compactMap { value -> String? in
+            if case .string(let s) = value { return s }
+            return nil
+        })
+        applyEditOpsCache = ops
+        return ops
+    }
+
     /// Invokes a server tool and normalizes its result. Tool-level failure comes back as
     /// ``ToolCallResult/isError``, not a throw — only client/transport-layer problems throw,
     /// including ``MCPError/timeout`` after 30 seconds (deliberately longer than the other
@@ -334,6 +372,11 @@ public actor MCPClient {
     public func callTool(name: String, arguments: JSONValue = .object([:])) async throws -> ToolCallResult {
         guard started else { throw MCPError.notInitialized }
         try Task.checkCancellation()   // pre-call guard: never send for an already-cancelled task
+        if name == "apply_edit", case .object(let args) = arguments, case .string(let op)? = args["op"] {
+            if let supportedOps = await cachedApplyEditOps(), !supportedOps.contains(op) {
+                throw MCPError.unsupportedOp(op: op)
+            }
+        }
         let params: JSONValue = .object([
             "name": .string(name),
             "arguments": arguments,
@@ -508,6 +551,7 @@ public actor MCPClient {
         if let transport { await transport.close() }
         transport = nil
         started = false
+        applyEditOpsCache = nil
         for (_, cont) in pending { cont.resume(throwing: MCPError.notInitialized) }
         pending.removeAll()
     }
