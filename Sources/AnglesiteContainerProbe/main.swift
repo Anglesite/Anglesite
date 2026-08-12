@@ -45,6 +45,11 @@ private struct PauseResumeProbeTimeout: Error {}
 //           `recordEdit` silently returning `undefined` on a missing git identity) and that the
 //           host `Source/` file actually changed. The #81 smoke matrix's "case 8" persistence
 //           gate, runnable without a GUI or a literal human hand.
+//   insert-image — the same shape as apply-edit, for a real `insert-image` drop instead of a
+//           text edit. Asserts the reply's `commit` is non-nil AND that BOTH the host `.astro`
+//           patch and the host `public/images/` asset it references actually landed — the #1422
+//           regression, where the sidecar's `onApplied` hook silently dropped the optimized
+//           image bytes from the persisted commit even when the source patch made it through.
 
 @main
 struct AnglesiteContainerProbe {
@@ -52,7 +57,7 @@ struct AnglesiteContainerProbe {
         let args = CommandLine.arguments.dropFirst()
         guard let subcommand = args.first else {
             FileHandle.standardError.write(
-                Data("usage: anglesite-container-probe <echo|boot|workers-dev|worker-toggle|pause-resume|apply-edit>\n".utf8))
+                Data("usage: anglesite-container-probe <echo|boot|workers-dev|worker-toggle|pause-resume|apply-edit|insert-image>\n".utf8))
             exit(2)
         }
 
@@ -70,9 +75,11 @@ struct AnglesiteContainerProbe {
             exitCode = await runPauseResume()
         case "apply-edit":
             exitCode = await runApplyEdit()
+        case "insert-image":
+            exitCode = await runInsertImage()
         default:
             FileHandle.standardError.write(
-                Data("unknown subcommand '\(subcommand)' (expected echo|boot|workers-dev|worker-toggle|pause-resume|apply-edit)\n".utf8))
+                Data("unknown subcommand '\(subcommand)' (expected echo|boot|workers-dev|worker-toggle|pause-resume|apply-edit|insert-image)\n".utf8))
             exitCode = 2
         }
         exit(exitCode)
@@ -626,6 +633,139 @@ struct AnglesiteContainerProbe {
         await runtime.stop()
         print("APPLY-EDIT: PASS (boot: \(bootElapsed), commit: \(commit), host Source/ updated)")
         return 0
+    }
+
+    // MARK: - insert-image
+
+    /// Extends `runApplyEdit`'s case-8 persistence gate to `insert-image` — the #1422 regression.
+    /// A "successful" image-drop reply (non-nil `commit`, host `.astro` patched with a new
+    /// `<img src="...">`) previously still left the host missing the `public/images/` asset that
+    /// `src` references: the sidecar's `onApplied` hook was called with only `{file, range}` for
+    /// image ops, silently dropping the optimized WebP bytes `processImageDrop` wrote in the
+    /// guest from the commit `persistEdit` copies to host. Asserts, in order:
+    ///   1. same as `runApplyEdit` — the reply is `.applied` with a non-nil `commit`;
+    ///   2. the host `.astro` file actually contains a new `<img>`;
+    ///   3. NEW — the host `public/images/...` asset that `<img>`'s `src` points at actually
+    ///      exists. This is the assertion `runApplyEdit` has no equivalent of, and the reason
+    ///      this gate exists as a distinct subcommand rather than one more `runApplyEdit` case.
+    ///
+    /// This gate can only PASS once the sidecar-side fix (Anglesite/anglesite-skills#441) is
+    /// tagged and vendored into this app's container image — until then it documents the exact
+    /// failure this issue reports.
+    private static func runInsertImage() async -> Int32 {
+        let siteID = "insert-image-probe"
+
+        let repo: URL
+        do {
+            repo = try makeThrowawayAstroRepo()
+        } catch {
+            print("INSERT-IMAGE: FAIL — could not create throwaway Astro repo: \(error)")
+            return 1
+        }
+        defer { try? FileManager.default.removeItem(at: repo) }
+
+        let runtime = LocalContainerSiteRuntime(
+            ref: "HEAD",
+            control: ContainerizationControl(),
+            mcpClient: MCPClient(supervisor: .shared))
+
+        let clock = ContinuousClock()
+        let bootStart = clock.now
+        await runtime.start(siteID: siteID, siteDirectory: repo)
+        guard case .ready = await runtime.state else {
+            print("INSERT-IMAGE: FAIL — expected .ready after boot, got \(await runtime.state)")
+            await runtime.stop()
+            return 1
+        }
+        let bootElapsed = clock.now - bootStart
+
+        let pagePath = repo.appendingPathComponent("src/pages/index.astro")
+
+        // Mirrors `PreviewModel.editPersister(for:)` exactly — same wiring `runApplyEdit` uses.
+        let router = MCPApplyEditRouter(
+            mcpClient: { await runtime.mcpClient },
+            persistEdit: { reply in
+                guard reply.commit != nil else { return }
+                try await runtime.persistEdit(commit: reply.commit)
+            }
+        )
+
+        // A real, decodable 1x1 transparent PNG — processImageDrop's `sharp()` call needs bytes
+        // it can actually parse; this gate doesn't care about pixel content or dimensions.
+        let onePixelPNGBase64 =
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII="
+        let dataURL = InsertImageEditBuilder.dataURL(
+            bytes: Data(base64Encoded: onePixelPNGBase64)!,
+            mimeType: "image/png")
+
+        let message = InsertImageEditBuilder.message(
+            id: "insert-image-probe-1",
+            path: "/",
+            filename: "probe.png",
+            mimeType: "image/png",
+            dataURL: dataURL)
+
+        let reply = await router.apply(message)
+
+        guard reply.status == .applied else {
+            print("INSERT-IMAGE: FAIL — apply_edit did not succeed: status=\(reply.status) message=\(reply.message ?? "nil")")
+            await runtime.stop()
+            return 1
+        }
+
+        guard let commit = reply.commit, !commit.isEmpty else {
+            print(
+                "INSERT-IMAGE: FAIL — apply_edit applied but returned no commit. This is "
+                + "Anglesite#1422's FIRST defect (unconfirmed root cause) reproduced for "
+                + "insert-image, the same #718/#1066 shape `runApplyEdit` guards for replace-text: "
+                + "the in-guest recordEdit silently failed, so production's editPersister never "
+                + "even calls persistEdit and the write never reaches host Source/.")
+            await runtime.stop()
+            return 1
+        }
+
+        guard let after = try? String(contentsOf: pagePath, encoding: .utf8), after.contains("<img") else {
+            print(
+                "INSERT-IMAGE: FAIL — apply_edit reported commit \(commit) but host "
+                + "\(pagePath.path) has no <img>:\n\((try? String(contentsOf: pagePath, encoding: .utf8)) ?? "<unreadable>")")
+            await runtime.stop()
+            return 1
+        }
+
+        guard let src = extractFirstImgSrc(from: after) else {
+            print("INSERT-IMAGE: FAIL — could not find a src=\"...\" attribute on the patched <img>:\n\(after)")
+            await runtime.stop()
+            return 1
+        }
+
+        // `src` is page-root-relative (e.g. "/images/probe.webp"); Astro serves it from `public/`.
+        let assetPath = repo.appendingPathComponent("public\(src)")
+        guard FileManager.default.fileExists(atPath: assetPath.path) else {
+            print(
+                "INSERT-IMAGE: FAIL — host \(pagePath.lastPathComponent) references \(src) but "
+                + "host \(assetPath.path) does not exist. This IS Anglesite#1422's SECOND defect: "
+                + "the optimized image bytes processImageDrop wrote in the guest never made it "
+                + "into the persisted commit, so a \"successful\" insert-image leaves host "
+                + "Source/ pointing at asset bytes that were never delivered.")
+            await runtime.stop()
+            return 1
+        }
+
+        await runtime.stop()
+        print(
+            "INSERT-IMAGE: PASS (boot: \(bootElapsed), commit: \(commit), host Source/ + "
+            + "\(assetPath.lastPathComponent) both present)")
+        return 0
+    }
+
+    /// Pulls the value of the first `src="..."` attribute out of a single `<img>` tag — enough
+    /// for this gate's one-image fixture; not a general HTML/Astro parser.
+    private static func extractFirstImgSrc(from markup: String) -> String? {
+        guard let imgRange = markup.range(of: #"<img\b[^>]*>"#, options: .regularExpression) else { return nil }
+        let tag = String(markup[imgRange])
+        guard let srcRange = tag.range(of: #"src="[^"]*""#, options: .regularExpression) else { return nil }
+        let srcAttr = String(tag[srcRange]) // src="/images/probe.webp"
+        return String(srcAttr.dropFirst("src=\"".count).dropLast())
     }
 
     /// Polls `url` for any HTTP response (any status code is a pass — we only care that the

@@ -290,3 +290,23 @@ bar ("or when every failure has a follow-up issue with captured logs and a
 clear owner"). Image-drop re-verification after the fixes land should get a
 no-GUI probe gate (see #1422's suggested `insert-image` probe subcommand)
 rather than another full manual pass.
+
+### Image-drop persistence gate added, not yet green (2026-08-12, tracking #1422)
+
+Following up on the re-run above: `scripts/run-container-probe.sh` gained an
+`insert-image` subcommand mirroring `apply-edit` above, extended with the
+assertion `apply-edit` has no equivalent of — after the commit lands, resolve
+the patched `<img>`'s `src` and confirm the host `public/images/…` asset it
+points at actually exists on disk, not just that the source file changed.
+This is the no-GUI regression gate the image-drop row was missing.
+
+The sidecar-side fix for the second (asset-bytes) defect is
+[anglesite-skills#441](https://github.com/Anglesite/anglesite-skills/pull/441)
+— not yet tagged/released, so this gate cannot pass yet even once that PR
+merges, until the app's vendored container image is bumped to consume it.
+The first defect (why the guest reply's `commit` can come back nil for
+`insert-image` specifically) is still unconfirmed; guest debug-pane output
+was not captured during the human repro, and `recordEdit` failures only log
+to the guest console by design (they deliberately don't fail the edit). Once
+both land, rerun `scripts/run-container-probe.sh insert-image` and record the
+result here the same way the case-8 gate's PASS output is recorded above.

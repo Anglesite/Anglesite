@@ -17,6 +17,7 @@
 #   scripts/run-container-probe.sh worker-toggle # #919's gate (updateActiveWorkers toggle restart)
 #   scripts/run-container-probe.sh pause-resume  # suspend-on-close decision gate (vsock survives pause/resume)
 #   scripts/run-container-probe.sh apply-edit    # #81 case 8 gate (real apply_edit -> host Source/ persistence)
+#   scripts/run-container-probe.sh insert-image  # #1422 gate (insert-image -> host Source/ + public/images/ persistence)
 #
 # The boot probe is also the #715 concurrent-vmnet regression gate. Before running it, use
 # `container network create anglesite-715-regression` to hold a second vmnet shared-mode network;
@@ -35,9 +36,9 @@ cd "${ROOT_DIR}"
 
 SUBCOMMAND="${1:-}"
 case "${SUBCOMMAND}" in
-    echo|boot|workers-dev|worker-toggle|pause-resume|apply-edit) ;;
+    echo|boot|workers-dev|worker-toggle|pause-resume|apply-edit|insert-image) ;;
     *)
-        echo "usage: $(basename "$0") <echo|boot|workers-dev|worker-toggle|pause-resume|apply-edit>" >&2
+        echo "usage: $(basename "$0") <echo|boot|workers-dev|worker-toggle|pause-resume|apply-edit|insert-image>" >&2
         exit 2
         ;;
 esac
