@@ -74,7 +74,7 @@ public enum LinkMetadataParser {
 
     /// Minimal HTML entity decoder: the named entities that actually appear in titles/descriptions
     /// plus numeric (`&#39;`) and hex (`&#x2019;`) forms. Unknown entities pass through verbatim.
-    static func decodeEntities(_ text: String) -> String {
+    private static func decodeEntities(_ text: String) -> String {
         guard text.contains("&") else { return text }
         var out = ""
         var rest = Substring(text)
