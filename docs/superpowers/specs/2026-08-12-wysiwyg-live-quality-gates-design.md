@@ -150,9 +150,14 @@ existing chip/badge primitive exists in the canvas chrome (`rich-text.ts`,
   geometry `selection.ts` already computes for selection handles.
 - Multiple findings on one block stack/badge-count rather than overlap.
 - Click expands to the message and, when `fix` is present, an Apply button.
-- Applying calls `engine.submit(fix)` and optimistically removes the chip;
-  if the op is rejected (stale model), the chip re-appears on the next
-  findings push along with the rest of the reconciled set.
+- Applying disables the button and calls `engine.submit(fix)`: on `applied`,
+  the chip is removed immediately (a natural re-push follows anyway, since
+  the op firing `onOpApplied` re-runs the gates — the immediate removal is
+  just instant feedback, not load-bearing); on `rejected`, the button
+  re-enables rather than assuming a rejection is followed by a re-push — a
+  rejected op never fires `onOpApplied` (`WYSIWYGCanvasController.submit`
+  only calls it on `.applied`), so nothing would otherwise clear the pending
+  state.
 
 ## 5. Error handling
 
@@ -227,9 +232,12 @@ Sources/AnglesiteApp/WYSIWYGCanvasController.swift (modified)
   — multi-listener onOpApplied + GateContext construction + pushQualityFindings(_:)
 
 JS/wysiwyg-engine/src/
-  quality-gates.ts                   — Finding type, chip rendering/anchoring/keyed-diff, apply submission
-  host/native-quality-gate-transport.ts — bridges quality-gates.ts to window.__anglesiteWysiwygHost
-  host/mount.ts (modified)              — constructs/disposes the quality-gate transport + chip controller
+  quality-gates.ts                       — Finding type, QualityGateTransport interface, chip
+                                            rendering/anchoring/keyed-diff, apply submission
+  host/native-host-transport.ts (modified) — NativeHostTransport also implements QualityGateTransport;
+                                            one object owns the whole window.__anglesiteWysiwygHost
+                                            bridge rather than splitting it across two classes
+  host/mount.ts (modified)                 — constructs/disposes the chip controller alongside the engine
 
 test/quality-gates.test.ts
 e2e/quality-gates.spec.ts
