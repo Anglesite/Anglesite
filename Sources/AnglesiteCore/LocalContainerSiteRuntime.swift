@@ -369,6 +369,58 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
         }
     }
 
+    /// Fast-forwards the guest's `/workspace/site` clone to the host's current `Source/` HEAD
+    /// (#1420) — the reverse of `persistEdit`. Unlike that guest-to-host hop, this needs no bundle
+    /// transfer: the host repo is already live-visible inside the guest via the read-only
+    /// virtio-fs/bind share `ContainerizationControl`/`PodmanContainerControl` mount at boot
+    /// (`start()` step 3, `git clone`d into `/workspace/site` as `origin`), so catching up is a
+    /// plain `git pull --ff-only` against that already-configured remote. Fast-forward only,
+    /// mirroring `persistEdit`'s own refuse-rather-than-merge stance: a diverged guest working copy
+    /// (mid-agent-edit, uncommitted) is left alone rather than clobbered.
+    ///
+    /// Best-effort by design at every call site (`PreviewModel.syncContentFromHost()`) — a failed
+    /// sync leaves the preview stale, which is what this fixes in the first place, not a reason to
+    /// fail the content operation that already succeeded on disk.
+    public func syncFromHost() async throws {
+        guard let siteID = activeSiteID else {
+            throw SiteRuntimePersistenceError.runtimeNotRunning
+        }
+        let expectedGeneration = stateMachine.currentGeneration
+
+        await acquirePersistenceSlot()
+        defer { releasePersistenceSlot() }
+
+        guard stateMachine.isCurrent(expectedGeneration), activeSiteID == siteID else {
+            throw SiteRuntimePersistenceError.runtimeNotRunning
+        }
+
+        let logCenter = self.logCenter
+        let source = "container:\(siteID):sync"
+        let result: ContainerExecResult
+        do {
+            result = try await control.exec(
+                siteID: siteID,
+                argv: ["git", "-C", "/workspace/site", "pull", "--ff-only"],
+                environment: [:],
+                workingDirectory: "/workspace/site",
+                onOutput: { line, stream in
+                    Task { await logCenter.append(source: source, stream: stream, text: line) }
+                }
+            )
+        } catch {
+            guard stateMachine.isCurrent(expectedGeneration), activeSiteID == siteID else {
+                throw SiteRuntimePersistenceError.runtimeNotRunning
+            }
+            throw SiteRuntimePersistenceError.syncFailed(error.localizedDescription)
+        }
+        guard result.exitCode == 0 else {
+            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
+            throw SiteRuntimePersistenceError.syncFailed(
+                detail.isEmpty ? "git pull exited \(result.exitCode)" : detail)
+        }
+        await logCenter.append(source: source, stream: .stdout, text: "synced host Source/ changes into the guest")
+    }
+
     /// Streams every subsequent state transition (the `SiteRuntime.observe()` requirement),
     /// delegated to the state machine so superseded attempts' settles never appear — only
     /// transitions that actually won their generation check are published.

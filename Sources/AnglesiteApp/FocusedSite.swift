@@ -22,10 +22,13 @@ struct NewContentActions {
 /// branch always reports `publish`/`unpublish` nil, having no equivalent) — that's what lets the
 /// Edit-menu items enable/disable correctly without the menu needing to know either surface's
 /// internals. Delete has no field here (#989) — it's driven entirely by `SiteNavigatorView`'s
-/// `.onDeleteCommand` / the canvas's own `.onDeleteCommand` (`SiteWindow.previewPane(for:)`),
-/// whichever is reachable through AppKit's responder chain, which is also what AppKit's standard
-/// Edit ▸ Delete menu item invokes; a second Commands-level Delete button here would just
-/// re-create the duplicate-item bug.
+/// `.onDeleteCommand` / the canvas's own `.onDeleteCommand` (`SiteWindow.previewPane(for:)`), which
+/// are now mutually exclusive: each is attached only while `WYSIWYGCanvasController
+/// .hasKeyboardFocus` says it should be the live one (#1423), rather than left for AppKit's
+/// responder chain to arbitrate between two simultaneously-attached handlers — that arbitration is
+/// what made the shared Edit ▸ Delete item unreliable once the canvas target (#1225 Task 11)
+/// started coexisting with the Navigator's. A second Commands-level Delete button here would still
+/// just re-create the duplicate-item bug #989 already ruled out.
 struct NavigatorSelectionActions {
     let duplicate: (@MainActor () -> Void)?
     let publish: (@MainActor () -> Void)?
@@ -106,7 +109,8 @@ struct NewContentCommands: Commands {
 /// macOS convention for selection-scoped duplicate/destructive actions — rather than the File
 /// menu. Delete is deliberately not a Commands item here (#989): AppKit's standard Edit ▸ Delete
 /// already appears in this group and is wired to the same action via `SiteNavigatorView`'s /
-/// the canvas's own `.onDeleteCommand`, so a second one just duplicated it with no distinguishing
+/// the canvas's own `.onDeleteCommand` — now mutually exclusive per `NavigatorSelectionActions`'s
+/// doc comment (#1423) — so a second one here would just duplicate it with no distinguishing
 /// label.
 struct NavigatorEditCommands: Commands {
     @FocusedValue(\.navigatorSelectionActions) private var actions

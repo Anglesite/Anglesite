@@ -83,7 +83,7 @@ Re-run 2026-07-27, real-signed Debug build of `main` @ `13131027`, Apple Develop
 | No host Node preview fallback starts | PASS | Debug pane search for `LocalSiteRuntime`: zero matches. |
 | Preview loads through loopback proxy | PASS | `http://127.0.0.1:<port>` preview loads and live-reloads (Astro HMR) on edit. |
 | MCP/edit path applies a text edit through the in-container sidecar | **PASS** (2026-08-10, was FAIL/regression) | Originally: heading edit committed in preview + container (MCP `accepted`/`dial-ok`, Astro HMR reload), but host `Source/index.astro` never changed — reproduced #718 despite merged #737, filed as [#1066](https://github.com/Anglesite/Anglesite/issues/1066). Root cause (missing guest git identity) fixed upstream and now confirmed against a real container guest boot via `scripts/run-container-probe.sh apply-edit` — see "Case 8 root-cause fix landed and confirmed in the real container guest" below. |
-| Example photo highlights as an image drop target; dropping a Finder image writes optimized assets under `Source/public/images/` | **INCONCLUSIVE** | The drop-zone highlight + "Drop onto a highlighted image to replace it" tooltip fires reproducibly on a synthetic Finder-desktop-icon drag (`left_click_drag`, tried 2x, plus a manual multi-step press/move/release, 2x). But no in-preview image change and no host `public/images/` write occurred either way — can't tell whether that's the same persistence bug as the text-edit case or whether the synthetic drag simply doesn't carry a real file payload (CGEventPost-based drags are a known-hard case for Finder→WebView file promises). Still needs a literal human hand to resolve, as originally noted. |
+| Example photo highlights as an image drop target; dropping a Finder image writes optimized assets under `Source/public/images/` | **FAIL** (2026-08-12, was INCONCLUSIVE) | Resolved by a literal human drag — see "Human image-drop re-run (2026-08-12)" below. The drag payload, drop-target highlight, MCP round-trip, and in-guest apply all work under the signed sandbox, but no optimized asset ever reaches host `Source/public/images/`: replace-on-example-photo fails (`edit-failed`/`no-match`/"no .mdoc files found" — [#1421](https://github.com/Anglesite/Anglesite/issues/1421)), and drop-to-insert applies in the guest but never persists to the host ([#1422](https://github.com/Anglesite/Anglesite/issues/1422)). Not a sandbox/container/signing failure — both are sidecar edit-pipeline defects with follow-up issues filed. |
 | Build/preflight/deploy path reaches the expected Cloudflare token or wrangler result | PASS (partial) | Deploy button correctly opens the "Connect to Cloudflare" one-time API token dialog (link to Cloudflare API tokens page, paste-token field, disabled "Connect & deploy" until filled). Stopped there — entering/creating a Cloudflare API token is credential entry an agent should not perform; a full real `wrangler deploy` round-trip needs a human to paste their own token. |
 | Foundation Models chat is present | PASS | Chat toolbar icon opens a working "Ask the assistant…" panel. |
 | GitHub `gh` settings/auth UI is absent in App Store build | PASS (clarified) | No `gh`-CLI-based auth UI anywhere. Settings ▸ Advanced ▸ Credentials does have a manual "GitHub personal access token" paste field — that's the deterministic git-push credential (#653), unrelated to and not a reappearance of the retired `gh` CLI/Claude Code auth flow. |
@@ -242,3 +242,51 @@ repeatable, no-GUI-required gate for this row: rerun it any time #81's
 persistence case needs re-checking (e.g. after a future sidecar bump) instead
 of a full manual smoke pass. It does **not** cover the image-drop row, which
 still has no non-human substitute (see above).
+
+### Human image-drop re-run (2026-08-12)
+
+The literal-human-hand check finally happened: real-signed Debug build of
+`main` @ `b9d66c57` (team `UX3L9R8RSL`, `codesign -dv` confirmed non-ad-hoc,
+sidecar v1.9.0-era container image), launched from `~/Applications`, fixture
+imported fresh via File ▸ Import Site… (which also re-confirmed the #720
+git-bootstrap and #722 fixture-script spot-checks in passing). Two drops:
+
+1. **Replace, onto the example photo** (`photos/hello-photo`): the drop-target
+   highlight fired, the image swapped optimistically in the preview, then the
+   edit failed and reverted with
+   `{"type":"anglesite:edit-failed","id":"e-msqhyvn1-2","reason":"no-match","detail":"no .mdoc files found"}`.
+   Root cause: `replace-image-src` has no resolver for images whose `src`
+   comes from `.md` frontmatter — the stock template's example photo can't be
+   replaced by drag-drop at all. Filed as
+   [#1421](https://github.com/Anglesite/Anglesite/issues/1421).
+2. **Insert, onto the image-less Welcome page** (the #1408 drop-to-insert
+   path): applied cleanly in the guest (preview showed the image, no error),
+   but nothing persisted to the host — no commit on the site repo, no `<img>`
+   in host `src/pages/index.astro`, no asset under host `public/images/`.
+   Same silent nil-commit skip shape as #718/#1066, now for `insert-image`;
+   plus, by inspection, the sidecar's persist commit only ever includes the
+   patched source file, never the optimized image binaries. Filed as
+   [#1422](https://github.com/Anglesite/Anglesite/issues/1422).
+
+What the human run **did** establish for the release-signing questions this
+smoke exists to answer: a real Finder drag delivers its file payload into the
+sandboxed WKWebView preview fine (the earlier synthetic-drag ambiguity is
+resolved — the tooling was the limit, not the app), the MCP round-trip and
+in-guest apply work under the signed sandbox, and container→host persistence
+itself works in the same session (two `anglesite: duplicate page …` edits
+landed as real host commits). Both failures are sidecar edit-pipeline
+defects, orthogonal to sandboxing, signing, entitlements, and the container
+runtime.
+
+Also closed out in this pass: the **"updates are App Store-managed"** row.
+Verified structurally against the same build: no Sparkle/`SUUpdater`/appcast
+or update-check code anywhere in `Sources/`, no embedded frameworks in the
+built bundle at all, no update-related `Info.plist` keys, and `Anglesite` is
+the only Mac app target — the App Store is the only update channel.
+
+**Matrix disposition:** every row now has a PASS or a FAIL with a filed,
+root-caused follow-up issue (#1421, #1422) — which is the #81 acceptance
+bar ("or when every failure has a follow-up issue with captured logs and a
+clear owner"). Image-drop re-verification after the fixes land should get a
+no-GUI probe gate (see #1422's suggested `insert-image` probe subcommand)
+rather than another full manual pass.

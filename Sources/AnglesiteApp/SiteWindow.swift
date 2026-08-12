@@ -205,6 +205,7 @@ struct SiteWindow: View {
             if let navigator = model.navigator {
                 SiteNavigatorView(
                     model: navigator,
+                    canvasHasKeyboardFocus: model.preview.wysiwygCanvas?.hasKeyboardFocus == true,
                     onDeleteRequested: { item in
                         contentDeleteTitle = "Delete “\(item.title)”?"
                         model.deleteConfirmation = item
@@ -1078,11 +1079,14 @@ struct SiteWindow: View {
                 onWebViewDismantled: { [preview = model.preview] webView in preview.detachWebView(webView) }
             )
             .wysiwygCanvasFocusTracking(model.preview.wysiwygCanvas)
-            // #1225 Task 11: the canvas's own Delete target, reachable only while the sentinel
-            // above reports real keyboard focus on the canvas — bare Delete otherwise belongs to
-            // `SiteNavigatorView`'s `.onDeleteCommand` (menu-bar IA spec's "one focus-scoped
-            // command" rule; no second Commands-level Delete button).
-            .onDeleteCommand {
+            // #1225 Task 11 / #1423: the canvas's own Delete target — attached only while the
+            // sentinel above reports real keyboard focus on the canvas (menu-bar IA spec's "one
+            // focus-scoped command" rule; no second Commands-level Delete button). The `active:`
+            // gate (not just a nil-selection guard inside the closure) is load-bearing: leaving
+            // this `.onDeleteCommand` attached unconditionally alongside `SiteNavigatorView`'s made
+            // AppKit's Edit ▸ Delete menu-bridging pick between the two non-deterministically — see
+            // `onDeleteCommand(active:perform:)`'s doc comment (`PreviewView.swift`).
+            .onDeleteCommand(active: model.preview.wysiwygCanvas?.hasKeyboardFocus == true) {
                 guard let canvas = model.preview.wysiwygCanvas else { return }
                 Task { await canvas.deleteSelectedBlock() }
             }

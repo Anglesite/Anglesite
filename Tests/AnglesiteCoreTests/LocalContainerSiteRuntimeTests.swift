@@ -286,6 +286,54 @@ struct LocalContainerSiteRuntimeTests {
         #expect(await host.calls.isEmpty)
     }
 
+    @Test("syncFromHost runs a fast-forward-only pull against the guest clone (#1420)")
+    func syncFromHostRunsFastForwardPull() async throws {
+        let (runtime, fake) = makeRuntime(.success(Self.ok))
+        await runtime.start(siteID: "s1", siteDirectory: URL(fileURLWithPath: "/sites/Foo.anglesite/Source"))
+
+        try await runtime.syncFromHost()
+
+        let calls = await fake.execCalls
+        #expect(calls.count == 1)
+        #expect(calls[0].siteID == "s1")
+        #expect(calls[0].argv == ["git", "-C", "/workspace/site", "pull", "--ff-only"])
+        #expect(calls[0].cwd == "/workspace/site")
+    }
+
+    @Test("syncFromHost refuses when no site is running (#1420)")
+    func syncFromHostRequiresRunningSite() async {
+        let (runtime, fake) = makeRuntime(.success(Self.ok))
+
+        await #expect(throws: SiteRuntimePersistenceError.runtimeNotRunning) {
+            try await runtime.syncFromHost()
+        }
+        #expect(await fake.execCalls.isEmpty)
+    }
+
+    @Test("syncFromHost surfaces a failed guest pull (#1420)")
+    func syncFromHostSurfacesGitFailure() async {
+        let fake = FakeLocalContainerControl(
+            startResult: .success(Self.ok),
+            execResult: .init(exitCode: 1, stdout: "", stderr: "fatal: Not possible to fast-forward, aborting."))
+        let runtime = LocalContainerSiteRuntime(
+            ref: "HEAD",
+            control: fake,
+            mcpClient: MCPClient(supervisor: ProcessSupervisor(), logCenter: LogCenter()),
+            connect: { _, _ in },
+            workerCatalog: { [] }
+        )
+        await runtime.start(siteID: "s1", siteDirectory: URL(fileURLWithPath: "/unused"))
+
+        do {
+            try await runtime.syncFromHost()
+            Issue.record("expected sync to fail")
+        } catch let error as SiteRuntimePersistenceError {
+            #expect(error == .syncFailed("fatal: Not possible to fast-forward, aborting."))
+        } catch {
+            Issue.record("unexpected error: \(error)")
+        }
+    }
+
     @Test("control failure settles to .failed with a friendly message")
     func startFailed() async {
         let (rt, _) = makeRuntime(.failure(.bootFailed("vm refused to boot")))

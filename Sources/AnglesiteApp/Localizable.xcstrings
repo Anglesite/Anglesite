@@ -571,6 +571,9 @@
     "Apply…" : {
 
     },
+    "Approve" : {
+
+    },
     "Approve sign-in in your browser, then copy the final URL from the address bar (it will fail to load — that's expected) and paste it here." : {
 
     },
@@ -2223,6 +2226,9 @@
     "No open reports." : {
 
     },
+    "No pending requests." : {
+
+    },
     "No posts yet." : {
 
     },
@@ -2798,6 +2804,9 @@
 
     },
     "Repurpose “%@”" : {
+
+    },
+    "Requests" : {
 
     },
     "Require TLS for mail delivered to this domain. Start in testing mode and only switch to enforce after your mail provider is working cleanly." : {

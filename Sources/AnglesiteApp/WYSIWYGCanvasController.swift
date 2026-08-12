@@ -142,11 +142,15 @@ final class WYSIWYGCanvasController {
         await submit(.insertBlock(parentId: rootParentID, slot: "main", index: model.rootIds.count, newId: newId, block: content))
     }
 
-    /// The canvas's own `.onDeleteCommand` target (#1225 Task 11) — reachable only when the
-    /// canvas holds real keyboard focus (`hasKeyboardFocus`), so AppKit's responder chain decides
-    /// whether a bare Delete keypress reaches this or `SiteNavigatorView`'s `.onDeleteCommand`,
-    /// rather than a second Commands-level Delete button (menu-bar IA spec, same rule as
-    /// `duplicateSelectedBlock()` above). PR1 only supports root-level blocks (see
+    /// The canvas's own `.onDeleteCommand` target (#1225 Task 11) — reachable only when the canvas
+    /// holds real keyboard focus (`hasKeyboardFocus`). `SiteWindow.previewPane(for:)` and
+    /// `SiteNavigatorView` both gate their `.onDeleteCommand` attachment on this flag directly
+    /// (#1423) rather than leaving both permanently attached for AppKit's responder chain to
+    /// arbitrate — that arbitration turned out unreliable for the shared Edit ▸ Delete menu item
+    /// once two `.onDeleteCommand`s coexisted, even though it correctly scopes menu-bar IA's "one
+    /// focus-scoped command" rule for physical keypresses (matching `duplicateSelectedBlock()`
+    /// above, unaffected since Duplicate has no auto-generated menu item to conflict over). PR1
+    /// only supports root-level blocks (see
     /// `duplicateSelectedBlock()`'s doc comment) — `rootIds.firstIndex(of:)` returning `nil` for a
     /// nested block just no-ops, same as `guard let node` above.
     func deleteSelectedBlock() async {

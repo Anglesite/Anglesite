@@ -38,7 +38,7 @@ still show more than this closes — see §6.
 | D1 | Phasing | Three stacked PRs: creation flow → deploy wiring → moderator UI. Each independently mergeable/testable. |
 | D2 | Creation entry point | A **separate `File ▸ New Community…` flow** (`NewCommunityWizardModel`/`NewCommunityWizard`), not a card in the existing single-question theme chooser (#1071). A hosted community is a different site kind (own Worker, own Group actor, moderators) — not a cosmetic theme pick. |
 | D3 | Community wizard scope | **Name only.** No moderator field: per workers#473/PR#476, the owner is implicitly the top moderator of their own actor via the existing bearer `publishToken` — no `config.moderators` membership needed. `SiteSettings.moderators` is for *delegating* to additional actors beyond the owner, which belongs in the Phase 3 Moderators UI (§5), not the creation wizard. No theme step either — one consistent look for v1. |
-| D4 | Approval-queue (pending joins) | **Deferred.** Listing pending followers is only reachable via the OAuth-gated Mastodon-API `follow_requests` surface (§3.3) — the app has no OAuth client against a site's own Mastodon-API today. File an upstream follow-up (§5) instead of building a new OAuth flow now. Remove/ban ship in this design; approve does not. |
+| D4 | Approval-queue (pending joins) | **Deferred.** Listing pending followers is only reachable via the OAuth-gated Mastodon-API `follow_requests` surface (§3.3) — the app has no OAuth client against a site's own Mastodon-API today. File an upstream follow-up (§5) instead of building a new OAuth flow now. Remove/ban ship in this design; approve does not. **Update (2026-08-12):** the upstream follow-up shipped (`davidwkeith/workers` PR #488, closing workers#487) and approve now ships too — see `docs/superpowers/plans/2026-08-12-community-approval-queue.md`. |
 | D5 | Report queue | **Inert placeholder section** in the Moderation UI. No `Flag`-activity handling exists anywhere upstream (confirmed via repo-wide + upstream search) — this needs a new upstream primitive from scratch, out of scope here. The UI ships the section now so the layout doesn't reshape when report-handling eventually lands. |
 
 ## 3. Phase 1 — New Community creation flow
@@ -110,7 +110,10 @@ still show more than this closes — see §6.
   is deliberately not added here: D4 defers the entire approval queue, and
   an unused Accept method would be speculative against nothing that calls
   it. It belongs in whatever phase eventually builds the approval queue
-  after §6's upstream follow-up lands.
+  after §6's upstream follow-up lands. That phase landed 2026-08-12
+  (`docs/superpowers/plans/2026-08-12-community-approval-queue.md`) —
+  `acceptFollow(target:)` was added to `CommunityMembershipClient` and wired
+  into `ModerationModel`/`ModerationView`'s new "Requests" section.
 - **Gating:** new `case moderation` in `MainPaneMode`
   (`SiteWindowModel.swift`), `presentModeration()` mirroring
   `presentCommunities()` (lines 429-437), a `Button("Moderation…")` in
@@ -131,7 +134,9 @@ still show more than this closes — see §6.
      for deletions).
   4. **Reports** — inert placeholder, "No report handling yet" empty state,
      no data source (D5).
-- **Explicitly not in this phase:** approval-queue UI (D4).
+- **Explicitly not in this phase:** approval-queue UI (D4, shipped 2026-08-12
+  in a later phase — see
+  `docs/superpowers/plans/2026-08-12-community-approval-queue.md`).
 
 ## 6. Upstream follow-up to file
 
@@ -165,8 +170,9 @@ referenced from the #907 issue the way workers#473 was.
 
 This design closes remove-post and ban-member — the two moderation actions
 that were actually reachable once workers#473 shipped. #370's original scope
-(report review, approval queue) remains blocked on the two gaps this doc
-identifies and defers: report/Flag handling doesn't exist upstream at all
-(D5), and the approval-queue listing endpoint needs the follow-up filed in
-§6. #370 should stay open, scoped down to those two remaining pieces, rather
-than being closed by this work.
+also included report review and the approval queue; the approval queue
+shipped 2026-08-12 (`docs/superpowers/plans/2026-08-12-community-approval-queue.md`),
+once the follow-up filed in §6 landed upstream. Only report review (D5)
+remains blocked — report/Flag handling doesn't exist upstream at all. #370
+should stay open, scoped down to that one remaining piece, rather than being
+closed by this work.

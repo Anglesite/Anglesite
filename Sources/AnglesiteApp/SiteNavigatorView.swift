@@ -5,6 +5,12 @@ import AnglesiteCore
 /// changes and either navigates the preview or opens the editor.
 struct SiteNavigatorView: View {
     @Bindable var model: SiteNavigatorModel
+    /// True while the WYSIWYG canvas holds real keyboard focus elsewhere in the window (#1423) —
+    /// while true, this view's `.onDeleteCommand` is withheld so exactly one `.onDeleteCommand` is
+    /// attached to the window's tree at a time. See `SiteWindow.previewPane(for:)`'s matching
+    /// canvas-side gate and `onDeleteCommand(active:perform:)`'s doc comment (`PreviewView.swift`)
+    /// for why two simultaneously-attached handlers made AppKit's Edit ▸ Delete menu unreliable.
+    var canvasHasKeyboardFocus: Bool = false
     var onDeleteRequested: (NavigatorItem) -> Void
     var onDuplicateRequested: (NavigatorItem) -> Void
     var onRepurposeRequested: (NavigatorItem) -> Void
@@ -25,8 +31,10 @@ struct SiteNavigatorView: View {
         // also the ONLY Commands-level wiring for content delete (#989): `.onDeleteCommand` is
         // what AppKit's standard Edit ▸ Delete menu item invokes too, so it doubles as that item's
         // handler — a separate Commands `Button("Delete")` alongside it just renders as a second,
-        // indistinguishable "Delete" row.
-        .onDeleteCommand {
+        // indistinguishable "Delete" row. The `active:` gate (#1423) keeps this the ONLY
+        // `.onDeleteCommand` attached while the canvas has focus — see `canvasHasKeyboardFocus`'s
+        // doc comment above.
+        .onDeleteCommand(active: !canvasHasKeyboardFocus) {
             if let item = model.deletableSelection() {
                 onDeleteRequested(item)
             }
