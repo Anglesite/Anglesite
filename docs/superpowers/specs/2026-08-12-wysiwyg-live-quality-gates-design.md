@@ -50,16 +50,17 @@ the host already holds in memory — no build, no container round-trip:
 WYSIWYGCanvasController.onOpApplied(op, inverse, newModel)
         │
         ▼
-QualityGateRunner.analyze(newModel, GateContext) -> [Finding]
-   (runs all 5 checkers, diffs against the previous finding set)
+QualityGateRunner.analyze(newModel, GateContext) -> Result{findings, failedCategories}
+   (runs all 5 checkers, isolates per-checker failures)
         │
-        ▼  (delta only)
-WYSIWYGOpsDispatcher: new host→engine push, "quality-findings"
+        ▼  (always the full current set, never a delta — see §5)
+WYSIWYGCanvasController.pushQualityFindings(_:)
         │  (webView.evaluateJavaScript calling a new
         │   window.__anglesiteWysiwygHost._handleQualityFindings(json) global,
-        │   mirroring the existing _handleModelUpdate)
+        │   the same style of push _handleModelUpdate already declares)
         ▼
 JS/wysiwyg-engine/src/quality-gates.ts
+   - keyed diff (by Finding.id) against the chips it already has rendered
    - anchors a chip per finding near its block (selection.ts handle-rect pattern)
    - click-to-expand: message + Apply button when a fix is present
         │  Apply clicked
@@ -80,21 +81,33 @@ carrying what it needs beyond the model itself:
 
 ```swift
 struct GateContext {
-    let resolvedTokens: [String: DesignToken]   // for contrast
-    let internalRoutes: Set<String>              // for link integrity
-    let assetRoot: URL                           // for image weight (Source/ layout)
+    let resolvedTokens: [String: String]   // CSS custom-property name -> value (e.g. "color-text" -> "#222222"),
+                                             // parsed from Source/src/styles/global.css — for contrast
+    let internalRoutes: Set<String>         // site-relative route paths, from Source/src/pages/** — for link integrity
+    let assetRoot: URL                      // Source/public — for image weight
 }
 ```
 
-`internalRoutes` is rebuilt when the model updates from an outside hand-edit
-(same trigger as `ModelSync`'s staleness check), not on every op — the page
-list changes far less often than block content does.
+There is no runtime reader of a site's *resolved* design tokens today —
+`DesignTokenWriter` only writes them at apply time. Rather than build a new
+token-resolution subsystem for this slice, `ContrastGate` parses the
+`:root { --color-...: ...; }` custom properties directly out of
+`global.css`'s already-on-disk text — the same source of truth the site
+itself renders from, and a small, self-contained parser in the same spirit
+as `DesignTokenWriter`'s own plain string mapping. `internalRoutes` and
+`resolvedTokens` are rebuilt when the model updates from an outside hand-edit
+(same trigger as `ModelSync`'s staleness check), not on every op — both
+change far less often than block content does.
 
 ### Finding shape
 
 ```typescript
 interface Finding {
-  id: string;              // stable per (blockId, category) so re-renders diff cleanly
+  id: string;              // "<blockId>::<category>", or "<blockId>::<category>::<discriminator>"
+                             // when one block can carry more than one finding in the same category
+                             // (e.g. two broken links in one rich-text block) — always stable across
+                             // re-analysis so the engine's keyed diff never treats an unchanged
+                             // finding as add+remove
   blockId: string;
   category: "contrast" | "altText" | "headingOrder" | "linkIntegrity" | "imageWeight";
   severity: "advisory" | "warning";
@@ -144,8 +157,13 @@ existing chip/badge primitive exists in the canvas chrome (`rich-text.ts`,
 ## 5. Error handling
 
 - A checker throwing (bad token reference, unreadable asset file) is caught
-  per-checker in `QualityGateRunner.analyze` — one broken category logs and
-  contributes no findings rather than blocking the other four.
+  per-checker in `QualityGateRunner.analyze`, which returns both the
+  successful findings and the list of categories that failed
+  (`Result.failedCategories`) rather than logging itself — `analyze` stays a
+  pure, synchronous function so it's trivial to unit test; its caller
+  (`WYSIWYGCanvasController`) is what has `LogCenter` access and logs any
+  failed category. One broken checker contributes no findings; it never
+  blocks the other four.
 - If the findings push itself fails to reach the engine (webview reload
   mid-flight), the next `onOpApplied` cycle re-sends the full current set,
   not just a delta — the engine's chip set is always reconcilable from the
@@ -158,16 +176,19 @@ existing chip/badge primitive exists in the canvas chrome (`rich-text.ts`,
 
 - **Swift** (`AnglesiteCoreTests`): one test file per checker, feeding
   synthetic `BlockModel` + `GateContext` fixtures — known-bad token pairs for
-  contrast, a heading tree with a skip, a block with a broken internal href,
-  an oversized image stat. Plus a `QualityGateRunnerTests` covering the
-  diff/delta logic and the per-checker error isolation from §5.
+  contrast, a heading tree with a skip (with and without a `level` prop, to
+  cover the fix/no-fix split), a block with a broken internal href, an
+  oversized image stat. Plus a `QualityGateRunnerTests` covering finding
+  aggregation across all five checkers and the per-checker error isolation
+  (`Result.failedCategories`) from §5.
 - **TypeScript** (`test/quality-gates.test.ts`, jsdom env per slice 3's
-  convention): chip anchoring against `selection.ts`'s geometry, diff
-  rendering (add/remove/update chips from successive pushes), and apply
-  submitting the right op.
-- **One Playwright e2e** (`e2e/quality-gates.spec.ts`): drop an oversized
-  image onto the canvas, assert a chip appears with the owner-consequence
-  message, click Apply, assert the resize op lands and the chip clears.
+  convention): chip anchoring against `selection.ts`'s geometry, the keyed
+  diff rendering (add/remove/update chips from successive full-set pushes),
+  and apply submitting the right op.
+- **One Playwright e2e** (`e2e/quality-gates.spec.ts`): edit a heading block
+  into a skipped level (h2 → h4), assert a chip appears with the
+  owner-consequence message, click Apply, assert the corrective `setProp` op
+  lands and the chip clears.
 
 ## 7. Out of scope (YAGNI)
 
@@ -193,20 +214,22 @@ existing chip/badge primitive exists in the canvas chrome (`rich-text.ts`,
 
 ```
 Sources/AnglesiteCore/WYSIWYG/QualityGates/
-  QualityGateRunner.swift        — orchestrates the 5 checkers, diffs, error isolation
-  GateContext.swift
-  Finding.swift
-  ContrastGate.swift              — wraps WCAGContrast.swift
-  AltTextGate.swift                — ported from a11y-validate.ts
-  HeadingOrderGate.swift           — ported from a11y-validate.ts
-  LinkIntegrityGate.swift          — new
-  ImageWeightGate.swift            — new
+  Finding.swift                    — Finding, FindingCategory, FindingSeverity
+  GateContext.swift                — GateContext + its route/token/asset-root builders
+  ContrastGate.swift                — wraps WCAGContrast.swift + a global.css custom-property parser
+  AltTextGate.swift                  — hand-ported from a11y-validate.ts's placeholder-alt heuristic
+  HeadingOrderGate.swift             — hand-ported skip detection + the setProp fix
+  LinkIntegrityGate.swift            — new
+  ImageWeightGate.swift              — new (detection only, see §3)
+  QualityGateRunner.swift            — runs all 5, isolates per-checker failures
+
+Sources/AnglesiteApp/WYSIWYGCanvasController.swift (modified)
+  — multi-listener onOpApplied + GateContext construction + pushQualityFindings(_:)
 
 JS/wysiwyg-engine/src/
-  quality-gates.ts                 — chip rendering, anchoring, diffing, apply submission
-
-Sources/AnglesiteBridgeCore/
-  WYSIWYGOpsDispatcher.swift        — +1 push message type ("quality-findings")
+  quality-gates.ts                   — Finding type, chip rendering/anchoring/keyed-diff, apply submission
+  host/native-quality-gate-transport.ts — bridges quality-gates.ts to window.__anglesiteWysiwygHost
+  host/mount.ts (modified)              — constructs/disposes the quality-gate transport + chip controller
 
 test/quality-gates.test.ts
 e2e/quality-gates.spec.ts
