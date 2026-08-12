@@ -92,13 +92,15 @@ targets:
       - name: Build Help index
         script: "\"${PROJECT_DIR}/scripts/build-help-index.sh\""
         basedOnDependencyAnalysis: false
-    # Debug signing (CODE_SIGN_STYLE/IDENTITY/TEAM) comes from xcconfig/Signing-Debug.xcconfig
-    # instead of inline settings below, so a personal Team set via Xcode's Signing &
-    # Capabilities tab can persist across `xcodegen generate` — see that file for how to
-    # override it locally without editing this tracked config. The same file also carries
-    # ANGLESITE_DEBUG_ENTITLEMENTS (#1038), which CODE_SIGN_ENTITLEMENTS below reads.
+    # Debug/Release signing (CODE_SIGN_STYLE/IDENTITY/TEAM) comes from
+    # xcconfig/Signing-{Debug,Release}.xcconfig instead of inline settings below, so a
+    # personal Team set via Xcode's Signing & Capabilities tab can persist across
+    # `xcodegen generate` — see those files for how to override locally without editing
+    # this tracked config. The Debug file also carries ANGLESITE_DEBUG_ENTITLEMENTS
+    # (#1038), which CODE_SIGN_ENTITLEMENTS below reads.
     configFiles:
       Debug: xcconfig/Signing-Debug.xcconfig
+      Release: xcconfig/Signing-Release.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.dwk.anglesite
@@ -134,9 +136,6 @@ targets:
           # xcconfig/Signing-Debug.local.xcconfig can opt a real-Team local build into
           # Resources/Anglesite-Debug-iCloud.entitlements without editing this tracked file.
           CODE_SIGN_ENTITLEMENTS: $(ANGLESITE_DEBUG_ENTITLEMENTS)
-        Release:
-          CODE_SIGN_STYLE: Manual
-          CODE_SIGN_IDENTITY: "Apple Distribution"
     dependencies:
       - package: Anglesite
         product: AnglesiteCore
@@ -203,6 +202,7 @@ targets:
     # See the Anglesite target's matching comment on configFiles above.
     configFiles:
       Debug: xcconfig/Signing-Debug.xcconfig
+      Release: xcconfig/Signing-Release.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.dwk.anglesite.ios
@@ -226,9 +226,6 @@ targets:
       configs:
         Debug:
           CODE_SIGN_ENTITLEMENTS: $(ANGLESITE_MOBILE_DEBUG_ENTITLEMENTS)
-        Release:
-          CODE_SIGN_STYLE: Manual
-          CODE_SIGN_IDENTITY: "Apple Distribution"
     dependencies:
       - package: Anglesite
         product: AnglesiteCore
@@ -248,6 +245,7 @@ targets:
     # in the host app need matching signing style/team for automatic signing to resolve.
     configFiles:
       Debug: xcconfig/Signing-Debug.xcconfig
+      Release: xcconfig/Signing-Release.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.dwk.anglesite.QuickLookPreview
@@ -261,10 +259,6 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: "0.1.0"
         SKIP_INSTALL: YES
-      configs:
-        Release:
-          CODE_SIGN_STYLE: Manual
-          CODE_SIGN_IDENTITY: "Apple Distribution"
     dependencies:
       - package: Anglesite
         product: AnglesiteQuickLookSupport
@@ -278,6 +272,7 @@ targets:
     # in the host app need matching signing style/team for automatic signing to resolve.
     configFiles:
       Debug: xcconfig/Signing-Debug.xcconfig
+      Release: xcconfig/Signing-Release.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.dwk.anglesite.QuickLookThumbnail
@@ -291,10 +286,6 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: "0.1.0"
         SKIP_INSTALL: YES
-      configs:
-        Release:
-          CODE_SIGN_STYLE: Manual
-          CODE_SIGN_IDENTITY: "Apple Distribution"
     dependencies:
       - package: Anglesite
         product: AnglesiteQuickLookSupport
@@ -327,6 +318,7 @@ targets:
     # matching signing style/team for automatic signing to resolve.
     configFiles:
       Debug: xcconfig/Signing-Debug.xcconfig
+      Release: xcconfig/Signing-Release.xcconfig
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: io.dwk.anglesite.remote
@@ -343,10 +335,6 @@ targets:
         SKIP_INSTALL: YES
         # Embedded helper apps live under the parent's Contents/Library/LoginItems/ —
         # SMAppService.agent's documented discovery location.
-      configs:
-        Release:
-          CODE_SIGN_STYLE: Manual
-          CODE_SIGN_IDENTITY: "Apple Distribution"
     dependencies:
       - package: Anglesite
         product: AnglesiteRemote
