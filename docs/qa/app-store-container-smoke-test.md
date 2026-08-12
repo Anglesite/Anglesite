@@ -242,3 +242,35 @@ repeatable, no-GUI-required gate for this row: rerun it any time #81's
 persistence case needs re-checking (e.g. after a future sidecar bump) instead
 of a full manual smoke pass. It does **not** cover the image-drop row, which
 still has no non-human substitute (see above).
+
+### Image-drop persistence gate added, not yet green (2026-08-12, tracking #1422)
+
+The human re-run of the image-drop row (real-signed Debug build of `main` @
+`b9d66c57`, sidecar v1.9.0-era container image) found the same silent-skip
+failure shape as #718/#1066, but for `insert-image`: the guest-side apply
+succeeded (preview showed the new image), but nothing persisted to host —
+no commit, no `<img>` in host `src/pages/index.astro`, no optimized asset
+under host `Source/public/images/`. Filed as
+[#1422](https://github.com/Anglesite/Anglesite/issues/1422), which also found
+a second defect by inspection: even when the persist commit *is* recorded,
+`anglesite-skills`' `apply-edit-dispatcher.mjs` never included the optimized
+image bytes in it — only the source-file patch — so a "successful" image
+edit would give the host a source patch referencing assets that don't exist.
+
+`scripts/run-container-probe.sh` gained an `insert-image` subcommand
+mirroring `apply-edit` above, extended with the assertion `apply-edit` has no
+equivalent of: after the commit lands, resolve the patched `<img>`'s `src`
+and confirm the host `public/images/…` asset it points at actually exists on
+disk — not just that the source file changed. This is the no-GUI regression
+gate the image-drop row was missing.
+
+The sidecar-side fix for the second (asset-bytes) defect is
+[anglesite-skills#441](https://github.com/Anglesite/anglesite-skills/pull/441)
+— not yet tagged/released, so this gate cannot pass yet even once that PR
+merges, until the app's vendored container image is bumped to consume it.
+The first defect (why the guest reply's `commit` can come back nil for
+`insert-image` specifically) is still unconfirmed; guest debug-pane output
+was not captured during the human repro, and `recordEdit` failures only log
+to the guest console by design (they deliberately don't fail the edit). Once
+both land, rerun `scripts/run-container-probe.sh insert-image` and record the
+result here the same way the case-8 gate's PASS output is recorded above.
