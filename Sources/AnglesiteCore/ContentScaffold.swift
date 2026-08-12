@@ -189,8 +189,9 @@ public enum ContentScaffold {
     /// (one line per non-markdown field, in declaration order) followed by a placeholder body for
     /// the type's `markdown` field, if any. Pure; mirrors `renderPost`'s ISO8601 date format.
     /// `fieldValues` supplies caller-collected values by field name for the scalar-string kinds
-    /// (`.string`, `.text`, `.url`, `.image`); an absent key falls back to the title-like/empty
-    /// default. Still pure — an empty `fieldValues` renders exactly what it rendered before (#916).
+    /// (`.string`, `.text`, `.url`, `.image`) and, since #531, the `.markdown` body and `.bool`
+    /// fields (exact `"true"`/`"false"`); an absent key falls back to the title-like/empty default.
+    /// Still pure — an empty `fieldValues` renders exactly what it rendered before (#916).
     public static func renderEntry(
         descriptor: ContentTypeDescriptor,
         title: String?,
@@ -206,7 +207,14 @@ public enum ContentScaffold {
         for field in descriptor.fields {
             switch field.kind {
             case .markdown:
-                bodyPlaceholder = "Write your \(descriptor.displayName.lowercased()) here."
+                // A supplied value replaces the placeholder; supplied-but-empty means "no body"
+                // (quick capture publishing without commentary must not publish placeholder text,
+                // #531). Absent key keeps the placeholder — the #916 purity contract.
+                if let supplied = fieldValues[field.name] {
+                    bodyPlaceholder = supplied.isEmpty ? nil : supplied
+                } else {
+                    bodyPlaceholder = "Write your \(descriptor.displayName.lowercased()) here."
+                }
             // Optional datetime/date fields scaffold commented-out: an emitted value is a valid
             // truthy Date under `z.coerce.date()`, so a live default (e.g. an unset event `end`)
             // would render a bogus `dt-end`. Commenting keeps the field as a format hint the user
@@ -215,10 +223,12 @@ public enum ContentScaffold {
                 lines.append("\(field.required ? "" : "# ")\(field.name): \(dateTime)")
             case .date:
                 lines.append("\(field.required ? "" : "# ")\(field.name): \(String(dateTime.prefix(10)))")
-            // New entries are drafts by default (#798) — every other .bool field (none exist
-            // yet) keeps its false default.
+            // New entries are drafts by default (#798); a caller-supplied exact "true"/"false"
+            // overrides (quick capture's Publish writes draft: false, #531). Anything else —
+            // including a typo'd value — keeps the safe default rather than guessing.
             case .bool:
-                lines.append("\(field.name): \(field.name == "draft" ? "true" : "false")")
+                let supplied = fieldValues[field.name].flatMap { $0 == "true" || $0 == "false" ? $0 : nil }
+                lines.append("\(field.name): \(supplied ?? (field.name == "draft" ? "true" : "false"))")
             case .number:
                 lines.append("\(field.name): 0")
             case .stringArray, .imageArray, .objectArray:

@@ -387,4 +387,42 @@ struct ContentScaffoldTests {
         #expect(out.contains(#""education": []"#))
         #expect(out.contains(#""skills": []"#))
     }
+
+    @Test("renderEntry uses a supplied markdown body and bool override (#531)")
+    func renderEntryBodyAndDraftOverrides() {
+        let bookmark = ContentTypeRegistry().descriptor(id: "bookmark")!
+        let now = Date(timeIntervalSince1970: 1_750_000_000)
+        let out = ContentScaffold.renderEntry(
+            descriptor: bookmark, title: "Example", now: now,
+            fieldValues: [
+                "bookmarkOf": "https://example.com/post",
+                "body": "Two sentences of commentary.",
+                "draft": "false",
+            ])
+        #expect(out.contains("draft: false"))
+        #expect(out.hasSuffix("\nTwo sentences of commentary.\n"))
+        #expect(!out.contains("Write your bookmark here."))
+    }
+
+    @Test("renderEntry: supplied-but-empty body means no body; bad bool falls back (#531)")
+    func renderEntryEmptyBodyAndBadBool() {
+        let bookmark = ContentTypeRegistry().descriptor(id: "bookmark")!
+        let now = Date(timeIntervalSince1970: 1_750_000_000)
+        let out = ContentScaffold.renderEntry(
+            descriptor: bookmark, title: "Example", now: now,
+            fieldValues: ["bookmarkOf": "https://example.com/post", "body": "", "draft": "yes"])
+        #expect(out.hasSuffix("---\n"))          // frontmatter block only, no body text
+        #expect(out.contains("draft: true"))     // non-"true"/"false" keeps the #798 default
+    }
+
+    @Test("renderEntry purity: empty fieldValues is byte-identical to no fieldValues (#916/#531)")
+    func renderEntryPurityHolds() {
+        let bookmark = ContentTypeRegistry().descriptor(id: "bookmark")!
+        let now = Date(timeIntervalSince1970: 1_750_000_000)
+        let a = ContentScaffold.renderEntry(descriptor: bookmark, title: "T", now: now)
+        let b = ContentScaffold.renderEntry(descriptor: bookmark, title: "T", now: now, fieldValues: [:])
+        #expect(a == b)
+        #expect(a.contains("draft: true"))
+        #expect(a.contains("Write your bookmark here."))
+    }
 }
