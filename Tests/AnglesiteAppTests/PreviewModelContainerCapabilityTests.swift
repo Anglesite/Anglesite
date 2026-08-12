@@ -74,6 +74,12 @@ private actor FakeContainerCapableSiteRuntime: SiteRuntime, SiteRuntimeContainer
         persistedCommits.append(commit)
     }
 
+    private(set) var syncFromHostCallCount = 0
+
+    func syncFromHost() async throws {
+        syncFromHostCallCount += 1
+    }
+
     private(set) var updatedActiveWorkerSettings: [SiteSettings] = []
 
     func updateActiveWorkers(_ settings: SiteSettings) async {
@@ -134,5 +140,23 @@ struct PreviewModelContainerCapabilityTests {
 
         // Must not crash or hang — there's simply nothing to reach.
         await model.resetNetworking()
+    }
+
+    @Test("syncContentFromHost() reaches the runtime through containerCapability (#1420)")
+    func syncContentFromHostReachesCapability() async {
+        let runtime = FakeContainerCapableSiteRuntime()
+        let model = PreviewModel(runtime: runtime)
+
+        await model.syncContentFromHost()
+
+        #expect(await runtime.syncFromHostCallCount == 1)
+    }
+
+    @Test("syncContentFromHost() is a no-op for a runtime with no container capability (#1420)")
+    func syncContentFromHostNoOpsForNonCapableRuntime() async {
+        let model = PreviewModel(runtime: UnavailableSiteRuntime(reason: "no container capability"))
+
+        // Must not crash or hang — there's simply nothing to reach.
+        await model.syncContentFromHost()
     }
 }

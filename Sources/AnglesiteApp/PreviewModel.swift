@@ -559,6 +559,20 @@ final class PreviewModel {
         await capability.resetNetworking()
     }
 
+    /// Fast-forwards the running container's guest working copy to the host's current `Source/`
+    /// HEAD (#1420) — called after every native (host-side) content mutation (New Page/Post/
+    /// Component, Duplicate, Rename, Delete, Publish, Cleanup) so the already-booted preview
+    /// picks up a change it otherwise has no way to learn about: `NativeContentOperations` commits
+    /// straight to the host repo without going through this runtime at all. Best-effort — a failed
+    /// sync just leaves the preview stale a while longer, which is the pre-existing behavior this
+    /// call is meant to improve on, not a reason to surface an error for a content operation that
+    /// already succeeded. No-op for runtimes with no container capability (`RemoteSandboxSiteRuntime`,
+    /// `UnavailableSiteRuntime`) and before the container has finished booting.
+    func syncContentFromHost() async {
+        guard let capability = runtime.containerCapability else { return }
+        try? await capability.syncFromHost()
+    }
+
     /// Forwards a Workers-tab toggle (#710) to the running runtime so a live local wrangler-dev
     /// session restarts with the new active set. No-op for non-container runtimes — the local
     /// workers dev server is a local-container-only capability (#708).
