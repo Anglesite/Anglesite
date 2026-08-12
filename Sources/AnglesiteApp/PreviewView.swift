@@ -266,3 +266,23 @@ extension View {
         }
     }
 }
+
+/// Attaches `.onDeleteCommand` only while `isActive` (#1423) — `previewPane(for:)`'s canvas delete
+/// target and `SiteNavigatorView`'s Navigator delete target both use this, gated on
+/// `WYSIWYGCanvasController.hasKeyboardFocus` (this sentinel above), so exactly one
+/// `.onDeleteCommand` is ever attached to the window's view tree at a time. Two coexisting
+/// `.onDeleteCommand`s made AppKit's Edit ▸ Delete menu-bridging non-deterministic: sometimes the
+/// item stayed disabled with a valid Navigator selection, sometimes clicking it invoked the
+/// canvas's handler (a silent no-op with no block selected) instead of the Navigator's. Splitting
+/// them back into mutually-exclusive attachment restores the single-handler shape #989 already
+/// validated as reliable, before the canvas target (#1225 Task 11) started coexisting with it.
+extension View {
+    @ViewBuilder
+    func onDeleteCommand(active isActive: Bool, perform action: @escaping () -> Void) -> some View {
+        if isActive {
+            onDeleteCommand(perform: action)
+        } else {
+            self
+        }
+    }
+}
