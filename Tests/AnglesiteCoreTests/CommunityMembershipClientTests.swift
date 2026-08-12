@@ -128,4 +128,58 @@ struct CommunityMembershipClientTests {
             try await Self.client(fake).remove(target: target)
         }
     }
+
+    @Test("POSTs an Accept activity to this site's own outbox")
+    func postsAccept() async throws {
+        let fake = FakeTransport()
+        let target = try #require(URL(string: "https://lemmy.ml/u/newmember"))
+
+        try await Self.client(fake).acceptFollow(target: target)
+
+        let body = await fake.requestedBodies.first
+        #expect(body?["type"] as? String == "Accept")
+        #expect(body?["object"] as? String == "https://lemmy.ml/u/newmember")
+        #expect(body?["actor"] as? String == "https://example.com/users/site")
+        let headers = await fake.requestedHeaders.first
+        #expect(headers?["Authorization"] == "Bearer secret-token")
+    }
+
+    @Test("acceptFollow maps a non-2xx status to requestFailed")
+    func acceptMapsNon2xx() async throws {
+        let fake = FakeTransport(status: 403, body: "forbidden")
+        let target = try #require(URL(string: "https://lemmy.ml/u/newmember"))
+        await #expect(throws: CommunityMembershipError.requestFailed(status: 403, body: "forbidden")) {
+            try await Self.client(fake).acceptFollow(target: target)
+        }
+    }
+
+    @Test("GETs pending follow requests from this site's own actor endpoint")
+    func listsFollowRequests() async throws {
+        let fake = FakeTransport(
+            status: 200,
+            body: #"{"items":[{"actor":"https://lemmy.ml/u/newmember","addedAt":"2026-08-10T18:28:14.000Z"}],"total":1}"#)
+
+        let requests = try await Self.client(fake).listFollowRequests()
+
+        #expect(requests.count == 1)
+        #expect(requests.first?.actor.absoluteString == "https://lemmy.ml/u/newmember")
+        #expect(await fake.requestedURLs.first?.absoluteString == "https://example.com/users/site/follow_requests")
+        let headers = await fake.requestedHeaders.first
+        #expect(headers?["Authorization"] == "Bearer secret-token")
+    }
+
+    @Test("listFollowRequests returns an empty list when there are none")
+    func listsEmptyFollowRequests() async throws {
+        let fake = FakeTransport(status: 200, body: #"{"items":[],"total":0}"#)
+        let requests = try await Self.client(fake).listFollowRequests()
+        #expect(requests.isEmpty)
+    }
+
+    @Test("listFollowRequests maps a non-2xx status to requestFailed")
+    func listFollowRequestsMapsNon2xx() async throws {
+        let fake = FakeTransport(status: 404, body: "Not Found")
+        await #expect(throws: CommunityMembershipError.requestFailed(status: 404, body: "Not Found")) {
+            _ = try await Self.client(fake).listFollowRequests()
+        }
+    }
 }
