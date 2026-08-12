@@ -1,9 +1,9 @@
 import SwiftUI
 import AnglesiteCore
 
-/// The Moderation section (V-5.1b/V-5.3, #907/#370, design doc §5): moderators, members
-/// (with ban), posts (with remove), and an inert reports placeholder (D5 — no report-handling
-/// exists upstream yet).
+/// The Moderation section (V-5.1b/V-5.3, #907/#370, design doc §5): moderators, an approval
+/// queue for pending join requests, members (with ban), posts (with remove), and an inert
+/// reports placeholder (D5 — no report-handling exists upstream yet).
 struct ModerationView: View {
     @Bindable var moderation: ModerationModel
     /// Bound to the "Add Moderator" text field; cleared after a successful add.
@@ -29,6 +29,19 @@ struct ModerationView: View {
                         .onSubmit(addModerator)
                     Button("Add", action: addModerator)
                         .disabled(newModeratorIRI.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                }
+            }
+            Section("Requests") {
+                if moderation.pendingFollowers.isEmpty {
+                    Text("No pending requests.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(moderation.pendingFollowers) { follower in
+                        HStack {
+                            Text(follower.actor.absoluteString)
+                            Spacer()
+                            Button("Approve") { Task { await moderation.approve(follower) } }
+                        }
+                    }
                 }
             }
             Section("Members") {

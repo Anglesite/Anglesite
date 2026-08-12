@@ -3,16 +3,18 @@ import Observation
 import AnglesiteCore
 
 /// Backs the Moderation section (V-5.1b/V-5.3, #907/#370, design doc §5): moderator-list
-/// display, and ban/remove actions over this site's own `CommunityMember`/`AnnouncedPost`
-/// snapshot files. App glue only, mirroring `CommunitiesModel`'s shape — protocol logic
-/// (`Remove`) lives in `AnglesiteCore`'s `CommunityMembershipClient`. Approval-queue and
-/// report-review are explicitly out of scope (design doc D4/D5) — no state for either here.
+/// display, ban/remove actions over this site's own `CommunityMember`/`AnnouncedPost` snapshot
+/// files, and the approval queue (design doc D4, unblocked by `davidwkeith/workers` PR #488).
+/// App glue only, mirroring `CommunitiesModel`'s shape — protocol logic (`Remove`/`Accept`/the
+/// `follow_requests` listing) lives in `AnglesiteCore`'s `CommunityMembershipClient`.
+/// Report-review remains explicitly out of scope (design doc D5) — no state for it here.
 @MainActor
 @Observable
 final class ModerationModel {
     private(set) var members: [CommunityMember] = []
     private(set) var posts: [AnnouncedPost] = []
     private(set) var moderators: [String] = []
+    private(set) var pendingFollowers: [PendingFollower] = []
     var errorMessage: String?
     /// Cleared by whichever confirmation-dialog button runs — same no-op-setter/
     /// clear-in-button-action contract `SiteWindow.swift:898-916`'s delete confirmation uses
@@ -79,6 +81,22 @@ final class ModerationModel {
         moderators = settings.moderators ?? []
         members = await loadedMembers
         posts = await loadedPosts
+        pendingFollowers = await loadPendingFollowers()
+    }
+
+    /// Fetches pending join requests from this site's own Worker
+    /// (`CommunityMembershipClient.listFollowRequests()`). Fails silently to an empty list — same
+    /// "a bad read must never make the pane unusable" philosophy ``decodeAll(_:from:)`` follows for
+    /// member/post snapshots — because the underlying `GET <actor>/follow_requests` route
+    /// (`davidwkeith/workers` PR #488) postdates the latest tagged `@dwk/workers` release as of
+    /// this writing: a deployed community's Worker will 404 until it redeploys against a newer
+    /// one, and that expected 404 must never pop a blocking alert on every pane open. No-ops
+    /// (returns `[]`) until `ownActorURL`/`publishToken` are both available, same guard
+    /// ``ban(_:)``/``removePost(_:)`` use.
+    private func loadPendingFollowers() async -> [PendingFollower] {
+        guard let ownActorURL, let publishToken else { return [] }
+        let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
+        return (try? await client.listFollowRequests()) ?? []
     }
 
     /// Reads every `.json` file in `directory` and decodes it as `T`, skipping (not throwing on)
@@ -120,6 +138,24 @@ final class ModerationModel {
         banConfirmation = nil
         do { try await ban(member) }
         catch { errorMessage = "Couldn't ban \(member.name ?? member.actorURL.absoluteString): \(error.localizedDescription)" }
+    }
+
+    /// Confirms a pending join request. No confirmation dialog (unlike ``ban(_:)``/
+    /// ``removePost(_:)``) — admitting a member isn't destructive; a bad admit is reversible via
+    /// the existing ``ban(_:)`` action, so this mirrors ``addModerator(_:)``'s no-confirmation
+    /// precedent.
+    func approve(_ follower: PendingFollower) async {
+        guard let ownActorURL, let publishToken else {
+            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            return
+        }
+        let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
+        do {
+            try await client.acceptFollow(target: follower.actor)
+            pendingFollowers.removeAll { $0.id == follower.id }
+        } catch {
+            errorMessage = "Couldn't approve \(follower.actor.absoluteString): \(error.localizedDescription)"
+        }
     }
 
     func removePost(_ post: AnnouncedPost) async throws {

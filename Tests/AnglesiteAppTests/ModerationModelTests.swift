@@ -154,4 +154,88 @@ struct ModerationModelTests {
         #expect(model.moderators.isEmpty)
         #expect(model.errorMessage != nil)
     }
+
+    @Test("reload fetches pending follow requests from this site's own actor")
+    func reloadLoadsPendingFollowRequests() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if request.url?.lastPathComponent == "follow_requests" {
+                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (
+                    Data(
+                        #"{"items":[{"actor":"https://lemmy.ml/u/newmember","addedAt":"2026-08-10T18:28:14.000Z"}],"total":1}"#
+                            .utf8), http
+                )
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+            return (Data("{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+
+        #expect(model.pendingFollowers.count == 1)
+        #expect(model.pendingFollowers.first?.actor.absoluteString == "https://lemmy.ml/u/newmember")
+    }
+
+    /// The upstream listing endpoint (`davidwkeith/workers` PR #488) postdates the latest tagged
+    /// `@dwk/workers` release as of this writing (see the plan's Global Constraints) — a deployed
+    /// community's Worker will 404 on this route until it redeploys against a newer release. That
+    /// must degrade to an empty list, never a blocking alert.
+    @Test("a 404 from follow_requests leaves pendingFollowers empty without surfacing an error")
+    func reloadIgnoresFollowRequests404() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            let http = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+            return (Data("Not Found".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+
+        #expect(model.pendingFollowers.isEmpty)
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test("approving a follower POSTs Accept and drops them from the pending list")
+    func approveAcceptsAndRemovesFromPendingList() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        actor Recorder {
+            private(set) var bodies: [[String: Any]] = []
+            func record(_ body: [String: Any]) { bodies.append(body) }
+        }
+        let recorder = Recorder()
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if request.url?.lastPathComponent == "follow_requests" {
+                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (
+                    Data(
+                        #"{"items":[{"actor":"https://lemmy.ml/u/newmember","addedAt":"2026-08-10T18:28:14.000Z"}],"total":1}"#
+                            .utf8), http
+                )
+            }
+            if let data = request.httpBody, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                await recorder.record(json)
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+            return (Data("{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        #expect(model.pendingFollowers.count == 1)
+
+        await model.approve(model.pendingFollowers[0])
+
+        let body = await recorder.bodies.first
+        #expect(body?["type"] as? String == "Accept")
+        #expect(body?["object"] as? String == "https://lemmy.ml/u/newmember")
+        #expect(model.pendingFollowers.isEmpty)
+    }
 }
