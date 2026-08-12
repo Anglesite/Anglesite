@@ -474,11 +474,11 @@ final class SiteWindowModel {
     /// Mirrors `presentCommunities()`'s leave-current-surface-first guard. Unlike Communities,
     /// this is gated (`canOpenModeration`) — see that property's doc comment.
     ///
-    /// Reloads `moderation`'s member/post snapshots on every presentation, not just once at site
-    /// open (`ModerationModel.configure(site:)`'s own doc comment has the detail): the sync jobs
-    /// that write those snapshot files run later, from `PreviewModel` after the dev server
-    /// starts, so without this a freshly provisioned community would show an empty Moderation
-    /// pane for the rest of the window session.
+    /// Reloads `moderation`'s member/post snapshots and pending-follow-request list on every
+    /// presentation, not just once at site open (`ModerationModel.configure(site:)`'s own doc
+    /// comment has the detail): the sync jobs that write those snapshot files run later, from
+    /// `PreviewModel` after the dev server starts, so without this a freshly provisioned
+    /// community would show an empty Moderation pane for the rest of the window session.
     func presentModeration() {
         Task {
             guard await leaveCurrentEditor(), await leaveCurrentInspector() else { return }

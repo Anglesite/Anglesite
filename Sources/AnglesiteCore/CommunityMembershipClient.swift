@@ -126,16 +126,20 @@ public struct CommunityMembershipClient: Sendable {
         var request = URLRequest(url: ownActorURL.appendingPathComponent("follow_requests"))
         request.httpMethod = "GET"
         request.setValue("Bearer \(publishToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = ActorProfileFetcher.timeout
         let data = try await send(request)
         return Self.decodeFollowRequests(data)
     }
 
-    /// Decodes the Worker's `{items: [{actor, addedAt}], total}` response. A malformed body, or
-    /// an item whose `addedAt` doesn't parse as ISO 8601 (with or without fractional seconds —
-    /// `Date.toISOString()` always emits `.000`-style milliseconds, which the plain
-    /// `ISO8601DateFormatter()` default options reject), is dropped rather than failing the whole
-    /// call — same "a bad item never blocks the good ones" rule ``ModerationModel``'s snapshot
-    /// decoding already follows.
+    /// Decodes the Worker's `{items: [{actor, addedAt}], total}` response. A response that
+    /// doesn't parse as this shape at all (missing `items`, wrong field types) yields an empty
+    /// list — same "a bad read must never make the pane unusable" rule ``ModerationModel``'s
+    /// snapshot decoding already follows. An individual item's `addedAt` that fails ISO 8601
+    /// parsing (with or without fractional seconds — `Date.toISOString()` always emits
+    /// `.000`-style milliseconds, which the plain `ISO8601DateFormatter()` default options
+    /// reject) defaults to `.distantPast` rather than dropping the item: a malformed timestamp
+    /// must never make a real pending requester silently unapprovable.
     private static func decodeFollowRequests(_ data: Data) -> [PendingFollower] {
         struct Response: Decodable {
             struct Item: Decodable { let actor: URL; let addedAt: String }
@@ -148,10 +152,8 @@ public struct CommunityMembershipClient: Sendable {
             return formatter
         }()
         let plain = ISO8601DateFormatter()
-        return response.items.compactMap { item in
-            guard let date = withFractional.date(from: item.addedAt) ?? plain.date(from: item.addedAt) else {
-                return nil
-            }
+        return response.items.map { item in
+            let date = withFractional.date(from: item.addedAt) ?? plain.date(from: item.addedAt) ?? .distantPast
             return PendingFollower(actor: item.actor, addedAt: date)
         }
     }

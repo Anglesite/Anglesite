@@ -39,8 +39,10 @@ final class ModerationModel {
     }
 
     /// Records which site this pane talks to, resolves `ownActorURL`, and loads the moderator
-    /// list plus every member/post snapshot once, at site open. No network I/O. Unlike
-    /// `CommunitiesModel.configure(site:)` this is called unconditionally for *every* site
+    /// list plus every member/post snapshot once, at site open — plus one best-effort network
+    /// fetch of pending follow requests (see ``loadPendingFollowers()``, which never blocks this
+    /// on failure). Unlike `CommunitiesModel.configure(site:)` this is called unconditionally
+    /// for *every* site
     /// (including a plain personal one, not just once `canOpenModeration` is already true) —
     /// Moderation has no `.noSiteURL`-retry surface of its own, so there's nothing here to gate.
     /// This only loads once: the member/post snapshot files are written later, by
@@ -59,11 +61,12 @@ final class ModerationModel {
         await reload()
     }
 
-    /// Re-reads the moderator list plus every member/post snapshot from disk. No-ops until
-    /// ``configure(site:)`` has run at least once (no `sourceDirectory`/`configDirectory` to read
-    /// yet). Split out of ``configure(site:)`` so `SiteWindowModel.presentModeration()` can call
-    /// it on every presentation, not just once at site open — see that method's doc comment for
-    /// why a single load isn't enough.
+    /// Re-reads the moderator list plus every member/post snapshot from disk, and re-fetches the
+    /// pending-follow-request list from this site's own Worker (``loadPendingFollowers()``).
+    /// No-ops until ``configure(site:)`` has run at least once (no `sourceDirectory`/
+    /// `configDirectory` to read yet). Split out of ``configure(site:)`` so
+    /// `SiteWindowModel.presentModeration()` can call it on every presentation, not just once at
+    /// site open — see that method's doc comment for why a single load isn't enough.
     ///
     /// The settings load and both directory scans all run off the main actor: `Config/` and
     /// `Source/` live inside the `.anglesite` package, whose default home is the iCloud Drive

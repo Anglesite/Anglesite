@@ -239,4 +239,32 @@ struct ModerationModelTests {
         #expect(body?["object"] as? String == "https://lemmy.ml/u/newmember")
         #expect(model.pendingFollowers.isEmpty)
     }
+
+    @Test("a failed approve sets errorMessage and leaves the follower in the pending list")
+    func approveFailureSetsErrorMessage() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if request.url?.lastPathComponent == "follow_requests" {
+                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (
+                    Data(
+                        #"{"items":[{"actor":"https://lemmy.ml/u/newmember","addedAt":"2026-08-10T18:28:14.000Z"}],"total":1}"#
+                            .utf8), http
+                )
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!
+            return (Data("forbidden".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        #expect(model.pendingFollowers.count == 1)
+
+        await model.approve(model.pendingFollowers[0])
+
+        #expect(model.errorMessage != nil)
+        #expect(model.pendingFollowers.count == 1)
+    }
 }
