@@ -33,6 +33,12 @@ actor FakeLocalContainerControl: LocalContainerControl {
         stopCallCount += 1
     }
 
+    /// Configurable per-test — defaults to today's canned success so every existing caller of
+    /// this fake (which never configures it) keeps its current behavior unchanged.
+    var execHandler: @Sendable (String, [String]) async throws -> ContainerExecResult = { _, _ in
+        ContainerExecResult(exitCode: 0, stdout: "", stderr: "")
+    }
+
     func exec(
         siteID: String,
         argv: [String],
@@ -40,7 +46,7 @@ actor FakeLocalContainerControl: LocalContainerControl {
         workingDirectory: String,
         onOutput: @escaping @Sendable (String, LogCenter.Stream) -> Void
     ) async throws -> ContainerExecResult {
-        ContainerExecResult(exitCode: 0, stdout: "", stderr: "")
+        try await execHandler(siteID, argv)
     }
 
     func execInteractive(
