@@ -96,18 +96,18 @@ public struct AddLinkPostIntent: AppIntent {
 /// without the AppIntents runtime, matching `ContentDialogs`' pattern.
 public enum LinkPostDialogs {
     public static let invalidURL =
-        "That doesn\u{2019}t look like a web address. Try a full link like https://example.com/post."
+        "That doesn't look like a web address. Try a full link like https://example.com/post."
 
     public static func created(_ result: ContentCreateResult, siteName: String, published: Bool) -> String {
         switch result {
         case .created:
             return published
-                ? "Published a link post to \(siteName) \u{2014} it goes live with the site\u{2019}s next deploy."
+                ? "Published a link post to \(siteName) — it goes live with the site's next deploy."
                 : "Saved a link post draft on \(siteName)."
         case .siteNotFound:
-            return "\(siteName) isn\u{2019}t available right now."
+            return "\(siteName) isn't available right now."
         case .failed(let reason):
-            return "Couldn\u{2019}t add that link post to \(siteName): \(reason)"
+            return "Couldn't add that link post to \(siteName): \(reason)"
         }
     }
 }
