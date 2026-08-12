@@ -147,9 +147,13 @@ existing chip/badge primitive exists in the canvas chrome (`rich-text.ts`,
 `drag-drop.ts`, `breakpoints.ts`, `selection.ts`) — this introduces one:
 
 - A small anchored pill per finding, positioned via the same handle-rect
-  geometry `selection.ts` already computes for selection handles.
-- Multiple findings on one block stack/badge-count rather than overlap.
-- Click expands to the message and, when `fix` is present, an Apply button.
+  geometry `selection.ts` already computes for selection handles. The message
+  and (when `fix` is present) an Apply button are always visible on the pill
+  rather than hidden behind a click-to-expand — simpler, and no content
+  hidden from a screen-reader user, which fits this project's own a11y focus.
+- Multiple findings on one block stack rather than overlap: each pushed
+  finding for the same block offsets vertically by a fixed step from the
+  block's anchor point, in the order the host sent them.
 - Applying disables the button and calls `engine.submit(fix)`: on `applied`,
   the chip is removed immediately (a natural re-push follows anyway, since
   the op firing `onOpApplied` re-runs the gates — the immediate removal is
