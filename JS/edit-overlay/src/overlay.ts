@@ -190,7 +190,14 @@ function attachImageDrop(awaitReply: (id: string, handler: (r: EditReply) => voi
     // Prevent WKWebView from navigating to a dropped local file. A target outside an image is
     // still handled below with guidance instead of silently discarding the gesture.
     ev.preventDefault();
-    if (ev.dataTransfer) ev.dataTransfer.dropEffect = target ? "copy" : "none";
+    // Accept the drop over a highlighted image target (replace), OR anywhere on a page with no
+    // images at all (insert-first-image — see the `drop` handler's matching `!hadTargets` branch
+    // below). Without the second condition, dropEffect stayed "none" for every point that isn't
+    // literally over an <img>, which on an image-less page is every point on the page: the OS
+    // rejects the drop outright (macOS's drag "poof back to origin" animation) and `drop` never
+    // even fires, so the insert-new-image path below was unreachable from a real drag.
+    const acceptsDrop = target !== null || imageTargets().length === 0;
+    if (ev.dataTransfer) ev.dataTransfer.dropEffect = acceptsDrop ? "copy" : "none";
   });
   const replaceImage = (target: HTMLImageElement, file: File): void => {
     // Save originals before the optimistic swap so we can revert on failure.
