@@ -105,17 +105,22 @@ interface Finding {
 ```
 
 Mirrored on the Swift side as `Finding` alongside the existing `WYSIWYGOps.swift`
-types. `fix` is only populated for:
+types. `fix` is populated only for **headingOrder** this slice: a `setProp`
+correcting the block's heading level to close a skip (e.g. h2 → h4 becomes
+h2 → h3) — cheap and synchronous, computable straight from the model already
+in memory.
 
-- **imageWeight**: shrinking display dimensions alone would not reduce bytes
-  downloaded, so the fix must produce an actual smaller/re-encoded asset
-  file, then `setProp` the block's `src` to point at it. This slice's
-  `ImageWeightGate` invokes the same image-optimization pipeline the
-  `anglesite:optimize-images` capability already uses (resize/re-encode) to
-  generate that file rather than reimplementing image processing — the
-  implementation plan confirms the exact entry point during task breakdown.
-- **headingOrder**: a `setProp` correcting the block's heading level to close
-  a skip (e.g. h2 → h4 becomes h2 → h3).
+**imageWeight is detection-only this slice, not apply.** Shrinking display
+dimensions alone would not reduce bytes downloaded, so a real fix has to
+produce an actual smaller/re-encoded asset file — which means an async,
+MCP-backed round trip to the sidecar's image-optimization tool. Doing that
+work inside the after-every-op analysis loop would reintroduce the exact
+per-keystroke latency problem native-Swift analysis exists to avoid (§2), and
+deferring it to click-time would need a second request/response message
+alongside `submit-op` — real scope, not a detail. The chip still surfaces
+with the owner-consequence message ("photos this big load slowly on
+phones"); wiring its apply action to the sidecar's optimizer is a clean,
+separable fast-follow (added to §7).
 
 Contrast, alt text, and link-integrity findings are advisory-only this slice
 — no mechanical fix is safe to apply without owner judgment (a color choice,
@@ -173,6 +178,10 @@ existing chip/badge primitive exists in the canvas chrome (`rich-text.ts`,
   the type level; no piercing logic is written until there's real
   shadow-DOM content to pierce.
 - **AI-driven fixes** (e.g. AI-generated alt text). Explicitly slice 6.
+- **Image-weight one-tap apply.** This slice ships detection only (see §3);
+  wiring Apply to the sidecar's MCP-backed image-optimization tool is a
+  fast-follow once the async request/response shape it needs is worth its
+  own design pass.
 - **External link reachability.** Stays owned by the deploy-time backstop;
   live gates check internal href resolution only.
 - **Advisory-only categories getting apply buttons.** Contrast, alt text, and
