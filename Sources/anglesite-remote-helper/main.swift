@@ -53,8 +53,9 @@ do {
 } catch {
     FileHandle.standardError.write(Data("registry directory creation failed: \(error)\n".utf8))
 }
+let control = ContainerizationControl()
 let containerSession = RemoteContainerSession(
-    control: ContainerizationControl(),
+    control: control,
     registry: RemoteSessionRegistry(directory: registryDir))
 
 let session: LocalContainerSession
@@ -86,7 +87,21 @@ FileHandle.standardError.write(Data("remote-helper: peer connected; bridging\n".
 
 let httpBridge = FetchBridgeServer(connection: peer, executor: LoopbackHTTPExecutor(baseURL: session.previewURL))
 let mcpBridge = LoopbackMCPBridge(mcpURL: session.mcpURL)
-let mcpResponder = MCPChannelResponder(connection: peer, handler: { message in await mcpBridge.handle(message) })
+// Persistence only runs for a container THIS process booted — a borrowed claim (another
+// process's container) has no in-process VM handle `control.exec` can reach (see
+// ContainerEditExport's doc comment). `await` is fine here: `isOwner` only reads actor state
+// already settled by the `ensureRunning` call above, no I/O.
+let mcpHandler: MCPChannelResponder.Handler
+if await containerSession.isOwner(siteID: siteID) {
+    let persister = HelperEditPersister(
+        wrapping: mcpBridge.handle, siteID: siteID, control: control, sourceDirectory: siteRoot,
+        onLog: { line, stream in FileHandle.standardError.write(Data(("[\(stream)] " + line + "\n").utf8)) })
+    mcpHandler = persister.handle
+} else {
+    FileHandle.standardError.write(Data("remote-helper: bridging a borrowed container — edits will not be persisted by this process\n".utf8))
+    mcpHandler = mcpBridge.handle
+}
+let mcpResponder = MCPChannelResponder(connection: peer, handler: mcpHandler)
 let heartbeat = ControlHeartbeat(connection: peer, interval: .seconds(10), missLimit: 6, onMiss: { count in
     if count >= 6 { FileHandle.standardError.write(Data("control link presumed dead\n".utf8)) }
 })
