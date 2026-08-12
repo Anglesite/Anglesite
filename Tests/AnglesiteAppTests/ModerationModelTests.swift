@@ -17,6 +17,15 @@ struct ModerationModelTests {
         func delete(account: String) throws { values.removeValue(forKey: account) }
     }
 
+    /// Captures the JSON bodies of every POST a test's `membershipTransport` sees, so a test can
+    /// assert on the activity shape (`type`/`object`) sent to the Worker. Shared by
+    /// `banRemovesMember()` and `approveAcceptsAndRemovesFromPendingList()` — hoisted out of both
+    /// to a single definition instead of each declaring its own local copy.
+    private actor Recorder {
+        private(set) var bodies: [[String: Any]] = []
+        func record(_ body: [String: Any]) { bodies.append(body) }
+    }
+
     private static func site(configDirectory: URL, sourceDirectory: URL) -> CurrentSite {
         CurrentSite(
             id: "site-1", name: "Test Community",
@@ -49,10 +58,6 @@ struct ModerationModelTests {
         defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
         let secretStore = InMemorySecretStore()
         secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
-        actor Recorder {
-            private(set) var bodies: [[String: Any]] = []
-            func record(_ body: [String: Any]) { bodies.append(body) }
-        }
         let recorder = Recorder()
 
         let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
@@ -153,5 +158,135 @@ struct ModerationModelTests {
         #expect(!added)
         #expect(model.moderators.isEmpty)
         #expect(model.errorMessage != nil)
+    }
+
+    @Test("reload fetches pending follow requests from this site's own actor")
+    func reloadLoadsPendingFollowRequests() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if request.url?.lastPathComponent == "follow_requests" {
+                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (
+                    Data(
+                        #"{"items":[{"actor":"https://lemmy.ml/u/newmember","addedAt":"2026-08-10T18:28:14.000Z"}],"total":1}"#
+                            .utf8), http
+                )
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+            return (Data("{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+
+        #expect(model.pendingFollowers.count == 1)
+        #expect(model.pendingFollowers.first?.actor.absoluteString == "https://lemmy.ml/u/newmember")
+    }
+
+    /// The upstream listing endpoint (`davidwkeith/workers` PR #488) postdates the latest tagged
+    /// `@dwk/workers` release as of this writing (see the plan's Global Constraints) — a deployed
+    /// community's Worker will 404 on this route until it redeploys against a newer release. That
+    /// must degrade to an empty list, never a blocking alert.
+    @Test("a 404 from follow_requests leaves pendingFollowers empty without surfacing an error")
+    func reloadIgnoresFollowRequests404() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            let http = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+            return (Data("Not Found".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+
+        #expect(model.pendingFollowers.isEmpty)
+        #expect(model.errorMessage == nil)
+    }
+
+    /// Only a 404 is the expected "route not yet released" case (see the test above). Any other
+    /// failure — an expired/revoked publish token, a genuinely broken deploy — must surface via
+    /// `errorMessage` like `ban(_:)`/`removePost(_:)` do, rather than swallowing it the same way
+    /// as the 404 case: silently hiding a real regression on this endpoint would leave the owner
+    /// with no signal that requests might be piling up unseen.
+    @Test("a non-404 failure from follow_requests surfaces via errorMessage")
+    func reloadSurfacesNon404FollowRequestsFailure() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            let http = HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!
+            return (Data("server error".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+
+        #expect(model.pendingFollowers.isEmpty)
+        #expect(model.errorMessage != nil)
+    }
+
+    @Test("approving a follower POSTs Accept and drops them from the pending list")
+    func approveAcceptsAndRemovesFromPendingList() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let recorder = Recorder()
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if request.url?.lastPathComponent == "follow_requests" {
+                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (
+                    Data(
+                        #"{"items":[{"actor":"https://lemmy.ml/u/newmember","addedAt":"2026-08-10T18:28:14.000Z"}],"total":1}"#
+                            .utf8), http
+                )
+            }
+            if let data = request.httpBody, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                await recorder.record(json)
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+            return (Data("{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        #expect(model.pendingFollowers.count == 1)
+
+        await model.approve(model.pendingFollowers[0])
+
+        let body = await recorder.bodies.first
+        #expect(body?["type"] as? String == "Accept")
+        #expect(body?["object"] as? String == "https://lemmy.ml/u/newmember")
+        #expect(model.pendingFollowers.isEmpty)
+    }
+
+    @Test("a failed approve sets errorMessage and leaves the follower in the pending list")
+    func approveFailureSetsErrorMessage() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if request.url?.lastPathComponent == "follow_requests" {
+                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (
+                    Data(
+                        #"{"items":[{"actor":"https://lemmy.ml/u/newmember","addedAt":"2026-08-10T18:28:14.000Z"}],"total":1}"#
+                            .utf8), http
+                )
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!
+            return (Data("forbidden".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        #expect(model.pendingFollowers.count == 1)
+
+        await model.approve(model.pendingFollowers[0])
+
+        #expect(model.errorMessage != nil)
+        #expect(model.pendingFollowers.count == 1)
     }
 }

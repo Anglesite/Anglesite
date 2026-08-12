@@ -102,13 +102,67 @@ public struct CommunityMembershipClient: Sendable {
         _ = try await post(body)
     }
 
-    private func post(_ activity: [String: Any]) async throws -> Data {
-        var request = URLRequest(url: outboxURL)
-        request.httpMethod = "POST"
-        request.setValue("application/activity+json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(publishToken)", forHTTPHeaderField: "Authorization")
-        request.httpBody = try JSONSerialization.data(withJSONObject: activity)
+    /// Confirms a pending join request — the owner-triggered half of workers#473's `Accept`
+    /// routing, which already ships in `dwk-server-v1.0.0-beta.3`. Same shorthand `object` shape
+    /// as ``remove(target:)``: a bare actor IRI, which the Worker's `#singleFollowTarget` resolves
+    /// against the stored `Follow` row.
+    public func acceptFollow(target: URL) async throws {
+        let body: [String: Any] = [
+            "@context": "https://www.w3.org/ns/activitystreams",
+            "type": "Accept",
+            "actor": ownActorURL.absoluteString,
+            "object": target.absoluteString,
+        ]
+        _ = try await post(body)
+    }
 
+    /// Lists everyone whose `Follow` is awaiting this owner's `Accept` — the bearer-gated
+    /// `GET <actor>/follow_requests` `davidwkeith/workers` PR #488 added (closing workers#487),
+    /// mirroring `GET <actor>/blocked`'s unpaged flat `{items, total}` JSON exactly. **Not yet in
+    /// a tagged `@dwk/workers` release** as of `dwk-server-v1.0.0-beta.3` — callers must treat a
+    /// failure here (most likely a 404 from a not-yet-updated deployed Worker) as "nothing
+    /// pending", never as a user-facing error; see `ModerationModel.loadPendingFollowers()`.
+    public func listFollowRequests() async throws -> [PendingFollower] {
+        var request = URLRequest(url: ownActorURL.appendingPathComponent("follow_requests"))
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(publishToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = ActorProfileFetcher.timeout
+        let data = try await send(request)
+        return Self.decodeFollowRequests(data)
+    }
+
+    /// Decodes the Worker's `{items: [{actor, addedAt}], total}` response. A response that
+    /// doesn't parse as this shape at all (missing `items`, wrong field types) yields an empty
+    /// list — same "a bad read must never make the pane unusable" rule ``ModerationModel``'s
+    /// snapshot decoding already follows. An individual item's `addedAt` that fails ISO 8601
+    /// parsing (with or without fractional seconds — `Date.toISOString()` always emits
+    /// `.000`-style milliseconds, which the plain `ISO8601DateFormatter()` default options
+    /// reject) defaults to `.distantPast` rather than dropping the item: a malformed timestamp
+    /// must never make a real pending requester silently unapprovable.
+    private static func decodeFollowRequests(_ data: Data) -> [PendingFollower] {
+        struct Response: Decodable {
+            struct Item: Decodable { let actor: URL; let addedAt: String }
+            let items: [Item]
+        }
+        guard let response = try? JSONDecoder().decode(Response.self, from: data) else { return [] }
+        let withFractional: ISO8601DateFormatter = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter
+        }()
+        let plain = ISO8601DateFormatter()
+        return response.items.map { item in
+            let date = withFractional.date(from: item.addedAt) ?? plain.date(from: item.addedAt) ?? .distantPast
+            return PendingFollower(actor: item.actor, addedAt: date)
+        }
+    }
+
+    /// Shared POST/GET status handling: maps a transport error or non-2xx response to
+    /// ``CommunityMembershipError/requestFailed(status:body:)``, otherwise returns the raw body.
+    /// Factored out of `post(_:)` so ``listFollowRequests()``'s GET reuses the exact same mapping
+    /// instead of duplicating it.
+    private func send(_ request: URLRequest) async throws -> Data {
         let data: Data
         let http: HTTPURLResponse
         do {
@@ -121,6 +175,16 @@ public struct CommunityMembershipClient: Sendable {
                 status: http.statusCode, body: String(decoding: data.prefix(400), as: UTF8.self))
         }
         return data
+    }
+
+    private func post(_ activity: [String: Any]) async throws -> Data {
+        var request = URLRequest(url: outboxURL)
+        request.httpMethod = "POST"
+        request.setValue("application/activity+json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(publishToken)", forHTTPHeaderField: "Authorization")
+        request.httpBody = try JSONSerialization.data(withJSONObject: activity)
+        request.timeoutInterval = ActorProfileFetcher.timeout
+        return try await send(request)
     }
 
     static func activityID(from data: Data) -> String? {
