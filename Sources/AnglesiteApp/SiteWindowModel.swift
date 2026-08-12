@@ -1474,7 +1474,7 @@ final class SiteWindowModel {
             componentEditor = nil
         }
         guard await cleanup.delete(candidate) else { return }
-        await navigator?.refreshNow()
+        await refreshAfterContentMutation()
         await graphExplorer.refreshNow()
     }
 
@@ -1609,6 +1609,16 @@ final class SiteWindowModel {
         }
     }
 
+    /// Every successful native content mutation (create/duplicate/delete/publish/undo/cleanup)
+    /// needs both of these: the Navigator force-refreshed (#586 — its own change-stream observer
+    /// is decoupled from this call) and, when a container preview is running, told to catch up
+    /// (#1420 — `NativeContentOperations` commits straight to host `Source/`, which an
+    /// already-booted container's guest clone has no other way to learn about).
+    private func refreshAfterContentMutation() async {
+        await navigator?.refreshNow()
+        await preview.syncContentFromHost()
+    }
+
     /// `contentCreation`'s successful create already rescans `SiteContentGraph` and publishes a
     /// change event, but the Navigator consumes that event on its own long-running observer `Task`
     /// (`SiteNavigatorModel.start()`) — decoupled from this call, so nothing guarantees it has
@@ -1627,7 +1637,7 @@ final class SiteWindowModel {
             template: template
         )
         if case .created(let filePath, _) = result {
-            await navigator?.refreshNow()
+            await refreshAfterContentMutation()
             registerContentUndo(
                 actionName: ContentUndoCoordinator.createActionName("Page"),
                 relativePath: filePath, before: nil, after: createdContents(at: filePath))
@@ -1651,7 +1661,7 @@ final class SiteWindowModel {
             fieldValues: fieldValues
         )
         if case .created(let filePath, _) = result {
-            await navigator?.refreshNow()
+            await refreshAfterContentMutation()
             registerContentUndo(
                 actionName: ContentUndoCoordinator.createActionName(descriptor.displayName),
                 relativePath: filePath, before: nil, after: createdContents(at: filePath))
@@ -1664,7 +1674,7 @@ final class SiteWindowModel {
         guard let site else { return .siteNotFound }
         let result = await contentCreation.createPost(siteID: site.id, title: title, collection: nil, slug: nil)
         if case .created(let filePath, _) = result {
-            await navigator?.refreshNow()
+            await refreshAfterContentMutation()
             registerContentUndo(
                 actionName: ContentUndoCoordinator.createActionName("Post"),
                 relativePath: filePath, before: nil, after: createdContents(at: filePath))
@@ -1679,7 +1689,7 @@ final class SiteWindowModel {
         guard let site else { return .siteNotFound }
         let result = await contentCreation.createComponent(siteID: site.id, name: name)
         if case .created(let filePath, _) = result {
-            await navigator?.refreshNow()
+            await refreshAfterContentMutation()
             registerContentUndo(
                 actionName: ContentUndoCoordinator.createActionName("Component"),
                 relativePath: filePath, before: nil, after: createdContents(at: filePath))
@@ -1695,7 +1705,7 @@ final class SiteWindowModel {
         guard let site else { return .siteNotFound }
         let result = await contentCreation.duplicateComponent(siteID: site.id, relativePath: relativePath)
         if case .created(let filePath, let identifier) = result {
-            await navigator?.refreshNow()
+            await refreshAfterContentMutation()
             registerContentUndo(
                 actionName: ContentUndoCoordinator.duplicateActionName(identifier),
                 relativePath: filePath, before: nil, after: createdContents(at: filePath))
@@ -1797,7 +1807,7 @@ final class SiteWindowModel {
             switch await contentCreation.deleteContent(
                 siteID: site.id, relativePath: mutation.relativePath) {
             case .deleted:
-                await navigator?.refreshNow()
+                await refreshAfterContentMutation()
                 // Resolved against the *rebuilt* tree rather than by comparing paths up front:
                 // whatever row backed this file is simply gone now, and a selection pointing at a
                 // node that no longer exists leaves the sidebar highlighting nothing openable.
@@ -1820,7 +1830,7 @@ final class SiteWindowModel {
         switch await contentCreation.restoreContent(
             siteID: site.id, relativePath: mutation.relativePath, contents: contents) {
         case .created:
-            await navigator?.refreshNow()
+            await refreshAfterContentMutation()
             reopenSurfaces(for: mutation.relativePath)
             return .applied
         case .failed(let reason):
@@ -1829,7 +1839,7 @@ final class SiteWindowModel {
             // its recommit did — reopen iff the file actually made it back to disk, matching the
             // check the retired one-shot undo affordance used.
             if FileManager.default.fileExists(atPath: url.path) {
-                await navigator?.refreshNow()
+                await refreshAfterContentMutation()
                 reopenSurfaces(for: mutation.relativePath)
             }
             return .failed
@@ -1888,7 +1898,7 @@ final class SiteWindowModel {
             // `deleteContent` only rescans `SiteContentGraph`; the Navigator's own consumption of
             // that change is a decoupled async observer task, so nothing guarantees it has rebuilt
             // `sections` yet — force it, same race/fix as the create paths (#586).
-            await navigator?.refreshNow()
+            await refreshAfterContentMutation()
             registerContentUndo(
                 actionName: ContentUndoCoordinator.deleteActionName(item.title),
                 relativePath: relPath, before: savedContents, after: nil)
@@ -1935,7 +1945,7 @@ final class SiteWindowModel {
 
         switch result {
         case .created(let filePath, let identifier):
-            await navigator?.refreshNow()
+            await refreshAfterContentMutation()
             navigator?.selection = isPost ? "\(site.id):post:\(identifier)" : "\(site.id):page:\(identifier)"
             // Named for the *source* item, not the generated "About Copy" — "Undo Duplicate
             // “About”" is what the user recognizes as the action they just took.
@@ -1963,7 +1973,7 @@ final class SiteWindowModel {
             siteID: site.id, relativePath: post.filePath, collection: post.collection)
         switch result {
         case .created:
-            await navigator?.refreshNow()
+            await refreshAfterContentMutation()
         case .failed(let reason):
             contentActionError = reason
         case .siteNotFound:
@@ -1983,7 +1993,7 @@ final class SiteWindowModel {
             siteID: site.id, relativePath: post.filePath, collection: post.collection)
         switch result {
         case .created:
-            await navigator?.refreshNow()
+            await refreshAfterContentMutation()
         case .failed(let reason):
             contentActionError = reason
         case .siteNotFound:

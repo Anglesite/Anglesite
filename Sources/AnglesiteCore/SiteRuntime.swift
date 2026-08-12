@@ -61,6 +61,13 @@ public protocol SiteRuntimeContainerCapability: AnyObject, Sendable {
     func resetNetworking() async
     /// Hands a guest-side edit commit back to the canonical `Source/` repo.
     func persistEdit(commit: String?) async throws
+    /// Fast-forwards the guest's cloned working copy to the host's current `Source/` HEAD (#1420)
+    /// — the reverse hop of `persistEdit`. A native (host-side) content operation — New Page/Post/
+    /// Component, Duplicate, Rename, Delete, Publish, Cleanup — commits directly to the host's
+    /// canonical `Source/` repo without going through this runtime at all, so the guest's
+    /// already-cloned working copy (what the dev server actually serves) never learns about it on
+    /// its own. See `LocalContainerSiteRuntime.syncFromHost()`.
+    func syncFromHost() async throws
     /// Recomputes the effective active-worker set from `settings` and restarts (or stops) the
     /// local wrangler-dev session to match — the Workers tab (#710) calls this on toggle. See
     /// `LocalContainerSiteRuntime.updateActiveWorkers`.
