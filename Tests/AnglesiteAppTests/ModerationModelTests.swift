@@ -17,6 +17,15 @@ struct ModerationModelTests {
         func delete(account: String) throws { values.removeValue(forKey: account) }
     }
 
+    /// Captures the JSON bodies of every POST a test's `membershipTransport` sees, so a test can
+    /// assert on the activity shape (`type`/`object`) sent to the Worker. Shared by
+    /// `banRemovesMember()` and `approveAcceptsAndRemovesFromPendingList()` — hoisted out of both
+    /// to a single definition instead of each declaring its own local copy.
+    private actor Recorder {
+        private(set) var bodies: [[String: Any]] = []
+        func record(_ body: [String: Any]) { bodies.append(body) }
+    }
+
     private static func site(configDirectory: URL, sourceDirectory: URL) -> CurrentSite {
         CurrentSite(
             id: "site-1", name: "Test Community",
@@ -49,10 +58,6 @@ struct ModerationModelTests {
         defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
         let secretStore = InMemorySecretStore()
         secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
-        actor Recorder {
-            private(set) var bodies: [[String: Any]] = []
-            func record(_ body: [String: Any]) { bodies.append(body) }
-        }
         let recorder = Recorder()
 
         let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
@@ -207,10 +212,6 @@ struct ModerationModelTests {
         defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
         let secretStore = InMemorySecretStore()
         secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
-        actor Recorder {
-            private(set) var bodies: [[String: Any]] = []
-            func record(_ body: [String: Any]) { bodies.append(body) }
-        }
         let recorder = Recorder()
 
         let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
