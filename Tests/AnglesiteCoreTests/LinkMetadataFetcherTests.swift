@@ -89,4 +89,21 @@ struct LinkMetadataFetcherTests {
         let meta = try await fetcher.fetch(url: URL(string: "https://example.com/big")!)
         #expect(meta.title == "Capped")
     }
+
+    @Test("missing Content-Type still parses — servers that omit the header are common")
+    func nilMIMEProceeds() async throws {
+        reset(body: #"<head><meta property="og:title" content="No MIME"></head>"#, mime: nil)
+        let fetcher = LinkMetadataFetcher(session: LinkStubURLProtocol.makeSession())
+        let meta = try await fetcher.fetch(url: URL(string: "https://example.com/n")!)
+        #expect(meta.title == "No MIME")
+    }
+
+    @Test("declared charset drives the decode (ISO-8859-1 body decodes correctly)")
+    func charsetDecode() {
+        // Exercises the CFStringConvertIANACharSetNameToEncoding branch of decode(_:textEncodingName:)
+        // directly: 0xE9 is "é" in ISO-8859-1 but invalid as a UTF-8 sequence.
+        let latin1 = Data([0xE9])
+        #expect(LinkMetadataFetcher.decode(latin1, textEncodingName: "iso-8859-1") == "é")
+        #expect(LinkMetadataFetcher.decode(latin1, textEncodingName: nil) == "\u{FFFD}")  // lossy UTF-8 fallback
+    }
 }
