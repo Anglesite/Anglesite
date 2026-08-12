@@ -194,13 +194,31 @@ public enum BundledImage {
 /// A bundled container artifact failed to resolve — the app was built without the vendored
 /// container resources (see `scripts/vendor-container-image.sh`) and no env override points at a
 /// local copy.
-public enum BundledImageError: Error, Equatable {
+///
+/// `CustomStringConvertible` so `"\(error)"` (how `BundledImage.artifactStatus` records the
+/// missing reason, and thus what `LiveSiteRuntimeFactory` surfaces in the debug pane) names the
+/// vendor script to run instead of the bare case name (#1429): a fresh worktree/clone builds fine
+/// with unvendored `Resources/container-{image,kernel,initfs}/` — `check-container-resources.sh`
+/// only warns in Debug — so this runtime message is often the first, and easiest to miss, signal
+/// a developer gets that provisioning never happened.
+public enum BundledImageError: Error, Equatable, CustomStringConvertible {
     /// The OCI app layout is not vendored and no `ANGLESITE_CONTAINER_IMAGE` override was set.
     case imageLayoutNotProvisioned
     /// The Linux kernel binary is not vendored and no `ANGLESITE_CONTAINER_KERNEL` override was set.
     case kernelNotProvisioned
     /// The vminit initfs is not vendored and no `ANGLESITE_CONTAINER_INITFS` override was set.
     case initfsNotProvisioned
+
+    public var description: String {
+        switch self {
+        case .imageLayoutNotProvisioned:
+            "imageLayoutNotProvisioned (run scripts/vendor-container-image.sh)"
+        case .kernelNotProvisioned:
+            "kernelNotProvisioned (run scripts/vendor-container-kernel.sh)"
+        case .initfsNotProvisioned:
+            "initfsNotProvisioned (run scripts/vendor-container-kernel.sh)"
+        }
+    }
 }
 
 /// Resolution status of all three bundled artifacts the container runtime needs to boot
