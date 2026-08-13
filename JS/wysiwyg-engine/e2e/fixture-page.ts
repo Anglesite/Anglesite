@@ -4,10 +4,12 @@ import { computeHandleRect } from "../src/selection.js";
 import { ROOT_PARENT_ID } from "../src/types.js";
 import { RichTextEditor } from "../src/rich-text.js";
 import { DragReorderController, wireExternalDrop, submitDrop } from "../src/drag-drop.js";
+import { QualityGateChips } from "../src/quality-gates.js";
 import type { HandleRect } from "../src/selection.js";
 import type { BlockModel, OpResult, RichTextRun, BlockNode } from "../src/types.js";
 import type { DropTarget } from "../src/drag-drop.js";
 import type { FormatKind } from "../src/rich-text.js";
+import type { Finding } from "../src/quality-gates.js";
 
 const initialModel: BlockModel = {
   path: "src/pages/index.astro",
@@ -113,6 +115,20 @@ const disposeExternalDrop = wireExternalDrop(
   },
 );
 
+class FixtureQualityGateTransport {
+  #listeners = new Set<(findings: Finding[]) => void>();
+  onFindings(listener: (findings: Finding[]) => void): () => void {
+    this.#listeners.add(listener);
+    return () => this.#listeners.delete(listener);
+  }
+  push(findings: Finding[]): void {
+    for (const listener of this.#listeners) listener(findings);
+  }
+}
+
+const qualityGateTransport = new FixtureQualityGateTransport();
+const qualityGateChips = new QualityGateChips(engine, qualityGateTransport, canvas());
+
 engine.onEvent((event) => {
   // A `rejected` event that carries a model carries the host's *fresh* one — the engine has already
   // adopted it, so the host has to re-render from it too or the DOM silently drifts from the model.
@@ -143,6 +159,8 @@ declare global {
     __submitDrop: (target: DropTarget, block: Omit<BlockNode, "id">) => Promise<OpResult>;
     __toggleFormat: (kind: FormatKind) => void;
     __disposeExternalDrop: () => void;
+    __qualityGateChips: QualityGateChips;
+    __pushQualityFindings: (findings: Finding[]) => void;
   }
 }
 
@@ -157,6 +175,8 @@ window.__computeHandleRect = (blockId) => computeHandleRect(blockId);
 window.__submitDrop = (target, block) => submitDrop(engine, target, block);
 window.__toggleFormat = (kind) => richText.toggleFormat(kind);
 window.__disposeExternalDrop = disposeExternalDrop;
+window.__qualityGateChips = qualityGateChips;
+window.__pushQualityFindings = (findings) => qualityGateTransport.push(findings);
 window.__moveBlock = (blockId, toIndex) => {
   const model = engine.modelSync.current;
   const fromIndex = model.rootIds.indexOf(blockId);

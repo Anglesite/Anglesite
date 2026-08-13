@@ -12,7 +12,7 @@ struct WYSIWYGCanvasControllerTests {
         let transport = StubWYSIWYGHostTransport(model: initial)
         let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
         var reported: (op: Op, inverse: Op, model: BlockModel)?
-        controller.onOpApplied = { op, inverse, model in reported = (op, inverse, model) }
+        controller.addOpAppliedListener { op, inverse, model in reported = (op, inverse, model) }
 
         let op = Op.insertBlock(parentId: rootParentID, slot: "main", index: 0, newId: "b1", block: BlockNodeContent(kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0]))
         let result = await controller.submit(op)
@@ -30,7 +30,7 @@ struct WYSIWYGCanvasControllerTests {
         let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
         controller.forceTargetVersion = "stale" // test-only seam, see Step 3
         var applied = false
-        controller.onOpApplied = { _, _, _ in applied = true }
+        controller.addOpAppliedListener { _, _, _ in applied = true }
 
         let op = Op.setDesignToken(tokenName: "t", value: "a", previousValue: "b")
         let result = await controller.submit(op)
@@ -110,7 +110,7 @@ struct WYSIWYGCanvasControllerTests {
 
         // A correctly-versioned envelope still applies and fires onOpApplied with the real op.
         var reported: (op: Op, inverse: Op)?
-        controller.onOpApplied = { op, inverse, _ in reported = (op, inverse) }
+        controller.addOpAppliedListener { op, inverse, _ in reported = (op, inverse) }
         let freshEnvelope = OpEnvelope(id: "req-2", targetVersion: controller.model.version, op: staleOp)
         let freshResult = await controller.sendOp(freshEnvelope)
 
@@ -153,6 +153,68 @@ struct WYSIWYGCanvasControllerTests {
         #expect(controller.model.rootIds.count == 1)
         let insertedId = controller.model.rootIds[0]
         #expect(controller.model.blocks[insertedId]?.componentName == "p")
+    }
+    @Test("applying an op re-runs quality gates when a context is set")
+    func appliedOpTriggersQualityGates() async {
+        let node = BlockNode(id: "img1", kind: .astro, componentName: "Image", props: ["src": .string("/photo.jpg")], slots: [:], sourceSpan: [0, 0])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["img1"], blocks: ["img1": node])
+        let transport = StubWYSIWYGHostTransport(model: initial)
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        controller.qualityGateContext = GateContext(resolvedTokens: [:], internalRoutes: [], assetRoot: URL(fileURLWithPath: "/tmp"))
+
+        _ = await controller.submit(.setDesignToken(tokenName: "t", value: "a", previousValue: "b"))
+
+        #expect(controller.lastQualityGateResult?.findings.contains { $0.category == .altText } == true)
+    }
+
+    @Test("undoing an applied op re-runs quality gates against the reverted model")
+    func undoReTriggersQualityGates() async {
+        // h2 followed by h4 — a heading skip HeadingOrderGate flags, with a `level` prop so it
+        // carries a one-tap fix. Applying the fix clears the chip; undoing has to bring it back.
+        let h2 = BlockNode(id: "h2", kind: .astro, componentName: "Heading", props: ["level": .number(2)], slots: [:], sourceSpan: [0, 0])
+        let h4 = BlockNode(id: "h4", kind: .astro, componentName: "Heading", props: ["level": .number(4)], slots: [:], sourceSpan: [1, 2])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["h2", "h4"], blocks: ["h2": h2, "h4": h4])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+        controller.qualityGateContext = GateContext(resolvedTokens: [:], internalRoutes: [], assetRoot: URL(fileURLWithPath: "/tmp"))
+        let undoManager = UndoManager()
+        undoManager.groupsByEvent = false // no run loop in a test; see WYSIWYGUndoCoordinator's doc
+        controller.undoCoordinator.undoManager = undoManager
+
+        _ = await controller.submit(.setProp(blockId: "h4", propName: "level", value: .number(3), previousValue: .number(4)))
+        #expect(controller.lastQualityGateResult?.findings.contains { $0.category == .headingOrder } == false)
+
+        undoManager.undo()
+        await controller.undoCoordinator.pendingPerform?.value
+
+        // The skip is back in the model, so its chip has to be back too — the undo path bypasses
+        // the applied-op listener list, which is exactly where the gates used to be wired.
+        #expect(controller.model.blocks["h4"]?.props["level"] == .number(4))
+        #expect(controller.lastQualityGateResult?.findings.contains { $0.category == .headingOrder } == true)
+    }
+
+    @Test("a nil qualityGateContext means quality gates never run")
+    func noContextMeansNoAnalysis() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let transport = StubWYSIWYGHostTransport(model: initial)
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+
+        _ = await controller.submit(.setDesignToken(tokenName: "t", value: "a", previousValue: "b"))
+
+        #expect(controller.lastQualityGateResult == nil)
+    }
+
+    @Test("pushQualityFindingsScript(for:) builds a _handleQualityFindings call carrying the findings' exact JSON encoding")
+    func pushQualityFindingsScriptBuildsCall() throws {
+        let finding = Finding(blockId: "img1", category: .imageWeight, severity: .warning, message: "big")
+
+        let script = WYSIWYGCanvasController.pushQualityFindingsScript(for: [finding])
+
+        #expect(script.hasPrefix("window.__anglesiteWysiwygHost?._handleQualityFindings?.("))
+        #expect(script.hasSuffix(")"))
+        let jsonStart = script.index(script.startIndex, offsetBy: "window.__anglesiteWysiwygHost?._handleQualityFindings?.(".count)
+        let json = String(script[jsonStart..<script.index(before: script.endIndex)])
+        let decoded = try JSONDecoder().decode([Finding].self, from: Data(json.utf8))
+        #expect(decoded == [finding])
     }
 }
 

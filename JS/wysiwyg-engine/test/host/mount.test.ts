@@ -20,6 +20,7 @@ describe("wysiwyg engine host mount entry point (#1225)", () => {
     document.body.innerHTML = "";
     delete (window as any).__anglesiteWysiwygEngine;
     delete (window as any).__anglesiteWysiwygRichTextEditor;
+    delete (window as any).__anglesiteWysiwygQualityGates;
     delete (window as any).__anglesiteWysiwygHost;
   });
 
@@ -70,5 +71,22 @@ describe("wysiwyg engine host mount entry point (#1225)", () => {
     window.__anglesiteWysiwygMount!.mount({ ...model, version: "v1" });
 
     expect(disposeSpy).toHaveBeenCalledOnce();
+  });
+
+  it("mount() constructs quality-gate chips wired to the same transport as the engine", () => {
+    window.__anglesiteWysiwygMount!.mount(model);
+
+    expect(window.__anglesiteWysiwygQualityGates).toBeDefined();
+  });
+
+  it("unmount() disposes the quality-gate chips and clears the global", () => {
+    window.__anglesiteWysiwygMount!.mount(model);
+    const chips = window.__anglesiteWysiwygQualityGates!;
+    const disposeSpy = vi.spyOn(chips, "dispose");
+
+    window.__anglesiteWysiwygMount!.unmount();
+
+    expect(disposeSpy).toHaveBeenCalledOnce();
+    expect(window.__anglesiteWysiwygQualityGates).toBeUndefined();
   });
 });

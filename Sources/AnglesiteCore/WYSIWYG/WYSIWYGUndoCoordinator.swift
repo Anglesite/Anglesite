@@ -60,7 +60,8 @@ public final class WYSIWYGUndoCoordinator {
     }
 
     /// Registers one applied op on the undo stack. Call from
-    /// `WYSIWYGCanvasController.onOpApplied`, right after a real, already-confirmed success —
+    /// `WYSIWYGCanvasController`'s applied-op listener list (`addOpAppliedListener`/
+    /// `fireOpApplied`), right after a real, already-confirmed success —
     /// this entry point never calls `perform` itself, it only records the step. No-op when no
     /// `undoManager` is attached.
     public func registerApplied(op: Op, inverse: Op) {
