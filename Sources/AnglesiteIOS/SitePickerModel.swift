@@ -19,12 +19,16 @@ public final class SitePickerModel {
         public let displayName: String
         public let packageURL: URL
 
-        // Swift only auto-synthesizes a memberwise init at the type's own access level, which
-        // for a struct with `public` stored properties but no explicit `public init` is
-        // `internal` — invisible outside `AnglesiteIOS`. `refresh()` below (same module) never
-        // needed this, but the Mac's CMS-mode connect sheet (#800, `AnglesiteApp`) constructs a
-        // `DiscoveredSite` from `SiteStore.Site` to reuse `MicropubOnboardingModel.configure(site:)`
-        // across the module boundary, so an explicit public init is required.
+        /// Creates a discovered site with explicit values, for cross-module construction (e.g.
+        /// from a Mac `SiteStore.Site`).
+        ///
+        /// Swift only auto-synthesizes a memberwise init at the type's own access level, which
+        /// for a struct with `public` stored properties but no explicit `public init` is
+        /// `internal` — invisible outside `AnglesiteIOS`. `refresh()` below (same module) never
+        /// needed this, but the Mac's CMS-mode connect sheet (#800, `AnglesiteApp`) constructs a
+        /// `DiscoveredSite` from `SiteStore.Site` to reuse
+        /// ``MicropubOnboardingModel/configure(site:)`` across the module boundary, so an
+        /// explicit public init is required.
         public init(id: UUID, displayName: String, packageURL: URL) {
             self.id = id
             self.displayName = displayName
