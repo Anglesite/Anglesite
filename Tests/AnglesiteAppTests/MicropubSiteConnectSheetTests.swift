@@ -105,6 +105,25 @@ struct MicropubSiteConnectSheetTests {
         #expect(settings.contentImportCompleted == nil)
     }
 
+    // MARK: - shouldMarkContentImportCompleted
+
+    /// This is `runAutomaticImportIfNeeded()`'s half of a reviewer-found landmine: it used to set
+    /// the in-memory `contentImportCompleted` mirror to `true` unconditionally, even on the branch
+    /// where `runImportAndPersistCompletion`'s own `isCancelled()` guard skipped writing the flag
+    /// to disk — letting the UI claim "done" while the persisted state disagreed.
+    /// `shouldMarkContentImportCompleted` must mirror that guard exactly.
+    @Test(
+        "mirrors runImportAndPersistCompletion's own cancellation guard",
+        arguments: [
+            (false, true),   // not cancelled — the persisted write happened, mirror should follow
+            (true, false),   // cancelled — the persisted write was skipped, mirror must not lie
+        ] as [(Bool, Bool)]
+    )
+    func shouldMarkContentImportCompletedMirrorsCancellation(isCancelled: Bool, expected: Bool) {
+        #expect(
+            MicropubSiteConnectSheet.shouldMarkContentImportCompleted(isCancelled: { isCancelled }) == expected)
+    }
+
     // MARK: - ImportInFlightGate
 
     /// This is the piece that closes the concurrency bug a reviewer found: with no shared

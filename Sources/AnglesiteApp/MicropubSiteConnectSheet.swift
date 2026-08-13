@@ -222,6 +222,16 @@ struct MicropubSiteConnectSheet: View {
         contentImportCompleted != true
     }
 
+    /// Whether `runAutomaticImportIfNeeded()`'s in-memory `contentImportCompleted` mirror should
+    /// flip to `true` after `runImportAndPersistCompletion` returns. Mirrors that function's own
+    /// `isCancelled()` guard exactly (same default, same meaning) so the UI-facing flag can never
+    /// claim "done" on the branch where the persisted write was actually skipped because the
+    /// calling `.task` was cancelled. Pulled out as a pure static function, like
+    /// `shouldShowManualImportButton`, so it's unit-testable without hosting the view.
+    static func shouldMarkContentImportCompleted(isCancelled: () -> Bool = { Task.isCancelled }) -> Bool {
+        !isCancelled()
+    }
+
     /// Auto-triggered once per sheet presentation while `.signedIn` is showing (Task B2, spec
     /// §C.7). Loads the persisted completion flag for `manualImportControl` regardless of
     /// outcome; only actually runs the import when a fresh sign-in populated
@@ -240,7 +250,14 @@ struct MicropubSiteConnectSheet: View {
         importInProgress = true
         _ = await Self.runImportAndPersistCompletion(
             siteDirectory: site.sourceDirectory, configDirectory: site.configDirectory, client: client)
-        contentImportCompleted = true
+        // Mirrors `runImportAndPersistCompletion`'s own `isCancelled()` guard: that helper skips
+        // persisting `contentImportCompleted` to disk when this `.task` was cancelled (the view
+        // disappearing mid-import), so this in-memory mirror must not claim "done" on that branch
+        // either — otherwise it'd drift from the disk state it's supposed to reflect, with no way
+        // to retrigger the import short of relaunching.
+        if Self.shouldMarkContentImportCompleted() {
+            contentImportCompleted = true
+        }
         await releaseImportGate()
     }
 
