@@ -309,6 +309,7 @@ private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.lanRuntimeHost) private var lanRuntimeHost: String = ""
     @AppStorage(AppSettings.Key.lanRuntimePreviewPort) private var lanRuntimePreviewPort: String = ""
     @AppStorage(AppSettings.Key.lanRuntimeMCPPort) private var lanRuntimeMCPPort: String = ""
+    @StateObject private var lanScan = LANHostScanCoordinator()
 
     /// Same visibility rule as the Debug pane (`DebugPaneVisibility`): always present in Debug
     /// builds; in Release only after the diagnostics opt-in. The LAN runtime is dev/test
@@ -394,6 +395,9 @@ private struct AdvancedSettingsView: View {
                             .frame(width: 100)
                             .accessibilityLabel("LAN runtime MCP port")
                     }
+
+                    lanDiscoveryControls
+
                     Text("Dev/test only: when this Mac can't boot the local container runtime (e.g. inside a VM without nested virtualization), Anglesite connects preview and editing to a dev server already running on the named host over the trusted local network. Leave the host blank to disable. Takes effect the next time a site window opens.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -415,6 +419,50 @@ private struct AdvancedSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    @ViewBuilder
+    private var lanDiscoveryControls: some View {
+        Button {
+            lanScan.startScan()
+        } label: {
+            if lanScan.state == .scanning {
+                ProgressView().controlSize(.small)
+            } else {
+                Text("Find on local network")
+            }
+        }
+        .disabled(lanScan.state == .scanning)
+        .accessibilityLabel("Find LAN runtime hosts on local network")
+        .onChange(of: lanScan.state) { _, newState in
+            if case .result(.autoPopulate(let host)) = newState {
+                apply(host)
+            }
+        }
+
+        switch lanScan.state {
+        case .result(.chooseFrom(let hosts)):
+            ForEach(Array(hosts.enumerated()), id: \.offset) { _, host in
+                Button {
+                    apply(host)
+                } label: {
+                    Text("\(host.dnsName) — \(host.ipAddress) — \(host.siteName)")
+                }
+                .buttonStyle(.plain)
+            }
+        case .result(.empty):
+            Text("No anglesite-lan-host instances found on the local network.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .idle, .scanning, .result(.autoPopulate):
+            EmptyView()
+        }
+    }
+
+    private func apply(_ host: DiscoveredLANHost) {
+        lanRuntimeHost = host.dnsName
+        lanRuntimePreviewPort = String(host.previewPort)
+        lanRuntimeMCPPort = String(host.mcpPort)
     }
 }
 
