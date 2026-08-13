@@ -97,6 +97,12 @@ struct AnglesiteLANHost {
             environment: sidecarEnvironment,
             restartPolicy: .onCrash(maxAttempts: 3, baseBackoff: 2))
 
+        #if canImport(Network)
+        let advertiser = LANHostAdvertiser()
+        advertiser.start(site: siteDirectory.lastPathComponent, previewPort: previewPort, mcpPort: mcpPort)
+        defer { advertiser.stop() }
+        #endif
+
         await waitForShutdownSignal()
         await supervisor.shutdownAll()
     }
