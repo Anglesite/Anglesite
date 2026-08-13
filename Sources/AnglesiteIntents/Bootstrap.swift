@@ -54,15 +54,18 @@ public enum AnglesiteIntents {
         // Content create intents (A.5 #139) now use native in-process scaffolding (Bucket 1,
         // Slice 2). Replaces the MCP-routed ContentOperations; the Node create_page/create_post
         // tools are retired in the roadmap's cleanup slice.
-        AppDependencyManager.shared.add { () -> any ContentOperationsService in
-            let siteDirectory: ContentCreationWorkflow.SiteDirectoryResolver = { id in
-                await SiteStore.shared.find(id: id)?.sourceDirectory
-            }
-            return ContentCreationWorkflow.native(
-                contentGraph: contentGraph,
-                siteDirectory: siteDirectory
-            )
+        // One shared instance, registered under both types so `AddLinkPostIntent`'s
+        // `@Dependency var content: ContentCreationWorkflow` can reach the fieldValues-capable
+        // createTyped that the title-only protocol witness can't express (#531):
+        let contentSiteDirectory: ContentCreationWorkflow.SiteDirectoryResolver = { id in
+            await SiteStore.shared.find(id: id)?.sourceDirectory
         }
+        let contentWorkflow = ContentCreationWorkflow.native(
+            contentGraph: contentGraph,
+            siteDirectory: contentSiteDirectory
+        )
+        AppDependencyManager.shared.add { () -> any ContentOperationsService in contentWorkflow }
+        AppDependencyManager.shared.add { () -> ContentCreationWorkflow in contentWorkflow }
         AppDependencyManager.shared.add { () -> any IntegrationOperationsService in
             IntegrationOperations.live()
         }

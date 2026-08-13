@@ -224,6 +224,10 @@ final class SiteWindowModel {
     var newCollectionPresented = false
     var newPostPresented = false
     var newComponentPresented = false
+    var quickCapturePresented = false
+    /// URL pre-fill for the quick-capture sheet — set by the drop/paste/menu entry points
+    /// immediately before flipping `quickCapturePresented` (#531).
+    var quickCaptureURL: String?
     /// Website ▸ Animations… (#1007). The gallery is self-contained (owns its own
     /// `AnimationsGalleryModel`, resolves the bundled template itself) so a plain Bool is enough —
     /// no per-site data to carry, unlike the `.sheet(item:)` models above.
@@ -1681,6 +1685,25 @@ final class SiteWindowModel {
             await refreshAfterContentMutation()
             registerContentUndo(
                 actionName: ContentUndoCoordinator.createActionName(descriptor.displayName),
+                relativePath: filePath, before: nil, after: createdContents(at: filePath))
+        }
+        return result
+    }
+
+    /// See `createPage`'s force-refresh note (#586) — same race, same fix.
+    func createLinkPost(title: String, urlString: String, commentary: String, draft: Bool) async -> ContentCreateResult {
+        guard let site else { return .siteNotFound }
+        let result = await contentCreation.createTyped(
+            siteID: site.id,
+            typeID: "bookmark",
+            title: title,
+            slug: nil,
+            fieldValues: QuickCapture.fieldValues(urlString: urlString, commentary: commentary, draft: draft)
+        )
+        if case .created(let filePath, _) = result {
+            await refreshAfterContentMutation()
+            registerContentUndo(
+                actionName: ContentUndoCoordinator.createActionName("Link Post"),
                 relativePath: filePath, before: nil, after: createdContents(at: filePath))
         }
         return result

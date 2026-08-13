@@ -20,6 +20,11 @@ struct PageCommands: Commands {
             }
             .disabled(actions == nil)
 
+            Button("New Link Post…") {
+                actions?.newLinkPost()
+            }
+            .disabled(actions == nil)
+
             Divider()
 
             PlannedItem("Edit Header")

@@ -384,6 +384,9 @@
     "Add donations to ${site}" : {
 
     },
+    "Add link post for ${url} to ${site}" : {
+
+    },
     "Add one above to get started." : {
 
     },
@@ -981,6 +984,9 @@
     "Comment" : {
 
     },
+    "Commentary" : {
+
+    },
     "Commit and push working-tree changes to your current branch" : {
 
     },
@@ -1179,6 +1185,9 @@
       }
     },
     "Couldn't enable Markdown for Agents for %@ — often a Cloudflare plan limit (Pro plan or higher). See the debug log for details." : {
+
+    },
+    "Couldn't fetch the page's info — you can still add your own title." : {
 
     },
     "Couldn't finish setup" : {
@@ -1488,6 +1497,9 @@
 
     },
     "Enter a valid mail domain and at least one MX host to prepare the DNS records." : {
+
+    },
+    "Enter an absolute URL, e.g. https://example.com/article" : {
 
     },
     "Enter an absolute URL, e.g. https://example.com/post" : {
@@ -1995,6 +2007,9 @@
     "Likes" : {
 
     },
+    "Link Post" : {
+
+    },
     "List" : {
 
     },
@@ -2143,6 +2158,12 @@
 
     },
     "New Inventory…" : {
+
+    },
+    "New Link Post" : {
+
+    },
+    "New Link Post…" : {
 
     },
     "New Page" : {
@@ -2970,6 +2991,9 @@
 
     },
     "Save As…" : {
+
+    },
+    "Save Draft" : {
 
     },
     "Save Props" : {
@@ -3872,6 +3896,9 @@
 
     },
     "Workers are unavailable for this site — its package configuration folder couldn't be found." : {
+
+    },
+    "Working…" : {
 
     },
     "Writing" : {

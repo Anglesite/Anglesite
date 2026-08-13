@@ -657,6 +657,27 @@ struct NativeContentOperationsTests {
         guard case let .failed(reason) = result else { Issue.record("expected .failed"); return }
         #expect(reason.contains("events"))
     }
+
+    @Test("createTyped writes a bookmark with commentary body and draft override (#531)")
+    func createTypedBookmarkWithBodyAndDraft() async throws {
+        let (ops, root, _) = makeOps()
+        let result = await ops.createTyped(
+            siteID: "s1", typeID: "bookmark", title: "Example",
+            slug: nil,
+            fieldValues: [
+                "bookmarkOf": "https://example.com/post",
+                "body": "Worth reading.",
+                "draft": "false",
+            ])
+        guard case .created(let filePath, _) = result else {
+            Issue.record("expected .created, got \(result)")
+            return
+        }
+        let contents = try String(contentsOf: root.appendingPathComponent(filePath), encoding: .utf8)
+        #expect(contents.contains(#"bookmarkOf: "https://example.com/post""#))
+        #expect(contents.contains("draft: false"))
+        #expect(contents.hasSuffix("\nWorth reading.\n"))
+    }
 }
 
 @Suite("NativeContentOperations.deleteContent")
