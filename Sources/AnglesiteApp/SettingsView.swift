@@ -289,6 +289,19 @@ private struct ACPAgentEditorSheet: View {
     }
 }
 
+/// Copy and formatting for the "Remote Development Server" section, pulled out of the private
+/// view so it's directly testable (#858) — `Text` can't be introspected, and the view itself is
+/// `private`, so these three literals previously had no test seam at all.
+enum AdvancedSettingsCopy {
+    static let sectionTitle = "Remote Development Server"
+    static let hostPlaceholder = "my-mac.local"
+
+    /// Plain digits, no locale grouping. `Text("\(port)")` interpolates through
+    /// `LocalizedStringKey`, which applies locale grouping to the `Int` (`4321` → `4,321`) — the
+    /// root cause of #858's comma bug. `Text(verbatim:)` with this plain `String` avoids it.
+    static func portPlaceholder(_ port: Int) -> String { String(port) }
+}
+
 /// Development overrides, credentials, and diagnostics — the sharp tools (#529).
 private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.sitesRootOverride) private var sitesRootOverride: String = ""
@@ -360,23 +373,23 @@ private struct AdvancedSettingsView: View {
             }
 
             if showsLANRuntimeSection {
-                Section("LAN site runtime") {
+                Section(AdvancedSettingsCopy.sectionTitle) {
                     LabeledContent("Runtime host") {
-                        TextField("", text: $lanRuntimeHost, prompt: Text("mac-studio.local"))
+                        TextField("", text: $lanRuntimeHost, prompt: Text(verbatim: AdvancedSettingsCopy.hostPlaceholder))
                             .textFieldStyle(.roundedBorder)
                             .frame(minWidth: 240)
                             .accessibilityLabel("LAN runtime host")
                     }
                     LabeledContent("Preview port") {
                         TextField("", text: $lanRuntimePreviewPort,
-                                  prompt: Text("\(LANRuntimeConfiguration.defaultPreviewPort)"))
+                                  prompt: Text(verbatim: AdvancedSettingsCopy.portPlaceholder(LANRuntimeConfiguration.defaultPreviewPort)))
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 100)
                             .accessibilityLabel("LAN runtime preview port")
                     }
                     LabeledContent("MCP port") {
                         TextField("", text: $lanRuntimeMCPPort,
-                                  prompt: Text("\(LANRuntimeConfiguration.defaultMCPPort)"))
+                                  prompt: Text(verbatim: AdvancedSettingsCopy.portPlaceholder(LANRuntimeConfiguration.defaultMCPPort)))
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 100)
                             .accessibilityLabel("LAN runtime MCP port")
