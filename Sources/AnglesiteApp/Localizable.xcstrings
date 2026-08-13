@@ -75,6 +75,16 @@
     "%@ tool" : {
 
     },
+    "%@ — %@ — %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@ — %2$@ — %3$@"
+          }
+        }
+      }
+    },
     "%@ → %@" : {
       "localizations" : {
         "en" : {
@@ -1589,6 +1599,9 @@
     "Find & Replace…" : {
 
     },
+    "Find LAN runtime hosts on local network" : {
+
+    },
     "Find Next" : {
 
     },
@@ -1599,6 +1612,9 @@
 
     },
     "Find a community by keyword" : {
+
+    },
+    "Find on local network" : {
 
     },
     "Find…" : {
@@ -2173,6 +2189,9 @@
 
     },
     "No agents configured." : {
+
+    },
+    "No anglesite-lan-host instances found on the local network." : {
 
     },
     "No changes needed." : {
