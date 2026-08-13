@@ -190,8 +190,14 @@ struct MicropubContentImportTests {
     func importExportRoundTrips() async throws {
         // Exercises `.string`/`.text`/`.markdown` (title/summary/body), `.datetime` with both a
         // set value (publishDate) and a set optional value (updated), `.stringArray` (tags, two
-        // entries), `.url` (audience), `.bool` (draft: true, the non-default branch), and the
-        // `.language` default-fallback path (lang left unset in the fixture).
+        // entries), `.bool` (draft: true, the non-default branch), and the `.language`
+        // default-fallback path (lang left unset in the fixture). `audience` (`.url`) is also set
+        // here, but `article`'s `microformatProperties` has no entry for it at all (only
+        // `title`/`summary`/`body`/`publishDate`/`updated`/`tags` are mapped —
+        // `Sources/AnglesiteCore/ContentTypeRegistry.swift`'s `article` descriptor), so it never
+        // reaches the wire and both directions take the same omission branch `updated` would take
+        // if unset: this field is along for the ride, not a genuine `.url` round-trip case. See
+        // `importExportRoundTripsResolvedURL` below for that.
         try await assertRoundTrips(
             collection: "articles", slug: "hello-world",
             contents: """
@@ -223,6 +229,28 @@ struct MicropubContentImportTests {
             publishDate: 2026-02-01
             ---
             Solid read, would recommend.
+            """)
+    }
+
+    @Test("import then export round-trips a resolved (non-omitted) .url field")
+    func importExportRoundTripsResolvedURL() async throws {
+        // `bookmark`'s `bookmarkOf` (`.url`, required) has a real `u-bookmark-of` mf2 mapping
+        // (`ContentTypeRegistry.swift`'s `bookmark` descriptor), so unlike `article`'s `audience`
+        // above, this genuinely exercises `values(for:)`'s "resolved from mf2" branch for `.url`
+        // — the same `fieldValue(for:)` code path `.string`/`.text` already use, per
+        // `MicropubContentSync.fieldValue`'s `case .string, .language, .text, .url, .image,
+        // .markdown` arm — rather than the "no mapping, always omitted" branch.
+        try await assertRoundTrips(
+            collection: "bookmarks", slug: "great-article",
+            contents: """
+            ---
+            bookmarkOf: https://example.com/a-great-article
+            title: A Great Article
+            publishDate: 2026-03-01
+            tags:
+              - reading
+            ---
+            Worth a read.
             """)
     }
 }
