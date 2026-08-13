@@ -129,6 +129,11 @@ public enum SecretAccounts {
     public static func acpAgentToken(id: UUID) -> String {
         "acp-agent-token-\(id.uuidString)"
     }
+
+    /// The raw private-key bytes (`DevicePairingKeyPair.persistedRepresentation`) for this
+    /// device's Anywhere-runtime pairing identity (#1208 P2) — generated once per device, not
+    /// per site.
+    public static let devicePairingKey = "device-pairing-key"
 }
 
 /// A stored Cloudflare OAuth credential: the access token used as a Cloudflare API bearer token,
@@ -295,6 +300,19 @@ public extension SecretStore {
         try delete(account: SecretAccounts.cloudflareOAuthRefreshToken)
         try delete(account: SecretAccounts.cloudflareOAuthExpiresAt)
         try delete(account: SecretAccounts.cloudflareOAuthTokenEndpoint)
+    }
+
+    /// Read this device's pairing key pair, if any. `nil` when unset or the stored bytes no
+    /// longer decode as a P-256 private key.
+    func readDevicePairingKeyPair() throws -> DevicePairingKeyPair? {
+        guard let base64 = try read(account: SecretAccounts.devicePairingKey),
+              let data = Data(base64Encoded: base64) else { return nil }
+        return DevicePairingKeyPair(persistedRepresentation: data)
+    }
+
+    /// Store this device's pairing key pair.
+    func writeDevicePairingKeyPair(_ keyPair: DevicePairingKeyPair) throws {
+        try write(keyPair.persistedRepresentation.base64EncodedString(), account: SecretAccounts.devicePairingKey)
     }
 }
 
