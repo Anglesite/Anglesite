@@ -29,12 +29,21 @@ public enum LinkIntegrityGate {
         return refs
     }
 
+    /// Both sides of the route comparison go through `GateContext.normalizedRoute(_:)`, so an
+    /// authored `/blog/` (the shipped template's own style) matches the derived `/blog`, and a
+    /// `/#contact` or `/about?x=1` is checked against the page it actually resolves to. Hrefs whose
+    /// first segment names a dynamic-route directory (`GateContext.dynamicRouteDirectories`) are
+    /// skipped outright — neither flagged nor confirmed, since whether `/blog/my-post` exists is a
+    /// question only the content collection behind `blog/[...slug].astro` can answer.
     public static func analyze(model: BlockModel, context: GateContext) throws -> [Finding] {
         var findings: [Finding] = []
         for node in model.orderedBlocks {
             for link in links(in: node) {
                 guard link.href.hasPrefix("/") else { continue } // external — not this gate's job
-                guard !context.internalRoutes.contains(link.href) else { continue }
+                let route = GateContext.normalizedRoute(link.href)
+                if let firstSegment = route.split(separator: "/").first,
+                   context.dynamicRouteDirectories.contains(String(firstSegment)) { continue }
+                guard !context.internalRoutes.contains(route) else { continue }
                 findings.append(Finding(
                     blockId: node.id, category: .linkIntegrity, discriminator: link.discriminator, severity: .warning,
                     message: "This link points to \"\(link.href)\", which doesn't match any page on the site — visitors who click it will hit a 404."))
