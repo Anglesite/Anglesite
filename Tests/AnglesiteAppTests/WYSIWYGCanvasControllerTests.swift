@@ -167,6 +167,31 @@ struct WYSIWYGCanvasControllerTests {
         #expect(controller.lastQualityGateResult?.findings.contains { $0.category == .altText } == true)
     }
 
+    @Test("undoing an applied op re-runs quality gates against the reverted model")
+    func undoReTriggersQualityGates() async {
+        // h2 followed by h4 — a heading skip HeadingOrderGate flags, with a `level` prop so it
+        // carries a one-tap fix. Applying the fix clears the chip; undoing has to bring it back.
+        let h2 = BlockNode(id: "h2", kind: .astro, componentName: "Heading", props: ["level": .number(2)], slots: [:], sourceSpan: [0, 0])
+        let h4 = BlockNode(id: "h4", kind: .astro, componentName: "Heading", props: ["level": .number(4)], slots: [:], sourceSpan: [1, 2])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["h2", "h4"], blocks: ["h2": h2, "h4": h4])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+        controller.qualityGateContext = GateContext(resolvedTokens: [:], internalRoutes: [], assetRoot: URL(fileURLWithPath: "/tmp"))
+        let undoManager = UndoManager()
+        undoManager.groupsByEvent = false // no run loop in a test; see WYSIWYGUndoCoordinator's doc
+        controller.undoCoordinator.undoManager = undoManager
+
+        _ = await controller.submit(.setProp(blockId: "h4", propName: "level", value: .number(3), previousValue: .number(4)))
+        #expect(controller.lastQualityGateResult?.findings.contains { $0.category == .headingOrder } == false)
+
+        undoManager.undo()
+        await controller.undoCoordinator.pendingPerform?.value
+
+        // The skip is back in the model, so its chip has to be back too — the undo path bypasses
+        // the applied-op listener list, which is exactly where the gates used to be wired.
+        #expect(controller.model.blocks["h4"]?.props["level"] == .number(4))
+        #expect(controller.lastQualityGateResult?.findings.contains { $0.category == .headingOrder } == true)
+    }
+
     @Test("a nil qualityGateContext means quality gates never run")
     func noContextMeansNoAnalysis() async {
         let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])

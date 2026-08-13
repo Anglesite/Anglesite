@@ -87,4 +87,25 @@ struct PreviewModelWYSIWYGTests {
 
         #expect(model.wysiwygCanvas?.qualityGateContext?.resolvedTokens["color-text"] == "#111111")
     }
+
+    @Test("enterEditMode runs one quality-gate pass against the seed model, before any edit")
+    func editModeRunsInitialQualityGatePass() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let stylesDir = root.appendingPathComponent("src/styles")
+        try FileManager.default.createDirectory(at: stylesDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try ":root { --color-text: #777777; --color-background: #888888; }"
+            .write(to: stylesDir.appendingPathComponent("global.css"), atomically: true, encoding: .utf8)
+
+        let model = PreviewModel(runtime: UnavailableSiteRuntime(reason: "no runtime needed for this test"))
+        model.open(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
+
+        await model.enterEditMode(
+            seedModel: BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:]),
+            undoManager: nil)
+
+        // Without the seed pass this stays nil until the owner's first edit, so a page that
+        // already has issues opens looking clean.
+        #expect(model.wysiwygCanvas?.lastQualityGateResult?.findings.contains { $0.category == .contrast } == true)
+    }
 }

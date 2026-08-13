@@ -133,6 +133,10 @@ final class PreviewModel {
             canvas.webView = webView
             canvas.mountEngine()
         }
+        // One analysis pass against the seed model, after the engine is mounted so the push has
+        // something to land in: without it the first chips only appear once the owner makes an
+        // edit, so a page that already has issues opens looking clean.
+        canvas.runQualityGates(model: seedModel)
     }
 
     /// Site ▸ Edit Page toggle-off: unmounts the JS engine (best-effort — a no-op if the web view

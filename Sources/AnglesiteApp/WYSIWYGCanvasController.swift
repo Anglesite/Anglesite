@@ -26,17 +26,17 @@ final class WYSIWYGCanvasController {
     var hasKeyboardFocus = false
 
     /// Bridges this canvas's applied ops into the window's `UndoManager` for real ⌘Z/⇧⌘Z (#1225,
-    /// Task 9). Wired to `onOpApplied` below at `init` time, so callers (`PreviewModel`) don't
-    /// need to know about undo at all — they only set `undoCoordinator.undoManager`. `lazy`,
+    /// Task 9). Wired via `addOpAppliedListener` below at `init` time, so callers (`PreviewModel`)
+    /// don't need to know about undo at all — they only set `undoCoordinator.undoManager`. `lazy`,
     /// same reason as `SiteWindowModel.contentUndoCoordinator`: its `perform` closure captures
     /// `self`, which isn't available yet inside `init` before all stored properties are set.
     /// `@ObservationIgnored`: not view-relevant state, same as `SiteWindowModel`'s coordinators.
     ///
     /// Awaits `apply(_:)` — not `submit(_:)` — to completion and reports whether the op actually
-    /// landed. Using `apply(_:)` (which skips `onOpApplied`) is load-bearing, not a style choice:
+    /// landed. Using `apply(_:)` (which skips `fireOpApplied`) is load-bearing, not a style choice:
     /// `WYSIWYGUndoCoordinator.register` already re-registers the opposite undo/redo direction
     /// itself once this `Performer` returns `true`. If this replayed through `submit(_:)`
-    /// instead, `submit`'s own `onOpApplied` firing would *also* call `registerApplied`, double-
+    /// instead, `submit`'s own `fireOpApplied` call would *also* reach `registerApplied`, double-
     /// registering the same step and corrupting `UndoManager`'s undo/redo stacks. `.applied` vs.
     /// `.rejected` (e.g. a version-mismatch conflict) decides `true`/`false`, so a rejection that
     /// left the document unchanged never re-registers a (now-wrong) next step either.
@@ -51,10 +51,14 @@ final class WYSIWYGCanvasController {
         }
     }
 
-    /// Fires after every successfully applied op, with its inverse. Multiple listeners can coexist
-    /// — `undoCoordinator`'s registration (added at `init`) and `QualityGateRunner`'s re-analysis
-    /// trigger (added by `PreviewModel.enterEditMode`, Task 10) both need this without either
-    /// silently overwriting the other, the failure mode a single-closure property would have.
+    /// Fires after every **newly submitted** op, with its inverse — deliberately *not* after an
+    /// undo/redo replay, which reaches the model through `apply(_:)` and must not re-register
+    /// itself as a new undo step (see `undoCoordinator`'s doc comment). A list rather than a single
+    /// closure so future subscribers can coexist without silently overwriting each other, the
+    /// failure mode a single-closure property would have.
+    ///
+    /// Quality-gate re-analysis is **not** wired here: it has to fire on every model change,
+    /// including undo/redo, so it hangs off `sendAndApply(_:)` instead — see `runQualityGates`.
     private var opAppliedListeners: [(Op, Op, BlockModel) -> Void] = []
 
     func addOpAppliedListener(_ listener: @escaping (Op, Op, BlockModel) -> Void) {
@@ -96,9 +100,6 @@ final class WYSIWYGCanvasController {
         addOpAppliedListener { [weak self] op, inverse, _ in
             self?.undoCoordinator.registerApplied(op: op, inverse: inverse)
         }
-        addOpAppliedListener { [weak self] _, _, newModel in
-            self?.runQualityGates(model: newModel)
-        }
     }
 
     @discardableResult
@@ -111,9 +112,9 @@ final class WYSIWYGCanvasController {
     }
 
     /// Sends `op` to the transport and updates `model` — the shared core of `submit(_:)`, minus
-    /// the `onOpApplied` notification. `submit(_:)` is for ops with a *new* opposite direction to
+    /// the applied-op notification. `submit(_:)` is for ops with a *new* opposite direction to
     /// register (user edits); `undoCoordinator`'s `Performer` calls this directly instead, since
-    /// undo/redo replays must not re-fire `onOpApplied` — see `undoCoordinator`'s doc comment for
+    /// undo/redo replays must not re-fire `fireOpApplied` — see `undoCoordinator`'s doc comment for
     /// why that would double-register. Builds its own envelope from the *current* `model.version`
     /// (or `forceTargetVersion`'s test-only override) — unlike `sendOp(_:)` below, which already
     /// has a real envelope from the JS engine and must not re-derive one.
@@ -126,15 +127,26 @@ final class WYSIWYGCanvasController {
     /// core of both `apply(_:)` (which builds a fresh envelope from `model.version`) and
     /// `sendOp(_:)` (the `WYSIWYGHostTransport` conformance below, whose caller — the JS engine —
     /// already computed `targetVersion` and must not have it silently replaced). Does not fire
-    /// `onOpApplied`; callers that need the notification do so themselves after inspecting the
+    /// `fireOpApplied`; callers that need the notification do so themselves after inspecting the
     /// result, same division of responsibility `apply(_:)`/`submit(_:)` already had.
+    ///
+    /// It *does* re-run the quality gates, though, on every path that actually changes `model` —
+    /// this is the one funnel every mutation passes through (`submit(_:)`'s user edits, the undo
+    /// coordinator's `apply(_:)` replays, and JS-originated `sendOp(_:)` alike). Hanging the gates
+    /// off `addOpAppliedListener` instead left undo/redo silently un-analyzed: undoing a heading
+    /// fix put the skip back in the model while its chip stayed cleared, because the undo path
+    /// bypasses the listener list on purpose.
     private func sendAndApply(_ envelope: OpEnvelope) async -> OpResult {
         let result = await transport.sendOp(envelope)
         switch result {
         case .applied(let newModel):
             model = newModel
+            runQualityGates(model: newModel)
         case .rejected(_, _, let freshModel):
-            if let freshModel { model = freshModel }
+            if let freshModel {
+                model = freshModel
+                runQualityGates(model: freshModel)
+            }
         }
         return result
     }
@@ -254,11 +266,13 @@ final class WYSIWYGCanvasController {
     /// literal call string, kept as a `static let` for the same test-without-`WKWebView` reason.
     static let unmountScript = "window.__anglesiteWysiwygMount?.unmount?.()"
 
-    /// Fires after every applied op (the `addOpAppliedListener` call in `init` above): re-runs all
-    /// five quality gates against the new model and pushes the result to the engine. A `nil`
-    /// `qualityGateContext` or `nil` `webView` both no-op harmlessly inside `pushQualityFindings` —
-    /// the next applied op re-triggers this the same way.
-    private func runQualityGates(model: BlockModel) {
+    /// Re-runs all five quality gates against `model` and pushes the result to the engine. Called
+    /// from `sendAndApply(_:)` on every model change (see its doc comment for why not from the
+    /// applied-op listener list) and once from `PreviewModel.enterEditMode` against the seed model,
+    /// so an owner opening a page that already has issues sees its chips without having to make an
+    /// edit first. A `nil` `qualityGateContext` or `nil` `webView` both no-op harmlessly — the next
+    /// model change re-triggers this the same way.
+    func runQualityGates(model: BlockModel) {
         guard let qualityGateContext else { return }
         let result = QualityGateRunner.analyze(model: model, context: qualityGateContext)
         lastQualityGateResult = result
@@ -316,7 +330,7 @@ extension WYSIWYGCanvasController {
 
 /// Lets `PreviewView` register `WYSIWYGScriptHandler` directly against the controller instead of
 /// reaching into its private `transport` — the handler only ever needs the `WYSIWYGHostTransport`
-/// surface, and routing submitted ops through `submit(_:)` keeps `model`/`onOpApplied` in sync
+/// surface, and routing submitted ops through `submit(_:)` keeps `model`/`fireOpApplied` in sync
 /// with ops that arrive from JS, exactly like ops submitted natively (menu commands, Task 9's
 /// undo coordinator).
 extension WYSIWYGCanvasController: WYSIWYGHostTransport {
