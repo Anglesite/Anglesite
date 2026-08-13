@@ -245,6 +245,59 @@ struct TypedEntryEditorModelCMSModeTests {
         #expect(onDisk["draft"] == .flag(true))
     }
 
+    /// #800 Task A6: `isCMSMode` mirrors `save()`'s own branch condition, computed once in `load()`
+    /// (see its doc comment for why it can't be a plain computed `var`). `false` before `load()`
+    /// runs — nothing has populated it yet — then flips to match provisioning after.
+    @Test("isCMSMode reflects the site's CMS-mode provisioning after load()")
+    func isCMSModeReflectsProvisioning() async throws {
+        let (file, descriptor, configDir, sourceDir, _) = try await makeFixture(activeWorkerIDs: ["micropub"])
+        defer {
+            try? FileManager.default.removeItem(at: configDir)
+            try? FileManager.default.removeItem(at: sourceDir)
+        }
+        let model = TypedEntryEditorModel(
+            file: file, descriptor: descriptor, route: "/notes/my-note/", sourceDirectory: sourceDir,
+            configDirectory: configDir, siteID: "site-1",
+            gitCommit: { _, _, _ in "deadbeef" },
+            makeMicropubClient: { _, _ in nil }
+        )
+        #expect(!model.isCMSMode, "isCMSMode is false before load() has populated it")
+        await model.load()
+        #expect(model.isCMSMode)
+    }
+
+    @Test("isCMSMode is false when the site isn't CMS-mode provisioned")
+    func isCMSModeFalseWhenUnprovisioned() async throws {
+        let (file, descriptor, configDir, sourceDir, _) = try await makeFixture(activeWorkerIDs: nil)
+        defer {
+            try? FileManager.default.removeItem(at: configDir)
+            try? FileManager.default.removeItem(at: sourceDir)
+        }
+        let model = TypedEntryEditorModel(
+            file: file, descriptor: descriptor, route: "/notes/my-note/", sourceDirectory: sourceDir,
+            configDirectory: configDir, siteID: "site-1",
+            gitCommit: { _, _, _ in "deadbeef" },
+            makeMicropubClient: { _, _ in nil }
+        )
+        await model.load()
+        #expect(!model.isCMSMode)
+    }
+
+    @Test("isCMSMode is false when the model has no configDirectory (no CMS-mode context)")
+    func isCMSModeFalseWithNoConfigDirectory() async throws {
+        let (file, descriptor, configDir, sourceDir, _) = try await makeFixture(activeWorkerIDs: ["micropub"])
+        defer {
+            try? FileManager.default.removeItem(at: configDir)
+            try? FileManager.default.removeItem(at: sourceDir)
+        }
+        let model = TypedEntryEditorModel(
+            file: file, descriptor: descriptor, route: "/notes/my-note/", sourceDirectory: sourceDir,
+            gitCommit: { _, _, _ in "deadbeef" }
+        )
+        await model.load()
+        #expect(!model.isCMSMode)
+    }
+
     @Test("save() surfaces a distinct message when the Micropub session needs reauthorization")
     func saveSurfacesReauthorizationMessage() async throws {
         let (file, descriptor, configDir, sourceDir, _) = try await makeFixture(activeWorkerIDs: ["micropub"])

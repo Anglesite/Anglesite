@@ -3498,6 +3498,9 @@
     "This page has no incoming links and will be permanently removed." : {
 
     },
+    "This post is stored in your site's CMS. The file on disk is a read-only export." : {
+
+    },
     "This removes it from Anglesite's list only. The files in %@ are left on disk." : {
 
     },

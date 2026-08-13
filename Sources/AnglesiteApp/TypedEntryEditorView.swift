@@ -10,6 +10,12 @@ struct TypedEntryForm: View {
 
     var body: some View {
         Form {
+            if model.isCMSMode {
+                Label("This post is stored in your site's CMS. The file on disk is a read-only export.",
+                      systemImage: "icloud.and.arrow.down")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
             ForEach(scalarFields, id: \.name) { field in
                 control(for: field)
             }

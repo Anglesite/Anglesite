@@ -66,6 +66,14 @@ final class TypedEntryEditorModel: InspectorEditorModel {
     /// default" label in `LanguagePicker` for `.language` fields. Defaults to `"en"` when the file
     /// is absent or has no `LANG` key, matching `SiteLanguageAsset.parseSettings`'s own default.
     private(set) var siteDefaultLangTag = "en"
+    /// Whether this file's site is CMS-mode provisioned — mirrors `save()`'s own branch condition
+    /// (`CMSModeStatus.isProvisioned`), so `TypedEntryEditorView` can show a read-only-export banner
+    /// without reimplementing the check. Computed once in `load()`, not as a computed `var`: a plain
+    /// getter can't `await`, and the underlying check is actor-hopping disk I/O
+    /// (`SiteConfigStore.load()`) — calling the synchronous `.read(from:)` instead would block the
+    /// main thread, exactly what its own doc comment warns against for a `@MainActor` caller like
+    /// this model. Mirrors how `siteDefaultLangTag` above is precomputed the same way.
+    private(set) var isCMSMode = false
     var conflictDiskContents: String? {
         get { fileSession.conflictDiskContents }
         set { fileSession.conflictDiskContents = newValue }
@@ -115,6 +123,12 @@ final class TypedEntryEditorModel: InspectorEditorModel {
         savedDisallowCrawlEnabled = flags.disallowCrawl
         if let config = try? String(contentsOf: sourceDirectory.appendingPathComponent(".site-config"), encoding: .utf8) {
             siteDefaultLangTag = SiteLanguageAsset.parseSettings(from: config).lang
+        }
+        if let configDirectory,
+           let settings = try? await SiteConfigStore(configDirectory: configDirectory).load() {
+            isCMSMode = CMSModeStatus.isProvisioned(settings: settings)
+        } else {
+            isCMSMode = false
         }
     }
 
