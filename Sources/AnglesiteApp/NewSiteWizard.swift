@@ -61,25 +61,33 @@ struct NewSiteWizard: View {
         }
     }
 
-    /// The six chooser categories (`NewSiteWizardModel.chooserCategories`), each a plain-style
-    /// button so the whole row is one hit target and VoiceOver reads a single control per row.
+    /// The six chooser categories (`NewSiteWizardModel.chooserCategories`), presented as a
+    /// standard macOS sidebar `List` (matching `IntegrationWizard`'s picker convention) rather
+    /// than hand-rolled buttons — `List(selection:)` gives arrow-key navigation, the system
+    /// sidebar selection appearance, and VoiceOver container semantics for free, and makes each
+    /// row's clickable area and visible highlight the same rect by construction.
     private var categorySidebar: some View {
-        VStack(alignment: .leading, spacing: 2) {
-            ForEach(NewSiteWizardModel.chooserCategories, id: \.self) { category in
-                let isSelected = model.selectedCategory == category
-                Button { model.selectCategory(category) } label: {
-                    Label(category.label, systemImage: category.symbol)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                }
-                .buttonStyle(.plain)
-                .padding(.horizontal, 10).padding(.vertical, 6)
-                .background(RoundedRectangle(cornerRadius: 6)
-                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear))
-                .accessibilityAddTraits(isSelected ? .isSelected : [])
-            }
+        List(NewSiteWizardModel.chooserCategories, id: \.self, selection: categorySelection) { category in
+            Label(category.label, systemImage: category.symbol)
         }
-        .padding(12)
+        .listStyle(.sidebar)
         .frame(width: 160)
+    }
+
+    /// Adapts `model.selectedCategory` (non-optional, always has a value) to the
+    /// `Binding<SiteType?>` `List(selection:)` requires, routing every change through
+    /// `model.selectCategory(_:)` so category switches keep applying the model's pre-selection
+    /// rules. `List` only ever sets this to a row's value or `nil` (deselect); a `nil` write is
+    /// ignored so the sidebar always shows a selected category, matching this chooser's
+    /// always-one-category-active design.
+    private var categorySelection: Binding<SiteType?> {
+        Binding(
+            get: { model.selectedCategory },
+            set: { newValue in
+                guard let newValue else { return }
+                model.selectCategory(newValue)
+            }
+        )
     }
 
     /// Shown when a category has no matching themes yet (every non-Blank category, until
