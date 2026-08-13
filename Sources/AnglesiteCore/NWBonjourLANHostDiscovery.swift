@@ -20,14 +20,18 @@ public final class NWBonjourLANHostDiscovery: LANHostDiscovering, @unchecked Sen
         lock.lock()
         guard !running else { lock.unlock(); return }
         running = true
-        lock.unlock()
 
         // `.bonjourWithTXTRecord` (not plain `.bonjour`) is required so each browse result's
         // `.metadata` actually carries the resolved `NWTXTRecord` — with plain `.bonjour`,
         // `.metadata` stays `.none` and every result would be dropped in `resolveAll`.
         let descriptor = NWBrowser.Descriptor.bonjourWithTXTRecord(type: Self.serviceType, domain: nil)
         let browser = NWBrowser(for: descriptor, using: .tcp)
+        // `self.browser` is written here, still under `lock`, so `stop()` can never observe a
+        // window where `running` is true but `browser` is still nil (which would make its
+        // `browser?.cancel()` a no-op against a browser `start()` is about to hand off below).
         self.browser = browser
+        lock.unlock()
+
         browser.browseResultsChangedHandler = { [weak self] results, _ in
             self?.resolveAll(results, onUpdate: onUpdate)
         }
@@ -38,9 +42,12 @@ public final class NWBonjourLANHostDiscovery: LANHostDiscovering, @unchecked Sen
         lock.lock()
         guard running else { lock.unlock(); return }
         running = false
+        // Read-and-clear `browser` under the same lock that guards its write in `start()`, so
+        // there's no unsynchronized access to the property from two call sites.
+        let browser = self.browser
+        self.browser = nil
         lock.unlock()
         browser?.cancel()
-        browser = nil
     }
 
     /// Resolves every current browse result to a `DiscoveredLANHost` (dropping ones that fail),
@@ -58,7 +65,18 @@ public final class NWBonjourLANHostDiscovery: LANHostDiscovering, @unchecked Sen
                 group.leave()
             }
         }
-        group.notify(queue: queue) { onUpdate(hosts) }
+        group.notify(queue: queue) {
+            // A `browseResultsChangedHandler` firing just before `stop()` runs can still have
+            // this `group.notify` complete afterward — `NWBrowser.cancel()`/`NWConnection.cancel()`
+            // are asynchronous, they don't abort in-flight `resolve` completions. Gate delivery on
+            // `running` so `stop()`'s "no further callbacks after it returns" contract holds even
+            // for work that was already in flight when it was called.
+            self.lock.lock()
+            let isRunning = self.running
+            self.lock.unlock()
+            guard isRunning else { return }
+            onUpdate(hosts)
+        }
     }
 
     /// Opens a short-lived connection to the service endpoint purely to resolve its concrete
