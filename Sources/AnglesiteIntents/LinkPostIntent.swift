@@ -15,8 +15,10 @@ public enum LinkMetadataOverride {
 }
 
 /// Creates a link post — an entry in the site's `bookmarks` collection — from a URL (#531).
-/// "Post link to <site>" from Shortcuts/Siri; also the interim share-sheet story until the
-/// real share extension lands (spec §5).
+/// Runnable from the Shortcuts app (deliberately no curated Siri phrase: `AnglesiteShortcuts`'
+/// 10-phrase budget is already spent — same deferral as the Bucket 3 intents; users can attach
+/// their own phrase to a custom shortcut); also the interim share-sheet story until the real
+/// share extension lands (spec §5).
 public struct AddLinkPostIntent: AppIntent {
     public static let title: LocalizedStringResource = "Add Link Post"
     public static let description = IntentDescription(
@@ -76,19 +78,24 @@ public struct AddLinkPostIntent: AppIntent {
                 slug: nil, fieldValues: fieldValues)
         }
         return .result(
-            value: Self.createdLinkPost(result, siteID: site.id, title: resolvedTitle),
+            value: Self.createdLinkPost(result, siteID: site.id, title: resolvedTitle, published: publish),
             dialog: IntentDialog(stringLiteral: LinkPostDialogs.created(
                 result, siteName: site.displayName, published: publish))
         )
     }
 
     /// Reconstruct the created entry as a ``PostEntity`` in the bookmarks collection.
-    static func createdLinkPost(_ result: ContentCreateResult, siteID: String, title: String) -> PostEntity? {
+    /// `published` must mirror the `draft` field actually written — `PostEntity`'s memberwise
+    /// init defaults `isDraft` to `true`, which would misreport a published entry as "(draft)"
+    /// in Siri/Spotlight/Shortcuts results.
+    static func createdLinkPost(
+        _ result: ContentCreateResult, siteID: String, title: String, published: Bool
+    ) -> PostEntity? {
         guard case let .created(_, identifier) = result else { return nil }
         return PostEntity(
             id: "\(siteID):post:\(identifier)",
             displayName: title.isEmpty ? identifier : title,
-            slug: identifier, collection: "bookmarks", siteID: siteID)
+            slug: identifier, collection: "bookmarks", siteID: siteID, isDraft: !published)
     }
 }
 

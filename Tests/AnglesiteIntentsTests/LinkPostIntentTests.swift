@@ -97,4 +97,15 @@ struct LinkPostIntentTests {
         #expect(LinkPostDialogs.created(.failed(reason: "boom"), siteName: "My Site", published: false)
             == "Couldn’t add that link post to My Site: boom")
     }
+
+    @Test("returned PostEntity mirrors the publish state, not PostEntity's draft default")
+    func createdEntityDraftState() {
+        let ok = ContentCreateResult.created(filePath: "src/content/bookmarks/z.md", identifier: "z")
+        let published = AddLinkPostIntent.createdLinkPost(ok, siteID: Self.aSite, title: "T", published: true)
+        #expect(published?.isDraft == false)
+        let draft = AddLinkPostIntent.createdLinkPost(ok, siteID: Self.aSite, title: "T", published: false)
+        #expect(draft?.isDraft == true)
+        #expect(AddLinkPostIntent.createdLinkPost(
+            .failed(reason: "x"), siteID: Self.aSite, title: "T", published: true) == nil)
+    }
 }
