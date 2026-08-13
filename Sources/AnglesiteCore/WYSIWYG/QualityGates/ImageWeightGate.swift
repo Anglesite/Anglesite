@@ -9,6 +9,13 @@ public enum ImageWeightGate {
     private static let maxBytes = 500 * 1024
 
     enum GateError: Error {
+        /// File exists per `FileManager.fileExists()` but `attributesOfItem()` threw, indicating
+        /// permission/stat changes between the two calls or a race condition. This is defensive
+        /// programming—the path is asserted-but-untested because no reliable, portable technique
+        /// exists to trigger it: chmod-based tests fail when the process runs as root (CI
+        /// environments), race conditions are flaky, and alternative approaches (symlinks to
+        /// nonexistent targets, file-as-directory tricks) don't reliably reproduce the condition
+        /// across macOS versions. The throw site is retained as defensive code but not tested.
         case unreadableAsset(path: String, underlying: Error)
     }
 
@@ -22,6 +29,8 @@ public enum ImageWeightGate {
             do {
                 attributes = try FileManager.default.attributesOfItem(atPath: fileURL.path)
             } catch {
+                // Defensive: file existed per fileExists() but stat failed. Not tested per the
+                // GateError.unreadableAsset doc comment (see enum definition above).
                 throw GateError.unreadableAsset(path: fileURL.path, underlying: error)
             }
             guard let size = attributes[.size] as? Int, size > maxBytes else { continue }
