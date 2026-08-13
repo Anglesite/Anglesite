@@ -3,6 +3,7 @@ import Foundation
 import SwiftUI
 import Observation
 import AnglesiteCore
+import AnglesiteIOS
 
 /// Editor state for one open *typed* content file. Parallels `FileEditorModel` but exposes the
 /// file as per-field `TypedContentEditor.Values` (bound by `TypedEntryEditorView`) and commits each
@@ -12,12 +13,38 @@ import AnglesiteCore
 @MainActor
 @Observable
 final class TypedEntryEditorModel: InspectorEditorModel {
+    /// Resolves a ready-to-use `MicropubClient` for `siteID`/`sourceDirectory`, or `nil` when no
+    /// CMS-mode session has been onboarded for this site yet (Task A2's connect sheet never ran,
+    /// or the stored session was signed out). Injectable so `save()`'s CMS-mode branch is
+    /// unit-testable without touching the real Keychain or network.
+    typealias MicropubClientFactory = @Sendable (_ siteID: String, _ sourceDirectory: URL) async -> MicropubClient?
+
+    /// Production factory: resolves the session via `StoredMicropubSessions` (Keychain read +
+    /// endpoint re-discovery — discovery is never persisted, see its doc comment) and builds a
+    /// client from it. `nonisolated` (rather than implicitly `@MainActor`, like every other
+    /// member of this class) because `init`'s default-argument expressions run in a nonisolated
+    /// context, not the initializer body's — this is what `init` calls to build its own default.
+    private nonisolated static func defaultMicropubClientFactory(
+        sessions: StoredMicropubSessions = StoredMicropubSessions()
+    ) -> MicropubClientFactory {
+        { siteID, sourceDirectory in
+            await sessions.session(siteID: siteID, sourceDirectory: sourceDirectory)?.makeClient()
+        }
+    }
+
     let file: FileRef
     let descriptor: ContentTypeDescriptor
     let route: String
     /// Command/find seam for the body field's markdown editor.
     let markdownController = MarkdownEditorController()
     private let sourceDirectory: URL
+    /// The site's `Config/` directory, or `nil` for a call site with no CMS-mode context (rare —
+    /// every real site window has one). Read in `save()` to check `CMSModeStatus.isProvisioned`.
+    private let configDirectory: URL?
+    /// The site's stable marker UUID string (`SiteStore.Site.id`), or `nil` alongside
+    /// `configDirectory`. Needed to resolve a Micropub session/credential for this site.
+    private let siteID: String?
+    private let makeMicropubClient: MicropubClientFactory
     private let gitCommit: NativeContentOperations.GitCommit
 
     var values: TypedContentEditor.Values = .init()
@@ -53,12 +80,18 @@ final class TypedEntryEditorModel: InspectorEditorModel {
          descriptor: ContentTypeDescriptor,
          route: String,
          sourceDirectory: URL,
-         gitCommit: @escaping NativeContentOperations.GitCommit = NativeContentOperations.processGitCommit) {
+         configDirectory: URL? = nil,
+         siteID: String? = nil,
+         gitCommit: @escaping NativeContentOperations.GitCommit = NativeContentOperations.processGitCommit,
+         makeMicropubClient: @escaping MicropubClientFactory = TypedEntryEditorModel.defaultMicropubClientFactory()) {
         self.file = file
         self.descriptor = descriptor
         self.route = route
         self.sourceDirectory = sourceDirectory
+        self.configDirectory = configDirectory
+        self.siteID = siteID
         self.gitCommit = gitCommit
+        self.makeMicropubClient = makeMicropubClient
     }
 
     func load() async {
@@ -90,6 +123,24 @@ final class TypedEntryEditorModel: InspectorEditorModel {
         guard isDirty, !isSaving else { return true }
         isSaving = true
         defer { isSaving = false }
+        // CMS mode (#800): once the site's composed Worker includes Micropub and this window has
+        // a resolvable session for it, content writes go through `MicropubClient` instead of
+        // file+git — the site's canonical copy moves to the deployed CMS. `SiteConfigStore.load()`
+        // (not the synchronous `.read(from:)`) is deliberate: this method runs on the main actor,
+        // and `.read(from:)`'s own doc comment warns it blocks the calling thread on disk I/O.
+        if let configDirectory, let siteID,
+           let settings = try? await SiteConfigStore(configDirectory: configDirectory).load(),
+           CMSModeStatus.isProvisioned(settings: settings),
+           let client = await makeMicropubClient(siteID, sourceDirectory) {
+            return await saveViaMicropub(client: client, configDirectory: configDirectory)
+        }
+        return await saveViaFile()
+    }
+
+    /// The original (pre-CMS-mode) save mechanics: writes the file to disk, applies the robots
+    /// side channel, and commits both to git. Also `save()`'s fallback when the site isn't
+    /// CMS-mode provisioned or no Micropub session is available yet.
+    private func saveViaFile() async -> Bool {
         let descriptor = self.descriptor
         let base = contents
         let edited = values
@@ -101,19 +152,72 @@ final class TypedEntryEditorModel: InspectorEditorModel {
             fileSession = session
             savedValues = edited
             warnIfNoModificationDate(after: "save")
-            let robotsChanged = try RobotsConfigFile.apply(
-                source: robotsSource, noindex: noindexEnabled, disallowCrawl: disallowCrawlEnabled,
-                path: route, under: sourceDirectory
-            )
-            savedNoindexEnabled = noindexEnabled
-            savedDisallowCrawlEnabled = disallowCrawlEnabled
+            try await applyRobotsConfig()
             await commit()
-            if robotsChanged { await commitRobotsConfig() }
             return true
         } catch {
             loadError = "Save failed: \(error.localizedDescription)"
             return false
         }
+    }
+
+    /// CMS-mode save: projects `values` to mf2 properties (`MicropubComposerProjection`) and
+    /// creates or updates the post through `client`, keyed by whether this file's `Source/`-
+    /// relative path already has a synced post URL (`Config/micropubSync.json`, Task A4). Deletes
+    /// mapped-but-now-absent properties on update — the two-parties concern
+    /// `MicropubComposerProjection.mappedProperties(for:)`'s doc comment documents — computed
+    /// fresh from the current mapped-property set rather than a cached baseline, since this model
+    /// (unlike `PostComposerModel`) doesn't keep one around; deleting an already-absent property
+    /// is a harmless no-op server-side.
+    ///
+    /// Deliberately never touches the local file or git: the CMS's stored copy is now this file's
+    /// canonical content, not `Source/`'s — the read-side sync (Task A6/B1) is what reconciles
+    /// `Source/` back to it. The robots-config side channel is the one exception, applied
+    /// regardless of save path since it's site-wide state, not a per-post mf2 property.
+    private func saveViaMicropub(client: MicropubClient, configDirectory: URL) async -> Bool {
+        let relPath = relativePath(of: file.url, under: sourceDirectory)
+        var syncState = MicropubContentCommitter.readSyncState(from: configDirectory)
+        let status: MicropubPostStatus = values["draft"] == .flag(true) ? .draft : .published
+        let properties = MicropubComposerProjection.properties(
+            for: descriptor, values: values, status: status)
+        do {
+            if let existingURLString = syncState.first(where: { $0.value == relPath })?.key,
+               let existingURL = URL(string: existingURLString) {
+                let mapped = Set(MicropubComposerProjection.mappedProperties(for: descriptor))
+                let cleared = mapped.subtracting(properties.keys).sorted()
+                try await client.update(
+                    url: existingURL, replace: properties,
+                    delete: cleared.isEmpty ? nil : .properties(cleared))
+            } else {
+                let post = MicropubPost(properties: properties)
+                let newURL = try await client.create(post)
+                syncState[newURL.absoluteString] = relPath
+                try MicropubContentCommitter.writeSyncState(syncState, to: configDirectory)
+            }
+            savedValues = values
+            try await applyRobotsConfig()
+            return true
+        } catch let error as MicropubError where error.requiresReauthorization {
+            loadError = "Sign in again to save changes to this site's CMS."
+            return false
+        } catch {
+            loadError = "CMS save failed: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    /// Applies pending noindex/disallowCrawl toggle changes to the shared `robots-config.json`
+    /// and commits it if it changed. Factored out of `saveViaFile`/`saveViaMicropub` because it's
+    /// independent of which path wrote the content itself — robots config isn't a per-post mf2
+    /// property, so CMS mode doesn't redirect it.
+    private func applyRobotsConfig() async throws {
+        let robotsChanged = try RobotsConfigFile.apply(
+            source: robotsSource, noindex: noindexEnabled, disallowCrawl: disallowCrawlEnabled,
+            path: route, under: sourceDirectory
+        )
+        savedNoindexEnabled = noindexEnabled
+        savedDisallowCrawlEnabled = disallowCrawlEnabled
+        if robotsChanged { await commitRobotsConfig() }
     }
 
     func flushBeforeLeaving() async -> Bool {
