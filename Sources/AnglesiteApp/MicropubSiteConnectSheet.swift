@@ -136,6 +136,20 @@ struct MicropubSiteConnectSheet: View {
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // One-time import of this site's existing typed content into D1 (Task B1/B2, spec §C.7).
+        // `micropubClient` is only non-nil right after a fresh `signIn()` — a session restored
+        // from Keychain on `configure(site:)` leaves it `nil` (endpoint discovery isn't
+        // persisted), so this simply no-ops until the next real sign-in, matching
+        // `MicropubOnboardingModel`'s documented contract rather than forcing rediscovery here.
+        .task {
+            guard let client = model?.micropubClient else { return }
+            var settings = (try? SiteConfigStore.read(from: site.configDirectory)) ?? SiteSettings()
+            guard settings.contentImportCompleted != true else { return }
+            _ = await MicropubContentImport.importIfNeeded(
+                siteDirectory: site.sourceDirectory, configDirectory: site.configDirectory, client: client)
+            settings.contentImportCompleted = true
+            try? await SiteConfigStore(configDirectory: site.configDirectory).save(settings)
+        }
     }
 
     @ViewBuilder

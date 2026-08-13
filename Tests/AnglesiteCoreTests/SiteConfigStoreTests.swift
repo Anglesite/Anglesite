@@ -287,4 +287,39 @@ struct SiteConfigStoreTests {
         #expect(loaded.inboxCaptureEnabled == nil)
         #expect(loaded.displayName == "Old Site")
     }
+
+    @Test("contentImportCompleted round-trips through save/load")
+    func contentImportCompletedRoundTrips() async throws {
+        let dir = try tempConfigDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let store = SiteConfigStore(configDirectory: dir)
+
+        let settings = SiteSettings(contentImportCompleted: true)
+        try await store.save(settings)
+
+        let loaded = try await store.load()
+        #expect(loaded.contentImportCompleted == true)
+    }
+
+    @Test("a settings.plist written before contentImportCompleted existed still decodes (forward-compat)")
+    func decodesOldPlistWithoutContentImportCompleted() async throws {
+        let dir = try tempConfigDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        // Simulates a plist written by a build that predates this field.
+        let oldFormat = """
+        <?xml version="1.0" encoding="UTF-8"?>
+        <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+        <plist version="1.0">
+        <dict>
+            <key>displayName</key>
+            <string>My Site</string>
+        </dict>
+        </plist>
+        """
+        try oldFormat.write(to: dir.appendingPathComponent("settings.plist"), atomically: true, encoding: .utf8)
+        let store = SiteConfigStore(configDirectory: dir)
+
+        let loaded = try await store.load()
+        #expect(loaded.contentImportCompleted == nil)
+    }
 }
