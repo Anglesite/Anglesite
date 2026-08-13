@@ -15,9 +15,10 @@ import Foundation
 /// Micropub client discovery (``MicropubEndpointDiscovery``) against the live homepage,
 /// ``MicropubContentImport/importIfNeeded(siteDirectory:configDirectory:client:registry:)``
 /// against the live Worker + D1, and ``MicropubClient``'s create/source/setStatus calls. The
-/// DPoP key pair used to sign requests is generated fresh here rather than reusing whatever key
-/// pair the out-of-band sign-in bound the token to — see the note at its call site below for what
-/// that implies about how `ANGLESITE_MICROPUB_E2E_TOKEN` needs to be prepared.
+/// DPoP key pair used to sign requests is reconstructed from the same key pair the out-of-band
+/// sign-in bound the token to, when the operator supplies it via
+/// `ANGLESITE_MICROPUB_E2E_DPOP_KEY` — see the note at its call site below for how to prepare
+/// that, and what happens when it's omitted.
 ///
 /// Skipped (via the `.enabled(if:)` trait) unless `ANGLESITE_MICROPUB_E2E=1` — the same
 /// established convention as `MCPClientHTTPEndToEndTests`/`AppliesEditEndToEndTests`
@@ -50,15 +51,31 @@ struct CMSModeLiveE2ETests {
         //    the iOS onboarding flow (#868) and the Mac sign-in sheet use, never a hardcoded path.
         let endpoints = try await MicropubEndpointDiscovery().discover(siteURL: siteURL)
 
-        // 2. A fresh DPoP key pair. NOTE: a real sign-in (`SiteMicropubSignIn`) mints its access
-        //    token bound (via `cnf.jkt`) to the key pair generated *at that grant*, and the server
-        //    verifies every subsequent proof against that exact binding — so
-        //    `ANGLESITE_MICROPUB_E2E_TOKEN` must be a token minted without DPoP binding (or one
-        //    whose binding this freshly-generated key pair happens to satisfy) for the calls below
-        //    to authenticate. Arranging that is an operational concern of preparing the token out
-        //    of band; it isn't something this test can do for itself without also driving the real
-        //    sign-in UI, which is the exact interaction this suite is scoped to skip.
-        let dpopKeyPair = DPoPKeyPair()
+        // 2. The DPoP key pair to sign requests with. A real sign-in (`SiteMicropubSignIn`) mints
+        //    its access token bound (via `cnf.jkt`) to the key pair generated *at that grant*, and
+        //    the server verifies every subsequent proof against that exact binding — so a token
+        //    from a genuine sign-in only authenticates against *that same* key pair, not a fresh
+        //    one. `SecretStore.readMicropubDPoPKeyPair(siteID:)` persists exactly that key pair
+        //    (as `DPoPKeyPair.persistedRepresentation`, standard-base64-encoded — see
+        //    `SecretStore.writeMicropubDPoPKeyPair(_:siteID:)`) so it can be reused across the
+        //    session; `StoredMicropubSessions`/`MicropubSession`
+        //    (`Sources/AnglesiteIOS/MicropubSession.swift`) reads it back the same way. This test
+        //    mirrors that: set `ANGLESITE_MICROPUB_E2E_DPOP_KEY` to that same standard-base64
+        //    persisted representation — captured once, out of band, right after performing the
+        //    real sign-in that minted `ANGLESITE_MICROPUB_E2E_TOKEN` — and the calls below will
+        //    authenticate for real. Without it, this falls back to generating a fresh key pair,
+        //    but that's only useful with a token minted *without* any DPoP binding — no path in
+        //    this app's own sign-in flow produces one, so treat the fallback as support for a
+        //    token source outside this app's normal flow, not a realistic default.
+        let dpopKeyPair: DPoPKeyPair
+        if let dpopKeyBase64 = ProcessInfo.processInfo.environment["ANGLESITE_MICROPUB_E2E_DPOP_KEY"],
+            let dpopKeyData = Data(base64Encoded: dpopKeyBase64),
+            let persistedKeyPair = DPoPKeyPair(persistedRepresentation: dpopKeyData)
+        {
+            dpopKeyPair = persistedKeyPair
+        } else {
+            dpopKeyPair = DPoPKeyPair()
+        }
         let client = MicropubClient(
             endpoint: endpoints.micropub,
             accessToken: accessToken,
