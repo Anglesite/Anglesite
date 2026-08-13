@@ -36,8 +36,7 @@ public final class NewSiteWizardModel {
     /// failure). Gate opening the site on ``didCompleteCleanly``, not just this being non-nil.
     public private(set) var completedSiteID: String?
 
-    /// Themes shown in the grid; the first entry is pre-selected (no site type exists to drive
-    /// the per-type default table).
+    /// The full theme set the grid filters from via ``filteredThemes``; not shown directly.
     public let catalog: ThemeCatalog
 
     /// The six chooser sidebar categories, in the order the sidebar lists them (design spec
@@ -53,7 +52,8 @@ public final class NewSiteWizardModel {
     /// Creates the model with a fully-defaulted Untitled draft.
     ///
     /// - Parameters:
-    ///   - catalog: Themes for the grid; its first entry seeds ``NewSiteDraft/themeID``.
+    ///   - catalog: The full theme set; filtered per category for the grid (``filteredThemes``)
+    ///     and for seeding the initial ``NewSiteDraft/themeID`` below.
     ///   - isNameTaken: Availability check for a candidate display name (e.g. "Untitled 2").
     ///     The caller decides what "taken" means — the launcher checks both the recents
     ///     registry and the sites root on disk. Non-escaping: consulted only here, at init.
@@ -65,7 +65,10 @@ public final class NewSiteWizardModel {
         // copy for the owner to edit in the preview (#1071).
         var draft = NewSiteDraft(siteType: .blank, name: name,
                                  saveFileName: "\(name).anglesite", headline: "")
-        draft.themeID = catalog.themes.first?.id ?? ""
+        // Pre-select from the Blank-filtered set (matching selectedCategory's .blank default),
+        // not the raw catalog — otherwise a categorized pack theme ordered ahead of the
+        // built-ins could get pre-selected while the (Blank-filtered) grid shows no selection.
+        draft.themeID = Self.themes(in: catalog, matching: .blank).first?.id ?? catalog.themes.first?.id ?? ""
         self.draft = draft
     }
 
