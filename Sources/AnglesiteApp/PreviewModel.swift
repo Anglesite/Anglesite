@@ -126,7 +126,12 @@ final class PreviewModel {
         let canvas = WYSIWYGCanvasController(initialModel: seedModel, transport: transport)
         canvas.undoCoordinator.undoManager = undoManager
         if let openSiteDirectory {
-            canvas.qualityGateContext = GateContext.build(fromSourceDirectory: openSiteDirectory)
+            // `GateContext.build` walks the whole `src/pages/**` tree and reads `global.css`
+            // synchronously — real I/O this main-actor-isolated model shouldn't block on. Off-actor
+            // in a detached Task, same reasoning as `WYSIWYGCanvasController.runQualityGates`.
+            canvas.qualityGateContext = await Task.detached(priority: .utility) {
+                GateContext.build(fromSourceDirectory: openSiteDirectory)
+            }.value
         }
         wysiwygCanvas = canvas
         if let webView {
@@ -136,7 +141,7 @@ final class PreviewModel {
         // One analysis pass against the seed model, after the engine is mounted so the push has
         // something to land in: without it the first chips only appear once the owner makes an
         // edit, so a page that already has issues opens looking clean.
-        canvas.runQualityGates(model: seedModel)
+        await canvas.runQualityGates(model: seedModel)
     }
 
     /// Site ▸ Edit Page toggle-off: unmounts the JS engine (best-effort — a no-op if the web view

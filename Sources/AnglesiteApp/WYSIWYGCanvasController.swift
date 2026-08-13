@@ -141,11 +141,11 @@ final class WYSIWYGCanvasController {
         switch result {
         case .applied(let newModel):
             model = newModel
-            runQualityGates(model: newModel)
+            await runQualityGates(model: newModel)
         case .rejected(_, _, let freshModel):
             if let freshModel {
                 model = freshModel
-                runQualityGates(model: freshModel)
+                await runQualityGates(model: freshModel)
             }
         }
         return result
@@ -272,13 +272,24 @@ final class WYSIWYGCanvasController {
     /// so an owner opening a page that already has issues sees its chips without having to make an
     /// edit first. A `nil` `qualityGateContext` or `nil` `webView` both no-op harmlessly — the next
     /// model change re-triggers this the same way.
-    func runQualityGates(model: BlockModel) {
+    ///
+    /// `QualityGateRunner.analyze` does real synchronous work per applied op — `ImageWeightGate`
+    /// alone stats every image-like block on disk — so it runs inside a detached `Task` rather than
+    /// directly on this `@MainActor` type. `model`/`qualityGateContext` are both plain `Sendable`
+    /// value types, so capturing them into the detached closure is a safe snapshot, not a shared
+    /// reference. Awaiting the detached task's `.value` (rather than firing-and-forgetting it) keeps
+    /// `sendAndApply`'s existing "model changed, gates re-run" ordering intact for every caller
+    /// (including tests asserting on `lastQualityGateResult` right after an awaited `submit(_:)`) —
+    /// the await suspends this method without blocking the main thread while the analysis runs.
+    func runQualityGates(model: BlockModel) async {
         guard let qualityGateContext else { return }
-        let result = QualityGateRunner.analyze(model: model, context: qualityGateContext)
+        let result = await Task.detached(priority: .utility) {
+            QualityGateRunner.analyze(model: model, context: qualityGateContext)
+        }.value
         lastQualityGateResult = result
         pushQualityFindings(result.findings)
         for category in result.failedCategories {
-            Task { await LogCenter.shared.append(source: "quality-gates", stream: .stderr, text: "\(category.rawValue) checker failed for \(model.path)") }
+            await LogCenter.shared.append(source: "quality-gates", stream: .stderr, text: "\(category.rawValue) checker failed for \(model.path)")
         }
     }
 
