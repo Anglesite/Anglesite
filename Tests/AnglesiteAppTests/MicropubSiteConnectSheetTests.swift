@@ -104,4 +104,48 @@ struct MicropubSiteConnectSheetTests {
         let settings = try await SiteConfigStore(configDirectory: configDir).load()
         #expect(settings.contentImportCompleted == nil)
     }
+
+    // MARK: - ImportInFlightGate
+
+    /// This is the piece that closes the concurrency bug a reviewer found: with no shared
+    /// in-flight guard, tapping "Import Content" while the automatic `.task`-triggered import was
+    /// still running let `runAutomaticImportIfNeeded()` and `runManualImport()` both call
+    /// `runImportAndPersistCompletion` at once — each reading the same stale
+    /// `Config/micropubSync.json` sync state, both `create`-ing the same not-yet-synced posts
+    /// against the live Micropub endpoint, and whichever `writeSyncState` finished last silently
+    /// overwriting the other's update. A second `begin()` call while the first is still held must
+    /// be declined, not queued or allowed through.
+    @Test("a second begin() while the gate is held is declined, not allowed through")
+    func secondBeginWhileHeldIsDeclined() async {
+        let gate = ImportInFlightGate()
+
+        #expect(await gate.begin() == true)
+        // The bug this reproduces: without the gate, both callers would proceed to import.
+        #expect(await gate.begin() == false)
+        // Still declined — begin() doesn't consume a second grant on repeated calls.
+        #expect(await gate.begin() == false)
+
+        await gate.end()
+        #expect(await gate.begin() == true, "releasing the gate must allow a fresh import to start")
+    }
+
+    /// Exercises the same invariant under real concurrent scheduling (rather than the sequential
+    /// calls above) by racing many simultaneous `begin()` attempts and confirming only one ever
+    /// wins — the actor's serial execution is what makes this true regardless of task interleaving.
+    @Test("only one of many concurrent begin() attempts succeeds")
+    func onlyOneConcurrentBeginSucceeds() async {
+        let gate = ImportInFlightGate()
+
+        let results = await withTaskGroup(of: Bool.self, returning: [Bool].self) { group in
+            for _ in 0..<20 {
+                group.addTask { await gate.begin() }
+            }
+            var collected: [Bool] = []
+            for await result in group { collected.append(result) }
+            return collected
+        }
+
+        #expect(results.filter { $0 }.count == 1)
+        #expect(results.filter { !$0 }.count == 19)
+    }
 }

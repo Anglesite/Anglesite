@@ -2,6 +2,37 @@ import SwiftUI
 import AnglesiteCore
 import AnglesiteIOS
 
+/// Serializes `MicropubSiteConnectSheet`'s automatic and manual content-import paths
+/// (`runAutomaticImportIfNeeded()` / `runManualImport()`) so at most one of them is ever calling
+/// `runImportAndPersistCompletion` for a given sheet instance at a time. Without this, tapping
+/// "Import Content" while the automatic `.task`-triggered import is still running would let both
+/// read the same (stale) `Config/micropubSync.json` sync state, `create` duplicate posts against
+/// the live Micropub endpoint, and have whichever `writeSyncState` call finishes last silently
+/// overwrite the other's update instead of merging it.
+///
+/// An `actor` — rather than a `@State private var` `Bool` checked-and-set inline at each call
+/// site — so mutual exclusion is enforced by the actor's own serial execution instead of by
+/// reasoning that no `await` sneaks in between a check and a set, and so `begin()`/`end()` are
+/// directly unit-testable (see `MicropubSiteConnectSheetTests`) without hosting the view or
+/// racing real `Task` scheduling.
+actor ImportInFlightGate {
+    private var inProgress = false
+
+    /// Claims the gate for a new import. Returns `true` (and marks it in-progress) if nothing
+    /// else currently holds it; returns `false` without changing state if it's already claimed —
+    /// the caller should treat that as "decline to start", not wait.
+    func begin() -> Bool {
+        guard !inProgress else { return false }
+        inProgress = true
+        return true
+    }
+
+    /// Releases a previously-claimed gate.
+    func end() {
+        inProgress = false
+    }
+}
+
 /// Mac-side entry point for the same IndieAuth onboarding flow the iOS app already ships (#868)
 /// — reused as-is via `MicropubOnboardingModel`, with `SiteMicropubSignIn` (Task A1) standing in
 /// as the AppKit `ASWebAuthenticationSession` adapter where iOS drives SwiftUI's
@@ -31,8 +62,14 @@ struct MicropubSiteConnectSheet: View {
     /// completed" by `shouldShowManualImportButton`, so the manual trigger is available
     /// immediately rather than waiting on a disk read.
     @State private var contentImportCompleted: Bool?
-    /// Set while `runManualImport()` is in flight, to swap the button for a `ProgressView`.
-    @State private var manualImportInProgress = false
+    /// Guards `runAutomaticImportIfNeeded()` and `runManualImport()` against running concurrently
+    /// for this sheet instance; see `ImportInFlightGate`'s doc comment for why.
+    @State private var importGate = ImportInFlightGate()
+    /// Mirrors `importGate`'s claimed/released state on the main actor, purely so
+    /// `manualImportControl` can render its "Importing…" `ProgressView` while either path holds
+    /// the gate — actor state can't be read synchronously from SwiftUI's view body. Set alongside
+    /// every `importGate.begin()`/`end()` call; never read or written on its own.
+    @State private var importInProgress = false
     /// Set once a manual import completes, so the control shows a brief confirmation instead of
     /// silently vanishing the moment `contentImportCompleted` flips to `true`.
     @State private var manualImportSucceeded = false
@@ -165,7 +202,7 @@ struct MicropubSiteConnectSheet: View {
     /// sign-in) so the automatic `.task` above never ran the import.
     @ViewBuilder
     private var manualImportControl: some View {
-        if manualImportInProgress {
+        if importInProgress {
             ProgressView("Importing…")
         } else if manualImportSucceeded {
             Label("Content Imported", systemImage: "checkmark.circle.fill")
@@ -188,7 +225,8 @@ struct MicropubSiteConnectSheet: View {
     /// Auto-triggered once per sheet presentation while `.signedIn` is showing (Task B2, spec
     /// §C.7). Loads the persisted completion flag for `manualImportControl` regardless of
     /// outcome; only actually runs the import when a fresh sign-in populated
-    /// `model.micropubClient` and the site hasn't imported yet.
+    /// `model.micropubClient`, the site hasn't imported yet, and `importGate` isn't already
+    /// claimed by a concurrent `runManualImport()` — see `ImportInFlightGate`'s doc comment.
     private func runAutomaticImportIfNeeded() async {
         // `SiteConfigStore.load()` (the actor-isolated instance method) hops off the main actor
         // for its file I/O, unlike the synchronous `SiteConfigStore.read(from:)` seam — this
@@ -198,9 +236,12 @@ struct MicropubSiteConnectSheet: View {
         let loaded = (try? await SiteConfigStore(configDirectory: site.configDirectory).load()) ?? SiteSettings()
         contentImportCompleted = loaded.contentImportCompleted
         guard loaded.contentImportCompleted != true, let client = model?.micropubClient else { return }
+        guard await importGate.begin() else { return }
+        importInProgress = true
         _ = await Self.runImportAndPersistCompletion(
             siteDirectory: site.sourceDirectory, configDirectory: site.configDirectory, client: client)
         contentImportCompleted = true
+        await releaseImportGate()
     }
 
     /// `manualImportControl`'s button action: resolves a Micropub client without forcing a fresh
@@ -209,16 +250,30 @@ struct MicropubSiteConnectSheet: View {
     /// `StoredMicropubSessions` — the same resolver `MicropubSession`'s doc comment names as "the
     /// composer's own flow" for re-discovering the endpoint after a restored session, so this
     /// never re-prompts the user.
+    ///
+    /// Declines to start (a no-op return) if `importGate` is already claimed by a concurrent
+    /// `runAutomaticImportIfNeeded()`; see `ImportInFlightGate`'s doc comment.
     private func runManualImport() async {
-        guard !manualImportInProgress else { return }
-        manualImportInProgress = true
-        defer { manualImportInProgress = false }
+        guard await importGate.begin() else { return }
+        importInProgress = true
 
-        guard let client = await resolveClient() else { return }
+        guard let client = await resolveClient() else {
+            await releaseImportGate()
+            return
+        }
         _ = await Self.runImportAndPersistCompletion(
             siteDirectory: site.sourceDirectory, configDirectory: site.configDirectory, client: client)
         contentImportCompleted = true
         manualImportSucceeded = true
+        await releaseImportGate()
+    }
+
+    /// Releases `importGate` and clears its main-actor UI mirror together, so the two never drift
+    /// apart. Called at every exit path of `runAutomaticImportIfNeeded()` / `runManualImport()`
+    /// that follows a successful `importGate.begin()`.
+    private func releaseImportGate() async {
+        importInProgress = false
+        await importGate.end()
     }
 
     /// A ready-to-use Micropub client for this site, without prompting for sign-in: a fresh
