@@ -140,6 +140,12 @@ final class TypedEntryEditorModel: InspectorEditorModel {
     /// The original (pre-CMS-mode) save mechanics: writes the file to disk, applies the robots
     /// side channel, and commits both to git. Also `save()`'s fallback when the site isn't
     /// CMS-mode provisioned or no Micropub session is available yet.
+    ///
+    /// Commit order is deliberate and predates this task's CMS-mode branch (#800 review, fix
+    /// round 1): the entry file's own commit goes first, and the shared `robots-config.json`
+    /// commit — conditional on it actually having changed — goes second. `applyRobotsConfig()`
+    /// only computes/writes the robots file; it does *not* commit, so that order can be
+    /// preserved exactly here rather than folded into one step.
     private func saveViaFile() async -> Bool {
         let descriptor = self.descriptor
         let base = contents
@@ -152,8 +158,9 @@ final class TypedEntryEditorModel: InspectorEditorModel {
             fileSession = session
             savedValues = edited
             warnIfNoModificationDate(after: "save")
-            try await applyRobotsConfig()
+            let robotsChanged = try applyRobotsConfig()
             await commit()
+            if robotsChanged { await commitRobotsConfig() }
             return true
         } catch {
             loadError = "Save failed: \(error.localizedDescription)"
@@ -192,10 +199,18 @@ final class TypedEntryEditorModel: InspectorEditorModel {
                 let post = MicropubPost(properties: properties)
                 let newURL = try await client.create(post)
                 syncState[newURL.absoluteString] = relPath
-                try MicropubContentCommitter.writeSyncState(syncState, to: configDirectory)
+                // Best-effort (#800 review, fix round 1): the remote post already exists once
+                // `create` returns, so a failure persisting this local URL↔path bookkeeping must
+                // not fail the save itself — the user's edit already took effect. A lost write
+                // here only means the next save's create-vs-update lookup misses and creates a
+                // second post, the same tradeoff `MicropubContentCommitter.commit()` already
+                // accepts for this exact class of problem (its own `writeSyncState` calls are
+                // `try?` too, for the same reason).
+                try? MicropubContentCommitter.writeSyncState(syncState, to: configDirectory)
             }
             savedValues = values
-            try await applyRobotsConfig()
+            let robotsChanged = try applyRobotsConfig()
+            if robotsChanged { await commitRobotsConfig() }
             return true
         } catch let error as MicropubError where error.requiresReauthorization {
             loadError = "Sign in again to save changes to this site's CMS."
@@ -207,17 +222,20 @@ final class TypedEntryEditorModel: InspectorEditorModel {
     }
 
     /// Applies pending noindex/disallowCrawl toggle changes to the shared `robots-config.json`
-    /// and commits it if it changed. Factored out of `saveViaFile`/`saveViaMicropub` because it's
-    /// independent of which path wrote the content itself — robots config isn't a per-post mf2
-    /// property, so CMS mode doesn't redirect it.
-    private func applyRobotsConfig() async throws {
+    /// — writes the file and returns whether it actually changed, but does **not** commit.
+    /// Factored out of `saveViaFile`/`saveViaMicropub` because it's independent of which path
+    /// wrote the content itself — robots config isn't a per-post mf2 property, so CMS mode
+    /// doesn't redirect it. Deliberately split from the commit step (unlike this task's first
+    /// pass, #800 review fix round 1): `saveViaFile`'s entry-file commit must land *before* the
+    /// robots-config commit, an ordering this method can't own without collapsing that sequence.
+    private func applyRobotsConfig() throws -> Bool {
         let robotsChanged = try RobotsConfigFile.apply(
             source: robotsSource, noindex: noindexEnabled, disallowCrawl: disallowCrawlEnabled,
             path: route, under: sourceDirectory
         )
         savedNoindexEnabled = noindexEnabled
         savedDisallowCrawlEnabled = disallowCrawlEnabled
-        if robotsChanged { await commitRobotsConfig() }
+        return robotsChanged
     }
 
     func flushBeforeLeaving() async -> Bool {

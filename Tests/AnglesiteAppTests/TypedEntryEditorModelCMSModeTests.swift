@@ -103,6 +103,45 @@ struct TypedEntryEditorModelCMSModeTests {
         #expect(onDisk == Self.entryContents)
     }
 
+    /// #800 review, fix round 1: `client.create` already succeeded remotely by the time
+    /// `writeSyncState` runs, so a failure persisting the local URL↔path bookkeeping must not
+    /// fail the save — only the (best-effort) local record is at risk, not the user's edit.
+    /// Forces that specific write to fail by pre-occupying `Config/micropubSync.json`'s path with
+    /// a *directory* rather than injecting a fake filesystem: `settings.plist` (a different file
+    /// in the same `configDir`) is unaffected, so the CMS-mode-provisioned check upstream of the
+    /// write still passes, isolating the failure to exactly the write this test targets.
+    @Test("save() still reports success when persisting the sync-state mapping fails after a successful create")
+    func savesSucceedsEvenWhenSyncStateWriteFails() async throws {
+        let (file, descriptor, configDir, sourceDir, _) = try await makeFixture(activeWorkerIDs: ["micropub"])
+        defer {
+            try? FileManager.default.removeItem(at: configDir)
+            try? FileManager.default.removeItem(at: sourceDir)
+        }
+        // Occupy micropubSync.json's path with a directory so `Data.write(to:options:.atomic)`
+        // inside `writeSyncState` throws (can't atomically replace a directory with a file).
+        try FileManager.default.createDirectory(
+            at: configDir.appendingPathComponent("micropubSync.json"), withIntermediateDirectories: true)
+
+        let client = MicropubClient(
+            endpoint: Self.endpoint, accessToken: "tok-123", dpopKeyPair: DPoPKeyPair(),
+            transport: { _ in
+                (Data(), Self.response(201, headers: ["Location": "https://owner.example/2026/my-note"]))
+            }
+        )
+        let model = TypedEntryEditorModel(
+            file: file, descriptor: descriptor, route: "/notes/my-note/", sourceDirectory: sourceDir,
+            configDirectory: configDir, siteID: "site-1",
+            gitCommit: { _, _, _ in "deadbeef" },
+            makeMicropubClient: { _, _ in client }
+        )
+        await model.load()
+        model.boolBinding("draft").wrappedValue = true
+
+        let saved = await model.save()
+        #expect(saved, "the remote post already exists — a local bookkeeping-write failure must not fail the save")
+        #expect(!model.isDirty, "the edit itself is considered saved even though the sync-state record was lost")
+    }
+
     @Test("save() updates the synced post and deletes now-empty mapped properties")
     func savesViaMicropubUpdate() async throws {
         let (file, descriptor, configDir, sourceDir, _) = try await makeFixture(activeWorkerIDs: ["micropub"])
