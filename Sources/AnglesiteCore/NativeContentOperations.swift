@@ -658,6 +658,25 @@ public struct NativeContentOperations: ContentOperationsService {
         guard repo.headHasEntry(atPath: relPath) else { return nil }
         guard case .success = repo.remove(path: relPath) else { return nil }
 
+        // remove(path:)'s working-tree unlink is best-effort (it swallows the error via `try?`,
+        // to tolerate a file that's already gone) — so a `.success` here only guarantees the
+        // index was updated, not that the file actually left disk. An immutable/locked file (or
+        // any other unlink failure) would otherwise commit a "deleted" entry while the file sits
+        // on disk, now orphaned and untracked (#1446). Verify explicitly before trusting it.
+        if FileManager.default.fileExists(atPath: projectRoot.appendingPathComponent(relPath).path) {
+            // The file itself was never touched (the unlink that would have modified it failed
+            // before any write), so its content still matches HEAD's blob — re-staging it via
+            // `add(path:)` (a read + index update) restores the index without writing to the
+            // working tree. `restorePathFromHEAD`'s force-checkout would try to overwrite that
+            // same unwritable file and fail for the identical reason the unlink did.
+            if case .failure = repo.add(path: relPath) {
+                await LogCenter.shared.append(
+                    source: "dead-assets:delete", stream: .stderr,
+                    text: "processGitDelete: remove(path:) reported success for \(relPath) but the file is still on disk (working-tree unlink likely failed) AND rollback (add(path:)) also failed — the git index may be desynced from the working tree. Manual recovery may be needed in \(projectRoot.path).")
+            }
+            return nil
+        }
+
         let signature = await GitIdentity.signature(for: repo)
         guard case .success(let commit) = repo.commit(message: message, signature: signature) else {
             // remove(path:) already removed the file from the index and working tree before the

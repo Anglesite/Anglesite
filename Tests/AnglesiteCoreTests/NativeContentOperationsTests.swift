@@ -2,6 +2,9 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+#if canImport(Darwin)
+import Darwin
+#endif
 
 @Suite("NativeContentOperations")
 struct NativeContentOperationsTests {
@@ -464,6 +467,36 @@ struct NativeContentOperationsTests {
         let status = try await ProcessSupervisor.shared.run(executable: git, arguments: ["status", "--porcelain"], currentDirectoryURL: repo)
         #expect(status.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     }
+
+    #if canImport(Darwin)
+    @Test("processGitDelete reports failure and rolls back when the file survives on disk (#1446)")
+    func rollbackOnWorkingTreeUnlinkFailure() async throws {
+        // SwiftGit2's `remove(path:)` updates the git index, then best-effort unlinks the
+        // working-tree file via `try? FileManager.default.removeItem(...)` — swallowing the
+        // error, so an immutable/locked file that can't actually be unlinked still reports
+        // `.success`. Reproduces the #1446 repro: `chflags uchg` a committed file, then delete it.
+        let repo = FileManager.default.temporaryDirectory.appendingPathComponent("git-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: repo, withIntermediateDirectories: true)
+        let git = URL(fileURLWithPath: "/usr/bin/git")
+        for args in [["init"], ["config", "user.email", "t@t.io"], ["config", "user.name", "t"]] {
+            _ = try await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: repo)
+        }
+        let filePath = repo.appendingPathComponent("search.astro")
+        try "<div>original</div>".write(to: filePath, atomically: true, encoding: .utf8)
+        _ = await NativeContentOperations.processGitCommit(repo, "search.astro", "add search.astro")
+
+        #expect(chflags(filePath.path, UInt32(UF_IMMUTABLE)) == 0)
+        defer { _ = chflags(filePath.path, 0) }
+
+        let sha = await NativeContentOperations.processGitDelete(repo, "search.astro", "anglesite: delete search.astro")
+        #expect(sha == nil)
+        #expect(FileManager.default.fileExists(atPath: filePath.path))
+        #expect(try String(contentsOf: filePath, encoding: .utf8) == "<div>original</div>")
+
+        let status = try await ProcessSupervisor.shared.run(executable: git, arguments: ["status", "--porcelain"], currentDirectoryURL: repo)
+        #expect(status.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    }
+    #endif
 
     @Test("hasCommit finds an exact commit-message match in a real repo, and doesn't substring-match a shorter message")
     func realGitHasCommit() async throws {
