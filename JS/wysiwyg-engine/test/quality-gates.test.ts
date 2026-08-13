@@ -155,6 +155,65 @@ describe("QualityGateChips", () => {
     expect(button.disabled).toBe(false);
   });
 
+  it("styles the chip so it reads as a chip and sits above page content", () => {
+    const model = makeModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const transport = new FakeQualityGateTransport();
+    new QualityGateChips(engine, transport);
+
+    transport.push([{ id: "b1::imageWeight", blockId: "b1", category: "imageWeight", severity: "warning", message: "big photo" }]);
+
+    const chip = document.querySelector(`[${CHIP_ATTR}]`) as HTMLElement;
+    expect(chip.style.background).not.toBe("");
+    expect(chip.style.padding).not.toBe("");
+    expect(chip.style.borderRadius).not.toBe("");
+    expect(chip.style.font).not.toBe("");
+    expect(parseInt(chip.style.zIndex, 10)).toBeGreaterThan(1000);
+  });
+
+  it("re-positions rendered chips on scroll and resize, with no new findings push", () => {
+    const model = makeModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const transport = new FakeQualityGateTransport();
+    new QualityGateChips(engine, transport);
+    const block = document.querySelector(`[${BLOCK_ID_ATTR}="b1"]`) as HTMLElement;
+    // jsdom's own getBoundingClientRect is all zeros, so the anchor has to be faked to make a
+    // *change* in geometry observable at all.
+    block.getBoundingClientRect = () => ({ x: 10, y: 100, width: 50, height: 20 }) as DOMRect;
+    transport.push([{ id: "b1::imageWeight", blockId: "b1", category: "imageWeight", severity: "warning", message: "big photo" }]);
+    const chip = document.querySelector(`[${CHIP_ATTR}]`) as HTMLElement;
+    expect(chip.style.top).toBe("100px");
+
+    block.getBoundingClientRect = () => ({ x: 10, y: 40, width: 50, height: 20 }) as DOMRect;
+    window.dispatchEvent(new Event("scroll"));
+    expect(chip.style.top).toBe("40px");
+
+    block.getBoundingClientRect = () => ({ x: 30, y: 40, width: 50, height: 20 }) as DOMRect;
+    window.dispatchEvent(new Event("resize"));
+    expect(chip.style.left).toBe("80px");
+  });
+
+  it("re-attaches a chip whose container the host cleared out from under it", () => {
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const model = makeModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const transport = new FakeQualityGateTransport();
+    new QualityGateChips(engine, transport, container);
+    const finding: Finding = { id: "b1::imageWeight", blockId: "b1", category: "imageWeight", severity: "warning", message: "big photo" };
+    transport.push([finding]);
+    expect(container.querySelectorAll(`[${CHIP_ATTR}]`)).toHaveLength(1);
+
+    // What the host's own re-render does (e2e/fixture-page.ts's render(): `root.innerHTML = ""`).
+    container.replaceChildren();
+    expect(container.querySelectorAll(`[${CHIP_ATTR}]`)).toHaveLength(0);
+
+    transport.push([finding]);
+
+    expect(container.querySelectorAll(`[${CHIP_ATTR}]`)).toHaveLength(1);
+    expect(container.querySelector(`[${CHIP_ATTR}]`)?.textContent).toContain("big photo");
+  });
+
   it("dispose() unsubscribes from the transport and removes all rendered chips", () => {
     const model = makeModel();
     const engine = new WysiwygEngine(model, new FixtureHost(model));

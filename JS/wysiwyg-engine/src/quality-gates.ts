@@ -26,6 +26,51 @@ export interface QualityGateTransport {
 /** Attribute a rendered chip element carries its `Finding.id` under. */
 export const CHIP_ATTR = "data-quality-chip-id";
 
+/** One rendered chip plus what `#positionChip` needs to place it again later — a scroll/resize
+ *  reposition has no findings push to re-derive the anchor block or stack slot from. */
+interface RenderedChip {
+  element: HTMLElement;
+  blockId: BlockId;
+  stackIndex: number;
+}
+
+/** Above any plausible page content: chips are advisory chrome floating over the owner's own site,
+ *  which the engine has no say in the stacking context of. */
+const CHIP_Z_INDEX = "2147483000";
+
+/** Chips are drawn over a site whose CSS the engine doesn't control, so every visual property is
+ *  set explicitly rather than inherited — the same "own every declaration" approach the e2e
+ *  fixture's own block rendering takes. There is no stylesheet to hang a class off: the engine
+ *  ships no CSS file and injects none (`selection.ts`/`drag-drop.ts` draw nothing themselves), so
+ *  inline style is the convention here, not a shortcut. */
+function styleChip(chip: HTMLElement, severity: FindingSeverity): void {
+  chip.style.zIndex = CHIP_Z_INDEX;
+  chip.style.display = "flex";
+  chip.style.alignItems = "center";
+  chip.style.flexWrap = "wrap"; // a long owner-consequence message wraps inside maxWidth
+  chip.style.gap = "6px";
+  chip.style.maxWidth = "22rem";
+  chip.style.padding = "4px 8px";
+  chip.style.borderRadius = "6px";
+  chip.style.border = "1px solid rgba(255, 255, 255, 0.18)";
+  chip.style.boxShadow = "0 1px 4px rgba(0, 0, 0, 0.32)";
+  chip.style.font = "500 12px/1.4 -apple-system, BlinkMacSystemFont, system-ui, sans-serif";
+  chip.style.color = "#ffffff";
+  chip.style.background = severity === "warning" ? "#9a3412" : "#334155";
+  chip.style.pointerEvents = "auto";
+}
+
+function styleApplyButton(button: HTMLButtonElement): void {
+  button.style.flex = "0 0 auto";
+  button.style.padding = "2px 8px";
+  button.style.borderRadius = "4px";
+  button.style.border = "1px solid rgba(255, 255, 255, 0.5)";
+  button.style.background = "rgba(255, 255, 255, 0.16)";
+  button.style.color = "inherit";
+  button.style.font = "inherit";
+  button.style.cursor = "pointer";
+}
+
 /**
  * Renders quality-gate chips anchored to blocks (spec §3.1: the engine owns "quality-gate chips").
  * The host always pushes the full current finding set (design doc §3/§5, not a delta), so this does
@@ -35,19 +80,31 @@ export const CHIP_ATTR = "data-quality-chip-id";
 export class QualityGateChips {
   #engine: WysiwygEngine;
   #container: HTMLElement;
-  #chips = new Map<string, HTMLElement>();
+  #chips = new Map<string, RenderedChip>();
   #unsubscribe: () => void;
+  #reposition = (): void => this.#repositionAll();
 
   constructor(engine: WysiwygEngine, transport: QualityGateTransport, container: HTMLElement = document.body) {
     this.#engine = engine;
     this.#container = container;
     this.#unsubscribe = transport.onFindings((findings) => this.#render(findings));
+    // Positions come from getBoundingClientRect(), i.e. viewport coordinates that go stale the
+    // moment the page scrolls or the window resizes — and a findings push (the only other thing
+    // that repositions anything) may not arrive for a long time, or ever.
+    window.addEventListener("scroll", this.#reposition, true);
+    window.addEventListener("resize", this.#reposition);
   }
 
   dispose(): void {
     this.#unsubscribe();
-    for (const chip of this.#chips.values()) chip.remove();
+    window.removeEventListener("scroll", this.#reposition, true);
+    window.removeEventListener("resize", this.#reposition);
+    for (const chip of this.#chips.values()) chip.element.remove();
     this.#chips.clear();
+  }
+
+  #repositionAll(): void {
+    for (const chip of this.#chips.values()) this.#positionChip(chip.element, chip.blockId, chip.stackIndex);
   }
 
   #render(findings: Finding[]): void {
@@ -62,16 +119,19 @@ export class QualityGateChips {
       countByBlock.set(finding.blockId, stackIndex + 1);
       const existing = this.#chips.get(finding.id);
       if (existing) {
-        this.#updateChip(existing, finding, stackIndex);
+        existing.blockId = finding.blockId;
+        existing.stackIndex = stackIndex;
+        this.#updateChip(existing.element, finding, stackIndex);
       } else {
-        const chip = this.#buildChip(finding, stackIndex);
-        this.#chips.set(finding.id, chip);
+        const chip = this.#buildChip(finding);
+        this.#chips.set(finding.id, { element: chip, blockId: finding.blockId, stackIndex });
         this.#container.appendChild(chip);
+        this.#positionChip(chip, finding.blockId, stackIndex);
       }
     }
     for (const [id, chip] of this.#chips) {
       if (seen.has(id)) continue;
-      chip.remove();
+      chip.element.remove();
       this.#chips.delete(id);
     }
   }
@@ -79,7 +139,13 @@ export class QualityGateChips {
   /** Positions `chip` near `blockId`'s on-screen element, offset downward by `stackIndex` steps so
    *  multiple findings on the same block stack rather than overlap — or, when there is no on-screen
    *  element (a page-level finding like contrast, anchored to the root sentinel; or a block that
-   *  scrolled out of the DOM), in a fixed top-right tray rather than left unplaced. */
+   *  scrolled out of the DOM), in a fixed top-right tray rather than left unplaced.
+   *
+   *  The anchor is the block's trailing edge, which for a full-width block sits at (or past) the
+   *  viewport's own right edge — so the `left` it computes is clamped to keep the whole chip, Apply
+   *  button included, on screen and clickable. `offsetWidth` reads 0 for a chip not yet laid out
+   *  (and always, under jsdom), which degrades to the unclamped anchor rather than misplacing it.
+   */
   #positionChip(chip: HTMLElement, blockId: BlockId, stackIndex: number): void {
     chip.style.position = "fixed";
     const rect = computeHandleRect(blockId);
@@ -90,22 +156,32 @@ export class QualityGateChips {
       chip.style.left = "";
       return;
     }
+    const maxLeft = Math.max(8, window.innerWidth - chip.offsetWidth - 8);
     chip.style.top = `${rect.y + offset}px`;
-    chip.style.left = `${rect.x + rect.width}px`;
+    chip.style.left = `${Math.min(rect.x + rect.width, maxLeft)}px`;
     chip.style.right = "";
   }
 
-  #buildChip(finding: Finding, stackIndex: number): HTMLElement {
+  /** Deliberately does *not* position: the caller appends first, then positions, so
+   *  `#positionChip`'s viewport clamp has a real `offsetWidth` to work from. */
+  #buildChip(finding: Finding): HTMLElement {
     const chip = document.createElement("div");
     chip.setAttribute(CHIP_ATTR, finding.id);
     chip.dataset.category = finding.category;
     chip.dataset.severity = finding.severity;
-    this.#positionChip(chip, finding.blockId, stackIndex);
+    styleChip(chip, finding.severity);
     this.#fillChip(chip, finding);
     return chip;
   }
 
+  /** Re-appends before updating when the chip has been detached: a host that re-renders its canvas
+   *  by clearing the container (the fixture's `root.innerHTML = ""`, and any real host doing the
+   *  same) orphans every chip inside it, and `#chips` still holds the reference — so without this,
+   *  a later push for the same `Finding.id` would faithfully update an element that is no longer
+   *  in the page, and the chip would never come back. */
   #updateChip(chip: HTMLElement, finding: Finding, stackIndex: number): void {
+    if (!chip.isConnected) this.#container.appendChild(chip);
+    styleChip(chip, finding.severity);
     this.#positionChip(chip, finding.blockId, stackIndex);
     chip.dataset.severity = finding.severity;
     this.#fillChip(chip, finding);
@@ -121,6 +197,7 @@ export class QualityGateChips {
     const applyButton = document.createElement("button");
     applyButton.type = "button";
     applyButton.textContent = "Apply";
+    styleApplyButton(applyButton);
     applyButton.addEventListener("click", () => {
       applyButton.disabled = true;
       void this.#engine.submit(fix).then((result: OpResult) => {
