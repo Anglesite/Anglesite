@@ -119,6 +119,12 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// default-on ask. `true` means the owner explicitly opted out in Site Settings.
     public var markdownForAgentsDisabled: Bool?
 
+    /// Set once `MicropubContentImport.importIfNeeded` has run at least once for this site,
+    /// successfully or not — the one-time gate that stops a signed-out-then-signed-back-in Mac
+    /// from re-attempting a full import every time (`importIfNeeded` is independently idempotent
+    /// via the sync-state map, but this flag avoids re-scanning every file on every sign-in).
+    public var contentImportCompleted: Bool?
+
     /// Memberwise creation. Every parameter defaults to `nil`, matching the type-level
     /// forward-compat rule that all fields stay optional — `SiteSettings()` is the canonical
     /// "no settings yet" value ``SiteConfigStore/load()`` falls back to.
@@ -140,7 +146,8 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         inboxCaptureEnabled: Bool? = nil,
         lastDeployedAPUsername: String? = nil,
         activityPubHandleRenameAcknowledged: String? = nil,
-        markdownForAgentsDisabled: Bool? = nil
+        markdownForAgentsDisabled: Bool? = nil,
+        contentImportCompleted: Bool? = nil
     ) {
         self.displayName = displayName
         self.mastodonBaseURL = mastodonBaseURL
@@ -160,6 +167,7 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         self.lastDeployedAPUsername = lastDeployedAPUsername
         self.activityPubHandleRenameAcknowledged = activityPubHandleRenameAcknowledged
         self.markdownForAgentsDisabled = markdownForAgentsDisabled
+        self.contentImportCompleted = contentImportCompleted
     }
 }
 
