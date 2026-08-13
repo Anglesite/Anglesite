@@ -1,5 +1,6 @@
 import { WysiwygEngine } from "../engine.js";
 import { RichTextEditor } from "../rich-text.js";
+import { QualityGateChips } from "../quality-gates.js";
 import { NativeHostTransport } from "./native-host-transport.js";
 import type { BlockModel } from "../types.js";
 
@@ -7,6 +8,7 @@ declare global {
   interface Window {
     __anglesiteWysiwygEngine?: WysiwygEngine;
     __anglesiteWysiwygRichTextEditor?: RichTextEditor;
+    __anglesiteWysiwygQualityGates?: QualityGateChips;
     __anglesiteWysiwygMount?: { mount: (initialModel: BlockModel) => WysiwygEngine; unmount: () => void };
   }
 }
@@ -14,11 +16,13 @@ declare global {
 // Disposes whatever is currently mounted (if anything) and clears the globals — the shared body
 // of `unmount()` below, factored out so `mount()` can call it too (#1225 final-review round 2,
 // Finding B) rather than only being reachable from the native `unmountEngine()` call. Safe to call
-// when nothing is mounted: both globals are `undefined` and the optional-chained calls no-op.
+// when nothing is mounted: all three globals are `undefined` and the optional-chained calls no-op.
 function disposeMounted(): void {
   window.__anglesiteWysiwygRichTextEditor?.dispose();
+  window.__anglesiteWysiwygQualityGates?.dispose();
   window.__anglesiteWysiwygEngine?.dispose();
   window.__anglesiteWysiwygRichTextEditor = undefined;
+  window.__anglesiteWysiwygQualityGates = undefined;
   window.__anglesiteWysiwygEngine = undefined;
 }
 
@@ -27,32 +31,22 @@ function disposeMounted(): void {
 // so this just exposes a `mount()` entry point the Swift host calls via `evaluateJavaScript`.
 window.__anglesiteWysiwygMount = {
   mount(initialModel: BlockModel): WysiwygEngine {
-    // Idempotent: dispose any already-mounted engine/RichTextEditor first (#1225 final-review
-    // round 2, Finding B). Now that a `WKNavigationDelegate` remounts on every navigation
-    // completion while edit mode is on (`PreviewView.Coordinator.webView(_:didFinish:)`), it's
-    // possible — though not expected in the steady state — for a mount to be requested while one
-    // is already live (e.g. a native-side call racing the navigation-driven one across the same
-    // page instance). Without this, two engine/RichTextEditor pairs would both end up wired to
-    // the same DOM and both listening for the same events, corrupting hit-testing and op
-    // submission. `unmount()` itself calls this same function, so an explicit unmount → mount
-    // pair (the normal edit-mode-off → on cycle) stays exactly as before.
+    // Idempotent: dispose any already-mounted engine/RichTextEditor/QualityGateChips first (#1225
+    // final-review round 2, Finding B) — see the original comment on this behavior for why.
     disposeMounted();
-    const engine = new WysiwygEngine(initialModel, new NativeHostTransport());
+    const transport = new NativeHostTransport();
+    const engine = new WysiwygEngine(initialModel, transport);
     window.__anglesiteWysiwygEngine = engine;
-    // `RichTextEditor` needs an engine to submit `editText` ops through, so it's constructed here
-    // rather than at injection time too — exposed globally so `WYSIWYGCanvasController.applyFormat`
-    // (#1225 Task 10) can reach it via `evaluateJavaScript`. Block selection (`enter()`) is wired by
-    // a different task; this only makes the instance reachable.
     window.__anglesiteWysiwygRichTextEditor = new RichTextEditor(engine);
+    // Same `transport` instance passed to both — `NativeHostTransport` implements both
+    // `HostTransport` and `QualityGateTransport` (#1226 Task 12), so one object owns the whole
+    // `window.__anglesiteWysiwygHost` bridge.
+    window.__anglesiteWysiwygQualityGates = new QualityGateChips(engine, transport);
     return engine;
   },
   // The counterpart to `mount` — called by `WYSIWYGCanvasController.unmountEngine()` (#1225
   // final-review fix wave, Findings 1/6) when Site ▸ Edit Page toggles off, or `PreviewView`'s
   // `updateNSView` observes the mounted controller change out from under an already-loaded page.
-  // Disposes both globals' listeners (`WysiwygEngine.dispose()`/`RichTextEditor.dispose()` — the
-  // latter also exits any in-progress edit, flushing a pending debounced commit) and clears the
-  // globals so a stale `window.__anglesiteWysiwygEngine` can't answer a hit-test or accept an op
-  // after the native side considers edit mode off.
   unmount(): void {
     disposeMounted();
   },
