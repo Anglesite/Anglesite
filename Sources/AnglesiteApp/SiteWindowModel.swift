@@ -228,6 +228,11 @@ final class SiteWindowModel {
     /// `AnimationsGalleryModel`, resolves the bundled template itself) so a plain Bool is enough —
     /// no per-site data to carry, unlike the `.sheet(item:)` models above.
     var animationsPresented = false
+    /// Website ▸ Connect for CMS Mode… (#800). `MicropubSiteConnectSheet` builds its own
+    /// `MicropubOnboardingModel` from the `site` `SiteWindow`'s `.sheet(isPresented:)` closure
+    /// already has in scope (same as the `NewPageSheet`/`NewCollectionEntrySheet` sheets), so a
+    /// plain Bool is enough here too — same reasoning as `animationsPresented`.
+    var micropubConnectPresented = false
     /// Non-nil ⟺ the Delete confirmation dialog is showing for this navigator item (#516).
     /// Hosted in `SiteWindow` (mirrors `revertConfirmationPresented`'s alert-hosting pattern) —
     /// set from both the navigator's row context menu and the Edit ▸ Delete menu command.
@@ -620,6 +625,16 @@ final class SiteWindowModel {
     /// `mainPaneMode` — the gallery is a modal browse surface, not a main-pane mode.
     func presentAnimations() {
         animationsPresented = true
+    }
+
+    /// Website ▸ Connect for CMS Mode… (#800), same shape as `canOpenAnimations` — gated on a
+    /// site window being focused.
+    var canOpenMicropubConnect: Bool { site != nil }
+
+    /// Presents the CMS-mode connect sheet (Website ▸ Connect for CMS Mode…, #800). Same
+    /// plain-Bool pattern as `presentAnimations()`.
+    func presentMicropubConnect() {
+        micropubConnectPresented = true
     }
 
     /// Presents the Social Media Plan sheet (#465), same pattern as `presentCopyEdit`.
