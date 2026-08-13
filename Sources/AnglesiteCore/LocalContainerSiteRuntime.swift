@@ -9,10 +9,6 @@ import Foundation
 /// repo, connect the MCP client to the returned MCP endpoint, settle to `.ready`/`.failed`.
 /// Spawns nothing in-process.
 public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapability {
-    /// Shared by `persistEdit`'s two commit-hash validity checks — built once rather than per
-    /// character inside each `allSatisfy` closure.
-    private static let hexDigits = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
-
     private let ref: String
     private let control: any LocalContainerControl
     /// The `SiteRuntime` MCP seam: `start` connects this client to the booted container's
@@ -257,9 +253,7 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
     /// host-side content operation committed after this runtime was hydrated. A dirty host
     /// worktree is refused rather than overwritten.
     public func persistEdit(commit: String?) async throws {
-        guard let commit,
-              (7...64).contains(commit.count),
-              commit.unicodeScalars.allSatisfy({ Self.hexDigits.contains($0) })
+        guard let commit, ContainerEditExport.isPlausibleCommit(commit)
         else { throw SiteRuntimePersistenceError.missingOrInvalidCommit }
 
         let expectedGeneration = stateMachine.currentGeneration
@@ -277,95 +271,23 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
             throw SiteRuntimePersistenceError.runtimeNotRunning
         }
 
-        // Export exactly the requested commit through stdout as a base64 git bundle. The canonical
-        // repo remains mounted read-only, so no guest process can alter its worktree, refs, or hooks.
-        let exportScript = #"""
-        set -eu
-        runtime=/workspace/site
-        commit="$1"
-        ref=refs/heads/anglesite-persist
-        bundle=/tmp/anglesite-persist-$$.bundle
-        cleanup() {
-          git -C "$runtime" update-ref -d "$ref" >/dev/null 2>&1 || true
-          rm -f "$bundle"
-        }
-        trap cleanup EXIT HUP INT TERM
-
-        full=$(git -C "$runtime" rev-parse "$commit^{commit}")
-        git -C "$runtime" update-ref "$ref" "$full"
-        if parent=$(git -C "$runtime" rev-parse "$full^" 2>/dev/null); then
-          git -C "$runtime" bundle create "$bundle" "$ref" "^$parent"
-        else
-          git -C "$runtime" bundle create "$bundle" "$ref"
-        fi
-        printf '%s\n' "$full"
-        base64 "$bundle"
-        """#
-
         let logCenter = self.logCenter
         let source = "container:\(siteID):persist"
-        let result: ContainerExecResult
         do {
-            result = try await control.exec(
+            try await ContainerEditExport.exportAndImport(
+                commit: commit,
                 siteID: siteID,
-                argv: ["sh", "-c", exportScript, "anglesite-export", commit],
-                environment: [:],
-                workingDirectory: "/workspace/site",
-                onOutput: { line, stream in
-                    // stdout is the base64 bundle transport, not human-readable diagnostic output.
-                    guard stream == .stderr else { return }
-                    Task { await logCenter.append(source: source, stream: stream, text: line) }
-                }
+                control: control,
+                sourceDirectory: siteDirectory,
+                onLog: { line, stream in Task { await logCenter.append(source: source, stream: stream, text: line) } },
+                importBundle: importBundle
             )
         } catch {
+            await logCenter.append(source: source, stream: .stderr, text: "persist failed: \(error.localizedDescription)")
             guard stateMachine.isCurrent(expectedGeneration), activeSiteID == siteID else {
                 throw SiteRuntimePersistenceError.runtimeNotRunning
             }
-            throw SiteRuntimePersistenceError.syncFailed(error.localizedDescription)
-        }
-        guard result.exitCode == 0 else {
-            let detail = result.stderr.trimmingCharacters(in: .whitespacesAndNewlines)
-            throw SiteRuntimePersistenceError.syncFailed(
-                detail.isEmpty ? "git handoff exited \(result.exitCode)" : detail)
-        }
-
-        guard stateMachine.isCurrent(expectedGeneration),
-              activeSiteID == siteID,
-              activeSiteDirectory == siteDirectory
-        else {
-            throw SiteRuntimePersistenceError.runtimeNotRunning
-        }
-
-        let outputParts = result.stdout.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false)
-        guard outputParts.count == 2 else {
-            throw SiteRuntimePersistenceError.syncFailed("container returned an invalid git bundle")
-        }
-        let fullCommit = String(outputParts[0])
-        guard (40...64).contains(fullCommit.count),
-              fullCommit.unicodeScalars.allSatisfy({ Self.hexDigits.contains($0) }),
-              let bundleData = Data(base64Encoded: String(outputParts[1]), options: .ignoreUnknownCharacters)
-        else {
-            throw SiteRuntimePersistenceError.syncFailed("container returned an invalid git bundle")
-        }
-
-        let bundleURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("anglesite-persist-\(UUID().uuidString).bundle")
-        do {
-            try bundleData.write(to: bundleURL, options: .atomic)
-        } catch {
-            throw SiteRuntimePersistenceError.syncFailed(error.localizedDescription)
-        }
-        defer { try? FileManager.default.removeItem(at: bundleURL) }
-
-        do {
-            try await importBundle(bundleURL, fullCommit, siteDirectory)
-            // The host-side import is in-process libgit2, not a subprocess — nothing else would
-            // ever put this write to the canonical repo in the debug pane (CLAUDE.md: "logs are
-            // sacred"), so log the outcome explicitly on both paths.
-            await logCenter.append(source: source, stream: .stdout, text: "persisted \(fullCommit) to Source")
-        } catch {
-            await logCenter.append(source: source, stream: .stderr, text: "persist failed: \(error.localizedDescription)")
-            throw SiteRuntimePersistenceError.syncFailed(error.localizedDescription)
+            throw error
         }
     }
 
