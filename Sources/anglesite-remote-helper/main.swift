@@ -1,4 +1,5 @@
 import Foundation
+import AppKit
 import AnglesiteCore
 import AnglesiteContainer
 import AnglesiteP2P
@@ -19,126 +20,155 @@ import ServiceManagement
 // for the real production flow — resolving a siteID sent over CloudKit signaling — and is not
 // wired in here.
 
+// Anywhere runtime (#1208 P2) addition: a real `NSApplication` run loop. P2 adds the run loop
+// this file never had in P1 — a real gap: the design spec's own rationale for the helper being
+// "a real (faceless) app rather than a bare LaunchAgent" is "specifically so it can receive
+// CloudKit push" (design spec §Architecture 2), but `registerForRemoteNotifications()` cannot be
+// called without an `NSApplication` event loop, which this file did not run until now. The
+// session logic below is otherwise unchanged in substance — it is just driven from
+// `applicationDidFinishLaunching` instead of running at file scope.
+//
+// `NSApplication.shared.run()` never returns on its own — the old top-level "fall off the end of
+// main.swift" exit path is replaced by an explicit `exit(0)` at the end of `runSession()`,
+// matching what `die(_:)` and the SIGTERM handler already did.
+
 func die(_ message: String) -> Never {
     FileHandle.standardError.write(Data((message + "\n").utf8))
     exit(1)
 }
 
-#if canImport(ServiceManagement)
-do {
-    try SMAppServiceLoginItem().register()
-} catch {
-    FileHandle.standardError.write(Data("login item registration failed: \(error)\n".utf8))
-}
-#endif
-
-let args = CommandLine.arguments
-guard args.count == 4, args[1] == "session" else {
-    die("usage: anglesite-remote-helper session <signal-dir> <site-root>")
-}
-let signalDir = URL(fileURLWithPath: args[2], isDirectory: true)
-let siteRoot = URL(fileURLWithPath: args[3], isDirectory: true)
-// NOT `siteRoot.lastPathComponent`: `<site-root>` is a site's `Source/` git repo, so that is the
-// literal string "Source" for every site on the machine — and this key names both the registry
-// claim file and the container's on-disk boot artifacts. See `RemoteSiteIdentity`.
-let siteID = RemoteSiteIdentity.siteID(forSourceDirectory: siteRoot)
-
-// Production wiring of RemoteSessionRegistry at a *shared* (App Group) location is blocked on an
-// owner-side provisioning-portal change (see the plan's Task 2/5 manual note); until then this
-// falls back to a helper-local temp directory, which degrades "one owner per site" to "one owner
-// per site among helper-only sessions" — an accepted, explicitly-logged P1 limitation.
-let registryDir = FileManager.default.temporaryDirectory.appendingPathComponent("anglesite-remote-sessions")
-do {
-    try FileManager.default.createDirectory(at: registryDir, withIntermediateDirectories: true)
-} catch {
-    FileHandle.standardError.write(Data("registry directory creation failed: \(error)\n".utf8))
-}
-let control = ContainerizationControl()
-let containerSession = RemoteContainerSession(
-    control: control,
-    registry: RemoteSessionRegistry(directory: registryDir))
-
-let session: LocalContainerSession
-do {
-    session = try await containerSession.ensureRunning(
-        siteID: siteID, sourceRepo: siteRoot, ref: "HEAD",
-        onOutput: { line, stream in FileHandle.standardError.write(Data(("[\(stream)] " + line + "\n").utf8)) })
-} catch {
-    die("container boot failed: \(error)")
-}
-
-// Lifecycle markers on stderr, alongside the guest's own `[stdout]`/`[stderr]` lines. Logs are
-// sacred (CLAUDE.md), and until now this process reported nothing about its *own* state — the
-// guest chatter stops after boot and a session waiting for a peer looked identical to a hung one.
-// `HelperContainerE2ETests` also uses the first marker as its sync point: it waits for it before
-// offering, so the client never trickles ICE into a directory nobody is polling yet.
-FileHandle.standardError.write(Data(
-    "remote-helper: container ready (preview \(session.previewURL), mcp \(session.mcpURL)); waiting for peer\n".utf8))
-
-let peer: WebRTCPeer
-do {
-    peer = try await WebRTCPeer.connect(
-        role: .answerer, signaling: FileSignalingChannel(directory: signalDir, sender: "helper"))
-} catch {
-    await containerSession.tearDown(siteID: siteID)
-    die("P2P connect failed: \(error)")
-}
-FileHandle.standardError.write(Data("remote-helper: peer connected; bridging\n".utf8))
-
-let httpBridge = FetchBridgeServer(connection: peer, executor: LoopbackHTTPExecutor(baseURL: session.previewURL))
-let mcpBridge = LoopbackMCPBridge(mcpURL: session.mcpURL)
-// Persistence only runs for a container THIS process booted — a borrowed claim (another
-// process's container) has no in-process VM handle `control.exec` can reach (see
-// ContainerEditExport's doc comment). `await` is fine here: `isOwner` only reads actor state
-// already settled by the `ensureRunning` call above, no I/O.
-let mcpHandler: MCPChannelResponder.Handler
-if await containerSession.isOwner(siteID: siteID) {
-    let persister = HelperEditPersister(
-        wrapping: { message in await mcpBridge.handle(message) },
-        siteID: siteID, control: control, sourceDirectory: siteRoot,
-        onLog: { line, stream in FileHandle.standardError.write(Data(("[\(stream)] " + line + "\n").utf8)) })
-    mcpHandler = { message in await persister.handle(message) }
-} else {
-    FileHandle.standardError.write(Data("remote-helper: bridging a borrowed container — edits will not be persisted by this process\n".utf8))
-    mcpHandler = { message in await mcpBridge.handle(message) }
-}
-let mcpResponder = MCPChannelResponder(connection: peer, handler: mcpHandler)
-let heartbeat = ControlHeartbeat(connection: peer, interval: .seconds(10), missLimit: 6, onMiss: { count in
-    if count >= 6 { FileHandle.standardError.write(Data("control link presumed dead\n".utf8)) }
-})
-
-// A raw C `signal()` handler can't safely call async Swift code (tearDown/peer.close() are
-// actor-isolated), so route SIGTERM through a DispatchSourceSignal instead: it delivers on a
-// normal GCD queue, which is a safe place to kick off a `Task` that closes the peer (letting the
-// `async let`s below unwind naturally) and tears the container session down before exiting.
-// `signal(SIGTERM, ...)` first blocks the default disposition (immediate termination) so the
-// dispatch source is the only thing that actually observes the signal. The source itself must be
-// retained for the process lifetime — GCD sources stop firing if deallocated — hence the
-// top-level `let` rather than a throwaway local.
-//
-// A non-capturing closure handler is used instead of `SIG_IGN` deliberately, matching
-// `ProcessSupervisor.swift`'s own `ignoreSIGPIPE` precedent: the Swift-vended `Darwin.SIG_IGN`
-// constant is exported from the `libswift_DarwinFoundation3` overlay, which some of this repo's
-// CI images don't ship — referencing it can make a binary fail to load ("Library not loaded:
-// libswift_DarwinFoundation3.dylib"). The closure form avoids adding *this file's own*
-// reference to that symbol. Note this target still ends up linking the dylib regardless, via
-// `AnglesiteContainer`'s `apple/containerization` dependency (`ContainerizationOS/
-// AsyncSignalHandler.swift` references `SIG_IGN` directly) — a pre-existing characteristic
-// already shared by `AnglesiteContainerProbe`, not something this file can avoid on its own.
-signal(SIGTERM, { _ in })
-let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-sigtermSource.setEventHandler {
-    Task {
-        await peer.close()
-        await containerSession.tearDown(siteID: siteID)
-        exit(0)
+@MainActor
+final class HelperAppDelegate: NSObject, NSApplicationDelegate {
+    func applicationDidFinishLaunching(_ notification: Notification) {
+        Task { await runSession() }
     }
 }
-sigtermSource.resume()
 
-async let httpTask: Void = httpBridge.run()
-async let mcpTask: Void = mcpResponder.run()
-async let heartbeatTask: Void = heartbeat.run()
-_ = await (httpTask, mcpTask, heartbeatTask)
+func runSession() async {
+    #if canImport(ServiceManagement)
+    do {
+        try SMAppServiceLoginItem().register()
+    } catch {
+        FileHandle.standardError.write(Data("login item registration failed: \(error)\n".utf8))
+    }
+    #endif
 
-await containerSession.tearDown(siteID: siteID)
+    let args = CommandLine.arguments
+    guard args.count == 4, args[1] == "session" else {
+        die("usage: anglesite-remote-helper session <signal-dir> <site-root>")
+    }
+    let signalDir = URL(fileURLWithPath: args[2], isDirectory: true)
+    let siteRoot = URL(fileURLWithPath: args[3], isDirectory: true)
+    // NOT `siteRoot.lastPathComponent`: `<site-root>` is a site's `Source/` git repo, so that is the
+    // literal string "Source" for every site on the machine — and this key names both the registry
+    // claim file and the container's on-disk boot artifacts. See `RemoteSiteIdentity`.
+    let siteID = RemoteSiteIdentity.siteID(forSourceDirectory: siteRoot)
+
+    // Production wiring of RemoteSessionRegistry at a *shared* (App Group) location is blocked on an
+    // owner-side provisioning-portal change (see the plan's Task 2/5 manual note); until then this
+    // falls back to a helper-local temp directory, which degrades "one owner per site" to "one owner
+    // per site among helper-only sessions" — an accepted, explicitly-logged P1 limitation.
+    let registryDir = FileManager.default.temporaryDirectory.appendingPathComponent("anglesite-remote-sessions")
+    do {
+        try FileManager.default.createDirectory(at: registryDir, withIntermediateDirectories: true)
+    } catch {
+        FileHandle.standardError.write(Data("registry directory creation failed: \(error)\n".utf8))
+    }
+    let control = ContainerizationControl()
+    let containerSession = RemoteContainerSession(
+        control: control,
+        registry: RemoteSessionRegistry(directory: registryDir))
+
+    let session: LocalContainerSession
+    do {
+        session = try await containerSession.ensureRunning(
+            siteID: siteID, sourceRepo: siteRoot, ref: "HEAD",
+            onOutput: { line, stream in FileHandle.standardError.write(Data(("[\(stream)] " + line + "\n").utf8)) })
+    } catch {
+        die("container boot failed: \(error)")
+    }
+
+    // Lifecycle markers on stderr, alongside the guest's own `[stdout]`/`[stderr]` lines. Logs are
+    // sacred (CLAUDE.md), and until now this process reported nothing about its *own* state — the
+    // guest chatter stops after boot and a session waiting for a peer looked identical to a hung one.
+    // `HelperContainerE2ETests` also uses the first marker as its sync point: it waits for it before
+    // offering, so the client never trickles ICE into a directory nobody is polling yet.
+    FileHandle.standardError.write(Data(
+        "remote-helper: container ready (preview \(session.previewURL), mcp \(session.mcpURL)); waiting for peer\n".utf8))
+
+    let peer: WebRTCPeer
+    do {
+        peer = try await WebRTCPeer.connect(
+            role: .answerer, signaling: FileSignalingChannel(directory: signalDir, sender: "helper"))
+    } catch {
+        await containerSession.tearDown(siteID: siteID)
+        die("P2P connect failed: \(error)")
+    }
+    FileHandle.standardError.write(Data("remote-helper: peer connected; bridging\n".utf8))
+
+    let httpBridge = FetchBridgeServer(connection: peer, executor: LoopbackHTTPExecutor(baseURL: session.previewURL))
+    let mcpBridge = LoopbackMCPBridge(mcpURL: session.mcpURL)
+    // Persistence only runs for a container THIS process booted — a borrowed claim (another
+    // process's container) has no in-process VM handle `control.exec` can reach (see
+    // ContainerEditExport's doc comment). `await` is fine here: `isOwner` only reads actor state
+    // already settled by the `ensureRunning` call above, no I/O.
+    let mcpHandler: MCPChannelResponder.Handler
+    if await containerSession.isOwner(siteID: siteID) {
+        let persister = HelperEditPersister(
+            wrapping: { message in await mcpBridge.handle(message) },
+            siteID: siteID, control: control, sourceDirectory: siteRoot,
+            onLog: { line, stream in FileHandle.standardError.write(Data(("[\(stream)] " + line + "\n").utf8)) })
+        mcpHandler = { message in await persister.handle(message) }
+    } else {
+        FileHandle.standardError.write(Data("remote-helper: bridging a borrowed container — edits will not be persisted by this process\n".utf8))
+        mcpHandler = { message in await mcpBridge.handle(message) }
+    }
+    let mcpResponder = MCPChannelResponder(connection: peer, handler: mcpHandler)
+    let heartbeat = ControlHeartbeat(connection: peer, interval: .seconds(10), missLimit: 6, onMiss: { count in
+        if count >= 6 { FileHandle.standardError.write(Data("control link presumed dead\n".utf8)) }
+    })
+
+    // A raw C `signal()` handler can't safely call async Swift code (tearDown/peer.close() are
+    // actor-isolated), so route SIGTERM through a DispatchSourceSignal instead: it delivers on a
+    // normal GCD queue, which is a safe place to kick off a `Task` that closes the peer (letting the
+    // `async let`s below unwind naturally) and tears the container session down before exiting.
+    // `signal(SIGTERM, ...)` first blocks the default disposition (immediate termination) so the
+    // dispatch source is the only thing that actually observes the signal. The source itself must be
+    // retained for the process lifetime — GCD sources stop firing if deallocated — hence keeping it
+    // as a `let` local here rather than a throwaway expression: `runSession()` is a long-lived async
+    // function that doesn't return until teardown, so this local's lifetime spans the source's whole
+    // useful lifetime, the same guarantee the old top-level `let` gave for the whole process.
+    //
+    // A non-capturing closure handler is used instead of `SIG_IGN` deliberately, matching
+    // `ProcessSupervisor.swift`'s own `ignoreSIGPIPE` precedent: the Swift-vended `Darwin.SIG_IGN`
+    // constant is exported from the `libswift_DarwinFoundation3` overlay, which some of this repo's
+    // CI images don't ship — referencing it can make a binary fail to load ("Library not loaded:
+    // libswift_DarwinFoundation3.dylib"). The closure form avoids adding *this file's own*
+    // reference to that symbol. Note this target still ends up linking the dylib regardless, via
+    // `AnglesiteContainer`'s `apple/containerization` dependency (`ContainerizationOS/
+    // AsyncSignalHandler.swift` references `SIG_IGN` directly) — a pre-existing characteristic
+    // already shared by `AnglesiteContainerProbe`, not something this file can avoid on its own.
+    signal(SIGTERM, { _ in })
+    let sigtermSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
+    sigtermSource.setEventHandler {
+        Task {
+            await peer.close()
+            await containerSession.tearDown(siteID: siteID)
+            exit(0)
+        }
+    }
+    sigtermSource.resume()
+
+    async let httpTask: Void = httpBridge.run()
+    async let mcpTask: Void = mcpResponder.run()
+    async let heartbeatTask: Void = heartbeat.run()
+    _ = await (httpTask, mcpTask, heartbeatTask)
+
+    await containerSession.tearDown(siteID: siteID)
+    exit(0)
+}
+
+let delegate = HelperAppDelegate()
+let app = NSApplication.shared
+app.delegate = delegate
+app.run()
