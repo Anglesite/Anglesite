@@ -1,4 +1,9 @@
 import Foundation
+// URLSession/URLRequest/HTTPURLResponse live in FoundationNetworking on non-Darwin
+// (AnglesiteCore is in the Linux portable target set).
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Why a metadata fetch failed — surfaced as a quiet inline note in the compose sheet, never a
 /// blocking error (spec §6: capture always proceeds with the bare URL).
@@ -51,6 +56,10 @@ public struct LinkMetadataFetcher: Sendable {
     /// Decode using the response's declared charset when it names one, else UTF-8, else lossy
     /// UTF-8 — a wrong-charset decode still yields scannable ASCII `<meta>` markup.
     static func decode(_ data: Data, textEncodingName: String?) -> String {
+        // The IANA charset-name lookup is CoreFoundation, Darwin-only (this repo treats CF as
+        // non-portable throughout). Off-Darwin the UTF-8 fallback below still yields scannable
+        // ASCII `<meta>` markup for any ASCII-compatible page encoding.
+        #if canImport(Darwin)
         if let name = textEncodingName {
             let cfEncoding = CFStringConvertIANACharSetNameToEncoding(name as CFString)
             if cfEncoding != kCFStringEncodingInvalidId {
@@ -58,6 +67,7 @@ public struct LinkMetadataFetcher: Sendable {
                 if let decoded = String(data: data, encoding: encoding) { return decoded }
             }
         }
+        #endif
         return String(data: data, encoding: .utf8) ?? String(decoding: data, as: UTF8.self)
     }
 }
