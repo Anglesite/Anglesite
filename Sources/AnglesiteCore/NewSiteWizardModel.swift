@@ -36,14 +36,24 @@ public final class NewSiteWizardModel {
     /// failure). Gate opening the site on ``didCompleteCleanly``, not just this being non-nil.
     public private(set) var completedSiteID: String?
 
-    /// Themes shown in the grid; the first entry is pre-selected (no site type exists to drive
-    /// the per-type default table).
+    /// The full theme set the grid filters from via ``filteredThemes``; not shown directly.
     public let catalog: ThemeCatalog
+
+    /// The six chooser sidebar categories, in the order the sidebar lists them (design spec
+    /// `docs/superpowers/specs/2026-07-31-curated-theme-ports-design.md` §4).
+    /// ``SiteType/community`` is excluded — hosted communities are a separate creation flow
+    /// (`NewCommunityWizardModel`), not a chooser category.
+    public static let chooserCategories: [SiteType] = [.business, .personal, .blog, .portfolio, .organization, .blank]
+
+    /// The sidebar category currently selected. Starts on ``SiteType/blank`` — today's
+    /// default: all eight built-in CSS-var themes, no site type recorded.
+    public private(set) var selectedCategory: SiteType = .blank
 
     /// Creates the model with a fully-defaulted Untitled draft.
     ///
     /// - Parameters:
-    ///   - catalog: Themes for the grid; its first entry seeds ``NewSiteDraft/themeID``.
+    ///   - catalog: The full theme set; filtered per category for the grid (``filteredThemes``)
+    ///     and for seeding the initial ``NewSiteDraft/themeID`` below.
     ///   - isNameTaken: Availability check for a candidate display name (e.g. "Untitled 2").
     ///     The caller decides what "taken" means — the launcher checks both the recents
     ///     registry and the sites root on disk. Non-escaping: consulted only here, at init.
@@ -55,7 +65,10 @@ public final class NewSiteWizardModel {
         // copy for the owner to edit in the preview (#1071).
         var draft = NewSiteDraft(siteType: .blank, name: name,
                                  saveFileName: "\(name).anglesite", headline: "")
-        draft.themeID = catalog.themes.first?.id ?? ""
+        // Pre-select from the Blank-filtered set (matching selectedCategory's .blank default),
+        // not the raw catalog — otherwise a categorized pack theme ordered ahead of the
+        // built-ins could get pre-selected while the (Blank-filtered) grid shows no selection.
+        draft.themeID = Self.themes(in: catalog, matching: .blank).first?.id ?? catalog.themes.first?.id ?? ""
         self.draft = draft
     }
 
@@ -75,6 +88,29 @@ public final class NewSiteWizardModel {
     /// selected and no build is running.
     public var canCreate: Bool {
         step == .chooser && catalog.theme(id: draft.themeID) != nil
+    }
+
+    /// Catalog themes matching ``selectedCategory``: themes whose `category` equals the
+    /// selection's raw value, or — for ``SiteType/blank`` — themes with no `category` at all
+    /// (the eight built-in CSS-var themes today; pack schema per spec §1).
+    public var filteredThemes: [Theme] { Self.themes(in: catalog, matching: selectedCategory) }
+
+    private static func themes(in catalog: ThemeCatalog, matching category: SiteType) -> [Theme] {
+        if category == .blank { return catalog.themes.filter { $0.category == nil } }
+        return catalog.themes.filter { $0.category == category.rawValue }
+    }
+
+    /// Switches the sidebar to `category`: records it on ``NewSiteDraft/siteType`` and
+    /// pre-selects a theme from the filtered set — the category's flagship pack
+    /// (``ThemeCatalog/defaultThemeID(for:)``) when present in the filtered set, else the
+    /// filtered set's first entry, else no selection (a category with no ported themes yet
+    /// shows an empty grid; ``canCreate`` is false until one exists).
+    public func selectCategory(_ category: SiteType) {
+        selectedCategory = category
+        draft.siteType = category
+        let candidates = Self.themes(in: catalog, matching: category)
+        let preferred = catalog.defaultThemeID(for: category)
+        draft.themeID = candidates.contains { $0.id == preferred } ? preferred : (candidates.first?.id ?? "")
     }
 
     /// Non-fatal build warnings (e.g. a failed install), surfaced so a failure isn't hidden behind a dead-end preview (#229).

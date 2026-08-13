@@ -55,6 +55,7 @@ struct SitesLauncherView: View {
         let id = UUID()
         let model: NewSiteWizardModel
         let scaffolder: SiteScaffolder
+        let templateURL: URL
     }
     /// Non-nil while the New Site wizard is showing; nil dismisses it.
     @State private var newSiteSession: NewSiteSession?
@@ -134,6 +135,7 @@ struct SitesLauncherView: View {
             NewSiteWizard(
                 model: session.model,
                 scaffolder: session.scaffolder,
+                templateURL: session.templateURL,
                 onComplete: { siteID in
                     newSiteSession = nil
                     Task {
@@ -483,6 +485,7 @@ struct SitesLauncherView: View {
     private struct ScaffoldingContext {
         let catalog: ThemeCatalog
         let scaffolder: SiteScaffolder
+        let templateURL: URL
         let isNameTaken: (String) -> Bool
     }
 
@@ -566,7 +569,7 @@ struct SitesLauncherView: View {
                 return site
             }
         )
-        return ScaffoldingContext(catalog: catalog, scaffolder: scaffolder, isNameTaken: isNameTaken)
+        return ScaffoldingContext(catalog: catalog, scaffolder: scaffolder, templateURL: templateURL, isNameTaken: isNameTaken)
     }
 
     @MainActor
@@ -576,7 +579,7 @@ struct SitesLauncherView: View {
         defer { preparingNewSite = false }
         guard let context = await resolveScaffoldingContext() else { return }
         let model = NewSiteWizardModel(catalog: context.catalog, isNameTaken: context.isNameTaken)
-        newSiteSession = NewSiteSession(model: model, scaffolder: context.scaffolder)
+        newSiteSession = NewSiteSession(model: model, scaffolder: context.scaffolder, templateURL: context.templateURL)
     }
 
     @MainActor

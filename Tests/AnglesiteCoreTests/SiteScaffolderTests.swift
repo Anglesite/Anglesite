@@ -188,6 +188,20 @@ final class SiteScaffolderTests: XCTestCase {
         XCTAssertFalse(cfg.contains("TAGLINE="))
     }
 
+    /// The chooser's category sidebar (#1452) can now produce a non-blank `siteType` — prove
+    /// the scaffolder actually writes it. Complements the Blank case above, which omits it.
+    func testNonBlankSiteTypeWritesSiteConfigKey() async throws {
+        let root = tmpDir()
+        let scaffolder = makeScaffolder(root: root)
+        let draft = makeDraft()   // siteType: .business
+        for await _ in scaffolder.scaffold(draft) {}
+
+        let cfg = try String(
+            contentsOf: root.appendingPathComponent("acme-co.anglesite/Source/.site-config"),
+            encoding: .utf8)
+        XCTAssertTrue(cfg.contains("SITE_TYPE=business"))
+    }
+
     func testCustomColorSchemeAndLogoAreApplied() async throws {
         let root = tmpDir()
         let logo = root.appendingPathComponent("brand.PNG")
