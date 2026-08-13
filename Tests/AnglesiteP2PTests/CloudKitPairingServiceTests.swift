@@ -71,11 +71,110 @@ struct DeviceAnnounceRecordMappingTests {
     }
 }
 
+/// Observation-lifecycle coverage, offline — the poll loop's start/stop/termination behavior,
+/// which is where a leaked timer would hide.
+///
+/// These build the service through its offline initializer rather than with a real container
+/// **because `CKContainer(identifier:)` traps the process when the binary lacks the CloudKit
+/// entitlement.** That was verified directly in this checkout: a binary calling it dies with
+/// SIGTRAP before reaching the next statement. An ungated test that constructed one would not fail,
+/// it would take down the whole `AnglesiteP2PTests` process — which is also why the suite below
+/// stays gated.
+@Suite
+struct CloudKitPairingServiceLifecycleTests {
+    /// The race that `stopped` closes: `announcedDevices()` starts observation from an unstructured
+    /// `Task`, so that task can land *after* a `stopObserving()` that beat it. Before the fix it
+    /// would pass the `observationTask == nil` guard and start a fresh 15-second poll loop feeding
+    /// an already-finished continuation — forever, with no consumer and no second stop coming.
+    /// Calling `startObserving()` directly reproduces that ordering deterministically.
+    @Test func startingObservationAfterStopIsANoOp() async {
+        let service = CloudKitPairingService(offlinePollInterval: .milliseconds(5))
+        await service.stopObserving()
+
+        await service.startObserving()
+
+        #expect(await service.isObserving == false)
+        #expect(await service.pollCount == 0)
+    }
+
+    /// `stopObserving()` must actually halt polling, not merely detach the handle — so this asserts
+    /// the poll count stops advancing, which a leaked loop would keep incrementing.
+    @Test func stopObservingHaltsThePollLoop() async throws {
+        let service = CloudKitPairingService(offlinePollInterval: .milliseconds(5))
+        await service.startObserving()
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await service.isObserving == true)
+        #expect(await service.pollCount > 0)
+
+        await service.stopObserving()
+        // Let any in-flight iteration finish before sampling, so the baseline isn't racy.
+        try await Task.sleep(for: .milliseconds(50))
+        let settled = await service.pollCount
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(await service.isObserving == false)
+        #expect(await service.pollCount == settled)
+    }
+
+    /// A consumer that is cancelled (or breaks out of `for await`) terminates the stream without
+    /// ever calling `stopObserving()`. Without the `onTermination` hook the loop would go on
+    /// hitting CloudKit for the life of the process, yielding into a continuation nobody reads.
+    @Test func consumerCancellationStopsThePollLoop() async throws {
+        let service = CloudKitPairingService(offlinePollInterval: .milliseconds(5))
+        let consumer = Task { for await _ in service.announcedDevices() {} }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await service.isObserving == true)
+
+        consumer.cancel()
+        // `onTermination` hops back onto the actor, so give that hop room to land.
+        try await Task.sleep(for: .milliseconds(200))
+        let settled = await service.pollCount
+        try await Task.sleep(for: .milliseconds(100))
+
+        #expect(await service.isObserving == false)
+        #expect(await service.pollCount == settled)
+    }
+
+    /// The retain cycle: the actor owns `observationTask`, so if that task captured the actor
+    /// strongly, the pair would keep each other alive for the life of the process unless someone
+    /// remembered to call `stopObserving()` by hand. Dropping the last external reference without
+    /// stopping must therefore still let the service deallocate — the poll loop holds it only for
+    /// the duration of each `refresh()`, never across the sleep, and a `nil` self ends the loop.
+    @Test func droppingTheServiceWithoutStoppingDeallocatesIt() async throws {
+        weak var weakService: CloudKitPairingService?
+        do {
+            let service = CloudKitPairingService(offlinePollInterval: .milliseconds(5))
+            weakService = service
+            await service.startObserving()
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(weakService == nil)
+    }
+
+    /// Stopping twice must be harmless — `continuation.finish()` itself re-enters `stopObserving()`
+    /// through the `onTermination` hook, so non-idempotence here would recurse.
+    @Test func stopObservingIsIdempotent() async {
+        let service = CloudKitPairingService(offlinePollInterval: .milliseconds(5))
+        await service.startObserving()
+        await service.stopObserving()
+        await service.stopObserving()
+
+        #expect(await service.isObserving == false)
+    }
+}
+
 /// End-to-end coverage against the real `iCloud.io.dwk.anglesite` container. Opt-in via
 /// `ANGLESITE_CK_TESTS=1`, mirroring `AnglesiteContainerLocalTests`' "real infrastructure,
 /// explicitly requested" posture: this needs live network I/O, a signed-in iCloud account on the
 /// running machine, and the `com.apple.developer.icloud-services` CloudKit entitlement on the
 /// test host — none of which CI (or a sandboxed agent) has.
+///
+/// The gate is load-bearing for more than correctness: `CKContainer(identifier:)` traps with
+/// SIGTRAP on an unentitled binary, so running these without the entitlement would crash the test
+/// process rather than report failures. Do not ungate them to "see what happens".
 @Suite(.enabled(if: ProcessInfo.processInfo.environment["ANGLESITE_CK_TESTS"] == "1"))
 struct CloudKitPairingServiceTests {
     /// CloudKit propagation is not instant, so every wait here is bounded — an unbounded
@@ -141,8 +240,11 @@ struct CloudKitPairingServiceTests {
         try await service.withdrawAnnounce(deviceID: deviceID)
     }
 
-    /// `registerSubscription()` is idempotent: the second call hits CloudKit's duplicate-ID
-    /// rejection and must swallow it, since every helper launch re-registers on startup.
+    /// `registerSubscription()` is safe to repeat, which every helper launch relies on. Per Apple's
+    /// QA1917 a subscription saved under an explicit ID is idempotent server-side — no duplicate is
+    /// created and the call normally succeeds — so this asserts the *second* call is not an error.
+    /// The `serverRejectedRequest` catch in the implementation is defensive backup, not the
+    /// expected path.
     @Test func registerSubscriptionIsIdempotent() async throws {
         let container = CKContainer(identifier: "iCloud.io.dwk.anglesite")
         let service = CloudKitPairingService(container: container)

@@ -41,19 +41,33 @@ public actor CloudKitPairingService {
     private static let logger = Logger(subsystem: "io.dwk.anglesite", category: "CloudKitPairingService")
 
     /// The subscription's stable ID. Fixed rather than random so a relaunched helper re-registers
-    /// *the same* subscription (CloudKit rejects the duplicate, which ``registerSubscription()``
-    /// swallows) instead of accumulating one dead subscription per launch.
+    /// *the same* subscription instead of accumulating one dead subscription per launch — which
+    /// works precisely because saving a subscription under an explicit ID is idempotent
+    /// server-side (see ``registerSubscription()`` for the QA1917 citation).
     public static let subscriptionID = "anglesite-device-announce"
 
-    private let database: CKDatabase
+    /// `nil` only for a service built by ``init(offlinePollInterval:)``; see that initializer for
+    /// why an offline test cannot hold a real one.
+    private let database: CKDatabase?
     private let pollInterval: Duration
     private let stream: AsyncStream<DeviceAnnounceRecord>
     private let continuation: AsyncStream<DeviceAnnounceRecord>.Continuation
     private var observationTask: Task<Void, Never>?
+    /// Latched by ``stopObserving()``. Without it the documented "cannot be restarted" contract
+    /// does not actually hold — see ``startObserving()``.
+    private var stopped = false
     /// Announces already yielded, keyed by record name + announce timestamp, so a poll that
     /// re-reads the same rows doesn't re-emit them while a genuine *re*-announce (new timestamp)
     /// still gets through.
     private var emitted: Set<String> = []
+
+    /// Whether the poll loop is live. Internal observability for the lifecycle tests, which is the
+    /// only way to assert "no leaked poll loop" from outside.
+    var isObserving: Bool { observationTask != nil }
+
+    /// Completed poll passes. A leaked poll loop shows up as a count that keeps climbing after the
+    /// service was stopped, which is exactly what the lifecycle tests assert against.
+    private(set) var pollCount = 0
 
     /// - Parameters:
     ///   - container: `CKContainer(identifier: "iCloud.io.dwk.anglesite")` in production — the
@@ -63,10 +77,38 @@ public actor CloudKitPairingService {
     ///   - pollInterval: how often to re-query while observing. The default trades a little
     ///     latency for a lot fewer requests, since push normally beats the timer; tests shorten it.
     public init(container: CKContainer, pollInterval: Duration = .seconds(15)) {
-        self.database = container.privateCloudDatabase
+        self.init(database: container.privateCloudDatabase, pollInterval: pollInterval)
+    }
+
+    /// Builds a service with no CloudKit database, so the observation lifecycle (start, stop,
+    /// consumer-side termination) can be exercised offline. Every CloudKit-touching method on such
+    /// a service throws ``CloudKitUnavailable``; only the poll loop runs.
+    ///
+    /// This exists because the obvious alternative is not available: `CKContainer(identifier:)`
+    /// **traps the process** when the running binary lacks the CloudKit entitlement. Verified in
+    /// this checkout — a binary that merely calls it dies with SIGTRAP before reaching the next
+    /// line, taking the whole test process with it. So "construct a container but never touch the
+    /// network" is not something an unentitled test can do, and a seam is the only way to cover
+    /// this actor's lifecycle in CI.
+    init(offlinePollInterval: Duration) {
+        self.init(database: nil, pollInterval: offlinePollInterval)
+    }
+
+    private init(database: CKDatabase?, pollInterval: Duration) {
+        self.database = database
         self.pollInterval = pollInterval
         (self.stream, self.continuation) =
             AsyncStream<DeviceAnnounceRecord>.makeStream(bufferingPolicy: .unbounded)
+        // A consumer that breaks out of `for await`, or whose task is cancelled, terminates the
+        // stream without ever calling `stopObserving()`. Without this hook the poll loop would keep
+        // hitting CloudKit every `pollInterval` for the life of the process, yielding into a
+        // continuation nobody is reading.
+        //
+        // `[weak self]` is required, not stylistic: the actor owns `observationTask`, so a strong
+        // capture here closes a cycle that keeps the service (and its timer) alive forever.
+        self.continuation.onTermination = { [weak self] _ in
+            Task { await self?.stopObserving() }
+        }
     }
 
     /// Publishes this device's own announce record (deviceID, public key, display name) so a peer
@@ -87,6 +129,7 @@ public actor CloudKitPairingService {
     ///     CloudKit's per-record ceiling is 1 MB, so `CKAsset` (which exists for multi-megabyte
     ///     blobs) would add a round trip and a temp file for nothing.
     public func announce(deviceID: String, publicKeyData: Data, displayName: String) async throws {
+        guard let database else { throw CloudKitUnavailable() }
         let record = DeviceAnnounceRecord(
             deviceID: deviceID, publicKeyData: publicKeyData,
             displayName: displayName, createdAt: Date()
@@ -100,6 +143,7 @@ public actor CloudKitPairingService {
     /// state — once pairing has completed (or been abandoned) there is no reason to leave it in
     /// the owner's database, and the gated tests use this to avoid littering a real container.
     public func withdrawAnnounce(deviceID: String) async throws {
+        guard let database else { throw CloudKitUnavailable() }
         _ = try await database.deleteRecord(withID: CKRecord.ID(recordName: deviceID))
     }
 
@@ -121,6 +165,10 @@ public actor CloudKitPairingService {
     /// Stops polling and finishes `announcedDevices()`'s stream. Idempotent. The stream cannot be
     /// restarted afterwards — construct a new service, matching `FileSignalingChannel.close()`.
     public func stopObserving() {
+        // Idempotent, and it has to be: `continuation.finish()` below re-enters this method via
+        // the `onTermination` hook installed in `init`, and the lifecycle tests stop twice.
+        guard !stopped else { return }
+        stopped = true
         observationTask?.cancel()
         observationTask = nil
         continuation.finish()
@@ -142,6 +190,7 @@ public actor CloudKitPairingService {
     /// needs to see it. Observation calls this best-effort and keeps polling regardless, so a
     /// failure here degrades latency, not correctness.
     public func registerSubscription() async throws {
+        guard let database else { throw CloudKitUnavailable() }
         let subscription = CKQuerySubscription(
             recordType: DeviceAnnounceRecord.cloudKitRecordType,
             predicate: NSPredicate(value: true),
@@ -182,17 +231,25 @@ public actor CloudKitPairingService {
         return true
     }
 
-    private func startObserving() async {
-        guard observationTask == nil else { return }
-        observationTask = Task { [pollInterval] in
-            do {
-                try await self.registerSubscription()
-            } catch {
-                Self.logger.warning(
-                    "device-announce subscription registration failed, polling only: \(error, privacy: .public)")
-            }
+    /// Starts the poll loop, at most once per service. Internal rather than private so the
+    /// lifecycle tests can drive it deterministically — `announcedDevices()` starts it from an
+    /// unstructured `Task`, which a test cannot otherwise await.
+    func startObserving() async {
+        // The `stopped` check is what makes the "cannot be restarted" contract on
+        // `stopObserving()` real. `announcedDevices()` kicks this off from an unstructured `Task`,
+        // so a caller that stops the service before that task gets scheduled would otherwise land
+        // here afterwards, sail past the `observationTask == nil` check, and start a *fresh* poll
+        // loop feeding an already-finished continuation: a timer nobody can reach and nobody reads.
+        guard !stopped, observationTask == nil else { return }
+        observationTask = Task { [weak self, pollInterval] in
+            await self?.registerSubscriptionBestEffort()
             while !Task.isCancelled {
-                await self.refresh()
+                // Optional-chaining through `weak self` deliberately: it retains the actor only for
+                // the duration of each call and never across the `sleep` below. A strong capture
+                // would complete a cycle (actor owns the task, task owns the actor) that keeps
+                // both alive for the life of the process unless `stopObserving()` is called by
+                // hand. `nil` here means the service was deallocated — itself the signal to stop.
+                guard await self?.refresh() != nil else { return }
                 do {
                     try await Task.sleep(for: pollInterval)
                 } catch {
@@ -202,10 +259,23 @@ public actor CloudKitPairingService {
         }
     }
 
+    /// Registration is best-effort by design: push is a latency optimization layered on the poll
+    /// loop, so failing to register degrades latency, never correctness.
+    private func registerSubscriptionBestEffort() async {
+        do {
+            try await registerSubscription()
+        } catch {
+            Self.logger.warning(
+                "device-announce subscription registration failed, polling only: \(error, privacy: .public)")
+        }
+    }
+
     /// One query pass: yields every announce not yielded before. Errors are logged, not thrown —
     /// a transient CloudKit failure must not tear down a long-lived observation, and the next
     /// poll retries on its own.
     private func refresh() async {
+        pollCount += 1
+        guard let database else { return }
         let query = CKQuery(
             recordType: DeviceAnnounceRecord.cloudKitRecordType, predicate: NSPredicate(value: true))
         do {
@@ -224,6 +294,11 @@ public actor CloudKitPairingService {
     }
 }
 
+/// Thrown when a CloudKit call is made on a service built by `init(offlinePollInterval:)`, which
+/// deliberately has no database. Internal: it never escapes a production code path, and `throws`
+/// does not expose the concrete type to callers anyway.
+struct CloudKitUnavailable: Error {}
+
 /// One device's pairing announcement — CloudKit-record-shaped, not `Codable` (CloudKit's own
 /// `CKRecord` is the wire format; this is the typed Swift view over it).
 public struct DeviceAnnounceRecord: Sendable, Equatable {
@@ -237,6 +312,15 @@ public struct DeviceAnnounceRecord: Sendable, Equatable {
     /// When the announcement was written. Also the freshness signal a re-announce changes.
     public let createdAt: Date
 
+    /// Creates an announcement. The pairing flow builds these to publish; ``init(record:)`` builds
+    /// them when reading peers' announcements back out of CloudKit.
+    ///
+    /// - Parameters:
+    ///   - deviceID: stable device identifier, which also becomes the CloudKit record name.
+    ///   - publicKeyData: X9.63 uncompressed point (0x04 + X + Y), as `DevicePairingKeyPair`
+    ///     produces.
+    ///   - displayName: owner-facing device name for the pairing UI.
+    ///   - createdAt: when the announcement was written.
     public init(deviceID: String, publicKeyData: Data, displayName: String, createdAt: Date) {
         self.deviceID = deviceID
         self.publicKeyData = publicKeyData
