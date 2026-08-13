@@ -83,10 +83,13 @@ struct QuickCaptureSheet: View {
                         .disabled(isCreating)
                 }
                 ToolbarItemGroup(placement: .confirmationAction) {
-                    Button("Save Draft") { create(draft: true) }
-                        .disabled(!canCreate)
-                    Button(isCreating ? "Working…" : "Publish") { create(draft: false) }
+                    // Return commits the safe verb: new entries are drafts by default (#798),
+                    // and Publish goes live at the next deploy — that takes an explicit click,
+                    // never a reflexive Return in the URL/Title field.
+                    Button(isCreating ? "Working…" : "Save Draft") { create(draft: true) }
                         .keyboardShortcut(.defaultAction)
+                        .disabled(!canCreate)
+                    Button("Publish") { create(draft: false) }
                         .disabled(!canCreate)
                 }
             }
@@ -94,6 +97,10 @@ struct QuickCaptureSheet: View {
         // Fetch (debounced) whenever the URL settles on a new valid value; the title stays
         // editable throughout and a user-typed title is never overwritten (spec §4.1/§4.2).
         .task(id: urlString) {
+            // A URL edit cancels the in-flight task and starts this one. The cancelled task is
+            // barred (guards below) from touching state it no longer owns — including its
+            // `defer` — so the fresh task clears the stale spinner itself.
+            isFetching = false
             let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
             guard ContentFieldValidation.isAbsoluteURL(trimmed),
                   trimmed != fetchedURLString,
@@ -102,12 +109,16 @@ struct QuickCaptureSheet: View {
             guard !Task.isCancelled else { return }
             isFetching = true
             fetchFailed = false
-            defer { isFetching = false }
+            defer { if !Task.isCancelled { isFetching = false } }
             do {
                 let metadata = try await fetchMetadata(url)
+                // Cancellation is cooperative: a stale task's fetch can still return (or throw)
+                // after a newer task started. Its results describe a URL the user already left.
+                guard !Task.isCancelled else { return }
                 fetchedURLString = trimmed
                 if title.isEmpty, let fetched = metadata.title { title = fetched }
             } catch {
+                guard !Task.isCancelled else { return }
                 fetchedURLString = trimmed
                 fetchFailed = true
             }
@@ -160,15 +171,19 @@ enum QuickCapture {
         let pasteboard = NSPasteboard.general
         let candidate = (pasteboard.string(forType: .URL) ?? pasteboard.string(forType: .string))?
             .trimmingCharacters(in: .whitespacesAndNewlines)
-        guard let candidate,
-              candidate.hasPrefix("http://") || candidate.hasPrefix("https://"),
+        // Scheme match is case-insensitive (RFC 3986; `HTTP://…` is valid and
+        // `isAbsoluteURL` accepts it) — same `.lowercased()` pattern as the rest of the
+        // codebase's scheme checks.
+        guard let candidate else { return nil }
+        let lowercased = candidate.lowercased()
+        guard lowercased.hasPrefix("http://") || lowercased.hasPrefix("https://"),
               ContentFieldValidation.isAbsoluteURL(candidate) else { return nil }
         return candidate
     }
 
     /// First http(s) URL in a drop payload, or nil (lets `.anglesite` package drops pass through).
     static func webURL(from urls: [URL]) -> URL? {
-        urls.first { $0.scheme == "http" || $0.scheme == "https" }
+        urls.first { $0.scheme?.lowercased() == "http" || $0.scheme?.lowercased() == "https" }
     }
 
     /// The `fieldValues` a link post writes through `createTyped`. `body` is always supplied —
