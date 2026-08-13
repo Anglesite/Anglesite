@@ -9,6 +9,7 @@ import AnglesiteCore
 struct NewSiteWizard: View {
     @Bindable var model: NewSiteWizardModel
     let scaffolder: SiteScaffolder
+    let templateURL: URL
     let onComplete: (String) -> Void
     let onCancel: () -> Void
 
@@ -18,7 +19,7 @@ struct NewSiteWizard: View {
             Divider()
             footer
         }
-        .frame(width: 560, height: 460)
+        .frame(width: 720, height: 480)
         // The scaffold pipeline isn't cancellable — block Esc/interactive dismissal once it starts.
         .interactiveDismissDisabled(model.step == .building)
     }
@@ -31,24 +32,73 @@ struct NewSiteWizard: View {
     }
 
     private var chooserStep: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Choose a Template").font(.title2.bold())
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: 12) {
-                    ForEach(model.catalog.themes) { theme in
-                        ThemeChooserCard(
-                            theme: theme,
-                            isSelected: model.draft.themeID == theme.id,
-                            onSelect: { model.draft.themeID = theme.id },
-                            onCreate: {
-                                model.draft.themeID = theme.id
-                                create()
+        HStack(alignment: .top, spacing: 0) {
+            categorySidebar
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Choose a Template").font(.title2.bold())
+                if model.filteredThemes.isEmpty {
+                    emptyCategoryState
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: 12) {
+                            ForEach(model.filteredThemes) { theme in
+                                ThemeChooserCard(
+                                    theme: theme,
+                                    templateURL: templateURL,
+                                    isSelected: model.draft.themeID == theme.id,
+                                    onSelect: { model.draft.themeID = theme.id },
+                                    onCreate: {
+                                        model.draft.themeID = theme.id
+                                        create()
+                                    }
+                                )
                             }
-                        )
+                        }
                     }
                 }
+            }.padding(24)
+        }
+    }
+
+    /// The six chooser categories (`NewSiteWizardModel.chooserCategories`), presented as a
+    /// standard macOS sidebar `List` (matching `IntegrationWizard`'s picker convention) rather
+    /// than hand-rolled buttons — `List(selection:)` gives arrow-key navigation, the system
+    /// sidebar selection appearance, and VoiceOver container semantics for free, and makes each
+    /// row's clickable area and visible highlight the same rect by construction.
+    private var categorySidebar: some View {
+        List(NewSiteWizardModel.chooserCategories, id: \.self, selection: categorySelection) { category in
+            Label(category.label, systemImage: category.symbol)
+        }
+        .listStyle(.sidebar)
+        .frame(width: 160)
+    }
+
+    /// Adapts `model.selectedCategory` (non-optional, always has a value) to the
+    /// `Binding<SiteType?>` `List(selection:)` requires, routing every change through
+    /// `model.selectCategory(_:)` so category switches keep applying the model's pre-selection
+    /// rules. `List` only ever sets this to a row's value or `nil` (deselect); a `nil` write is
+    /// ignored so the sidebar always shows a selected category, matching this chooser's
+    /// always-one-category-active design.
+    private var categorySelection: Binding<SiteType?> {
+        Binding(
+            get: { model.selectedCategory },
+            set: { newValue in
+                guard let newValue else { return }
+                model.selectCategory(newValue)
             }
-        }.padding(24)
+        )
+    }
+
+    /// Shown when a category has no matching themes yet (every non-Blank category, until
+    /// #1179 slice 4 ports real themes into it) — an empty grid with no explanation would
+    /// read as a bug.
+    private var emptyCategoryState: some View {
+        VStack {
+            Spacer()
+            Text("No themes in this category yet").font(.callout).foregroundStyle(.secondary)
+            Spacer()
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var buildingStep: some View {
@@ -136,6 +186,7 @@ struct NewSiteWizard: View {
 /// (#677).
 private struct ThemeChooserCard: View {
     let theme: Theme
+    let templateURL: URL
     let isSelected: Bool
     let onSelect: () -> Void
     let onCreate: () -> Void
@@ -148,7 +199,7 @@ private struct ThemeChooserCard: View {
 
     var body: some View {
         Button(action: onSelect) {
-            ThemePreviewCard(theme: theme, isSelected: isSelected, isHoverActive: isHoverActive)
+            ThemePreviewCard(theme: theme, templateURL: templateURL, isSelected: isSelected, isHoverActive: isHoverActive)
                 .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
@@ -166,11 +217,20 @@ private struct ThemeChooserCard: View {
 /// theme's own palette, so each card previews a page rather than a bare swatch strip (#1071).
 private struct ThemePreviewCard: View {
     let theme: Theme
+    let templateURL: URL
     let isSelected: Bool
     let isHoverActive: Bool
 
     private var primary: Color { Color(hex: theme.cssVars["color-primary"] ?? "#333333") }
     private var accent: Color { Color(hex: theme.cssVars["color-accent"] ?? "#888888") }
+
+    /// Loaded synchronously — pack thumbnails are small, committed, bundle-local PNGs (same
+    /// assumption `WebsiteIconInstaller` makes for site icons), so there's no async/loading
+    /// state to model.
+    private var thumbnailImage: NSImage? {
+        guard let thumbnail = theme.thumbnail else { return nil }
+        return NSImage(contentsOf: templateURL.appendingPathComponent(thumbnail))
+    }
 
     private var borderColor: Color {
         if isSelected { return Color.accentColor }
@@ -180,33 +240,50 @@ private struct ThemePreviewCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 6) {
-            VStack(alignment: .leading, spacing: 5) {
-                HStack(spacing: 4) {
-                    Circle().fill(accent).frame(width: 6, height: 6)
-                    Capsule().fill(Color.white.opacity(0.9)).frame(width: 34, height: 4)
-                    Spacer()
+            Group {
+                if let thumbnailImage {
+                    Image(nsImage: thumbnailImage)
+                        .resizable()
+                        .aspectRatio(contentMode: .fill)
+                        .frame(height: 96)
+                        .clipShape(RoundedRectangle(cornerRadius: 6))
+                        .accessibilityHidden(true)
+                } else {
+                    syntheticMock
                 }
-                .padding(6)
-                .background(primary)
-                RoundedRectangle(cornerRadius: 2).fill(accent.opacity(0.85)).frame(height: 22)
-                    .padding(.horizontal, 6)
-                Capsule().fill(Color.primary.opacity(0.5)).frame(width: 70, height: 4)
-                    .padding(.horizontal, 6)
-                Capsule().fill(Color.primary.opacity(0.25)).frame(height: 3)
-                    .padding(.horizontal, 6)
-                Capsule().fill(Color.primary.opacity(0.25)).frame(width: 90, height: 3)
-                    .padding(.horizontal, 6).padding(.bottom, 8)
             }
-            .background(Color(NSColor.textBackgroundColor))
-            .clipShape(RoundedRectangle(cornerRadius: 6))
-            .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.1)))
-            .accessibilityHidden(true)
             Text(theme.name).font(.subheadline.bold())
             Text(theme.blurb).font(.caption2).foregroundStyle(.secondary).lineLimit(2)
         }
         .padding(8)
         .background(RoundedRectangle(cornerRadius: 8).fill(isHoverActive ? Color.accentColor.opacity(0.08) : Color.clear))
         .overlay(RoundedRectangle(cornerRadius: 8).stroke(borderColor, lineWidth: 2))
+    }
+
+    /// The two-color miniature page mock for CSS-var themes (#1071) — unchanged from before
+    /// thumbnails existed, just extracted so `body` can branch on `thumbnailImage`.
+    private var syntheticMock: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack(spacing: 4) {
+                Circle().fill(accent).frame(width: 6, height: 6)
+                Capsule().fill(Color.white.opacity(0.9)).frame(width: 34, height: 4)
+                Spacer()
+            }
+            .padding(6)
+            .background(primary)
+            RoundedRectangle(cornerRadius: 2).fill(accent.opacity(0.85)).frame(height: 22)
+                .padding(.horizontal, 6)
+            Capsule().fill(Color.primary.opacity(0.5)).frame(width: 70, height: 4)
+                .padding(.horizontal, 6)
+            Capsule().fill(Color.primary.opacity(0.25)).frame(height: 3)
+                .padding(.horizontal, 6)
+            Capsule().fill(Color.primary.opacity(0.25)).frame(width: 90, height: 3)
+                .padding(.horizontal, 6).padding(.bottom, 8)
+        }
+        .background(Color(NSColor.textBackgroundColor))
+        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(Color.primary.opacity(0.1)))
+        .accessibilityHidden(true)
     }
 }
 
