@@ -289,7 +289,6 @@ struct HelperContainerE2ETests {
                 "host Source/'s index.astro does not carry the edit:\n\(afterContent)\n\(helperOutput.transcript)")
     }
 
-
     // MARK: - Fixture
 
     /// A throwaway, git-initialized Astro site the container can hydrate and serve.

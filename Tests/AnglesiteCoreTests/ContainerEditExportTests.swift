@@ -79,7 +79,10 @@ import Foundation
         }
     }
 
-    @Test func exportAndImportLogsAndRethrowsWhenImportBundleFails() async {
+    /// `exportAndImport` rethrows an `importBundle` failure without logging it itself — callers
+    /// own 100% of failure logging (final-review finding #5, fixing a double-log where both this
+    /// function and its callers logged the same `importBundle` failure once each).
+    @Test func exportAndImportRethrowsWithoutLoggingWhenImportBundleFails() async {
         let stdout = "abcdef0123456789abcdef0123456789abcdef01\n" + Data("x".utf8).base64EncodedString()
         let control = ScriptedControl(result: .success(ContainerExecResult(exitCode: 0, stdout: stdout, stderr: "")))
         var loggedLines: [(String, LogCenter.Stream)] = []
@@ -90,6 +93,6 @@ import Foundation
                 onLog: { line, stream in loggedLines.append((line, stream)) },
                 importBundle: { _, _, _ in throw SiteRuntimePersistenceError.syncFailed("nope") })
         }
-        #expect(loggedLines.contains { $0.0.contains("persist failed") && $0.1 == .stderr })
+        #expect(loggedLines.isEmpty)
     }
 }

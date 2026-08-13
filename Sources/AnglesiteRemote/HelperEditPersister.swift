@@ -18,10 +18,25 @@ import os.log
 /// Every other reply (no commit, or a `.isError` tool-level failure) passes through completely
 /// unmodified — this decorator only ever *replaces* a reply for the specific case it just caused
 /// (a persist failure of its own), never edits the container's own success/failure verdict.
+///
+/// **Known limitation: only the first commit-bearing edit in a session is guaranteed to
+/// persist.** `InProcessEditPersistence.performImport` re-commits the guest's imported edit
+/// under the host's own git identity (`InProcessEditPersistence.swift`, around line 78-84),
+/// so after a successful persist, host `Source/` HEAD is a *new*, re-signed commit the guest's
+/// `/workspace/site` clone is never told about. A second edit in the same session commits in
+/// the guest on top of the guest's own (now-superseded) prior commit, so its export's parent no
+/// longer matches the host's new HEAD — `InProcessEditPersistence`'s fast-forward-only
+/// precondition then refuses it with `"overlay edit conflicts with newer Source changes"`, and
+/// this handler synthesizes that into a JSON-RPC error even though the edit is live in the
+/// guest. Confirmed empirically: `swift test --filter HelperContainerE2ETests` with a second
+/// `apply_edit` appended to `secondProcessPersistsAnApplyEditToHostSource` reproduced exactly
+/// this failure. Not yet fixed — doing so needs the helper to run a `syncFromHost`-equivalent
+/// resync of the guest's clone after every successful persist, which is a real design change,
+/// not a small patch (tracked for follow-up, not fixed in this pass).
 public actor HelperEditPersister {
     private static let logger = os.Logger(subsystem: "io.dwk.anglesite.remote", category: "HelperEditPersister")
 
-    public typealias Handler = @Sendable (JSONValue) async -> JSONValue?
+    public typealias Handler = MCPChannelResponder.Handler
 
     private let inner: Handler
     private let siteID: String
@@ -73,15 +88,19 @@ public actor HelperEditPersister {
             try await exportAndImport(commit, siteID, control, sourceDirectory, onLog)
             return reply
         } catch {
-            let detail = String(describing: error)
-            let logLine = "persist failed for commit \(commit): \(detail)"
+            // `String(describing:)` for the internal log line only — it renders raw Swift enum
+            // syntax (e.g. `syncFailed("...")`), useful for debugging but not fit for the
+            // phone/client-facing message below, which uses `localizedDescription` instead.
+            let logLine = "persist failed for commit \(commit): \(String(describing: error))"
             Self.report(logLine)
             // Also route through the caller-supplied sink (in production, `LogCenter` — see
             // `RemoteContainerSession`'s wiring): `Self.report` only reaches the system log and
             // this process's own stderr, neither of which a caller observing this actor's
             // injected `onLog` (e.g. a debug pane) would see.
             onLog(logLine, .stderr)
-            return Self.errorResponse(replacing: reply, message: "the edit applied but could not be saved to Source: \(detail)")
+            return Self.errorResponse(
+                replacing: reply,
+                message: "the edit applied but could not be saved to Source: \(error.localizedDescription)")
         }
     }
 

@@ -94,12 +94,13 @@ let mcpBridge = LoopbackMCPBridge(mcpURL: session.mcpURL)
 let mcpHandler: MCPChannelResponder.Handler
 if await containerSession.isOwner(siteID: siteID) {
     let persister = HelperEditPersister(
-        wrapping: mcpBridge.handle, siteID: siteID, control: control, sourceDirectory: siteRoot,
+        wrapping: { message in await mcpBridge.handle(message) },
+        siteID: siteID, control: control, sourceDirectory: siteRoot,
         onLog: { line, stream in FileHandle.standardError.write(Data(("[\(stream)] " + line + "\n").utf8)) })
-    mcpHandler = persister.handle
+    mcpHandler = { message in await persister.handle(message) }
 } else {
     FileHandle.standardError.write(Data("remote-helper: bridging a borrowed container — edits will not be persisted by this process\n".utf8))
-    mcpHandler = mcpBridge.handle
+    mcpHandler = { message in await mcpBridge.handle(message) }
 }
 let mcpResponder = MCPChannelResponder(connection: peer, handler: mcpHandler)
 let heartbeat = ControlHeartbeat(connection: peer, interval: .seconds(10), missLimit: 6, onMiss: { count in

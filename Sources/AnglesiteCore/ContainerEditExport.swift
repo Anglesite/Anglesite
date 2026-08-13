@@ -41,8 +41,8 @@ public enum ContainerEditExport {
     ///     guest VM handle, not a system-wide registry.
     ///   - sourceDirectory: The host's canonical `Source/` git repository to import into.
     ///   - onLog: Receives the export script's stderr lines as they arrive, plus one final
-    ///     summary line — `"persisted <commit> to Source"` (`.stdout`) on success, or
-    ///     `"persist failed: <reason>"` (`.stderr`) on failure. Callers route this to their own
+    ///     `"persisted <commit> to Source"` (`.stdout`) summary line on success. Logs nothing on
+    ///     failure — callers own 100% of failure logging, from the thrown error, to their own
     ///     log sink (`LogCenter`, stderr, `os.Logger`, ...).
     ///   - importBundle: The host-side import hop. Defaults to
     ///     `InProcessEditPersistence.importBundle`; injectable so callers can fake the libgit2 hop
@@ -133,7 +133,6 @@ public enum ContainerEditExport {
             try await importBundle(bundleURL, fullCommit, sourceDirectory)
             onLog("persisted \(fullCommit) to Source", .stdout)
         } catch {
-            onLog("persist failed: \(error.localizedDescription)", .stderr)
             throw SiteRuntimePersistenceError.syncFailed(error.localizedDescription)
         }
     }

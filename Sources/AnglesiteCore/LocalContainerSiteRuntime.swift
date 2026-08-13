@@ -9,10 +9,6 @@ import Foundation
 /// repo, connect the MCP client to the returned MCP endpoint, settle to `.ready`/`.failed`.
 /// Spawns nothing in-process.
 public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapability {
-    /// Shared by `persistEdit`'s two commit-hash validity checks — built once rather than per
-    /// character inside each `allSatisfy` closure.
-    private static let hexDigits = CharacterSet(charactersIn: "0123456789abcdefABCDEF")
-
     private let ref: String
     private let control: any LocalContainerControl
     /// The `SiteRuntime` MCP seam: `start` connects this client to the booted container's
@@ -257,9 +253,7 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
     /// host-side content operation committed after this runtime was hydrated. A dirty host
     /// worktree is refused rather than overwritten.
     public func persistEdit(commit: String?) async throws {
-        guard let commit,
-              (7...64).contains(commit.count),
-              commit.unicodeScalars.allSatisfy({ Self.hexDigits.contains($0) })
+        guard let commit, ContainerEditExport.isPlausibleCommit(commit)
         else { throw SiteRuntimePersistenceError.missingOrInvalidCommit }
 
         let expectedGeneration = stateMachine.currentGeneration
@@ -289,6 +283,7 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
                 importBundle: importBundle
             )
         } catch {
+            await logCenter.append(source: source, stream: .stderr, text: "persist failed: \(error.localizedDescription)")
             guard stateMachine.isCurrent(expectedGeneration), activeSiteID == siteID else {
                 throw SiteRuntimePersistenceError.runtimeNotRunning
             }
