@@ -40,6 +40,16 @@ public final class NewSiteWizardModel {
     /// the per-type default table).
     public let catalog: ThemeCatalog
 
+    /// The six chooser sidebar categories, in the order the sidebar lists them (design spec
+    /// `docs/superpowers/specs/2026-07-31-curated-theme-ports-design.md` §4).
+    /// ``SiteType/community`` is excluded — hosted communities are a separate creation flow
+    /// (`NewCommunityWizardModel`), not a chooser category.
+    public static let chooserCategories: [SiteType] = [.business, .personal, .blog, .portfolio, .organization, .blank]
+
+    /// The sidebar category currently selected. Starts on ``SiteType/blank`` — today's
+    /// default: all eight built-in CSS-var themes, no site type recorded.
+    public private(set) var selectedCategory: SiteType = .blank
+
     /// Creates the model with a fully-defaulted Untitled draft.
     ///
     /// - Parameters:
@@ -75,6 +85,29 @@ public final class NewSiteWizardModel {
     /// selected and no build is running.
     public var canCreate: Bool {
         step == .chooser && catalog.theme(id: draft.themeID) != nil
+    }
+
+    /// Catalog themes matching ``selectedCategory``: themes whose `category` equals the
+    /// selection's raw value, or — for ``SiteType/blank`` — themes with no `category` at all
+    /// (the eight built-in CSS-var themes today; pack schema per spec §1).
+    public var filteredThemes: [Theme] { Self.themes(in: catalog, matching: selectedCategory) }
+
+    private static func themes(in catalog: ThemeCatalog, matching category: SiteType) -> [Theme] {
+        if category == .blank { return catalog.themes.filter { $0.category == nil } }
+        return catalog.themes.filter { $0.category == category.rawValue }
+    }
+
+    /// Switches the sidebar to `category`: records it on ``NewSiteDraft/siteType`` and
+    /// pre-selects a theme from the filtered set — the category's flagship pack
+    /// (``ThemeCatalog/defaultThemeID(for:)``) when present in the filtered set, else the
+    /// filtered set's first entry, else no selection (a category with no ported themes yet
+    /// shows an empty grid; ``canCreate`` is false until one exists).
+    public func selectCategory(_ category: SiteType) {
+        selectedCategory = category
+        draft.siteType = category
+        let candidates = Self.themes(in: catalog, matching: category)
+        let preferred = catalog.defaultThemeID(for: category)
+        draft.themeID = candidates.contains { $0.id == preferred } ? preferred : (candidates.first?.id ?? "")
     }
 
     /// Non-fatal build warnings (e.g. a failed install), surfaced so a failure isn't hidden behind a dead-end preview (#229).

@@ -10,6 +10,56 @@ final class NewSiteWizardModelTests: XCTestCase {
         ])
     }
 
+    /// Two Blank (uncategorized) themes plus one Business and one Personal — enough to prove
+    /// filtering, pre-selection, and the empty-category case without needing a real pack.
+    private func categorizedCatalog() -> ThemeCatalog {
+        ThemeCatalog(themes: [
+            Theme(id: "classic", name: "Classic", blurb: "", swatch: [], cssVars: [:]),
+            Theme(id: "warm", name: "Warm", blurb: "", swatch: [], cssVars: [:]),
+            Theme(id: "astrowind", name: "AstroWind", blurb: "", swatch: [], cssVars: [:], category: "business"),
+            Theme(id: "cactus", name: "Astro Cactus", blurb: "", swatch: [], cssVars: [:], category: "personal"),
+        ])
+    }
+
+    // MARK: Category sidebar (#1452)
+
+    func testStartsOnBlankCategoryShowingUncategorizedThemes() {
+        let m = NewSiteWizardModel(catalog: categorizedCatalog(), isNameTaken: { _ in false })
+        XCTAssertEqual(m.selectedCategory, .blank)
+        XCTAssertEqual(m.filteredThemes.map(\.id), ["classic", "warm"])
+    }
+
+    func testSelectingCategoryFiltersGridAndRecordsSiteType() {
+        let m = NewSiteWizardModel(catalog: categorizedCatalog(), isNameTaken: { _ in false })
+        m.selectCategory(.business)
+        XCTAssertEqual(m.selectedCategory, .business)
+        XCTAssertEqual(m.draft.siteType, .business)
+        XCTAssertEqual(m.filteredThemes.map(\.id), ["astrowind"])
+        XCTAssertEqual(m.draft.themeID, "astrowind")
+    }
+
+    func testSelectingCategoryWithNoThemesLeavesEmptySelection() {
+        let m = NewSiteWizardModel(catalog: categorizedCatalog(), isNameTaken: { _ in false })
+        m.selectCategory(.portfolio)
+        XCTAssertTrue(m.filteredThemes.isEmpty)
+        XCTAssertEqual(m.draft.themeID, "")
+        XCTAssertFalse(m.canCreate)
+    }
+
+    func testSwitchingBackToBlankRestoresUncategorizedGridAndPreSelects() {
+        let m = NewSiteWizardModel(catalog: categorizedCatalog(), isNameTaken: { _ in false })
+        m.selectCategory(.business)
+        m.selectCategory(.blank)
+        XCTAssertEqual(m.draft.siteType, .blank)
+        XCTAssertEqual(m.filteredThemes.map(\.id), ["classic", "warm"])
+        XCTAssertEqual(m.draft.themeID, "classic")   // defaultThemeID(for: .blank) == "classic", present in candidates
+    }
+
+    func testChooserCategoriesExcludesCommunity() {
+        XCTAssertEqual(NewSiteWizardModel.chooserCategories,
+                       [.business, .personal, .blog, .portfolio, .organization, .blank])
+    }
+
     // MARK: Chooser state (#1071)
 
     func testStartsOnChooserWithFirstThemeAndUntitledDraft() {
