@@ -63,7 +63,7 @@ Fully testable today against `FileSignalingChannel` or a fake `SignalingChannel`
 
 The real conformer. Private-database CKRecords, `CKQuerySubscription`-driven push delivery (falling back to polling if push registration isn't available — see §Error handling). Record schema:
 
-- `SignalingEnvelopeRecord`: `seq` (Int64), `sender` (String), `kind` (String), `payload` (String — the `SignedSignalingChannel`-wrapped JSON when signing is layered on top, or plain when it isn't), `sessionID` (String, so concurrent unrelated sessions in the same zone never cross-deliver). CloudKit has no native TTL; the helper deletes records it has already delivered (acting as the "short TTL" the epic design calls for).
+- `SignalingEnvelopeRecord`: `seq` (Int64), `sender` (String), `kind` (String), `payload` (String), `sessionID` (String, so concurrent unrelated sessions in the same zone never cross-deliver). `CloudKitSignalingChannel` itself is signing-agnostic — it transports whatever `payload` string it's given, the same way `FileSignalingChannel` does. Production always constructs it wrapped in `SignedSignalingChannel` (§Data flow), so in practice `payload` always holds the signed-wrapper JSON; the channel type has no opinion about that itself, which is what keeps signing swappable/testable independent of the transport (§Architecture 4). CloudKit has no native TTL; the helper deletes records it has already delivered (acting as the "short TTL" the epic design calls for).
 - `DeviceAnnounceRecord`: `deviceID` (String), `publicKey` (`Data`, X9.63), `displayName` (String), `createdAt` (Date) — the pairing handshake's own record type, distinct from signaling envelopes.
 - `PresenceHeartbeatRecord`: one record per device, replaced in place each write — `lastSeenAt` (Date).
 
