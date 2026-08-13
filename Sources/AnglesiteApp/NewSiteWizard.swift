@@ -9,6 +9,7 @@ import AnglesiteCore
 struct NewSiteWizard: View {
     @Bindable var model: NewSiteWizardModel
     let scaffolder: SiteScaffolder
+    let templateURL: URL
     let onComplete: (String) -> Void
     let onCancel: () -> Void
 
@@ -18,7 +19,7 @@ struct NewSiteWizard: View {
             Divider()
             footer
         }
-        .frame(width: 560, height: 460)
+        .frame(width: 720, height: 480)
         // The scaffold pipeline isn't cancellable — block Esc/interactive dismissal once it starts.
         .interactiveDismissDisabled(model.step == .building)
     }
@@ -31,24 +32,64 @@ struct NewSiteWizard: View {
     }
 
     private var chooserStep: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Choose a Template").font(.title2.bold())
-            ScrollView {
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: 12) {
-                    ForEach(model.catalog.themes) { theme in
-                        ThemeChooserCard(
-                            theme: theme,
-                            isSelected: model.draft.themeID == theme.id,
-                            onSelect: { model.draft.themeID = theme.id },
-                            onCreate: {
-                                model.draft.themeID = theme.id
-                                create()
+        HStack(alignment: .top, spacing: 0) {
+            categorySidebar
+            Divider()
+            VStack(alignment: .leading, spacing: 12) {
+                Text("Choose a Template").font(.title2.bold())
+                if model.filteredThemes.isEmpty {
+                    emptyCategoryState
+                } else {
+                    ScrollView {
+                        LazyVGrid(columns: [GridItem(.adaptive(minimum: 150))], spacing: 12) {
+                            ForEach(model.filteredThemes) { theme in
+                                ThemeChooserCard(
+                                    theme: theme,
+                                    isSelected: model.draft.themeID == theme.id,
+                                    onSelect: { model.draft.themeID = theme.id },
+                                    onCreate: {
+                                        model.draft.themeID = theme.id
+                                        create()
+                                    }
+                                )
                             }
-                        )
+                        }
                     }
                 }
+            }.padding(24)
+        }
+    }
+
+    /// The six chooser categories (`NewSiteWizardModel.chooserCategories`), each a plain-style
+    /// button so the whole row is one hit target and VoiceOver reads a single control per row.
+    private var categorySidebar: some View {
+        VStack(alignment: .leading, spacing: 2) {
+            ForEach(NewSiteWizardModel.chooserCategories, id: \.self) { category in
+                let isSelected = model.selectedCategory == category
+                Button { model.selectCategory(category) } label: {
+                    Label(category.label, systemImage: category.symbol)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                }
+                .buttonStyle(.plain)
+                .padding(.horizontal, 10).padding(.vertical, 6)
+                .background(RoundedRectangle(cornerRadius: 6)
+                    .fill(isSelected ? Color.accentColor.opacity(0.15) : Color.clear))
+                .accessibilityAddTraits(isSelected ? .isSelected : [])
             }
-        }.padding(24)
+        }
+        .padding(12)
+        .frame(width: 160)
+    }
+
+    /// Shown when a category has no matching themes yet (every non-Blank category, until
+    /// #1179 slice 4 ports real themes into it) — an empty grid with no explanation would
+    /// read as a bug.
+    private var emptyCategoryState: some View {
+        VStack {
+            Spacer()
+            Text("No themes in this category yet").font(.callout).foregroundStyle(.secondary)
+            Spacer()
+        }.frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
     private var buildingStep: some View {
