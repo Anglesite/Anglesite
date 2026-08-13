@@ -44,10 +44,19 @@ public enum MicropubContentImport {
                 let status: MicropubPostStatus = values["draft"] == .flag(true) ? .draft : .published
                 let properties = MicropubComposerProjection.properties(
                     for: descriptor, values: values, status: status)
+                await warnAboutUnmappedFields(descriptor: descriptor, values: values, relPath: relPath)
                 do {
                     let url = try await client.create(MicropubPost(properties: properties))
                     syncState[url.absoluteString] = relPath
                     importedCount += 1
+                    // Persisted immediately, not batched to the end of the loop: `client.create`
+                    // just above is a remote, non-idempotent side effect (it always creates a new
+                    // post), so if the process is interrupted before the next iteration, the sync
+                    // state for every post already created so far must already be on disk — or the
+                    // next run re-imports (and re-`create`s, publishing a duplicate) every file that
+                    // actually succeeded. Imports are a rare, one-time operation, so the extra
+                    // per-file disk write is negligible.
+                    try? MicropubContentCommitter.writeSyncState(syncState, to: configDirectory)
                 } catch {
                     await LogCenter.shared.append(
                         source: "MicropubContentImport", stream: .stderr,
@@ -55,10 +64,60 @@ public enum MicropubContentImport {
                 }
             }
         }
-        if importedCount > 0 {
-            try? MicropubContentCommitter.writeSyncState(syncState, to: configDirectory)
-        }
         return importedCount
+    }
+
+    /// Logs a warning for any field in `values` that carries content but has no Micropub wire
+    /// form — so an import that silently drops part of a post at least leaves a trace, rather than
+    /// the file simply disappearing from what the imported post says. Two distinct gaps, both
+    /// pre-existing in `MicropubComposerProjection` (see its `properties(for:)` and `mf2Values`
+    /// doc comments):
+    /// - A field the descriptor declares no `microformatProperties` entry for at all.
+    /// - `.objectArray` fields: `mf2Values` always returns `nil` for `.records`, regardless of
+    ///   whether the descriptor maps the field — no built-in collection-stored type has ever
+    ///   needed nested mf2 objects, so that direction was never built.
+    ///
+    /// This does **not** cover the case where a mapped `.image`/`.imageArray` field's value is a
+    /// site-relative media path rather than a hosted URL — that value does reach the wire (as
+    /// whatever string the file has), it just isn't uploaded through `client.uploadMedia` first.
+    /// Adding that is real scope (a media-upload pass over the import), out of scope for a log
+    /// warning; flagged as a fast-follow rather than silently addressed here.
+    ///
+    /// - Parameters:
+    ///   - descriptor: The content type `values` was decoded against.
+    ///   - values: The file's decoded per-field values.
+    ///   - relPath: The file's `Source/`-relative path, named in the log line.
+    private static func warnAboutUnmappedFields(
+        descriptor: ContentTypeDescriptor, values: TypedContentEditor.Values, relPath: String
+    ) async {
+        let dropped = unmappedFieldsWithValues(descriptor: descriptor, values: values)
+        guard !dropped.isEmpty else { return }
+        await LogCenter.shared.append(
+            source: "MicropubContentImport", stream: .stderr,
+            text:
+                "\(relPath): field(s) \(dropped.joined(separator: ", ")) have no Micropub wire "
+                + "mapping and will be dropped from the imported post")
+    }
+
+    /// The names of `descriptor`'s fields (excluding `draft`, which intentionally has no mf2
+    /// property of its own — see `MicropubComposerProjection.properties(for:)`) that hold a
+    /// non-empty value but produce no property on the wire, per `warnAboutUnmappedFields`'s two
+    /// gaps. Reuses `MicropubComposerProjection.mf2Values`/`rawMf2Property` rather than
+    /// reimplementing their per-kind emptiness rules, so this can never drift from what
+    /// `properties(for:)` actually omits.
+    private static func unmappedFieldsWithValues(
+        descriptor: ContentTypeDescriptor, values: TypedContentEditor.Values
+    ) -> [String] {
+        descriptor.fields.compactMap { field -> String? in
+            guard field.name != "draft", let value = values[field.name] else { return nil }
+            if case .records(let rows) = value, !rows.isEmpty {
+                // `.objectArray` has no wire form at all, mapped or not.
+                return field.name
+            }
+            guard descriptor.projections.rawMf2Property(forField: field.name) == nil else { return nil }
+            guard MicropubComposerProjection.mf2Values(for: value, kind: field.kind) != nil else { return nil }
+            return field.name
+        }
     }
 
     /// Every file under `siteDirectory`'s `src/content/<collection>/` for `descriptor`, matching

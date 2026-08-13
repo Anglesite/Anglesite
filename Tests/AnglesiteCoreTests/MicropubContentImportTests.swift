@@ -57,6 +57,108 @@ struct MicropubContentImportTests {
         #expect(state["https://owner.example/articles/hello-world"] == "src/content/articles/hello-world.md")
     }
 
+    /// Two-file fixture (sorted so `a-first` is always processed before `b-second`, matching
+    /// `filesForImport`'s `.sorted { $0.path < $1.path }`) for the incremental-persistence tests
+    /// below — a single-file fixture can't distinguish "written once at the end" from "written
+    /// after each create."
+    private func writeTwoFileFixture(siteDir: URL, configDir: URL) throws {
+        try FileManager.default.createDirectory(
+            at: siteDir.appending(path: "src/content/articles"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        for (slug, title) in [("a-first", "First"), ("b-second", "Second")] {
+            let post = """
+            ---
+            title: \(title)
+            publishDate: 2026-01-01
+            draft: false
+            ---
+            Body text.
+            """
+            try post.write(
+                to: siteDir.appending(path: "src/content/articles/\(slug).md"),
+                atomically: true, encoding: .utf8)
+        }
+    }
+
+    @Test("persists sync state after each successful create, not only at the end of the loop")
+    func persistsSyncStateIncrementally() async throws {
+        let siteDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let configDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try writeTwoFileFixture(siteDir: siteDir, configDir: configDir)
+        defer {
+            try? FileManager.default.removeItem(at: siteDir)
+            try? FileManager.default.removeItem(at: configDir)
+        }
+
+        nonisolated(unsafe) var requestCount = 0
+        nonisolated(unsafe) var stateSeenBeforeSecondCreate: MicropubContentCommitter.SyncState?
+        let client = MicropubClient(
+            endpoint: URL(string: "https://owner.example/micropub")!,
+            accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+            transport: { request in
+                requestCount += 1
+                if requestCount == 2 {
+                    // The fix under test: the first file's `create` already returned above, and its
+                    // sync-state entry must already be on disk by the time the *second* file's
+                    // `create` fires — not deferred until the whole loop (both files) finishes.
+                    stateSeenBeforeSecondCreate = MicropubContentCommitter.readSyncState(from: configDir)
+                }
+                let slug = requestCount == 1 ? "a-first" : "b-second"
+                let response = HTTPURLResponse(
+                    url: request.url!, statusCode: 201, httpVersion: nil,
+                    headerFields: ["Location": "https://owner.example/articles/\(slug)"])!
+                return (Data(), response)
+            })
+
+        let imported = await MicropubContentImport.importIfNeeded(
+            siteDirectory: siteDir, configDirectory: configDir, client: client)
+
+        #expect(imported == 2)
+        let stateBefore = try #require(stateSeenBeforeSecondCreate)
+        #expect(stateBefore.count == 1, "only the first file's entry should be on disk before the second create fires")
+        #expect(stateBefore["https://owner.example/articles/a-first"] == "src/content/articles/a-first.md")
+
+        let finalState = MicropubContentCommitter.readSyncState(from: configDir)
+        #expect(finalState.count == 2)
+    }
+
+    @Test("a create failure partway through an import doesn't lose earlier successful creates' sync state")
+    func retainsSyncStateAfterLaterFailure() async throws {
+        // Simulates the crash/interrupt scenario the fix addresses: if the process had died right
+        // here instead of the second `create` merely failing, the first file's sync-state entry
+        // must already be safely on disk — otherwise the next run would re-`create` (and duplicate)
+        // a post that already exists live.
+        let siteDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let configDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try writeTwoFileFixture(siteDir: siteDir, configDir: configDir)
+        defer {
+            try? FileManager.default.removeItem(at: siteDir)
+            try? FileManager.default.removeItem(at: configDir)
+        }
+
+        struct SimulatedFailure: Error {}
+        nonisolated(unsafe) var requestCount = 0
+        let client = MicropubClient(
+            endpoint: URL(string: "https://owner.example/micropub")!,
+            accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+            transport: { request in
+                requestCount += 1
+                guard requestCount == 1 else { throw SimulatedFailure() }
+                let response = HTTPURLResponse(
+                    url: request.url!, statusCode: 201, httpVersion: nil,
+                    headerFields: ["Location": "https://owner.example/articles/a-first"])!
+                return (Data(), response)
+            })
+
+        let imported = await MicropubContentImport.importIfNeeded(
+            siteDirectory: siteDir, configDirectory: configDir, client: client)
+
+        #expect(imported == 1)
+        let state = MicropubContentCommitter.readSyncState(from: configDir)
+        #expect(state.count == 1)
+        #expect(state["https://owner.example/articles/a-first"] == "src/content/articles/a-first.md")
+    }
+
     @Test("re-running is a no-op once every file is already in the sync map")
     func skipsAlreadyImported() async throws {
         let siteDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
@@ -252,5 +354,146 @@ struct MicropubContentImportTests {
             ---
             Worth a read.
             """)
+    }
+
+    // MARK: - Unmapped-field warning (Finding 2, PR #1457 review)
+
+    /// A synthetic `.collection`-storage type with two deliberately unmapped fields — `notes` has
+    /// no `microformatProperties` entry at all, and `team` (`.objectArray`) has no wire form
+    /// regardless of mapping (`MicropubComposerProjection.mf2Values` always returns `nil` for
+    /// `.records`) — so importing an instance exercises both of `warnAboutUnmappedFields`'s gaps
+    /// at once. None of the built-in `.collection`-stored descriptors have an unmapped or
+    /// `.objectArray` field (only the `.singleton` `resume` type does, which import never walks),
+    /// hence the synthetic registry rather than a built-in fixture.
+    private static let widgetRegistry: ContentTypeRegistry = {
+        let descriptor = ContentTypeDescriptor(
+            id: "widget",
+            displayName: "Widget",
+            storage: .collection("widgets"),
+            fields: [
+                ContentTypeField("title", .string, required: true),
+                ContentTypeField("notes", .text),
+                ContentTypeField(
+                    "team", .objectArray(fields: [
+                        ContentTypeField("role", .string), ContentTypeField("name", .string),
+                    ])),
+                ContentTypeField("publishDate", .datetime, required: true),
+                ContentTypeField("draft", .bool),
+            ],
+            projections: ContentTypeProjections(
+                microformat: "h-entry",
+                microformatProperties: [
+                    "title": "p-name",
+                    "publishDate": "dt-published",
+                ],
+                schemaType: nil
+            )
+        )
+        return ContentTypeRegistry(types: [descriptor])
+    }()
+
+    @Test("logs a warning naming fields that will be silently dropped from the imported post")
+    func warnsAboutUnmappedFieldsWithContent() async throws {
+        let siteDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let configDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        // Unique per test run and embedded in the fixture's own relative path, so the log filter
+        // below can't pick up another test's entry — `LogCenter.shared` is process-global and
+        // Swift Testing runs suites in parallel, the same hazard `MicropubPostD1ClientTests`
+        // documents (#977).
+        let marker = "widget-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(
+            at: siteDir.appending(path: "src/content/widgets"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        let post = """
+        ---
+        title: A Widget
+        notes: Some notes that have no wire mapping
+        team:
+          - role: Engineer
+            name: Alex
+        publishDate: 2026-01-01
+        draft: false
+        ---
+        Body text.
+        """
+        try post.write(
+            to: siteDir.appending(path: "src/content/widgets/\(marker).md"),
+            atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: siteDir)
+            try? FileManager.default.removeItem(at: configDir)
+        }
+
+        let client = MicropubClient(
+            endpoint: URL(string: "https://owner.example/micropub")!,
+            accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+            transport: { request in
+                let response = HTTPURLResponse(
+                    url: request.url!, statusCode: 201, httpVersion: nil,
+                    headerFields: ["Location": "https://owner.example/widgets/\(marker)"])!
+                return (Data(), response)
+            })
+
+        let imported = await MicropubContentImport.importIfNeeded(
+            siteDirectory: siteDir, configDirectory: configDir, client: client,
+            registry: Self.widgetRegistry)
+
+        #expect(imported == 1)
+
+        let logged = await LogCenter.shared.snapshot().filter { $0.text.contains(marker) }
+        #expect(logged.count == 1)
+        let entry = try #require(logged.first)
+        #expect(entry.source == "MicropubContentImport")
+        #expect(entry.stream == .stderr)
+        #expect(entry.text.contains("notes"))
+        #expect(entry.text.contains("team"))
+        // `title`/`publishDate` are mapped and non-empty, so they must not be reported as dropped.
+        #expect(!entry.text.contains("title"))
+        #expect(!entry.text.contains("publishDate"))
+    }
+
+    @Test("does not warn when every field either has a wire mapping or is empty")
+    func noWarningWhenEverythingMapsOrIsEmpty() async throws {
+        let siteDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let configDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let marker = "widget-\(UUID().uuidString)"
+        try FileManager.default.createDirectory(
+            at: siteDir.appending(path: "src/content/widgets"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        // `notes` and `team` are left unset (empty), so neither gap fires despite the descriptor
+        // still lacking a wire mapping for them.
+        let post = """
+        ---
+        title: A Widget
+        publishDate: 2026-01-01
+        draft: false
+        ---
+        Body text.
+        """
+        try post.write(
+            to: siteDir.appending(path: "src/content/widgets/\(marker).md"),
+            atomically: true, encoding: .utf8)
+        defer {
+            try? FileManager.default.removeItem(at: siteDir)
+            try? FileManager.default.removeItem(at: configDir)
+        }
+
+        let client = MicropubClient(
+            endpoint: URL(string: "https://owner.example/micropub")!,
+            accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+            transport: { request in
+                let response = HTTPURLResponse(
+                    url: request.url!, statusCode: 201, httpVersion: nil,
+                    headerFields: ["Location": "https://owner.example/widgets/\(marker)"])!
+                return (Data(), response)
+            })
+
+        let imported = await MicropubContentImport.importIfNeeded(
+            siteDirectory: siteDir, configDirectory: configDir, client: client,
+            registry: Self.widgetRegistry)
+
+        #expect(imported == 1)
+        let logged = await LogCenter.shared.snapshot().filter { $0.text.contains(marker) }
+        #expect(logged.isEmpty)
     }
 }
