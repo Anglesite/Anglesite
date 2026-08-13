@@ -145,6 +145,11 @@ targets:
         product: AnglesiteIntents
       - package: Anglesite
         product: AnglesiteContainer
+      # Reuses MicropubOnboardingModel's IndieAuth onboarding flow for the Mac's CMS-mode
+      # connect sheet (#800) — the same platform-neutral model AnglesiteMobile already
+      # drives, with SiteMicropubSignIn as the AppKit ASWebAuthenticationSession adapter.
+      - package: Anglesite
+        product: AnglesiteIOS
       - package: STTextView
         product: STTextView
       - package: STTextViewPluginNeon

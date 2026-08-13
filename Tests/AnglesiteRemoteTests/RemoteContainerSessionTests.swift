@@ -125,4 +125,31 @@ import AnglesiteCore
         process.waitUntilExit()
         return process.processIdentifier
     }
+
+    @Test func isOwnerTrueAfterBootingFresh() async throws {
+        let control = FakeLocalContainerControl()
+        let registry = try Self.makeRegistry()
+        let session = RemoteContainerSession(control: control, registry: registry, pid: 111)
+        _ = try await session.ensureRunning(
+            siteID: "site-1", sourceRepo: URL(fileURLWithPath: "/tmp/site"), ref: "HEAD", onOutput: { _, _ in })
+        #expect(await session.isOwner(siteID: "site-1"))
+    }
+
+    @Test func isOwnerFalseWhenBorrowingAnExistingClaim() async throws {
+        let registry = try Self.makeRegistry()
+        let livePID = ProcessInfo.processInfo.processIdentifier
+        try await registry.publish(RemoteSessionClaim(
+            siteID: "site-1", previewURL: URL(string: "http://127.0.0.1:9001")!,
+            mcpURL: URL(string: "http://127.0.0.1:9002")!, ownerPID: livePID))
+        let control = FakeLocalContainerControl()
+        let session = RemoteContainerSession(control: control, registry: registry, pid: 111)
+        _ = try await session.ensureRunning(
+            siteID: "site-1", sourceRepo: URL(fileURLWithPath: "/tmp/site"), ref: "HEAD", onOutput: { _, _ in })
+        #expect(!(await session.isOwner(siteID: "site-1")))
+    }
+
+    @Test func isOwnerFalseForUnknownSite() async throws {
+        let session = RemoteContainerSession(control: FakeLocalContainerControl(), registry: try Self.makeRegistry(), pid: 111)
+        #expect(!(await session.isOwner(siteID: "never-booted")))
+    }
 }

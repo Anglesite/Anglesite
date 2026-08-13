@@ -108,9 +108,9 @@ struct ComponentEditorView: View {
                 .onChange(of: isSourcePaneFocused) { _, focused in
                     if focused {
                         EditorFocusRegistry.shared.activate(
-                            .plainText(isPresented: $fileEditor.isFindPresented), token: fileEditor.file.id)
+                            .plainText(isPresented: $fileEditor.isFindPresented), token: ObjectIdentifier(fileEditor))
                     } else {
-                        EditorFocusRegistry.shared.resign(token: fileEditor.file.id)
+                        EditorFocusRegistry.shared.resign(token: ObjectIdentifier(fileEditor))
                     }
                 }
                 .onDisappear {
@@ -118,7 +118,7 @@ struct ComponentEditorView: View {
                     // `.id(fileEditor.file.id)` swap on file switch) — unlike the `onChange`
                     // above, it doesn't depend on `@FocusState` teardown ordering (#517 review).
                     // `resign` no-ops if `isSourcePaneFocused`'s own resign already ran.
-                    EditorFocusRegistry.shared.resign(token: fileEditor.file.id)
+                    EditorFocusRegistry.shared.resign(token: ObjectIdentifier(fileEditor))
                 }
         }
     }

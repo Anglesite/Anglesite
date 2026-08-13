@@ -37,4 +37,16 @@ describe("NativeHostTransport", () => {
     (window as any).__anglesiteWysiwygHost._handleModelUpdate(model);
     expect(seen).toHaveLength(1);
   });
+
+  it("notifies findings listeners when the native side pushes quality-gate findings", () => {
+    const transport = new NativeHostTransport();
+    const seen: unknown[] = [];
+    const unsubscribe = transport.onFindings((findings) => seen.push(findings));
+    const findings = [{ id: "b1::imageWeight", blockId: "b1", category: "imageWeight", severity: "warning", message: "big" }];
+    (window as any).__anglesiteWysiwygHost._handleQualityFindings(findings);
+    expect(seen).toEqual([findings]);
+    unsubscribe();
+    (window as any).__anglesiteWysiwygHost._handleQualityFindings(findings);
+    expect(seen).toHaveLength(1);
+  });
 });

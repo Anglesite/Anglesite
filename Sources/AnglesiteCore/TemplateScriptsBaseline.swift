@@ -1,13 +1,13 @@
 import Foundation
 
 /// Reads/writes `Config/template-scripts-baseline.json` — a per-file content-hash snapshot the
-/// scripts/ refresh mechanism (design doc, #1053) uses to tell "stale" apart from "the owner
-/// edited this." App-owned state, never committed to the site's git repo (`Config/` sits outside
-/// `Source/` — see the `.anglesite` package model), mirroring `Config/dependency-baseline.json`'s
-/// placement rationale.
+/// app-owned-file refresh mechanism (design doc, #1053; extended to `src/lib/` by #1426) uses to
+/// tell "stale" apart from "the owner edited this." App-owned state, never committed to the
+/// site's git repo (`Config/` sits outside `Source/` — see the `.anglesite` package model),
+/// mirroring `Config/dependency-baseline.json`'s placement rationale.
 public struct TemplateScriptsBaseline: Codable, Equatable, Sendable {
-    /// The baseline record for one app-owned `scripts/` file: the last reconciled template
-    /// content hash, plus (when set) a divergence the owner already declined.
+    /// The baseline record for one app-owned file (`scripts/` or `src/lib/`): the last reconciled
+    /// template content hash, plus (when set) a divergence the owner already declined.
     public struct Entry: Codable, Equatable, Sendable {
         /// Hash (`VectorMath.stableHash`) of the template content this file was last
         /// successfully reconciled against — at scaffold time, at a prior silent refresh, or

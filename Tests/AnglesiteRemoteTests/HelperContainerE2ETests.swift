@@ -24,18 +24,18 @@ import AnglesiteP2P
 ///    page's own markup after it, which only a real file on a real filesystem, seen by a
 ///    separately-running `astro dev`, can produce.
 ///
-/// **Where the edit lands, and what this test therefore does *not* claim.** The container clones
-/// the host repo through a *read-only* virtio-fs share (`ContainerizationControl.start` step 3),
-/// so the sidecar's write and commit happen in the guest's own `/workspace/site` clone. Copying
-/// that commit back into the canonical `Source/` repo is a separate, app-side step
-/// (`LocalContainerSiteRuntime.persistEdit` → `InProcessEditPersistence`, driven by
-/// `MCPApplyEditRouter`), and the P1 helper does not wire it: `LoopbackMCPBridge` is a blind
-/// JSON-RPC passthrough. So a helper-mediated edit is live but **not yet durable**, and
-/// ``HelperEditDurabilityBoundaryTests`` pins that boundary deliberately rather than leaving it
-/// unstated. A second pin, inline below, records that `create_page` can't even
-/// commit inside the guest today (no git identity there — a sidecar-repo gap), which is what a
-/// future persist step would need to export. See this task's report for the recommended
-/// follow-ups.
+/// **Where the edit lands.** The container clones the host repo through a *read-only* virtio-fs
+/// share (`ContainerizationControl.start` step 3), so the sidecar's write and commit happen in
+/// the guest's own `/workspace/site` clone first. Copying that commit back into the canonical
+/// `Source/` repo is a separate, app-side step — on the main-app path,
+/// `LocalContainerSiteRuntime.persistEdit` → `InProcessEditPersistence`, driven by
+/// `MCPApplyEditRouter`; on the P1 helper path, `HelperEditPersister` (wired into the session loop
+/// alongside `LoopbackMCPBridge`) does the same export/import for any reply that carries a commit.
+/// ``secondProcessPersistsAnApplyEditToHostSource``, below, proves that helper-side hop end to end
+/// for `apply_edit`. `create_page` now commits in the guest too (the sidecar-side git-identity gap
+/// `secondProcessEditsSiteWithNoMainAppRunning` above used to pin is fixed upstream — see that
+/// test's own comment), so its replies could feed the same persist step, but wiring `HelperEditPersister`
+/// up to that a second time is separate follow-up work, out of scope here.
 ///
 /// Gated on all three of `ANGLESITE_CONTAINER_TESTS=1` (which is also what adds the
 /// `AnglesiteContainerLocalTests` test target to `Package.swift` at all — the helper *executable*
@@ -126,10 +126,10 @@ struct HelperContainerE2ETests {
 
         // --- The edit ------------------------------------------------------------------------
         // `create_page` (not `apply_edit`): the sidecar's minimal content-creating tool — it takes
-        // `{name, route}`, scaffolds `src/pages/<route>.astro` from its BaseLayout template, tries
-        // to commit it (see the pin below for why that part doesn't take in the guest), and returns
-        // `{filePath, route, commit}` as JSON text. `apply_edit` would need a DOM-derived
-        // `ElementInfo` selector payload, which proves nothing extra here.
+        // `{name, route}`, scaffolds `src/pages/<route>.astro` from its BaseLayout template, commits
+        // it in the guest (see below — the sidecar-side git-identity gap this used to be pinned on
+        // is fixed), and returns `{filePath, route, commit}` as JSON text. `apply_edit` would need a
+        // DOM-derived `ElementInfo` selector payload, which proves nothing extra here.
         let title = "Anywhere Runtime \(slug)"
         try await mcp.send(Self.request(id: 1, method: "tools/call", params: .object([
             "name": .string("create_page"),
@@ -149,22 +149,21 @@ struct HelperContainerE2ETests {
         let filePath = created["filePath"] as? String
         #expect(filePath == "src/pages\(route).astro", "unexpected filePath: \(filePath ?? "<nil>")")
 
-        // Pinned, like the persistence boundary below: `create_page` writes the file but comes back
-        // with `commit: null` inside the container. `create-content.mjs`'s `commitFile` shells out
-        // to a bare `git commit` and swallows any failure, and — unlike `edit-history.mjs` and
-        // `undo-edit.mjs`, which pass `ANGLESITE_COMMIT_IDENTITY` for exactly this reason (the
-        // sidecar's own git-identity.mjs documents it, citing anglesite#428) — it supplies no
-        // identity, while neither the image build nor `hydrate.sh` configures one in the guest.
-        // That's a sidecar-repo defect, not an app one; it's pinned rather than asserted so this
-        // exit criterion isn't gated on a fix in the other repo. It matters beyond cosmetics: a
-        // future helper-side persist step needs this hash to export the commit as a bundle, so
-        // that work is blocked on the paired fix. When the sidecar starts committing, this fails —
-        // flip it to `!= nil` then.
+        // Was pinned `== nil`, like the persistence boundary this suite used to carry: `create_page`
+        // used to write the file but come back with `commit: null` inside the container —
+        // `create-content.mjs`'s `commitFile` shelled out to a bare `git commit` with no identity,
+        // unlike `edit-history.mjs`/`undo-edit.mjs`, which pass `ANGLESITE_COMMIT_IDENTITY` for
+        // exactly this reason (anglesite#428). That sidecar-repo gap is now fixed — `anglesite-skills`
+        // PR #436 (`fix(server): give create-content's commitFile a stable git identity`) gave
+        // `commitFile` the same identity and is merged to that repo's `main` — so this now asserts
+        // the commit is present, per this pin's own original "flip it to `!= nil` then" instruction.
+        // A future helper-side persist step can now export this hash for `create_page` too, the same
+        // way `secondProcessPersistsAnApplyEditToHostSource` already does for `apply_edit` — that
+        // wiring itself is separate follow-up work, out of scope here.
         let guestCommit = created["commit"] as? String
-        #expect(guestCommit == nil, """
-            create_page now returns a commit (\(guestCommit ?? "")) — the sidecar-side git-identity \
-            gap is fixed. Assert `!= nil` here instead, and revisit helper-side persistence, which \
-            was blocked on having this hash.
+        #expect(guestCommit != nil, """
+            create_page returned no commit — the sidecar-side git-identity fix (anglesite-skills \
+            PR #436) may have regressed, or this sidecar checkout predates it.
             """)
 
         // --- The proof, over a different channel ---------------------------------------------
@@ -198,6 +197,97 @@ struct HelperContainerE2ETests {
         }
     }
 
+    /// The app-side half of Anywhere-runtime persistence, proven end-to-end: an `apply_edit`
+    /// relayed through the helper's `mcp` channel — which reliably gets a real guest-side commit,
+    /// per `AnglesiteContainerProbe`'s daily proof of the same tool, same as `create_page` does now
+    /// (see the sibling test above) — lands in the HOST's canonical `Source/` repository: the file
+    /// changes on disk and `git log` shows a new commit whose parent is the pre-edit HEAD.
+    ///
+    /// Closes the gap `HelperEditDurabilityBoundaryTests` used to pin (removed by this same
+    /// change — see this test file's own history for that pin's doc comment and rationale).
+    @Test(.timeLimit(.minutes(15)))
+    func secondProcessPersistsAnApplyEditToHostSource() async throws {
+        let helperBinary = try Self.locateHelperBinary()
+        try Self.entitleForVirtualization(helperBinary)
+
+        let siteRoot = try Self.makeThrowawayAstroRepo()
+        defer { try? FileManager.default.removeItem(at: siteRoot) }
+        let pagePath = siteRoot.appendingPathComponent("src/pages/index.astro")
+        let beforeHead = try Self.git(["rev-parse", "HEAD"], in: siteRoot)
+
+        let signalDirectory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("helper-e2e-persist-sig-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: signalDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: signalDirectory) }
+
+        let helper = Process()
+        helper.executableURL = helperBinary
+        helper.arguments = ["session", signalDirectory.path, siteRoot.path]
+        let helperOutput = ProcessOutputCapture()
+        helperOutput.attach(to: helper)
+        try helper.run()
+        defer {
+            if helper.isRunning { helper.terminate() }
+            helper.waitUntilExit()
+            helperOutput.stop()
+        }
+        let booted = await Self.waitForOutput(
+            "remote-helper: container ready", from: helperOutput, timeout: .seconds(600))
+        #expect(booted, "the helper never reported a booted container\n\(helperOutput.transcript)")
+        try #require(booted)
+
+        let clientPeer = try await WebRTCPeer.connect(
+            role: .offerer, signaling: FileSignalingChannel(directory: signalDirectory, sender: "client"))
+        var peerIsOpen = true
+        defer { if peerIsOpen { Task { await clientPeer.close() } } }
+        let mcp = WebRTCTransport(connection: clientPeer)
+        try await mcp.open()
+        var mcpInbound = mcp.inbound().makeAsyncIterator()
+
+        // Same selector shape AnglesiteContainerProbe.runApplyEdit already proves works against a
+        // real guest — this fixture's index.astro ships `<h1>Anglesite helper e2e</h1>`.
+        let newHeading = "Anglesite helper e2e — persisted"
+        try await mcp.send(Self.request(id: 1, method: "tools/call", params: .object([
+            "name": .string("apply_edit"),
+            "arguments": .object([
+                "id": .string("persist-e2e-1"),
+                "type": .string("anglesite:apply-edit"),
+                "path": .string("/"),
+                "op": .string("replace-text"),
+                "selector": .object([
+                    "tag": .string("H1"), "classes": .array([]), "nthChild": .int(1),
+                    "textContent": .string("Anglesite helper e2e"),
+                ]),
+                "value": .string(newHeading),
+            ]),
+        ])))
+        guard let reply = await mcpInbound.next() else {
+            Issue.record("no MCP reply for apply_edit\n\(helperOutput.transcript)")
+            return
+        }
+        let toolText = Self.toolResultText(reply)
+        try #require(toolText != nil, "apply_edit reply had no text content: \(Self.describe(reply))")
+        guard let applied = Self.decodeObject(toolText ?? "") else {
+            Issue.record("apply_edit did not return JSON: \(toolText ?? "<nil>")")
+            return
+        }
+        let commit = applied["commit"] as? String
+        try #require(commit != nil, "apply_edit returned no commit — cannot prove persistence\n\(String(describing: applied))")
+
+        await mcp.close()
+        await clientPeer.close()
+        peerIsOpen = false
+        let exitedOnItsOwn = await Self.waitForExit(helper, timeout: .seconds(120))
+        #expect(exitedOnItsOwn, "the helper did not exit after the peer closed\n\(helperOutput.transcript)")
+
+        // The proof: the HOST file changed, and HEAD advanced with the guest's commit as its
+        // sole parent — read straight off disk, nothing MCP-shaped involved in this assertion.
+        let afterHead = try Self.git(["rev-parse", "HEAD"], in: siteRoot)
+        #expect(afterHead != beforeHead, "host Source/ HEAD did not move\n\(helperOutput.transcript)")
+        let afterContent = try String(contentsOf: pagePath, encoding: .utf8)
+        #expect(afterContent.contains(newHeading),
+                "host Source/'s index.astro does not carry the edit:\n\(afterContent)\n\(helperOutput.transcript)")
+    }
 
     // MARK: - Fixture
 
@@ -248,7 +338,11 @@ struct HelperContainerE2ETests {
         return dir
     }
 
-    private static func git(_ arguments: [String], in directory: URL) throws {
+    /// Runs `git`, returning trimmed stdout. Existing call sites (`makeThrowawayAstroRepo`'s
+    /// `init`/`add`/`commit`) ignore the return value; `secondProcessPersistsAnApplyEditToHostSource`
+    /// uses it to capture `rev-parse HEAD` before and after the edit.
+    @discardableResult
+    private static func git(_ arguments: [String], in directory: URL) throws -> String {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/git")
         process.arguments = arguments
@@ -256,12 +350,16 @@ struct HelperContainerE2ETests {
         process.environment = ProcessInfo.processInfo.environment
             .merging(["GIT_AUTHOR_NAME": "e2e", "GIT_AUTHOR_EMAIL": "e2e@anglesite.test",
                       "GIT_COMMITTER_NAME": "e2e", "GIT_COMMITTER_EMAIL": "e2e@anglesite.test"]) { _, new in new }
+        let stdout = Pipe()
+        process.standardOutput = stdout
         try process.run()
+        let data = stdout.fileHandleForReading.readDataToEndOfFile()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
             throw HelperContainerE2EError.fixtureSetupFailed(
                 "git \(arguments.joined(separator: " ")) exited \(process.terminationStatus)")
         }
+        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
     }
 
     // MARK: - The helper binary
@@ -408,74 +506,6 @@ struct HelperContainerE2ETests {
             try? await Task.sleep(for: .milliseconds(100))
         }
         return true
-    }
-}
-
-/// Pins the durability boundary ``HelperContainerE2ETests`` documents: a helper-mediated edit
-/// lands in the container's own clone of the (read-only-shared) repo, not in the canonical
-/// `Source/`, because the P1 helper wires no equivalent of
-/// `LocalContainerSiteRuntime.persistEdit` — `LoopbackMCPBridge` returns the sidecar's reply
-/// verbatim without ever inspecting it for a `commit`. Both of the helper's source roots are
-/// scanned, recursively; see ``helperSourceRoots`` for why the executable target is the one that
-/// really matters.
-///
-/// Deliberately **not** part of the gated suite, and deliberately structural rather than a second
-/// container boot. Both follow from what the pin is for: it has to fail the moment the boundary
-/// moves, which means running on every `swift test` — including CI, where no container can boot —
-/// rather than only on an entitled Mac someone remembered to set three env vars on.
-///
-/// A characterization test, not an endorsement. When helper-side persistence lands this *should*
-/// fail; invert it then (assert the created page exists in the host's `Source/` and that HEAD
-/// advanced) and fold it into `secondProcessEditsSiteWithNoMainAppRunning()`, which is where the
-/// client already holds the commit hash.
-@Suite
-struct HelperEditDurabilityBoundaryTests {
-    /// Both source roots that make up the Mac helper.
-    ///
-    /// `Sources/anglesite-remote-helper` matters at least as much as the library, and scanning
-    /// only the library was this pin's blind spot at exactly its most likely regression site:
-    /// `InProcessEditPersistence` lives in **AnglesiteCore**, and `main.swift` already imports
-    /// AnglesiteCore — so wiring the persist step straight into the helper's MCP handler (the
-    /// follow-up this pin exists to catch) would land entirely outside `Sources/AnglesiteRemote`
-    /// and sail past a library-only scan.
-    private static let helperSourceRoots = ["Sources/AnglesiteRemote", "Sources/anglesite-remote-helper"]
-
-    @Test func noHelperTargetOwnsAPersistencePath() throws {
-        let repoRoot = URL(fileURLWithPath: #filePath)
-            .deletingLastPathComponent() // AnglesiteRemoteTests
-            .deletingLastPathComponent() // Tests
-            .deletingLastPathComponent() // repo root
-
-        var referencingFiles: [String] = []
-        for root in Self.helperSourceRoots {
-            let directory = repoRoot.appendingPathComponent(root, isDirectory: true)
-            // Recursive rather than `contentsOfDirectory`: a future subdirectory under either root
-            // must not be silently skipped — same class of blind spot as omitting a root entirely.
-            guard let enumerator = FileManager.default.enumerator(
-                at: directory, includingPropertiesForKeys: nil) else {
-                Issue.record("could not enumerate \(directory.path)")
-                continue
-            }
-            var swiftFiles: [URL] = []
-            for case let url as URL in enumerator where url.pathExtension == "swift" {
-                swiftFiles.append(url)
-            }
-            // Guards the guard, per root: an empty or misresolved directory would make the check
-            // below vacuously true, which is exactly the silent rot this pin exists to prevent.
-            #expect(!swiftFiles.isEmpty, "no Swift sources found under \(root) — pin misresolved?")
-
-            for file in swiftFiles {
-                let text = try String(contentsOf: file, encoding: .utf8)
-                if text.contains("InProcessEditPersistence") || text.contains("persistEdit") {
-                    referencingFiles.append("\(root)/\(file.lastPathComponent)")
-                }
-            }
-        }
-
-        #expect(referencingFiles.isEmpty, """
-            The Mac helper now references a persistence path (\(referencingFiles.joined(separator: ", "))) \
-            — helper-side persistence appears to have landed. Invert this pin per its doc comment.
-            """)
     }
 }
 

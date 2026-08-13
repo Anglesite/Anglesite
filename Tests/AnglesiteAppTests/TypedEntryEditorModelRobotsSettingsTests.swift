@@ -105,6 +105,20 @@ struct TypedEntryEditorModelRobotsSettingsTests {
         #expect(spy.paths().contains("src/content/notes/my-note.md"))
     }
 
+    /// Order-sensitive, not just membership (#800 review, fix round 1): the entry file's own
+    /// commit must land *before* the robots-config commit, since `saveCommitsRobotsConfig` above
+    /// only asserts both paths appear somewhere, and wouldn't have caught the CMS-mode task's
+    /// `applyRobotsConfig` extraction briefly committing robots-config first.
+    @Test("save: the entry file commits before the robots-config commit, not after")
+    func saveCommitsEntryFileBeforeRobotsConfig() async throws {
+        let spy = TypedEntryRobotsCommitSpy()
+        let (model, _) = try makeModel(spy: spy)
+        await model.load()
+        model.noindexBinding().wrappedValue = true
+        _ = await model.save()
+        #expect(spy.paths() == ["src/content/notes/my-note.md", RobotsConfigFile.relativePath])
+    }
+
     @Test("save: a no-op robots write doesn't add a robots-config commit")
     func saveWithoutRobotsChangeSkipsExtraCommit() async throws {
         let spy = TypedEntryRobotsCommitSpy()

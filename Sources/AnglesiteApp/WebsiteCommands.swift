@@ -95,6 +95,9 @@ struct WebsiteCommands: Commands {
             Button("Add Integration…") { model?.openIntegrationWizard() }
                 .disabled(model?.canOpenIntegrationWizard != true)
 
+            Button("Connect for CMS Mode…") { model?.presentMicropubConnect() }
+                .disabled(model?.canOpenMicropubConnect != true)
+
             Button("Animations…") { model?.presentAnimations() }
                 .disabled(model?.canOpenAnimations != true)
 

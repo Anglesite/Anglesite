@@ -110,4 +110,11 @@ public actor RemoteContainerSession {
         try? await control.stop(siteID: siteID)
         try? await registry.withdraw(siteID: siteID)
     }
+
+    /// True when this session itself booted `siteID`'s container (and therefore holds the
+    /// only in-process VM handle `control.exec` can reach for it) — false for a borrowed claim
+    /// (another process's container) or a `siteID` this session has never touched.
+    public func isOwner(siteID: String) -> Bool {
+        ownedSiteIDs.contains(siteID)
+    }
 }

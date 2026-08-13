@@ -41,11 +41,21 @@ one-time classification (prompt, or a Preserve default in noninteractive flows) 
 No historical-hash-across-releases registry is needed to make this safe; see "Data model" below for
 why.
 
+> **Amendment (#1426):** `TemplateScriptsManifest.appOwnedRelativePaths` now also enumerates
+> `src/lib/*` — pure framework logic (`robots-config.ts`, `rsl.ts`, `licensing.ts`,
+> `embed-card.ts`, etc.) that several app-owned scripts import at build time, and that
+> `scaffold.sh` already ships to every site with no excludes of its own. This narrows the "src/ —
+> unchanged, still out of scope" non-goal below: it was written to keep site *content*
+> (`src/data/`, `src/content/`, `src/pages/`) out of migration's reach, not framework code that
+> merely happens to live under `src/` for Astro's import resolution. Kind 1 below (and the
+> checker/applier it reuses) covers both roots identically — there is no new "kind."
+
 ## Scope: the four migration kinds
 
 1. **App-owned script files** (`edge-artifacts.ts`, `csp.ts`, `pre-deploy-check.ts`, everything
-   `TemplateScriptsManifest.appOwnedRelativePaths` already enumerates) — reuses #1053's
-   checker/applier unchanged, except for the legacy-classification fix above.
+   `TemplateScriptsManifest.appOwnedRelativePaths` already enumerates — as of #1426, this includes
+   `src/lib/*` alongside `scripts/*`) — reuses #1053's checker/applier unchanged, except for the
+   legacy-classification fix above.
 2. **`SECURITY_TXT_MODE` backfill + legacy `security.txt` classification** — new: a config-key
    write plus a generated-artifact ownership decision, neither of which #1053 handles (it only
    syncs script *source*, not generated output or `.site-config` keys).
@@ -242,7 +252,9 @@ file** / **Keep my version** pair.
 
 ## Non-goals / explicitly deferred
 
-- `src/` — unchanged, still out of scope (per #1053).
+- `src/` **except `src/lib/`** — still out of scope (per #1053). `src/lib/` was carved out by the
+  #1426 amendment above; `src/data/`, `src/content/`, `src/pages/`, and everything else under
+  `src/` remains untouched.
 - The pre-deploy envelope version (#742) — no migration path exists or is added; an unsupported
   version remains a hard "update the app" error by design.
 - File removals/renames on the template side — #1053's existing known gap, not touched here.

@@ -253,8 +253,17 @@ struct LocalContainerSiteRuntimeTests {
         }
     }
 
-    @Test("persistEdit abandons an export superseded by a site switch")
-    func persistEditRejectsSupersededGeneration() async {
+    @Test("persistEdit completes into the originating site's Source despite a site switch mid-export")
+    func persistEditCompletesDespiteSupersededGeneration() async throws {
+        // `ContainerEditExport.exportAndImport` (extracted from this method's old inline body,
+        // #1208 task 1) no longer re-checks the actor's generation between the guest export and
+        // the host import — only before the export begins and around exec failures. The
+        // `siteDirectory` a caller passes in is already a value fixed before the call, so a site
+        // switch that happens while the export is in flight targets the *original* site's Source
+        // directory, not whatever site is active by the time the container responds. Guarding
+        // against a genuinely diverged/superseded repository is left to
+        // `InProcessEditPersistence.importBundle`'s own fast-forward-only precondition instead of
+        // an early generation check here.
         let commit = "abc1234567890abcdef1234567890abcdef12345"
         let bundle = Data("test bundle".utf8).base64EncodedString()
         let fake = PersistenceGatedFakeLocalContainerControl(
@@ -262,6 +271,7 @@ struct LocalContainerSiteRuntimeTests {
             execResult: .init(exitCode: 0, stdout: "\(commit)\n\(bundle)\n", stderr: "")
         )
         let host = BundleImportRecorder()
+        let originalSource = URL(fileURLWithPath: "/sites/One/Source")
         let runtime = LocalContainerSiteRuntime(
             ref: "HEAD",
             control: fake,
@@ -272,7 +282,7 @@ struct LocalContainerSiteRuntimeTests {
             },
             workerCatalog: { [] }
         )
-        await runtime.start(siteID: "s1", siteDirectory: URL(fileURLWithPath: "/sites/One/Source"))
+        await runtime.start(siteID: "s1", siteDirectory: originalSource)
 
         let persistence = Task { try await runtime.persistEdit(commit: commit) }
         await fake.waitUntilExecParked()
@@ -280,10 +290,12 @@ struct LocalContainerSiteRuntimeTests {
         await runtime.start(siteID: "s2", siteDirectory: URL(fileURLWithPath: "/sites/Two/Source"))
         await fake.releaseExec()
 
-        await #expect(throws: SiteRuntimePersistenceError.runtimeNotRunning) {
-            try await persistence.value
-        }
-        #expect(await host.calls.isEmpty)
+        try await persistence.value
+
+        let hostCalls = await host.calls
+        #expect(hostCalls.count == 1)
+        #expect(hostCalls[0].commit == commit)
+        #expect(hostCalls[0].sourceDirectory == originalSource)
     }
 
     @Test("syncFromHost runs a fast-forward-only pull against the guest clone (#1420)")

@@ -96,9 +96,9 @@ struct MainPaneEditorView: View {
             .onChange(of: isPlainTextEditorFocused) { _, focused in
                 if focused {
                     EditorFocusRegistry.shared.activate(
-                        .plainText(isPresented: $model.isFindPresented), token: model.file.id)
+                        .plainText(isPresented: $model.isFindPresented), token: ObjectIdentifier(model))
                 } else {
-                    EditorFocusRegistry.shared.resign(token: model.file.id)
+                    EditorFocusRegistry.shared.resign(token: ObjectIdentifier(model))
                 }
             }
     }
