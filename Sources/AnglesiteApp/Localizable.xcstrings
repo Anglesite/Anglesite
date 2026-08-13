@@ -773,6 +773,12 @@
     "By default, Anglesite saves new and imported site packages to the Anglesite folder in iCloud Drive, falling back to `~/Sites/` when iCloud is unavailable. Override this for development or testing." : {
 
     },
+    "CMS Mode Not Available" : {
+
+    },
+    "Can't Connect" : {
+
+    },
     "Can't Open Component" : {
 
     },
@@ -1035,6 +1041,9 @@
     "Connect & publish" : {
 
     },
+    "Connect This Site" : {
+
+    },
     "Connect a Bluesky account for POSSE syndication to turn this on." : {
 
     },
@@ -1048,6 +1057,12 @@
 
     },
     "Connect a domain…" : {
+
+    },
+    "Connect for CMS Mode" : {
+
+    },
+    "Connect for CMS Mode…" : {
 
     },
     "Connect to Cloudflare" : {
@@ -1185,6 +1200,9 @@
 
     },
     "Couldn't reach this site" : {
+
+    },
+    "Couldn't reach this site. Check your connection and try again." : {
 
     },
     "Couldn't read your Cloudflare API token: %@" : {
@@ -2019,6 +2037,9 @@
     "Logs…" : {
 
     },
+    "Looking for this site's Micropub endpoint…" : {
+
+    },
     "Looking up registrar info…" : {
 
     },
@@ -2260,6 +2281,9 @@
 
     },
     "Not Connected" : {
+
+    },
+    "Not Deployed Yet" : {
 
     },
     "Not Set" : {
@@ -2593,6 +2617,9 @@
 
     },
     "Publish posts to the Atmosphere" : {
+
+    },
+    "Publish this site at least once before connecting it for CMS mode." : {
 
     },
     "Publish to GitHub" : {
@@ -3089,6 +3116,9 @@
     "Server" : {
 
     },
+    "Session Expired" : {
+
+    },
     "Set Password…" : {
 
     },
@@ -3182,6 +3212,9 @@
     "Shows this site's open GitHub security advisories and Dependabot alerts" : {
 
     },
+    "Sign In" : {
+
+    },
     "Sign In…" : {
 
     },
@@ -3192,6 +3225,18 @@
 
     },
     "Sign in with Cloudflare" : {
+
+    },
+    "Sign in with this site's own IndieAuth server to enable editing it as a CMS from other devices." : {
+
+    },
+    "Sign-In Canceled" : {
+
+    },
+    "Sign-In Failed" : {
+
+    },
+    "Sign-In Not Available" : {
 
     },
     "Signed in" : {
@@ -3236,6 +3281,9 @@
     "Site Scripts Customized" : {
 
     },
+    "Site Unreachable" : {
+
+    },
     "Site graph overview" : {
 
     },
@@ -3273,6 +3321,9 @@
 
     },
     "Software or SaaS" : {
+
+    },
+    "Something went wrong while signing in. Try again." : {
 
     },
     "Sound" : {
@@ -3498,6 +3549,9 @@
     "This page has no incoming links and will be permanently removed." : {
 
     },
+    "This post is stored in your site's CMS. The file on disk is a read-only export." : {
+
+    },
     "This removes it from Anglesite's list only. The files in %@ are left on disk." : {
 
     },
@@ -3507,13 +3561,25 @@
     "This site does not have any collection-backed content types." : {
 
     },
+    "This site doesn't offer IndieAuth sign-in yet. Redeploy it with a current Anglesite build." : {
+
+    },
     "This site hasn't been published yet" : {
 
     },
     "This site publishes a security.txt Anglesite didn't generate. Adopt it so Anglesite keeps it current going forward, or leave it as yours to maintain." : {
 
     },
+    "This site signed you out. Sign in again to keep CMS mode connected." : {
+
+    },
     "This site will stop receiving posts from " : {
+
+    },
+    "This site's Worker doesn't include Micropub yet. Redeploy it with a current Anglesite build." : {
+
+    },
+    "This site's identity couldn't be read. Try reopening it and connecting again." : {
 
     },
     "This will remove the file from your site. You can bring it back with Edit ▸ Undo." : {
@@ -3724,6 +3790,9 @@
     "Waiting for output…" : {
 
     },
+    "Waiting for sign-in…" : {
+
+    },
     "Warnings" : {
 
     },
@@ -3809,6 +3878,9 @@
 
     },
     "Yes, mostly Apple" : {
+
+    },
+    "You closed the sign-in page before finishing. Sign in when you're ready." : {
 
     },
     "You'll need to add these yourself" : {

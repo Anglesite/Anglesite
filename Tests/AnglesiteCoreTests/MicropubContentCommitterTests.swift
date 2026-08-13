@@ -205,6 +205,19 @@ struct MicropubContentCommitterTests {
             atPath: siteDirectory.appendingPathComponent("src/content/notes/hello-abc123-2.md").path))
     }
 
+    @Test("readSyncState/writeSyncState round-trip through Config/micropubSync.json")
+    func syncStateRoundTrips() throws {
+        let configDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: configDir) }
+
+        #expect(MicropubContentCommitter.readSyncState(from: configDir) == [:])
+
+        let state: MicropubContentCommitter.SyncState = ["https://owner.example/blog/hello": "src/content/blog/hello.md"]
+        try MicropubContentCommitter.writeSyncState(state, to: configDir)
+        #expect(MicropubContentCommitter.readSyncState(from: configDir) == state)
+    }
+
     @Test("commitMessage describes write-only, delete-only, and mixed reconciles")
     func commitMessageVariants() {
         #expect(MicropubContentCommitter.commitMessage(writtenCount: 1, deletedCount: 0) == "micropub: sync 1 post")

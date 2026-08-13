@@ -16,11 +16,13 @@ public enum MicropubContentCommitter {
     /// written outside the git commit (it lives in `Config/`, never `Source/`) so a later
     /// re-sync of the same post updates that exact file instead of re-resolving (and potentially
     /// re-suffixing) its slug every time.
-    typealias SyncState = [String: String]
+    public typealias SyncState = [String: String]
 
     private static let stateFileName = "micropubSync.json"
 
-    private static func loadState(from configDirectory: URL) -> SyncState {
+    /// Reads the persisted post-URL → `Source/`-relative-path mapping from
+    /// `configDirectory/micropubSync.json`, or `[:]` if the file is missing or unreadable.
+    public static func readSyncState(from configDirectory: URL) -> SyncState {
         let url = configDirectory.appendingPathComponent(stateFileName)
         guard let data = try? Data(contentsOf: url),
               let state = try? JSONDecoder().decode(SyncState.self, from: data)
@@ -28,13 +30,25 @@ public enum MicropubContentCommitter {
         return state
     }
 
-    private static func saveState(_ state: SyncState, to configDirectory: URL, fileManager: FileManager) {
+    /// Writes `state` to `configDirectory/micropubSync.json`, creating `configDirectory` if
+    /// needed. Throws on any encode/create/write failure rather than swallowing it, so a caller
+    /// that depends on the mapping actually landing on disk (e.g. a save path recording where a
+    /// post was written) can surface the failure instead of silently losing the URL↔path entry.
+    ///
+    /// - Parameters:
+    ///   - state: The post-URL → `Source/`-relative-path mapping to persist.
+    ///   - configDirectory: The site's `Config/` directory; created if it doesn't already exist.
+    ///   - fileManager: The file manager used for directory creation and the write.
+    /// - Throws: If encoding `state`, creating `configDirectory`, or writing the file fails.
+    public static func writeSyncState(
+        _ state: SyncState, to configDirectory: URL, fileManager: FileManager = .default
+    ) throws {
         let url = configDirectory.appendingPathComponent(stateFileName)
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.sortedKeys]
-        guard let data = try? encoder.encode(state) else { return }
-        try? fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
-        try? data.write(to: url, options: .atomic)
+        let data = try encoder.encode(state)
+        try fileManager.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        try data.write(to: url, options: .atomic)
     }
 
     /// Resolves the relative path a post should be written to: the path already recorded in
@@ -88,7 +102,7 @@ public enum MicropubContentCommitter {
         now: @Sendable () -> Date = Date.init,
         gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch
     ) async -> Int {
-        var state = loadState(from: configDirectory)
+        var state = readSyncState(from: configDirectory)
         let currentURLs = Set(posts.map(\.url))
 
         var relPaths: [String] = []
@@ -127,13 +141,13 @@ public enum MicropubContentCommitter {
         }
 
         guard !relPaths.isEmpty else {
-            saveState(state, to: configDirectory, fileManager: fileManager)
+            try? writeSyncState(state, to: configDirectory, fileManager: fileManager)
             return 0
         }
 
         let message = Self.commitMessage(writtenCount: writtenCount, deletedCount: deletedCount)
         let committed = await gitCommitBatch(siteDirectory, relPaths, message) != nil
-        saveState(state, to: configDirectory, fileManager: fileManager)
+        try? writeSyncState(state, to: configDirectory, fileManager: fileManager)
         return committed ? writtenCount + deletedCount : 0
     }
 

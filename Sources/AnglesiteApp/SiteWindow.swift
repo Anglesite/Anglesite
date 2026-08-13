@@ -963,6 +963,9 @@ struct SiteWindow: View {
         .sheet(isPresented: $bindableModel.animationsPresented) {
             AnimationsGalleryView()
         }
+        .sheet(isPresented: $bindableModel.micropubConnectPresented) {
+            MicropubSiteConnectSheet(site: site)
+        }
         .annotatedAsSite(site)
     }
 

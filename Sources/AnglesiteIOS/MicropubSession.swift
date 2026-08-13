@@ -91,17 +91,33 @@ public struct StoredMicropubSessions: MicropubSessionProviding {
     }
 
     public func session(for site: SitePickerModel.DiscoveredSite) async -> MicropubSession? {
-        let siteID = site.id.uuidString
+        await session(
+            siteID: site.id.uuidString,
+            sourceDirectory: AnglesitePackage(url: site.packageURL).sourceURL)
+    }
+
+    /// The same assembly as ``session(for:)``, addressed by a site's raw identity instead of a
+    /// `SitePickerModel.DiscoveredSite` — for callers (the Mac's CMS-mode save path, #800) that
+    /// already hold a site's `Source/` directory directly and would otherwise have to fabricate a
+    /// `packageURL` just to have this method re-derive the same directory from it.
+    ///
+    /// - Parameters:
+    ///   - siteID: The site's stable marker UUID string (`SiteStore.Site.id` on the Mac,
+    ///     `SitePickerModel.DiscoveredSite.id.uuidString` on iOS).
+    ///   - sourceDirectory: The site's `Source/` directory, resolved to a deployed URL for
+    ///     endpoint discovery.
+    /// - Returns: The assembled session, or `nil` when no credential is stored, the site isn't
+    ///   deployed yet, or endpoint discovery fails.
+    public func session(siteID: String, sourceDirectory: URL) async -> MicropubSession? {
         guard let token = try? secretStore.readMicropubAccessToken(siteID: siteID),
               !token.isEmpty,
               let keyPair = try? secretStore.readMicropubDPoPKeyPair(siteID: siteID)
         else { return nil }
         // `.site-config` is real file I/O inside a possibly-still-materializing iCloud
         // package — hop off the main actor, same as `MicropubOnboardingModel.configure`.
-        let sourceURL = AnglesitePackage(url: site.packageURL).sourceURL
         let resolve = resolveSiteURL
         let siteURL = await Task.detached(priority: .userInitiated) {
-            resolve(sourceURL).flatMap(URL.init(string:))
+            resolve(sourceDirectory).flatMap(URL.init(string:))
         }.value
         guard let siteURL,
               let endpoints = try? await discovery.discover(siteURL: siteURL)
