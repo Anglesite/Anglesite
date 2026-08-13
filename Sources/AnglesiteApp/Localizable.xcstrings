@@ -1095,6 +1095,9 @@
     "Content" : {
 
     },
+    "Content Imported" : {
+
+    },
     "Content Signals" : {
 
     },
@@ -1844,6 +1847,9 @@
     "Impact analysis" : {
 
     },
+    "Import Content" : {
+
+    },
     "Import Site…" : {
 
     },
@@ -1851,6 +1857,9 @@
 
     },
     "Import from Phone" : {
+
+    },
+    "Importing…" : {
 
     },
     "Inactive — not used" : {

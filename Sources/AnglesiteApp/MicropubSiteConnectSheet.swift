@@ -26,6 +26,17 @@ struct MicropubSiteConnectSheet: View {
     /// `UUID()` that would scope Keychain reads/writes to the wrong identity.
     @State private var invalidSiteID = false
 
+    /// This site's persisted `SiteSettings.contentImportCompleted`, loaded off the main actor by
+    /// `runAutomaticImportIfNeeded()`. `nil` until that load completes — treated the same as "not
+    /// completed" by `shouldShowManualImportButton`, so the manual trigger is available
+    /// immediately rather than waiting on a disk read.
+    @State private var contentImportCompleted: Bool?
+    /// Set while `runManualImport()` is in flight, to swap the button for a `ProgressView`.
+    @State private var manualImportInProgress = false
+    /// Set once a manual import completes, so the control shows a brief confirmation instead of
+    /// silently vanishing the moment `contentImportCompleted` flips to `true`.
+    @State private var manualImportSucceeded = false
+
     var body: some View {
         NavigationStack {
             content
@@ -130,6 +141,9 @@ struct MicropubSiteConnectSheet: View {
             Text(verbatim: me)
                 .font(.callout.monospaced())
                 .foregroundStyle(.secondary)
+            if Self.shouldShowManualImportButton(contentImportCompleted: contentImportCompleted) {
+                manualImportControl
+            }
             Button("Done") { dismiss() }
                 .buttonStyle(.borderedProminent)
                 .padding(.top, 8)
@@ -139,17 +153,114 @@ struct MicropubSiteConnectSheet: View {
         // One-time import of this site's existing typed content into D1 (Task B1/B2, spec §C.7).
         // `micropubClient` is only non-nil right after a fresh `signIn()` — a session restored
         // from Keychain on `configure(site:)` leaves it `nil` (endpoint discovery isn't
-        // persisted), so this simply no-ops until the next real sign-in, matching
-        // `MicropubOnboardingModel`'s documented contract rather than forcing rediscovery here.
-        .task {
-            guard let client = model?.micropubClient else { return }
-            var settings = (try? SiteConfigStore.read(from: site.configDirectory)) ?? SiteSettings()
-            guard settings.contentImportCompleted != true else { return }
-            _ = await MicropubContentImport.importIfNeeded(
-                siteDirectory: site.sourceDirectory, configDirectory: site.configDirectory, client: client)
-            settings.contentImportCompleted = true
-            try? await SiteConfigStore(configDirectory: site.configDirectory).save(settings)
+        // persisted), so this simply loads the completion flag for `manualImportControl` and
+        // no-ops otherwise; the manual button below is the path for that (common — sign in once,
+        // reopen the app later) case.
+        .task { await runAutomaticImportIfNeeded() }
+    }
+
+    /// The manual "Import Content" control shown below the connected state whenever this site's
+    /// import hasn't completed (`shouldShowManualImportButton`) — the discoverable path for the
+    /// common case where `model.micropubClient` is `nil` (a restored session, not a fresh
+    /// sign-in) so the automatic `.task` above never ran the import.
+    @ViewBuilder
+    private var manualImportControl: some View {
+        if manualImportInProgress {
+            ProgressView("Importing…")
+        } else if manualImportSucceeded {
+            Label("Content Imported", systemImage: "checkmark.circle.fill")
+                .font(.callout)
+                .foregroundStyle(.secondary)
+        } else {
+            Button("Import Content") { Task { await runManualImport() } }
+                .buttonStyle(.bordered)
         }
+    }
+
+    /// Whether `manualImportControl` should be shown: whenever this site's persisted
+    /// `contentImportCompleted` isn't explicitly `true`, including `nil` (not loaded yet, or
+    /// genuinely never run) — pulled out as a pure static function so the condition is testable
+    /// without hosting the view.
+    static func shouldShowManualImportButton(contentImportCompleted: Bool?) -> Bool {
+        contentImportCompleted != true
+    }
+
+    /// Auto-triggered once per sheet presentation while `.signedIn` is showing (Task B2, spec
+    /// §C.7). Loads the persisted completion flag for `manualImportControl` regardless of
+    /// outcome; only actually runs the import when a fresh sign-in populated
+    /// `model.micropubClient` and the site hasn't imported yet.
+    private func runAutomaticImportIfNeeded() async {
+        // `SiteConfigStore.load()` (the actor-isolated instance method) hops off the main actor
+        // for its file I/O, unlike the synchronous `SiteConfigStore.read(from:)` seam — this
+        // `.task` runs under a SwiftUI view, i.e. on the main actor, so blocking here would stall
+        // the UI (same hazard `MicropubOnboardingModel.configure`'s `Task.detached` and
+        // `StoredMicropubSessions.session` both route around).
+        let loaded = (try? await SiteConfigStore(configDirectory: site.configDirectory).load()) ?? SiteSettings()
+        contentImportCompleted = loaded.contentImportCompleted
+        guard loaded.contentImportCompleted != true, let client = model?.micropubClient else { return }
+        _ = await Self.runImportAndPersistCompletion(
+            siteDirectory: site.sourceDirectory, configDirectory: site.configDirectory, client: client)
+        contentImportCompleted = true
+    }
+
+    /// `manualImportControl`'s button action: resolves a Micropub client without forcing a fresh
+    /// interactive sign-in. Reuses `model.micropubClient` when a sign-in just happened in this
+    /// sheet presentation; otherwise resolves one from the already-stored Keychain credential via
+    /// `StoredMicropubSessions` — the same resolver `MicropubSession`'s doc comment names as "the
+    /// composer's own flow" for re-discovering the endpoint after a restored session, so this
+    /// never re-prompts the user.
+    private func runManualImport() async {
+        guard !manualImportInProgress else { return }
+        manualImportInProgress = true
+        defer { manualImportInProgress = false }
+
+        guard let client = await resolveClient() else { return }
+        _ = await Self.runImportAndPersistCompletion(
+            siteDirectory: site.sourceDirectory, configDirectory: site.configDirectory, client: client)
+        contentImportCompleted = true
+        manualImportSucceeded = true
+    }
+
+    /// A ready-to-use Micropub client for this site, without prompting for sign-in: a fresh
+    /// sign-in's client when one is available, else one resolved from the stored Keychain
+    /// credential (`nil` if the site was never signed in, or the credential is gone and needs
+    /// re-auth — the "Session Expired" state handles that separately).
+    private func resolveClient() async -> MicropubClient? {
+        if let client = model?.micropubClient { return client }
+        return await StoredMicropubSessions()
+            .session(siteID: site.id, sourceDirectory: site.sourceDirectory)?
+            .makeClient()
+    }
+
+    /// Runs the one-time content import, then persists `contentImportCompleted = true` — unless
+    /// `isCancelled()` reports the calling task was cancelled first. SwiftUI cancels a `.task`
+    /// when its view disappears (e.g. the user taps Done while the automatic import is still
+    /// running), but `MicropubContentImport.importIfNeeded` never throws or checks
+    /// `Task.isCancelled` itself — per-file failures, cancellation included, are caught and
+    /// logged rather than propagated — so the import keeps running to completion regardless.
+    /// Without this guard, a sheet dismissed mid-import would still get marked "done" after
+    /// importing few or zero files, with no way to retrigger it. `isCancelled` is injectable so
+    /// tests can exercise both outcomes deterministically instead of racing real `Task`
+    /// cancellation timing.
+    ///
+    /// - Parameters:
+    ///   - siteDirectory: The site's `Source/` directory.
+    ///   - configDirectory: The site's `Config/` directory.
+    ///   - client: The Micropub client to import through.
+    ///   - isCancelled: Reports whether the calling task was cancelled; defaults to the real
+    ///     `Task.isCancelled`.
+    /// - Returns: The number of files imported (see `MicropubContentImport.importIfNeeded`).
+    static func runImportAndPersistCompletion(
+        siteDirectory: URL, configDirectory: URL, client: MicropubClient,
+        isCancelled: () -> Bool = { Task.isCancelled }
+    ) async -> Int {
+        let imported = await MicropubContentImport.importIfNeeded(
+            siteDirectory: siteDirectory, configDirectory: configDirectory, client: client)
+        guard !isCancelled() else { return imported }
+        var settings = (try? await SiteConfigStore(configDirectory: configDirectory).load()) ?? SiteSettings()
+        settings.contentImportCompleted = true
+        try? await SiteConfigStore(configDirectory: configDirectory).save(settings)
+        return imported
     }
 
     @ViewBuilder
