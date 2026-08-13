@@ -7,6 +7,9 @@ import AnglesiteRemote
 #if canImport(ServiceManagement)
 import ServiceManagement
 #endif
+#if canImport(CloudKit)
+import CloudKit
+#endif
 
 // Anywhere runtime (#1208 P1) helper entry point: `anglesite-remote-helper session <signal-dir>
 // <site-root>` accepts one P2P session over file signaling (matching P0's `anglesite-p2p-demo
@@ -40,7 +43,41 @@ func die(_ message: String) -> Never {
 @MainActor
 final class HelperAppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
+        // The whole reason this helper is a faceless app rather than a bare LaunchAgent (design
+        // spec §Architecture 2): only a registered `NSApplication` can receive the silent APNs
+        // pushes CloudKit's `CKQuerySubscription` sends, which is what wakes this process when a
+        // peer announces itself with the main app closed. Registration is a no-op-with-a-log on a
+        // build whose CloudKit entitlement isn't provisioned yet (#1208 P2's manual portal step) —
+        // `CloudKitPairingService` polls regardless, so pairing still works, just slower.
+        NSApplication.shared.registerForRemoteNotifications()
         Task { await runSession() }
+    }
+
+    func application(_ application: NSApplication, didReceiveRemoteNotification userInfo: [String: Any]) {
+        // The AppKit shape, deliberately: macOS's delegate callback takes no completion handler
+        // (that is UIKit's `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`),
+        // so there is nothing to call back and the handler must return promptly.
+        //
+        // Routing: this is the seam where a CloudKit push reaches whichever service is listening —
+        // `CloudKitPairingService.handleRemoteNotification(_:)` during pairing, and
+        // `CloudKitSignalingChannel` during an active session. Neither consumer is constructed by
+        // this process yet (the pairing flow and the signaling channel land in later #1208 P2
+        // tasks), so for now the push is logged rather than dispatched: both consumers poll as
+        // their correctness floor, so an unrouted push costs latency, never a missed event.
+        #if canImport(CloudKit)
+        let subscriptionID = CKNotification(fromRemoteNotificationDictionary: userInfo)?.subscriptionID
+        #else
+        let subscriptionID: String? = nil
+        #endif
+        FileHandle.standardError.write(Data(
+            "remote-helper: CloudKit push received (subscription \(subscriptionID ?? "unknown"))\n".utf8))
+    }
+
+    func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
+        // Logs are sacred (CLAUDE.md): a helper that silently failed APNs registration and quietly
+        // fell back to polling is exactly the kind of thing that reads as "P2P is just slow".
+        FileHandle.standardError.write(Data(
+            "remote-helper: APNs registration failed, CloudKit push unavailable: \(error)\n".utf8))
     }
 }
 
