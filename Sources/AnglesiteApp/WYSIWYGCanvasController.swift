@@ -75,6 +75,15 @@ final class WYSIWYGCanvasController {
     /// own pattern.
     weak var webView: WKWebView?
 
+    /// Set by `PreviewModel.enterEditMode` once the open site's `Source/` directory is known — `nil`
+    /// until then, in which case `runQualityGates` below simply has nothing to analyze against yet.
+    var qualityGateContext: GateContext?
+
+    /// The most recent quality-gate analysis result, or `nil` before the first applied op (or if
+    /// `qualityGateContext` was never set). Exposed for testability without a real `WKWebView` — same
+    /// reasoning as `mountScript(for:)`'s split from `mountEngine()` below.
+    private(set) var lastQualityGateResult: QualityGateRunner.Result?
+
     /// The Insert menu's Component submenu source (#1225 Task 12). Static interim stand-in for
     /// the real CEM-aligned theme manifest, which needs #1222's sidecar `get_page_model`-shaped
     /// service that doesn't exist yet — see `WYSIWYGCanvasController.stubBlockPalette`'s doc
@@ -86,6 +95,9 @@ final class WYSIWYGCanvasController {
         self.transport = transport
         addOpAppliedListener { [weak self] op, inverse, _ in
             self?.undoCoordinator.registerApplied(op: op, inverse: inverse)
+        }
+        addOpAppliedListener { [weak self] _, _, newModel in
+            self?.runQualityGates(model: newModel)
         }
     }
 
@@ -241,6 +253,36 @@ final class WYSIWYGCanvasController {
     /// The `unmount()` counterpart to `mountScript(for:)` — no model to encode, so this is just the
     /// literal call string, kept as a `static let` for the same test-without-`WKWebView` reason.
     static let unmountScript = "window.__anglesiteWysiwygMount?.unmount?.()"
+
+    /// Fires after every applied op (the `addOpAppliedListener` call in `init` above): re-runs all
+    /// five quality gates against the new model and pushes the result to the engine. A `nil`
+    /// `qualityGateContext` or `nil` `webView` both no-op harmlessly inside `pushQualityFindings` —
+    /// the next applied op re-triggers this the same way.
+    private func runQualityGates(model: BlockModel) {
+        guard let qualityGateContext else { return }
+        let result = QualityGateRunner.analyze(model: model, context: qualityGateContext)
+        lastQualityGateResult = result
+        pushQualityFindings(result.findings)
+        for category in result.failedCategories {
+            Task { await LogCenter.shared.append(source: "quality-gates", stream: .stderr, text: "\(category.rawValue) checker failed for \(model.path)") }
+        }
+    }
+
+    /// Builds the `_handleQualityFindings` call for `findings` — factored out of
+    /// `pushQualityFindings` the same way `mountScript(for:)` is factored out of `mountEngine()`, so
+    /// it's testable without a real `WKWebView`. Returns a no-op script on the unreachable case that
+    /// `findings` fails to encode.
+    static func pushQualityFindingsScript(for findings: [Finding]) -> String {
+        guard let data = try? JSONEncoder().encode(findings), let json = String(data: data, encoding: .utf8) else {
+            return ""
+        }
+        return "window.__anglesiteWysiwygHost?._handleQualityFindings?.(\(json))"
+    }
+
+    private func pushQualityFindings(_ findings: [Finding]) {
+        guard let webView else { return }
+        webView.evaluateJavaScript(Self.pushQualityFindingsScript(for: findings))
+    }
 
     /// Escapes a Swift string into a double-quoted JS string literal for `evaluateJavaScript`
     /// interpolation — mirrors `ComponentStyleInspectorPane.jsStringLiteral`, needed here too

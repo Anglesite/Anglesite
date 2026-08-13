@@ -69,4 +69,22 @@ struct PreviewModelWYSIWYGTests {
         #expect(model.wysiwygCanvas !== firstCanvas)
         #expect(model.wysiwygCanvas?.undoCoordinator.undoManager === secondUndoManager)
     }
+
+    @Test("enterEditMode builds the canvas's qualityGateContext from the open site's Source/ directory")
+    func editModeBuildsQualityGateContext() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let stylesDir = root.appendingPathComponent("src/styles")
+        try FileManager.default.createDirectory(at: stylesDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try ":root { --color-text: #111111; }".write(to: stylesDir.appendingPathComponent("global.css"), atomically: true, encoding: .utf8)
+
+        let model = PreviewModel(runtime: UnavailableSiteRuntime(reason: "no runtime needed for this test"))
+        model.open(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
+
+        await model.enterEditMode(
+            seedModel: BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:]),
+            undoManager: nil)
+
+        #expect(model.wysiwygCanvas?.qualityGateContext?.resolvedTokens["color-text"] == "#111111")
+    }
 }

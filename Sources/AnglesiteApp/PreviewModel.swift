@@ -125,6 +125,9 @@ final class PreviewModel {
         let transport = StubWYSIWYGHostTransport(model: seedModel)
         let canvas = WYSIWYGCanvasController(initialModel: seedModel, transport: transport)
         canvas.undoCoordinator.undoManager = undoManager
+        if let openSiteDirectory {
+            canvas.qualityGateContext = GateContext.build(fromSourceDirectory: openSiteDirectory)
+        }
         wysiwygCanvas = canvas
         if let webView {
             canvas.webView = webView

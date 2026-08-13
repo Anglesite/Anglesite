@@ -154,6 +154,43 @@ struct WYSIWYGCanvasControllerTests {
         let insertedId = controller.model.rootIds[0]
         #expect(controller.model.blocks[insertedId]?.componentName == "p")
     }
+    @Test("applying an op re-runs quality gates when a context is set")
+    func appliedOpTriggersQualityGates() async {
+        let node = BlockNode(id: "img1", kind: .astro, componentName: "Image", props: ["src": .string("/photo.jpg")], slots: [:], sourceSpan: [0, 0])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["img1"], blocks: ["img1": node])
+        let transport = StubWYSIWYGHostTransport(model: initial)
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        controller.qualityGateContext = GateContext(resolvedTokens: [:], internalRoutes: [], assetRoot: URL(fileURLWithPath: "/tmp"))
+
+        _ = await controller.submit(.setDesignToken(tokenName: "t", value: "a", previousValue: "b"))
+
+        #expect(controller.lastQualityGateResult?.findings.contains { $0.category == .altText } == true)
+    }
+
+    @Test("a nil qualityGateContext means quality gates never run")
+    func noContextMeansNoAnalysis() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let transport = StubWYSIWYGHostTransport(model: initial)
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+
+        _ = await controller.submit(.setDesignToken(tokenName: "t", value: "a", previousValue: "b"))
+
+        #expect(controller.lastQualityGateResult == nil)
+    }
+
+    @Test("pushQualityFindingsScript(for:) builds a _handleQualityFindings call carrying the findings' exact JSON encoding")
+    func pushQualityFindingsScriptBuildsCall() throws {
+        let finding = Finding(blockId: "img1", category: .imageWeight, severity: .warning, message: "big")
+
+        let script = WYSIWYGCanvasController.pushQualityFindingsScript(for: [finding])
+
+        #expect(script.hasPrefix("window.__anglesiteWysiwygHost?._handleQualityFindings?.("))
+        #expect(script.hasSuffix(")"))
+        let jsonStart = script.index(script.startIndex, offsetBy: "window.__anglesiteWysiwygHost?._handleQualityFindings?.(".count)
+        let json = String(script[jsonStart..<script.index(before: script.endIndex)])
+        let decoded = try JSONDecoder().decode([Finding].self, from: Data(json.utf8))
+        #expect(decoded == [finding])
+    }
 }
 
 private extension OpResult {
