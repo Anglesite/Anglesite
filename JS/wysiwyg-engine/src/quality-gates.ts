@@ -26,6 +26,17 @@ export interface QualityGateTransport {
 /** Attribute a rendered chip element carries its `Finding.id` under. */
 export const CHIP_ATTR = "data-quality-chip-id";
 
+/** Owner-facing label per category, used only for ARIA naming — the chip's own visible text is
+ *  `finding.message` (already owner-consequence phrased); this is what lets a screen-reader user
+ *  tell several simultaneous chips (and their identically-worded "Apply" buttons) apart. */
+const CATEGORY_LABELS: Record<FindingCategory, string> = {
+  contrast: "Contrast",
+  altText: "Alt text",
+  headingOrder: "Heading order",
+  linkIntegrity: "Broken link",
+  imageWeight: "Image size",
+};
+
 /** One rendered chip plus what `#positionChip` needs to place it again later — a scroll/resize
  *  reposition has no findings push to re-derive the anchor block or stack slot from. */
 interface RenderedChip {
@@ -169,6 +180,15 @@ export class QualityGateChips {
     chip.setAttribute(CHIP_ATTR, finding.id);
     chip.dataset.category = finding.category;
     chip.dataset.severity = finding.severity;
+    // A screen-reader announcement channel: this feature's whole purpose is surfacing
+    // accessibility issues to the owner, so the chip itself has to be perceivable by VoiceOver,
+    // not just sighted. `role="status"`/`aria-live="polite"` makes assistive tech announce the
+    // chip's content when it appears or its text changes — without this, a chip anchored to the
+    // block currently being edited is otherwise silent. `aria-label` (set in #fillChip, since it
+    // depends on message/category) names the region, per `docs/mac-assed-app-spec.md`'s "a custom
+    // control is incomplete until it communicates ... with assistive technologies."
+    chip.setAttribute("role", "status");
+    chip.setAttribute("aria-live", "polite");
     styleChip(chip, finding.severity);
     this.#fillChip(chip, finding);
     return chip;
@@ -188,6 +208,8 @@ export class QualityGateChips {
   }
 
   #fillChip(chip: HTMLElement, finding: Finding): void {
+    const categoryLabel = CATEGORY_LABELS[finding.category];
+    chip.setAttribute("aria-label", `${categoryLabel} issue: ${finding.message}`);
     chip.replaceChildren();
     const message = document.createElement("span");
     message.textContent = finding.message;
@@ -197,6 +219,10 @@ export class QualityGateChips {
     const applyButton = document.createElement("button");
     applyButton.type = "button";
     applyButton.textContent = "Apply";
+    // Every chip's button reads the bare word "Apply" visually (deliberately terse), but several
+    // can be on screen at once — without a distinguishing name, a screen-reader user tabbing
+    // through them hears "Apply" repeated with no way to tell which finding each one fixes.
+    applyButton.setAttribute("aria-label", `Apply fix for ${categoryLabel.toLowerCase()} issue`);
     styleApplyButton(applyButton);
     applyButton.addEventListener("click", () => {
       applyButton.disabled = true;

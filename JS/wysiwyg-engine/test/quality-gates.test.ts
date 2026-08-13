@@ -47,6 +47,50 @@ describe("QualityGateChips", () => {
     expect(chips[0]?.textContent).toContain("big photo");
   });
 
+  it("gives the chip live-region semantics and an aria-label naming its category and message", () => {
+    const model = makeModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const transport = new FakeQualityGateTransport();
+    new QualityGateChips(engine, transport);
+    const finding: Finding = { id: "b1::altText", blockId: "b1", category: "altText", severity: "warning", message: "missing alt text" };
+
+    transport.push([finding]);
+
+    const chip = document.querySelector(`[${CHIP_ATTR}]`) as HTMLElement;
+    expect(chip.getAttribute("role")).toBe("status");
+    expect(chip.getAttribute("aria-live")).toBe("polite");
+    expect(chip.getAttribute("aria-label")).toBe("Alt text issue: missing alt text");
+  });
+
+  it("updates the chip's aria-label when a later push changes its message", () => {
+    const model = makeModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const transport = new FakeQualityGateTransport();
+    new QualityGateChips(engine, transport);
+    const finding: Finding = { id: "b1::imageWeight", blockId: "b1", category: "imageWeight", severity: "warning", message: "600 KB" };
+    transport.push([finding]);
+
+    transport.push([{ ...finding, message: "700 KB" }]);
+
+    const chip = document.querySelector(`[${CHIP_ATTR}]`) as HTMLElement;
+    expect(chip.getAttribute("aria-label")).toBe("Image size issue: 700 KB");
+  });
+
+  it("gives the Apply button a category-specific label so multiple simultaneous buttons aren't ambiguous", () => {
+    const model = makeModel();
+    const engine = new WysiwygEngine(model, new FixtureHost(model));
+    const transport = new FakeQualityGateTransport();
+    new QualityGateChips(engine, transport);
+    const fix = { kind: "setProp", blockId: "b1", propName: "level", value: 3, previousValue: 4 } as const;
+    const finding: Finding = { id: "b1::headingOrder", blockId: "b1", category: "headingOrder", severity: "warning", message: "heading skip", fix };
+
+    transport.push([finding]);
+
+    const button = document.querySelector(`[${CHIP_ATTR}] button`) as HTMLButtonElement;
+    expect(button.textContent).toBe("Apply");
+    expect(button.getAttribute("aria-label")).toBe("Apply fix for heading order issue");
+  });
+
   it("stacks a second finding on the same block below the first instead of overlapping it", () => {
     const model = makeModel();
     const engine = new WysiwygEngine(model, new FixtureHost(model));
