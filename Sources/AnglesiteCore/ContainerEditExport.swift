@@ -54,7 +54,11 @@ public enum ContainerEditExport {
         sourceDirectory: URL,
         onLog: @escaping @Sendable (String, LogCenter.Stream) -> Void,
         importBundle: @Sendable (URL, String, URL) async throws -> Void = { bundle, commit, source in
-            #if !os(iOS)
+            // Must match InProcessEditPersistence's own `#if canImport(Darwin)` gate exactly —
+            // `#if !os(iOS)` is also true on Linux, where that type doesn't exist at all (#1444
+            // CI: this compiled on every macOS run, since Darwin and !iOS agree there, and only
+            // broke on the Linux portable-target build).
+            #if canImport(Darwin)
             try await InProcessEditPersistence.importBundle(bundle, commit: commit, into: source)
             #else
             throw SiteRuntimePersistenceError.syncFailed("edit persistence is unavailable on this platform")
