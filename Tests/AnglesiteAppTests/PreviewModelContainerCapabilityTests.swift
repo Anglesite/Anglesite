@@ -70,7 +70,10 @@ private actor FakeContainerCapableSiteRuntime: SiteRuntime, SiteRuntimeContainer
     func resetNetworking() async { await control.resetNetworking() }
 
     func persistEdit(commit: String?) async throws {
-        guard let commit else { return }
+        // Mirrors `LocalContainerSiteRuntime.persistEdit`'s nil-commit branch: throw rather than
+        // silently no-op, so tests exercising `PreviewModel.editPersister(for:)` observe the same
+        // "nothing verifiable to sync back" failure a real container-backed runtime would produce.
+        guard let commit else { throw SiteRuntimePersistenceError.missingOrInvalidCommit }
         persistedCommits.append(commit)
     }
 
@@ -158,5 +161,36 @@ struct PreviewModelContainerCapabilityTests {
 
         // Must not crash or hang — there's simply nothing to reach.
         await model.syncContentFromHost()
+    }
+
+    @Test("editPersister surfaces a nil commit as a thrown failure instead of silently no-op'ing (#1422)")
+    func editPersisterThrowsRatherThanSilentlySkippingNilCommit() async throws {
+        let runtime = FakeContainerCapableSiteRuntime()
+        await runtime.start(siteID: "custom-site", siteDirectory: URL(fileURLWithPath: "/unused"))
+        guard let persister = PreviewModel.editPersister(for: runtime) else {
+            Issue.record("expected a persister for a container-capable runtime")
+            return
+        }
+        let reply = EditReply(id: "1", status: .applied, message: nil, commit: nil)
+
+        await #expect(throws: SiteRuntimePersistenceError.missingOrInvalidCommit) {
+            try await persister(reply)
+        }
+        #expect(await runtime.persistedCommits.isEmpty)
+    }
+
+    @Test("editPersister forwards a non-nil commit to the capability (#1422)")
+    func editPersisterForwardsCommit() async throws {
+        let runtime = FakeContainerCapableSiteRuntime()
+        await runtime.start(siteID: "custom-site", siteDirectory: URL(fileURLWithPath: "/unused"))
+        guard let persister = PreviewModel.editPersister(for: runtime) else {
+            Issue.record("expected a persister for a container-capable runtime")
+            return
+        }
+        let reply = EditReply(id: "1", status: .applied, message: nil, commit: "deadbeef")
+
+        try await persister(reply)
+
+        #expect(await runtime.persistedCommits == ["deadbeef"])
     }
 }
