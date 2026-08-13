@@ -4,6 +4,7 @@
 /// session exists right now (Keychain-backed) check that separately, so this type stays a
 /// trivial fact about the site's *provisioning* state, not its *auth* state.
 public enum CMSModeStatus {
+    /// True once `settings.activeWorkerIDs` includes Micropub's catalog id.
     public static func isProvisioned(settings: SiteSettings) -> Bool {
         (settings.activeWorkerIDs ?? []).contains(WorkerComposition.micropubWorkerID)
     }
