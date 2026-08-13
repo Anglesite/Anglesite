@@ -126,3 +126,83 @@ See [#617](https://github.com/Anglesite/Anglesite/issues/617) for the
 separate v1.0 App Store submission track, which shares this same
 archive/export/upload pipeline but goes through full App Review instead
 of TestFlight's Beta App Review.
+
+## iOS App Store Lane (AnglesiteMobile)
+
+`AnglesiteMobile` ships as its **own App Store product**, separate from the Mac
+app — a distinct app record, provisioning, and TestFlight/App Review cycle. See
+`docs/superpowers/specs/2026-08-12-ios-ipados-v2-design.md` §4 for the design
+this section implements (epic #342, tracking issue #1434).
+
+The target's bundle id is `io.dwk.anglesite.ios`, already set in `project.yml`.
+Unlike the Mac target, there is no `scripts/release.sh`-equivalent script yet —
+archive and upload through Xcode Organizer (`Product ▸ Archive` on the
+`AnglesiteMobile` scheme, then `Distribute App ▸ TestFlight & App Store`) or
+`xcodebuild -exportArchive` by hand. Scripting this pipeline is a reasonable
+follow-up once the manual flow is exercised a few times, but is out of scope
+for #1434.
+
+### One-Time Setup
+
+1. **App Store Connect app record.** Create an app for bundle id
+   `io.dwk.anglesite.ios` in [App Store Connect](https://appstoreconnect.apple.com/).
+   As with the Mac app, the build will not upload until the record exists. This
+   can reuse the same Apple Developer team as the Mac app's record.
+
+2. **Certificates and provisioning profile.** An **Apple Distribution**
+   certificate (can be the same one the Mac app uses — it's not
+   platform-specific) plus an **iOS App Store** provisioning profile for
+   `io.dwk.anglesite.ios`, tied to that certificate.
+
+3. **App Store Connect API key.** Reuse the same key created for the Mac app's
+   release pipeline (see "One-Time Setup" step 5 above) — App Store Connect API
+   keys are account-wide, not per-app.
+
+### Entitlements traced to features
+
+Per the design spec §4, each entry in `Resources/AnglesiteMobile.entitlements`
+must trace to a shipped feature — no speculative capabilities:
+
+| Entitlement | Feature | Status |
+|---|---|---|
+| `com.apple.developer.icloud-container-identifiers` / `icloud-services` (`CloudDocuments`) | iCloud site discovery (#866) | Shipped |
+| `com.apple.developer.associated-domains` (`webcredentials:auth.anglesite.dwk.io`) | Cloudflare OAuth callback interception (#891) | Shipped |
+| CloudKit (P2P signaling mailbox) | Anywhere-runtime pairing (#1208 P2) | **Not yet added** — belongs in that feature's PR, not here |
+| Camera usage description (QR pairing scan) | "Edit Site" pairing onboarding (#1431) | **Not yet added** — belongs in that feature's PR, not here |
+| Keychain | Cloudflare token / pinned device keys | No entitlement needed — standard Keychain Services API, no keychain-sharing group |
+
+Deliberately absent: local-network entitlement, background modes — the phone
+dials out per-session only (design spec §4).
+
+### Privacy manifest and export compliance
+
+- `Resources/PrivacyInfo.xcprivacy` is linked into the `AnglesiteMobile` target
+  (shared with the Mac target — see the comment in `project.yml`). No
+  `NSPrivacyCollectedDataTypes` entries: site content stays in the owner's own
+  iCloud container, never collected by or sent to us.
+- `Resources/Info-iOS.plist` declares `ITSAppUsesNonExemptEncryption=false`,
+  matching today's shipped feature set (standard HTTPS/TLS only). Re-verify
+  once the WebRTC/DTLS transport (#1208 P4) ships — DTLS-SRTP as implemented by
+  a standard, unmodified library typically still qualifies for the standard
+  exemption, but confirm before assuming the flag stays `false`.
+
+### App Review demo path
+
+A reviewer has no paired Mac. Per the design spec §4, the app must be
+reviewable standalone:
+
+- Micropub posting (#869) works against any IndieAuth-capable site — provide a
+  demo account's credentials in the review notes.
+- "Edit Site" with no paired Mac must show the pairing explainer, never a dead
+  end (design spec §3) — once #1431 ships, confirm this path works with no
+  setup before submitting.
+- Include a demo video of the full paired-editing flow in the review notes,
+  since a reviewer cannot exercise Mac pairing themselves.
+
+### TestFlight and submission
+
+Once the app record and provisioning above exist, TestFlight distribution and
+App Review submission follow the same shape as the Mac app's "TestFlight Beta
+Distribution" section — Internal Testing needs no Beta App Review, External
+Testing's first build does, and full App Store submission is the v2.0 exit
+criterion per the design spec.

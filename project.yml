@@ -179,6 +179,11 @@ targets:
     platform: iOS
     sources:
       - path: Sources/AnglesiteMobile
+      # Shared with the Anglesite/Mac target (#1434): the declared required-reason API
+      # categories (UserDefaults, file timestamps, system boot time) come from AnglesiteCore
+      # code both targets link, so one manifest covers both. Re-audit when P2P/QR-pairing
+      # code (#1431, #1208 P2) adds categories the Mac target doesn't use.
+      - path: Resources/PrivacyInfo.xcprivacy
       - path: Resources/edit-overlay
         type: folder
         buildPhase: resources
