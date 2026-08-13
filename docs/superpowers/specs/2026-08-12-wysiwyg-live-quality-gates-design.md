@@ -47,7 +47,7 @@ the host already holds in memory — no build, no container round-trip:
 ## 3. Architecture
 
 ```
-WYSIWYGCanvasController.onOpApplied(op, inverse, newModel)
+WYSIWYGCanvasController.sendAndApply(envelope) -> model changed
         │
         ▼
 QualityGateRunner.analyze(newModel, GateContext) -> Result{findings, failedCategories}
@@ -69,10 +69,21 @@ engine.submit(finding.fix)   // ordinary op — same path as any manual edit
 ```
 
 `QualityGateRunner` is a new type in `Sources/AnglesiteCore/WYSIWYG/QualityGates/`,
-owned by `WYSIWYGCanvasController` alongside the existing `undoCoordinator`
-subscriber on `onOpApplied`. It requires no changes to the ops protocol
+owned by `WYSIWYGCanvasController`. It requires no changes to the ops protocol
 itself (`Op`, `invertOp`, `HostTransport`) — findings ride a new, separate
 push channel, and applying a fix reuses `submit-op` unchanged.
+
+**The trigger is model mutation, not the applied-op listener list.** The
+`undoCoordinator` subscribes to `addOpAppliedListener`, which fires only for
+*newly submitted* ops — an undo/redo replay deliberately bypasses it so a
+replayed step isn't re-registered as a new undo step. Quality-gate analysis
+needs the opposite: it has to run on every model change, undo/redo included
+(undoing a heading-skip fix puts the skip back, so its chip has to come back
+too). So it hangs off `sendAndApply(_:)`, the single funnel every mutation
+passes through — `submit(_:)`'s user edits, the undo coordinator's
+`apply(_:)` replays, and JS-originated `sendOp(_:)` alike.
+`PreviewModel.enterEditMode` also runs one pass against the seed model, so a
+page that already has issues shows its chips before the owner's first edit.
 
 ### GateContext
 
@@ -81,12 +92,38 @@ carrying what it needs beyond the model itself:
 
 ```swift
 struct GateContext {
-    let resolvedTokens: [String: String]   // CSS custom-property name -> value (e.g. "color-text" -> "#222222"),
-                                             // parsed from Source/src/styles/global.css — for contrast
-    let internalRoutes: Set<String>         // site-relative route paths, from Source/src/pages/** — for link integrity
-    let assetRoot: URL                      // Source/public — for image weight
+    let resolvedTokens: [String: String]        // CSS custom-property name -> value (e.g. "color-text" -> "#222222"),
+                                                  // parsed from Source/src/styles/global.css — for contrast
+    let internalRoutes: Set<String>              // site-relative route paths, from Source/src/pages/** — for link integrity
+    let assetRoot: URL                           // Source/public — for image weight
+    let dynamicRouteDirectories: Set<String>     // first-level dirs under src/pages/ holding a [bracketed] source file
 }
 ```
+
+`internalRoutes` is derived from `src/pages/**/*.{astro,md,mdx,ts}` — `.ts`
+included because Astro's endpoint routes are plain TypeScript modules
+(`rss.xml.ts` renders at `/rss.xml`), and the shipped template links to
+several of them. Both the derived routes and the hrefs checked against them
+go through one shared normalizer (`GateContext.normalizedRoute(_:)`), which
+drops a trailing `?query`/`#fragment` and trailing slashes except on the root
+— without it, the template's own `href="/blog/"` style never matched the
+derived `/blog`, and every real link read as a 404.
+
+Bracketed dynamic-route *source* files stay out of `internalRoutes` (nothing
+short of the content collection can enumerate the pages they generate), but
+that alone doesn't keep the gate honest: a link *to* one of those generated
+pages would still find no match. So each contributes its first-level
+directory name to `dynamicRouteDirectories`, and `LinkIntegrityGate` skips —
+neither flags nor confirms — any href whose first segment lands in that
+generated space.
+
+`ContrastGate`'s custom-property parser keeps the **first** declaration of
+each `--name`. `global.css` declares the light palette at the top-level
+`:root` and then re-declares the whole thing inside a later
+`@media (prefers-color-scheme: dark)` block, so a last-wins parser graded
+contrast against the dark palette — and kept doing so after an owner
+customized their theme, since the design-apply flow only rewrites the
+top-level `:root` block.
 
 There is no runtime reader of a site's *resolved* design tokens today —
 `DesignTokenWriter` only writes them at apply time. Rather than build a new
@@ -151,17 +188,31 @@ existing chip/badge primitive exists in the canvas chrome (`rich-text.ts`,
   and (when `fix` is present) an Apply button are always visible on the pill
   rather than hidden behind a click-to-expand — simpler, and no content
   hidden from a screen-reader user, which fits this project's own a11y focus.
+- Styling is inline, set per element. The engine ships no stylesheet and
+  injects none, and a chip floats over a site whose CSS the engine has no say
+  in — so background, padding, radius, font and a very high `z-index` are all
+  declared explicitly rather than inherited. The anchor is the block's
+  trailing edge, clamped to the viewport so a full-width block doesn't push
+  the Apply button off screen.
+- Positions come from `getBoundingClientRect()`, i.e. viewport coordinates,
+  so the controller re-positions every rendered chip on window `scroll`
+  (capturing) and `resize` — a findings push may not arrive for a long time,
+  and until then the chips would drift.
+- A host that re-renders its canvas by clearing the container detaches every
+  chip inside it while the controller still holds the reference, so an update
+  for an already-known `Finding.id` re-appends the element when it is no
+  longer `isConnected` rather than updating an orphan.
 - Multiple findings on one block stack rather than overlap: each pushed
   finding for the same block offsets vertically by a fixed step from the
   block's anchor point, in the order the host sent them.
 - Applying disables the button and calls `engine.submit(fix)`: on `applied`,
   the chip is removed immediately (a natural re-push follows anyway, since
-  the op firing `onOpApplied` re-runs the gates — the immediate removal is
-  just instant feedback, not load-bearing); on `rejected`, the button
-  re-enables rather than assuming a rejection is followed by a re-push — a
-  rejected op never fires `onOpApplied` (`WYSIWYGCanvasController.submit`
-  only calls it on `.applied`), so nothing would otherwise clear the pending
-  state.
+  the applied op mutates the model and re-runs the gates — the immediate
+  removal is just instant feedback, not load-bearing); on `rejected`, the
+  button re-enables rather than assuming a rejection is followed by a
+  re-push — a rejection that carries no fresh model changes nothing and
+  therefore triggers no re-analysis, so nothing would otherwise clear the
+  pending state.
 
 ## 5. Error handling
 
@@ -189,7 +240,10 @@ existing chip/badge primitive exists in the canvas chrome (`rich-text.ts`,
   cover the fix/no-fix split), a block with a broken internal href, an
   oversized image stat. Plus a `QualityGateRunnerTests` covering finding
   aggregation across all five checkers and the per-checker error isolation
-  (`Result.failedCategories`) from §5.
+  (`Result.failedCategories`) from §5. Plus `QualityGatesTemplateTests`,
+  which runs `GateContext.build` and `LinkIntegrityGate` against the **real**
+  `Resources/Template/` rather than a fixture — synthetic-only coverage is
+  what let the gate ship flagging essentially every template link as a 404.
 - **TypeScript** (`test/quality-gates.test.ts`, jsdom env per slice 3's
   convention): chip anchoring against `selection.ts`'s geometry, the keyed
   diff rendering (add/remove/update chips from successive full-set pushes),
@@ -233,7 +287,8 @@ Sources/AnglesiteCore/WYSIWYG/QualityGates/
   QualityGateRunner.swift            — runs all 5, isolates per-checker failures
 
 Sources/AnglesiteApp/WYSIWYGCanvasController.swift (modified)
-  — multi-listener onOpApplied + GateContext construction + pushQualityFindings(_:)
+  — multi-listener applied-op notification (addOpAppliedListener/fireOpApplied),
+    runQualityGates off sendAndApply(_:), and pushQualityFindings(_:)
 
 JS/wysiwyg-engine/src/
   quality-gates.ts                       — Finding type, QualityGateTransport interface, chip
