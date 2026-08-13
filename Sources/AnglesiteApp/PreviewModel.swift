@@ -231,11 +231,18 @@ final class PreviewModel {
     /// host repo before the bridge acknowledges success. Other runtime types retain their own
     /// persistence semantics, so the hook is intentionally absent for them — reached via
     /// `containerCapability` (#823) rather than an `as? LocalContainerSiteRuntime` downcast.
-    private static func editPersister(for runtime: any SiteRuntime) -> MCPApplyEditRouter.EditPersister? {
+    /// `internal` (not `private`) so `PreviewModelContainerCapabilityTests` can exercise the
+    /// persister closure directly without a live MCP round trip (#1422).
+    static func editPersister(for runtime: any SiteRuntime) -> MCPApplyEditRouter.EditPersister? {
         guard let capability = runtime.containerCapability else { return nil }
         return { [weak capability] reply in
             guard let capability else { throw SiteRuntimePersistenceError.runtimeNotRunning }
-            guard reply.commit != nil else { return }
+            // Always call through, even with a nil `reply.commit` — `persistEdit` itself throws
+            // `.missingOrInvalidCommit` for that case (#1422). A short-circuit here used to
+            // swallow that throw and report success while silently dropping the edit: the guest
+            // preview showed the change, but nothing landed in host `Source/` and no error
+            // reached the owner. Let `MCPApplyEditRouter.apply` catch the throw and downgrade the
+            // reply to `.failed` instead.
             try await capability.persistEdit(commit: reply.commit)
         }
     }
