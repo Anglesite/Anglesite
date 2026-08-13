@@ -156,7 +156,11 @@ struct SiteWindow: View {
                 newPage: { model.newPagePresented = true },
                 newCollection: { model.newCollectionPresented = true },
                 newPost: { model.newPostPresented = true },
-                newComponent: { model.newComponentPresented = true }
+                newComponent: { model.newComponentPresented = true },
+                newLinkPost: {
+                    model.quickCaptureURL = QuickCapture.clipboardURLString()
+                    model.quickCapturePresented = true
+                }
             ))
             .focusedSceneValue(\.navigatorSelectionActions, navigatorSelectionActions(for: model))
             // `focusedSceneValue` (not `focusedValue`): publishes while this site window is the
@@ -959,6 +963,23 @@ struct SiteWindow: View {
             NewComponentSheet { name in
                 await model.createComponent(name: name)
             }
+        }
+        .sheet(isPresented: $bindableModel.quickCapturePresented) {
+            QuickCaptureSheet(
+                pickerSites: nil,
+                defaultSiteID: nil,
+                initialURLString: model.quickCaptureURL ?? "",
+                fetchMetadata: { try await LinkMetadataFetcher().fetch(url: $0) },
+                onCreate: { _, title, urlString, commentary, draft in
+                    let result = await model.createLinkPost(
+                        title: title, urlString: urlString, commentary: commentary, draft: draft)
+                    // Publish = create + the normal deploy path. deploySite() no-ops via its
+                    // canRunDeploy guard when the runtime isn't available — the entry is already
+                    // written draft: false and goes live with the next deploy (spec §3.3).
+                    if case .created = result, !draft { model.deploySite() }
+                    return result
+                }
+            )
         }
         .sheet(isPresented: $bindableModel.animationsPresented) {
             AnimationsGalleryView()

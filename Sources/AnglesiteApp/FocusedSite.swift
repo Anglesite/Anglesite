@@ -13,6 +13,7 @@ struct NewContentActions {
     let newCollection: @MainActor () -> Void
     let newPost: @MainActor () -> Void
     let newComponent: @MainActor () -> Void
+    let newLinkPost: @MainActor () -> Void
 }
 
 /// Duplicate/Publish/Unpublish acting on whichever selection currently owns keyboard focus — the
@@ -67,6 +68,7 @@ extension FocusedValues {
 /// Must be `Commands` (not `App`) so the focused scene values can flow into the menu state.
 struct NewContentCommands: Commands {
     @Environment(\.openWindow) private var openWindow
+    @FocusedValue(\.newContentActions) private var newContentActions
 
     var body: some Commands {
         CommandGroup(replacing: .newItem) {
@@ -80,6 +82,19 @@ struct NewContentCommands: Commands {
                 openWindow(id: "sites")
                 WindowRouter.shared.requestNewCommunity()
             }
+
+            // Quick capture (#531): with a site window focused, open its compose sheet;
+            // with none, route through the launcher, which shows the site picker. Always
+            // enabled — capture is the app's highest-frequency verb for link bloggers.
+            Button("New Link Post…") {
+                if let actions = newContentActions {
+                    actions.newLinkPost()
+                } else {
+                    openWindow(id: "sites")
+                    WindowRouter.shared.requestQuickCapture()
+                }
+            }
+            .keyboardShortcut("l", modifiers: [.command, .shift])
 
             Button("Open Site…") {
                 Task { await openSiteFromMenu() }
