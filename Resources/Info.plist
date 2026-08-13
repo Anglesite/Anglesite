@@ -100,6 +100,16 @@
 			</dict>
 		</dict>
 	</array>
+	<!-- Local-network Bonjour browsing for Settings ▸ Advanced ▸ Remote Development Server's
+	     "Find on local network" button (#858): browses for _anglesite-lan._tcp, advertised by
+	     anglesite-lan-host (Sources/AnglesiteLANHost, LANHostAdvertiser). App Sandbox requires
+	     the service type declared here before NWBrowser is permitted to see it. -->
+	<key>NSBonjourServices</key>
+	<array>
+		<string>_anglesite-lan._tcp</string>
+	</array>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Anglesite uses the local network to find a Mac running anglesite-lan-host, a dev/test-only remote development server, when Settings ▸ Advanced ▸ "Find on local network" is used.</string>
 	<key>NSAppleScriptEnabled</key>
 	<true/>
 	<key>OSAScriptingDefinition</key>
