@@ -1,4 +1,5 @@
 import SwiftUI
+import UniformTypeIdentifiers
 import WebKit
 import AnglesiteCore
 import AnglesiteIntents
@@ -980,6 +981,24 @@ struct SiteWindow: View {
                     return result
                 }
             )
+        }
+        // Drag a link anywhere onto the site window → quick capture for this site (#531).
+        // File URLs (image drops onto the preview, .anglesite packages) don't match and
+        // fall through to their existing handlers.
+        .dropDestination(for: URL.self) { urls, _ in
+            guard let web = QuickCapture.webURL(from: urls) else { return false }
+            model.quickCaptureURL = web.absoluteString
+            model.quickCapturePresented = true
+            return true
+        }
+        // Edit ▸ Paste with a URL on the clipboard, while focus sits in the navigator/preview
+        // chrome (not a text field — those take their own paste). Scoped to the URL flavor so
+        // pasting prose never hijacks (#531). Reads the pasteboard directly: the provider
+        // payload and the pasteboard agree here, and clipboardURLString is the one gate.
+        .onPasteCommand(of: [.url]) { _ in
+            guard let urlString = QuickCapture.clipboardURLString() else { return }
+            model.quickCaptureURL = urlString
+            model.quickCapturePresented = true
         }
         .sheet(isPresented: $bindableModel.animationsPresented) {
             AnimationsGalleryView()

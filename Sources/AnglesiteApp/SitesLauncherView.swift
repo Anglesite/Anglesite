@@ -1,5 +1,6 @@
 import SwiftUI
 import AppKit
+import UniformTypeIdentifiers
 import AnglesiteCore
 import AnglesiteIntents
 
@@ -24,6 +25,14 @@ struct SitesLauncherView: View {
     /// highlight fidelity" decision. The drop itself still only accepts `.anglesite` packages,
     /// unchanged below.
     @State private var isDropTargeted = false
+    /// Non-nil while the quick-capture compose sheet is up (launcher flow, #531); carries the
+    /// dropped/pasted URL pre-fill ("" for the menu path with no URL on the clipboard).
+    @State private var quickCaptureRequest: QuickCaptureRequest?
+
+    private struct QuickCaptureRequest: Identifiable {
+        let id = UUID()
+        let urlString: String
+    }
     @State private var loadError: String?
     @State private var deciding = true
     /// Guards `presentNewSite()` against a double-trigger while it is preparing (it `await`s
@@ -90,6 +99,32 @@ struct SitesLauncherView: View {
             guard requested else { return }
             router.clearNewCommunityRequest()
             Task { await presentNewCommunity() }
+        }
+        .onChange(of: router.quickCaptureRequested) { _, requested in
+            guard requested else { return }
+            router.clearQuickCaptureRequest()
+            quickCaptureRequest = QuickCaptureRequest(urlString: QuickCapture.clipboardURLString() ?? "")
+        }
+        .onPasteCommand(of: [.url]) { _ in
+            guard let urlString = QuickCapture.clipboardURLString() else { return }
+            quickCaptureRequest = QuickCaptureRequest(urlString: urlString)
+        }
+        .sheet(item: $quickCaptureRequest) { request in
+            QuickCaptureSheet(
+                pickerSites: sites,
+                defaultSiteID: AppSettings.shared.lastOpenedSiteID,
+                initialURLString: request.urlString,
+                fetchMetadata: { try await LinkMetadataFetcher().fetch(url: $0) },
+                onCreate: { siteID, title, urlString, commentary, draft in
+                    guard let siteID else { return .failed(reason: "Choose a site for this link post.") }
+                    // Windowless: the entry is written and committed; a Publish here saves it
+                    // draft: false and it goes live with the site's next deploy (spec §3.3 —
+                    // capture never boots a container).
+                    return await QuickCapture.createLinkPost(
+                        siteID: siteID, title: title, urlString: urlString,
+                        commentary: commentary, draft: draft)
+                }
+            )
         }
         // Attached here (not inside `launcherUI`) so it still presents while `deciding`
         // is showing the blank placeholder above — a File ▸ New Site launch keeps
@@ -239,6 +274,11 @@ struct SitesLauncherView: View {
         // Finder double-click (`onOpenURL`), including the MAS bookmark mint (a user drag
         // conveys sandbox access to the dragged item).
         .dropDestination(for: URL.self) { urls, _ in
+            // A link dragged from a browser → quick capture with the site picker (#531).
+            if let web = QuickCapture.webURL(from: urls) {
+                quickCaptureRequest = QuickCaptureRequest(urlString: web.absoluteString)
+                return true
+            }
             let packages = urls.filter { $0.pathExtension == AnglesitePackage.packageExtension }
             guard !packages.isEmpty else { return false }
             Task { @MainActor in
