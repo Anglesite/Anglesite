@@ -82,10 +82,24 @@ extension GateContext {
     /// the pages they actually generate needs the content collection they iterate, not just the
     /// filesystem. That omission alone is **not** enough to keep the gate honest, though — a link
     /// *to* one of those generated pages (`/blog/my-post`) would still find no matching route and
-    /// false-positive as a 404. So each such file also contributes its first-level directory name
-    /// to `dynamicDirectories`, and the consumer (`LinkIntegrityGate`) is responsible for skipping
-    /// any href that lands in that generated space. The deploy-time backstop still covers dynamic
-    /// routes properly.
+    /// false-positive as a 404. So each such file also contributes something to `dynamicDirectories`,
+    /// and the consumer (`LinkIntegrityGate`) is responsible for skipping any href that lands in that
+    /// generated space. The deploy-time backstop still covers dynamic routes properly.
+    ///
+    /// Two shapes need different handling, and conflating them is a real bug, not just a stripping
+    /// detail: a fixed directory holding a bracketed *file* (`blog/[...slug].astro`) has a real,
+    /// literal first segment — `"blog"` — that a matching href's first segment can be compared
+    /// against directly. A bracketed *directory itself* (`[collection]/[...slug].astro`, this
+    /// template's actual shape) has no literal name at all — `collection` is a route *parameter*
+    /// standing in for whichever of the site's content collections (`notes`, `articles`, `photos`,
+    /// …) the generated page belongs to, so no href's first segment will ever literally read
+    /// `"collection"`. Stripping the brackets and storing that placeholder verbatim would silently
+    /// never match anything, leaving every link into that space flagged as broken — the skip this
+    /// set exists to provide would never actually fire. Recording it as the wildcard sentinel below
+    /// instead makes `LinkIntegrityGate` skip *any* multi-segment href once a root-level dynamic
+    /// directory is known to exist, which is the honest scope of what the filesystem alone can tell
+    /// it: not which collection a link names, only that this template has at least one route whose
+    /// first segment is never enumerable without the content collection behind it.
     private static func routes(underPagesDirectory pagesURL: URL) -> (routes: Set<String>, dynamicDirectories: Set<String>) {
         guard let enumerator = FileManager.default.enumerator(at: pagesURL, includingPropertiesForKeys: nil) else { return ([], []) }
         var routes: Set<String> = []
@@ -99,7 +113,9 @@ extension GateContext {
             let relative = String(filePath.dropFirst(pagesPath.count))
             guard !relative.contains("[") else { // dynamic route — see doc comment
                 let components = relative.split(separator: "/")
-                if components.count > 1 { dynamicDirectories.insert(String(components[0])) }
+                if let first = components.first, components.count > 1 {
+                    dynamicDirectories.insert(first.hasPrefix("[") ? Self.rootLevelDynamicSentinel : String(first))
+                }
                 continue
             }
             let ext = fileURL.pathExtension
@@ -113,4 +129,10 @@ extension GateContext {
         }
         return (routes, dynamicDirectories)
     }
+
+    /// Marks that this site has at least one root-level dynamic route directory (`[collection]`-
+    /// style) whose real first path segments the filesystem can't enumerate — see the doc comment on
+    /// `routes(underPagesDirectory:)`. Not a real directory name; `LinkIntegrityGate` checks for this
+    /// sentinel specifically rather than as a literal href segment.
+    static let rootLevelDynamicSentinel = "*"
 }

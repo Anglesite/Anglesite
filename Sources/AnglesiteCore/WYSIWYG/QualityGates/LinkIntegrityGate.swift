@@ -34,15 +34,21 @@ public enum LinkIntegrityGate {
     /// `/#contact` or `/about?x=1` is checked against the page it actually resolves to. Hrefs whose
     /// first segment names a dynamic-route directory (`GateContext.dynamicRouteDirectories`) are
     /// skipped outright — neither flagged nor confirmed, since whether `/blog/my-post` exists is a
-    /// question only the content collection behind `blog/[...slug].astro` can answer.
+    /// question only the content collection behind `blog/[...slug].astro` can answer. A root-level
+    /// dynamic directory (`[collection]/[...slug].astro`, recorded as
+    /// `GateContext.rootLevelDynamicSentinel`) has no literal first segment at all, so any
+    /// multi-segment href is skipped the same way once that sentinel is present — see
+    /// `GateContext.routes(underPagesDirectory:)`'s doc comment for why a specific name can't be
+    /// recorded for this shape.
     public static func analyze(model: BlockModel, context: GateContext) throws -> [Finding] {
         var findings: [Finding] = []
         for node in model.orderedBlocks {
             for link in links(in: node) {
                 guard link.href.hasPrefix("/") else { continue } // external — not this gate's job
                 let route = GateContext.normalizedRoute(link.href)
-                if let firstSegment = route.split(separator: "/").first,
-                   context.dynamicRouteDirectories.contains(String(firstSegment)) { continue }
+                let segments = route.split(separator: "/")
+                if let firstSegment = segments.first, context.dynamicRouteDirectories.contains(String(firstSegment)) { continue }
+                if segments.count > 1, context.dynamicRouteDirectories.contains(GateContext.rootLevelDynamicSentinel) { continue }
                 guard !context.internalRoutes.contains(route) else { continue }
                 findings.append(Finding(
                     blockId: node.id, category: .linkIntegrity, discriminator: link.discriminator, severity: .warning,

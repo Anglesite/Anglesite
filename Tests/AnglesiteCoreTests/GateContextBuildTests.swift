@@ -55,6 +55,21 @@ struct GateContextBuildTests {
         #expect(context.dynamicRouteDirectories == ["blog", "tags"])
     }
 
+    @Test("records the root-level dynamic sentinel for a bracketed directory, not its literal name")
+    func recordsSentinelForRootLevelDynamicDirectory() throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let collectionDir = root.appendingPathComponent("src/pages/[collection]")
+        try FileManager.default.createDirectory(at: collectionDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try "---\n---\n".write(to: collectionDir.appendingPathComponent("[...slug].astro"), atomically: true, encoding: .utf8)
+
+        let context = GateContext.build(fromSourceDirectory: root)
+
+        // Not "collection" — `[collection]` is a route parameter, not a literal directory name; no
+        // real href's first segment will ever read "collection" (it'll be "notes", "articles", …).
+        #expect(context.dynamicRouteDirectories == [GateContext.rootLevelDynamicSentinel])
+    }
+
     @Test("maps a .ts endpoint module to the route it renders at")
     func mapsEndpointRoutes() throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)

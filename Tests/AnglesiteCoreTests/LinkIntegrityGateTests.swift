@@ -91,6 +91,31 @@ struct LinkIntegrityGateTests {
         #expect(try LinkIntegrityGate.analyze(model: model, context: context).count == 1)
     }
 
+    @Test("skips a multi-segment href when the root-level dynamic sentinel is present, regardless of its first segment")
+    func skipsAnyMultiSegmentHrefUnderRootLevelDynamicRoute() throws {
+        // `[collection]/[...slug].astro` means the first segment is itself a route parameter (any
+        // of the site's content collections) — there is no literal name to compare against, so the
+        // sentinel makes this skip apply to every multi-segment href, not just one known directory.
+        let model = Self.model(href: "/notes/some-note")
+        let context = GateContext(
+            resolvedTokens: [:], internalRoutes: [], assetRoot: URL(fileURLWithPath: "/tmp"),
+            dynamicRouteDirectories: [GateContext.rootLevelDynamicSentinel])
+
+        #expect(try LinkIntegrityGate.analyze(model: model, context: context).isEmpty)
+    }
+
+    @Test("still flags a broken single-segment href even when the root-level dynamic sentinel is present")
+    func rootLevelSentinelDoesNotSuppressSingleSegmentBreakage() throws {
+        // The sentinel only covers hrefs with 2+ segments (what a [collection]/[...slug] route
+        // generates) — a bare "/nope" naming no real top-level page is still real breakage.
+        let model = Self.model(href: "/nope")
+        let context = GateContext(
+            resolvedTokens: [:], internalRoutes: ["/notes"], assetRoot: URL(fileURLWithPath: "/tmp"),
+            dynamicRouteDirectories: [GateContext.rootLevelDynamicSentinel])
+
+        #expect(try LinkIntegrityGate.analyze(model: model, context: context).count == 1)
+    }
+
     private static func model(href: String) -> BlockModel {
         let run = RichTextRun(kind: .link, text: "Read more", href: href)
         let paragraph = BlockNode(id: "p1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0], richText: [run])
