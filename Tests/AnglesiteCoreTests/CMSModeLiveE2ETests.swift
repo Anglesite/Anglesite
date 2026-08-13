@@ -106,40 +106,75 @@ struct CMSModeLiveE2ETests {
             try? FileManager.default.removeItem(at: configDir)
         }
 
-        let firstImportCount = await MicropubContentImport.importIfNeeded(
-            siteDirectory: siteDir, configDirectory: configDir, client: client)
-        #expect(firstImportCount > 0, "expected the fixture post to import on the first run")
-
-        let secondImportCount = await MicropubContentImport.importIfNeeded(
-            siteDirectory: siteDir, configDirectory: configDir, client: client)
-        #expect(secondImportCount == 0, "the second run should be a no-op — the fixture is already in the sync map")
-
-        // 4. Create a new draft post directly (not via import) and read it back through `q=source`.
-        let title = "CMS Live E2E \(UUID().uuidString.prefix(8))"
-        let draft = MicropubPost.entry(title: title, content: "Created by CMSModeLiveE2ETests.fullLoop().", status: .draft)
-        let createdURL = try await client.create(draft)
-        let readBack = try await client.source(url: createdURL)
-        #expect(readBack.firstString("name") == title)
-        #expect(readBack.status == .draft)
-
-        // 5. Publish, then poll (bounded retries, not a busy loop) until the live URL 200s — the
-        //    spec's "published — site rebuilding" bake-lag handling.
-        try await client.setStatus(url: createdURL, .published)
-        let republished = try await client.source(url: createdURL)
-        #expect(republished.status == .published)
-
-        var isLive = false
-        for _ in 0..<20 {
-            var request = URLRequest(url: createdURL)
-            request.httpMethod = "HEAD"
-            if let (_, http) = try? await MicropubClient.defaultTransport(request),
-                (200..<300).contains(http.statusCode)
-            {
-                isLive = true
-                break
+        // Every real (non-local) post this test creates on the live site gets tracked here so it
+        // can be torn down before the test returns — on the success path *and* on any early exit
+        // (a thrown error partway through). `defer` can't `await` directly, so cleanup is instead
+        // invoked explicitly at the end of the `do` block below and again from its `catch`, before
+        // rethrowing: that covers every exit path a Swift `defer` would, without needing a
+        // fire-and-forget detached `Task` whose completion this function can't guarantee before it
+        // returns. Best-effort per URL (`try?`, mirroring the review's own suggested pattern) — a
+        // failed delete must never fail the test or block cleanup of the other URL.
+        var createdURLs: [URL] = []
+        func cleanUpCreatedContent() async {
+            for url in createdURLs.reversed() {
+                try? await client.delete(url: url)
             }
-            try await Task.sleep(nanoseconds: 3_000_000_000)
         }
-        #expect(isLive, "published post at \(createdURL) never became live within the poll budget")
+
+        do {
+            let firstImportCount = await MicropubContentImport.importIfNeeded(
+                siteDirectory: siteDir, configDirectory: configDir, client: client)
+            #expect(firstImportCount > 0, "expected the fixture post to import on the first run")
+
+            // The import above only returns a count, not the URL(s) it created — recover the
+            // fixture's URL from `Config/micropubSync.json` (keyed by URL → `Source/`-relative
+            // path) so it can be deleted below too, not just the post created directly in step 4.
+            let fixtureRelPath = "src/content/articles/\(fixtureSlug).md"
+            let syncState = MicropubContentCommitter.readSyncState(from: configDir)
+            if let fixtureURLString = syncState.first(where: { $0.value == fixtureRelPath })?.key,
+                let fixtureURL = URL(string: fixtureURLString)
+            {
+                createdURLs.append(fixtureURL)
+            } else {
+                Issue.record("could not recover the imported fixture's URL from micropubSync.json for cleanup")
+            }
+
+            let secondImportCount = await MicropubContentImport.importIfNeeded(
+                siteDirectory: siteDir, configDirectory: configDir, client: client)
+            #expect(secondImportCount == 0, "the second run should be a no-op — the fixture is already in the sync map")
+
+            // 4. Create a new draft post directly (not via import) and read it back through `q=source`.
+            let title = "CMS Live E2E \(UUID().uuidString.prefix(8))"
+            let draft = MicropubPost.entry(title: title, content: "Created by CMSModeLiveE2ETests.fullLoop().", status: .draft)
+            let createdURL = try await client.create(draft)
+            createdURLs.append(createdURL)
+            let readBack = try await client.source(url: createdURL)
+            #expect(readBack.firstString("name") == title)
+            #expect(readBack.status == .draft)
+
+            // 5. Publish, then poll (bounded retries, not a busy loop) until the live URL 200s — the
+            //    spec's "published — site rebuilding" bake-lag handling.
+            try await client.setStatus(url: createdURL, .published)
+            let republished = try await client.source(url: createdURL)
+            #expect(republished.status == .published)
+
+            var isLive = false
+            for _ in 0..<20 {
+                var request = URLRequest(url: createdURL)
+                request.httpMethod = "HEAD"
+                if let (_, http) = try? await MicropubClient.defaultTransport(request),
+                    (200..<300).contains(http.statusCode)
+                {
+                    isLive = true
+                    break
+                }
+                try await Task.sleep(nanoseconds: 3_000_000_000)
+            }
+            #expect(isLive, "published post at \(createdURL) never became live within the poll budget")
+        } catch {
+            await cleanUpCreatedContent()
+            throw error
+        }
+        await cleanUpCreatedContent()
     }
 }
