@@ -75,11 +75,12 @@ struct MicropubSiteConnectSheetTests {
             try? FileManager.default.removeItem(at: configDir)
         }
 
-        let imported = await MicropubSiteConnectSheet.runImportAndPersistCompletion(
+        let result = await MicropubSiteConnectSheet.runImportAndPersistCompletion(
             siteDirectory: siteDir, configDirectory: configDir, client: fakeClient(created: {}),
             isCancelled: { false })
 
-        #expect(imported == 1)
+        #expect(result.importedCount == 1)
+        #expect(result.completed == true)
         let settings = try await SiteConfigStore(configDirectory: configDir).load()
         #expect(settings.contentImportCompleted == true)
     }
@@ -96,32 +97,105 @@ struct MicropubSiteConnectSheetTests {
 
         // The import itself still runs to completion — `MicropubContentImport.importIfNeeded`
         // isn't cancellation-aware — only the completion-flag write is skipped.
-        let imported = await MicropubSiteConnectSheet.runImportAndPersistCompletion(
+        let result = await MicropubSiteConnectSheet.runImportAndPersistCompletion(
             siteDirectory: siteDir, configDirectory: configDir, client: fakeClient(created: {}),
             isCancelled: { true })
 
-        #expect(imported == 1)
+        #expect(result.importedCount == 1)
+        #expect(result.completed == false)
         let settings = try await SiteConfigStore(configDirectory: configDir).load()
         #expect(settings.contentImportCompleted == nil)
     }
 
-    // MARK: - shouldMarkContentImportCompleted
+    // MARK: - runImportAndPersistCompletion + per-file failures (Finding, PR #1457 round 2 review)
 
-    /// This is `runAutomaticImportIfNeeded()`'s half of a reviewer-found landmine: it used to set
-    /// the in-memory `contentImportCompleted` mirror to `true` unconditionally, even on the branch
-    /// where `runImportAndPersistCompletion`'s own `isCancelled()` guard skipped writing the flag
-    /// to disk — letting the UI claim "done" while the persisted state disagreed.
-    /// `shouldMarkContentImportCompleted` must mirror that guard exactly.
-    @Test(
-        "mirrors runImportAndPersistCompletion's own cancellation guard",
-        arguments: [
-            (false, true),   // not cancelled — the persisted write happened, mirror should follow
-            (true, false),   // cancelled — the persisted write was skipped, mirror must not lie
-        ] as [(Bool, Bool)]
-    )
-    func shouldMarkContentImportCompletedMirrorsCancellation(isCancelled: Bool, expected: Bool) {
+    /// The reviewer-found dead end this covers: `MicropubContentImport.importIfNeeded` catches and
+    /// logs a per-file `client.create` failure rather than throwing, so if *every* pending file
+    /// fails (expired token, endpoint unreachable, network down mid-import), the call still
+    /// returns without error and used to leave the caller no way to tell "nothing to do" apart
+    /// from "everything failed." Both look like `imported == 0` from the `Int` this used to
+    /// return. `runImportAndPersistCompletion` must not persist `contentImportCompleted` in that
+    /// case, so `manualImportControl`'s retry button stays available instead of the owner getting
+    /// permanently stranded with no UI-visible way to retry short of hand-editing
+    /// `Config/settings.plist`.
+    @Test("does not persist contentImportCompleted when every pending file's create fails")
+    func doesNotPersistCompletionWhenEveryCreateFails() async throws {
+        let siteDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let configDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try writeFixture(siteDir: siteDir, configDir: configDir)
+        defer {
+            try? FileManager.default.removeItem(at: siteDir)
+            try? FileManager.default.removeItem(at: configDir)
+        }
+
+        struct SimulatedFailure: Error {}
+        let client = MicropubClient(
+            endpoint: URL(string: "https://owner.example/micropub")!,
+            accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+            transport: { _ in throw SimulatedFailure() })
+
+        let result = await MicropubSiteConnectSheet.runImportAndPersistCompletion(
+            siteDirectory: siteDir, configDirectory: configDir, client: client, isCancelled: { false })
+
+        #expect(result.importedCount == 0)
+        #expect(result.completed == false)
+        let settings = try await SiteConfigStore(configDirectory: configDir).load()
         #expect(
-            MicropubSiteConnectSheet.shouldMarkContentImportCompleted(isCancelled: { isCancelled }) == expected)
+            settings.contentImportCompleted != true,
+            "a total create failure must not leave contentImportCompleted persisted as true")
+        #expect(MicropubContentImport.unsyncedFileCount(siteDirectory: siteDir, configDirectory: configDir) == 1)
+    }
+
+    /// Same dead end as above, but for a partial failure: one of two files imports successfully,
+    /// the other's `create` fails. Completion must still not be persisted — the invariant is
+    /// "genuinely nothing left to import," not "at least one file made it in."
+    @Test("does not persist contentImportCompleted when some pending files' creates fail")
+    func doesNotPersistCompletionOnPartialFailure() async throws {
+        let siteDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let configDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try FileManager.default.createDirectory(
+            at: siteDir.appending(path: "src/content/articles"), withIntermediateDirectories: true)
+        try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
+        for (slug, title) in [("a-first", "First"), ("b-second", "Second")] {
+            let post = """
+            ---
+            title: \(title)
+            publishDate: 2026-01-01
+            draft: false
+            ---
+            Body text.
+            """
+            try post.write(
+                to: siteDir.appending(path: "src/content/articles/\(slug).md"),
+                atomically: true, encoding: .utf8)
+        }
+        defer {
+            try? FileManager.default.removeItem(at: siteDir)
+            try? FileManager.default.removeItem(at: configDir)
+        }
+
+        struct SimulatedFailure: Error {}
+        nonisolated(unsafe) var requestCount = 0
+        let client = MicropubClient(
+            endpoint: URL(string: "https://owner.example/micropub")!,
+            accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+            transport: { request in
+                requestCount += 1
+                guard requestCount == 1 else { throw SimulatedFailure() }
+                let response = HTTPURLResponse(
+                    url: request.url!, statusCode: 201, httpVersion: nil,
+                    headerFields: ["Location": "https://owner.example/articles/a-first"])!
+                return (Data(), response)
+            })
+
+        let result = await MicropubSiteConnectSheet.runImportAndPersistCompletion(
+            siteDirectory: siteDir, configDirectory: configDir, client: client, isCancelled: { false })
+
+        #expect(result.importedCount == 1)
+        #expect(result.completed == false)
+        let settings = try await SiteConfigStore(configDirectory: configDir).load()
+        #expect(settings.contentImportCompleted != true)
+        #expect(MicropubContentImport.unsyncedFileCount(siteDirectory: siteDir, configDirectory: configDir) == 1)
     }
 
     // MARK: - ImportInFlightGate

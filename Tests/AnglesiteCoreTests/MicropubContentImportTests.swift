@@ -356,6 +356,79 @@ struct MicropubContentImportTests {
             """)
     }
 
+    // MARK: - unsyncedFileCount (Finding, PR #1457 round 2 review)
+
+    @Test("unsyncedFileCount reports 0 once every file is imported")
+    func unsyncedFileCountReachesZeroAfterImport() async throws {
+        let siteDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let configDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try writeFixture(siteDir: siteDir, configDir: configDir)
+        defer {
+            try? FileManager.default.removeItem(at: siteDir)
+            try? FileManager.default.removeItem(at: configDir)
+        }
+
+        #expect(
+            MicropubContentImport.unsyncedFileCount(siteDirectory: siteDir, configDirectory: configDir) == 1,
+            "the fixture's one file hasn't been imported yet")
+
+        let client = MicropubClient(
+            endpoint: URL(string: "https://owner.example/micropub")!,
+            accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+            transport: { request in
+                let response = HTTPURLResponse(
+                    url: request.url!, statusCode: 201, httpVersion: nil,
+                    headerFields: ["Location": "https://owner.example/articles/hello-world"])!
+                return (Data(), response)
+            })
+        let imported = await MicropubContentImport.importIfNeeded(
+            siteDirectory: siteDir, configDirectory: configDir, client: client)
+        #expect(imported == 1)
+
+        #expect(MicropubContentImport.unsyncedFileCount(siteDirectory: siteDir, configDirectory: configDir) == 0)
+    }
+
+    /// This is the case the PR #1457 round-2 review flagged: `importIfNeeded` catches and logs a
+    /// per-file `client.create` failure rather than throwing, so a caller can't tell "nothing left
+    /// to import" apart from "every file's create failed" purely from its `Int` return —
+    /// `unsyncedFileCount` is the follow-up check that can.
+    @Test("unsyncedFileCount stays non-zero when every create fails")
+    func unsyncedFileCountStaysNonZeroAfterTotalFailure() async throws {
+        let siteDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let configDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        try writeFixture(siteDir: siteDir, configDir: configDir)
+        defer {
+            try? FileManager.default.removeItem(at: siteDir)
+            try? FileManager.default.removeItem(at: configDir)
+        }
+
+        struct SimulatedFailure: Error {}
+        let client = MicropubClient(
+            endpoint: URL(string: "https://owner.example/micropub")!,
+            accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+            transport: { _ in throw SimulatedFailure() })
+
+        let imported = await MicropubContentImport.importIfNeeded(
+            siteDirectory: siteDir, configDirectory: configDir, client: client)
+        #expect(imported == 0)
+
+        #expect(
+            MicropubContentImport.unsyncedFileCount(siteDirectory: siteDir, configDirectory: configDir) == 1,
+            "the one file whose create failed must still count as pending")
+    }
+
+    @Test("unsyncedFileCount is 0 when there's nothing to import at all")
+    func unsyncedFileCountZeroWithNoContent() {
+        let siteDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        let configDir = FileManager.default.temporaryDirectory.appending(path: UUID().uuidString)
+        defer {
+            try? FileManager.default.removeItem(at: siteDir)
+            try? FileManager.default.removeItem(at: configDir)
+        }
+
+        #expect(MicropubContentImport.unsyncedFileCount(siteDirectory: siteDir, configDirectory: configDir) == 0)
+    }
+
     // MARK: - Unmapped-field warning (Finding 2, PR #1457 review)
 
     /// A synthetic `.collection`-storage type with two deliberately unmapped fields — `notes` has

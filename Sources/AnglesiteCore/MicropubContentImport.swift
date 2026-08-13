@@ -19,6 +19,14 @@ public enum MicropubContentImport {
     /// `LogCenter` and the import continues with the rest, so one bad file can't block an
     /// otherwise-successful one-time migration.
     ///
+    /// A non-zero return does **not** by itself mean every pending file made it in — a per-file
+    /// failure (a caught `client.create` error, or an unreadable file skipped below) simply
+    /// leaves that file out of the count and off the sync map, with no error surfaced to the
+    /// caller. Callers that need to know whether anything is still pending afterward (e.g. before
+    /// persisting a one-time "import completed" flag) should follow up with
+    /// `unsyncedFileCount(siteDirectory:configDirectory:registry:)` rather than inferring it from
+    /// this return value.
+    ///
     /// - Parameters:
     ///   - siteDirectory: The site's `Source/` directory (contains `src/content/<collection>/`).
     ///   - configDirectory: The site's `Config/` directory, where `micropubSync.json` lives.
@@ -26,45 +34,89 @@ public enum MicropubContentImport {
     ///     use, so imported posts go through identical server-side validation.
     ///   - registry: The content-type registry to enumerate `.collection`-stored descriptors
     ///     from; defaults to the shared built-in catalog.
-    /// - Returns: The number of files newly imported this call.
+    /// - Returns: The number of files newly imported this call. Not a completion signal on its
+    ///   own — see `unsyncedFileCount` above.
     public static func importIfNeeded(
         siteDirectory: URL, configDirectory: URL, client: MicropubClient,
         registry: ContentTypeRegistry = .default
     ) async -> Int {
         var syncState = MicropubContentCommitter.readSyncState(from: configDirectory)
-        let alreadySynced = Set(syncState.values)
         var importedCount = 0
 
+        let pending = pendingFiles(
+            siteDirectory: siteDirectory, alreadySynced: Set(syncState.values), registry: registry)
+        for (fileURL, relPath, descriptor) in pending {
+            guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
+            let values = TypedContentEditor.read(contents, descriptor: descriptor)
+            let status: MicropubPostStatus = values["draft"] == .flag(true) ? .draft : .published
+            let properties = MicropubComposerProjection.properties(
+                for: descriptor, values: values, status: status)
+            await warnAboutUnmappedFields(descriptor: descriptor, values: values, relPath: relPath)
+            do {
+                let url = try await client.create(MicropubPost(properties: properties))
+                syncState[url.absoluteString] = relPath
+                importedCount += 1
+                // Persisted immediately, not batched to the end of the loop: `client.create`
+                // just above is a remote, non-idempotent side effect (it always creates a new
+                // post), so if the process is interrupted before the next iteration, the sync
+                // state for every post already created so far must already be on disk — or the
+                // next run re-imports (and re-`create`s, publishing a duplicate) every file that
+                // actually succeeded. Imports are a rare, one-time operation, so the extra
+                // per-file disk write is negligible.
+                try? MicropubContentCommitter.writeSyncState(syncState, to: configDirectory)
+            } catch {
+                await LogCenter.shared.append(
+                    source: "MicropubContentImport", stream: .stderr,
+                    text: "Skipping \(relPath): \(error.localizedDescription)")
+            }
+        }
+        return importedCount
+    }
+
+    /// Counts typed content files under `siteDirectory` that are **not yet** recorded in
+    /// `Config/micropubSync.json` — i.e. still pending import. Does no importing and never fails;
+    /// an unreadable directory just contributes `0`, same as `filesForImport`.
+    ///
+    /// This is the "did the import actually finish" check `importIfNeeded`'s own `Int` return
+    /// can't provide by itself: that function catches and logs per-file failures rather than
+    /// propagating them (see its doc comment), so a `client.create` failure — expired token,
+    /// unreachable endpoint, network down mid-import — silently leaves the file off the sync map
+    /// instead of surfacing as an error. A caller deciding whether it's safe to persist a one-time
+    /// "import completed" flag should call `importIfNeeded` and then check
+    /// `unsyncedFileCount(...) == 0`, not just that `importIfNeeded` returned without throwing.
+    ///
+    /// - Parameters:
+    ///   - siteDirectory: The site's `Source/` directory (contains `src/content/<collection>/`).
+    ///   - configDirectory: The site's `Config/` directory, where `micropubSync.json` lives.
+    ///   - registry: The content-type registry to enumerate `.collection`-stored descriptors
+    ///     from; defaults to the shared built-in catalog.
+    /// - Returns: The number of typed content files still awaiting import.
+    public static func unsyncedFileCount(
+        siteDirectory: URL, configDirectory: URL, registry: ContentTypeRegistry = .default
+    ) -> Int {
+        let syncState = MicropubContentCommitter.readSyncState(from: configDirectory)
+        return pendingFiles(
+            siteDirectory: siteDirectory, alreadySynced: Set(syncState.values), registry: registry
+        ).count
+    }
+
+    /// Every typed content file under `siteDirectory` not already listed in `alreadySynced` (a
+    /// set of `Source/`-relative paths, as stored in `Config/micropubSync.json`'s values), paired
+    /// with its relative path and the descriptor it was enumerated under. Shared by
+    /// `importIfNeeded` (which imports each one) and `unsyncedFileCount` (which only counts them),
+    /// so the two can never disagree about what "pending" means.
+    private static func pendingFiles(
+        siteDirectory: URL, alreadySynced: Set<String>, registry: ContentTypeRegistry
+    ) -> [(fileURL: URL, relPath: String, descriptor: ContentTypeDescriptor)] {
+        var result: [(URL, String, ContentTypeDescriptor)] = []
         for descriptor in registry.all where descriptor.collection != nil {
             for fileURL in filesForImport(descriptor: descriptor, siteDirectory: siteDirectory) {
                 let relPath = relativePath(of: fileURL, under: siteDirectory)
                 guard !alreadySynced.contains(relPath) else { continue }
-                guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { continue }
-                let values = TypedContentEditor.read(contents, descriptor: descriptor)
-                let status: MicropubPostStatus = values["draft"] == .flag(true) ? .draft : .published
-                let properties = MicropubComposerProjection.properties(
-                    for: descriptor, values: values, status: status)
-                await warnAboutUnmappedFields(descriptor: descriptor, values: values, relPath: relPath)
-                do {
-                    let url = try await client.create(MicropubPost(properties: properties))
-                    syncState[url.absoluteString] = relPath
-                    importedCount += 1
-                    // Persisted immediately, not batched to the end of the loop: `client.create`
-                    // just above is a remote, non-idempotent side effect (it always creates a new
-                    // post), so if the process is interrupted before the next iteration, the sync
-                    // state for every post already created so far must already be on disk — or the
-                    // next run re-imports (and re-`create`s, publishing a duplicate) every file that
-                    // actually succeeded. Imports are a rare, one-time operation, so the extra
-                    // per-file disk write is negligible.
-                    try? MicropubContentCommitter.writeSyncState(syncState, to: configDirectory)
-                } catch {
-                    await LogCenter.shared.append(
-                        source: "MicropubContentImport", stream: .stderr,
-                        text: "Skipping \(relPath): \(error.localizedDescription)")
-                }
+                result.append((fileURL, relPath, descriptor))
             }
         }
-        return importedCount
+        return result
     }
 
     /// Logs a warning for any field in `values` that carries content but has no Micropub wire

@@ -33,6 +33,18 @@ actor ImportInFlightGate {
     }
 }
 
+/// Outcome of `MicropubSiteConnectSheet.runImportAndPersistCompletion`: how many files that call
+/// imported, and — separately — whether `contentImportCompleted` was actually persisted to disk.
+/// The two can diverge: a call that imports `0` files because everything was already synced still
+/// has `completed == true`, while a call that imports `0` files because every pending file's
+/// `client.create` failed has `completed == false`. Callers must gate any in-memory "done" UI
+/// state on `completed`, never on `importedCount` alone or on the function merely having returned
+/// — see `runImportAndPersistCompletion`'s doc comment for the two guards that decide it.
+struct ImportCompletionResult: Equatable {
+    let importedCount: Int
+    let completed: Bool
+}
+
 /// Mac-side entry point for the same IndieAuth onboarding flow the iOS app already ships (#868)
 /// — reused as-is via `MicropubOnboardingModel`, with `SiteMicropubSignIn` (Task A1) standing in
 /// as the AppKit `ASWebAuthenticationSession` adapter where iOS drives SwiftUI's
@@ -222,16 +234,6 @@ struct MicropubSiteConnectSheet: View {
         contentImportCompleted != true
     }
 
-    /// Whether `runAutomaticImportIfNeeded()`'s in-memory `contentImportCompleted` mirror should
-    /// flip to `true` after `runImportAndPersistCompletion` returns. Mirrors that function's own
-    /// `isCancelled()` guard exactly (same default, same meaning) so the UI-facing flag can never
-    /// claim "done" on the branch where the persisted write was actually skipped because the
-    /// calling `.task` was cancelled. Pulled out as a pure static function, like
-    /// `shouldShowManualImportButton`, so it's unit-testable without hosting the view.
-    static func shouldMarkContentImportCompleted(isCancelled: () -> Bool = { Task.isCancelled }) -> Bool {
-        !isCancelled()
-    }
-
     /// Auto-triggered once per sheet presentation while `.signedIn` is showing (Task B2, spec
     /// §C.7). Loads the persisted completion flag for `manualImportControl` regardless of
     /// outcome; only actually runs the import when a fresh sign-in populated
@@ -248,14 +250,14 @@ struct MicropubSiteConnectSheet: View {
         guard loaded.contentImportCompleted != true, let client = model?.micropubClient else { return }
         guard await importGate.begin() else { return }
         importInProgress = true
-        _ = await Self.runImportAndPersistCompletion(
+        let result = await Self.runImportAndPersistCompletion(
             siteDirectory: site.sourceDirectory, configDirectory: site.configDirectory, client: client)
-        // Mirrors `runImportAndPersistCompletion`'s own `isCancelled()` guard: that helper skips
-        // persisting `contentImportCompleted` to disk when this `.task` was cancelled (the view
-        // disappearing mid-import), so this in-memory mirror must not claim "done" on that branch
-        // either — otherwise it'd drift from the disk state it's supposed to reflect, with no way
-        // to retrigger the import short of relaunching.
-        if Self.shouldMarkContentImportCompleted() {
+        // `result.completed` already reflects both guards `runImportAndPersistCompletion` applies
+        // before persisting `contentImportCompleted` to disk — the calling `.task` being cancelled
+        // (the view disappearing mid-import) and any pending file still left unsynced after a
+        // per-file failure — so mirroring it directly here can't drift from the disk state it's
+        // supposed to reflect, with no way to retrigger the import short of relaunching.
+        if result.completed {
             contentImportCompleted = true
         }
         await releaseImportGate()
@@ -278,10 +280,17 @@ struct MicropubSiteConnectSheet: View {
             await releaseImportGate()
             return
         }
-        _ = await Self.runImportAndPersistCompletion(
+        let result = await Self.runImportAndPersistCompletion(
             siteDirectory: site.sourceDirectory, configDirectory: site.configDirectory, client: client)
-        contentImportCompleted = true
-        manualImportSucceeded = true
+        // Only claim success (and hide the button behind `contentImportCompleted`) when
+        // `result.completed` says the persisted flag actually flipped — i.e. nothing is left
+        // pending. A total or partial failure (expired token, endpoint unreachable, network down
+        // mid-import) must leave both flags alone so `manualImportControl` keeps showing the
+        // "Import Content" button rather than stranding the owner on a run that made no progress.
+        if result.completed {
+            contentImportCompleted = true
+            manualImportSucceeded = true
+        }
         await releaseImportGate()
     }
 
@@ -304,16 +313,27 @@ struct MicropubSiteConnectSheet: View {
             .makeClient()
     }
 
-    /// Runs the one-time content import, then persists `contentImportCompleted = true` — unless
-    /// `isCancelled()` reports the calling task was cancelled first. SwiftUI cancels a `.task`
-    /// when its view disappears (e.g. the user taps Done while the automatic import is still
-    /// running), but `MicropubContentImport.importIfNeeded` never throws or checks
-    /// `Task.isCancelled` itself — per-file failures, cancellation included, are caught and
-    /// logged rather than propagated — so the import keeps running to completion regardless.
-    /// Without this guard, a sheet dismissed mid-import would still get marked "done" after
-    /// importing few or zero files, with no way to retrigger it. `isCancelled` is injectable so
-    /// tests can exercise both outcomes deterministically instead of racing real `Task`
-    /// cancellation timing.
+    /// Runs the one-time content import, then persists `contentImportCompleted = true` — but only
+    /// when doing so is actually true. Two independent gates must both pass first:
+    ///
+    /// 1. `isCancelled()` must report the calling task was **not** cancelled. SwiftUI cancels a
+    ///    `.task` when its view disappears (e.g. the user taps Done while the automatic import is
+    ///    still running), but `MicropubContentImport.importIfNeeded` never throws or checks
+    ///    `Task.isCancelled` itself — per-file failures, cancellation included, are caught and
+    ///    logged rather than propagated — so the import keeps running to completion regardless.
+    /// 2. `MicropubContentImport.unsyncedFileCount` must report `0` pending files afterward.
+    ///    `importIfNeeded`'s own `Int` return only counts files imported *this call* — it can't
+    ///    distinguish "nothing left to import" from "ran, but some or every file failed" (an
+    ///    expired token, an unreachable endpoint, the network dropping mid-import all land here),
+    ///    since a per-file `client.create` failure is caught and logged rather than surfaced. A
+    ///    site whose files all failed would otherwise come back with `imported == 0` and still get
+    ///    marked done.
+    ///
+    /// Without both guards, a sheet dismissed mid-import or a transient/total import failure would
+    /// still get marked "done", permanently hiding `manualImportControl`'s retry button with no
+    /// UI-visible way to retrigger the import short of hand-editing `Config/settings.plist`.
+    /// `isCancelled` is injectable so tests can exercise cancellation deterministically instead of
+    /// racing real `Task` cancellation timing.
     ///
     /// - Parameters:
     ///   - siteDirectory: The site's `Source/` directory.
@@ -321,18 +341,26 @@ struct MicropubSiteConnectSheet: View {
     ///   - client: The Micropub client to import through.
     ///   - isCancelled: Reports whether the calling task was cancelled; defaults to the real
     ///     `Task.isCancelled`.
-    /// - Returns: The number of files imported (see `MicropubContentImport.importIfNeeded`).
+    /// - Returns: The number of files imported this call (see
+    ///   `MicropubContentImport.importIfNeeded`), and whether `contentImportCompleted` was
+    ///   actually persisted to disk. Callers must gate any in-memory "done" mirror on `completed`,
+    ///   not merely on this function having returned.
     static func runImportAndPersistCompletion(
         siteDirectory: URL, configDirectory: URL, client: MicropubClient,
         isCancelled: () -> Bool = { Task.isCancelled }
-    ) async -> Int {
+    ) async -> ImportCompletionResult {
         let imported = await MicropubContentImport.importIfNeeded(
             siteDirectory: siteDirectory, configDirectory: configDirectory, client: client)
-        guard !isCancelled() else { return imported }
+        guard !isCancelled() else { return ImportCompletionResult(importedCount: imported, completed: false) }
+        let stillPending = MicropubContentImport.unsyncedFileCount(
+            siteDirectory: siteDirectory, configDirectory: configDirectory)
+        guard stillPending == 0 else {
+            return ImportCompletionResult(importedCount: imported, completed: false)
+        }
         var settings = (try? await SiteConfigStore(configDirectory: configDirectory).load()) ?? SiteSettings()
         settings.contentImportCompleted = true
         try? await SiteConfigStore(configDirectory: configDirectory).save(settings)
-        return imported
+        return ImportCompletionResult(importedCount: imported, completed: true)
     }
 
     @ViewBuilder
