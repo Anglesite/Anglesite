@@ -226,7 +226,15 @@ func runSession() async {
     exit(0)
 }
 
-let delegate = HelperAppDelegate()
+// `main.swift` top-level code has no actor isolation the compiler can see, but this file's very
+// first instruction runs on the process's initial (main) thread by definition — the same
+// guarantee `MainActor.assumeIsolated` exists to assert under Swift 6's strict concurrency
+// checking, which is what actually surfaces this: `HelperAppDelegate`'s implicit `@MainActor`
+// init is otherwise a main-actor-isolated call from a synchronous nonisolated context. Unrelated
+// to #1208 P2 Task 8 — this is a pre-existing gap in Task 1's `NSApplication` run-loop addition
+// that this build was simply the first to exercise via the full Xcode app scheme (prior tasks
+// only ran `swift build`, whose default settings didn't catch it).
+let delegate = MainActor.assumeIsolated { HelperAppDelegate() }
 let app = NSApplication.shared
 app.delegate = delegate
 app.run()
