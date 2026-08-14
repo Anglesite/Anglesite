@@ -2196,6 +2196,9 @@
     "No copy issues found across %lld pages — nice work." : {
 
     },
+    "No devices paired yet." : {
+
+    },
     "No drift found." : {
 
     },
@@ -2370,6 +2373,9 @@
     "Open in browser" : {
 
     },
+    "Open the Anglesite app on your iPhone or iPad and scan this code to pair it with this Mac. The code carries this Mac's device ID and public key — nothing leaves your iCloud account." : {
+
+    },
     "Open the Cloudflare dashboard" : {
 
     },
@@ -2449,6 +2455,15 @@
 
     },
     "Page…" : {
+
+    },
+    "Pair a Device" : {
+
+    },
+    "Paired Devices" : {
+
+    },
+    "Pairing QR code" : {
 
     },
     "Paragraph" : {
@@ -2910,6 +2925,9 @@
 
     },
     "Reviews" : {
+
+    },
+    "Revoke" : {
 
     },
     "Right" : {
@@ -3890,6 +3908,9 @@
 
     },
     "iCloud sync status" : {
+
+    },
+    "iPhone/iPad" : {
 
     },
     "low confidence" : {
