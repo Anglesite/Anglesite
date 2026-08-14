@@ -22,6 +22,14 @@ struct LicenseGateSelectionTests {
         #expect(selection.isContinueEnabled)
     }
 
+    @Test("Custom stays disabled for a whitespace-only URL")
+    func customRejectsWhitespaceOnlyURL() {
+        var selection = LicenseGateSheetView.Selection()
+        selection.choice = .custom
+        selection.customURL = "   \n "
+        #expect(!selection.isContinueEnabled)
+    }
+
     @Test("resolvedLicense maps All rights reserved to nil")
     func allRightsReservedResolvesToNil() {
         let selection = LicenseGateSheetView.Selection()

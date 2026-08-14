@@ -49,9 +49,13 @@ struct LicenseGateSheetView: View {
         }
 
         /// False only for an empty-URL custom selection — every other choice is already
-        /// complete the moment it's picked.
+        /// complete the moment it's picked. Whitespace is trimmed before the emptiness check so
+        /// a blank-looking URL is caught here rather than at `LicensingStore.save`'s validation
+        /// boundary, which surfaces as an error banner instead of a disabled button.
         var isContinueEnabled: Bool {
-            if case .custom = choice { return !customURL.isEmpty }
+            if case .custom = choice {
+                return !customURL.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }
             return true
         }
 
@@ -205,6 +209,8 @@ struct LicenseGateSheetView: View {
         case "cc-by-nd-4.0": return "Redistribute unmodified, with credit"
         case "cc-by-nc-sa-4.0": return "Non-commercial use, with credit, same license"
         case "cc-by-nc-nd-4.0": return "Redistribute unmodified, non-commercial, with credit"
+        // Adding a `LicenseCatalog` entry should add a case above too — otherwise its Permits
+        // column just repeats the license name.
         default: return entry.name
         }
     }

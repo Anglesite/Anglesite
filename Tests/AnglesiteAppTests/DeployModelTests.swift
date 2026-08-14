@@ -1043,6 +1043,50 @@ struct DeployModelTests {
         #expect(reason.contains("license"))
     }
 
+    /// The security-relevant path through `confirmLicenseChoice`: `LicensingStore.save` refuses
+    /// an unsafe license URL, so nothing is persisted and nothing may publish. The deploy has to
+    /// stay parked (not silently abandoned) and the user has to get a plain-language message
+    /// rather than the raw Swift error, which carries the rejected URL in developer syntax.
+    @Test("confirmLicenseChoice surfaces a save failure and keeps the deploy parked")
+    func confirmLicenseChoiceSaveFailureKeepsDeployParked() async throws {
+        let executor = GatedDeployExecutor()
+        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let model = DeployModel(
+            command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
+            tokenAvailabilityOverride: { true })
+        let directory = try makeLicenseGateSiteDirectory()
+
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        await model.confirmLicenseChoice(LicenseRef(url: "ftp://example.com/l", name: "Bad"))
+
+        let error = model.licenseGateError
+        #expect(error?.contains("ftp://example.com/l") == true)
+        #expect(error?.contains("https://") == true)
+        // Not Swift's raw error description, which renders as `unsafeLicenseURL("…")`.
+        #expect(error?.contains("unsafeLicenseURL") == false)
+
+        // The gate stays up and the deploy stays parked, so Continue can be retried.
+        let stillPresented = model.licenseGatePresented
+        let isRunning = model.isRunning
+        #expect(stillPresented)
+        #expect(!isRunning)
+
+        // Nothing was written, so the site still has no recorded choice.
+        let policy = try LicensingStore(sourceDirectory: directory).load()
+        #expect(!policy.licenseChosen)
+        #expect(policy.defaultLicense == nil)
+
+        // The parked deploy is still there: a valid choice now resumes it.
+        await model.confirmLicenseChoice(nil)
+        await executor.waitUntilBuildIsParked()
+        await executor.resumeBuild()
+        while model.isRunning { await Task.yield() }
+        guard case .succeeded = model.phase else {
+            Issue.record("expected the still-parked deploy to run after a valid choice, got \(model.phase)")
+            return
+        }
+    }
+
     @Test("cancelLicenseGate abandons the attempt without recording a choice")
     func cancelLicenseGateRecordsNothing() async throws {
         let executor = GatedDeployExecutor()
