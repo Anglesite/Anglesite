@@ -5,31 +5,43 @@ import Foundation
 @Suite
 struct PresenceHeartbeatWriterTests {
     @Test func writesImmediatelyOnStart() async throws {
+        // A 3600s interval means there is zero risk of a second write sneaking into any
+        // human-scale wait window, no matter how loaded the CI runner is — unlike
+        // `writesAgainAfterInterval` below, widening this margin can't introduce flakiness in
+        // either direction, so a generous plain sleep (rather than event-driven waiting) is both
+        // simpler and safe here.
         let writes = LockedArray<Date>()
         let writer = PresenceHeartbeatWriter(save: { date in writes.append(date) }, interval: .seconds(3600))
         let task = Task { await writer.run() }
-        try await Task.sleep(for: .milliseconds(100))
+        try await Task.sleep(for: .seconds(2))
         task.cancel()
         #expect(writes.count == 1)
     }
 
     @Test func writesAgainAfterInterval() async throws {
-        // Margins are wide on purpose: this runs inside the full, unsharded `build-test` suite
-        // (3800+ tests, hundreds of suites, all concurrent) rather than the isolated
-        // timing-sensitive lane, so scheduling jitter under contention can easily be an order of
-        // magnitude larger than the nominal interval. A tight 50ms/200ms (4x) margin flaked there
-        // in practice (observed: only 1 write instead of >=2). 10ms/500ms gives ~50x nominal
-        // headroom for the same assertion.
-        let writes = LockedArray<Date>()
-        let writer = PresenceHeartbeatWriter(save: { date in writes.append(date) }, interval: .milliseconds(10))
+        // Waits for the writer's actual `save` calls via an AsyncStream instead of sleeping a
+        // fixed wall-clock duration and then checking a count. A widened sleep margin (50ms/200ms,
+        // then 10ms/500ms — ~50x nominal headroom) still flaked in CI's `build-test` job, which
+        // runs this inside the full, unsharded 3800+-test suite rather than the isolated
+        // timing-sensitive lane: scheduling jitter under that contention can exceed any sleep
+        // window chosen in advance. Waiting on the real event has no such ceiling — it only fails
+        // if the writer genuinely never calls `save` a second time, which is the actual behavior
+        // under test. `iterator` is touched only here, sequentially, with no concurrent capture —
+        // unlike a race-against-timeout, no task group is needed since we're always willing to
+        // wait as long as it takes (bounded only by the suite's own time limit).
+        let (stream, continuation) = AsyncStream<Date>.makeStream()
+        let writer = PresenceHeartbeatWriter(save: { date in continuation.yield(date) }, interval: .milliseconds(1))
         let task = Task { await writer.run() }
-        try await Task.sleep(for: .milliseconds(500))
+        var iterator = stream.makeAsyncIterator()
+        let first = await iterator.next()
+        let second = await iterator.next()
         task.cancel()
-        #expect(writes.count >= 2)
+        #expect(first != nil)
+        #expect(second != nil)
     }
 }
 
-/// Thread-safe append-only collector for the writer's timing assertions.
+/// Thread-safe append-only collector for `writesImmediatelyOnStart`'s timing assertion.
 final class LockedArray<T>: @unchecked Sendable {
     private let lock = NSLock()
     private var values: [T] = []
