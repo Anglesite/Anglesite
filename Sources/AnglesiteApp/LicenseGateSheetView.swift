@@ -130,7 +130,7 @@ struct LicenseGateSheetView: View {
             HStack {
                 Spacer()
                 Button("Continue") {
-                    model.confirmLicenseChoice(selection.resolvedLicense())
+                    Task { await model.confirmLicenseChoice(selection.resolvedLicense()) }
                 }
                 .keyboardShortcut(.defaultAction)
                 .disabled(!selection.isContinueEnabled)

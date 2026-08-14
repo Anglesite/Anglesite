@@ -985,7 +985,7 @@ struct DeployModelTests {
         #expect(licenseGatePresentedBeforeConfirm)
 
         let ccBY = LicenseCatalog.entries.first { $0.id == "cc-by-4.0" }!.ref
-        model.confirmLicenseChoice(ccBY)
+        await model.confirmLicenseChoice(ccBY)
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
         while model.isRunning { await Task.yield() }
@@ -1013,7 +1013,7 @@ struct DeployModelTests {
         let directory = try makeLicenseGateSiteDirectory()
 
         model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
-        model.confirmLicenseChoice(nil)
+        await model.confirmLicenseChoice(nil)
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
         while model.isRunning { await Task.yield() }

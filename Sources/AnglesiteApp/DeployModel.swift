@@ -445,7 +445,12 @@ final class DeployModel {
     /// never clobbers a manual override made later), marks the choice made, and saves — then
     /// resumes the parked deploy. Owns its own `LicensingStore` directly rather than going
     /// through `PlistEditorModel`, so the gate works with no Settings window open.
-    func confirmLicenseChoice(_ license: LicenseRef?) {
+    ///
+    /// `async` only for the failure path's log write: the raw error is developer-facing (it can
+    /// carry an unusable-URL payload), so the plain-language message goes to the sheet and the
+    /// real error goes to the log — awaited before returning, exactly as the Cloudflare sign-in
+    /// failure path does, so it can't be dropped by app termination.
+    func confirmLicenseChoice(_ license: LicenseRef?) async {
         guard let pending = pendingDeploy else {
             licenseGateError = "No deploy is waiting — close this and click Deploy again."
             return
@@ -457,8 +462,22 @@ final class DeployModel {
         policy.licenseChosen = true
         do {
             try store.save(policy)
+        } catch let error as LicensingStore.ValidationError {
+            // Mirrors `PlistEditorModel.saveLicensing()`'s treatment of the same error, so the
+            // two paths that can write this policy say the same thing about a bad address.
+            switch error {
+            case .unsafeLicenseURL(let url):
+                await logCenter.append(
+                    source: "license-gate:\(pending.siteID)", stream: .stderr,
+                    text: "Refused to save an unsafe license URL: \(error)")
+                licenseGateError = "\"\(url)\" isn't a usable license address. Use an https:// URL or a path on this site starting with /."
+            }
+            return
         } catch {
-            licenseGateError = "Couldn't save your license choice: \(error)"
+            await logCenter.append(
+                source: "license-gate:\(pending.siteID)", stream: .stderr,
+                text: "Saving the content license failed: \(error)")
+            licenseGateError = "Couldn't save your license choice: \(error.localizedDescription)"
             return
         }
         pendingDeploy = nil
