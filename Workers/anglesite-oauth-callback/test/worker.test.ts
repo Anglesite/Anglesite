@@ -14,7 +14,7 @@ describe("GET /.well-known/apple-app-site-association", () => {
     const body = (await response.json()) as {
       webcredentials: { apps: string[] };
     };
-    expect(body.webcredentials.apps).toEqual(["KH7H8Y25RT.io.dwk.anglesite.ios"]);
+    expect(body.webcredentials.apps).toEqual(["M34HBJZNYA.io.dwk.anglesite.ios"]);
   });
 
   it("declares an application/json content type", async () => {

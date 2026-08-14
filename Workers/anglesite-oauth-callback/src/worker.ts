@@ -8,7 +8,7 @@
 /// the entry is `<Team ID>.<bundle ID>` for the iOS app.
 const APPLE_APP_SITE_ASSOCIATION = {
   webcredentials: {
-    apps: ["KH7H8Y25RT.io.dwk.anglesite.ios"],
+    apps: ["M34HBJZNYA.io.dwk.anglesite.ios"],
   },
 };
 
