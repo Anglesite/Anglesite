@@ -116,13 +116,17 @@ struct CloudKitSignalingChannelOfflineTests {
         #expect(result == nil)
     }
 
-    /// Sending after `close()` must fail the same way as sending with no database at all — a
-    /// closed channel must not go on writing records nobody will ever read.
-    @Test func sendAfterCloseThrows() async {
+    /// Sending after `close()` must fail with the specific `.closed` error, distinctly from
+    /// `sendThrowsWhenBuiltWithoutADatabase`'s `CloudKitUnavailable` — a closed channel must not
+    /// go on writing records nobody will ever read. Asserting the concrete error (rather than just
+    /// `Error.self`) is load-bearing here: `send`'s two guards must fire in "closed, then
+    /// database" order, or a post-close send on an offline-seam channel throws
+    /// `CloudKitUnavailable` instead, and this test would pass vacuously either way.
+    @Test func sendAfterCloseThrows() async throws {
         let channel = CloudKitSignalingChannel(
             offlinePollInterval: .milliseconds(5), sessionID: "session-abc", sender: "host")
         await channel.close()
-        await #expect(throws: Error.self) {
+        await #expect(throws: CloudKitSignalingChannelError.closed) {
             try await channel.send(SignalingEnvelope(seq: 1, sender: "host", kind: .offer, payload: "sdp"))
         }
     }
@@ -141,6 +145,47 @@ struct CloudKitSignalingChannelOfflineTests {
         await channel.close()
         try? await Task.sleep(for: .milliseconds(50))
         #expect(await channel.isObserving == false)
+    }
+
+    /// A consumer that is cancelled (or breaks out of `for await`) terminates the stream without
+    /// ever calling `close()`. Without the `onTermination` hook installed in the private
+    /// designated init, the poll loop would go on hitting CloudKit for the life of the process,
+    /// yielding into a continuation nobody reads — and, worse than in `CloudKitPairingService`,
+    /// silently deleting the peer's undelivered SDP/ICE records into that unread buffer. Mirrors
+    /// `CloudKitPairingServiceLifecycleTests.consumerCancellationStopsThePollLoop`.
+    @Test func consumerCancellationStopsThePollLoop() async throws {
+        let channel = CloudKitSignalingChannel(
+            offlinePollInterval: .milliseconds(5), sessionID: "session-abc", sender: "host")
+        let consumer = Task { for await _ in channel.envelopes() {} }
+        try await Task.sleep(for: .milliseconds(100))
+        #expect(await channel.isObserving == true)
+
+        consumer.cancel()
+        // `onTermination` hops back onto the actor, so give that hop room to land.
+        try await Task.sleep(for: .milliseconds(200))
+
+        #expect(await channel.isObserving == false)
+    }
+
+    /// The retain cycle the `onTermination` hook and `startObserving()`'s `[weak self]` capture
+    /// together prevent: the actor owns `pollTask`, so if that task captured the actor strongly,
+    /// the pair would keep each other alive for the life of the process unless someone remembered
+    /// to call `close()` by hand. Dropping the last external reference without closing must still
+    /// let the channel deallocate. Mirrors
+    /// `CloudKitPairingServiceLifecycleTests.droppingTheServiceWithoutStoppingDeallocatesIt`.
+    @Test func droppingTheChannelWithoutClosingDeallocatesIt() async throws {
+        weak var weakChannel: CloudKitSignalingChannel?
+        do {
+            let channel = CloudKitSignalingChannel(
+                offlinePollInterval: .milliseconds(5), sessionID: "session-abc", sender: "host")
+            weakChannel = channel
+            _ = channel.envelopes()
+            try await Task.sleep(for: .milliseconds(50))
+        }
+
+        try await Task.sleep(for: .milliseconds(300))
+
+        #expect(weakChannel == nil)
     }
 }
 

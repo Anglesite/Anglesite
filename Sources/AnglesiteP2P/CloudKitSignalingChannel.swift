@@ -94,18 +94,31 @@ public actor CloudKitSignalingChannel: SignalingChannel {
         self.pollInterval = pollInterval
         (self.stream, self.continuation) =
             AsyncStream<SignalingEnvelope>.makeStream(bufferingPolicy: .unbounded)
+        // A consumer that breaks out of `for await`, or whose task is cancelled, terminates the
+        // stream without ever calling `close()`. Without this hook the poll loop would keep
+        // hitting CloudKit every `pollInterval` for the life of the process — worse here than in
+        // `CloudKitPairingService`, since each tick would go on matching (and deleting) the peer's
+        // SDP/ICE records into a `pending` buffer nobody will ever read, silently destroying
+        // signaling state for a live handshake. Mirrors `CloudKitPairingService.init(database:pollInterval:)`.
+        //
+        // `[weak self]` is required, not stylistic: the actor owns `pollTask`, so a strong capture
+        // here closes a cycle that keeps the channel (and its timer) alive forever.
+        self.continuation.onTermination = { [weak self] _ in
+            Task { await self?.close() }
+        }
     }
 
     /// Writes `envelope` (stamped with this channel's own `sender`, superseding whatever the
     /// caller passed in `envelope.sender` — matching `FileSignalingChannel.send(_:)`) as a
     /// `SignalingEnvelopeRecord` in the private database.
     ///
-    /// - Throws: ``CloudKitUnavailable`` if this channel has no database (the offline seam), or
-    ///   ``CloudKitSignalingChannelError/closed`` if `close()` was already called; otherwise
-    ///   whatever `CKDatabase.modifyRecords` throws.
+    /// - Throws: ``CloudKitSignalingChannelError/closed`` if `close()` was already called (checked
+    ///   before the database, since closedness is a property of the channel, not of whether it
+    ///   happens to have a database), ``CloudKitUnavailable`` if this channel has no database (the
+    ///   offline seam), or otherwise whatever `CKDatabase.modifyRecords` throws.
     public func send(_ envelope: SignalingEnvelope) async throws {
-        guard let database else { throw CloudKitUnavailable() }
         guard !closed else { throw CloudKitSignalingChannelError.closed }
+        guard let database else { throw CloudKitUnavailable() }
         var stamped = envelope
         stamped.sender = sender
         let record = SignalingEnvelopeRecord(envelope: stamped, sessionID: sessionID).makeCloudKitRecord()
