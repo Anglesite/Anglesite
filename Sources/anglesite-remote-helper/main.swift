@@ -242,7 +242,13 @@ func helperSigningKey() -> DevicePairingKeyPair {
     }
 }
 
-/// Shows the one-time access-grant panel for a site this helper has no bookmark for.
+/// How many times the grant panel is re-shown after the owner picks the wrong site. Two, not one:
+/// the first mismatch is an honest mistake worth a second try with an explanation, and an owner who
+/// misses twice is better served by the session failing than by a third identical panel.
+let siteAccessPanelAttemptLimit = 2
+
+/// Shows the one-time access-grant panel for a site this helper has no bookmark for, and confirms
+/// that what the owner picked is *actually the site that was asked for*.
 ///
 /// This is `RemoteSiteResolver`'s documented production `presentOpenPanel`, and it is only
 /// possible at all because the helper now runs a real `NSApplication` (#1208 P2 Task 1) — a bare
@@ -250,25 +256,57 @@ func helperSigningKey() -> DevicePairingKeyPair {
 /// configuration exactly (`.anglesiteSite` content type, packages opaque, "Grant Access" prompt),
 /// with a message phrased about the consequence to the owner's site rather than about bookmarks or
 /// sandboxing ("the app advises; it does not delegate the decision", CLAUDE.md).
-@Sendable func presentSiteAccessPanel(for expectedPackageURL: URL) async -> URL? {
-    await MainActor.run {
-        let panel = NSOpenPanel()
-        panel.canChooseDirectories = false
-        panel.canChooseFiles = true
-        panel.allowedContentTypes = [.anglesiteSite]
-        panel.treatsFilePackagesAsDirectories = false
-        panel.allowsMultipleSelection = false
-        panel.directoryURL = expectedPackageURL.deletingLastPathComponent()
-        panel.prompt = String(localized: "Grant Access")
-        panel.message = String(
-            localized: "Locate this site so it can be edited from your iPhone or iPad while this Mac is unattended."
-        )
-        // A faceless (`LSUIElement`) helper is not the front app, so its panel would otherwise open
-        // behind whatever the owner is actually looking at.
-        NSApplication.shared.activate(ignoringOtherApps: true)
-        guard panel.runModal() == .OK else { return nil }
-        return panel.url
+///
+/// ## Why the identity check, and why it is not optional
+///
+/// It also mirrors what `reauthorize` does *after* the panel — `SiteActions.swift`'s
+/// `guard markerMatches(package, expectedID: site.id)`, added under #1208's sibling issue #776
+/// against "silently rebinding to an unrelated package that happens to share a name". This call
+/// site needs it more, not less, because nothing downstream would ever catch the mistake: a wrong
+/// pick here is bookmarked by `RemoteSiteResolver` **under the correct siteID** and persisted, so
+/// every later session resolves it from cache without ever asking again. The helper would boot a
+/// container from the wrong repo and commit the phone's edits into another site's git history,
+/// with the phone showing no sign anything is wrong. There is no owner sitting in front of this
+/// process to notice.
+///
+/// The comparison is against `RemoteSiteIdentity.siteID(forSourceDirectory:)`, which is the exact
+/// function that produced the `siteID` string `connect` was invoked with — for a real `.anglesite`
+/// package that is the package marker's UUID, so this compares stable identity, not paths or names.
+/// A directory that isn't a recognizable package falls back to a path digest, which will simply not
+/// match and is refused: the safe direction.
+@Sendable func presentSiteAccessPanel(for expectedPackageURL: URL, expecting siteID: String) async -> URL? {
+    for attempt in 1...siteAccessPanelAttemptLimit {
+        let mismatched = attempt > 1
+        let picked = await MainActor.run { () -> URL? in
+            let panel = NSOpenPanel()
+            panel.canChooseDirectories = false
+            panel.canChooseFiles = true
+            panel.allowedContentTypes = [.anglesiteSite]
+            panel.treatsFilePackagesAsDirectories = false
+            panel.allowsMultipleSelection = false
+            panel.directoryURL = expectedPackageURL.deletingLastPathComponent()
+            panel.prompt = String(localized: "Grant Access")
+            panel.message = mismatched
+                ? String(localized: "That’s a different site than the one your iPhone or iPad asked to edit. Choose the site it’s expecting, so its changes don’t land in the wrong place.")
+                : String(localized: "Locate this site so it can be edited from your iPhone or iPad while this Mac is unattended.")
+            // A faceless (`LSUIElement`) helper is not the front app, so its panel would otherwise
+            // open behind whatever the owner is actually looking at.
+            NSApplication.shared.activate(ignoringOtherApps: true)
+            guard panel.runModal() == .OK else { return nil }
+            return panel.url
+        }
+        guard let picked else { return nil }
+
+        let pickedSiteID = RemoteSiteIdentity.siteID(
+            forSourceDirectory: picked.appendingPathComponent("Source", isDirectory: true))
+        if pickedSiteID == siteID { return picked }
+        helperLog("""
+            \(picked.lastPathComponent) is site \(pickedSiteID), not the requested \(siteID) — \
+            refusing to bookmark it (attempt \(attempt) of \(siteAccessPanelAttemptLimit))
+            """)
     }
+    helperLog("no matching site was chosen for \(siteID); the session will be refused rather than bound to the wrong site")
+    return nil
 }
 
 /// Builds the production session plan, or exits with an owner-facing reason.
@@ -300,7 +338,13 @@ func makeCloudKitSessionPlan(
             fileURL: helperApplicationSupportDirectory()
                 .appendingPathComponent("remote-site-bookmarks.json")),
         bookmarking: PlatformSecurityScopedBookmark.make(),
-        presentOpenPanel: presentSiteAccessPanel)
+        // `presentOpenPanel`'s signature is `(URL) async -> URL?`, so the expected siteID — which
+        // the panel needs in order to confirm the owner picked the right package — is closed over
+        // rather than passed. It is a plain `String` captured by value, so the closure stays
+        // `@Sendable`.
+        presentOpenPanel: { expectedPackageURL in
+            await presentSiteAccessPanel(for: expectedPackageURL, expecting: siteID)
+        })
     let siteRoot: URL
     do {
         siteRoot = try await resolver.resolveSourceDirectory(
