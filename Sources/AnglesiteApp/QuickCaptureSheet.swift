@@ -35,7 +35,7 @@ struct QuickCaptureSheet: View {
         defaultSiteID: String?,
         initialURLString: String,
         fetchMetadata: @escaping @Sendable (URL) async throws -> LinkMetadata,
-        onCreate: @escaping (_ siteID: String?, _ title: String, _ urlString: String, _ commentary: String, _ draft: Bool) async -> ContentCreateResult
+        onCreate: @escaping (_ siteID: String?, _ title: String, _ urlString: String, _ commentary: String, _ imageURL: String?, _ draft: Bool) async -> ContentCreateResult
     ) {
         self.pickerSites = pickerSites
         self.fetchMetadata = fetchMetadata
