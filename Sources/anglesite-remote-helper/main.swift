@@ -165,20 +165,26 @@ func runSession() async {
         if count >= 6 { FileHandle.standardError.write(Data("control link presumed dead\n".utf8)) }
     })
 
-    // Presence heartbeat writer — writes this device's last reachable time to CloudKit every 15 minutes.
-    // Production save closure wires to CloudKit's `.changedKeys` merge policy so concurrent writes from
-    // a stale prior run don't conflict-fail (task 7 #1208). Tests inject a fake closure.
-    #if canImport(CloudKit)
-    let presenceWriter: PresenceHeartbeatWriter = PresenceHeartbeatWriter(save: { date in
-        let container = CKContainer(identifier: "iCloud.io.dwk.anglesite")
-        let database = container.privateCloudDatabase
-        let record = CKRecord(recordType: "PresenceHeartbeatRecord", recordID: CKRecord.ID(recordName: "presence"))
-        record["lastReachableAt"] = date
-        let (saveResults, _) = try await database.modifyRecords(
-            saving: [record], deleting: [], savePolicy: .changedKeys, atomically: true)
-        for (_, result) in saveResults { _ = try result.get() }
-    })
-    #endif
+    // Presence heartbeat writer — deferred to Task 9 (#1208 P2 → P3).
+    // Task 7 defines PresenceHeartbeatWriter (write-side only, tested with injection). Production
+    // wiring is deferred because `CKContainer(identifier:)` SIGTRAPs on binaries lacking the CloudKit
+    // entitlement (documented in CloudKitPairingService/CloudKitSignalingChannel). The entitlement is
+    // not provisioned yet per the plan's Task 9 manual portal step. Task 9 owns the entitlement-gated
+    // construction pattern for all CloudKit types in this epic (matching Tasks 5–6 which left their
+    // production wiring likewise deferred). When Task 9 lands and provisions the capability, wire here:
+    //
+    //   let presenceWriter = PresenceHeartbeatWriter(save: { date in
+    //       let container = CKContainer(identifier: "iCloud.io.dwk.anglesite")
+    //       let database = container.privateCloudDatabase
+    //       let record = CKRecord(recordType: "PresenceHeartbeatRecord",
+    //                            recordID: CKRecord.ID(recordName: "presence"))
+    //       record["lastReachableAt"] = date
+    //       let (saveResults, _) = try await database.modifyRecords(
+    //           saving: [record], deleting: [], savePolicy: .changedKeys, atomically: true)
+    //       for (_, result) in saveResults { _ = try result.get() }
+    //   })
+    //
+    // and add `async let presenceTask: Void = presenceWriter.run()` to the task group below.
 
     // A raw C `signal()` handler can't safely call async Swift code (tearDown/peer.close() are
     // actor-isolated), so route SIGTERM through a DispatchSourceSignal instead: it delivers on a
@@ -211,18 +217,10 @@ func runSession() async {
     }
     sigtermSource.resume()
 
-    #if canImport(CloudKit)
-    async let httpTask: Void = httpBridge.run()
-    async let mcpTask: Void = mcpResponder.run()
-    async let heartbeatTask: Void = heartbeat.run()
-    async let presenceTask: Void = presenceWriter.run()
-    _ = await (httpTask, mcpTask, heartbeatTask, presenceTask)
-    #else
     async let httpTask: Void = httpBridge.run()
     async let mcpTask: Void = mcpResponder.run()
     async let heartbeatTask: Void = heartbeat.run()
     _ = await (httpTask, mcpTask, heartbeatTask)
-    #endif
 
     await containerSession.tearDown(siteID: siteID)
     exit(0)
