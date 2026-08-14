@@ -228,6 +228,16 @@ func helperApplicationSupportDirectory() -> URL {
 /// the key this process actually signs with is this Mac's own `DeviceAnnounceRecord` — which
 /// `startPairingObservation(signingKey:pairedDevices:)` publishes with exactly this key.
 func helperSigningKey() -> DevicePairingKeyPair {
+    // One-line change that closes the gap described above, once both `Anglesite.app` and this
+    // helper carry the group in a `keychain-access-groups` entitlement:
+    //     KeychainStore(accessGroup: KeychainStore.sharedPairingAccessGroup)
+    // Making that swap here *and* in `DevicePairingSettingsView.generateQRCode()` (they must move
+    // together — one side alone just relocates the mismatch) makes this process read the very key
+    // the QR code publishes, at which point the announce-record workaround documented above stops
+    // being load-bearing. Blocked on the Apple Developer portal capability; checklist in
+    // `Resources/AnglesiteRemote.entitlements` ▸ manual portal step 2. Switching over early is
+    // worse than waiting: SecItem rejects an access group the process isn't entitled to, so this
+    // would fall into the ephemeral-key branch below on every launch.
     let keychain = KeychainStore()
     do {
         if let existing = try keychain.readDevicePairingKeyPair() { return existing }

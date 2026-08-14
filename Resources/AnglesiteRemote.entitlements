@@ -53,6 +53,45 @@
             device identity. Same class of provisioning problem as the App Group note above, and
             it lands the same way.
 
+            The code side is already prepared and inert (KeychainStore gained an optional
+            `accessGroup:` init parameter, defaulting to nil = today's behavior, plus the shared
+            group string as KeychainStore.sharedPairingAccessGroup). What remains is mechanical —
+            execute in order, and do NOT start before step (a) is confirmed live, because SecItem
+            rejects an access group the process is not entitled to:
+
+              a. Portal: enable the "Keychain Sharing" capability on BOTH App IDs on Team
+                 KH7H8Y25RT — io.dwk.anglesite and io.dwk.anglesite.remote — with the keychain
+                 group io.dwk.anglesite.shared, then regenerate the provisioning profiles.
+              b. THIS file: add
+                      <key>keychain-access-groups</key>
+                      <array><string>$(AppIdentifierPrefix)io.dwk.anglesite.shared</string></array>
+              c. Resources/Anglesite.entitlements: add the identical key/array. The two strings
+                 must match exactly; a typo here is silent (each process keeps its own item and
+                 pairing simply never verifies), which is why the string lives in one Swift
+                 constant rather than being written out at each call site.
+              d. Verify KeychainStore.sharedPairingAccessGroup still equals the expansion of the
+                 string in (b) — "KH7H8Y25RT.io.dwk.anglesite.shared". $(AppIdentifierPrefix) is a
+                 build-time substitution and nothing expands it at runtime, so the Swift constant
+                 carries the team prefix literally. KeychainStoreTests pins its shape.
+              e. Swap `KeychainStore()` for
+                 `KeychainStore(accessGroup: KeychainStore.sharedPairingAccessGroup)` at both
+                 pairing-key call sites, which must move together (one alone only relocates the
+                 mismatch):
+                   - Sources/AnglesiteApp/DevicePairingSettingsView.swift, in generateQRCode()
+                   - Sources/anglesite-remote-helper/main.swift, in helperSigningKey()
+                 Sources/AnglesiteCore/Platform/SecretStore.swift's
+                 readDevicePairingKeyPair()/writeDevicePairingKeyPair() need NO change — they are
+                 store-agnostic; they carry a pointer to this checklist only.
+              f. Verify on a real signed build (the only place this is observable): launch the app,
+                 generate the QR in Settings ▸ Devices, then confirm the helper logs no "generated
+                 this helper's device pairing key" line on a subsequent cold start — meaning it
+                 found the app's existing key rather than minting its own. Delete both processes'
+                 pre-existing per-bundle keys first, or the stale ones mask the result.
+              g. Drop the now-stale "not the same key today" paragraphs on helperSigningKey() and
+                 helperDeviceID() in Sources/anglesite-remote-helper/main.swift, and this note.
+                 Note helperDeviceID()'s separate UserDefaults-suite gap is NOT fixed by this step
+                 — it needs the App Group from the note above.
+
          3. Ubiquity container. RemoteSiteResolver's zero-prompt iCloud path stays dormant until
             this bundle ID carries the iCloud container entitlement from step 1; every site
             resolution takes the one-time access-panel/bookmark path in the meantime. That is

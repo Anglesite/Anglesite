@@ -104,6 +104,16 @@ struct DevicePairingSettingsView: View {
     /// names `DeviceAnnounceRecord` uses — as the QR payload.
     private func generateQRCode() {
         do {
+            // #1208 P2, shared-key follow-up: the key published in this QR code is the one *this*
+            // bundle ID can see. The `AnglesiteRemote` helper reads the same service/account but
+            // through its own sandbox-implicit keychain access group, so it signs signaling
+            // payloads with a different key and a phone that pinned this QR rejects it. One-line
+            // fix, once both bundles carry the group in a `keychain-access-groups` entitlement:
+            //     KeychainStore(accessGroup: KeychainStore.sharedPairingAccessGroup)
+            // Blocked on the Apple Developer portal capability — checklist in
+            // `Resources/AnglesiteRemote.entitlements` ▸ manual portal step 2. Do not switch this
+            // over before that lands: an unentitled access group makes SecItem reject the call, so
+            // QR generation would start failing outright instead of merely mismatching.
             let keychain = KeychainStore()
             let keyPair: DevicePairingKeyPair
             if let existing = try keychain.readDevicePairingKeyPair() {

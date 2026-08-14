@@ -46,14 +46,50 @@ public struct KeychainStore: SecretStore {
     /// `SecretAccounts` namespace (the shared slot definition since the SecretStore seam).
     public static let cloudflareTokenAccount = SecretAccounts.cloudflareToken
 
+    /// The keychain access group that will let `Anglesite.app` and its `AnglesiteRemote` login-item
+    /// helper read the *same* `SecretAccounts.devicePairingKey` entry (#1208 P2).
+    ///
+    /// - Important: **Not in use yet, and passing it today will fail.** `kSecAttrAccessGroup` only
+    ///   resolves to a group both bundle IDs actually carry in a `keychain-access-groups`
+    ///   entitlement, and that entitlement needs an App ID capability registered in the Apple
+    ///   Developer portal first (`Resources/AnglesiteRemote.entitlements` ▸ manual portal step 2
+    ///   carries the checklist). Until that lands, every caller keeps the default `accessGroup:
+    ///   nil` — the sandbox's implicit per-bundle-ID group — so the app and the helper each hold
+    ///   their own pairing key. That mismatch is exactly what this constant exists to close.
+    ///
+    /// Written team-prefixed because that is the *runtime* form: an entitlements plist spells the
+    /// group `$(AppIdentifierPrefix)io.dwk.anglesite.shared` and the build expands the prefix, but
+    /// nothing expands it here, and `SecItem` matches the expanded string. Team `KH7H8Y25RT` is
+    /// therefore load-bearing: change the signing team and this constant must change with it (and
+    /// with both entitlements files), or the two processes silently fall back to seeing no shared
+    /// item at all rather than failing loudly.
+    public static let sharedPairingAccessGroup = "KH7H8Y25RT.io.dwk.anglesite.shared"
+
     /// The `kSecAttrService` under which every entry of this store lives — the namespace
     /// separating this store's slots from any other keychain items.
     public let service: String
 
-    /// Creates a store scoped to `service`. Production uses the default; tests pass a
-    /// per-case scratch service so they never read or clobber the user's real entries.
-    public init(service: String = KeychainStore.defaultService) {
+    /// The `kSecAttrAccessGroup` every query carries, or `nil` to let the system apply the
+    /// process's default group. See ``init(service:accessGroup:)``.
+    public let accessGroup: String?
+
+    /// Creates a store scoped to `service` and, optionally, to a shared keychain access group.
+    ///
+    /// - Parameters:
+    ///   - service: The `kSecAttrService` namespace. Production uses the default; tests pass a
+    ///     per-case scratch service so they never read or clobber the user's real entries.
+    ///   - accessGroup: The `kSecAttrAccessGroup` to scope every read/write/delete to. `nil` (the
+    ///     default, and what every caller passes today) omits the attribute entirely, which leaves
+    ///     the system's behavior untouched: a sandboxed process gets its own bundle-ID-derived
+    ///     group, so two bundles never see each other's items even with identical service/account
+    ///     strings. Pass a group only once *both* bundles carry it in a `keychain-access-groups`
+    ///     entitlement — see ``sharedPairingAccessGroup``. Passing a group the process is not
+    ///     entitled to makes `SecItem` reject the operation (typically `errSecMissingEntitlement`,
+    ///     surfaced as ``Error/unhandled(_:)``), so this is not something to switch on
+    ///     speculatively.
+    public init(service: String = KeychainStore.defaultService, accessGroup: String? = nil) {
         self.service = service
+        self.accessGroup = accessGroup
     }
 
     // MARK: Reads
@@ -125,13 +161,24 @@ public struct KeychainStore: SecretStore {
 
     // MARK: Internals
 
-    private func baseQuery(account: String) -> [String: Any] {
-        [
+    /// The attribute dictionary identifying one slot — the shared prefix of every
+    /// `SecItemCopyMatching`/`SecItemAdd`/`SecItemUpdate`/`SecItemDelete` this type issues.
+    ///
+    /// `internal` rather than `private` only so the test suite can assert on the constructed
+    /// dictionary: whether `kSecAttrAccessGroup` is present is not otherwise observable from a
+    /// process that isn't entitled to the group it names.
+    func baseQuery(account: String) -> [String: Any] {
+        var query: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
             kSecAttrService as String: service,
             kSecAttrAccount as String: account,
             kSecAttrSynchronizable as String: false
         ]
+        // Omitted, not set to a placeholder, when `accessGroup` is nil: an absent
+        // kSecAttrAccessGroup means "the process's default group", which is the behavior every
+        // caller relies on today.
+        if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
+        return query
     }
 }
 #endif

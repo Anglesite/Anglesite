@@ -1,5 +1,6 @@
 // Exercises the Darwin SecretStore implementation; compiles out with it off-Darwin.
 #if canImport(Security)
+import Security
 import XCTest
 @testable import AnglesiteCore
 
@@ -89,6 +90,72 @@ final class KeychainStoreTests: XCTestCase {
             XCTAssertEqual(try other.read(account: "alpha"), "there")
         }
         try? other.delete(account: "alpha")
+    }
+
+    // MARK: Access group (#1208 P2 — prepared, not yet in use)
+
+    /// The safety property for the `accessGroup` parameter: the default init must construct exactly
+    /// the query it did before the parameter existed. Asserted structurally rather than only
+    /// behaviorally because "no `kSecAttrAccessGroup` key at all" is the specific thing that keeps
+    /// the system applying the process's own default group.
+    func testDefaultInitOmitsAccessGroupFromQueries() throws {
+        XCTAssertNil(store.accessGroup)
+        let query = store.baseQuery(account: "alpha")
+        XCTAssertNil(query[kSecAttrAccessGroup as String])
+        XCTAssertEqual(query.keys.sorted(), [
+            kSecAttrAccount as String,
+            kSecAttrService as String,
+            kSecAttrSynchronizable as String,
+            kSecClass as String
+        ].sorted())
+    }
+
+    /// An explicit `accessGroup: nil` is the same store as the default — pinned so a future caller
+    /// threading an optional through can't accidentally change behavior.
+    func testExplicitNilAccessGroupMatchesDefaultInit() throws {
+        let explicit = KeychainStore(service: service, accessGroup: nil)
+        XCTAssertNil(explicit.accessGroup)
+        XCTAssertEqual(
+            explicit.baseQuery(account: "alpha").keys.sorted(),
+            store.baseQuery(account: "alpha").keys.sorted())
+        // And it still round-trips against the real keychain, unchanged.
+        try explicit.write("via-explicit-nil", account: "alpha")
+        XCTAssertEqual(try store.read(account: "alpha"), "via-explicit-nil")
+    }
+
+    /// A non-nil group reaches the query dictionary under `kSecAttrAccessGroup`.
+    ///
+    /// This is as far as this suite can go: whether the *system* then shares the item between
+    /// `Anglesite.app` and `AnglesiteRemote` depends on both bundles carrying the group in a
+    /// `keychain-access-groups` entitlement, which needs an Apple Developer portal capability that
+    /// doesn't exist yet (`Resources/AnglesiteRemote.entitlements` ▸ manual portal step 2). No test
+    /// runnable here can prove or disprove the sharing itself — an unentitled `SecItem` call with
+    /// this attribute is simply rejected — so the test binary deliberately never issues one.
+    func testAccessGroupAppearsInQueriesWhenSet() throws {
+        let scoped = KeychainStore(service: service, accessGroup: "TESTPREFIX.io.dwk.anglesite.shared")
+        XCTAssertEqual(scoped.accessGroup, "TESTPREFIX.io.dwk.anglesite.shared")
+        let query = scoped.baseQuery(account: "alpha")
+        XCTAssertEqual(query[kSecAttrAccessGroup as String] as? String, "TESTPREFIX.io.dwk.anglesite.shared")
+        // Everything else about the query is unchanged by the new attribute.
+        XCTAssertEqual(query[kSecAttrService as String] as? String, service)
+        XCTAssertEqual(query[kSecAttrAccount as String] as? String, "alpha")
+        XCTAssertEqual(query[kSecAttrSynchronizable as String] as? Bool, false)
+    }
+
+    /// Pins the shared group string's shape. Both entitlements files will spell it
+    /// `$(AppIdentifierPrefix)io.dwk.anglesite.shared`, which the build expands to this — a
+    /// mismatch between the two forms is silent (the processes just never see a shared item), so
+    /// the suffix and the team prefix are asserted rather than left to review.
+    func testSharedPairingAccessGroupIsTeamPrefixed() {
+        XCTAssertEqual(KeychainStore.sharedPairingAccessGroup, "KH7H8Y25RT.io.dwk.anglesite.shared")
+        XCTAssertTrue(KeychainStore.sharedPairingAccessGroup.hasSuffix(".io.dwk.anglesite.shared"))
+    }
+
+    /// No production caller passes an access group yet — the whole point of this task. If this
+    /// fails, the wiring landed without the entitlement work in the checklist above it.
+    func testProductionDefaultStoreStillUsesNoAccessGroup() {
+        XCTAssertNil(KeychainStore().accessGroup)
+        XCTAssertEqual(KeychainStore().service, KeychainStore.defaultService)
     }
 
     // MARK: Cloudflare convenience
