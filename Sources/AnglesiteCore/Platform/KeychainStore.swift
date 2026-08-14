@@ -51,19 +51,27 @@ public struct KeychainStore: SecretStore {
     ///
     /// - Important: **Not in use yet, and passing it today will fail.** `kSecAttrAccessGroup` only
     ///   resolves to a group both bundle IDs actually carry in a `keychain-access-groups`
-    ///   entitlement, and that entitlement needs an App ID capability registered in the Apple
-    ///   Developer portal first (`Resources/AnglesiteRemote.entitlements` ▸ manual portal step 2
-    ///   carries the checklist). Until that lands, every caller keeps the default `accessGroup:
-    ///   nil` — the sandbox's implicit per-bundle-ID group — so the app and the helper each hold
-    ///   their own pairing key. That mismatch is exactly what this constant exists to close.
+    ///   entitlement, and neither declares it. Keychain Sharing needs no Apple Developer *portal*
+    ///   capability (every App ID carries it implicitly, unlike CloudKit or App Groups), but the
+    ///   entitlement still requires a real provisioning profile to sign — measured, not assumed:
+    ///   adding it to `Resources/AnglesiteRemote.entitlements` fails the default ad-hoc Debug build
+    ///   with "AnglesiteRemote requires a provisioning profile", and that file has no CI-safe Debug
+    ///   counterpart to keep it out of. `Resources/AnglesiteRemote.entitlements` ▸ step 2 carries
+    ///   the full finding and the remaining checklist. Until it lands, every caller keeps the
+    ///   default `accessGroup: nil` — the sandbox's implicit per-bundle-ID group — so the app and
+    ///   the helper each hold their own pairing key. That mismatch is exactly what this constant
+    ///   exists to close.
     ///
     /// Written team-prefixed because that is the *runtime* form: an entitlements plist spells the
     /// group `$(AppIdentifierPrefix)io.dwk.anglesite.shared` and the build expands the prefix, but
-    /// nothing expands it here, and `SecItem` matches the expanded string. Team `KH7H8Y25RT` is
-    /// therefore load-bearing: change the signing team and this constant must change with it (and
-    /// with both entitlements files), or the two processes silently fall back to seeing no shared
-    /// item at all rather than failing loudly.
-    public static let sharedPairingAccessGroup = "KH7H8Y25RT.io.dwk.anglesite.shared"
+    /// nothing expands it here, and `SecItem` matches the expanded string. Team `M34HBJZNYA` — the
+    /// team whose Apple Development certificate signs local builds — is therefore load-bearing:
+    /// change the signing team and this constant must change with it (and with both entitlements
+    /// files), or the two processes silently fall back to seeing no shared item at all rather than
+    /// failing loudly. (The `KH7H8Y25RT` this constant used to name is the paid Developer Program
+    /// team the *portal-gated* CloudKit and App Groups capabilities are tracked under, which is a
+    /// separate question from which certificate signs a build.)
+    public static let sharedPairingAccessGroup = "M34HBJZNYA.io.dwk.anglesite.shared"
 
     /// The `kSecAttrService` under which every entry of this store lives — the namespace
     /// separating this store's slots from any other keychain items.

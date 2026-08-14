@@ -222,11 +222,11 @@ func helperApplicationSupportDirectory() -> URL {
 /// (`DevicePairingSettingsView`) does on the main-app side. **The two are not the same key today**:
 /// Keychain items are scoped per bundle ID unless the two bundles share a keychain access group,
 /// and this helper's entitlements declare none — so the key the owner's QR code publishes (the main
-/// app's) is not the key this process signs with. That gap is the same class of provisioning
-/// problem as the App Group one, and is recorded alongside it in
-/// `Resources/AnglesiteRemote.entitlements`. Until it is closed, the *only* way a peer can learn
-/// the key this process actually signs with is this Mac's own `DeviceAnnounceRecord` — which
-/// `startPairingObservation(signingKey:pairedDevices:)` publishes with exactly this key.
+/// app's) is not the key this process signs with. That gap is recorded, with the measured reason it
+/// is still open, in `Resources/AnglesiteRemote.entitlements` ▸ step 2. Until it is closed, the
+/// *only* way a peer can learn the key this process actually signs with is this Mac's own
+/// `DeviceAnnounceRecord` — which `startPairingObservation(signingKey:pairedDevices:)` publishes
+/// with exactly this key.
 func helperSigningKey() -> DevicePairingKeyPair {
     // One-line change that closes the gap described above, once both `Anglesite.app` and this
     // helper carry the group in a `keychain-access-groups` entitlement:
@@ -234,10 +234,13 @@ func helperSigningKey() -> DevicePairingKeyPair {
     // Making that swap here *and* in `DevicePairingSettingsView.generateQRCode()` (they must move
     // together — one side alone just relocates the mismatch) makes this process read the very key
     // the QR code publishes, at which point the announce-record workaround documented above stops
-    // being load-bearing. Blocked on the Apple Developer portal capability; checklist in
-    // `Resources/AnglesiteRemote.entitlements` ▸ manual portal step 2. Switching over early is
-    // worse than waiting: SecItem rejects an access group the process isn't entitled to, so this
-    // would fall into the ephemeral-key branch below on every launch.
+    // being load-bearing. Not blocked on an Apple Developer portal capability after all (Keychain
+    // Sharing needs none), but on giving this target a Debug entitlements file that can omit the
+    // group: the entitlement requires a provisioning profile to sign, and this file is also what
+    // the CI-safe ad-hoc Debug build uses. Full finding and checklist in
+    // `Resources/AnglesiteRemote.entitlements` ▸ step 2. Switching over early is worse than
+    // waiting: SecItem rejects an access group the process isn't entitled to, so this would fall
+    // into the ephemeral-key branch below on every launch.
     let keychain = KeychainStore()
     do {
         if let existing = try keychain.readDevicePairingKeyPair() { return existing }
@@ -259,11 +262,13 @@ func helperSigningKey() -> DevicePairingKeyPair {
 ///
 /// Generated once and persisted in this process's own `UserDefaults` domain, mirroring what
 /// `DevicePairingSettingsView.ownDeviceID()` does on the main-app side. **It is not the same
-/// identifier**, for the same reason `helperSigningKey()` is not the same key: `UserDefaults` is
-/// scoped per bundle ID unless the two bundles share a suite, and this helper declares none. That
-/// is the same class of provisioning gap recorded in `Resources/AnglesiteRemote.entitlements`, and
-/// it is why a peer must learn this Mac's *helper* identity from the announce record rather than
-/// from the QR code (see `startPairingObservation(signingKey:pairedDevices:)`).
+/// identifier**, for a reason adjacent to but distinct from why `helperSigningKey()` is not the
+/// same key: `UserDefaults` is scoped per bundle ID unless the two bundles share a *suite*, which
+/// needs the App Group capability recorded in `Resources/AnglesiteRemote.entitlements`. A shared
+/// *keychain access group* would not close this one — different mechanism, different entitlement —
+/// so even after that step lands, a peer must keep learning this Mac's *helper* identity from the
+/// announce record rather than from the QR code (see
+/// `startPairingObservation(signingKey:pairedDevices:)`).
 func helperDeviceID() -> String {
     let defaults = UserDefaults.standard
     let key = "anglesite.remoteHelperDeviceID"
