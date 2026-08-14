@@ -165,6 +165,21 @@ func runSession() async {
         if count >= 6 { FileHandle.standardError.write(Data("control link presumed dead\n".utf8)) }
     })
 
+    // Presence heartbeat writer — writes this device's last reachable time to CloudKit every 15 minutes.
+    // Production save closure wires to CloudKit's `.changedKeys` merge policy so concurrent writes from
+    // a stale prior run don't conflict-fail (task 7 #1208). Tests inject a fake closure.
+    #if canImport(CloudKit)
+    let presenceWriter: PresenceHeartbeatWriter = PresenceHeartbeatWriter(save: { date in
+        let container = CKContainer(identifier: "iCloud.io.dwk.anglesite")
+        let database = container.privateCloudDatabase
+        let record = CKRecord(recordType: "PresenceHeartbeatRecord", recordID: CKRecord.ID(recordName: "presence"))
+        record["lastReachableAt"] = date
+        let (saveResults, _) = try await database.modifyRecords(
+            saving: [record], deleting: [], savePolicy: .changedKeys, atomically: true)
+        for (_, result) in saveResults { _ = try result.get() }
+    })
+    #endif
+
     // A raw C `signal()` handler can't safely call async Swift code (tearDown/peer.close() are
     // actor-isolated), so route SIGTERM through a DispatchSourceSignal instead: it delivers on a
     // normal GCD queue, which is a safe place to kick off a `Task` that closes the peer (letting the
@@ -196,10 +211,18 @@ func runSession() async {
     }
     sigtermSource.resume()
 
+    #if canImport(CloudKit)
+    async let httpTask: Void = httpBridge.run()
+    async let mcpTask: Void = mcpResponder.run()
+    async let heartbeatTask: Void = heartbeat.run()
+    async let presenceTask: Void = presenceWriter.run()
+    _ = await (httpTask, mcpTask, heartbeatTask, presenceTask)
+    #else
     async let httpTask: Void = httpBridge.run()
     async let mcpTask: Void = mcpResponder.run()
     async let heartbeatTask: Void = heartbeat.run()
     _ = await (httpTask, mcpTask, heartbeatTask)
+    #endif
 
     await containerSession.tearDown(siteID: siteID)
     exit(0)
