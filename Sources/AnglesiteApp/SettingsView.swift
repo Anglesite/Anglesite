@@ -289,6 +289,19 @@ private struct ACPAgentEditorSheet: View {
     }
 }
 
+/// Copy and formatting for the "Remote Development Server" section, pulled out of the private
+/// view so it's directly testable (#858) — `Text` can't be introspected, and the view itself is
+/// `private`, so these three literals previously had no test seam at all.
+enum AdvancedSettingsCopy {
+    static let sectionTitle = "Remote Development Server"
+    static let hostPlaceholder = "my-mac.local"
+
+    /// Plain digits, no locale grouping. `Text("\(port)")` interpolates through
+    /// `LocalizedStringKey`, which applies locale grouping to the `Int` (`4321` → `4,321`) — the
+    /// root cause of #858's comma bug. `Text(verbatim:)` with this plain `String` avoids it.
+    static func portPlaceholder(_ port: Int) -> String { String(port) }
+}
+
 /// Development overrides, credentials, and diagnostics — the sharp tools (#529).
 private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.sitesRootOverride) private var sitesRootOverride: String = ""
@@ -296,6 +309,7 @@ private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.lanRuntimeHost) private var lanRuntimeHost: String = ""
     @AppStorage(AppSettings.Key.lanRuntimePreviewPort) private var lanRuntimePreviewPort: String = ""
     @AppStorage(AppSettings.Key.lanRuntimeMCPPort) private var lanRuntimeMCPPort: String = ""
+    @StateObject private var lanScan = LANHostScanCoordinator()
 
     /// Same visibility rule as the Debug pane (`DebugPaneVisibility`): always present in Debug
     /// builds; in Release only after the diagnostics opt-in. The LAN runtime is dev/test
@@ -360,27 +374,30 @@ private struct AdvancedSettingsView: View {
             }
 
             if showsLANRuntimeSection {
-                Section("LAN site runtime") {
+                Section(AdvancedSettingsCopy.sectionTitle) {
                     LabeledContent("Runtime host") {
-                        TextField("", text: $lanRuntimeHost, prompt: Text("mac-studio.local"))
+                        TextField("", text: $lanRuntimeHost, prompt: Text(verbatim: AdvancedSettingsCopy.hostPlaceholder))
                             .textFieldStyle(.roundedBorder)
                             .frame(minWidth: 240)
                             .accessibilityLabel("LAN runtime host")
                     }
                     LabeledContent("Preview port") {
                         TextField("", text: $lanRuntimePreviewPort,
-                                  prompt: Text("\(LANRuntimeConfiguration.defaultPreviewPort)"))
+                                  prompt: Text(verbatim: AdvancedSettingsCopy.portPlaceholder(LANRuntimeConfiguration.defaultPreviewPort)))
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 100)
                             .accessibilityLabel("LAN runtime preview port")
                     }
                     LabeledContent("MCP port") {
                         TextField("", text: $lanRuntimeMCPPort,
-                                  prompt: Text("\(LANRuntimeConfiguration.defaultMCPPort)"))
+                                  prompt: Text(verbatim: AdvancedSettingsCopy.portPlaceholder(LANRuntimeConfiguration.defaultMCPPort)))
                             .textFieldStyle(.roundedBorder)
                             .frame(width: 100)
                             .accessibilityLabel("LAN runtime MCP port")
                     }
+
+                    lanDiscoveryControls
+
                     Text("Dev/test only: when this Mac can't boot the local container runtime (e.g. inside a VM without nested virtualization), Anglesite connects preview and editing to a dev server already running on the named host over the trusted local network. Leave the host blank to disable. Takes effect the next time a site window opens.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
@@ -402,6 +419,50 @@ private struct AdvancedSettingsView: View {
         }
         .formStyle(.grouped)
         .padding()
+    }
+
+    @ViewBuilder
+    private var lanDiscoveryControls: some View {
+        Button {
+            lanScan.startScan()
+        } label: {
+            if lanScan.state == .scanning {
+                ProgressView().controlSize(.small)
+            } else {
+                Text("Find on local network")
+            }
+        }
+        .disabled(lanScan.state == .scanning)
+        .accessibilityLabel("Find LAN runtime hosts on local network")
+        .onChange(of: lanScan.state) { _, newState in
+            if case .result(.autoPopulate(let host)) = newState {
+                apply(host)
+            }
+        }
+
+        switch lanScan.state {
+        case .result(.chooseFrom(let hosts)):
+            ForEach(Array(hosts.enumerated()), id: \.offset) { _, host in
+                Button {
+                    apply(host)
+                } label: {
+                    Text("\(host.dnsName) — \(host.ipAddress) — \(host.siteName)")
+                }
+                .buttonStyle(.plain)
+            }
+        case .result(.empty):
+            Text("No anglesite-lan-host instances found on the local network.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        case .idle, .scanning, .result(.autoPopulate):
+            EmptyView()
+        }
+    }
+
+    private func apply(_ host: DiscoveredLANHost) {
+        lanRuntimeHost = host.dnsName
+        lanRuntimePreviewPort = String(host.previewPort)
+        lanRuntimeMCPPort = String(host.mcpPort)
     }
 }
 

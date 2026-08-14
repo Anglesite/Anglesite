@@ -11,4 +11,4 @@
 # `swift test --filter`/`--skip`, confirmed via `swift test --help`: no tag-based
 # filtering exists in this toolchain). Each name below was checked for accidental
 # substring collisions against every other suite in Tests/.
-export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests'
+export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LANHostScanCoordinatorTests'
