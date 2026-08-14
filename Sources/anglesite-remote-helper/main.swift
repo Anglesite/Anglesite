@@ -224,7 +224,9 @@ func helperApplicationSupportDirectory() -> URL {
 /// and this helper's entitlements declare none — so the key the owner's QR code publishes (the main
 /// app's) is not the key this process signs with. That gap is the same class of provisioning
 /// problem as the App Group one, and is recorded alongside it in
-/// `Resources/AnglesiteRemote.entitlements`.
+/// `Resources/AnglesiteRemote.entitlements`. Until it is closed, the *only* way a peer can learn
+/// the key this process actually signs with is this Mac's own `DeviceAnnounceRecord` — which
+/// `startPairingObservation(signingKey:pairedDevices:)` publishes with exactly this key.
 func helperSigningKey() -> DevicePairingKeyPair {
     let keychain = KeychainStore()
     do {
@@ -241,6 +243,156 @@ func helperSigningKey() -> DevicePairingKeyPair {
         return DevicePairingKeyPair()
     }
 }
+
+/// This helper's own stable device identifier — the record name its `DeviceAnnounceRecord` is
+/// published under, and the string a peer uses to tell this Mac's announce apart from its own.
+///
+/// Generated once and persisted in this process's own `UserDefaults` domain, mirroring what
+/// `DevicePairingSettingsView.ownDeviceID()` does on the main-app side. **It is not the same
+/// identifier**, for the same reason `helperSigningKey()` is not the same key: `UserDefaults` is
+/// scoped per bundle ID unless the two bundles share a suite, and this helper declares none. That
+/// is the same class of provisioning gap recorded in `Resources/AnglesiteRemote.entitlements`, and
+/// it is why a peer must learn this Mac's *helper* identity from the announce record rather than
+/// from the QR code (see `startPairingObservation(signingKey:pairedDevices:)`).
+func helperDeviceID() -> String {
+    let defaults = UserDefaults.standard
+    let key = "anglesite.remoteHelperDeviceID"
+    if let existing = defaults.string(forKey: key), !existing.isEmpty { return existing }
+    let fresh = UUID().uuidString
+    defaults.set(fresh, forKey: key)
+    return fresh
+}
+
+/// The owner-facing name this Mac announces itself under, shown in the phone's paired-device list.
+func helperDisplayName() -> String {
+    Host.current().localizedName ?? "Mac"
+}
+
+// MARK: - Pairing observation
+
+#if canImport(CloudKit)
+/// Publishes this Mac's own `DeviceAnnounceRecord` and pins every *other* device that announces
+/// itself — the Mac-side half of the design spec's pairing flow (§Data flow ▸ Pairing, step 3:
+/// "the helper … picks up the new record, pins the phone's public key into `PairedDeviceStore`,
+/// and writes its own `DeviceAnnounceRecord` back").
+///
+/// - Returns: whether observation actually started. `false` on a build with no CloudKit
+///   entitlement, which is every build this repo produces today — see
+///   `processCarriesCloudKitEntitlement(containerIdentifier:)`. The caller uses this to decide
+///   whether waiting for a device to become paired could ever succeed.
+///
+/// ## Why this is trust-on-first-use, and why that is the accepted design
+///
+/// Nothing here checks an announce against a scanned QR payload, because on the Mac side there is
+/// nothing to check it against: the QR only ever flows Mac → phone. The design spec accepts that
+/// explicitly — the announce lands in the **owner's own private CloudKit database**, so writing one
+/// already requires the owner's Apple ID. iCloud is the mailbox; the QR is the trust root for the
+/// *phone's* view of this Mac, not for this Mac's view of the phone.
+///
+/// ## The one place this deliberately refuses what the spec's literal wording allows
+///
+/// A `deviceID` that is *already* pinned with a **different** public key is **not** re-pinned. The
+/// spec's wording ("pins the phone's public key") doesn't distinguish first pin from re-pin, but
+/// silently accepting a rotated key would make an announce a key-replacement primitive: anything
+/// that could write one record could take over an established pairing without the owner ever
+/// revoking it. Refusing (loudly) leaves the owner in charge — Revoke, then pair again — and the
+/// failure direction is a session that won't open rather than one that opens to the wrong peer.
+///
+/// ## Lifetime
+///
+/// The observation `Task` captures `service` strongly and never finishes on its own, which is what
+/// keeps the actor (and therefore its poll loop and its `CKQuerySubscription`) alive for the life
+/// of the process. `PairingServiceBox.shared` additionally holds it so
+/// `HelperAppDelegate`'s `application(_:didReceiveRemoteNotification:)` can hand pushes back to it —
+/// push is the latency optimization; the poll loop is the correctness floor (see
+/// `CloudKitPairingService`'s own doc comment).
+@discardableResult
+func startPairingObservation(signingKey: DevicePairingKeyPair, pairedDevices: PairedDeviceStore) -> Bool {
+    guard processCarriesCloudKitEntitlement(containerIdentifier: anglesiteCloudKitContainerIdentifier) else {
+        helperLog("""
+            pairing observation is off: this build's code signature does not carry the \
+            \(anglesiteCloudKitContainerIdentifier) CloudKit entitlement (see \
+            Resources/AnglesiteRemote.entitlements). Only a device whose key is already pinned in \
+            paired-devices.json can open a session with this Mac.
+            """)
+        return false
+    }
+    let service = CloudKitPairingService(
+        container: CKContainer(identifier: anglesiteCloudKitContainerIdentifier))
+    PairingServiceBox.shared.service = service
+    let ownDeviceID = helperDeviceID()
+    let publicKeyData = signingKey.publicKeyData
+    let displayName = helperDisplayName()
+    Task {
+        do {
+            try await service.announce(
+                deviceID: ownDeviceID, publicKeyData: publicKeyData, displayName: displayName)
+            // Deliberately stable and parseable: this is how a peer that never saw this Mac's QR
+            // code (the P2 two-process harness, and any peer hitting the helper-key gap recorded
+            // on `helperSigningKey()`) learns which announce record carries the key this process
+            // actually signs with.
+            helperLog("announced this Mac as device \(ownDeviceID) (\(displayName))")
+        } catch {
+            helperLog("""
+                could not announce this Mac (\(error)); a peer that has not already pinned this \
+                Mac's key has no way to verify the envelopes this process signs
+                """)
+        }
+        for await announce in service.announcedDevices() where announce.deviceID != ownDeviceID {
+            pinAnnouncedDevice(announce, into: pairedDevices)
+        }
+    }
+    return true
+}
+
+/// Records one observed announce in `pairedDevices`, or explains why it wasn't. See
+/// `startPairingObservation(signingKey:pairedDevices:)` for the trust model this implements.
+func pinAnnouncedDevice(_ announce: DeviceAnnounceRecord, into pairedDevices: PairedDeviceStore) {
+    do {
+        if let existing = try pairedDevices.device(deviceID: announce.deviceID) {
+            guard existing.pinnedPublicKey != announce.publicKeyData else { return }
+            helperLog("""
+                device \(announce.deviceID) (\(existing.displayName)) announced a different public \
+                key than the one already pinned for it — refusing to replace it. If this was you, \
+                revoke the device in Anglesite ▸ Settings ▸ iPhone/iPad and pair it again.
+                """)
+            return
+        }
+        try pairedDevices.add(PairedDevice(
+            deviceID: announce.deviceID, displayName: announce.displayName,
+            pinnedPublicKey: announce.publicKeyData, pairedAt: Date()))
+        helperLog("pinned newly announced device \(announce.deviceID) (\(announce.displayName))")
+    } catch {
+        helperLog("could not pin announced device \(announce.deviceID): \(error)")
+    }
+}
+
+/// Hands the live `CloudKitPairingService` to the `NSApplicationDelegate`, which is the only
+/// place a CloudKit push is delivered and is not otherwise on speaking terms with the session task
+/// that built the service.
+///
+/// `@unchecked Sendable`: the single stored property is guarded by `lock`. A global rather than a
+/// delegate property because `startPairingObservation` runs off the main actor, inside `runSession`.
+final class PairingServiceBox: @unchecked Sendable {
+    static let shared = PairingServiceBox()
+    private let lock = NSLock()
+    private var stored: CloudKitPairingService?
+
+    var service: CloudKitPairingService? {
+        get { lock.withLock { stored } }
+        set { lock.withLock { stored = newValue } }
+    }
+}
+#endif
+
+/// How long a `connect` waits for the requested device's announce to land before refusing.
+///
+/// A connect request and the announce that pairs the device can legitimately race: a freshly
+/// scanned phone writes both, and CloudKit orders neither. Waiting is only ever attempted when
+/// pairing observation actually started (see `startPairingObservation(signingKey:pairedDevices:)`);
+/// on a build that cannot observe announces at all, an unpaired device is still refused instantly,
+/// because no amount of waiting could change the answer.
+let pairingWaitTimeout: Duration = .seconds(90)
 
 /// How many times the grant panel is re-shown after the owner picks the wrong site. Two, not one:
 /// the first mismatch is an honest mistake worth a second try with an explanation, and an owner who
@@ -309,28 +461,69 @@ let siteAccessPanelAttemptLimit = 2
     return nil
 }
 
-/// Builds the production session plan, or exits with an owner-facing reason.
+/// Waits (bounded by `timeout`) for `deviceID` to appear in `pairedDevices`, or exits with an
+/// owner-facing reason. A `timeout` of `.zero` degenerates to the single immediate lookup this
+/// used to do, which is exactly what a build that cannot observe announces should still do.
 ///
-/// Order matters: the pinned-key lookup happens *first*, so an unpaired device is refused before
-/// this process resolves a file grant or boots a VM for it (design spec §Error handling — "refused
-/// at channel-construction time", and the flow's step 1 sits ahead of everything else).
-func makeCloudKitSessionPlan(
-    sessionID: String, deviceID: String, siteID: String, expectedPackageURL: URL
-) async -> SessionPlan {
-    let pairedDevices = PairedDeviceStore()
-    let pinned: PairedDevice
-    do {
-        guard let device = try pairedDevices.device(deviceID: deviceID) else {
+/// Polls rather than observing the store: `PairedDeviceStore` is a plain JSON file with no change
+/// notification (by design — it is touched at pairing events and Settings edits, not in a loop),
+/// and the writer here is a task in this same process, so a one-second poll is both sufficient and
+/// simpler than inventing a notification seam for one call site.
+func awaitPairedDevice(
+    deviceID: String, in pairedDevices: PairedDeviceStore, sessionID: String, timeout: Duration
+) async -> PairedDevice {
+    let deadline = ContinuousClock.now.advanced(by: timeout)
+    var announcedWaiting = false
+    while true {
+        do {
+            if let device = try pairedDevices.device(deviceID: deviceID) { return device }
+        } catch {
+            die("refusing session \(sessionID): could not read this Mac's paired devices: \(error)")
+        }
+        guard ContinuousClock.now < deadline else {
             die("""
                 refusing session \(sessionID): device \(deviceID) is not paired with this Mac, so \
                 there is no pinned key to verify it against. Pair it first from Anglesite ▸ \
                 Settings ▸ iPhone/iPad.
                 """)
         }
-        pinned = device
-    } catch {
-        die("refusing session \(sessionID): could not read this Mac's paired devices: \(error)")
+        if !announcedWaiting {
+            announcedWaiting = true
+            helperLog("device \(deviceID) is not paired yet; waiting for its announce")
+        }
+        try? await Task.sleep(for: .seconds(1))
     }
+}
+
+/// Builds the production session plan, or exits with an owner-facing reason.
+///
+/// Order matters: the pinned-key lookup happens *first*, so an unpaired device is refused before
+/// this process resolves a file grant or boots a VM for it (design spec §Error handling — "refused
+/// at channel-construction time", and the flow's step 1 sits ahead of everything else).
+///
+/// Pairing observation starts just ahead of that lookup rather than after it: on the design spec's
+/// own flow the announce that pairs a device and the connect request that uses it can arrive in
+/// either order, so this process has to be listening before it decides the device is unknown.
+func makeCloudKitSessionPlan(
+    sessionID: String, deviceID: String, siteID: String, expectedPackageURL: URL
+) async -> SessionPlan {
+    // Resolved once, up front, and deliberately not lazily: the same key must both sign this Mac's
+    // announce and sign its signaling envelopes, and `helperSigningKey()`'s error path mints a
+    // *fresh ephemeral* key — so two calls could publish one key and sign with another, which is
+    // strictly worse than the (idempotent, first-use-only) Keychain touch this costs on the
+    // refusal path below.
+    let signingKey = helperSigningKey()
+    let pairedDevices = PairedDeviceStore()
+
+    // `false` (today, on every build this repo produces) means no announce can ever arrive, so an
+    // unpaired device is refused immediately instead of stalling for `pairingWaitTimeout` first.
+    var pairingIsObservable = false
+    #if canImport(CloudKit)
+    pairingIsObservable = startPairingObservation(signingKey: signingKey, pairedDevices: pairedDevices)
+    #endif
+    let pinned = await awaitPairedDevice(
+        deviceID: deviceID, in: pairedDevices, sessionID: sessionID,
+        timeout: pairingIsObservable ? pairingWaitTimeout : .zero)
     helperLog("device \(deviceID) (\(pinned.displayName)) is paired; its key is pinned")
 
     let resolver = RemoteSiteResolver(
@@ -354,7 +547,6 @@ func makeCloudKitSessionPlan(
     }
     helperLog("resolved site \(siteID) to \(siteRoot.path)")
 
-    let signingKey = helperSigningKey()
     let pinnedPublicKey = pinned.pinnedPublicKey
     return SessionPlan(siteID: siteID, siteRoot: siteRoot, makeSignalingChannel: {
         SignedSignalingChannel(
@@ -419,29 +611,33 @@ final class HelperAppDelegate: NSObject, NSApplicationDelegate {
         // so there is nothing to call back and the handler must return promptly.
         //
         // Routing: this is the seam where a CloudKit push reaches whichever service is listening.
-        // The push is still only logged, and after Task 9 that is accurate rather than pending:
         //
-        // - `CloudKitSignalingChannel` *is* now constructed by this process (see
+        // - `CloudKitPairingService` owns the only subscription in this epic, and (as of #1208 P2
+        //   Task 10) this process does construct one — see `startPairingObservation`. Its
+        //   `handleRemoteNotification(_:)` claims the payload if the push is for its subscription
+        //   and kicks off an immediate re-query, which is the whole point of this helper being a
+        //   faceless *app*: APNs can wake it when a peer announces itself. It is a latency
+        //   optimization over the service's own poll loop, never a correctness requirement.
+        // - `CloudKitSignalingChannel` is also constructed by this process (see
         //   `makeSignalingTransport(sessionID:)`), but it deliberately registers no subscription
         //   and polls only — its own doc comment explains why (a signaling session is seconds
         //   long, and a per-session subscription would leave server-side litter). So there is no
         //   signaling push to route.
-        // - `CloudKitPairingService`, which owns the only subscription in this epic, is *not*
-        //   constructed here: it observes device announces, and deciding that an announce is
-        //   trustworthy (matching a scanned QR payload) is the pairing flow's job, not this
-        //   session loop's. Auto-pinning whatever announced itself would quietly turn the design
-        //   spec's QR trust root into trust-on-first-use.
         //
-        // The consequence, stated rather than hidden: nothing in this process wakes an idle
-        // helper for a plain *reconnect* from an already-paired device. The helper has to already
-        // be running (login item) for a session to be served. Closing that gap needs a wake
-        // trigger this phase does not define.
+        // The consequence, stated rather than hidden: a push only reaches the pairing service if
+        // one exists, and one is built inside `makeCloudKitSessionPlan` — i.e. only once a
+        // `connect` invocation is already under way. Nothing in this process wakes an idle helper
+        // for a plain *reconnect* from an already-paired device. The helper has to already be
+        // running (login item) for a session to be served. Closing that gap needs a wake trigger
+        // this phase does not define.
         #if canImport(CloudKit)
         let subscriptionID = CKNotification(fromRemoteNotificationDictionary: userInfo)?.subscriptionID
+        let claimed = PairingServiceBox.shared.service?.handleRemoteNotification(userInfo) ?? false
         #else
         let subscriptionID: String? = nil
+        let claimed = false
         #endif
-        helperLog("CloudKit push received (subscription \(subscriptionID ?? "unknown"))")
+        helperLog("CloudKit push received (subscription \(subscriptionID ?? "unknown"), routed: \(claimed))")
     }
 
     func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
