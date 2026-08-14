@@ -10,18 +10,22 @@ import ServiceManagement
 #if canImport(CloudKit)
 import CloudKit
 #endif
+#if canImport(Security)
+import Security
+#endif
 
 // Anywhere runtime (#1208 P1) helper entry point: `anglesite-remote-helper session <signal-dir>
 // <site-root>` accepts one P2P session over file signaling (matching P0's `anglesite-p2p-demo
 // host` invocation shape), boots/reuses the site's container, and bridges the fetch, MCP, and
 // control-heartbeat channels until the connection closes or the process receives SIGTERM.
 //
-// Site discovery is deliberately out of scope here: P1 does not solve cross-sandbox site
-// discovery (see the plan's Global Constraint), so this entry point takes the site's `Source/`
-// directory directly as a CLI argument, matching how P0's own `anglesite-p2p-demo` took
-// `<site-root>` as an argument rather than solving discovery. `RemoteSiteResolver` (Task 6) is
-// for the real production flow — resolving a siteID sent over CloudKit signaling — and is not
-// wired in here.
+// Anywhere runtime (#1208 P2) addition: a second, production invocation —
+// `anglesite-remote-helper connect <session-id> <device-id> <site-id> [<expected-package-path>]`
+// — which addresses a site by its *identity* rather than by a host filesystem path, refuses any
+// device whose key this Mac has not pinned, and runs the handshake over a signed signaling channel
+// (CloudKit-backed on a build entitled for it, a helper-local mailbox otherwise — see
+// `makeSignalingTransport(sessionID:)`). See `HelperInvocation` for the two shapes and why P1's
+// stays.
 
 // Anywhere runtime (#1208 P2) addition: a real `NSApplication` run loop. P2 adds the run loop
 // this file never had in P1 — a real gap: the design spec's own rationale for the helper being
@@ -38,6 +42,318 @@ import CloudKit
 func die(_ message: String) -> Never {
     FileHandle.standardError.write(Data((message + "\n").utf8))
     exit(1)
+}
+
+/// Writes one line to this process's own log sink. Every branch below that degrades, refuses, or
+/// falls back goes through here rather than failing quietly — "logs are sacred" (CLAUDE.md), and a
+/// helper that silently downgraded its own signaling transport is exactly the kind of thing that
+/// reads to an owner as "P2P is just broken".
+func helperLog(_ message: String) {
+    FileHandle.standardError.write(Data(("remote-helper: " + message + "\n").utf8))
+}
+
+// MARK: - CloudKit availability
+
+/// The CloudKit container the whole Anywhere-runtime epic shares with iCloud Drive site storage
+/// (design spec §Additional scope decisions: one container, one entitlement to manage).
+let anglesiteCloudKitContainerIdentifier = "iCloud.io.dwk.anglesite"
+
+/// Whether **this** process's own code signature actually carries the CloudKit capability for
+/// `containerIdentifier` — answered by reading the process's entitlements directly, without
+/// touching a single CloudKit API.
+///
+/// ## Why this check has to exist, and why it cannot be a `do`/`catch`
+///
+/// `CKContainer(identifier:)` does not throw, fail, or return `nil` on a binary that lacks the
+/// CloudKit entitlement: it **traps the process** — SIGTRAP, no catchable Swift error, no crash
+/// report, nothing after the call ever runs. That is documented in `CloudKitPairingService` and
+/// `CloudKitSignalingChannel` (both of which had to grow an offline seam because of it), and it is
+/// re-confirmed empirically for this task: a probe binary built against this SDK printed its
+/// pre-flight line and then died with exit status 133 (128 + SIGTRAP) on the construction line,
+/// both as a bare executable and inside a sandboxed `.app` bundle matching this helper's own
+/// shape. The entitlement is **not provisioned in this repo today** (see
+/// `Resources/AnglesiteRemote.entitlements`' own comment block — it needs an Apple Developer
+/// portal change on Team `KH7H8Y25RT`), so an unconditional live construction here would crash the
+/// helper on every single P2P session.
+///
+/// ## Why `SecTask` is safe to ask
+///
+/// `SecTaskCreateFromSelf` + `SecTaskCopyValueForEntitlement` read the entitlement dictionary out
+/// of the running process's own code signature. They are Security.framework calls with no CloudKit
+/// linkage whatsoever, so they cannot reach the trapping path no matter what the answer turns out
+/// to be. Verified against this SDK in the helper's real deployment shape (a sandboxed, ad-hoc
+/// signed `.app`): absent entitlements read back as `nil` and the process exits 0, an array-valued
+/// entitlement bridges cleanly to `[String]`, and a boolean one reads back as `1`.
+///
+/// ## Why both keys are required
+///
+/// `com.apple.developer.icloud-container-identifiers` must *contain this container* (an
+/// entitlement listing some other container does not make `CKContainer(identifier:)` safe for
+/// ours), and `com.apple.developer.icloud-services` must contain `CloudKit` (the main app's
+/// entitlements list only `CloudDocuments` today — enough for iCloud Drive site storage, not for
+/// CloudKit). Requiring both makes the only reachable error a **false negative**, which degrades
+/// to local signaling; a false positive would be a process abort.
+///
+/// A false positive is also not reachable by lying in an ad-hoc signature: this SDK's AMFI kills
+/// (SIGKILL, exit 137) any locally-signed binary that claims a `com.apple.developer.*` entitlement
+/// without a matching provisioning profile, so a *running* process that reports one necessarily
+/// had it validated. That was confirmed by the same probe run.
+func processCarriesCloudKitEntitlement(containerIdentifier: String) -> Bool {
+    #if canImport(Security)
+    guard let task = SecTaskCreateFromSelf(nil) else {
+        helperLog("could not read this process's own entitlements; assuming CloudKit is unavailable")
+        return false
+    }
+    let containers = SecTaskCopyValueForEntitlement(
+        task, "com.apple.developer.icloud-container-identifiers" as CFString, nil) as? [String]
+    guard containers?.contains(containerIdentifier) == true else { return false }
+    let services = SecTaskCopyValueForEntitlement(
+        task, "com.apple.developer.icloud-services" as CFString, nil) as? [String]
+    return services?.contains("CloudKit") == true
+    #else
+    return false
+    #endif
+}
+
+// MARK: - Invocation
+
+/// How this launch of the helper was asked to run one session.
+///
+/// Two shapes, deliberately — P1's is kept rather than replaced. `HelperContainerE2ETests` (the P1
+/// exit criterion) spawns the helper with the `session` shape and drives the handshake through a
+/// shared directory, which needs no pairing, no iCloud account, and no entitlement; deleting it to
+/// make room for the production shape would trade a working end-to-end proof for nothing.
+enum HelperInvocation {
+    /// P1's local-only entry point: the site arrives as a host filesystem path and signaling runs
+    /// through a shared directory, unsigned. Test/dev infra — `FileSignalingChannel`'s own doc
+    /// comment says as much.
+    case fileSignaling(signalDirectory: URL, siteRoot: URL)
+
+    /// The production shape. Nothing here is a host path: the site is named by its
+    /// `RemoteSiteIdentity` key and resolved through `RemoteSiteResolver` (bookmark or iCloud
+    /// container), and the peer is named by its `deviceID`, whose signing key must already be
+    /// pinned in `PairedDeviceStore` or the session is refused before anything opens.
+    ///
+    /// - `sessionID` scopes the signaling records so concurrent unrelated sessions in the same
+    ///   private database never cross-deliver (`CloudKitSignalingChannel`'s own contract). Both
+    ///   peers must agree on it out of band, which is why it is an input rather than something
+    ///   this process invents.
+    /// - `expectedPackageURL` only pre-targets the access-grant panel — best-effort UX, not a
+    ///   security check (`RemoteSiteResolver.resolveSourceDirectory` says so itself). It is
+    ///   optional for exactly that reason; see `defaultExpectedPackageURL(siteID:)`.
+    case cloudKit(sessionID: String, deviceID: String, siteID: String, expectedPackageURL: URL)
+
+    static let usage = """
+        usage:
+          anglesite-remote-helper session <signal-dir> <site-root>
+          anglesite-remote-helper connect <session-id> <device-id> <site-id> [<expected-package-path>]
+        """
+
+    /// Parses `arguments` (a full `CommandLine.arguments`, argv[0] included). `nil` for anything
+    /// that doesn't match one of the two shapes — the caller turns that into `usage`.
+    static func parse(_ arguments: [String]) -> HelperInvocation? {
+        guard arguments.count >= 2 else { return nil }
+        switch arguments[1] {
+        case "session" where arguments.count == 4:
+            return .fileSignaling(
+                signalDirectory: URL(fileURLWithPath: arguments[2], isDirectory: true),
+                siteRoot: URL(fileURLWithPath: arguments[3], isDirectory: true))
+        case "connect" where arguments.count == 5 || arguments.count == 6:
+            let siteID = arguments[4]
+            let expectedPackageURL = arguments.count == 6
+                ? URL(fileURLWithPath: arguments[5], isDirectory: true)
+                : defaultExpectedPackageURL(siteID: siteID)
+            return .cloudKit(
+                sessionID: arguments[2], deviceID: arguments[3], siteID: siteID,
+                expectedPackageURL: expectedPackageURL)
+        default:
+            return nil
+        }
+    }
+
+    /// Where to point the access-grant panel when the caller didn't say.
+    ///
+    /// A siteID is a package marker UUID (or a path digest — see `RemoteSiteIdentity`), so there is
+    /// no way to *derive* the real package path from it; this is only a starting directory for the
+    /// panel. It deliberately points under `~/Sites` (the non-iCloud fallback root, per
+    /// `AppSettings.sitesRoot`) rather than at the iCloud container: a URL inside the ubiquity
+    /// container would match `RemoteSiteResolver`'s iCloud fast path and make it return a
+    /// confidently wrong `Source/` directory that never existed, instead of asking.
+    static func defaultExpectedPackageURL(siteID: String) -> URL {
+        FileManager.default.portableHomeDirectory
+            .appendingPathComponent("Sites", isDirectory: true)
+            .appendingPathComponent("\(siteID).anglesite", isDirectory: true)
+    }
+}
+
+/// Everything one session needs that differs between the two invocation shapes, resolved before
+/// the (minutes-long) container boot so a refusal costs nothing.
+struct SessionPlan {
+    /// The `RemoteSessionRegistry`/container-artifact key for this site.
+    let siteID: String
+    /// The site's `Source/` git repo on this host — supplied directly on the P1 path, resolved
+    /// from `siteID` through `RemoteSiteResolver` on the production path.
+    let siteRoot: URL
+    /// Builds the channel `WebRTCPeer` will drive. Deferred behind a closure rather than built up
+    /// front because constructing one starts reading the transport immediately —
+    /// `SignedSignalingChannel` spins up its verifying forwarding task in `init`, which pulls
+    /// `envelopes()` and so starts the inner channel's poll loop right there — and the container
+    /// boot that sits between plan-building and `WebRTCPeer.connect` legitimately costs minutes.
+    let makeSignalingChannel: @Sendable () -> any SignalingChannel
+}
+
+// MARK: - Building the production session plan
+
+/// This helper's own `Application Support` directory. Under the sandbox this is the *helper's*
+/// container, not the main app's — the same cross-bundle boundary `RemoteSessionRegistry` already
+/// documents, and the reason `RemoteSiteResolver` keeps its own bookmark store rather than reading
+/// the app's `recents.json`.
+func helperApplicationSupportDirectory() -> URL {
+    let base = (try? FileManager.default.url(
+        for: .applicationSupportDirectory, in: .userDomainMask, appropriateFor: nil, create: true))
+        ?? FileManager.default.portableHomeDirectory
+            .appendingPathComponent("Library/Application Support", isDirectory: true)
+    return base.appendingPathComponent("Anglesite", isDirectory: true)
+}
+
+/// This device's own signing identity, used to sign every outbound signaling payload.
+///
+/// Generated and Keychain-persisted on first use, mirroring what the Settings pane
+/// (`DevicePairingSettingsView`) does on the main-app side. **The two are not the same key today**:
+/// Keychain items are scoped per bundle ID unless the two bundles share a keychain access group,
+/// and this helper's entitlements declare none — so the key the owner's QR code publishes (the main
+/// app's) is not the key this process signs with. That gap is the same class of provisioning
+/// problem as the App Group one, and is recorded alongside it in
+/// `Resources/AnglesiteRemote.entitlements`.
+func helperSigningKey() -> DevicePairingKeyPair {
+    let keychain = KeychainStore()
+    do {
+        if let existing = try keychain.readDevicePairingKeyPair() { return existing }
+        let fresh = DevicePairingKeyPair()
+        try keychain.writeDevicePairingKeyPair(fresh)
+        helperLog("generated this helper's device pairing key")
+        return fresh
+    } catch {
+        // An ephemeral key still signs correctly for the life of this session; it just won't match
+        // anything a peer pinned earlier, so the peer will drop our envelopes and the handshake
+        // will stall. Loud, not silent, for exactly that reason.
+        helperLog("device pairing key unavailable (\(error)); using an ephemeral key — a peer that pinned an earlier key will reject this session")
+        return DevicePairingKeyPair()
+    }
+}
+
+/// Shows the one-time access-grant panel for a site this helper has no bookmark for.
+///
+/// This is `RemoteSiteResolver`'s documented production `presentOpenPanel`, and it is only
+/// possible at all because the helper now runs a real `NSApplication` (#1208 P2 Task 1) — a bare
+/// LaunchAgent could not put a panel on screen. Mirrors `SiteActions.reauthorize`'s panel
+/// configuration exactly (`.anglesiteSite` content type, packages opaque, "Grant Access" prompt),
+/// with a message phrased about the consequence to the owner's site rather than about bookmarks or
+/// sandboxing ("the app advises; it does not delegate the decision", CLAUDE.md).
+@Sendable func presentSiteAccessPanel(for expectedPackageURL: URL) async -> URL? {
+    await MainActor.run {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.anglesiteSite]
+        panel.treatsFilePackagesAsDirectories = false
+        panel.allowsMultipleSelection = false
+        panel.directoryURL = expectedPackageURL.deletingLastPathComponent()
+        panel.prompt = String(localized: "Grant Access")
+        panel.message = String(
+            localized: "Locate this site so it can be edited from your iPhone or iPad while this Mac is unattended."
+        )
+        // A faceless (`LSUIElement`) helper is not the front app, so its panel would otherwise open
+        // behind whatever the owner is actually looking at.
+        NSApplication.shared.activate(ignoringOtherApps: true)
+        guard panel.runModal() == .OK else { return nil }
+        return panel.url
+    }
+}
+
+/// Builds the production session plan, or exits with an owner-facing reason.
+///
+/// Order matters: the pinned-key lookup happens *first*, so an unpaired device is refused before
+/// this process resolves a file grant or boots a VM for it (design spec §Error handling — "refused
+/// at channel-construction time", and the flow's step 1 sits ahead of everything else).
+func makeCloudKitSessionPlan(
+    sessionID: String, deviceID: String, siteID: String, expectedPackageURL: URL
+) async -> SessionPlan {
+    let pairedDevices = PairedDeviceStore()
+    let pinned: PairedDevice
+    do {
+        guard let device = try pairedDevices.device(deviceID: deviceID) else {
+            die("""
+                refusing session \(sessionID): device \(deviceID) is not paired with this Mac, so \
+                there is no pinned key to verify it against. Pair it first from Anglesite ▸ \
+                Settings ▸ iPhone/iPad.
+                """)
+        }
+        pinned = device
+    } catch {
+        die("refusing session \(sessionID): could not read this Mac's paired devices: \(error)")
+    }
+    helperLog("device \(deviceID) (\(pinned.displayName)) is paired; its key is pinned")
+
+    let resolver = RemoteSiteResolver(
+        bookmarkStore: RemoteBookmarkStore(
+            fileURL: helperApplicationSupportDirectory()
+                .appendingPathComponent("remote-site-bookmarks.json")),
+        bookmarking: PlatformSecurityScopedBookmark.make(),
+        presentOpenPanel: presentSiteAccessPanel)
+    let siteRoot: URL
+    do {
+        siteRoot = try await resolver.resolveSourceDirectory(
+            siteID: siteID, expectedPackageURL: expectedPackageURL)
+    } catch {
+        die("refusing session \(sessionID): this Mac has no access to site \(siteID): \(error)")
+    }
+    helperLog("resolved site \(siteID) to \(siteRoot.path)")
+
+    let signingKey = helperSigningKey()
+    let pinnedPublicKey = pinned.pinnedPublicKey
+    return SessionPlan(siteID: siteID, siteRoot: siteRoot, makeSignalingChannel: {
+        SignedSignalingChannel(
+            wrapping: makeSignalingTransport(sessionID: sessionID),
+            signingKey: signingKey, peerPublicKey: pinnedPublicKey,
+            onLog: { helperLog("signaling: \($0)") })
+    })
+}
+
+/// The transport `SignedSignalingChannel` wraps on the production path: real CloudKit when this
+/// binary is actually entitled for it, and a helper-local directory mailbox when it is not.
+///
+/// The fallback is a deliberate, precedented degradation rather than a hard failure — it is the
+/// same shape P1 already uses for `RemoteSessionRegistry` when the App Group isn't provisioned. It
+/// costs cross-network rendezvous (both peers must be processes on this Mac, which is exactly what
+/// P2's own two-Mac-process exit criterion is), and it costs nothing else: the signing and
+/// key-pinning layer above it is live either way, so the security half of this task is genuinely
+/// exercised on a build with no CloudKit entitlement at all.
+@Sendable func makeSignalingTransport(sessionID: String) -> any SignalingChannel {
+    #if canImport(CloudKit)
+    if processCarriesCloudKitEntitlement(containerIdentifier: anglesiteCloudKitContainerIdentifier) {
+        helperLog("signaling over CloudKit container \(anglesiteCloudKitContainerIdentifier) (session \(sessionID))")
+        return CloudKitSignalingChannel(
+            container: CKContainer(identifier: anglesiteCloudKitContainerIdentifier),
+            sessionID: sessionID, sender: "helper")
+    }
+    #endif
+    let directory = FileManager.default.temporaryDirectory
+        .appendingPathComponent("anglesite-remote-signaling", isDirectory: true)
+        .appendingPathComponent(sessionID, isDirectory: true)
+    helperLog("""
+        CloudKit is not available to this build — its code signature does not carry the \
+        \(anglesiteCloudKitContainerIdentifier) CloudKit entitlement (an Apple Developer portal \
+        step this repo has not taken yet; see Resources/AnglesiteRemote.entitlements). Falling \
+        back to local directory signaling at \(directory.path): signing and key pinning still \
+        apply, but only a peer running on this Mac can reach this session.
+        """)
+    do {
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+    } catch {
+        helperLog("local signaling directory creation failed: \(error)")
+    }
+    return FileSignalingChannel(directory: directory, sender: "helper")
 }
 
 @MainActor
@@ -58,26 +374,36 @@ final class HelperAppDelegate: NSObject, NSApplicationDelegate {
         // (that is UIKit's `application(_:didReceiveRemoteNotification:fetchCompletionHandler:)`),
         // so there is nothing to call back and the handler must return promptly.
         //
-        // Routing: this is the seam where a CloudKit push reaches whichever service is listening —
-        // `CloudKitPairingService.handleRemoteNotification(_:)` during pairing, and
-        // `CloudKitSignalingChannel` during an active session. Neither consumer is constructed by
-        // this process yet (the pairing flow and the signaling channel land in later #1208 P2
-        // tasks), so for now the push is logged rather than dispatched: both consumers poll as
-        // their correctness floor, so an unrouted push costs latency, never a missed event.
+        // Routing: this is the seam where a CloudKit push reaches whichever service is listening.
+        // The push is still only logged, and after Task 9 that is accurate rather than pending:
+        //
+        // - `CloudKitSignalingChannel` *is* now constructed by this process (see
+        //   `makeSignalingTransport(sessionID:)`), but it deliberately registers no subscription
+        //   and polls only — its own doc comment explains why (a signaling session is seconds
+        //   long, and a per-session subscription would leave server-side litter). So there is no
+        //   signaling push to route.
+        // - `CloudKitPairingService`, which owns the only subscription in this epic, is *not*
+        //   constructed here: it observes device announces, and deciding that an announce is
+        //   trustworthy (matching a scanned QR payload) is the pairing flow's job, not this
+        //   session loop's. Auto-pinning whatever announced itself would quietly turn the design
+        //   spec's QR trust root into trust-on-first-use.
+        //
+        // The consequence, stated rather than hidden: nothing in this process wakes an idle
+        // helper for a plain *reconnect* from an already-paired device. The helper has to already
+        // be running (login item) for a session to be served. Closing that gap needs a wake
+        // trigger this phase does not define.
         #if canImport(CloudKit)
         let subscriptionID = CKNotification(fromRemoteNotificationDictionary: userInfo)?.subscriptionID
         #else
         let subscriptionID: String? = nil
         #endif
-        FileHandle.standardError.write(Data(
-            "remote-helper: CloudKit push received (subscription \(subscriptionID ?? "unknown"))\n".utf8))
+        helperLog("CloudKit push received (subscription \(subscriptionID ?? "unknown"))")
     }
 
     func application(_ application: NSApplication, didFailToRegisterForRemoteNotificationsWithError error: Error) {
         // Logs are sacred (CLAUDE.md): a helper that silently failed APNs registration and quietly
         // fell back to polling is exactly the kind of thing that reads as "P2P is just slow".
-        FileHandle.standardError.write(Data(
-            "remote-helper: APNs registration failed, CloudKit push unavailable: \(error)\n".utf8))
+        helperLog("APNs registration failed, CloudKit push unavailable: \(error)")
     }
 }
 
@@ -90,16 +416,25 @@ func runSession() async {
     }
     #endif
 
-    let args = CommandLine.arguments
-    guard args.count == 4, args[1] == "session" else {
-        die("usage: anglesite-remote-helper session <signal-dir> <site-root>")
+    guard let invocation = HelperInvocation.parse(CommandLine.arguments) else {
+        die(HelperInvocation.usage)
     }
-    let signalDir = URL(fileURLWithPath: args[2], isDirectory: true)
-    let siteRoot = URL(fileURLWithPath: args[3], isDirectory: true)
-    // NOT `siteRoot.lastPathComponent`: `<site-root>` is a site's `Source/` git repo, so that is the
-    // literal string "Source" for every site on the machine — and this key names both the registry
-    // claim file and the container's on-disk boot artifacts. See `RemoteSiteIdentity`.
-    let siteID = RemoteSiteIdentity.siteID(forSourceDirectory: siteRoot)
+    let plan: SessionPlan
+    switch invocation {
+    case let .fileSignaling(signalDirectory, root):
+        // NOT `root.lastPathComponent`: `<site-root>` is a site's `Source/` git repo, so that is the
+        // literal string "Source" for every site on the machine — and this key names both the
+        // registry claim file and the container's on-disk boot artifacts. See `RemoteSiteIdentity`.
+        plan = SessionPlan(
+            siteID: RemoteSiteIdentity.siteID(forSourceDirectory: root), siteRoot: root,
+            makeSignalingChannel: { FileSignalingChannel(directory: signalDirectory, sender: "helper") })
+    case let .cloudKit(sessionID, deviceID, siteID, expectedPackageURL):
+        plan = await makeCloudKitSessionPlan(
+            sessionID: sessionID, deviceID: deviceID, siteID: siteID,
+            expectedPackageURL: expectedPackageURL)
+    }
+    let siteID = plan.siteID
+    let siteRoot = plan.siteRoot
 
     // Production wiring of RemoteSessionRegistry at a *shared* (App Group) location is blocked on an
     // owner-side provisioning-portal change (see the plan's Task 2/5 manual note); until then this
@@ -130,18 +465,16 @@ func runSession() async {
     // guest chatter stops after boot and a session waiting for a peer looked identical to a hung one.
     // `HelperContainerE2ETests` also uses the first marker as its sync point: it waits for it before
     // offering, so the client never trickles ICE into a directory nobody is polling yet.
-    FileHandle.standardError.write(Data(
-        "remote-helper: container ready (preview \(session.previewURL), mcp \(session.mcpURL)); waiting for peer\n".utf8))
+    helperLog("container ready (preview \(session.previewURL), mcp \(session.mcpURL)); waiting for peer")
 
     let peer: WebRTCPeer
     do {
-        peer = try await WebRTCPeer.connect(
-            role: .answerer, signaling: FileSignalingChannel(directory: signalDir, sender: "helper"))
+        peer = try await WebRTCPeer.connect(role: .answerer, signaling: plan.makeSignalingChannel())
     } catch {
         await containerSession.tearDown(siteID: siteID)
         die("P2P connect failed: \(error)")
     }
-    FileHandle.standardError.write(Data("remote-helper: peer connected; bridging\n".utf8))
+    helperLog("peer connected; bridging")
 
     let httpBridge = FetchBridgeServer(connection: peer, executor: LoopbackHTTPExecutor(baseURL: session.previewURL))
     let mcpBridge = LoopbackMCPBridge(mcpURL: session.mcpURL)
@@ -157,7 +490,7 @@ func runSession() async {
             onLog: { line, stream in FileHandle.standardError.write(Data(("[\(stream)] " + line + "\n").utf8)) })
         mcpHandler = { message in await persister.handle(message) }
     } else {
-        FileHandle.standardError.write(Data("remote-helper: bridging a borrowed container — edits will not be persisted by this process\n".utf8))
+        helperLog("bridging a borrowed container — edits will not be persisted by this process")
         mcpHandler = { message in await mcpBridge.handle(message) }
     }
     let mcpResponder = MCPChannelResponder(connection: peer, handler: mcpHandler)
@@ -165,13 +498,17 @@ func runSession() async {
         if count >= 6 { FileHandle.standardError.write(Data("control link presumed dead\n".utf8)) }
     })
 
-    // Presence heartbeat writer — deferred to Task 9 (#1208 P2 → P3).
-    // Task 7 defines PresenceHeartbeatWriter (write-side only, tested with injection). Production
-    // wiring is deferred because `CKContainer(identifier:)` SIGTRAPs on binaries lacking the CloudKit
-    // entitlement (documented in CloudKitPairingService/CloudKitSignalingChannel). The entitlement is
-    // not provisioned yet per the plan's Task 9 manual portal step. Task 9 owns the entitlement-gated
-    // construction pattern for all CloudKit types in this epic (matching Tasks 5–6 which left their
-    // production wiring likewise deferred). When Task 9 lands and provisions the capability, wire here:
+    // Presence heartbeat writer — still deferred (#1208 P2 → P3), but no longer blocked on a
+    // mechanism. Task 7 defines PresenceHeartbeatWriter (write-side only, tested with injection);
+    // its production wiring was deferred because `CKContainer(identifier:)` SIGTRAPs on binaries
+    // lacking the CloudKit entitlement. `processCarriesCloudKitEntitlement(containerIdentifier:)`
+    // above is now the safe gate for exactly that, so wiring this is a small, mechanical change
+    // whenever the epic wants it — deliberately left out of Task 9's diff because nothing reads a
+    // presence record until P4 gives a phone somewhere to render it, so shipping it now would add a
+    // periodic CloudKit write with no consumer. When it is wired, it belongs behind the same gate:
+    //
+    //   guard processCarriesCloudKitEntitlement(
+    //       containerIdentifier: anglesiteCloudKitContainerIdentifier) else { ... }
     //
     //   let presenceWriter = PresenceHeartbeatWriter(save: { date in
     //       let container = CKContainer(identifier: "iCloud.io.dwk.anglesite")

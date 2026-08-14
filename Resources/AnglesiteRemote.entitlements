@@ -25,6 +25,37 @@
          even under ad-hoc/Manual signing (see Resources/Anglesite-Debug.entitlements' identical
          note re: #1038). Task 6 Step 5 documents the manual Apple Developer portal step that
          unblocks adding them; until then this file matches the CI-safe, no-Team-required shape
-         every other Debug entitlements file in this repo keeps. -->
+         every other Debug entitlements file in this repo keeps.
+
+         MANUAL PORTAL STEPS still outstanding for #1208 P2 (Team KH7H8Y25RT). None of them can be
+         performed from this repo; each one has to be enabled on the App ID in the Apple Developer
+         portal first, and only then added here.
+
+         1. CloudKit signaling. Add to THIS file:
+              com.apple.developer.icloud-container-identifiers = [iCloud.io.dwk.anglesite]
+              com.apple.developer.icloud-services            = [CloudKit]
+            and add "CloudKit" to the existing com.apple.developer.icloud-services array in
+            Resources/Anglesite.entitlements, which today lists only CloudDocuments (enough for
+            iCloud Drive site storage, not for CloudKit).
+            Until that lands, the helper's `connect` invocation degrades to a local directory
+            mailbox for the signaling transport. It does NOT construct any CloudKit type: this
+            process checks its own code signature first, because CKContainer(identifier:) traps
+            the process (SIGTRAP) rather than failing when the entitlement is absent. See
+            `processCarriesCloudKitEntitlement(containerIdentifier:)` in
+            Sources/anglesite-remote-helper/main.swift. Signing and key pinning stay live in the
+            degraded mode, so only cross-network rendezvous is lost.
+
+         2. Shared keychain access group. The helper signs signaling payloads with a
+            DevicePairingKeyPair read from the Keychain, but Keychain items are scoped per bundle
+            ID, so this helper cannot read the key the main app's Settings pane generated and
+            published in its pairing QR code, and mints its own instead. A shared
+            keychain-access-group entitlement on both bundle IDs is what makes the two the same
+            device identity. Same class of provisioning problem as the App Group note above, and
+            it lands the same way.
+
+         3. Ubiquity container. RemoteSiteResolver's zero-prompt iCloud path stays dormant until
+            this bundle ID carries the iCloud container entitlement from step 1; every site
+            resolution takes the one-time access-panel/bookmark path in the meantime. That is
+            already documented on RemoteSiteResolver itself. -->
 </dict>
 </plist>
