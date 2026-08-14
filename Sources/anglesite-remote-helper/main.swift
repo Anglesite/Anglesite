@@ -289,14 +289,14 @@ func helperDisplayName() -> String {
 /// already requires the owner's Apple ID. iCloud is the mailbox; the QR is the trust root for the
 /// *phone's* view of this Mac, not for this Mac's view of the phone.
 ///
-/// ## The one place this deliberately refuses what the spec's literal wording allows
+/// ## The one thing an announce cannot do: resurrect a revoked device
 ///
-/// A `deviceID` that is *already* pinned with a **different** public key is **not** re-pinned. The
-/// spec's wording ("pins the phone's public key") doesn't distinguish first pin from re-pin, but
-/// silently accepting a rotated key would make an announce a key-replacement primitive: anything
-/// that could write one record could take over an established pairing without the owner ever
-/// revoking it. Refusing (loudly) leaves the owner in charge — Revoke, then pair again — and the
-/// failure direction is a session that won't open rather than one that opens to the wrong peer.
+/// A revoke removes the row from `PairedDeviceStore`, but nothing in production withdraws the
+/// peer's `DeviceAnnounceRecord` from CloudKit — so the stale announce is still there, and this
+/// loop starts with an empty dedup set on every launch. Without a check, the next session would
+/// silently re-pin the device the owner just revoked. `PairedDeviceStore.remove(id:)` therefore
+/// records a revocation date, and `pinAnnouncedDevice` ignores any announce written at or before
+/// it. See that method's doc comment for why the tombstone is dated rather than a plain deny-list.
 ///
 /// ## Lifetime
 ///
@@ -347,15 +347,35 @@ func startPairingObservation(signingKey: DevicePairingKeyPair, pairedDevices: Pa
 
 /// Records one observed announce in `pairedDevices`, or explains why it wasn't. See
 /// `startPairingObservation(signingKey:pairedDevices:)` for the trust model this implements.
+///
+/// Three outcomes: a device that isn't pinned yet is pinned; one that is pinned under a *different*
+/// public key has that key replaced (the design spec's "pins the phone's public key" makes no
+/// first-pin/re-pin distinction, and a phone that reinstalls or regenerates its identity must be
+/// able to re-pair without the owner doing anything); and one whose announce predates a revocation
+/// is ignored entirely.
 func pinAnnouncedDevice(_ announce: DeviceAnnounceRecord, into pairedDevices: PairedDeviceStore) {
     do {
+        // Ahead of every other branch: a revoked device must not be resurrected by *any* path,
+        // whether it is currently absent from the store (the normal case after a revoke) or was
+        // re-added since. `<=` rather than `<` because a same-instant announce is, by the only
+        // ordering this Mac can observe, not newer than the revocation.
+        if let revokedAt = try pairedDevices.revocationDate(deviceID: announce.deviceID),
+           announce.createdAt <= revokedAt {
+            helperLog("""
+                ignoring an announce from revoked device \(announce.deviceID) \
+                (\(announce.displayName)): it was written \(announce.createdAt), before this Mac \
+                revoked it \(revokedAt). Pair the device again from Anglesite ▸ Settings ▸ \
+                iPhone/iPad to have it announce itself afresh.
+                """)
+            return
+        }
         if let existing = try pairedDevices.device(deviceID: announce.deviceID) {
             guard existing.pinnedPublicKey != announce.publicKeyData else { return }
-            helperLog("""
-                device \(announce.deviceID) (\(existing.displayName)) announced a different public \
-                key than the one already pinned for it — refusing to replace it. If this was you, \
-                revoke the device in Anglesite ▸ Settings ▸ iPhone/iPad and pair it again.
-                """)
+            var rotated = existing
+            rotated.pinnedPublicKey = announce.publicKeyData
+            rotated.displayName = announce.displayName
+            try pairedDevices.update(rotated)
+            helperLog("device \(announce.deviceID) (\(announce.displayName)) announced a new public key; pinned it in place of the previous one")
             return
         }
         try pairedDevices.add(PairedDevice(
