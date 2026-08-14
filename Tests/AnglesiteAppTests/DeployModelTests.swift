@@ -106,7 +106,12 @@ struct DeployModelTests {
             suddenTerminationController: controller,
             tokenAvailabilityOverride: { true }
         )
-        let directory = FileManager.default.temporaryDirectory
+        // A unique-per-test directory (not the shared `FileManager.default.temporaryDirectory`
+        // root, which every test in this file used to share) with a license already recorded, so
+        // this test — which expects the deploy to actually reach the build step — isn't blocked
+        // by the first-publish license gate (#999) added alongside it.
+        let directory = try! makeLicenseGateSiteDirectory()
+        try! LicensingStore(sourceDirectory: directory).save(LicensingPolicy(licenseChosen: true))
 
         model.deploy(
             siteID: "test-site",
@@ -146,6 +151,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
@@ -175,6 +183,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         var config = DomainConfig()
         config.domain = DomainConfig.Domain(hostname: "example.com")
         try! DomainConfigStore(sourceDirectory: siteDir).save(config)
@@ -209,6 +220,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! #"name = "my-site""#.write(to: siteDir.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
@@ -251,6 +265,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! #"name = "my-site""#.write(to: siteDir.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
@@ -289,6 +306,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! "CF_PROJECT_NAME=my-site\nDOMAIN_CHOICE=transfer\nDOMAIN=example.com\n".write(
             to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
@@ -324,6 +344,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! "CF_PROJECT_NAME=my-site\nDOMAIN_CHOICE=transfer\nDOMAIN=example.com\nCF_DOMAIN_ATTACHED=example.com\n".write(
             to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
@@ -353,6 +376,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! "CF_PROJECT_NAME=my-site\nDOMAIN_CHOICE=transfer\nDOMAIN=example.com\n".write(
             to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
@@ -383,6 +409,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! "CF_PROJECT_NAME=my-site\nDOMAIN_CHOICE=transfer\nDOMAIN=example.com\n".write(
             to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
@@ -411,6 +440,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
@@ -438,6 +470,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
         // A manual (foreground) deploy parks on the conflict sheet, same as
@@ -482,6 +517,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! #"name = "my-site""#.write(to: siteDir.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
@@ -513,6 +551,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
@@ -672,6 +713,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
         try! #"name = "my-site""#.write(to: siteDir.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
@@ -706,6 +750,9 @@ struct DeployModelTests {
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        // A license is already recorded, so these tests (unrelated to the first-publish license
+        // gate, #999) aren't blocked by it before ever reaching what they're actually exercising.
+        try! LicensingStore(sourceDirectory: siteDir).save(LicensingPolicy(licenseChosen: true))
 
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
         await executor.waitUntilBuildIsParked()
@@ -739,7 +786,10 @@ struct DeployModelTests {
             accessToken: "already-signed-in", refreshToken: nil, expiresAt: nil,
             tokenEndpoint: URL(string: "https://dash.cloudflare.com/oauth2/token")!))
         let model = DeployModel(command: command, logCenter: LogCenter(), keychain: keychain)
-        let directory = FileManager.default.temporaryDirectory
+        // A unique-per-test directory with a license already recorded — see the comment on the
+        // same pattern in `suddenTerminationLeaseBracketsDeploy` above (#999).
+        let directory = try! makeLicenseGateSiteDirectory()
+        try! LicensingStore(sourceDirectory: directory).save(LicensingPolicy(licenseChosen: true))
 
         model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
         // `resumeBuild()` must come AFTER the build step is actually reached — calling it before
@@ -812,7 +862,12 @@ struct DeployModelTests {
             command: command, logCenter: LogCenter(), keychain: keychain,
             verifier: StubTokenVerifying(result: .success(CloudflareAccount(name: "Acme Co.", email: nil))),
             oauthSignIn: oauthSignIn)
-        let directory = FileManager.default.temporaryDirectory
+        // A unique-per-test directory with a license already recorded — see the comment on the
+        // same pattern in `suddenTerminationLeaseBracketsDeploy` above (#999). The parked deploy
+        // that `signInWithCloudflare()` dispatches below reuses this same directory, so the
+        // license-gate check on that retry also sees it as already chosen.
+        let directory = try makeLicenseGateSiteDirectory()
+        try LicensingStore(sourceDirectory: directory).save(LicensingPolicy(licenseChosen: true))
 
         model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
         // Bind before asserting — see the comment on `tokenPromptPresented` in
@@ -880,11 +935,112 @@ struct DeployModelTests {
         }
     }
 
+    /// A unique per-test site directory with a content license already recorded, so the deploy
+    /// tests that use this helper (all of which are exercising something other than the
+    /// first-publish license gate, #999) reach their actual pipeline step instead of parking on
+    /// it.
     private func temporaryDirectory() throws -> URL {
         let url = FileManager.default.temporaryDirectory
             .appendingPathComponent("DeployModelTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
+        try LicensingStore(sourceDirectory: url).save(LicensingPolicy(licenseChosen: true))
         return url
+    }
+
+    private func makeLicenseGateSiteDirectory() throws -> URL {
+        let dir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("DeployModelLicenseGateTests-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        return dir
+    }
+
+    @Test("deploy() presents the license gate instead of running when no license has been chosen")
+    func deployPresentsLicenseGateWhenUnchosen() throws {
+        let executor = GatedDeployExecutor()
+        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let model = DeployModel(
+            command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
+            tokenAvailabilityOverride: { true })
+        let directory = try makeLicenseGateSiteDirectory()
+
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+
+        let licenseGatePresented = model.licenseGatePresented
+        let isRunning = model.isRunning
+        #expect(licenseGatePresented)
+        #expect(!isRunning)
+    }
+
+    @Test("confirmLicenseChoice saves the policy and resumes the parked deploy")
+    func confirmLicenseChoiceSavesAndResumes() async throws {
+        let executor = GatedDeployExecutor()
+        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let model = DeployModel(
+            command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
+            tokenAvailabilityOverride: { true })
+        let directory = try makeLicenseGateSiteDirectory()
+
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        let licenseGatePresentedBeforeConfirm = model.licenseGatePresented
+        #expect(licenseGatePresentedBeforeConfirm)
+
+        let ccBY = LicenseCatalog.entries.first { $0.id == "cc-by-4.0" }!.ref
+        model.confirmLicenseChoice(ccBY)
+        await executor.waitUntilBuildIsParked()
+        await executor.resumeBuild()
+        while model.isRunning { await Task.yield() }
+
+        let licenseGatePresentedAfterConfirm = model.licenseGatePresented
+        #expect(!licenseGatePresentedAfterConfirm)
+        guard case .succeeded = model.phase else {
+            Issue.record("expected the parked deploy to run after confirming a license, got \(model.phase)")
+            return
+        }
+
+        let policy = try LicensingStore(sourceDirectory: directory).load()
+        #expect(policy.licenseChosen)
+        #expect(policy.defaultLicense == ccBY)
+        #expect(policy.usage.aiTrain == .yes)
+    }
+
+    @Test("confirming All rights reserved (nil) still marks the choice made")
+    func confirmAllRightsReservedMarksChosen() async throws {
+        let executor = GatedDeployExecutor()
+        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let model = DeployModel(
+            command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
+            tokenAvailabilityOverride: { true })
+        let directory = try makeLicenseGateSiteDirectory()
+
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        model.confirmLicenseChoice(nil)
+        await executor.waitUntilBuildIsParked()
+        await executor.resumeBuild()
+        while model.isRunning { await Task.yield() }
+
+        let policy = try LicensingStore(sourceDirectory: directory).load()
+        #expect(policy.licenseChosen)
+        #expect(policy.defaultLicense == nil)
+    }
+
+    @Test("deployAutomatically defers when a license hasn't been chosen")
+    func deployAutomaticallyDefersWithoutLicense() async throws {
+        let executor = GatedDeployExecutor()
+        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let model = DeployModel(
+            command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
+            tokenAvailabilityOverride: { true })
+        let directory = try makeLicenseGateSiteDirectory()
+
+        let result = await model.deployAutomatically(
+            siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [],
+            containerControlProvider: { nil })
+
+        guard case .deferred(let reason) = result else {
+            Issue.record("expected .deferred, got \(result)")
+            return
+        }
+        #expect(reason.contains("license"))
     }
 }
 
