@@ -118,22 +118,24 @@ struct LicenseGateSheetView: View {
     private func row(
         title: String, permits: String, aiNote: String?, choice: Selection.Choice
     ) -> some View {
-        Button(action: { selection.choice = choice }) {
-            GridRow {
-                Text(title)
-                Text(permits).font(.caption).foregroundStyle(.secondary)
-                Text(aiNote ?? "—").font(.caption).foregroundStyle(.secondary)
-            }
-            .padding(.vertical, 4)
-            .padding(.horizontal, 6)
-            .background(selection.choice == choice ? Color.accentColor.opacity(0.15) : Color.clear)
-            .clipShape(RoundedRectangle(cornerRadius: 6))
+        GridRow {
+            Text(title)
+            Text(permits).font(.caption).foregroundStyle(.secondary)
+            Text(aiNote ?? "—").font(.caption).foregroundStyle(.secondary)
         }
-        .buttonStyle(.plain)
+        .padding(.vertical, 4)
+        .padding(.horizontal, 6)
+        .background(selection.choice == choice ? Color.accentColor.opacity(0.15) : Color.clear)
+        .clipShape(RoundedRectangle(cornerRadius: 6))
         .contentShape(Rectangle())
+        .onTapGesture { selection.choice = choice }
+        .focusable(true)
         .accessibilityElement(children: .combine)
         .accessibilityLabel([title, permits, aiNote ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
         .accessibilityAddTraits(selection.choice == choice ? [.isButton, .isSelected] : .isButton)
+        .accessibilityAction(.default) { selection.choice = choice }
+        .onKeyPress(.return) { selection.choice = choice; return .handled }
+        .onKeyPress(.space) { selection.choice = choice; return .handled }
     }
 
     /// Plain-language summary of what each catalog license permits — the middle comparison-table
