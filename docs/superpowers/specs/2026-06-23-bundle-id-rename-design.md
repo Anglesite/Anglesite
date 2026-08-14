@@ -4,6 +4,14 @@
 **Status:** Implemented (PR #302, 2026-06-23)
 **Related:** #81 (real-signed MAS smoke, blocked on provisionable bundle ID), Phase 10.1 (#34), `project-mas-distribution-and-bundle-id` memory
 
+> **CORRECTION (2026-08-14):** the account situation is more complicated than this doc assumed.
+> `M34HBJZNYA` does carry usable certificates, and it is the team holding the paid Apple Developer
+> Program membership that #1208's portal-gated capabilities — CloudKit, App Groups, and the
+> provisioning-profile-backed half of Keychain Sharing — depend on. `KH7H8Y25RT` remains a usable
+> personal-team Development certificate for local signing, but carries no paid-membership
+> capabilities. The original text below is left as written, as the record of what was believed at
+> the time.
+
 ## Motivation
 
 The app currently ships under `dev.anglesite.app` (DevID) and `dev.anglesite.app.mas`

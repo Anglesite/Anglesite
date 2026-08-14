@@ -4,6 +4,14 @@
 
 > **Status (2026-06-23): EXECUTED in PR #302** via subagent-driven development — all 6 tasks implemented, each spec+quality reviewed clean, full `swift test` green, both schemes build. The single still-open box (Task 2 Step 5) is the manual GUI package-open smoke, deferred to the developer; App Store Connect registration of `io.dwk.anglesite` is out of scope (tracked separately). Do not re-execute completed tasks.
 
+> **CORRECTION (2026-08-14):** the account situation is more complicated than this plan assumed.
+> `M34HBJZNYA` does carry usable certificates, and it is the team holding the paid Apple Developer
+> Program membership that #1208's portal-gated capabilities — CloudKit, App Groups, and the
+> provisioning-profile-backed half of Keychain Sharing — depend on. `KH7H8Y25RT` remains a usable
+> personal-team Development certificate for local signing, but carries no paid-membership
+> capabilities. The original text below is left as written, as the record of what was believed at
+> the time.
+
 **Goal:** Move the app identity from the dead `dev.anglesite.*` namespace (old team `M34HBJZNYA`) to `io.dwk.anglesite.*` under the signable `KH7H8Y25RT` team, unblocking #81's real-signed MAS smoke.
 
 **Architecture:** A mechanical rename across `project.yml`, two per-target `Info.plist`s, the Help Book plist, and four Swift identifier constants, verified by existing tests + scheme builds + a grep gate + a Launch-Services package-open smoke. No new runtime code; no migration shims.

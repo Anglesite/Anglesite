@@ -69,13 +69,14 @@ public struct KeychainStore: SecretStore {
     ///
     /// Written team-prefixed because that is the *runtime* form: an entitlements plist spells the
     /// group `$(AppIdentifierPrefix)io.dwk.anglesite.shared` and the build expands the prefix, but
-    /// nothing expands it here, and `SecItem` matches the expanded string. Team `M34HBJZNYA` — the
-    /// team whose Apple Development certificate signs local builds — is therefore load-bearing:
-    /// change the signing team and this constant must change with it (and with every entitlements
-    /// file that declares the group), or the two processes silently fall back to seeing no shared
-    /// item at all rather than failing loudly. (The `KH7H8Y25RT` this constant used to name is the
-    /// paid Developer Program team the *portal-gated* CloudKit and App Groups capabilities are
-    /// tracked under, which is a separate question from which certificate signs a build.)
+    /// nothing expands it here, and `SecItem` matches the expanded string. Team `M34HBJZNYA` is
+    /// therefore load-bearing: it is the team carrying the paid Apple Developer Program membership
+    /// that this epic's portal-gated capabilities need — CloudKit, App Groups, and this group's own
+    /// provisioning-profile requirement above — so it is the team the entitlements declaring this
+    /// group have to be signed under once a suitable certificate for it is in place. Change the
+    /// signing team and this constant must change with it (and with every entitlements file that
+    /// declares the group), or the two processes silently fall back to seeing no shared item at all
+    /// rather than failing loudly.
     public static let sharedPairingAccessGroup = "M34HBJZNYA.io.dwk.anglesite.shared"
 
     /// The `kSecAttrService` under which every entry of this store lives — the namespace

@@ -53,7 +53,8 @@
          therefore not break the no-Apple-account Debug build — but both still need their portal
          step first, so they stay out.
 
-         STEPS for #1208 P2. Steps 1 and 3 are Apple Developer portal steps (Team KH7H8Y25RT) that
+         STEPS for #1208 P2. Steps 1 and 3 are Apple Developer portal steps (Team M34HBJZNYA, the
+         team with the paid Developer Program membership these capabilities require) that
          cannot be performed from this repo — each capability has to be enabled on the App ID in
          the portal first, and only then added here. Step 2 was never a portal step and is now
          DONE; its note is kept as the record of what was measured and what it does and does not
@@ -126,12 +127,12 @@
             the no-Apple-account Debug build working; a local Debug run that needs the real
             behavior opts in via the two -Keychain / -iCloud entitlements files above.
 
-            Also note KeychainStore.sharedPairingAccessGroup's team prefix was corrected to
-            M34HBJZNYA (the team whose Apple Development certificate signs local builds) from an
-            earlier assumed KH7H8Y25RT; KeychainStoreTests pins its exact shape.
-            $(AppIdentifierPrefix) is a build-time substitution that nothing expands at runtime,
-            which is why that Swift constant carries the team prefix literally and must be kept in
-            step with whatever team ends up signing. Sources/AnglesiteCore/Platform/SecretStore.swift's
+            Also note KeychainStore.sharedPairingAccessGroup's team prefix is M34HBJZNYA — the team
+            with the paid Developer Program membership that this entitlement's provisioning profile,
+            and the portal-gated capabilities in steps 1 and 3, require; KeychainStoreTests pins its
+            exact shape. $(AppIdentifierPrefix) is a build-time substitution that nothing expands at
+            runtime, which is why that Swift constant carries the team prefix literally and must be
+            kept in step with whatever team ends up signing. Sources/AnglesiteCore/Platform/SecretStore.swift's
             readDevicePairingKeyPair()/writeDevicePairingKeyPair() needed no change — verified
             store-agnostic, operating on whatever KeychainStore instance they are handed.
 

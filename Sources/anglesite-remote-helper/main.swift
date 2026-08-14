@@ -73,7 +73,8 @@ let anglesiteCloudKitContainerIdentifier = "iCloud.io.dwk.anglesite"
 /// both as a bare executable and inside a sandboxed `.app` bundle matching this helper's own
 /// shape. The entitlement is **not provisioned in this repo today** (see
 /// `Resources/AnglesiteRemote.entitlements`' own comment block — it needs an Apple Developer
-/// portal change on Team `KH7H8Y25RT`), so an unconditional live construction here would crash the
+/// portal change on Team `M34HBJZNYA`, the team whose paid Developer Program membership CloudKit
+/// requires), so an unconditional live construction here would crash the
 /// helper on every single P2P session.
 ///
 /// ## Why `SecTask` is safe to ask

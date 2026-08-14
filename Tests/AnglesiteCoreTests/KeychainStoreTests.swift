@@ -147,8 +147,9 @@ final class KeychainStoreTests: XCTestCase {
     /// it `$(AppIdentifierPrefix)io.dwk.anglesite.shared`, which the build expands to this — a
     /// mismatch between the two forms is silent (the processes just never see a shared item), so
     /// the suffix and the team prefix are asserted rather than left to review. `M34HBJZNYA` is the
-    /// team whose Apple Development certificate signs local builds; it is deliberately not the
-    /// `KH7H8Y25RT` recorded elsewhere for the portal-gated CloudKit/App-Groups capabilities.
+    /// team holding the paid Apple Developer Program membership the portal-gated CloudKit and
+    /// App-Groups capabilities — and this group's own provisioning-profile requirement — depend on,
+    /// so it is the team the entitlements declaring this group are signed under.
     func testSharedPairingAccessGroupIsTeamPrefixed() {
         XCTAssertEqual(KeychainStore.sharedPairingAccessGroup, "M34HBJZNYA.io.dwk.anglesite.shared")
         XCTAssertTrue(KeychainStore.sharedPairingAccessGroup.hasSuffix(".io.dwk.anglesite.shared"))
