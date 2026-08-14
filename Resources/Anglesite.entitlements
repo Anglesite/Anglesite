@@ -30,6 +30,23 @@
 		<string>CloudDocuments</string>
 	</array>
 
+	<!-- Shared keychain access group (#1208 P2): lets this app and its AnglesiteRemote login-item
+	     helper read the same device pairing key, so the helper signs signaling payloads with the
+	     very key this app's Settings ▸ Devices pane publishes in its pairing QR code. Must match
+	     Resources/AnglesiteRemote.entitlements' identical array exactly, and must match the
+	     expanded form KeychainStore.sharedPairingAccessGroup carries at runtime
+	     ("M34HBJZNYA.io.dwk.anglesite.shared") — $(AppIdentifierPrefix) is a build-time
+	     substitution that nothing expands at runtime. Unlike the iCloud and Associated Domains
+	     entitlements below, Keychain Sharing needs no Apple Developer portal capability (every App
+	     ID carries it implicitly) — but it does still need a provisioning profile to sign, which is
+	     why it lives in this Release file and in the opt-in
+	     Resources/Anglesite-Debug-iCloud.entitlements rather than in the CI-safe
+	     Resources/Anglesite-Debug.entitlements. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)io.dwk.anglesite.shared</string>
+	</array>
+
 	<!-- Cloudflare OAuth sign-in (#1204): matches the callback Worker's `webcredentials` entry at
 	     auth.anglesite.dwk.io, so the OS intercepts the OAuth redirect instead of opening Safari.
 	     Requires a real provisioning profile — same class of App-ID capability as the iCloud

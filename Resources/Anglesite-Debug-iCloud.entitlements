@@ -45,6 +45,18 @@
 		<string>webcredentials:auth.anglesite.dwk.io</string>
 	</array>
 
+	<!-- Shared keychain access group (#1208 P2), same opt-in reasoning as the iCloud entitlement
+	     above: keychain-access-groups needs a real provisioning profile to sign (though, unlike
+	     iCloud, no Apple Developer portal capability), so it can't live in the default Debug file.
+	     Present here so a contributor with a real Team can exercise the shared device-pairing key
+	     in a local Debug run. Opt the HELPER in as well or nothing is shared —
+	     ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS = Resources/AnglesiteRemote-Debug-Keychain.entitlements.
+	     The array must match that file's and Resources/Anglesite.entitlements' exactly. -->
+	<key>keychain-access-groups</key>
+	<array>
+		<string>$(AppIdentifierPrefix)io.dwk.anglesite.shared</string>
+	</array>
+
 	<!-- DEBUG-ONLY WORKAROUND for #775 — do not add to Resources/Anglesite.entitlements.
 	     macOS 27 seeds 26A5378n–26A5388g deny sandboxed processes the mach bootstrap
 	     look-up of com.apple.NetworkSharing that vmnet_network_create now performs, so

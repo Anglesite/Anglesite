@@ -104,17 +104,20 @@ struct DevicePairingSettingsView: View {
     /// names `DeviceAnnounceRecord` uses — as the QR payload.
     private func generateQRCode() {
         do {
-            // #1208 P2, shared-key follow-up: the key published in this QR code is the one *this*
-            // bundle ID can see. The `AnglesiteRemote` helper reads the same service/account but
-            // through its own sandbox-implicit keychain access group, so it signs signaling
-            // payloads with a different key and a phone that pinned this QR rejects it. One-line
-            // fix, once both bundles carry the group in a `keychain-access-groups` entitlement:
-            //     KeychainStore(accessGroup: KeychainStore.sharedPairingAccessGroup)
-            // Blocked on the Apple Developer portal capability — checklist in
-            // `Resources/AnglesiteRemote.entitlements` ▸ manual portal step 2. Do not switch this
-            // over before that lands: an unentitled access group makes SecItem reject the call, so
-            // QR generation would start failing outright instead of merely mismatching.
-            let keychain = KeychainStore()
+            // #1208 P2: read the pairing key through the *shared* access group, so the key this
+            // QR publishes is the same one the `AnglesiteRemote` helper signs signaling payloads
+            // with. This call site and the helper's `helperSigningKey()` must stay in step — one
+            // side alone only relocates the mismatch.
+            //
+            // On a build whose entitlements omit the group, SecItem rejects the call
+            // (`errSecMissingEntitlement`) and the `catch` below surfaces it rather than silently
+            // falling back to a per-bundle key that pairing could never verify. That is the case
+            // for the DEFAULT Debug build: `keychain-access-groups` needs a provisioning profile
+            // to sign, so `Resources/Anglesite-Debug.entitlements` deliberately omits it to keep
+            // the no-Apple-account build working. A local Debug run that needs the real behavior
+            // opts into `Resources/Anglesite-Debug-iCloud.entitlements` (plus the helper's
+            // `-Debug-Keychain` file) via `xcconfig/Signing-Debug.local.xcconfig`.
+            let keychain = KeychainStore(accessGroup: KeychainStore.sharedPairingAccessGroup)
             let keyPair: DevicePairingKeyPair
             if let existing = try keychain.readDevicePairingKeyPair() {
                 keyPair = existing

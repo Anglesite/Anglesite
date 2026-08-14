@@ -46,31 +46,36 @@ public struct KeychainStore: SecretStore {
     /// `SecretAccounts` namespace (the shared slot definition since the SecretStore seam).
     public static let cloudflareTokenAccount = SecretAccounts.cloudflareToken
 
-    /// The keychain access group that will let `Anglesite.app` and its `AnglesiteRemote` login-item
+    /// The keychain access group that lets `Anglesite.app` and its `AnglesiteRemote` login-item
     /// helper read the *same* `SecretAccounts.devicePairingKey` entry (#1208 P2).
     ///
-    /// - Important: **Not in use yet, and passing it today will fail.** `kSecAttrAccessGroup` only
-    ///   resolves to a group both bundle IDs actually carry in a `keychain-access-groups`
-    ///   entitlement, and neither declares it. Keychain Sharing needs no Apple Developer *portal*
-    ///   capability (every App ID carries it implicitly, unlike CloudKit or App Groups), but the
-    ///   entitlement still requires a real provisioning profile to sign — measured, not assumed:
-    ///   adding it to `Resources/AnglesiteRemote.entitlements` fails the default ad-hoc Debug build
-    ///   with "AnglesiteRemote requires a provisioning profile", and that file has no CI-safe Debug
-    ///   counterpart to keep it out of. `Resources/AnglesiteRemote.entitlements` ▸ step 2 carries
-    ///   the full finding and the remaining checklist. Until it lands, every caller keeps the
-    ///   default `accessGroup: nil` — the sandbox's implicit per-bundle-ID group — so the app and
-    ///   the helper each hold their own pairing key. That mismatch is exactly what this constant
-    ///   exists to close.
+    /// Passed by both pairing-key call sites — `DevicePairingSettingsView.generateQRCode()` and
+    /// `anglesite-remote-helper`'s `helperSigningKey()` — and by nothing else; every other caller
+    /// keeps the default `accessGroup: nil`. Keychain Sharing needs no Apple Developer *portal*
+    /// capability (every App ID carries it implicitly, unlike CloudKit or App Groups).
+    ///
+    /// - Important: it does still need a **provisioning profile to sign**, so only some builds
+    ///   carry it. `Resources/Anglesite.entitlements` and `Resources/AnglesiteRemote.entitlements`
+    ///   (both Release) declare it; the CI-safe default Debug files deliberately do not, because
+    ///   Xcode fails the build outright on an entitlement it can't back with a profile — which
+    ///   would break this repo's no-Apple-account clone-and-build promise. On such a build
+    ///   `SecItem` rejects every operation carrying this group, typically
+    ///   `errSecMissingEntitlement` surfaced as ``Error/unhandled(_:)``, and the two call sites
+    ///   degrade loudly rather than silently reading a per-bundle key that pairing could never
+    ///   verify. A local Debug run can opt in via `Resources/Anglesite-Debug-iCloud.entitlements`
+    ///   plus `Resources/AnglesiteRemote-Debug-Keychain.entitlements` — see
+    ///   `xcconfig/Signing-Debug.local.xcconfig.example`, and
+    ///   `Resources/AnglesiteRemote.entitlements` ▸ step 2 for the whole finding.
     ///
     /// Written team-prefixed because that is the *runtime* form: an entitlements plist spells the
     /// group `$(AppIdentifierPrefix)io.dwk.anglesite.shared` and the build expands the prefix, but
     /// nothing expands it here, and `SecItem` matches the expanded string. Team `M34HBJZNYA` — the
     /// team whose Apple Development certificate signs local builds — is therefore load-bearing:
-    /// change the signing team and this constant must change with it (and with both entitlements
-    /// files), or the two processes silently fall back to seeing no shared item at all rather than
-    /// failing loudly. (The `KH7H8Y25RT` this constant used to name is the paid Developer Program
-    /// team the *portal-gated* CloudKit and App Groups capabilities are tracked under, which is a
-    /// separate question from which certificate signs a build.)
+    /// change the signing team and this constant must change with it (and with every entitlements
+    /// file that declares the group), or the two processes silently fall back to seeing no shared
+    /// item at all rather than failing loudly. (The `KH7H8Y25RT` this constant used to name is the
+    /// paid Developer Program team the *portal-gated* CloudKit and App Groups capabilities are
+    /// tracked under, which is a separate question from which certificate signs a build.)
     public static let sharedPairingAccessGroup = "M34HBJZNYA.io.dwk.anglesite.shared"
 
     /// The `kSecAttrService` under which every entry of this store lives — the namespace
@@ -87,14 +92,15 @@ public struct KeychainStore: SecretStore {
     ///   - service: The `kSecAttrService` namespace. Production uses the default; tests pass a
     ///     per-case scratch service so they never read or clobber the user's real entries.
     ///   - accessGroup: The `kSecAttrAccessGroup` to scope every read/write/delete to. `nil` (the
-    ///     default, and what every caller passes today) omits the attribute entirely, which leaves
-    ///     the system's behavior untouched: a sandboxed process gets its own bundle-ID-derived
-    ///     group, so two bundles never see each other's items even with identical service/account
-    ///     strings. Pass a group only once *both* bundles carry it in a `keychain-access-groups`
-    ///     entitlement — see ``sharedPairingAccessGroup``. Passing a group the process is not
-    ///     entitled to makes `SecItem` reject the operation (typically `errSecMissingEntitlement`,
-    ///     surfaced as ``Error/unhandled(_:)``), so this is not something to switch on
-    ///     speculatively.
+    ///     default, and what every caller but the two device-pairing ones passes) omits the
+    ///     attribute entirely, which leaves the system's behavior untouched: a sandboxed process
+    ///     gets its own bundle-ID-derived group, so two bundles never see each other's items even
+    ///     with identical service/account strings. Pass a group only where *both* bundles carry it
+    ///     in a `keychain-access-groups` entitlement — see ``sharedPairingAccessGroup``, the only
+    ///     group this app declares. Passing a group the process is not entitled to makes `SecItem`
+    ///     reject the operation (typically `errSecMissingEntitlement`, surfaced as
+    ///     ``Error/unhandled(_:)``), so this is not something to switch on speculatively, and a
+    ///     caller that does pass one must have a sensible failure path for the builds that lack it.
     public init(service: String = KeychainStore.defaultService, accessGroup: String? = nil) {
         self.service = service
         self.accessGroup = accessGroup
@@ -183,8 +189,8 @@ public struct KeychainStore: SecretStore {
             kSecAttrSynchronizable as String: false
         ]
         // Omitted, not set to a placeholder, when `accessGroup` is nil: an absent
-        // kSecAttrAccessGroup means "the process's default group", which is the behavior every
-        // caller relies on today.
+        // kSecAttrAccessGroup means "the process's default group", which is what every caller
+        // outside the device-pairing pair relies on.
         if let accessGroup { query[kSecAttrAccessGroup as String] = accessGroup }
         return query
     }

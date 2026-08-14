@@ -92,7 +92,7 @@ final class KeychainStoreTests: XCTestCase {
         try? other.delete(account: "alpha")
     }
 
-    // MARK: Access group (#1208 P2 — prepared, not yet in use)
+    // MARK: Access group (#1208 P2 — live at the two device-pairing call sites)
 
     /// The safety property for the `accessGroup` parameter: the default init must construct exactly
     /// the query it did before the parameter existed. Asserted structurally rather than only
@@ -127,11 +127,11 @@ final class KeychainStoreTests: XCTestCase {
     ///
     /// This is as far as this suite can go: whether the *system* then shares the item between
     /// `Anglesite.app` and `AnglesiteRemote` depends on both bundles carrying the group in a
-    /// `keychain-access-groups` entitlement, which neither declares yet — that entitlement needs a
-    /// real provisioning profile to sign, and the helper's entitlements file is shared with the
-    /// CI-safe ad-hoc Debug build (`Resources/AnglesiteRemote.entitlements` ▸ step 2). No test
-    /// runnable here can prove or disprove the sharing itself — an unentitled `SecItem` call with
-    /// this attribute is simply rejected — so the test binary deliberately never issues one.
+    /// `keychain-access-groups` entitlement, which their Release entitlements files now do — but
+    /// this test binary does not, and an unentitled `SecItem` call carrying an access group is
+    /// simply rejected. So no test runnable here can prove or disprove the sharing itself, and the
+    /// binary deliberately never issues such a call: only a real signed launch of the two apps
+    /// observes it (`Resources/AnglesiteRemote.entitlements` ▸ step 2).
     func testAccessGroupAppearsInQueriesWhenSet() throws {
         let scoped = KeychainStore(service: service, accessGroup: "TESTPREFIX.io.dwk.anglesite.shared")
         XCTAssertEqual(scoped.accessGroup, "TESTPREFIX.io.dwk.anglesite.shared")
@@ -143,8 +143,8 @@ final class KeychainStoreTests: XCTestCase {
         XCTAssertEqual(query[kSecAttrSynchronizable as String] as? Bool, false)
     }
 
-    /// Pins the shared group string's shape. Both entitlements files will spell it
-    /// `$(AppIdentifierPrefix)io.dwk.anglesite.shared`, which the build expands to this — a
+    /// Pins the shared group string's shape. Every entitlements file that declares the group spells
+    /// it `$(AppIdentifierPrefix)io.dwk.anglesite.shared`, which the build expands to this — a
     /// mismatch between the two forms is silent (the processes just never see a shared item), so
     /// the suffix and the team prefix are asserted rather than left to review. `M34HBJZNYA` is the
     /// team whose Apple Development certificate signs local builds; it is deliberately not the
@@ -154,9 +154,10 @@ final class KeychainStoreTests: XCTestCase {
         XCTAssertTrue(KeychainStore.sharedPairingAccessGroup.hasSuffix(".io.dwk.anglesite.shared"))
     }
 
-    /// No production caller passes an access group yet. If this fails, the wiring landed without
-    /// the entitlement work in `Resources/AnglesiteRemote.entitlements` ▸ step 2 — which would
-    /// make every pairing-key read fail with `errSecMissingEntitlement` rather than share anything.
+    /// The plain `KeychainStore()` every non-pairing caller constructs still carries no access
+    /// group. Only the two device-pairing call sites opt into ``KeychainStore/sharedPairingAccessGroup``,
+    /// so activating it must not have dragged the Cloudflare/GitHub/ACP slots into a shared group —
+    /// those would then fail with `errSecMissingEntitlement` on every build that lacks it.
     func testProductionDefaultStoreStillUsesNoAccessGroup() {
         XCTAssertNil(KeychainStore().accessGroup)
         XCTAssertEqual(KeychainStore().service, KeychainStore.defaultService)

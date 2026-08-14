@@ -23,4 +23,13 @@ ANGLESITE_DEBUG_ENTITLEMENTS = Resources/Anglesite-Debug.entitlements
 // stay the no-iCloud file by default — same CI-safe reason as the Mac target above.
 ANGLESITE_MOBILE_DEBUG_ENTITLEMENTS = Resources/AnglesiteMobile-Debug.entitlements
 
+// The AnglesiteRemote helper's CODE_SIGN_ENTITLEMENTS (Debug config) reads this indirection
+// (#1208 P2, mirrors the two above) so a local override can point at
+// Resources/AnglesiteRemote-Debug-Keychain.entitlements without editing this tracked file. Must
+// stay the no-keychain-group file by default: keychain-access-groups requires a real provisioning
+// profile even under the ad-hoc signing above — Xcode fails the build outright with
+// '"AnglesiteRemote" requires a provisioning profile' — which breaks the no-Apple-account Debug
+// build promise exactly the way iCloud does.
+ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS = Resources/AnglesiteRemote-Debug.entitlements
+
 #include? "Signing-Debug.local.xcconfig"

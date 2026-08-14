@@ -20,17 +20,44 @@
     <!-- Apple Containerization framework (#69): boot local OCI containers, same as Anglesite.app. -->
     <key>com.apple.security.virtualization</key>
     <true/>
+
+    <!-- Shared keychain access group (#1208 P2): lets this helper and Anglesite.app read the same
+         SecretAccounts.devicePairingKey item, so this process signs signaling payloads with the
+         very key the main app's Settings ▸ Devices pane publishes in its pairing QR code. Must
+         match Resources/Anglesite.entitlements' identical array exactly, and must match the
+         expanded form KeychainStore.sharedPairingAccessGroup carries at runtime
+         ("M34HBJZNYA.io.dwk.anglesite.shared") — $(AppIdentifierPrefix) is a build-time
+         substitution that nothing expands at runtime. A mismatch is silent: each process simply
+         keeps its own item and pairing never verifies, which is why the runtime string lives in
+         one Swift constant instead of being written out at each call site.
+         Keychain Sharing needs no Apple Developer portal capability (every App ID carries it
+         implicitly), but the entitlement still requires a provisioning profile to sign, so this
+         key can only live in a Release/real-Team file — see step 2 of the note below for the
+         measurement and Resources/AnglesiteRemote-Debug.entitlements for the CI-safe Debug
+         counterpart this target now has. -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)io.dwk.anglesite.shared</string>
+    </array>
+
     <!-- NO com.apple.developer.icloud-container-identifiers and NO
          com.apple.security.application-groups here yet — both require a provisioning profile
          even under ad-hoc/Manual signing (see Resources/Anglesite-Debug.entitlements' identical
          note re: #1038). Task 6 Step 5 documents the manual Apple Developer portal step that
-         unblocks adding them; until then this file matches the CI-safe, no-Team-required shape
-         every other Debug entitlements file in this repo keeps.
+         unblocks adding them.
 
-         STEPS still outstanding for #1208 P2. Steps 1 and 3 are Apple Developer portal steps
-         (Team KH7H8Y25RT) that cannot be performed from this repo — each capability has to be
-         enabled on the App ID in the portal first, and only then added here. Step 2 is NOT a
-         portal step (see its own note); it is a project-configuration decision.
+         NOTE this is now the *Release* entitlements file for the AnglesiteRemote target. It no
+         longer has to keep the CI-safe, no-Team-required shape: Debug builds sign against
+         $(ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS), defaulting to
+         Resources/AnglesiteRemote-Debug.entitlements. Adding either capability above here would
+         therefore not break the no-Apple-account Debug build — but both still need their portal
+         step first, so they stay out.
+
+         STEPS for #1208 P2. Steps 1 and 3 are Apple Developer portal steps (Team KH7H8Y25RT) that
+         cannot be performed from this repo — each capability has to be enabled on the App ID in
+         the portal first, and only then added here. Step 2 was never a portal step and is now
+         DONE; its note is kept as the record of what was measured and what it does and does not
+         buy.
 
          1. CloudKit signaling. Add to THIS file:
               com.apple.developer.icloud-container-identifiers = [iCloud.io.dwk.anglesite]
@@ -46,23 +73,25 @@
             Sources/anglesite-remote-helper/main.swift. Signing and key pinning stay live in the
             degraded mode, so only cross-network rendezvous is lost.
 
-         2. Shared keychain access group. The helper signs signaling payloads with a
-            DevicePairingKeyPair read from the Keychain, but Keychain items are scoped per bundle
-            ID, so this helper cannot read the key the main app's Settings pane generated and
-            published in its pairing QR code, and mints its own instead. A shared
-            keychain-access-group entitlement on both bundle IDs is what makes the two the same
-            device identity.
+         2. Shared keychain access group — DONE (2026-08-14). Kept as a record, because what was
+            measured here constrains anyone who touches these files next.
 
-            CORRECTION (2026-08-14): this step used to open with an Apple Developer portal
-            sub-step, on the assumption that Keychain Sharing needed a portal capability the way
-            CloudKit and App Groups do. It does not — every App ID carries Keychain Sharing
-            implicitly. But removing that false blocker uncovered a real one, measured rather than
-            assumed: adding
+            The problem it solved: the helper signs signaling payloads with a DevicePairingKeyPair
+            read from the Keychain, but Keychain items are scoped per bundle ID, so this helper
+            could not read the key the main app's Settings pane generated and published in its
+            pairing QR code, and minted its own instead. The keychain-access-groups entitlement
+            above, and its twin in Resources/Anglesite.entitlements, is what makes the two the
+            same device identity.
+
+            CORRECTION: this step used to open with an Apple Developer portal sub-step, on the
+            assumption that Keychain Sharing needed a portal capability the way CloudKit and App
+            Groups do. It does not — every App ID carries Keychain Sharing implicitly. Removing
+            that false blocker uncovered a real one, measured rather than assumed: adding
 
                 <key>keychain-access-groups</key>
                 <array><string>$(AppIdentifierPrefix)io.dwk.anglesite.shared</string></array>
 
-            to THIS file fails the default Debug build outright with
+            to a file the ad-hoc Debug build signs against fails that build outright with
 
                 error: "AnglesiteRemote" requires a provisioning profile. Enable development
                 signing and select a provisioning profile in the Signing & Capabilities editor.
@@ -72,65 +101,47 @@
             identically, so it is the entitlement itself and not the variable expansion. So the
             portal half of the assumption was wrong but the signing half was not: as far as
             codesign is concerned keychain-access-groups sits with the iCloud and Associated
-            Domains entitlements the top of this block already describes, needing a real
-            provisioning profile that ad-hoc/no-Team signing cannot self-grant. It differs from
-            them only in that no portal capability has to be enabled first.
+            Domains entitlements the top of this block describes, needing a real provisioning
+            profile that ad-hoc/no-Team signing cannot self-grant. It differs from them only in
+            that no portal capability has to be enabled first.
 
-            That is a blocker here specifically because THIS file has no Debug counterpart. The
-            Anglesite target splits into Resources/Anglesite.entitlements (Release) and
-            $(ANGLESITE_DEBUG_ENTITLEMENTS) (Debug, defaulting to the CI-safe
-            Resources/Anglesite-Debug.entitlements); AnglesiteMobile splits the same way. The
-            AnglesiteRemote target in project.yml sets one CODE_SIGN_ENTITLEMENTS for both
-            configs, so anything added here lands in the Debug build too and breaks the
-            no-Apple-account clone-and-build promise in README.md / CONTRIBUTING.md, along with
-            CI's Debug lane.
+            Which is why the fix was a project-configuration split, mirroring what the Anglesite
+            and AnglesiteMobile targets already do:
+              - Resources/AnglesiteRemote-Debug.entitlements (new) — the CI-safe default, no
+                keychain group, so a clone with no Apple Developer account still builds Debug.
+              - xcconfig/Signing-Debug.xcconfig gained
+                ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS = Resources/AnglesiteRemote-Debug.entitlements
+              - project.yml's AnglesiteRemote target gained
+                configs.Debug.CODE_SIGN_ENTITLEMENTS = $(ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS);
+                its base value (THIS file) is now the Release value.
+              - Resources/AnglesiteRemote-Debug-Keychain.entitlements (new) — opt-in Debug variant
+                carrying the group, for a contributor with a real Team, selected from a gitignored
+                xcconfig/Signing-Debug.local.xcconfig. Mirrors Anglesite-Debug-iCloud.entitlements.
 
-            Unblocking it is an owner decision about which configurations get the capability, not
-            a mechanical edit. The repo-idiomatic shape would be to mirror the split the other two
-            targets already use: add Resources/AnglesiteRemote-Debug.entitlements (no keychain
-            group), add an ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS indirection to
-            xcconfig/Signing-Debug.xcconfig, point AnglesiteRemote's Debug config at it in
-            project.yml, and put the group in this (Release) file plus
-            Resources/Anglesite.entitlements. Note what that does and does not buy: sharing would
-            then be live only in Release/real-Team builds. To exercise it in a local Debug run the
-            owner would also need Team-carrying opt-in Debug variants for BOTH targets, in the
-            style of the existing Resources/Anglesite-Debug-iCloud.entitlements.
+            What that does and does not buy. Sharing is live in Release/real-Team builds. In the
+            DEFAULT Debug build neither bundle carries the group, so both pairing-key call sites
+            get errSecMissingEntitlement from SecItem and degrade loudly rather than silently:
+            the Settings pane reports "couldn't prepare pairing key" instead of rendering a QR,
+            and the helper logs the ephemeral-key warning. That is the accepted cost of keeping
+            the no-Apple-account Debug build working; a local Debug run that needs the real
+            behavior opts in via the two -Keychain / -iCloud entitlements files above.
 
-            The code side stays prepared and inert in the meantime: KeychainStore has an optional
-            `accessGroup:` init parameter defaulting to nil (today's behavior), plus the shared
-            group string as KeychainStore.sharedPairingAccessGroup — whose team prefix was
-            corrected to M34HBJZNYA (the team whose Apple Development certificate signs local
-            builds) from an earlier assumed KH7H8Y25RT; KeychainStoreTests pins its exact shape.
+            Also note KeychainStore.sharedPairingAccessGroup's team prefix was corrected to
+            M34HBJZNYA (the team whose Apple Development certificate signs local builds) from an
+            earlier assumed KH7H8Y25RT; KeychainStoreTests pins its exact shape.
             $(AppIdentifierPrefix) is a build-time substitution that nothing expands at runtime,
             which is why that Swift constant carries the team prefix literally and must be kept in
-            step with whatever team ends up signing.
+            step with whatever team ends up signing. Sources/AnglesiteCore/Platform/SecretStore.swift's
+            readDevicePairingKeyPair()/writeDevicePairingKeyPair() needed no change — verified
+            store-agnostic, operating on whatever KeychainStore instance they are handed.
 
-            When the configuration question above is settled, what remains is mechanical:
-              a. Add the key/array to this file and to Resources/Anglesite.entitlements (or to
-                 whichever per-config files that decision selects). The two strings must match
-                 exactly; a mismatch is silent — each process keeps its own item and pairing
-                 simply never verifies — which is why the runtime string lives in one Swift
-                 constant rather than being written out at each call site.
-              b. Confirm KeychainStore.sharedPairingAccessGroup still equals the expansion of the
-                 string in (a) for the team that actually signs the build.
-              c. Swap `KeychainStore()` for
-                 `KeychainStore(accessGroup: KeychainStore.sharedPairingAccessGroup)` at both
-                 pairing-key call sites, which must move together (one alone only relocates the
-                 mismatch):
-                   - Sources/AnglesiteApp/DevicePairingSettingsView.swift, in generateQRCode()
-                   - Sources/anglesite-remote-helper/main.swift, in helperSigningKey()
-                 Sources/AnglesiteCore/Platform/SecretStore.swift's
-                 readDevicePairingKeyPair()/writeDevicePairingKeyPair() need NO change — verified
-                 store-agnostic; they carry a pointer to this checklist only.
-              d. Verify on a real signed build (the only place this is observable): launch the
-                 app, generate the QR in Settings ▸ Devices, then confirm the helper logs no
-                 "generated this helper's device pairing key" line on a subsequent cold start —
-                 meaning it found the app's existing key rather than minting its own. Delete both
-                 processes' pre-existing per-bundle keys first, or the stale ones mask the result.
-              e. Drop the now-stale "not the same key today" paragraph on helperSigningKey() in
-                 Sources/anglesite-remote-helper/main.swift, and this note. helperDeviceID()'s
-                 paragraph stays: that gap is a UserDefaults suite mismatch, a different mechanism
-                 that this step does not touch, and it needs the App Group from the note above.
+            STILL OWNER-LOCAL, the one thing no build here can settle: whether the two processes
+            actually share one Keychain item. Launch the app, generate the QR in Settings ▸
+            Devices, then confirm the helper logs no "generated this helper's device pairing key"
+            line on a subsequent cold start — meaning it found the app's existing key rather than
+            minting its own. Delete both processes' pre-existing per-bundle keys first, or the
+            stale ones mask the result. Use a Release build, or a Debug build with both opt-in
+            entitlements files selected; a default Debug build cannot show this.
 
          3. Ubiquity container. RemoteSiteResolver's zero-prompt iCloud path stays dormant until
             this bundle ID carries the iCloud container entitlement from step 1; every site

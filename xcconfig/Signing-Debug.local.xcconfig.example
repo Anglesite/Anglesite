@@ -14,3 +14,12 @@ DEVELOPMENT_TEAM = YOUR_TEAM_ID
 
 // Same idea for the iOS target (#866):
 // ANGLESITE_MOBILE_DEBUG_ENTITLEMENTS = Resources/AnglesiteMobile-Debug-iCloud.entitlements
+
+// Optional (#1208 P2): only if you want to exercise the shared device-pairing key between
+// Anglesite.app and its AnglesiteRemote login-item helper in local Debug builds. Requires a real
+// Team above — keychain-access-groups needs a provisioning profile that ad-hoc signing can't
+// self-grant (it needs no Apple Developer portal capability, unlike iCloud).
+// Uncomment BOTH lines or nothing is shared: the group has to be on both bundle IDs, and the
+// main app picks it up from the -Debug-iCloud file (which carries it alongside iCloud).
+// ANGLESITE_DEBUG_ENTITLEMENTS = Resources/Anglesite-Debug-iCloud.entitlements
+// ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS = Resources/AnglesiteRemote-Debug-Keychain.entitlements

@@ -219,29 +219,21 @@ func helperApplicationSupportDirectory() -> URL {
 /// This device's own signing identity, used to sign every outbound signaling payload.
 ///
 /// Generated and Keychain-persisted on first use, mirroring what the Settings pane
-/// (`DevicePairingSettingsView`) does on the main-app side. **The two are not the same key today**:
-/// Keychain items are scoped per bundle ID unless the two bundles share a keychain access group,
-/// and this helper's entitlements declare none — so the key the owner's QR code publishes (the main
-/// app's) is not the key this process signs with. That gap is recorded, with the measured reason it
-/// is still open, in `Resources/AnglesiteRemote.entitlements` ▸ step 2. Until it is closed, the
-/// *only* way a peer can learn the key this process actually signs with is this Mac's own
-/// `DeviceAnnounceRecord` — which `startPairingObservation(signingKey:pairedDevices:)` publishes
-/// with exactly this key.
+/// (`DevicePairingSettingsView`) does on the main-app side — and, on a build entitled to the shared
+/// keychain access group, reading the *same* Keychain item, so the key the owner's QR code
+/// publishes is the key this process signs with (#1208 P2). This call site and
+/// `DevicePairingSettingsView.generateQRCode()` must stay in step; one side alone only relocates
+/// the mismatch.
+///
+/// **Not every build is so entitled.** `keychain-access-groups` needs a provisioning profile to
+/// sign, so `Resources/AnglesiteRemote-Debug.entitlements` — the CI-safe default that keeps a
+/// no-Apple-account clone building — omits it, and a Debug build falls into the ephemeral-key
+/// branch below on every launch. On such a build, and for any peer that never saw this Mac's QR
+/// code, the only way to learn the key this process actually signs with is this Mac's own
+/// `DeviceAnnounceRecord`, which `startPairingObservation(signingKey:pairedDevices:)` publishes
+/// with exactly this key. See `Resources/AnglesiteRemote.entitlements` ▸ step 2.
 func helperSigningKey() -> DevicePairingKeyPair {
-    // One-line change that closes the gap described above, once both `Anglesite.app` and this
-    // helper carry the group in a `keychain-access-groups` entitlement:
-    //     KeychainStore(accessGroup: KeychainStore.sharedPairingAccessGroup)
-    // Making that swap here *and* in `DevicePairingSettingsView.generateQRCode()` (they must move
-    // together — one side alone just relocates the mismatch) makes this process read the very key
-    // the QR code publishes, at which point the announce-record workaround documented above stops
-    // being load-bearing. Not blocked on an Apple Developer portal capability after all (Keychain
-    // Sharing needs none), but on giving this target a Debug entitlements file that can omit the
-    // group: the entitlement requires a provisioning profile to sign, and this file is also what
-    // the CI-safe ad-hoc Debug build uses. Full finding and checklist in
-    // `Resources/AnglesiteRemote.entitlements` ▸ step 2. Switching over early is worse than
-    // waiting: SecItem rejects an access group the process isn't entitled to, so this would fall
-    // into the ephemeral-key branch below on every launch.
-    let keychain = KeychainStore()
+    let keychain = KeychainStore(accessGroup: KeychainStore.sharedPairingAccessGroup)
     do {
         if let existing = try keychain.readDevicePairingKeyPair() { return existing }
         let fresh = DevicePairingKeyPair()
@@ -251,7 +243,10 @@ func helperSigningKey() -> DevicePairingKeyPair {
     } catch {
         // An ephemeral key still signs correctly for the life of this session; it just won't match
         // anything a peer pinned earlier, so the peer will drop our envelopes and the handshake
-        // will stall. Loud, not silent, for exactly that reason.
+        // will stall. Loud, not silent, for exactly that reason — and on a build without the
+        // shared-access-group entitlement this is the *expected* path, not an anomaly: SecItem
+        // rejects the access group above with errSecMissingEntitlement, which arrives here as
+        // `KeychainStore.Error.unhandled(-34018)`.
         helperLog("device pairing key unavailable (\(error)); using an ephemeral key — a peer that pinned an earlier key will reject this session")
         return DevicePairingKeyPair()
     }
@@ -261,14 +256,16 @@ func helperSigningKey() -> DevicePairingKeyPair {
 /// published under, and the string a peer uses to tell this Mac's announce apart from its own.
 ///
 /// Generated once and persisted in this process's own `UserDefaults` domain, mirroring what
-/// `DevicePairingSettingsView.ownDeviceID()` does on the main-app side. **It is not the same
-/// identifier**, for a reason adjacent to but distinct from why `helperSigningKey()` is not the
-/// same key: `UserDefaults` is scoped per bundle ID unless the two bundles share a *suite*, which
-/// needs the App Group capability recorded in `Resources/AnglesiteRemote.entitlements`. A shared
-/// *keychain access group* would not close this one — different mechanism, different entitlement —
-/// so even after that step lands, a peer must keep learning this Mac's *helper* identity from the
-/// announce record rather than from the QR code (see
-/// `startPairingObservation(signingKey:pairedDevices:)`).
+/// `DevicePairingSettingsView.ownDeviceID()` does on the main-app side. **It is still not the same
+/// identifier, on any build.** `UserDefaults` is scoped per bundle ID unless the two bundles share
+/// a *suite*, which needs the App Group capability still recorded as outstanding in
+/// `Resources/AnglesiteRemote.entitlements`.
+///
+/// Do not read this as the same gap `helperSigningKey()` used to describe: that one was a *keychain
+/// access group* and is closed (#1208 P2) on any build entitled to it. This one is a different
+/// mechanism behind a different, still-unobtained entitlement, and closing the keychain half did
+/// nothing for it. So a peer must keep learning this Mac's *helper* identity from the announce
+/// record rather than from the QR code (see `startPairingObservation(signingKey:pairedDevices:)`).
 func helperDeviceID() -> String {
     let defaults = UserDefaults.standard
     let key = "anglesite.remoteHelperDeviceID"
@@ -343,9 +340,9 @@ func startPairingObservation(signingKey: DevicePairingKeyPair, pairedDevices: Pa
             try await service.announce(
                 deviceID: ownDeviceID, publicKeyData: publicKeyData, displayName: displayName)
             // Deliberately stable and parseable: this is how a peer that never saw this Mac's QR
-            // code (the P2 two-process harness, and any peer hitting the helper-key gap recorded
-            // on `helperSigningKey()`) learns which announce record carries the key this process
-            // actually signs with.
+            // code (the P2 two-process harness, and any peer whose Mac runs a build without the
+            // shared-access-group entitlement — see `helperSigningKey()`) learns which announce
+            // record carries the key this process actually signs with.
             helperLog("announced this Mac as device \(ownDeviceID) (\(displayName))")
         } catch {
             helperLog("""
