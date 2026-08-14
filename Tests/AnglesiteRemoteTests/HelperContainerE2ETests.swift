@@ -646,11 +646,14 @@ private final class ProcessOutputCapture: @unchecked Sendable {
 ///
 /// ## It touches the real `Application Support/Anglesite` directory
 ///
-/// Both processes are unsandboxed, so `PairedDeviceStore` and `RemoteBookmarkStore` resolve to the
-/// developer's own `~/Library/Application Support/Anglesite/`. That is not incidental — it is the
-/// only place the helper looks, and reading the file the *helper* wrote is what proves the Mac side
-/// pinned the key. Both files are snapshotted byte-for-byte before the run and restored afterwards,
-/// including the "did not exist" case.
+/// Both processes are unsandboxed, so `PairedDeviceStore` resolves to the developer's own
+/// `~/Library/Application Support/Anglesite/`. That is not incidental — it is the only place the
+/// helper looks, and reading the file the *helper* wrote is what proves the Mac side pinned the
+/// key. `paired-devices.json` is therefore snapshotted byte-for-byte before the run and restored
+/// afterwards, including the "did not exist" case. It is the only file this suite restores: the
+/// happy path never reaches `RemoteBookmarkStore` (the fixture takes `RemoteSiteResolver`'s
+/// bookmark-free iCloud path — see step 2 in the test body), and the helper only writes
+/// `revoked-devices.json` via a Settings revoke, which this suite never performs.
 @Suite(.enabled(if:
     ProcessInfo.processInfo.environment["ANGLESITE_CONTAINER_TESTS"] == "1" &&
     ProcessInfo.processInfo.environment["ANGLESITE_CONTAINER_E2E"] == "1" &&
