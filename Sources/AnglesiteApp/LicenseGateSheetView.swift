@@ -101,7 +101,10 @@ struct LicenseGateSheetView: View {
 
                 ForEach(LicenseCatalog.entries) { entry in
                     row(
-                        title: entry.name,
+                        // A license's own name ("CC BY 4.0") is catalog data, not UI copy, so
+                        // it is deliberately not a literal key for extraction — the runtime
+                        // lookup just falls back to the name itself.
+                        title: LocalizedStringKey(entry.name),
                         permits: permitsSummary(for: entry),
                         aiNote: entry.permitsAIUse ? "✅ Permits" : "❔ Unclear",
                         choice: .catalog(entry.id))
@@ -164,7 +167,8 @@ struct LicenseGateSheetView: View {
     /// The columns line up because every row — including the header — states the same three
     /// explicit frame widths, which is the alignment job `Grid` used to do.
     private func row(
-        title: String, permits: String, aiNote: String?, choice: Selection.Choice
+        title: LocalizedStringKey, permits: LocalizedStringKey, aiNote: LocalizedStringKey?,
+        choice: Selection.Choice
     ) -> some View {
         Button {
             selection.choice = choice
@@ -200,7 +204,7 @@ struct LicenseGateSheetView: View {
     /// Plain-language summary of what each catalog license permits — the middle comparison-table
     /// column. Keyed by catalog id rather than re-deriving from `permitsAIUse` so it stays
     /// independent of the AI classification the last column already renders.
-    private func permitsSummary(for entry: LicenseCatalog.Entry) -> String {
+    private func permitsSummary(for entry: LicenseCatalog.Entry) -> LocalizedStringKey {
         switch entry.id {
         case "cc0-1.0": return "Any use, no credit required"
         case "cc-by-4.0": return "Any use, with credit"
@@ -210,8 +214,9 @@ struct LicenseGateSheetView: View {
         case "cc-by-nc-sa-4.0": return "Non-commercial use, with credit, same license"
         case "cc-by-nc-nd-4.0": return "Redistribute unmodified, non-commercial, with credit"
         // Adding a `LicenseCatalog` entry should add a case above too — otherwise its Permits
-        // column just repeats the license name.
-        default: return entry.name
+        // column just repeats the license name (and, being catalog data rather than UI copy,
+        // isn't a literal key the way every case above is).
+        default: return LocalizedStringKey(entry.name)
         }
     }
 }
