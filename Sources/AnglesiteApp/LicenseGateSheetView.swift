@@ -118,17 +118,22 @@ struct LicenseGateSheetView: View {
     private func row(
         title: String, permits: String, aiNote: String?, choice: Selection.Choice
     ) -> some View {
-        GridRow {
-            Text(title)
-            Text(permits).font(.caption).foregroundStyle(.secondary)
-            Text(aiNote ?? "—").font(.caption).foregroundStyle(.secondary)
+        Button(action: { selection.choice = choice }) {
+            GridRow {
+                Text(title)
+                Text(permits).font(.caption).foregroundStyle(.secondary)
+                Text(aiNote ?? "—").font(.caption).foregroundStyle(.secondary)
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .background(selection.choice == choice ? Color.accentColor.opacity(0.15) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 6)
-        .background(selection.choice == choice ? Color.accentColor.opacity(0.15) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
+        .buttonStyle(.plain)
         .contentShape(Rectangle())
-        .onTapGesture { selection.choice = choice }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel([title, permits, aiNote ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
+        .accessibilityAddTraits(selection.choice == choice ? [.isButton, .isSelected] : .isButton)
     }
 
     /// Plain-language summary of what each catalog license permits — the middle comparison-table
