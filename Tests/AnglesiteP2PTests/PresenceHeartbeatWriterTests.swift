@@ -14,10 +14,16 @@ struct PresenceHeartbeatWriterTests {
     }
 
     @Test func writesAgainAfterInterval() async throws {
+        // Margins are wide on purpose: this runs inside the full, unsharded `build-test` suite
+        // (3800+ tests, hundreds of suites, all concurrent) rather than the isolated
+        // timing-sensitive lane, so scheduling jitter under contention can easily be an order of
+        // magnitude larger than the nominal interval. A tight 50ms/200ms (4x) margin flaked there
+        // in practice (observed: only 1 write instead of >=2). 10ms/500ms gives ~50x nominal
+        // headroom for the same assertion.
         let writes = LockedArray<Date>()
-        let writer = PresenceHeartbeatWriter(save: { date in writes.append(date) }, interval: .milliseconds(50))
+        let writer = PresenceHeartbeatWriter(save: { date in writes.append(date) }, interval: .milliseconds(10))
         let task = Task { await writer.run() }
-        try await Task.sleep(for: .milliseconds(200))
+        try await Task.sleep(for: .milliseconds(500))
         task.cancel()
         #expect(writes.count >= 2)
     }
