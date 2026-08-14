@@ -1042,6 +1042,33 @@ struct DeployModelTests {
         }
         #expect(reason.contains("license"))
     }
+
+    @Test("cancelLicenseGate abandons the attempt without recording a choice")
+    func cancelLicenseGateRecordsNothing() async throws {
+        let executor = GatedDeployExecutor()
+        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let model = DeployModel(
+            command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
+            tokenAvailabilityOverride: { true })
+        let directory = try makeLicenseGateSiteDirectory()
+
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        model.cancelLicenseGate()
+
+        let dismissed = model.licenseGatePresented
+        let isRunning = model.isRunning
+        #expect(!dismissed)
+        #expect(!isRunning)
+        #expect(model.licenseGateError == nil)
+        #expect(!((try? LicensingStore(sourceDirectory: directory).load())?.licenseChosen ?? false))
+
+        // The gate is not weakened by having a Cancel: the next Deploy hits it again.
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        let presentedAgain = model.licenseGatePresented
+        let stillNotRunning = model.isRunning
+        #expect(presentedAgain)
+        #expect(!stillNotRunning)
+    }
 }
 
 /// Thread-safe invocation counter for a `DeployModel.ContainerControlProvider` under test —

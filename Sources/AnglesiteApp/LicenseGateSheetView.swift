@@ -129,6 +129,10 @@ struct LicenseGateSheetView: View {
 
             HStack {
                 Spacer()
+                // Backing out of a mis-clicked Deploy. Saves nothing, so the gate fires again on
+                // the next Deploy — this abandons the attempt, it doesn't bypass the block.
+                Button("Cancel") { model.cancelLicenseGate() }
+                    .keyboardShortcut(.cancelAction)
                 Button("Continue") {
                     Task { await model.confirmLicenseChoice(selection.resolvedLicense()) }
                 }

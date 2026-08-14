@@ -89,9 +89,10 @@ final class DeployModel {
     /// Bound to a `.sheet` in `SiteWindow` for the first-publish license gate (#999). Set when
     /// `deploy(...)` is invoked and the site's `licensing.json` has never recorded an explicit
     /// license choice. Reuses `pendingDeploy` to park and retry, same as the token-prompt flow.
-    /// Unlike the other `pendingDeploy` sheets, this one is wired with
-    /// `.interactiveDismissDisabled()` in `SiteWindow` — the design is a hard block, so there is
-    /// deliberately no `cancelLicenseGate()` to pair with it.
+    /// Wired with `.interactiveDismissDisabled()` in `SiteWindow`: the design is a hard block, so
+    /// Esc or a swipe must not bypass it. Backing out is a deliberate button press —
+    /// `cancelLicenseGate()` — which abandons this deploy attempt without recording a choice, so
+    /// the gate simply fires again next time.
     var licenseGatePresented: Bool = false
     /// Set when saving the chosen policy fails (e.g. an unsafe custom license URL). Cleared on
     /// every fresh presentation and on a successful `confirmLicenseChoice(_:)`.
@@ -526,6 +527,16 @@ final class DeployModel {
             siteID: pending.siteID, siteDirectory: pending.siteDirectory,
             configDirectory: pending.configDirectory, currentRoutes: pending.currentRoutes,
             containerControlProvider: pending.containerControlProvider, siteName: pending.siteName)
+    }
+
+    /// Abandons *this* deploy attempt without recording a license choice — the gate's Cancel
+    /// button, for a Deploy pressed by mistake. Nothing is saved, so the gate fires again on the
+    /// next Deploy: publishing still can't happen without an explicit choice, exactly as the
+    /// token-prompt and worker-name-conflict sheets have Cancel without weakening what they gate.
+    func cancelLicenseGate() {
+        pendingDeploy = nil
+        licenseGatePresented = false
+        licenseGateError = nil
     }
 
     func cancelWorkerNameConflictPrompt() {
