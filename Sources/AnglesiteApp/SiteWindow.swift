@@ -971,9 +971,10 @@ struct SiteWindow: View {
                 defaultSiteID: nil,
                 initialURLString: model.quickCaptureURL ?? "",
                 fetchMetadata: { try await LinkMetadataFetcher().fetch(url: $0) },
-                onCreate: { _, title, urlString, commentary, draft in
+                onCreate: { _, title, urlString, commentary, imageURL, draft in
                     let result = await model.createLinkPost(
-                        title: title, urlString: urlString, commentary: commentary, draft: draft)
+                        title: title, urlString: urlString, commentary: commentary,
+                        imageURL: imageURL, draft: draft)
                     // Publish = create + the normal deploy path. deploySite() no-ops via its
                     // canRunDeploy guard when the runtime isn't available — the entry is already
                     // written draft: false and goes live with the next deploy (spec §3.3).

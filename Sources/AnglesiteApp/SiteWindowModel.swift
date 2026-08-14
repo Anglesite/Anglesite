@@ -1695,7 +1695,9 @@ final class SiteWindowModel {
     }
 
     /// See `createPage`'s force-refresh note (#586) — same race, same fix.
-    func createLinkPost(title: String, urlString: String, commentary: String, draft: Bool) async -> ContentCreateResult {
+    func createLinkPost(
+        title: String, urlString: String, commentary: String, imageURL: String?, draft: Bool
+    ) async -> ContentCreateResult {
         guard let site else { return .siteNotFound }
         let result = await contentCreation.createTyped(
             siteID: site.id,
@@ -1705,6 +1707,11 @@ final class SiteWindowModel {
             fieldValues: QuickCapture.fieldValues(urlString: urlString, commentary: commentary, draft: draft)
         )
         if case .created(let filePath, _) = result {
+            // Before the refresh and the undo snapshot, not after: the capture adds `image:` to
+            // the file, and `createdContents(at:)` below is what Undo restores — reading it first
+            // would register an "after" state that no longer matches disk (#1451).
+            _ = await LinkPostImageCapture().capture(
+                imageURL: imageURL, createResult: result, siteDirectory: site.sourceDirectory)
             await refreshAfterContentMutation()
             registerContentUndo(
                 actionName: ContentUndoCoordinator.createActionName("Link Post"),

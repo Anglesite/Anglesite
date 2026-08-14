@@ -50,7 +50,28 @@ public struct LinkMetadataFetcher: Sendable {
             throw LinkMetadataFetchError(reason: "That link isn't a web page (\(mime))")
         }
         let html = Self.decode(data.prefix(Self.maximumBodyBytes), textEncodingName: http.textEncodingName)
-        return LinkMetadataParser.parse(html: html)
+        var metadata = LinkMetadataParser.parse(html: html)
+        // Resolve `og:image` here rather than in the parser: relative and protocol-relative values
+        // are common and only mean something next to the URL the bytes actually came from — which
+        // is the *final* URL after redirects, not necessarily the one the caller passed (#1451).
+        metadata.imageURL = Self.resolvedImageURL(metadata.imageURL, relativeTo: http.url ?? url)
+        return metadata
+    }
+
+    /// `raw` resolved against `pageURL` and narrowed to http(s), or nil.
+    ///
+    /// The scheme gate is the point of this being a separate step: `og:image` is page-controlled
+    /// text, so a `data:`/`javascript:`/`file:` value must never reach the downloader — and a
+    /// scheme-relative `//cdn/card.png` has to inherit the page's scheme rather than resolve
+    /// against nothing. Pure, so the whole table is unit-testable without a network.
+    static func resolvedImageURL(_ raw: String?, relativeTo pageURL: URL) -> String? {
+        guard let raw, !raw.isEmpty,
+              let resolved = URL(string: raw, relativeTo: pageURL)?.absoluteURL,
+              let scheme = resolved.scheme?.lowercased(),
+              scheme == "http" || scheme == "https",
+              resolved.host?.isEmpty == false
+        else { return nil }
+        return resolved.absoluteString
     }
 
     /// Decode using the response's declared charset when it names one, else UTF-8, else lossy

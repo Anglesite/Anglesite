@@ -73,6 +73,11 @@ const bookmarks = defineCollection({
     lang: z.string().optional(),
     bookmarkOf: z.string().url(),
     title: z.string().optional(),
+    // Root-relative path to the bookmarked page's Open Graph card image, downloaded into
+    // `public/images/` by quick capture (#1451) — same convention as `photos`' own `image`, and
+    // rendered by `Hentry.astro`/`IndexEntry.astro`'s existing `u-photo` handling. Optional: a
+    // page with no `og:image`, or one that couldn't be fetched, still makes a valid link post.
+    image: z.string().optional(),
     publishDate: z.coerce.date(),
     tags: z.array(z.string()).optional(),
     draft: z.boolean().default(false),

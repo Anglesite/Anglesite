@@ -106,4 +106,34 @@ struct LinkMetadataFetcherTests {
         #expect(LinkMetadataFetcher.decode(latin1, textEncodingName: "iso-8859-1") == "é")
         #expect(LinkMetadataFetcher.decode(latin1, textEncodingName: nil) == "\u{FFFD}")  // lossy UTF-8 fallback
     }
+
+    @Test("og:image is resolved against the page URL and narrowed to http(s)")
+    func imageResolution() {
+        let page = URL(string: "https://example.com/blog/post/")!
+        func resolved(_ raw: String?) -> String? {
+            LinkMetadataFetcher.resolvedImageURL(raw, relativeTo: page)
+        }
+        #expect(resolved("https://cdn.example.com/card.jpg") == "https://cdn.example.com/card.jpg")
+        #expect(resolved("/card.png") == "https://example.com/card.png")
+        #expect(resolved("card.png") == "https://example.com/blog/post/card.png")
+        // Scheme-relative inherits the page's scheme rather than resolving against nothing.
+        #expect(resolved("//cdn.example.com/card.gif") == "https://cdn.example.com/card.gif")
+        // `og:image` is page-controlled text: these must never reach the downloader.
+        #expect(resolved("data:image/png;base64,AAAA") == nil)
+        #expect(resolved("javascript:alert(1)") == nil)
+        #expect(resolved("file:///etc/passwd") == nil)
+        #expect(resolved(nil) == nil)
+        #expect(resolved("") == nil)
+    }
+
+    @Test("fetched metadata carries an absolute og:image, resolved from a relative value")
+    func fetchResolvesRelativeImage() async throws {
+        reset(body: """
+        <head><meta property="og:title" content="Hi">
+        <meta property="og:image" content="/cards/hi.png"></head>
+        """)
+        let fetcher = LinkMetadataFetcher(session: LinkStubURLProtocol.makeSession())
+        let meta = try await fetcher.fetch(url: URL(string: "https://example.com/deep/page")!)
+        #expect(meta.imageURL == "https://example.com/cards/hi.png")
+    }
 }

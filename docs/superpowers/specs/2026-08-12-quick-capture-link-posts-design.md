@@ -220,7 +220,15 @@ The AppIntents schema-check CI lane covers the new intent.
 
 1. **Share extension (tier 3):** Safari share-sheet capture without the app
    frontmost — extension target, app group, MAS bookmark-sharing design.
-2. **og:image capture:** download the page's image into site assets and
-   reference it from the bookmark entry.
+2. ~~**og:image capture:** download the page's image into site assets and
+   reference it from the bookmark entry.~~ — **shipped** as
+   [#1451](https://github.com/Anglesite/Anglesite/issues/1451):
+   `LinkMetadataParser` reads `og:image`, `LinkMetadataFetcher` resolves it
+   against the page URL and narrows it to http(s), and `LinkPostImageCapture`
+   downloads it into `public/images/link-<slug>.<ext>` **after** the entry is
+   written — then adds `image:` to the entry's frontmatter and commits both in
+   one commit. Best-effort throughout (§6's rule): any refusal leaves the link
+   post exactly as created. `AddLinkPostIntent` still captures text metadata
+   only; wiring the intent through the same path is a further follow-up.
 3. **(If demand appears) link posts in the main feed:** a theme option to
    surface bookmarks in the blog stream, rather than a schema change.

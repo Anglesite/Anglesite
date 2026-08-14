@@ -10,7 +10,9 @@ struct QuickCaptureSheet: View {
     let pickerSites: [SiteStore.Site]?
     let fetchMetadata: @Sendable (URL) async throws -> LinkMetadata
     /// `siteID` is the picker selection (nil in the site-window flow, which ignores it).
-    let onCreate: (_ siteID: String?, _ title: String, _ urlString: String, _ commentary: String, _ draft: Bool) async -> ContentCreateResult
+    /// `imageURL` is the fetched `og:image`, if the page had a usable one — the creator downloads
+    /// it into the site's assets after the entry is written (#1451).
+    let onCreate: (_ siteID: String?, _ title: String, _ urlString: String, _ commentary: String, _ imageURL: String?, _ draft: Bool) async -> ContentCreateResult
 
     @Environment(\.dismiss) private var dismiss
     @State private var urlString: String
@@ -21,6 +23,10 @@ struct QuickCaptureSheet: View {
     @State private var fetchFailed = false
     /// The URL whose fetch already ran (successfully or not) — dedupes the `.task(id:)` restart.
     @State private var fetchedURLString: String?
+    /// The `og:image` of the page currently in the URL field, absolute and http(s) (the fetcher
+    /// resolves and gates it). Cleared whenever the URL moves to a different page, so a captured
+    /// card image can never belong to a page the owner already left (#1451).
+    @State private var fetchedImageURL: String?
     @State private var isCreating = false
     @State private var errorMessage: String?
 
@@ -105,6 +111,9 @@ struct QuickCaptureSheet: View {
             guard ContentFieldValidation.isAbsoluteURL(trimmed),
                   trimmed != fetchedURLString,
                   let url = URL(string: trimmed) else { return }
+            // Before the debounce, not after: a Save during the sleep must not attach the previous
+            // page's card image to this one.
+            fetchedImageURL = nil
             try? await Task.sleep(for: .milliseconds(400))
             guard !Task.isCancelled else { return }
             isFetching = true
@@ -117,6 +126,7 @@ struct QuickCaptureSheet: View {
                 guard !Task.isCancelled else { return }
                 fetchedURLString = trimmed
                 if title.isEmpty, let fetched = metadata.title { title = fetched }
+                fetchedImageURL = metadata.imageURL
             } catch {
                 guard !Task.isCancelled else { return }
                 fetchedURLString = trimmed
@@ -146,7 +156,8 @@ struct QuickCaptureSheet: View {
         isCreating = true
         errorMessage = nil
         Task {
-            let result = await onCreate(selectedSiteID, cleanTitle, cleanURL, cleanCommentary, draft)
+            let result = await onCreate(
+                selectedSiteID, cleanTitle, cleanURL, cleanCommentary, fetchedImageURL, draft)
             await MainActor.run {
                 isCreating = false
                 switch result {
@@ -204,14 +215,21 @@ enum QuickCapture {
     /// (`Bootstrap.swift`'s resolver), no content graph (the site has no open window to
     /// refresh; an open window's file watcher picks the new file up on its own).
     static func createLinkPost(
-        siteID: String, title: String, urlString: String, commentary: String, draft: Bool
+        siteID: String, title: String, urlString: String, commentary: String,
+        imageURL: String?, draft: Bool
     ) async -> ContentCreateResult {
         let workflow = ContentCreationWorkflow.native(
             contentGraph: nil,
             siteDirectory: { id in await SiteStore.shared.find(id: id)?.sourceDirectory }
         )
-        return await workflow.createTyped(
+        let result = await workflow.createTyped(
             siteID: siteID, typeID: "bookmark", title: title, slug: nil,
             fieldValues: fieldValues(urlString: urlString, commentary: commentary, draft: draft))
+        // Best-effort card image, after the entry exists (#1451) — a failure here leaves a
+        // perfectly good link post, so its result is deliberately ignored.
+        _ = await LinkPostImageCapture().capture(
+            imageURL: imageURL, createResult: result,
+            siteDirectory: await SiteStore.shared.find(id: siteID)?.sourceDirectory)
+        return result
     }
 }
