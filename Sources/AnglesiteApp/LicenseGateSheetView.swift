@@ -58,14 +58,18 @@ struct LicenseGateSheetView: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
-            Grid(alignment: .leading, horizontalSpacing: 16, verticalSpacing: 4) {
-                GridRow {
-                    Text("License")
-                    Text("Permits")
-                    Text("AI systems")
+            VStack(alignment: .leading, spacing: 4) {
+                // Header row. Deliberately an `HStack` with the same three column widths the
+                // body rows use, not a `GridRow` — see `row(...)` for why this table isn't a
+                // `Grid` at all; the columns line up because every row states the same widths.
+                HStack(alignment: .firstTextBaseline, spacing: Self.columnSpacing) {
+                    Text("License").frame(width: Self.licenseColumnWidth, alignment: .leading)
+                    Text("Permits").frame(width: Self.permitsColumnWidth, alignment: .leading)
+                    Text("AI systems").frame(width: Self.aiColumnWidth, alignment: .leading)
                 }
                 .font(.caption.bold())
                 .foregroundStyle(.secondary)
+                .padding(.horizontal, 6)
 
                 row(title: "All rights reserved", permits: "Nothing without asking", aiNote: nil,
                     choice: .allRightsReserved)
@@ -115,28 +119,51 @@ struct LicenseGateSheetView: View {
         .frame(minWidth: 520)
     }
 
+    /// One selectable license row.
+    ///
+    /// Deliberately **not** a `GridRow` inside a `Grid`. Modifiers chained onto a `GridRow` are
+    /// applied to each of its cells individually rather than to the row as a whole, so the
+    /// earlier `Grid`-based version produced three disconnected backgrounds, three hit targets
+    /// with dead gutters between the columns, three Tab stops, and three accessibility elements
+    /// all announcing the same label — verified by rendering the rows with `ImageRenderer` and
+    /// measuring the painted pixels. A single `Button` per row makes the row one view: one
+    /// contiguous highlight, one content shape spanning the full width, one focus stop, and one
+    /// accessibility element with the native button activation (Return/Space) that comes with it.
+    /// The columns line up because every row — including the header — states the same three
+    /// explicit frame widths, which is the alignment job `Grid` used to do.
     private func row(
         title: String, permits: String, aiNote: String?, choice: Selection.Choice
     ) -> some View {
-        GridRow {
-            Text(title)
-            Text(permits).font(.caption).foregroundStyle(.secondary)
-            Text(aiNote ?? "—").font(.caption).foregroundStyle(.secondary)
+        Button {
+            selection.choice = choice
+        } label: {
+            HStack(alignment: .firstTextBaseline, spacing: Self.columnSpacing) {
+                Text(title)
+                    .frame(width: Self.licenseColumnWidth, alignment: .leading)
+                Text(permits)
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: Self.permitsColumnWidth, alignment: .leading)
+                Text(aiNote ?? "—")
+                    .font(.caption).foregroundStyle(.secondary)
+                    .frame(width: Self.aiColumnWidth, alignment: .leading)
+            }
+            .padding(.vertical, 4)
+            .padding(.horizontal, 6)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .background(selection.choice == choice ? Color.accentColor.opacity(0.15) : Color.clear)
+            .clipShape(RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
         }
-        .padding(.vertical, 4)
-        .padding(.horizontal, 6)
-        .background(selection.choice == choice ? Color.accentColor.opacity(0.15) : Color.clear)
-        .clipShape(RoundedRectangle(cornerRadius: 6))
-        .contentShape(Rectangle())
-        .onTapGesture { selection.choice = choice }
-        .focusable(true)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel([title, permits, aiNote ?? ""].filter { !$0.isEmpty }.joined(separator: ", "))
-        .accessibilityAddTraits(selection.choice == choice ? [.isButton, .isSelected] : .isButton)
-        .accessibilityAction(.default) { selection.choice = choice }
-        .onKeyPress(.return) { selection.choice = choice; return .handled }
-        .onKeyPress(.space) { selection.choice = choice; return .handled }
+        .buttonStyle(.plain)
+        .accessibilityAddTraits(selection.choice == choice ? .isSelected : [])
     }
+
+    /// Column geometry for the comparison table. Shared by the header and every body row so the
+    /// three columns line up without a `Grid` (see `row(...)`).
+    private static let columnSpacing: CGFloat = 16
+    private static let licenseColumnWidth: CGFloat = 150
+    private static let permitsColumnWidth: CGFloat = 260
+    private static let aiColumnWidth: CGFloat = 80
 
     /// Plain-language summary of what each catalog license permits — the middle comparison-table
     /// column. Keyed by catalog id rather than re-deriving from `permitsAIUse` so it stays
