@@ -84,6 +84,7 @@ struct DevicePairingSettingsView: View {
     private func reloadDevices() {
         do {
             devices = try store.load()
+            loadError = nil
         } catch {
             loadError = "couldn't load paired devices: \(error.localizedDescription)"
         }
@@ -120,6 +121,7 @@ struct DevicePairingSettingsView: View {
                 return
             }
             qrImage = image
+            loadError = nil
         } catch {
             loadError = "couldn't prepare pairing key: \(error.localizedDescription)"
         }
