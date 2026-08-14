@@ -241,6 +241,11 @@ public struct LicensingPolicy: Sendable, Equatable {
     /// `publishRSL` on `LicensingPolicy` in `licensing.ts`; `src/lib/rsl.ts` derives every RSL
     /// projection from this same policy, never from a separate signal.
     public var publishRSL: Bool
+    /// Whether an explicit license choice has been made — including "All rights reserved" —
+    /// distinct from `defaultLicense == nil`, which is also the untouched-scaffold state.
+    /// Set by the first-publish license gate (#999); never inferred from the rest of the
+    /// policy, so a hand-edited `licensing.json` that merely looks non-empty doesn't count.
+    public var licenseChosen: Bool
 
     /// The all-defaults form is the empty policy — assert nothing, inherit everywhere, no
     /// usage preferences, no RSL — the same state ``LicensingStore/load()`` reports for a site
@@ -249,12 +254,14 @@ public struct LicensingPolicy: Sendable, Equatable {
         defaultLicense: LicenseRef? = nil,
         collections: [LicensableCollection: CollectionLicenseRule] = [:],
         usage: AIUsage = AIUsage(),
-        publishRSL: Bool = false
+        publishRSL: Bool = false,
+        licenseChosen: Bool = false
     ) {
         self.defaultLicense = defaultLicense
         self.collections = collections
         self.usage = usage
         self.publishRSL = publishRSL
+        self.licenseChosen = licenseChosen
     }
 
     /// The effective stored rule for `collection` — an absent key *is* `.inherit`, which is
@@ -276,7 +283,7 @@ public struct LicensingPolicy: Sendable, Equatable {
 
 extension LicensingPolicy: Codable {
     private enum CodingKeys: String, CodingKey {
-        case `default`, collections, usage, publishRSL
+        case `default`, collections, usage, publishRSL, licenseChosen
     }
 
     /// `collections` is a free-form object whose values are either null or a license, so it needs
@@ -359,7 +366,12 @@ extension LicensingPolicy: Codable {
         // throwing — matching `normalizePolicy`'s `rawPublishRSL === true` check, which is false
         // for anything but the literal boolean `true`.
         let publishRSL = ((try? container.decodeIfPresent(Bool.self, forKey: .publishRSL)) ?? nil) ?? false
-        self.init(defaultLicense: defaultLicense, collections: collections, usage: usage.clamped, publishRSL: publishRSL)
+        // Same lenient-decode treatment as publishRSL: a non-boolean or absent value degrades
+        // to false — "never asked" — rather than throwing or inferring "asked" from a
+        // present-but-garbage value (#999).
+        let licenseChosen = ((try? container.decodeIfPresent(Bool.self, forKey: .licenseChosen)) ?? nil) ?? false
+        self.init(defaultLicense: defaultLicense, collections: collections, usage: usage.clamped,
+                   publishRSL: publishRSL, licenseChosen: licenseChosen)
     }
 
     /// Template-compatible encoding: `default` is always written (an explicit null states "all
@@ -372,6 +384,7 @@ extension LicensingPolicy: Codable {
         try container.encode(defaultLicense, forKey: .default)
         try container.encode(usage.clamped, forKey: .usage)
         try container.encode(publishRSL, forKey: .publishRSL)
+        try container.encode(licenseChosen, forKey: .licenseChosen)
         var sub = container.nestedContainer(keyedBy: CollectionKey.self, forKey: .collections)
         // Sorted so a save produces a stable diff in the site's git repo.
         for collection in LicensableCollection.allCases {

@@ -358,4 +358,57 @@ struct LicensingStoreTests {
         try write(#"{"default":null}"#, to: dir)
         #expect(try LicensingStore(sourceDirectory: dir).load().publishRSL == false)
     }
+
+    // MARK: licenseChosen (#999)
+
+    @Test("licenseChosen defaults to false, matching a site with no licensing.json")
+    func licenseChosenDefaultsFalse() {
+        #expect(LicensingPolicy().licenseChosen == false)
+    }
+
+    @Test("save() then load() round-trips licenseChosen true")
+    func licenseChosenRoundTrips() throws {
+        let dir = try makeDirectory()
+        var policy = LicensingPolicy()
+        policy.licenseChosen = true
+        try LicensingStore(sourceDirectory: dir).save(policy)
+        #expect(try LicensingStore(sourceDirectory: dir).load().licenseChosen == true)
+    }
+
+    @Test("save() always writes licenseChosen explicitly, even when false")
+    func saveAlwaysWritesLicenseChosen() throws {
+        let dir = try makeDirectory()
+        try LicensingStore(sourceDirectory: dir).save(LicensingPolicy())
+        let json = try String(
+            contentsOf: dir.appendingPathComponent("src/data/licensing.json"), encoding: .utf8)
+        #expect(json.contains("\"licenseChosen\""))
+    }
+
+    @Test(
+        "load() degrades a non-boolean licenseChosen to false instead of throwing",
+        arguments: [
+            #"{"licenseChosen":"true"}"#,
+            #"{"licenseChosen":1}"#,
+            #"{"licenseChosen":null}"#,
+        ]
+    )
+    func loadDegradesNonBooleanLicenseChosen(_ json: String) throws {
+        let dir = try makeDirectory()
+        try write(json, to: dir)
+        #expect(try LicensingStore(sourceDirectory: dir).load().licenseChosen == false)
+    }
+
+    @Test("an absent licenseChosen key loads as false, matching a site with no licensing.json")
+    func loadAbsentLicenseChosen() throws {
+        let dir = try makeDirectory()
+        try write(#"{"default":null}"#, to: dir)
+        #expect(try LicensingStore(sourceDirectory: dir).load().licenseChosen == false)
+    }
+
+    @Test("an explicit true licenseChosen key loads correctly on its own")
+    func loadExplicitTrueLicenseChosen() throws {
+        let dir = try makeDirectory()
+        try write(#"{"licenseChosen":true}"#, to: dir)
+        #expect(try LicensingStore(sourceDirectory: dir).load().licenseChosen == true)
+    }
 }
