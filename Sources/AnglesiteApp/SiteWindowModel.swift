@@ -1631,13 +1631,17 @@ final class SiteWindowModel {
     }
 
     /// Every successful native content mutation (create/duplicate/delete/publish/undo/cleanup)
-    /// needs both of these: the Navigator force-refreshed (#586 — its own change-stream observer
-    /// is decoupled from this call) and, when a container preview is running, told to catch up
+    /// needs all three of these: the Navigator force-refreshed (#586 — its own change-stream
+    /// observer is decoupled from this call), a running container preview told to catch up
     /// (#1420 — `NativeContentOperations` commits straight to host `Source/`, which an
-    /// already-booted container's guest clone has no other way to learn about).
+    /// already-booted container's guest clone has no other way to learn about), and the WKWebView
+    /// itself reloaded — `syncContentFromHost()` only updates the guest's working copy, it doesn't
+    /// touch whatever page the preview already has loaded, so a page/post that didn't exist at
+    /// last navigation stays a 404 until something reloads it (#1420).
     private func refreshAfterContentMutation() async {
         await navigator?.refreshNow()
         await preview.syncContentFromHost()
+        preview.reloadPreview()
     }
 
     /// `contentCreation`'s successful create already rescans `SiteContentGraph` and publishes a
