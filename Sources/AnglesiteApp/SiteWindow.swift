@@ -660,6 +660,10 @@ struct SiteWindow: View {
                 )
             }
         }
+        .sheet(isPresented: $bindableModel.deploy.licenseGatePresented) {
+            LicenseGateSheetView(model: model.deploy)
+                .interactiveDismissDisabled()
+        }
         .sheet(isPresented: $bindableModel.audit.sheetPresented) {
             AuditSheetView(
                 model: model.audit,

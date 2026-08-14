@@ -295,6 +295,9 @@
     "AI summary — verify against the log below" : {
 
     },
+    "AI systems" : {
+
+    },
     "API token" : {
 
     },
@@ -526,6 +529,15 @@
     "Answer a couple of questions and we'll pick the right commerce integration." : {
 
     },
+    "Any use, no credit required" : {
+
+    },
+    "Any use, with credit" : {
+
+    },
+    "Any use, with credit, same license" : {
+
+    },
     "Anyone on Mastodon can follow this site by pasting its address into search:" : {
 
     },
@@ -678,6 +690,9 @@
 
     },
     "Base styles" : {
+
+    },
+    "Before your first publish, pick what license covers your content. \"All rights reserved\" is a valid choice — Anglesite just never picks it for you silently." : {
 
     },
     "Block AI Training Crawlers" : {
@@ -896,6 +911,9 @@
 
     },
     "Choose Logo" : {
+
+    },
+    "Choose a License" : {
 
     },
     "Choose a Template" : {
@@ -2026,6 +2044,9 @@
     "Lets Tor Browser users reach your site over the Tor network without exiting through a third-party relay. No changes to your site or URLs." : {
 
     },
+    "License" : {
+
+    },
     "Likely cause: %@" : {
 
     },
@@ -2332,6 +2353,12 @@
     "No, mixed or other devices" : {
 
     },
+    "Non-commercial use, with credit" : {
+
+    },
+    "Non-commercial use, with credit, same license" : {
+
+    },
     "None" : {
 
     },
@@ -2363,6 +2390,9 @@
 
     },
     "Notes" : {
+
+    },
+    "Nothing without asking" : {
 
     },
     "Notifications" : {
@@ -2567,6 +2597,9 @@
 
     },
     "Permanent (301)" : {
+
+    },
+    "Permits" : {
 
     },
     "Personal access token" : {
@@ -2777,6 +2810,12 @@
 
     },
     "Redirects" : {
+
+    },
+    "Redistribute unmodified, non-commercial, with credit" : {
+
+    },
+    "Redistribute unmodified, with credit" : {
 
     },
     "Reduce File Size…" : {
@@ -3974,6 +4013,9 @@
     "Your declared domain configuration (anglesite.json) doesn't match what's live on Cloudflare. Review and reconcile before deploying again." : {
 
     },
+    "Your own terms" : {
+
+    },
     "Your site is live. Connect a domain?" : {
 
     },
@@ -4085,6 +4127,9 @@
     "value" : {
 
     },
+    "—" : {
+
+    },
     "“%@”\n\nbecomes\n\n“%@”" : {
       "localizations" : {
         "en" : {
@@ -4117,6 +4162,12 @@
           }
         }
       }
+    },
+    "✅ Permits" : {
+
+    },
+    "❔ Unclear" : {
+
     },
     "👥" : {
 

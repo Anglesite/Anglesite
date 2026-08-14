@@ -86,6 +86,17 @@ final class DeployModel {
     /// flow. Set when `deploy(...)` is invoked without a token in either the env or the
     /// Keychain; cleared when the user saves a token (which then retries the deploy) or cancels.
     var tokenPromptPresented: Bool = false
+    /// Bound to a `.sheet` in `SiteWindow` for the first-publish license gate (#999). Set when
+    /// `deploy(...)` is invoked and the site's `licensing.json` has never recorded an explicit
+    /// license choice. Reuses `pendingDeploy` to park and retry, same as the token-prompt flow.
+    /// Wired with `.interactiveDismissDisabled()` in `SiteWindow`: the design is a hard block, so
+    /// Esc or a swipe must not bypass it. Backing out is a deliberate button press —
+    /// `cancelLicenseGate()` — which abandons this deploy attempt without recording a choice, so
+    /// the gate simply fires again next time.
+    var licenseGatePresented: Bool = false
+    /// Set when saving the chosen policy fails (e.g. an unsafe custom license URL). Cleared on
+    /// every fresh presentation and on a successful `confirmLicenseChoice(_:)`.
+    private(set) var licenseGateError: String?
     /// Bound to a `.sheet` in `SiteWindow` for the `.workerNameConflict` outcome — the Worker
     /// name is already taken on the connected Cloudflare account and this is the site's first
     /// deploy. Reuses `pendingDeploy` (below) to park and retry, same as the token-prompt flow.
@@ -273,6 +284,12 @@ final class DeployModel {
             tokenPromptPresented = true
             return
         }
+        if !hasChosenLicense(siteDirectory: siteDirectory) {
+            pendingDeploy = (siteID, siteDirectory, configDirectory, currentRoutes, containerControlProvider, siteName)
+            licenseGateError = nil
+            licenseGatePresented = true
+            return
+        }
         // Flip `phase` synchronously, before scheduling the Task, so a second `deploy()` call
         // on the same actor hop (e.g. a rapid re-invocation before this Task starts running)
         // sees `isRunning == true` and bails via the guard above instead of racing runDeploy.
@@ -304,6 +321,9 @@ final class DeployModel {
         guard !isRunning else { return .deferred(reason: "another site operation is running") }
         guard !awaitingUserAction else { return .deferred(reason: "a deploy prompt is waiting for a response") }
         guard hasUsableToken() else { return .deferred(reason: "Cloudflare credentials are not configured") }
+        guard hasChosenLicense(siteDirectory: siteDirectory) else {
+            return .deferred(reason: "a content license hasn't been chosen yet")
+        }
         // Resolved once (there's no user-facing prompt gap on this background path to make a
         // second resolution meaningfully fresher) and reused both for the readiness guard and the
         // actual run, so the two can't disagree about whether a container is available.
@@ -410,6 +430,66 @@ final class DeployModel {
         tokenVerification = .idle
     }
 
+    /// The licensing policy of the deploy currently parked on the license gate — `nil` when no
+    /// deploy is parked. `LicenseGateSheetView` reads it on appear to seed its selection, so a
+    /// license the site already records is re-affirmed by Continue rather than replaced by the
+    /// sheet's own default. A missing or malformed `licensing.json` degrades to the empty policy,
+    /// the same fail-safe `hasChosenLicense(siteDirectory:)` relies on.
+    var pendingLicensingPolicy: LicensingPolicy? {
+        guard let pending = pendingDeploy else { return nil }
+        return (try? LicensingStore(sourceDirectory: pending.siteDirectory).load()) ?? LicensingPolicy()
+    }
+
+    /// Called by `LicenseGateSheetView`'s Continue button. Builds the policy from `license`
+    /// (`nil` means "All rights reserved"), fills only unset AI-usage purposes via
+    /// `LicenseCatalog.prefilled` (matching `ContentLicensingTab`'s own picker behavior, so this
+    /// never clobbers a manual override made later), marks the choice made, and saves — then
+    /// resumes the parked deploy. Owns its own `LicensingStore` directly rather than going
+    /// through `PlistEditorModel`, so the gate works with no Settings window open.
+    ///
+    /// `async` only for the failure path's log write: the raw error is developer-facing (it can
+    /// carry an unusable-URL payload), so the plain-language message goes to the sheet and the
+    /// real error goes to the log — awaited before returning, exactly as the Cloudflare sign-in
+    /// failure path does, so it can't be dropped by app termination.
+    func confirmLicenseChoice(_ license: LicenseRef?) async {
+        guard let pending = pendingDeploy else {
+            licenseGateError = "No deploy is waiting — close this and click Deploy again."
+            return
+        }
+        let store = LicensingStore(sourceDirectory: pending.siteDirectory)
+        var policy = (try? store.load()) ?? LicensingPolicy()
+        policy.defaultLicense = license
+        policy.usage = LicenseCatalog.prefilled(policy.usage, for: license)
+        policy.licenseChosen = true
+        do {
+            try store.save(policy)
+        } catch let error as LicensingStore.ValidationError {
+            // Mirrors `PlistEditorModel.saveLicensing()`'s treatment of the same error, so the
+            // two paths that can write this policy say the same thing about a bad address.
+            switch error {
+            case .unsafeLicenseURL(let url):
+                await logCenter.append(
+                    source: "license-gate:\(pending.siteID)", stream: .stderr,
+                    text: "Refused to save an unsafe license URL: \(error)")
+                licenseGateError = "\"\(url)\" isn't a usable license address. Use an https:// URL or a path on this site starting with /."
+            }
+            return
+        } catch {
+            await logCenter.append(
+                source: "license-gate:\(pending.siteID)", stream: .stderr,
+                text: "Saving the content license failed: \(error)")
+            licenseGateError = "Couldn't save your license choice: \(error.localizedDescription)"
+            return
+        }
+        pendingDeploy = nil
+        licenseGateError = nil
+        licenseGatePresented = false
+        deploy(
+            siteID: pending.siteID, siteDirectory: pending.siteDirectory,
+            configDirectory: pending.configDirectory, currentRoutes: pending.currentRoutes,
+            containerControlProvider: pending.containerControlProvider, siteName: pending.siteName)
+    }
+
     /// Called by the worker-name-conflict sheet's "Rename & retry" button. Applies the rename to
     /// `wrangler.toml`/`.site-config` via `WorkerNameRename.apply`, then retries the parked
     /// deploy — which re-runs the collision check against the new name and loops back to this
@@ -447,6 +527,16 @@ final class DeployModel {
             siteID: pending.siteID, siteDirectory: pending.siteDirectory,
             configDirectory: pending.configDirectory, currentRoutes: pending.currentRoutes,
             containerControlProvider: pending.containerControlProvider, siteName: pending.siteName)
+    }
+
+    /// Abandons *this* deploy attempt without recording a license choice — the gate's Cancel
+    /// button, for a Deploy pressed by mistake. Nothing is saved, so the gate fires again on the
+    /// next Deploy: publishing still can't happen without an explicit choice, exactly as the
+    /// token-prompt and worker-name-conflict sheets have Cancel without weakening what they gate.
+    func cancelLicenseGate() {
+        pendingDeploy = nil
+        licenseGatePresented = false
+        licenseGateError = nil
     }
 
     func cancelWorkerNameConflictPrompt() {
@@ -580,6 +670,15 @@ final class DeployModel {
             return true
         }
         return false
+    }
+
+    /// Whether `siteDirectory`'s `licensing.json` records an explicit license choice (#999). A
+    /// missing file or an unreadable/malformed document both read as "not chosen" —
+    /// `LicensingStore.load()` already degrades every malformed shape to the empty policy, whose
+    /// `licenseChosen` is `false`, so this mirrors that same fail-safe default rather than adding
+    /// a second one.
+    private func hasChosenLicense(siteDirectory: URL) -> Bool {
+        (try? LicensingStore(sourceDirectory: siteDirectory).load())?.licenseChosen ?? false
     }
 
     /// Set `phase` and notify the transition hook. All of `runDeploy`'s phase changes route
