@@ -70,16 +70,33 @@ public final class PairedDeviceStore: @unchecked Sendable {
     /// ``revocationDate(deviceID:)``'s caller distinguish the two cases that matter: an announce
     /// written **before** the revoke is the stale record being defended against, while one written
     /// **after** it is the owner deliberately pairing the device again.
+    ///
+    /// ## Why the tombstone is written *first*
+    ///
+    /// This touches two files, and each write is individually atomic but the pair is not — so the
+    /// order decides which way an interruption between them fails. Removing the row first fails
+    /// **open**: a throw from the tombstone write leaves the device gone from
+    /// `paired-devices.json` with nothing recording that it was revoked, which is precisely the
+    /// state the tombstone exists to prevent — the next announce re-pins it as a brand-new device.
+    /// Worse, retrying doesn't heal it: the row is already gone, so the second call matches
+    /// nothing, returns *successfully* via the `guard` below, and the UI reports a revoke that
+    /// never recorded anything.
+    ///
+    /// Writing the tombstone first fails **closed**. An interruption leaves the device tombstoned
+    /// but still listed: a cosmetic inconsistency (it looks paired, but no announce can re-pin it)
+    /// that the owner can resolve by revoking again — and that retry *does* heal, because the row
+    /// is still there to match. A stale UI row is a much better failure than a silently
+    /// un-revoked device.
     public func remove(id: UUID) throws {
         var all = try load()
         let revoked = all.filter { $0.id == id }
-        all.removeAll { $0.id == id }
-        try persist(all)
         guard !revoked.isEmpty else { return }
         var tombstones = try revocations()
         let now = Date()
         for device in revoked { tombstones[device.deviceID] = now }
         try persistRevocations(tombstones)
+        all.removeAll { $0.id == id }
+        try persist(all)
     }
 
     /// When `deviceID` was last revoked on this Mac, or `nil` if it never was.
