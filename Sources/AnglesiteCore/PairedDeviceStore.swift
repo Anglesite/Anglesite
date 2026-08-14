@@ -5,14 +5,22 @@ import Foundation
 public final class PairedDeviceStore: @unchecked Sendable {
     private let fileManager: FileManager
     private let persistenceURL: URL
+    /// Sibling of ``persistenceURL`` holding the revocation tombstones — see ``remove(id:)``.
+    /// Derived rather than injected so every existing call site (and every test that already passes
+    /// a temp `persistenceURL`) gets a correctly co-located, correctly isolated one for free.
+    private let revocationsURL: URL
 
     /// - Parameters:
     ///   - persistenceURL: where to read/write `paired-devices.json`. Defaults to
     ///     `~/Library/Application Support/Anglesite/paired-devices.json`. Tests should pass a temp URL.
+    ///     Revocation tombstones go in `revoked-devices.json` beside it.
     ///   - fileManager: Injectable for tests; defaults to `.default`.
     public init(persistenceURL: URL? = nil, fileManager: FileManager = .default) {
         self.fileManager = fileManager
-        self.persistenceURL = persistenceURL ?? Self.defaultPersistenceURL(fileManager: fileManager)
+        let url = persistenceURL ?? Self.defaultPersistenceURL(fileManager: fileManager)
+        self.persistenceURL = url
+        self.revocationsURL = url.deletingLastPathComponent()
+            .appendingPathComponent("revoked-devices.json")
     }
 
     /// Reads the full list fresh from disk. Returns `[]` if no file exists yet.
@@ -37,11 +45,63 @@ public final class PairedDeviceStore: @unchecked Sendable {
         try persist(all)
     }
 
-    /// Removes the entry with `id` — the Revoke action's model-layer half. No-op if no entry matches.
+    /// Removes the entry with `id` — the Revoke action's model-layer half — and records a
+    /// revocation tombstone for its `deviceID`. No-op if no entry matches.
+    ///
+    /// ## Why removing the row is not enough
+    ///
+    /// Revocation has to survive the *rendezvous* layer, not just the local list. A peer's
+    /// `DeviceAnnounceRecord` lives in the owner's private CloudKit database and nothing in
+    /// production withdraws it, so after a revoke the stale announce is still sitting there; the
+    /// helper's pairing observation (`startPairingObservation` in `anglesite-remote-helper`) starts
+    /// fresh on every launch with an empty dedup set, sees that announce, and would re-pin the
+    /// device it was just told to forget. Revocation would last exactly until the next session,
+    /// contradicting the design spec's own §Error handling guarantee that
+    /// `PairedDeviceStore.remove` "drops the pinned key immediately for *future* connection
+    /// attempts".
+    ///
+    /// The tombstone is what makes that guarantee real, and it is stored locally precisely so it
+    /// does not depend on a CloudKit delete succeeding (or on the peer cooperating).
+    ///
+    /// ## Why it stores a date rather than just an ID
+    ///
+    /// A bare "never pin this device again" list would make re-pairing a revoked phone impossible,
+    /// since nothing in the UI clears it. Recording *when* the revocation happened lets
+    /// ``revocationDate(deviceID:)``'s caller distinguish the two cases that matter: an announce
+    /// written **before** the revoke is the stale record being defended against, while one written
+    /// **after** it is the owner deliberately pairing the device again.
     public func remove(id: UUID) throws {
         var all = try load()
+        let revoked = all.filter { $0.id == id }
         all.removeAll { $0.id == id }
         try persist(all)
+        guard !revoked.isEmpty else { return }
+        var tombstones = try revocations()
+        let now = Date()
+        for device in revoked { tombstones[device.deviceID] = now }
+        try persistRevocations(tombstones)
+    }
+
+    /// When `deviceID` was last revoked on this Mac, or `nil` if it never was.
+    ///
+    /// Callers compare it against the announcement's own `createdAt`: an announce at or before this
+    /// date is the stale record a revoke was meant to defeat and must not be pinned; a later one is
+    /// a fresh, deliberate re-pairing. See ``remove(id:)`` for the full rationale.
+    public func revocationDate(deviceID: String) throws -> Date? {
+        try revocations()[deviceID]
+    }
+
+    /// Every recorded tombstone, keyed by peer `deviceID`. Returns `[:]` if none were ever written.
+    private func revocations() throws -> [String: Date] {
+        guard fileManager.fileExists(atPath: revocationsURL.path) else { return [:] }
+        let data = try Data(contentsOf: revocationsURL)
+        return try Self.decoder.decode([String: Date].self, from: data)
+    }
+
+    private func persistRevocations(_ tombstones: [String: Date]) throws {
+        try fileManager.createDirectory(
+            at: revocationsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Self.encoder.encode(tombstones).write(to: revocationsURL, options: [.atomic])
     }
 
     /// Looks up a paired device by its peer-supplied `deviceID` (not this store's own `id`) — the

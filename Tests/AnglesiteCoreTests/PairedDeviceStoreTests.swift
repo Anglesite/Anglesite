@@ -43,6 +43,59 @@ struct PairedDeviceStoreTests {
         #expect(try store.load() == [])
     }
 
+    /// The revocation half of `remove(id:)` (#1208 P2): dropping the row is not enough, because the
+    /// peer's `DeviceAnnounceRecord` outlives it in CloudKit and the helper's pairing loop would
+    /// re-pin from that stale record on the next session. See `PairedDeviceStore.remove(id:)`.
+    @Test func removeRecordsARevocationTombstone() throws {
+        let store = Self.makeStore()
+        let device = PairedDevice(deviceID: "phone-1", displayName: "David's iPhone", pinnedPublicKey: Data([0x04]), pairedAt: Date())
+        try store.add(device)
+        #expect(try store.revocationDate(deviceID: "phone-1") == nil)
+
+        let before = Date()
+        try store.remove(id: device.id)
+        let recorded = try #require(try store.revocationDate(deviceID: "phone-1"))
+        #expect(recorded >= before)
+        // An announce written before the revoke is the stale record being defended against; one
+        // written after it is a deliberate re-pairing. Both comparisons are the caller's, so this
+        // asserts the tombstone actually supports them.
+        #expect(before.addingTimeInterval(-60) <= recorded)
+        #expect(recorded < Date().addingTimeInterval(60))
+    }
+
+    /// A removal that matches nothing must not tombstone anything — otherwise a stray `remove`
+    /// could quietly block a device that was never revoked.
+    @Test func removeOfUnknownIDRecordsNoTombstone() throws {
+        let store = Self.makeStore()
+        let device = PairedDevice(deviceID: "phone-1", displayName: "David's iPhone", pinnedPublicKey: Data([0x04]), pairedAt: Date())
+        try store.add(device)
+        try store.remove(id: UUID())
+        #expect(try store.load() == [device])
+        #expect(try store.revocationDate(deviceID: "phone-1") == nil)
+    }
+
+    /// Tombstones survive a fresh store instance — the whole point is that they outlive the process
+    /// that wrote them, since the helper re-reads them on every launch.
+    @Test func tombstonesPersistAcrossStoreInstances() throws {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("paired-devices-\(UUID().uuidString)")
+            .appendingPathComponent("paired-devices.json")
+        let device = PairedDevice(deviceID: "phone-1", displayName: "David's iPhone", pinnedPublicKey: Data([0x04]), pairedAt: Date())
+        let writer = PairedDeviceStore(persistenceURL: url)
+        try writer.add(device)
+        try writer.remove(id: device.id)
+
+        let reader = PairedDeviceStore(persistenceURL: url)
+        #expect(try reader.revocationDate(deviceID: "phone-1") != nil)
+        #expect(try reader.revocationDate(deviceID: "never-paired") == nil)
+    }
+
+    /// A store with no tombstone file at all reports no revocations rather than throwing — the
+    /// state every Mac is in until the first revoke.
+    @Test func revocationDateOnMissingFileReturnsNil() throws {
+        #expect(try Self.makeStore().revocationDate(deviceID: "phone-1") == nil)
+    }
+
     @Test func deviceLookupFindsByPeerDeviceIDNotStoreID() throws {
         let store = Self.makeStore()
         let device = PairedDevice(deviceID: "phone-1", displayName: "David's iPhone", pinnedPublicKey: Data([0x04]), pairedAt: Date())
