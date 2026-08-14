@@ -12,6 +12,8 @@ struct SettingsView: View {
                 .tabItem { Label("Siri AI", systemImage: "sparkles") }
             AgentsSettingsView()
                 .tabItem { Label("Agents", systemImage: "network") }
+            DevicePairingSettingsView()
+                .tabItem { Label("iPhone/iPad", systemImage: "qrcode") }
             AdvancedSettingsView()
                 .tabItem { Label("Advanced", systemImage: "gearshape.2") }
         }

@@ -1,0 +1,51 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Default Debug entitlements for the AnglesiteRemote login-item helper (#1208 P2).
+         Identical to Resources/AnglesiteRemote.entitlements minus keychain-access-groups.
+
+         Why this file exists, mirroring Resources/Anglesite-Debug.entitlements' role for the main
+         app: keychain-access-groups requires Apple to issue a real provisioning profile even under
+         Manual/ad-hoc code signing, and Xcode refuses to build the target at all once it is
+         present without a Team —
+
+             error: "AnglesiteRemote" requires a provisioning profile. Enable development signing
+             and select a provisioning profile in the Signing & Capabilities editor.
+
+         That is the same class of blocker #1038 documents for the iCloud entitlement, and #1204
+         for Associated Domains. It is NOT the Apple Developer portal kind: Keychain Sharing needs
+         no portal capability, every App ID carries it implicitly. Only signing is gated.
+
+         README.md / CONTRIBUTING.md promise a clone-and-build with no Apple Developer account, so
+         this CI-safe file must stay free of any Team-requiring capability. Selected via
+         $(ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS) in xcconfig/Signing-Debug.xcconfig.
+
+         Consequence at runtime, deliberate and loud rather than silent: a Debug build signed
+         against this file cannot open the shared pairing keychain item, so
+         DevicePairingSettingsView.generateQRCode() reports "couldn't prepare pairing key" instead
+         of rendering a QR, and anglesite-remote-helper's helperSigningKey() falls back to an
+         ephemeral key with a warning. A contributor with a real Team who wants the real behavior
+         locally opts into Resources/AnglesiteRemote-Debug-Keychain.entitlements (and, on the main
+         app side, Resources/Anglesite-Debug-iCloud.entitlements) from a gitignored
+         xcconfig/Signing-Debug.local.xcconfig — see Signing-Debug.local.xcconfig.example. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- Bridges P2P channels to the container's loopback proxies, and (eventually) accepts
+         inbound WebRTC ICE hole-punch traffic — see design spec §2 "no standing listening ports"
+         (ICE binds ephemeral ports; that's not a stable inbound service). -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <!-- Own bookmark store for non-iCloud sites (design spec §2 "File access") — the main app's
+         bookmarks are app-scoped and don't transfer to this bundle ID. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+    <!-- Apple Containerization framework (#69): boot local OCI containers, same as Anglesite.app. -->
+    <key>com.apple.security.virtualization</key>
+    <true/>
+</dict>
+</plist>

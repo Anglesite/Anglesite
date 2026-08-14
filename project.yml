@@ -335,6 +335,9 @@ targets:
         PRODUCT_NAME: "Anglesite Remote"
         INFOPLIST_FILE: Resources/AnglesiteRemote-Info.plist
         GENERATE_INFOPLIST_FILE: NO
+        # Release keeps the entitlements carrying the shared keychain access group (#1208 P2);
+        # Debug overrides to the no-keychain-group file below by default. Mirrors the
+        # Anglesite/AnglesiteMobile targets above — see their matching comments.
         CODE_SIGN_ENTITLEMENTS: Resources/AnglesiteRemote.entitlements
         ENABLE_HARDENED_RUNTIME: YES
         MACOSX_DEPLOYMENT_TARGET: "27.0"
@@ -345,6 +348,17 @@ targets:
         SKIP_INSTALL: YES
         # Embedded helper apps live under the parent's Contents/Library/LoginItems/ —
         # SMAppService.agent's documented discovery location.
+      configs:
+        Debug:
+          # #1208 P2: keychain-access-groups requires a real provisioning profile even under
+          # ad-hoc/Manual signing, so the default Debug build must sign against a file without
+          # it or Xcode fails with '"AnglesiteRemote" requires a provisioning profile'.
+          # Indirected through an xcconfig variable (defaults to
+          # Resources/AnglesiteRemote-Debug.entitlements) rather than a literal path here, so
+          # xcconfig/Signing-Debug.local.xcconfig can opt a real-Team local build into
+          # Resources/AnglesiteRemote-Debug-Keychain.entitlements without editing this tracked
+          # file — exactly how ANGLESITE_DEBUG_ENTITLEMENTS works for the Anglesite target.
+          CODE_SIGN_ENTITLEMENTS: $(ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS)
     dependencies:
       - package: Anglesite
         product: AnglesiteRemote

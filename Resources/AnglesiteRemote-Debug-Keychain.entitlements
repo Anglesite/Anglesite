@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+    <!-- Opt-in Debug entitlements for the AnglesiteRemote helper (#1208 P2): identical to
+         Resources/AnglesiteRemote-Debug.entitlements plus the shared keychain access group.
+         Mirrors what Resources/Anglesite-Debug-iCloud.entitlements does for the main app (#1038).
+
+         Apple requires a real provisioning profile for keychain-access-groups even under
+         Manual/ad-hoc code signing, so it can't live in the default Debug entitlements (that file
+         must stay buildable with no Apple Developer account — see README.md / CONTRIBUTING.md).
+         Contributors who have a real Team and want to exercise the shared device-pairing key
+         locally: point ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS at this file from
+         xcconfig/Signing-Debug.local.xcconfig (see Signing-Debug.local.xcconfig.example).
+
+         Both halves are needed or nothing is shared: opt the MAIN APP in as well, via
+         ANGLESITE_DEBUG_ENTITLEMENTS = Resources/Anglesite-Debug-iCloud.entitlements, which
+         carries the same group. One side alone only relocates the mismatch — and worse, the side
+         that does carry the group reads a keychain item the other side can't write. -->
+    <key>com.apple.security.app-sandbox</key>
+    <true/>
+    <key>com.apple.security.network.client</key>
+    <true/>
+    <!-- Bridges P2P channels to the container's loopback proxies, and (eventually) accepts
+         inbound WebRTC ICE hole-punch traffic — see design spec §2 "no standing listening ports"
+         (ICE binds ephemeral ports; that's not a stable inbound service). -->
+    <key>com.apple.security.network.server</key>
+    <true/>
+    <!-- Own bookmark store for non-iCloud sites (design spec §2 "File access") — the main app's
+         bookmarks are app-scoped and don't transfer to this bundle ID. -->
+    <key>com.apple.security.files.user-selected.read-write</key>
+    <true/>
+    <key>com.apple.security.files.bookmarks.app-scope</key>
+    <true/>
+    <!-- Apple Containerization framework (#69): boot local OCI containers, same as Anglesite.app. -->
+    <key>com.apple.security.virtualization</key>
+    <true/>
+
+    <!-- Must match the array in Resources/AnglesiteRemote.entitlements,
+         Resources/Anglesite.entitlements and Resources/Anglesite-Debug-iCloud.entitlements
+         exactly, and must match the expanded form KeychainStore.sharedPairingAccessGroup carries
+         at runtime ("M34HBJZNYA.io.dwk.anglesite.shared"). A mismatch is silent: each process
+         keeps its own item and pairing never verifies. -->
+    <key>keychain-access-groups</key>
+    <array>
+        <string>$(AppIdentifierPrefix)io.dwk.anglesite.shared</string>
+    </array>
+</dict>
+</plist>

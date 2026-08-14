@@ -129,6 +129,11 @@ public enum SecretAccounts {
     public static func acpAgentToken(id: UUID) -> String {
         "acp-agent-token-\(id.uuidString)"
     }
+
+    /// The raw private-key bytes (`DevicePairingKeyPair.persistedRepresentation`) for this
+    /// device's Anywhere-runtime pairing identity (#1208 P2) — generated once per device, not
+    /// per site.
+    public static let devicePairingKey = "device-pairing-key"
 }
 
 /// A stored Cloudflare OAuth credential: the access token used as a Cloudflare API bearer token,
@@ -295,6 +300,31 @@ public extension SecretStore {
         try delete(account: SecretAccounts.cloudflareOAuthRefreshToken)
         try delete(account: SecretAccounts.cloudflareOAuthExpiresAt)
         try delete(account: SecretAccounts.cloudflareOAuthTokenEndpoint)
+    }
+
+    // #1208 P2 — these two slots are the ones that must become shared between `Anglesite.app` and
+    // its `AnglesiteRemote` login-item helper: today each process reaches them through a
+    // `KeychainStore()` whose implicit access group is derived from its own bundle ID, so the two
+    // mint and sign with *different* device identities and the QR code the Settings pane publishes
+    // doesn't match what the helper signs with. Nothing changes here when that is fixed — this
+    // extension is store-agnostic by design. The fix is at the three concrete construction sites
+    // (`DevicePairingSettingsView.generateQRCode()`, `anglesite-remote-helper`'s
+    // `helperSigningKey()`, and any future one), each of which swaps `KeychainStore()` for
+    // `KeychainStore(accessGroup: KeychainStore.sharedPairingAccessGroup)` once both bundles carry
+    // the group in a `keychain-access-groups` entitlement. Checklist:
+    // `Resources/AnglesiteRemote.entitlements` ▸ manual portal step 2.
+
+    /// Read this device's pairing key pair, if any. `nil` when unset or the stored bytes no
+    /// longer decode as a P-256 private key.
+    func readDevicePairingKeyPair() throws -> DevicePairingKeyPair? {
+        guard let base64 = try read(account: SecretAccounts.devicePairingKey),
+              let data = Data(base64Encoded: base64) else { return nil }
+        return DevicePairingKeyPair(persistedRepresentation: data)
+    }
+
+    /// Store this device's pairing key pair.
+    func writeDevicePairingKeyPair(_ keyPair: DevicePairingKeyPair) throws {
+        try write(keyPair.persistedRepresentation.base64EncodedString(), account: SecretAccounts.devicePairingKey)
     }
 }
 
