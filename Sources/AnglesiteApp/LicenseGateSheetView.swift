@@ -10,8 +10,8 @@ struct LicenseGateSheetView: View {
     @Bindable var model: DeployModel
 
     /// One row's pure state: which license is selected, and (for `.custom`) the URL/name typed
-    /// so far. A fresh instance per presentation — the gate never shows a prior choice, since it
-    /// only appears when none has been recorded yet. Extracted as a plain struct (not held
+    /// so far. Re-seeded on every presentation from whatever license the site already records
+    /// (see `init(existing:)`). Extracted as a plain struct (not held
     /// directly as separate `@State` fields) so `isContinueEnabled`/`resolvedLicense()` are
     /// unit-testable without a hosted SwiftUI render pass, mirroring
     /// `ContentLicensingTab.PendingCustomLicense`. Internal (not `private`) so tests can
@@ -26,6 +26,27 @@ struct LicenseGateSheetView: View {
         var choice: Choice = .allRightsReserved
         var customURL: String = ""
         var customName: String = ""
+
+        /// Seeds the selection from a license the site's `licensing.json` already records.
+        ///
+        /// The gate normally only appears when nothing has been chosen, so `nil` — an untouched
+        /// scaffold — is the usual input and lands on "All rights reserved". But
+        /// `defaultLicense` and `licenseChosen` are separate fields, and a hand-edited
+        /// `licensing.json` (or any future writer that forgets the flag) can carry a real
+        /// license with `licenseChosen == false`. Starting from that license means pressing
+        /// Continue re-affirms it rather than silently replacing it with this sheet's default.
+        init(existing license: LicenseRef? = nil) {
+            guard let license else { return }
+            if let entry = LicenseCatalog.entry(for: license) {
+                choice = .catalog(entry.id)
+            } else {
+                choice = .custom
+                customURL = license.url
+                // `LicenseRef` decoding falls the name back to the URL, so a name equal to the
+                // URL carries no information the Name field should show as if it were typed.
+                customName = license.name == license.url ? "" : license.name
+            }
+        }
 
         /// False only for an empty-URL custom selection — every other choice is already
         /// complete the moment it's picked.
@@ -117,6 +138,9 @@ struct LicenseGateSheetView: View {
         }
         .padding(24)
         .frame(minWidth: 520)
+        .onAppear {
+            selection = Selection(existing: model.pendingLicensingPolicy?.defaultLicense)
+        }
     }
 
     /// One selectable license row.

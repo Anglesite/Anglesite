@@ -528,7 +528,12 @@ final class PlistEditorModel {
         // into both `licensingPolicy` and `savedLicensingPolicy` keeps the in-memory model
         // matching what's actually on disk, the same way `saveMtaSts` writes back its normalized
         // settings above.
-        let policy = LicensingStore.normalized(licensingPolicy)
+        var policy = LicensingStore.normalized(licensingPolicy)
+        // Saving this facet *is* an explicit license choice, even when the result is "All rights
+        // reserved" — the owner navigated here and pressed Save. Recording it means the
+        // first-publish license gate (#999) doesn't re-ask and, worse, doesn't overwrite this
+        // choice with its own default when the owner presses Continue.
+        policy.licenseChosen = true
         do {
             try await Task.detached(priority: .userInitiated) {
                 try LicensingStore(sourceDirectory: sourceDirectory).save(policy)

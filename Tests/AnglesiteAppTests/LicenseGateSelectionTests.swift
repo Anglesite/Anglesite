@@ -54,4 +54,37 @@ struct LicenseGateSelectionTests {
         #expect(selection.resolvedLicense() == LicenseRef(
             url: "https://example.com/license", name: "House terms"))
     }
+
+    @Test("an absent existing license starts on All rights reserved")
+    func seedsAllRightsReservedWithoutExistingLicense() {
+        #expect(LicenseGateSheetView.Selection(existing: nil).choice == .allRightsReserved)
+    }
+
+    @Test("an existing catalog license is preselected instead of being discarded")
+    func seedsCatalogChoiceFromExistingLicense() {
+        let ccBY = LicenseCatalog.entries.first { $0.id == "cc-by-4.0" }!.ref
+        let selection = LicenseGateSheetView.Selection(existing: ccBY)
+        #expect(selection.choice == .catalog("cc-by-4.0"))
+        #expect(selection.resolvedLicense() == ccBY)
+    }
+
+    @Test("an existing off-catalog license is preselected as Custom with its URL and name")
+    func seedsCustomChoiceFromExistingLicense() {
+        let ref = LicenseRef(url: "https://example.com/terms", name: "House terms")
+        let selection = LicenseGateSheetView.Selection(existing: ref)
+        #expect(selection.choice == .custom)
+        #expect(selection.customURL == "https://example.com/terms")
+        #expect(selection.customName == "House terms")
+        #expect(selection.isContinueEnabled)
+        #expect(selection.resolvedLicense() == ref)
+    }
+
+    @Test("an existing custom license whose name is just its URL leaves the name field empty")
+    func seedsCustomWithoutEchoingURLAsName() {
+        let ref = LicenseRef(url: "https://example.com/terms", name: "https://example.com/terms")
+        let selection = LicenseGateSheetView.Selection(existing: ref)
+        #expect(selection.customName == "")
+        // Still resolves back to the same ref, since an empty name falls back to the URL.
+        #expect(selection.resolvedLicense() == ref)
+    }
 }

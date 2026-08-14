@@ -429,6 +429,16 @@ final class DeployModel {
         tokenVerification = .idle
     }
 
+    /// The licensing policy of the deploy currently parked on the license gate — `nil` when no
+    /// deploy is parked. `LicenseGateSheetView` reads it on appear to seed its selection, so a
+    /// license the site already records is re-affirmed by Continue rather than replaced by the
+    /// sheet's own default. A missing or malformed `licensing.json` degrades to the empty policy,
+    /// the same fail-safe `hasChosenLicense(siteDirectory:)` relies on.
+    var pendingLicensingPolicy: LicensingPolicy? {
+        guard let pending = pendingDeploy else { return nil }
+        return (try? LicensingStore(sourceDirectory: pending.siteDirectory).load()) ?? LicensingPolicy()
+    }
+
     /// Called by `LicenseGateSheetView`'s Continue button. Builds the policy from `license`
     /// (`nil` means "All rights reserved"), fills only unset AI-usage purposes via
     /// `LicenseCatalog.prefilled` (matching `ContentLicensingTab`'s own picker behavior, so this

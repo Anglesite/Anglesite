@@ -69,6 +69,43 @@ struct PlistEditorModelLicensingTests {
         #expect(reloaded.defaultLicense == ccBY)
     }
 
+    /// Saving this facet is itself an explicit license choice, so the first-publish gate (#999)
+    /// must not re-ask afterwards — and, critically, must not overwrite the saved license with
+    /// its own "All rights reserved" default the next time Deploy is pressed.
+    @Test("saving content licensing records the choice as made (#999)")
+    func savingRecordsLicenseChosen() async throws {
+        let model = try makeModel()
+        await model.load()
+        #expect(model.licensingPolicy.licenseChosen == false)
+
+        model.licensingPolicy.defaultLicense = ccBY
+        let saved = await model.saveLicensing()
+
+        #expect(saved == true)
+        let reloaded = try LicensingStore(sourceDirectory: model.sourceDirectory).load()
+        #expect(reloaded.licenseChosen == true)
+        #expect(reloaded.defaultLicense == ccBY)
+        // The in-memory copy matches disk, so the facet isn't left spuriously dirty.
+        #expect(model.licensingPolicy.licenseChosen == true)
+        #expect(model.isLicensingDirty == false)
+    }
+
+    /// The same must hold when the chosen result *is* "All rights reserved" — that's the case
+    /// `licenseChosen` exists to distinguish from an untouched scaffold.
+    @Test("saving with no license still records the choice as made (#999)")
+    func savingAllRightsReservedRecordsLicenseChosen() async throws {
+        let model = try makeModel()
+        await model.load()
+        model.licensingPolicy.publishRSL = true  // some edit, so the save isn't a no-op
+
+        let saved = await model.saveLicensing()
+
+        #expect(saved == true)
+        let reloaded = try LicensingStore(sourceDirectory: model.sourceDirectory).load()
+        #expect(reloaded.defaultLicense == nil)
+        #expect(reloaded.licenseChosen == true)
+    }
+
     @Test("toggling publishRSL is dirty, and round-trips through save/load (#992)")
     func publishRSLDirtyTrackingAndSave() async throws {
         let model = try makeModel()
