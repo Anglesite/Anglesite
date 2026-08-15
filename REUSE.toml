@@ -14,6 +14,14 @@
 
 version = 1
 
+# Package identity. Declared for completeness and for future tool versions —
+# but note that `reuse` 6.2.0 (the version CI pins) does not consume these three
+# keys. Its `ReuseTOML.from_dict` reads only `version` and `annotations`, and
+# `reuse spdx` against this tree emits an SBOM with zero PackageName /
+# PackageSupplier / PackageDownloadLocation entries. They are not a lint
+# failure and not misspelled — reuse's own `dep5` converter writes exactly these
+# key names — they are simply write-only under the pinned version. Don't assume
+# the generated SBOM carries package identity until a later `reuse` reads them.
 SPDX-PackageName = "Anglesite"
 SPDX-PackageSupplier = "David W. Keith <me@dwk.io>"
 SPDX-PackageDownloadLocation = "https://github.com/Anglesite/Anglesite"
