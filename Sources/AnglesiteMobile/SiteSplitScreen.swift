@@ -36,6 +36,13 @@ struct SiteSplitScreen: View {
     @State private var postList: PostListModel?
     @State private var session: MicropubSession?
 
+    /// One "Edit Site" session model per site, kept for the shell's lifetime (#1431): the
+    /// full-screen cover only *renders* a session, so dismissing it leaves the model — and its
+    /// warm P2P session — untouched, and switching sites never tears another site's session down.
+    @State private var editSessions: [UUID: EditSessionModel] = [:]
+    /// The site whose session cover is presented, or `nil` when none is.
+    @State private var editingSite: SitePickerModel.DiscoveredSite?
+
     var body: some View {
         NavigationSplitView {
             sidebar
@@ -52,6 +59,21 @@ struct SiteSplitScreen: View {
             if case .sites(let sites) = newState {
                 siteSelection.restoreSelection(from: sites)
             }
+        }
+        .fullScreenCover(item: $editingSite) { site in
+            if let model = editSessions[site.id] {
+                EditSiteScreen(model: model)
+            }
+        }
+        .onChange(of: EditSessionRouter.shared.requestedSiteID) { _, requested in
+            // The Edit Site App Intent's hand-off (the iOS twin of WindowRouter): consume the
+            // request and walk into that site's session.
+            guard requested != nil, let siteID = EditSessionRouter.shared.consume() else { return }
+            guard case .sites(let sites) = sitePicker.state,
+                  let site = sites.first(where: { $0.id == siteID })
+            else { return }
+            selectSite(site)
+            presentEditSession(for: site)
         }
     }
 
@@ -91,6 +113,14 @@ struct SiteSplitScreen: View {
                             Image(systemName: "globe")
                         }
                         .tag(SidebarSelection.site(site.id))
+                        .contextMenu {
+                            Button {
+                                selectSite(site)
+                                presentEditSession(for: site)
+                            } label: {
+                                Label("Edit Site", systemImage: "paintbrush.pointed")
+                            }
+                        }
                     }
                 }
                 if siteSelection.selectedSite != nil {
@@ -212,6 +242,15 @@ struct SiteSplitScreen: View {
             }
             .toolbar {
                 siteSwitcherToolbarItem(site: site)
+                // Available regardless of Micropub sign-in state: editing rides the P2P
+                // session's pairing, not the posting shell's IndieAuth credential (#1431).
+                ToolbarItem(placement: .secondaryAction) {
+                    Button {
+                        presentEditSession(for: site)
+                    } label: {
+                        Label("Edit Site", systemImage: "paintbrush.pointed")
+                    }
+                }
             }
         } else {
             ContentUnavailableView {
@@ -283,6 +322,24 @@ struct SiteSplitScreen: View {
             postList = nil
             sessionState = .signedOut
         }
+    }
+
+    /// Single path for every "Edit Site" trigger (toolbar, context menu, App Intent): ensures
+    /// the site's session model exists — created here, in an action, never during body
+    /// evaluation — then presents the cover. Reusing an existing model re-enters its warm
+    /// session (#1431, design §3).
+    private func presentEditSession(for site: SitePickerModel.DiscoveredSite) {
+        if editSessions[site.id] == nil {
+            editSessions[site.id] = EditSessionModel(
+                siteID: site.id,
+                siteDisplayName: site.displayName,
+                pairedMacs: { try PairedDeviceStore().load() },
+                // #1208 P4 swaps this factory for the real WebRTC-backed P2PSiteRuntime;
+                // nothing else in the session UI knows which runtime it drives.
+                makeRuntime: { PendingP2PSiteRuntime() }
+            )
+        }
+        editingSite = site
     }
 
     /// Single path for every site-switch trigger (sidebar row, switcher menu) so the
