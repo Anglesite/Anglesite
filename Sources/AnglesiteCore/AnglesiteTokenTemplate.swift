@@ -42,6 +42,10 @@ public enum AnglesiteTokenTemplate {
         ("email_routing_addresses", "edit"),
         ("zaraz", "edit"),
         ("registrar", "edit"),
+        // Best-guess key pending live verification (same degrade-gracefully caveat as
+        // `response_compression`/`page_shield` above) — Cloudflare's dashboard doesn't document
+        // an AI Search permission-group key yet; confirm against a live token-creation form.
+        ("ai_search", "edit"),
     ]
 
     /// The OAuth `scope` string covering every permission group above. Cloudflare's self-managed

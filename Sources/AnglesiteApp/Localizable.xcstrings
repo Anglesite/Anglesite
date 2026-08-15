@@ -262,6 +262,9 @@
     "A BCP 47 language tag, e.g. \"en\", \"fr-CA\", \"es\". Screen readers and search engines use this to pronounce and index your content correctly." : {
 
     },
+    "A WAF rule was added so Bot Fight Mode doesn't block the AI Search crawler." : {
+
+    },
     "A custom token named “Anglesite” should be pre-filled with all permissions Anglesite uses. If it isn’t, add at least the “Edit Cloudflare Workers” template’s permissions so deploying works — Anglesite will ask again when a feature needs more access. Click **Continue to summary**." : {
 
     },
@@ -281,6 +284,15 @@
 
     },
     "AI Answers" : {
+
+    },
+    "AI Search" : {
+
+    },
+    "AI Search billing scales with reader traffic, unlike other Cloudflare features in this app." : {
+
+    },
+    "AI Search…" : {
 
     },
     "AI Training" : {
@@ -1512,6 +1524,9 @@
     "Enable & retry" : {
 
     },
+    "Enable AI Search" : {
+
+    },
     "Enable Onion Routing" : {
 
     },
@@ -1719,6 +1734,9 @@
     "Forward to Anglesite" : {
 
     },
+    "Free during open beta: 100 instances, 20,000 queries/month, 500 crawled pages/day. Reader queries run on Cloudflare's AI models — beyond free limits, usage is billed by Cloudflare." : {
+
+    },
     "From %@" : {
 
     },
@@ -1896,6 +1914,9 @@
     "Importing…" : {
 
     },
+    "In the dashboard: open this instance's Settings, locate \"NLWeb Worker\", and enable it." : {
+
+    },
     "Inactive — not used" : {
 
     },
@@ -1930,6 +1951,9 @@
 
     },
     "Installed" : {
+
+    },
+    "Instance \"%@\" is provisioned." : {
 
     },
     "Instance, e.g. lemmy.world" : {
@@ -2162,6 +2186,9 @@
 
     },
     "MyComponent" : {
+
+    },
+    "NLWeb enablement is still manual — finish setup in the Cloudflare dashboard:" : {
 
     },
     "Name" : {
@@ -2431,6 +2458,9 @@
     "Open %@ in its own window" : {
 
     },
+    "Open AI Search instance settings" : {
+
+    },
     "Open Bluesky Settings" : {
 
     },
@@ -2444,6 +2474,9 @@
 
     },
     "Open Community Anyway" : {
+
+    },
+    "Open Content Licensing settings to review this site's AI usage policy." : {
 
     },
     "Open Dashboard" : {
@@ -2702,6 +2735,9 @@
 
     },
     "Providers" : {
+
+    },
+    "Provision Cloudflare AI Search for this site" : {
 
     },
     "Publish" : {
@@ -3253,6 +3289,9 @@
 
     },
     "Setting" : {
+
+    },
+    "Setting Up AI Search…" : {
 
     },
     "Setting up…" : {
@@ -4017,6 +4056,9 @@
 
     },
     "Your site is live. Connect a domain?" : {
+
+    },
+    "Your site's existing search (Pagefind) keeps working for free either way — AI Search's conversational answers are an opt-in upgrade above it, not a replacement." : {
 
     },
     "Your website was created with warnings. You can open it anyway and fix it from the website window." : {

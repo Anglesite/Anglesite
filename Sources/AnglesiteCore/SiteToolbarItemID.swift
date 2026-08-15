@@ -20,6 +20,7 @@ public enum SiteToolbarItemID: String, CaseIterable, Sendable {
     /// Cloudflare Agent Readiness score for the deployed site (#1248).
     case agentReadiness
     case onionRouting
+    case aiSearch
     case domain
     case integration
     case siriReadiness

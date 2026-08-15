@@ -94,6 +94,7 @@ private struct CFRegistrarRegistrationState: Decodable, Sendable {
 }
 private struct CFWorkerScript: Decodable, Sendable { let id: String }
 private struct CFWorkerDomain: Decodable, Sendable { let hostname: String; let service: String }
+private struct CFAISearchInstance: Decodable, Sendable { let id: String; let name: String? }
 
 /// URL Scanner `POST .../urlscanner/v2/scan` response — a flat object, unlike the rest of this
 /// file's v4 endpoints: no `{success, result, errors}` envelope (confirmed against the live API
@@ -907,5 +908,35 @@ extension HTTPCloudflareClient: AgentReadinessScanning {
         return AgentReadinessReport(
             level: raw.level, levelName: raw.levelName, categories: categories,
             nextLevel: raw.nextLevel.map { AgentReadinessReport.NextLevel(name: $0.name, target: $0.target) })
+    }
+}
+
+// MARK: - AISearchProvisioning conformance
+
+extension HTTPCloudflareClient: AISearchProvisioning {
+    /// `POST /accounts/{id}/ai-search/instances`, creating a web-crawler-backed AI Search
+    /// instance for `domain`. Resolves the account first via `resolveAccountID` (the Registrar
+    /// conformance above, same file so its `private` scope still applies) and reuses `post` for
+    /// the request/response handling, same as `checkDomainAvailability`.
+    ///
+    /// Flat shape, no `namespaces` segment — follows developers.cloudflare.com/ai-search/
+    /// get-started/api/'s verbatim curl examples. Cloudflare's auto-generated API reference
+    /// disagrees (documents a namespaced /namespaces/{name}/instances path instead) — see
+    /// Global Constraints. CONFIRM WHICH SHAPE THE LIVE API ACTUALLY ACCEPTS before trusting
+    /// this code sample; don't just re-read either doc page again.
+    public func createAISearchInstance(
+        domain: String, instanceID: String, apiToken: String
+    ) async throws -> AISearchInstance {
+        let accountID = try await resolveAccountID(apiToken: apiToken)
+        struct CreateBody: Encodable, Sendable {
+            let id: String
+            let type: String
+            let source: String
+        }
+        let result = try await post(
+            "/accounts/\(accountID)/ai-search/instances",
+            body: CreateBody(id: instanceID, type: "web-crawler", source: domain),
+            apiToken: apiToken, as: CFAISearchInstance.self)
+        return AISearchInstance(id: result.id, name: result.name ?? instanceID)
     }
 }
