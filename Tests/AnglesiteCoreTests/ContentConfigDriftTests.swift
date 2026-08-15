@@ -21,6 +21,26 @@ struct ContentConfigDriftTests {
         get throws { try templateRoot().appendingPathComponent("src/lib/content-schemas.ts") }
     }
 
+    /// Optional fields deliberately present in a collection's template schema but absent from its
+    /// registry descriptor. `ContentScaffold` writes one frontmatter line per descriptor field, so
+    /// a field that must never be scaffolded into hand-made entries (a dead `image: ""` in every
+    /// bookmark) is omitted from the descriptor and written by its feature through
+    /// `FrontmatterDocument` instead (#1451). Each extra renders into the canonical block right
+    /// after the descriptor field it's anchored to, so the block still matches the template
+    /// verbatim — editing or deleting the extra's line in `content.config.ts` trips the guard.
+    static let templateOnlyFields: [String: [(after: String, field: ContentTypeField)]] = [
+        "bookmarks": [(after: "title", field: ContentTypeField("image", .image))],
+    ]
+
+    /// `source` minus full-line `//` comments, so a doc comment inside a schema block (e.g. the
+    /// bookmarks `image` note) doesn't defeat the verbatim block match. Only whole comment lines
+    /// are dropped; schema lines themselves are still compared exactly.
+    static func strippingCommentLines(_ source: String) -> String {
+        source.split(separator: "\n", omittingEmptySubsequences: false)
+            .filter { !$0.trimmingCharacters(in: .whitespaces).hasPrefix("//") }
+            .joined(separator: "\n")
+    }
+
     /// Canonical Zod expression for a field kind, or nil for the markdown body (excluded from frontmatter).
     static func zod(for kind: ContentTypeField.Kind) -> String? {
         switch kind {
@@ -41,16 +61,22 @@ struct ContentConfigDriftTests {
         }
     }
 
-    /// One `field: expr,` line per non-markdown field, in declaration order, at the given indent.
+    /// One `field: expr,` line per non-markdown field, in declaration order, at the given indent,
+    /// with any `templateOnlyFields` extras woven in after their anchor field.
     static func schemaLines(_ d: ContentTypeDescriptor, indent: String) -> [String] {
+        let extras = d.collection.flatMap { templateOnlyFields[$0] } ?? []
         var lines: [String] = []
-        for field in d.fields {
-            guard let zod = zod(for: field.kind) else { continue }
+        func append(_ field: ContentTypeField) {
+            guard let zod = zod(for: field.kind) else { return }
             // Every `.bool` field ships with `.default(false)` (matching `blog`'s pre-existing
             // `draft` line) rather than `.optional()` — a defaulted field is never bare either way,
             // so `required` doesn't affect this branch.
             let expr = field.kind == .bool ? "\(zod).default(false)" : (field.required ? zod : "\(zod).optional()")
             lines.append("\(indent)\(field.name): \(expr),")
+        }
+        for field in d.fields {
+            append(field)
+            for extra in extras where extra.after == field.name { append(extra.field) }
         }
         return lines
     }
@@ -132,6 +158,20 @@ struct ContentConfigDriftTests {
         #expect(Self.zod(for: kind) == "z.array(z.object({ title: z.string(), org: z.string().optional() }))")
     }
 
+    @Test("schemaLines weaves bookmarks' template-only image field in after title")
+    func schemaLinesIncludeTemplateOnlyImage() throws {
+        let bookmark = try #require(ContentTypeRegistry.builtIns.first { $0.id == "bookmark" })
+        let lines = Self.schemaLines(bookmark, indent: "")
+        let title = try #require(lines.firstIndex(of: "title: z.string().optional(),"))
+        #expect(lines[lines.index(after: title)] == "image: z.string().optional(),")
+    }
+
+    @Test("strippingCommentLines drops whole-line comments and nothing else")
+    func stripsCommentLines() {
+        let source = "a: 1,\n  // full-line comment\nb: 2, // trailing comment stays\n"
+        #expect(Self.strippingCommentLines(source) == "a: 1,\nb: 2, // trailing comment stays\n")
+    }
+
     @Test("content.config.ts declares exactly the registry collections plus the allowlist")
     func noOrphanCollections() throws {
         let source = try String(contentsOf: Self.configFile, encoding: .utf8)
@@ -157,8 +197,8 @@ struct ContentConfigDriftTests {
 
     @Test("every collection-backed registry type appears verbatim in content.config.ts")
     func configMatchesRegistry() throws {
-        let source = try String(contentsOf: Self.configFile, encoding: .utf8)
-        let schemasSource = try String(contentsOf: Self.contentSchemasFile, encoding: .utf8)
+        let source = Self.strippingCommentLines(try String(contentsOf: Self.configFile, encoding: .utf8))
+        let schemasSource = Self.strippingCommentLines(try String(contentsOf: Self.contentSchemasFile, encoding: .utf8))
         let exportLine = source
             .split(separator: "\n", omittingEmptySubsequences: false)
             .first { $0.contains("export const collections") }

@@ -7,16 +7,25 @@ public struct LinkMetadata: Sendable, Equatable {
     public var title: String?
     public var description: String?
     public var siteName: String?
+    /// The page's `og:image`, **exactly as the document spelled it** — which is often relative
+    /// (`/card.png`) or protocol-relative (`//cdn/card.png`). Resolving it against the page URL
+    /// needs a page URL, which the parser doesn't have; ``LinkMetadataFetcher`` does that on the
+    /// way out (see its `resolvedImageURL(_:relativeTo:)`), so a fetched
+    /// `LinkMetadata` always carries an absolute http(s) value here or none (#1451).
+    public var imageURL: String?
 
-    public init(title: String? = nil, description: String? = nil, siteName: String? = nil) {
+    public init(title: String? = nil, description: String? = nil, siteName: String? = nil,
+                imageURL: String? = nil) {
         self.title = title
         self.description = description
         self.siteName = siteName
+        self.imageURL = imageURL
     }
 }
 
 /// Pure scanner from HTML text to ``LinkMetadata``: `og:title` / `og:description` /
-/// `og:site_name` (via `property=` or `name=`), falling back to `<title>`. Deliberately not a
+/// `og:site_name` / `og:image` (via `property=` or `name=`), with `<title>` as the title's only
+/// fallback. Deliberately not a
 /// full HTML parser — article pages carry server-rendered `og:` tags in the head, and a regex
 /// scan over `<meta>` tags is robust to attribute order and quote style without a WebKit
 /// dependency (spec §3.1's case against `LPMetadataProvider`). Chosen over `NSAttributedString`'s
@@ -26,7 +35,11 @@ public enum LinkMetadataParser {
         LinkMetadata(
             title: normalized(metaContent(in: html, key: "og:title") ?? titleText(in: html)),
             description: normalized(metaContent(in: html, key: "og:description")),
-            siteName: normalized(metaContent(in: html, key: "og:site_name"))
+            siteName: normalized(metaContent(in: html, key: "og:site_name")),
+            // No `<title>`-style fallback: a page with no `og:image` has no card image, and
+            // guessing at some other `<img>` in the document would capture a logo or a tracking
+            // pixel as often as the article's own artwork (#1451).
+            imageURL: normalized(metaContent(in: html, key: "og:image"))
         )
     }
 

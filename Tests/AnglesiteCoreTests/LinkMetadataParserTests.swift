@@ -59,4 +59,21 @@ struct LinkMetadataParserTests {
         """
         #expect(LinkMetadataParser.parse(html: html).title == "First")
     }
+
+    @Test("parses og:image, verbatim (resolution against the page URL is the fetcher's job)")
+    func parsesOpenGraphImage() {
+        let html = """
+        <html><head>
+        <meta property="og:title" content="Interesting Thing">
+        <meta property="og:image" content="https://cdn.example.com/card.jpg">
+        </head></html>
+        """
+        #expect(LinkMetadataParser.parse(html: html).imageURL == "https://cdn.example.com/card.jpg")
+        // Relative values pass through unchanged — the parser has no page URL to resolve against.
+        #expect(LinkMetadataParser.parse(html: #"<meta name="og:image" content="/card.png">"#)
+            .imageURL == "/card.png")
+        // No og:image, and an empty one, both mean "no image" — never a <title>-style fallback.
+        #expect(LinkMetadataParser.parse(html: "<head><title>Plain</title></head>").imageURL == nil)
+        #expect(LinkMetadataParser.parse(html: #"<meta property="og:image" content="  ">"#).imageURL == nil)
+    }
 }

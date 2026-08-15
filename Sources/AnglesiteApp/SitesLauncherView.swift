@@ -116,14 +116,14 @@ struct SitesLauncherView: View {
                 defaultSiteID: AppSettings.shared.lastOpenedSiteID,
                 initialURLString: request.urlString,
                 fetchMetadata: { try await LinkMetadataFetcher().fetch(url: $0) },
-                onCreate: { siteID, title, urlString, commentary, draft in
+                onCreate: { siteID, title, urlString, commentary, imageURL, draft in
                     guard let siteID else { return .failed(reason: "Choose a site for this link post.") }
                     // Windowless: the entry is written and committed; a Publish here saves it
                     // draft: false and it goes live with the site's next deploy (spec §3.3 —
                     // capture never boots a container).
                     return await QuickCapture.createLinkPost(
                         siteID: siteID, title: title, urlString: urlString,
-                        commentary: commentary, draft: draft)
+                        commentary: commentary, imageURL: imageURL, draft: draft)
                 }
             )
         }

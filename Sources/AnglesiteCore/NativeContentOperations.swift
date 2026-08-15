@@ -591,6 +591,36 @@ public struct NativeContentOperations: ContentOperationsService {
         return commit.oid.description
     }
 
+    /// `processGitCommit` for a set of paths that belong in **one** commit — e.g. a link post's
+    /// entry plus the card image it references (#1451), which must never land in separate commits
+    /// (a clone would see an entry pointing at an image that isn't there yet). Same best-effort
+    /// contract: nil on any failure, and the caveats on `processGitCommit` apply unchanged.
+    ///
+    /// Staging several paths is a loop of `add(path:)` calls, and this fork has no index-only
+    /// unstage (`remove(path:)` deletes from disk too), so bailing out mid-loop would leave an
+    /// earlier path staged with no commit to consume it — which would break `processGitCommit`'s
+    /// "nothing else staged in between" assumption for whichever commit runs next. Every path is
+    /// therefore checked to exist up front, turning the realistic failure (a path that isn't on
+    /// disk) into a clean no-op before anything is staged. An `add` that fails for some *other*
+    /// reason after that check can still leave a partial stage; that window is narrow enough to
+    /// accept rather than grow the fork's API for.
+    @Sendable public static func processGitCommitPaths(
+        _ projectRoot: URL, _ relPaths: [String], _ message: String
+    ) async -> String? {
+        SwiftGit2Bootstrap.ensureInitialized
+        guard !relPaths.isEmpty else { return nil }
+        guard relPaths.allSatisfy({
+            FileManager.default.fileExists(atPath: projectRoot.appendingPathComponent($0).path)
+        }) else { return nil }
+        guard case .success(let repo) = Repository.at(projectRoot) else { return nil }
+        for relPath in relPaths {
+            guard case .success = repo.add(path: relPath) else { return nil }
+        }
+        let signature = await GitIdentity.signature(for: repo)
+        guard case .success(let commit) = repo.commit(message: message, signature: signature) else { return nil }
+        return commit.oid.description
+    }
+
     /// Default `GitHasCommit`: walks history from HEAD looking for an exact message match.
     /// Best-effort like `processGitCommit` — an unreadable repo or unresolvable HEAD (e.g. zero
     /// commits) reports `false`, which `publish` treats as "never published," the safe default.
@@ -619,6 +649,27 @@ public struct NativeContentOperations: ContentOperationsService {
         guard await run(["rev-parse", "--git-dir"]) != nil,
               await run(["add", "--", relPath]) != nil,
               await run(["commit", "-m", message, "--", relPath]) != nil,
+              let head = await run(["rev-parse", "HEAD"]) else { return nil }
+        return head.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// `processGitCommit` for a set of paths that belong in **one** commit — e.g. a link post's
+    /// entry plus the card image it references (#1451), which must never land in separate commits
+    /// (a clone would see an entry pointing at an image that isn't there yet). Same best-effort
+    /// contract as `processGitCommit`: nil on any failure.
+    @Sendable public static func processGitCommitPaths(
+        _ projectRoot: URL, _ relPaths: [String], _ message: String
+    ) async -> String? {
+        guard !relPaths.isEmpty else { return nil }
+        let git = URL(fileURLWithPath: "/usr/bin/git")
+        func run(_ args: [String]) async -> ProcessSupervisor.RunResult? {
+            let result = try? await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: projectRoot)
+            guard let result, result.exitCode == 0 else { return nil }
+            return result
+        }
+        guard await run(["rev-parse", "--git-dir"]) != nil,
+              await run(["add", "--"] + relPaths) != nil,
+              await run(["commit", "-m", message, "--"] + relPaths) != nil,
               let head = await run(["rev-parse", "HEAD"]) else { return nil }
         return head.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }

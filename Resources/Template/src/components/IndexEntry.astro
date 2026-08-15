@@ -32,6 +32,10 @@ const human = item.date.toLocaleDateString("en-US", {
       <>
         <a class="p-name u-url" href={item.permalink}>{item.title}</a>{" "}
         <time class="dt-published" datetime={iso}>{human}</time>
+        {/* Only titled collection with an `image` is `bookmarks` (a captured og:image card,
+            #1451) — the title-less branch below has always rendered `u-photo` for photos, and
+            this is the same markup for the titled case so a link post reads as a card here too. */}
+        {item.image && <img class="u-photo" src={item.image} alt="" />}
         {item.summary && <p class="p-summary">{item.summary}</p>}
       </>
     ) : (
