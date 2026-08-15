@@ -110,7 +110,21 @@ export function buildHeaders(
   // still isolating attacker-opened windows.
   // CORP: same-site (not same-origin) keeps cross-origin (cross-site) isolation but
   // lets same-site subdomains load shared assets (e.g. a logo on blog.example.com).
-  const rslLink = rslUrl ? `\n  Link: <${rslUrl}>; rel="license"; type="application/rsl+xml"` : "";
+  // RFC 8288 Link headers advertising the discovery surfaces every scaffolded site ships
+  // unconditionally (#1481): the sitemap plus the three feed formats BaseLayout.astro already
+  // exposes as HTML <link rel="alternate"> tags. Putting them in the HTTP response lets an agent
+  // find them without parsing markup — Cloudflare's Agent Readiness `linkHeaders` check.
+  // Site-wide on /* like the license link below, per the rationale in this function's doc comment.
+  const links = [
+    `</sitemap.xml>; rel="sitemap"; type="application/xml"`,
+    `</rss.xml>; rel="alternate"; type="application/rss+xml"`,
+    `</atom.xml>; rel="alternate"; type="application/atom+xml"`,
+    `</feed.json>; rel="alternate"; type="application/feed+json"`,
+  ];
+  if (rslUrl) links.push(`<${rslUrl}>; rel="license"; type="application/rsl+xml"`);
+  // One Link: line each; Cloudflare joins repeated response headers into one comma-separated
+  // value, which is exactly RFC 8288's list form.
+  const linkLines = links.map((l) => `\n  Link: ${l}`).join("");
   let out = `/*
   X-Frame-Options: DENY
   X-Content-Type-Options: nosniff
@@ -119,7 +133,7 @@ export function buildHeaders(
   Cross-Origin-Opener-Policy: same-origin-allow-popups
   Cross-Origin-Resource-Policy: same-site
   Strict-Transport-Security: ${hsts}
-  Content-Security-Policy: ${csp}${rslLink}
+  Content-Security-Policy: ${csp}${linkLines}
   Cache-Control: public, max-age=0, must-revalidate
 
 /_astro/*
