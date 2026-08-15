@@ -15,6 +15,8 @@ final class AISearchModel {
         case idle
         case resolvingZone(domain: String)
         case blockedByPolicy(reason: String)
+        case awaitingBotFightModeDecision(domain: String, zoneID: String)
+        case disablingBotFightMode(domain: String)
         case awaitingCostConfirmation(domain: String, zoneID: String)
         case provisioning(domain: String)
         case succeeded(AISearchExecutor.ProvisionedResult)
@@ -24,6 +26,9 @@ final class AISearchModel {
     private(set) var phase: Phase = .idle
     var sheetPresented: Bool = false
     var domainInput: String = ""
+    /// Set by `keepBotFightMode()` when the owner chooses to proceed with Bot Fight Mode left on
+    /// — the view surfaces a warning on `.succeeded` when this is `true`. Reset in `openSheet()`.
+    private(set) var keptBotFightModeOn: Bool = false
 
     private let reader: any CloudflareReading
     private let writer: any CloudflareWriting
@@ -45,7 +50,7 @@ final class AISearchModel {
 
     var isRunning: Bool {
         switch phase {
-        case .resolvingZone, .provisioning: return true
+        case .resolvingZone, .disablingBotFightMode, .provisioning: return true
         default: return false
         }
     }
@@ -54,6 +59,7 @@ final class AISearchModel {
         guard !isRunning else { return }
         phase = .idle
         domainInput = ""
+        keptBotFightModeOn = false
         sheetPresented = true
     }
 
@@ -71,6 +77,27 @@ final class AISearchModel {
         inFlight = Task { @MainActor [weak self] in
             await self?.runCheckPolicyAndResolveZone(domain: domain, sourceDirectory: sourceDirectory)
         }
+    }
+
+    func disableBotFightMode() {
+        guard case .awaitingBotFightModeDecision(let domain, let zoneID) = phase else { return }
+
+        // Flip to `.disablingBotFightMode` synchronously before the Task starts — see
+        // checkPolicyAndResolveZone()'s comment.
+        phase = .disablingBotFightMode(domain: domain)
+
+        inFlight?.cancel()
+        inFlight = Task { @MainActor [weak self] in
+            await self?.runDisableBotFightMode(domain: domain, zoneID: zoneID)
+        }
+    }
+
+    /// Proceeds with Bot Fight Mode left on — the owner's explicit choice. Synchronous: nothing
+    /// to await, so no `isRunning` phase is needed.
+    func keepBotFightMode() {
+        guard case .awaitingBotFightModeDecision(let domain, let zoneID) = phase else { return }
+        keptBotFightModeOn = true
+        phase = .awaitingCostConfirmation(domain: domain, zoneID: zoneID)
     }
 
     func confirmCost() {
@@ -124,11 +151,33 @@ final class AISearchModel {
                 phase = .failed(reason: "Zone not found for \"\(domain)\". Check the domain and ensure your API token has Zone Read permission.")
                 return
             }
-            phase = .awaitingCostConfirmation(domain: domain, zoneID: zoneID)
+            let state = try await reader.zoneState(zoneID: zoneID, domain: domain, apiToken: token)
+            if state.botFightMode {
+                phase = .awaitingBotFightModeDecision(domain: domain, zoneID: zoneID)
+            } else {
+                phase = .awaitingCostConfirmation(domain: domain, zoneID: zoneID)
+            }
         } catch let error as CloudflareError {
             phase = .failed(reason: cloudflareErrorMessage(error))
         } catch {
             phase = .failed(reason: "Failed to resolve zone: \(error.localizedDescription)")
+        }
+    }
+
+    private func runDisableBotFightMode(domain: String, zoneID: String) async {
+        guard let token = await apiToken() else {
+            phase = .failed(reason: "No Cloudflare API token found.")
+            return
+        }
+
+        let executor = AISearchExecutor(reader: reader, writer: writer, provisioner: provisioner)
+        do {
+            try await executor.disableBotFightMode(zoneID: zoneID, apiToken: token)
+            phase = .awaitingCostConfirmation(domain: domain, zoneID: zoneID)
+        } catch let error as CloudflareError {
+            phase = .failed(reason: cloudflareErrorMessage(error))
+        } catch {
+            phase = .failed(reason: "Failed to turn off Bot Fight Mode: \(error.localizedDescription)")
         }
     }
 

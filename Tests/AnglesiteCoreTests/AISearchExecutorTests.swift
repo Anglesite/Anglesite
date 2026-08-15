@@ -26,15 +26,18 @@ private final class StubReader: CloudflareReading, @unchecked Sendable {
 
 private final class StubWriter: CloudflareWriting, @unchecked Sendable {
     private(set) var createdRules: [WAFRulePayload] = []
+    private(set) var setBotFightModeCalls: [(zoneID: String, enabled: Bool)] = []
     var errorToThrow: CloudflareError?
     func enableDNSSEC(zoneID: String, apiToken: String) async throws {}
     func setAlwaysUseHTTPS(zoneID: String, enabled: Bool, apiToken: String) async throws {}
     func setHSTS(zoneID: String, maxAge: Int, includeSubdomains: Bool, preload: Bool, apiToken: String) async throws {}
     func addDNSRecord(zoneID: String, record: DNSRecordPayload, apiToken: String) async throws {}
     func deleteDNSRecord(zoneID: String, recordID: String, apiToken: String) async throws {}
-    func setBotFightMode(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func createWAFCustomRule(zoneID: String, rule: WAFRulePayload, apiToken: String) async throws {
+    func setBotFightMode(zoneID: String, enabled: Bool, apiToken: String) async throws {
         if let errorToThrow { throw errorToThrow }
+        setBotFightModeCalls.append((zoneID, enabled))
+    }
+    func createWAFCustomRule(zoneID: String, rule: WAFRulePayload, apiToken: String) async throws {
         createdRules.append(rule)
     }
     func setSpeedBrain(zoneID: String, enabled: Bool, apiToken: String) async throws {}
@@ -44,15 +47,6 @@ private final class StubWriter: CloudflareWriting, @unchecked Sendable {
     func enableOnionRouting(zoneID: String, enabled: Bool, apiToken: String) async throws {}
     func attachWorkersCustomDomain(hostname: String, workerScriptName: String, apiToken: String) async throws -> CustomDomainAttachResult { .attached }
     func setMarkdownForAgents(hostname: String, enabled: Bool, apiToken: String) async throws -> Bool { true }
-}
-
-private final class FailingReader: CloudflareReading, @unchecked Sendable {
-    func resolveZoneID(domain: String, apiToken: String) async throws -> String? { "z1" }
-    func zoneState(zoneID: String, domain: String, apiToken: String) async throws -> CloudflareZoneState {
-        throw CloudflareError.http(status: 500)
-    }
-    func listDNSRecords(zoneID: String, apiToken: String) async throws -> [DNSRecord] { [] }
-    func workerScriptNames(apiToken: String) async throws -> [String] { [] }
 }
 
 private func zoneState(botFightMode: Bool) -> CloudflareZoneState {
@@ -81,48 +75,35 @@ struct AISearchExecutorTests {
         #expect(AISearchExecutor.policyBlockReason(for: policy) != nil)
     }
 
-    @Test("provision adds a WAF skip rule when Bot Fight Mode is on")
-    func provisionAddsWAFRuleWhenBotFightModeOn() async throws {
+    @Test("provision returns the instance and dashboard URL, with no writer interaction")
+    func provisionReturnsInstanceAndDashboardURLWithNoWriterInteraction() async throws {
         let writer = StubWriter()
         let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: true)), writer: writer, provisioner: StubProvisioner())
         let result = try await executor.provision(zoneID: "z1", domain: "Example.com", apiToken: "t")
-        #expect(result.wafSkipRuleAdded == true)
-        #expect(result.wafSkipRuleWarning == nil)
-        #expect(writer.createdRules.count == 1)
-        #expect(writer.createdRules.first?.action == "skip")
-        #expect(writer.createdRules.first?.actionParameters?.products == ["botFight"])
-    }
-
-    @Test("provision skips the WAF rule when Bot Fight Mode is off")
-    func provisionSkipsWAFRuleWhenBotFightModeOff() async throws {
-        let writer = StubWriter()
-        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: false)), writer: writer, provisioner: StubProvisioner())
-        let result = try await executor.provision(zoneID: "z1", domain: "example.com", apiToken: "t")
-        #expect(result.wafSkipRuleAdded == false)
-        #expect(result.wafSkipRuleWarning == nil)
-        #expect(writer.createdRules.isEmpty)
-    }
-
-    @Test("provision degrades to a warning when the WAF skip-rule write fails")
-    func provisionDegradesGracefullyWhenWAFRuleWriteFails() async throws {
-        let writer = StubWriter()
-        writer.errorToThrow = .http(status: 429) // e.g. free-plan 5-rule quota exceeded
-        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: true)), writer: writer, provisioner: StubProvisioner())
-        let result = try await executor.provision(zoneID: "z1", domain: "example.com", apiToken: "t")
-        #expect(result.wafSkipRuleAdded == false)
-        #expect(result.wafSkipRuleWarning != nil)
-        #expect(writer.createdRules.isEmpty)
-        // The instance itself must still be reported as provisioned — the caller shouldn't see
-        // a thrown error for a step that happened after the instance already existed.
         #expect(result.instance.id == "inst1")
+        #expect(result.dashboardURL.absoluteString.contains("example-com"))
+        #expect(writer.createdRules.isEmpty)
+        #expect(writer.setBotFightModeCalls.isEmpty)
     }
 
-    @Test("provision degrades to a warning when the zone-state read fails")
-    func provisionDegradesGracefullyWhenZoneStateReadFails() async throws {
-        let executor = AISearchExecutor(reader: FailingReader(), writer: StubWriter(), provisioner: StubProvisioner())
-        let result = try await executor.provision(zoneID: "z1", domain: "example.com", apiToken: "t")
-        #expect(result.wafSkipRuleAdded == false)
-        #expect(result.wafSkipRuleWarning != nil)
+    @Test("disableBotFightMode calls writer.setBotFightMode with enabled: false")
+    func disableBotFightModeCallsWriter() async throws {
+        let writer = StubWriter()
+        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: true)), writer: writer, provisioner: StubProvisioner())
+        try await executor.disableBotFightMode(zoneID: "z1", apiToken: "t")
+        #expect(writer.setBotFightModeCalls.count == 1)
+        #expect(writer.setBotFightModeCalls.first?.zoneID == "z1")
+        #expect(writer.setBotFightModeCalls.first?.enabled == false)
+    }
+
+    @Test("disableBotFightMode propagates the writer's thrown error")
+    func disableBotFightModePropagatesError() async throws {
+        let writer = StubWriter()
+        writer.errorToThrow = .http(status: 500)
+        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: true)), writer: writer, provisioner: StubProvisioner())
+        await #expect(throws: CloudflareError.http(status: 500)) {
+            try await executor.disableBotFightMode(zoneID: "z1", apiToken: "t")
+        }
     }
 
     @Test("provision derives the instance namespace from the lowercased, dot-free domain")

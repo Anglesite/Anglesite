@@ -36,10 +36,12 @@ struct AISearchSheetView: View {
         switch model.phase {
         case .idle:
             Image(systemName: "text.magnifyingglass").font(.title3)
-        case .resolvingZone, .provisioning:
+        case .resolvingZone, .disablingBotFightMode, .provisioning:
             ProgressView().controlSize(.small)
         case .blockedByPolicy:
             Image(systemName: "hand.raised.fill").foregroundStyle(.orange).font(.title3)
+        case .awaitingBotFightModeDecision:
+            Image(systemName: "shield.lefthalf.filled").foregroundStyle(.orange).font(.title3)
         case .awaitingCostConfirmation:
             Image(systemName: "dollarsign.circle").foregroundStyle(.blue).font(.title3)
         case .succeeded:
@@ -54,6 +56,8 @@ struct AISearchSheetView: View {
         case .idle: return "Set Up AI Search"
         case .resolvingZone(let domain): return "Checking \(domain)…"
         case .blockedByPolicy: return "Blocked by AI usage policy"
+        case .awaitingBotFightModeDecision: return "Bot Fight Mode is blocking AI Search"
+        case .disablingBotFightMode: return "Turning off Bot Fight Mode…"
         case .awaitingCostConfirmation(let domain, _): return "Enable AI Search for \(domain)?"
         case .provisioning(let domain): return "Provisioning AI Search for \(domain)…"
         case .succeeded: return "AI Search instance created"
@@ -72,12 +76,19 @@ struct AISearchSheetView: View {
                     .textContentType(.URL)
             }
             .padding()
-        case .resolvingZone, .provisioning:
+        case .resolvingZone, .disablingBotFightMode, .provisioning:
             ProgressView()
         case .blockedByPolicy(let reason):
             VStack(alignment: .leading, spacing: 8) {
                 Text(reason)
                 Text("Open Content Licensing settings to review this site's AI usage policy.")
+                    .font(.callout).foregroundStyle(.secondary)
+            }
+            .padding()
+        case .awaitingBotFightModeDecision(let domain, _):
+            VStack(alignment: .leading, spacing: 8) {
+                Text("Bot Fight Mode is protecting \(domain) from automated traffic — but it also blocks Cloudflare's AI Search crawler, so AI Search can't read your site while it's on. There's no way to make an exception for just this crawler.")
+                Text("Turning it off lets AI Search index your site, but reduces protection against unwanted bots. You can turn it back on any time in the Cloudflare dashboard.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             .padding()
@@ -93,11 +104,8 @@ struct AISearchSheetView: View {
         case .succeeded(let result):
             VStack(alignment: .leading, spacing: 8) {
                 Text("Instance \"\(result.instance.name)\" is provisioned.")
-                if result.wafSkipRuleAdded {
-                    Text("A WAF rule was added so Bot Fight Mode doesn't block the AI Search crawler.")
-                        .font(.callout).foregroundStyle(.secondary)
-                } else if let warning = result.wafSkipRuleWarning {
-                    Text(warning)
+                if model.keptBotFightModeOn {
+                    Text("Bot Fight Mode is still on, so the AI Search crawler may be blocked. If indexing fails, turn Bot Fight Mode off in the Cloudflare dashboard and re-run indexing.")
                         .font(.callout).foregroundStyle(.orange)
                 }
                 Text("NLWeb enablement is still manual — finish setup in the Cloudflare dashboard:")
@@ -123,6 +131,12 @@ struct AISearchSheetView: View {
                     .keyboardShortcut(.defaultAction)
                     .buttonStyle(.borderedProminent)
                     .disabled(model.domainInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+            case .awaitingBotFightModeDecision:
+                Button("Cancel") { model.dismissSheet() }
+                Button("Keep It On") { model.keepBotFightMode() }
+                Button("Turn Off Bot Fight Mode") { model.disableBotFightMode() }
+                    .keyboardShortcut(.defaultAction)
+                    .buttonStyle(.borderedProminent)
             case .awaitingCostConfirmation:
                 Button("Cancel") { model.dismissSheet() }
                 Button("Enable AI Search") { model.confirmCost() }
@@ -131,7 +145,7 @@ struct AISearchSheetView: View {
             case .succeeded, .blockedByPolicy, .failed:
                 Button("Done") { model.dismissSheet() }
                     .keyboardShortcut(.defaultAction)
-            case .resolvingZone, .provisioning:
+            case .resolvingZone, .disablingBotFightMode, .provisioning:
                 Button("Cancel") { model.dismissSheet() }
             }
         }

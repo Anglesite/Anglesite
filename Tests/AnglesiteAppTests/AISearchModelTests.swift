@@ -12,7 +12,12 @@ private final class StubReader: CloudflareReading, @unchecked Sendable {
     }
     static let defaultState = CloudflareZoneState(
         dnssecActive: false, sslMode: "flexible", alwaysUseHTTPS: false, hsts: nil,
-        caaRecords: [], mxRecords: [], spfRecords: [], dmarcRecords: [])
+        caaRecords: [], mxRecords: [], spfRecords: [], dmarcRecords: [], botFightMode: false)
+    static func state(botFightMode: Bool) -> CloudflareZoneState {
+        CloudflareZoneState(
+            dnssecActive: false, sslMode: "flexible", alwaysUseHTTPS: false, hsts: nil,
+            caaRecords: [], mxRecords: [], spfRecords: [], dmarcRecords: [], botFightMode: botFightMode)
+    }
     func resolveZoneID(domain: String, apiToken: String) async throws -> String? { zoneID }
     func zoneState(zoneID: String, domain: String, apiToken: String) async throws -> CloudflareZoneState { state }
     func listDNSRecords(zoneID: String, apiToken: String) async throws -> [DNSRecord] { [] }
@@ -20,12 +25,15 @@ private final class StubReader: CloudflareReading, @unchecked Sendable {
 }
 
 private final class StubWriter: CloudflareWriting, @unchecked Sendable {
+    private(set) var setBotFightModeCalls: [(zoneID: String, enabled: Bool)] = []
     func enableDNSSEC(zoneID: String, apiToken: String) async throws {}
     func setAlwaysUseHTTPS(zoneID: String, enabled: Bool, apiToken: String) async throws {}
     func setHSTS(zoneID: String, maxAge: Int, includeSubdomains: Bool, preload: Bool, apiToken: String) async throws {}
     func addDNSRecord(zoneID: String, record: DNSRecordPayload, apiToken: String) async throws {}
     func deleteDNSRecord(zoneID: String, recordID: String, apiToken: String) async throws {}
-    func setBotFightMode(zoneID: String, enabled: Bool, apiToken: String) async throws {}
+    func setBotFightMode(zoneID: String, enabled: Bool, apiToken: String) async throws {
+        setBotFightModeCalls.append((zoneID, enabled))
+    }
     func createWAFCustomRule(zoneID: String, rule: WAFRulePayload, apiToken: String) async throws {}
     func setSpeedBrain(zoneID: String, enabled: Bool, apiToken: String) async throws {}
     func setECH(zoneID: String, enabled: Bool, apiToken: String) async throws {}
@@ -67,7 +75,7 @@ struct AISearchModelTests {
     }
 
     @MainActor
-    @Test("checkPolicyAndResolveZone reaches awaitingCostConfirmation when no licensing.json exists")
+    @Test("checkPolicyAndResolveZone reaches awaitingCostConfirmation when Bot Fight Mode is off")
     func noPolicyFilePassesThrough() async throws {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
@@ -82,6 +90,76 @@ struct AISearchModelTests {
         while model.isRunning { await Task.yield() }
 
         #expect(model.phase == .awaitingCostConfirmation(domain: "example.com", zoneID: "z1"))
+    }
+
+    @MainActor
+    @Test("checkPolicyAndResolveZone reaches awaitingBotFightModeDecision when Bot Fight Mode is on")
+    func botFightModeOnReachesDecisionPhase() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let reader = StubReader(zoneID: "z1", state: StubReader.state(botFightMode: true))
+        let model = AISearchModel(reader: reader, writer: StubWriter(), provisioner: StubProvisioner(), keychain: keychain)
+        model.domainInput = "Example.com"
+
+        model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
+        while model.isRunning { await Task.yield() }
+
+        #expect(model.phase == .awaitingBotFightModeDecision(domain: "example.com", zoneID: "z1"))
+    }
+
+    @MainActor
+    @Test("disableBotFightMode calls the writer and reaches awaitingCostConfirmation")
+    func disableBotFightModeCallsWriterAndProceeds() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let reader = StubReader(zoneID: "z1", state: StubReader.state(botFightMode: true))
+        let writer = StubWriter()
+        let model = AISearchModel(reader: reader, writer: writer, provisioner: StubProvisioner(), keychain: keychain)
+        model.domainInput = "example.com"
+        model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
+        while model.isRunning { await Task.yield() }
+        guard case .awaitingBotFightModeDecision = model.phase else {
+            Issue.record("expected .awaitingBotFightModeDecision, got \(model.phase)")
+            return
+        }
+
+        model.disableBotFightMode()
+        #expect(model.isRunning)
+        while model.isRunning { await Task.yield() }
+
+        #expect(model.phase == .awaitingCostConfirmation(domain: "example.com", zoneID: "z1"))
+        #expect(writer.setBotFightModeCalls.count == 1)
+        #expect(writer.setBotFightModeCalls.first?.zoneID == "z1")
+        #expect(writer.setBotFightModeCalls.first?.enabled == false)
+        #expect(model.keptBotFightModeOn == false)
+    }
+
+    @MainActor
+    @Test("keepBotFightMode proceeds without calling the writer and provisioning still succeeds")
+    func keepBotFightModeProceedsAndProvisionsSucceed() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let reader = StubReader(zoneID: "z1", state: StubReader.state(botFightMode: true))
+        let writer = StubWriter()
+        let model = AISearchModel(reader: reader, writer: writer, provisioner: StubProvisioner(), keychain: keychain)
+        model.domainInput = "example.com"
+        model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
+        while model.isRunning { await Task.yield() }
+
+        model.keepBotFightMode()
+        #expect(model.phase == .awaitingCostConfirmation(domain: "example.com", zoneID: "z1"))
+        #expect(model.keptBotFightModeOn == true)
+        #expect(writer.setBotFightModeCalls.isEmpty)
+
+        model.confirmCost()
+        #expect(model.isRunning)
+        while model.isRunning { await Task.yield() }
+
+        guard case .succeeded(let result) = model.phase else {
+            Issue.record("expected .succeeded, got \(model.phase)")
+            return
+        }
+        #expect(result.instance.id == "inst1")
     }
 
     @MainActor

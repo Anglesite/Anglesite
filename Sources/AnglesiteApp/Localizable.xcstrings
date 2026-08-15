@@ -262,9 +262,6 @@
     "A BCP 47 language tag, e.g. \"en\", \"fr-CA\", \"es\". Screen readers and search engines use this to pronounce and index your content correctly." : {
 
     },
-    "A WAF rule was added so Bot Fight Mode doesn't block the AI Search crawler." : {
-
-    },
     "A custom token named “Anglesite” should be pre-filled with all permissions Anglesite uses. If it isn’t, add at least the “Edit Cloudflare Workers” template’s permissions so deploying works — Anglesite will ask again when a feature needs more access. Click **Continue to summary**." : {
 
     },
@@ -741,6 +738,12 @@
 
     },
     "Bookmarks" : {
+
+    },
+    "Bot Fight Mode is protecting %@ from automated traffic — but it also blocks Cloudflare's AI Search crawler, so AI Search can't read your site while it's on. There's no way to make an exception for just this crawler." : {
+
+    },
+    "Bot Fight Mode is still on, so the AI Search crawler may be blocked. If indexing fails, turn Bot Fight Mode off in the Cloudflare dashboard and re-run indexing." : {
 
     },
     "Bottom" : {
@@ -1978,6 +1981,9 @@
 
     },
     "Keep @%@" : {
+
+    },
+    "Keep It On" : {
 
     },
     "Keep My Changes" : {
@@ -3772,6 +3778,9 @@
     "Try again" : {
 
     },
+    "Turn Off Bot Fight Mode" : {
+
+    },
     "Turn On" : {
 
     },
@@ -3789,6 +3798,9 @@
       }
     },
     "Turn on the Fediverse in Settings ▸ Workers, then publish again." : {
+
+    },
+    "Turning it off lets AI Search index your site, but reduces protection against unwanted bots. You can turn it back on any time in the Cloudflare dashboard." : {
 
     },
     "Type" : {

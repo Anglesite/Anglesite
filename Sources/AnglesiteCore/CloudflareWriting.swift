@@ -92,30 +92,12 @@ public struct WAFRulePayload: Sendable, Equatable, Encodable {
     /// What the rule does on match — a Cloudflare action name such as `block` or
     /// `managed_challenge`, passed through verbatim.
     public let action: String
-    /// Parameters for `action`; only meaningful for `action: "skip"` — see ``ActionParameters``.
-    public let actionParameters: ActionParameters?
-
-    /// Says which product(s) an `action: "skip"` rule skips — Cloudflare requires this for a skip
-    /// rule to do anything; a bare `action: "skip"` with no parameters skips nothing.
-    public struct ActionParameters: Sendable, Equatable, Encodable {
-        public let products: [String]
-
-        public init(products: [String]) {
-            self.products = products
-        }
-    }
-
-    private enum CodingKeys: String, CodingKey {
-        case description, expression, action
-        case actionParameters = "action_parameters"
-    }
 
     /// Memberwise initializer; the hardening planner builds these from its canned rule templates.
-    public init(description: String, expression: String, action: String, actionParameters: ActionParameters? = nil) {
+    public init(description: String, expression: String, action: String) {
         self.description = description
         self.expression = expression
         self.action = action
-        self.actionParameters = actionParameters
     }
 }
 
