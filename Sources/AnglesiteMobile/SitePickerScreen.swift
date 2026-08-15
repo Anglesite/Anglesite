@@ -2,11 +2,10 @@ import SwiftUI
 import AnglesiteIOS
 
 /// The iOS app's entry point (#866): lists `.anglesite` packages discovered in the user's iCloud
-/// container instead of asking for a typed site URL. Replaces `RemoteSessionScreen` as
-/// `AnglesiteMobileApp`'s root — per #800's owner decision (2026-07-17) that this iCloud-discovery
-/// + Micropub flow, not the older remote-sandbox thin client (#71, deferred to v2.0 under #342),
-/// is the default iOS experience. Picking a site pushes `SiteSignInScreen`, the per-site
-/// IndieAuth onboarding (#868).
+/// container instead of asking for a typed site URL. Replaced the #71 remote-sandbox thin
+/// client's screen (retired in #1433) as `AnglesiteMobileApp`'s root — per #800's owner decision
+/// (2026-07-17) that this iCloud-discovery + Micropub flow is the default iOS experience.
+/// Picking a site pushes `SiteSignInScreen`, the per-site IndieAuth onboarding (#868).
 struct SitePickerScreen: View {
     @State private var model = SitePickerModel()
 

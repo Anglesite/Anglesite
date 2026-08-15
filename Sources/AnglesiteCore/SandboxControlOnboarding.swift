@@ -1,18 +1,22 @@
 import Foundation
 
-/// Drives the iOS thin client's "connect Control Worker" flow — verify the drafted Worker URL /
-/// bearer token / site ID against the Worker, persist them only if they're good, surface the
-/// reachable status, then decide whether to proceed — independent of any SwiftUI (#889).
+/// Drives the "connect Control Worker" flow — verify the drafted Worker URL / bearer token /
+/// site ID against the Worker, persist them only if they're good, surface the reachable status,
+/// then decide whether to proceed — independent of any SwiftUI (#889).
 ///
 /// Mirrors `TokenOnboarding`/`GitHubTokenOnboarding`'s verify → persist → flash → re-check-cancel →
 /// proceed ordering. Verification reuses `SandboxControlClient.status(siteID:)` — any authorized
 /// response proves the URL + token pair reaches the user's Worker; no new server API is needed.
-/// The view-model (`RemoteSessionModel`) owns the observable state; this type owns the ordering,
-/// so the "a cancelled connect must not confirm behind the user's back" rule is unit-tested under
+/// The caller's view-model owns the observable state; this type owns the ordering, so the "a
+/// cancelled connect must not confirm behind the user's back" rule is unit-tested under
 /// `swift test` rather than only in an iOS-hosted app test.
 ///
-/// `@MainActor` so it composes naturally with `RemoteSessionModel` (also MainActor) without
-/// `Sendable` gymnastics on the closures.
+/// No UI reaches this flow since #1433 retired the iOS connect form (iOS v2.0 design §2): it
+/// stays in-tree with the rest of the Cloudflare-sandbox control-client plumbing as the
+/// deferred #66 "Mac offline" fallback, behind the `SiteRuntime` seam.
+///
+/// `@MainActor` so it composes naturally with a MainActor view-model without `Sendable`
+/// gymnastics on the closures.
 @MainActor
 public struct SandboxControlOnboarding {
     /// The trimmed, verified field set handed to `persist` — one value object so the persist
@@ -45,9 +49,9 @@ public struct SandboxControlOnboarding {
         case abort
     }
 
-    /// The one definition of "a usable Worker base URL" (http/https scheme required) — shared by
-    /// this flow's verify guard and `RemoteSessionModel.workerURL`, so the two paths can't drift
-    /// apart on what they accept.
+    /// The one definition of "a usable Worker base URL" (http/https scheme required) — a shared
+    /// helper so the verify guard and any future start path can't drift apart on what they
+    /// accept.
     public static func workerURL(from string: String) -> URL? {
         guard let url = URL(string: string), url.scheme?.hasPrefix("http") == true else { return nil }
         return url
@@ -82,8 +86,8 @@ public struct SandboxControlOnboarding {
         guard !trimmedURLString.isEmpty, !trimmedToken.isEmpty, !trimmedSiteID.isEmpty else {
             return .stay(message: "Fill in the Worker URL, token, and site ID first.")
         }
-        // Same rule as the form's start path (`RemoteSessionModel.workerURL`), via the shared
-        // helper so the verify and start paths can't diverge on what they accept.
+        // Via the shared helper so the verify path and any future start path can't diverge on
+        // what they accept.
         guard let workerURL = Self.workerURL(from: trimmedURLString) else {
             return .stay(message: "That Worker URL doesn’t look valid.")
         }
