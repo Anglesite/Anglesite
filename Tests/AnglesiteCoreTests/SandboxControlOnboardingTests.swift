@@ -2,11 +2,12 @@ import Testing
 import Foundation
 @testable import AnglesiteCore
 
-/// Tests the iOS connect flow's verify → persist → (maybe) proceed orchestration in isolation
+/// Tests the connect flow's verify → persist → (maybe) proceed orchestration in isolation
 /// from any UI, mirroring `TokenOnboardingTests`/`GitHubTokenOnboardingTests`. Verification is
 /// `SandboxControlClient.status(siteID:)` against `FakeSandboxControlClient`, so the "a cancelled
 /// connect must not confirm behind the user's back" rule is asserted deterministically under
-/// `swift test` (#889) — `RemoteSessionModel` itself lives in the iOS-only app target.
+/// `swift test` (#889). No UI reaches this flow since #1433 retired the iOS connect form; it
+/// stays covered as part of the deferred #66 "Mac offline" fallback plumbing.
 @MainActor
 struct SandboxControlOnboardingTests {
     private static let readyStatus = SandboxStatus(siteID: "site-1", previewReady: true, mcpReady: true)

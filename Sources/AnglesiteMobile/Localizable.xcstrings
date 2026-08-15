@@ -22,9 +22,6 @@
     "Body" : {
 
     },
-    "Branch" : {
-
-    },
     "Camera Access Needed" : {
 
     },
@@ -40,40 +37,13 @@
     "Choose one of your sites to see its posts." : {
 
     },
-    "Cloudflare Container Setup Guide" : {
-
-    },
-    "Cloudflare Control Worker" : {
-
-    },
-    "Connect" : {
-
-    },
-    "Connect via Cloudflare" : {
-
-    },
-    "Connect your Cloudflare Worker first." : {
-
-    },
-    "Connecting…" : {
-
-    },
-    "Connect…" : {
-
-    },
     "Content" : {
-
-    },
-    "Control Worker token" : {
 
     },
     "Couldn't Load Posts" : {
 
     },
     "Couldn't Open Post" : {
-
-    },
-    "Couldn't Open Site" : {
 
     },
     "Couldn't Pair" : {
@@ -83,9 +53,6 @@
 
     },
     "Couldn't reach your site. Check your connection and try again." : {
-
-    },
-    "Couldn't sign in to Cloudflare. Try again in a moment." : {
 
     },
     "Current site: %@" : {
@@ -118,9 +85,6 @@
     "Finding your sites…" : {
 
     },
-    "From the one-time Cloudflare Container setup. The token is stored in the Keychain on this device only, after the Worker confirms it." : {
-
-    },
     "Keep Editing" : {
 
     },
@@ -139,9 +103,6 @@
     "No Posts Yet" : {
 
     },
-    "No Site Open" : {
-
-    },
     "No Sites Found" : {
 
     },
@@ -155,12 +116,6 @@
 
     },
     "Open Settings" : {
-
-    },
-    "Open Site" : {
-
-    },
-    "Open your site in the remote sandbox to preview and edit it." : {
 
     },
     "Pair Your Mac" : {
@@ -193,13 +148,7 @@
     "Published — site rebuilding." : {
 
     },
-    "Reached your Worker" : {
-
-    },
     "Refresh" : {
-
-    },
-    "Remote Session" : {
 
     },
     "Remove" : {
@@ -221,12 +170,6 @@
 
     },
     "Session Expired" : {
-
-    },
-    "Session Settings" : {
-
-    },
-    "Session Settings…" : {
 
     },
     "Sign In" : {
@@ -262,12 +205,6 @@
     "Signing in…" : {
 
     },
-    "Site" : {
-
-    },
-    "Site ID" : {
-
-    },
     "Site Unreachable" : {
 
     },
@@ -275,9 +212,6 @@
 
     },
     "Something went wrong while signing in. Try again." : {
-
-    },
-    "Starting %@ in the sandbox…" : {
 
     },
     "Starting your site…" : {
@@ -305,9 +239,6 @@
 
     },
     "The post couldn't be loaded from your site." : {
-
-    },
-    "The sandbox clones this repository — git stays the source of truth for your site." : {
 
     },
     "The upload didn't go through — try again." : {
@@ -353,12 +284,6 @@
 
     },
     "Your site signed you out. Sign in again to keep posting." : {
-
-    },
-    "https://anglesite-sandbox.example.workers.dev" : {
-
-    },
-    "https://github.com/you/site.git" : {
 
     },
     "iCloud Unavailable" : {

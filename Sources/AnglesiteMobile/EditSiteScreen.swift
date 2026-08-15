@@ -16,8 +16,9 @@ struct EditSiteScreen: View {
 
     /// Built lazily so the camera-access prompt can't fire before the walk-in needs it.
     @State private var pairingModel: PairingOnboardingModel?
-    /// Per-session Siri onscreen-entity provider — the same wiring `RemoteSessionModel` used,
-    /// owned by the screen because the annotation feed only matters while the cover renders.
+    /// Per-session Siri onscreen-entity provider — the same wiring the retired #71 scaffold
+    /// used (#1386), owned by the screen because the annotation feed only matters while the
+    /// cover renders.
     @State private var annotationProvider: PreviewAnnotationProvider?
 
     var body: some View {
@@ -136,9 +137,11 @@ private struct P2PSessionPreview: View {
                 WebViewBridge.localDevConfiguration(handler: handler)
             },
             configureWebView: { webView in
-                // Gated in lockstep with AnglesiteIntents' own `#if compiler(>=6.4)` guards —
-                // CI's `ios-build` toolchain predates `appEntityUIElementProvider`; see the
-                // matching comment in `RemoteSessionScreen`.
+                // `appEntityUIElementProvider` and `uiElements(for:)` are gated behind
+                // `#if compiler(>=6.4)` in AnglesiteIntents (iOS 26+ SDK symbols); CI's
+                // `ios-build` toolchain predates both, so this call site must stay gated in
+                // lockstep or it fails to compile there even though the surrounding view
+                // type-checks fine.
                 #if compiler(>=6.4)
                 guard let annotationProvider else { return }
                 webView.appEntityUIElementProvider = { [weak annotationProvider] _, hitContext in

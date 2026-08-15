@@ -6,7 +6,7 @@ import AnglesiteSiteModel
 /// Drives the iOS app's entry point (#866): lists the user's `.anglesite` packages found in their
 /// iCloud ubiquity container, in place of the old "type a site URL" flow. `@MainActor` +
 /// `@Observable` so `SitePickerScreen` (`AnglesiteMobile`) can bind to it directly, matching
-/// `RemoteSessionModel`'s existing convention in this target.
+/// the other view-models in this target.
 @MainActor
 @Observable
 public final class SitePickerModel {

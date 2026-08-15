@@ -3,9 +3,9 @@ import Observation
 import AnglesiteCore
 
 /// Drives one site's "Edit Site" P2P session on iOS (#1431, iOS v2.0 design §3) behind the
-/// `SiteRuntime` seam — the same pattern the Mac's `PreviewModel` and the #71 scaffold's
-/// `RemoteSessionModel` use, so #1208 P4's real `P2PSiteRuntime` plugs in by swapping only the
-/// injected `makeRuntime` factory.
+/// `SiteRuntime` seam — the same pattern the Mac's `PreviewModel` uses (and the retired #71
+/// scaffold used), so #1208 P4's real `P2PSiteRuntime` plugs in by swapping only the injected
+/// `makeRuntime` factory.
 ///
 /// Lifecycle contract (design §3): the model outlives the full-screen cover that renders it.
 /// Dismissing the cover merely stops *rendering* — the runtime keeps running warm so re-entry is
