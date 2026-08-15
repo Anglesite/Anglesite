@@ -964,6 +964,42 @@ jobs:
         # property … from AppSchemaEntity …" halting error.
         run: xcodebuild -project Anglesite.xcodeproj -scheme AnglesiteIntents -configuration Debug build
 
+  reuse-lint:
+    name: REUSE licensing lint
+    # Deliberately NOT gated on the `changes` path filter: REUSE compliance is a whole-tree
+    # property — a newly added file in any path group can lack licensing coverage — and the
+    # lint costs seconds on ubuntu-latest, so path-gating would trade correctness for nothing.
+    # No fsfe/reuse-action here for the same reason dorny/paths-filter was replaced above:
+    # the org's Actions policy only allows GitHub-owned/Verified-Creator actions. pipx is
+    # preinstalled on the ubuntu runner images.
+    #
+    # Same ARMED-but-skips-gracefully idiom as docs-docc/appintents-schema: green with a
+    # ::warning:: until #1467 lands REUSE.toml + LICENSES/, then it auto-activates and
+    # enforces with no edit here — #1467's own PR is the first this lane lint-checks for real.
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    env:
+      # Pinned so a new reuse release can't silently change what this lane accepts (lint
+      # checks tighten across releases). Bump deliberately. The charset-normalizer extra is
+      # load-bearing, not optional: reuse 6.x hard-errors at import (NoEncodingModuleError)
+      # without an encoding-detection backend, and the extra is the one that needs no
+      # system libmagic — verified locally against 6.2.0 on both a compliant fixture
+      # (exit 0) and a non-compliant tree (exit 1).
+      REUSE_SPEC: reuse[charset-normalizer]==6.2.0
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Run reuse lint
+        run: |
+          set -euo pipefail
+          if [ ! -f REUSE.toml ]; then
+            echo "::warning title=REUSE lint skipped::REUSE.toml not present yet (#1467). Lane auto-activates once the REUSE metadata lands."
+            echo "SKIPPED: REUSE.toml is absent (the #1467 groundwork hasn't merged), so there is no declared licensing metadata to lint yet."
+            exit 0
+          fi
+          pipx run --spec "$REUSE_SPEC" reuse lint
+
   ci:
     name: CI required checks
     # Every job above is conditionally skipped by the `changes` path filter, so no single
@@ -987,6 +1023,7 @@ jobs:
       - xcodeproj-sync
       - localization-catalog
       - appintents-schema
+      - reuse-lint
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
