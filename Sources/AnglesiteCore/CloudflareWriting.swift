@@ -92,6 +92,7 @@ public struct WAFRulePayload: Sendable, Equatable, Encodable {
     /// What the rule does on match — a Cloudflare action name such as `block` or
     /// `managed_challenge`, passed through verbatim.
     public let action: String
+    /// Parameters for `action`; only meaningful for `action: "skip"` — see ``ActionParameters``.
     public let actionParameters: ActionParameters?
 
     /// Says which product(s) an `action: "skip"` rule skips — Cloudflare requires this for a skip

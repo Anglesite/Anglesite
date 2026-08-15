@@ -96,6 +96,9 @@ struct AISearchSheetView: View {
                 if result.wafSkipRuleAdded {
                     Text("A WAF rule was added so Bot Fight Mode doesn't block the AI Search crawler.")
                         .font(.callout).foregroundStyle(.secondary)
+                } else if let warning = result.wafSkipRuleWarning {
+                    Text(warning)
+                        .font(.callout).foregroundStyle(.orange)
                 }
                 Text("NLWeb enablement is still manual — finish setup in the Cloudflare dashboard:")
                 Link("Open AI Search instance settings", destination: result.dashboardURL)
