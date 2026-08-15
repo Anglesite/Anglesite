@@ -88,3 +88,10 @@ Notes:
 ## License
 
 By contributing, you agree that your contributions are licensed under the [ISC License](LICENSE) that covers this project.
+
+The repo is [REUSE](https://reuse.software)-compliant, and CI's `reuse-lint` lane enforces it. You almost never need to do anything about this: [`REUSE.toml`](REUSE.toml) declares ISC + the project copyright for the whole tree (`path = "**"`), so a new file is covered the moment you add it — **don't** add per-file `SPDX-License-Identifier` headers to ordinary source files. Two cases do need action:
+
+- **Vendoring third-party code.** Add its license text to `LICENSES/` (`reuse download <SPDX-ID>` fetches the canonical text) and give the vendored paths their own `[[annotations]]` block in `REUSE.toml`. This is required, not optional: the top-level annotation uses `precedence = "override"`, so a vendored file's own SPDX header would otherwise be silently replaced by the ISC default — see the comment in `REUSE.toml` for why that precedence is set the way it is.
+- **Checking locally.** `uvx reuse lint` or `pipx run reuse lint` (the tool isn't committed; CI pins `reuse[charset-normalizer]==6.2.0`).
+
+`LICENSES/ISC.txt` is the canonical SPDX text, so it carries the SPDX template's own placeholder copyright lines rather than this project's — that's expected. The human-facing grant with the real copyright holder is the root [`LICENSE`](LICENSE), and the machine-readable holder is the `SPDX-FileCopyrightText` in `REUSE.toml`.
