@@ -127,8 +127,8 @@ struct DevicePairingSettingsView: View {
                 keyPair = fresh
             }
 
-            let payload = PairingQRPayload(deviceID: Self.ownDeviceID(), publicKey: keyPair.publicKeyData)
-            let payloadData = try JSONEncoder().encode(payload)
+            let payload = DevicePairingPayload(deviceID: Self.ownDeviceID(), publicKey: keyPair.publicKeyData)
+            let payloadData = try payload.encodedJSON()
             guard let image = Self.qrCodeImage(from: payloadData) else {
                 loadError = "couldn't render the pairing QR code."
                 return
@@ -174,15 +174,6 @@ struct DevicePairingSettingsView: View {
         image.addRepresentation(rep)
         return image
     }
-}
-
-/// The QR payload's wire shape — field names match `DeviceAnnounceRecord`'s CloudKit fields
-/// (`deviceID`, `publicKey`). `publicKey` encodes as base64 via `JSONEncoder`'s default `Data`
-/// strategy, matching how `DevicePairingKeyPair.publicKeyData` round-trips elsewhere in this
-/// pairing flow (e.g. `SecretStore.writeDevicePairingKeyPair`).
-private struct PairingQRPayload: Encodable {
-    let deviceID: String
-    let publicKey: Data
 }
 
 #Preview {
