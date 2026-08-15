@@ -61,6 +61,18 @@ struct SecurityReportsModelTests {
         #expect(model.lastCheckedAt == nil)
     }
 
+    @Test("a non-GitHub repo clears state without an error, same as no repo")
+    func nonGitHubRepoClears() async {
+        let artifacts = RemoteRepo(
+            url: URL(string: "https://artifacts.cloudflare.com/acct123/site")!,
+            owner: "acct123", name: "site", host: .cloudflareArtifacts)
+        let model = SecurityReportsModel(reader: FakeReader(advisories: [Self.highAdvisory]))
+        await model.recheck(repo: artifacts, token: "tok").value
+        #expect(model.totalCount == 0)
+        #expect(model.lastError == nil)
+        #expect(model.lastCheckedAt == nil)
+    }
+
     @Test("no token clears state without an error")
     func noTokenClears() async {
         let model = SecurityReportsModel(reader: FakeReader(advisories: [Self.highAdvisory]))

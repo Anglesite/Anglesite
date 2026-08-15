@@ -86,6 +86,14 @@ struct SecurityTxtAuditRunnerTests {
         #expect(findings.isEmpty)
     }
 
+    @Test("says nothing for a Cloudflare Artifacts origin — the GitHub advisory-form hint doesn't apply (#1266)")
+    func silentForArtifactsOrigin() async throws {
+        let findings = try await Self.run(
+            config: "SECURITY_CONTACT=s@example.com\n",
+            gitRunner: Self.gitRunner(remote: "https://\(RepoHost.artifactsHostName)/acct123/site.git\n"))
+        #expect(findings.isEmpty)
+    }
+
     @Test("says nothing when there is no origin")
     func silentWithoutOrigin() async throws {
         let findings = try await Self.run(

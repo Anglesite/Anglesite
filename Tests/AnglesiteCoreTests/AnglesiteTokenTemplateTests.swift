@@ -40,4 +40,16 @@ struct AnglesiteTokenTemplateTests {
         #expect(Set(scopeKeys) == Set(AnglesiteTokenTemplate.permissionGroups.map(\.key)))
         #expect(scopeKeys.count == AnglesiteTokenTemplate.permissionGroups.count)
     }
+
+    /// #1266 slices 1–2 must not touch the live token template: an unverified permission-group
+    /// key in the dashboard prefill would break token creation for every user. Slice 3 flips
+    /// this by appending `artifactsPermissionGroup` to `permissionGroups` once verified.
+    @Test("artifactsPermissionGroup is defined but not yet requested")
+    func artifactsPermissionGroupIsDefinedButNotYetRequested() {
+        #expect(AnglesiteTokenTemplate.artifactsPermissionGroup.type == "edit")
+        #expect(!AnglesiteTokenTemplate.permissionGroups
+            .contains { $0.key == AnglesiteTokenTemplate.artifactsPermissionGroup.key })
+        #expect(!AnglesiteTokenTemplate.oauthScope
+            .contains(AnglesiteTokenTemplate.artifactsPermissionGroup.key))
+    }
 }

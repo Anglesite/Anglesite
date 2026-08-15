@@ -46,13 +46,16 @@ public final class SecurityReportsModel {
         return .clean
     }
 
-    /// Cancels any in-flight check and starts a new one. `repo == nil` (no GitHub origin) or a
-    /// missing/empty `token` both clear state to empty rather than erroring — neither is a
-    /// failure, just nothing to show, and neither touches `lastCheckedAt` since no check ran.
+    /// Cancels any in-flight check and starts a new one. `repo == nil` (no recognized origin), a
+    /// repo whose `host` isn't `.github` (advisories and Dependabot alerts are GitHub products —
+    /// querying api.github.com with, say, a Cloudflare Artifacts account ID as the owner would
+    /// only manufacture a spurious `lastError`), and a missing/empty `token` all clear state to
+    /// empty rather than erroring — none is a failure, just nothing to show, and none touches
+    /// `lastCheckedAt` since no check ran.
     @discardableResult
     public func recheck(repo: RemoteRepo?, token: String?) -> Task<Void, Never> {
         inFlight?.cancel()
-        guard let repo, let token, !token.isEmpty else {
+        guard let repo, repo.host == .github, let token, !token.isEmpty else {
             inFlight = nil
             openAdvisories = []
             openAlerts = []

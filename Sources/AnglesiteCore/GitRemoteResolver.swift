@@ -1,6 +1,6 @@
 import Foundation
 
-/// Shared "read `origin` and parse it as a GitHub `RemoteRepo`" lookup. Extracted from
+/// Shared "read `origin` and parse it as a `RemoteRepo`" lookup. Extracted from
 /// `PlistEditorModel.currentRemoteRepo()` and `SiteWindowModel.currentGitHubRemote()`, which had
 /// each grown byte-for-byte identical copies of this (flagged in #975's final whole-branch
 /// review). Both keep their own `gitRunner` init parameter as the test-injection seam and just
@@ -17,7 +17,10 @@ import Foundation
 /// standalone resolution `PlistEditorModel`/`SiteWindowModel` also need.
 public enum GitRemoteResolver {
     /// Runs `git remote get-url origin` in `siteDirectory` via `runner` and parses the result.
-    /// `nil` for no remote, a non-GitHub remote, or a failed git call.
+    /// `nil` for no remote, a remote whose host `RemoteRepo.parse` doesn't recognize, or a failed
+    /// git call. The result can be any recognized `RepoHost` (GitHub or Cloudflare Artifacts,
+    /// #1266) — callers that need GitHub specifically must check `repo.host == .github`
+    /// themselves; this lookup is host-agnostic.
     public static func origin(
         in siteDirectory: URL,
         runner: BackupCommand.GitRunner
