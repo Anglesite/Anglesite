@@ -45,9 +45,12 @@ public struct AISearchExecutor: Sendable {
         let namespace = Self.namespaceID(for: domain)
         let instance = try await provisioner.createAISearchInstance(domain: domain, instanceID: namespace, apiToken: apiToken)
 
-        // Best-effort deep link — Cloudflare's dashboard URL scheme for an AI Search instance's
-        // Settings page; re-verify at implementation time since this is a preview product.
-        let dashboardURL = URL(string: "https://dash.cloudflare.com/?to=/:account/ai-search/\(namespace)/settings")!
+        // Product-root deep link, verified against Cloudflare's docs (2026-08-15): every doc page
+        // links "Go to AI Search" as `?to=/:account/ai/ai-search` — note the `/ai/` segment — and
+        // none deep-links into an instance's Settings (they all say select the instance, then
+        // Settings). The earlier `/:account/ai-search/{namespace}/settings` guess had no `/ai/`
+        // and an unverified instance sub-path; the success UI's manual steps cover the rest.
+        let dashboardURL = URL(string: "https://dash.cloudflare.com/?to=/:account/ai/ai-search")!
         return ProvisionedResult(instance: instance, dashboardURL: dashboardURL)
     }
 

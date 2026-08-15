@@ -109,8 +109,8 @@ struct AISearchSheetView: View {
                         .font(.callout).foregroundStyle(.orange)
                 }
                 Text("NLWeb enablement is still manual — finish setup in the Cloudflare dashboard:")
-                Link("Open AI Search instance settings", destination: result.dashboardURL)
-                Text("In the dashboard: open this instance's Settings, locate \"NLWeb Worker\", and enable it.")
+                Link("Open AI Search in the Cloudflare dashboard", destination: result.dashboardURL)
+                Text("In the dashboard: select this instance, open its Settings, locate \"NLWeb Worker\", and enable it.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             .padding()

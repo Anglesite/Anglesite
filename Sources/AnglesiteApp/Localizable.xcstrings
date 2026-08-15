@@ -1917,7 +1917,7 @@
     "Importing…" : {
 
     },
-    "In the dashboard: open this instance's Settings, locate \"NLWeb Worker\", and enable it." : {
+    "In the dashboard: select this instance, open its Settings, locate \"NLWeb Worker\", and enable it." : {
 
     },
     "Inactive — not used" : {
@@ -2464,7 +2464,7 @@
     "Open %@ in its own window" : {
 
     },
-    "Open AI Search instance settings" : {
+    "Open AI Search in the Cloudflare dashboard" : {
 
     },
     "Open Bluesky Settings" : {

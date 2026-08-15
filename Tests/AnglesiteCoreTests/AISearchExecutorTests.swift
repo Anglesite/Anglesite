@@ -81,7 +81,7 @@ struct AISearchExecutorTests {
         let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: true)), writer: writer, provisioner: StubProvisioner())
         let result = try await executor.provision(zoneID: "z1", domain: "Example.com", apiToken: "t")
         #expect(result.instance.id == "inst1")
-        #expect(result.dashboardURL.absoluteString.contains("example-com"))
+        #expect(result.dashboardURL.absoluteString == "https://dash.cloudflare.com/?to=/:account/ai/ai-search")
         #expect(writer.createdRules.isEmpty)
         #expect(writer.setBotFightModeCalls.isEmpty)
     }
