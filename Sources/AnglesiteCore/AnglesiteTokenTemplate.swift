@@ -42,6 +42,7 @@ public enum AnglesiteTokenTemplate {
         ("email_routing_addresses", "edit"),
         ("zaraz", "edit"),
         ("registrar", "edit"),
+        ("ai_search", "edit"),
     ]
 
     /// The OAuth `scope` string covering every permission group above. Cloudflare's self-managed

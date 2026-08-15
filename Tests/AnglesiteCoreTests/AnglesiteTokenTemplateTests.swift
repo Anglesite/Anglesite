@@ -16,7 +16,7 @@ struct AnglesiteTokenTemplateTests {
         let keys = Set(AnglesiteTokenTemplate.permissionGroups.map(\.key))
         for needed in ["d1", "zone_settings", "dns", "zone_waf", "response_compression",
                        "challenge_widgets", "email_routing_rules", "email_routing_addresses",
-                       "zaraz", "page_shield", "analytics", "registrar"] {
+                       "zaraz", "page_shield", "analytics", "registrar", "ai_search"] {
             #expect(keys.contains(needed), "missing permission group: \(needed)")
         }
     }
