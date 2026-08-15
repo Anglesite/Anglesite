@@ -83,6 +83,33 @@ struct CloudflareWritingTests {
         #expect(!postReqs.isEmpty)
     }
 
+    @Test("createWAFCustomRule encodes action_parameters.products when provided")
+    func createWAFCustomRuleWithActionParameters() async throws {
+        let spy = TransportSpy()
+        // No existing ruleset — forces the code to create a new one with rules: [...]
+        let rulesetJSON = """
+        {"success":true,"errors":[],"messages":[],"result":[]}
+        """
+        let client = HTTPCloudflareClient(transport: spyTransport(["/rulesets": (200, rulesetJSON)], spy: spy))
+        let rule = WAFRulePayload(
+            description: "Allow AI Search crawler", expression: "(x)", action: "skip",
+            actionParameters: .init(products: ["botFight"]))
+        try await client.createWAFCustomRule(zoneID: zoneID, rule: rule, apiToken: token)
+        let postReqs = spy.requests.filter { $0.httpMethod == "POST" }
+        let body = try #require(postReqs.last?.httpBody.flatMap { try? JSONSerialization.jsonObject(with: $0) as? [String: Any] })
+        let rules = try #require(body["rules"] as? [[String: Any]])
+        let actionParams = try #require(rules.first?["action_parameters"] as? [String: Any])
+        #expect(actionParams["products"] as? [String] == ["botFight"])
+    }
+
+    @Test("WAFRulePayload omits action_parameters from encoded JSON when nil")
+    func wafRulePayloadOmitsNilActionParameters() throws {
+        let rule = WAFRulePayload(description: "Block dotfiles", expression: "(x)", action: "block")
+        let data = try JSONEncoder().encode(rule)
+        let obj = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])
+        #expect(obj["action_parameters"] == nil)
+    }
+
     @Test("write methods include Authorization header")
     func authorizationHeader() async throws {
         let spy = TransportSpy()
