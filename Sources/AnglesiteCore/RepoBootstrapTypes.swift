@@ -14,6 +14,10 @@ public enum RepoHost: String, CaseIterable, Codable, Sendable {
 
     /// The provider for a remote's host name, or nil for hosts the app doesn't recognize —
     /// callers treat nil as "not published", never as an error.
+    ///
+    /// - Parameter hostName: The remote URL's host, e.g. `"github.com"` or `"artifacts.cloudflare.com"`.
+    ///   Matched case-insensitively.
+    /// - Returns: The matching provider, or nil when `hostName` isn't recognized.
     public static func match(hostName: String) -> RepoHost? {
         switch hostName.lowercased() {
         case "github.com", "www.github.com": .github
@@ -23,6 +27,11 @@ public enum RepoHost: String, CaseIterable, Codable, Sendable {
     }
 
     /// Browser URL for a repo on this host (no `.git` suffix).
+    ///
+    /// - Parameters:
+    ///   - owner: The GitHub account/organization, or Cloudflare account ID, that owns the repo.
+    ///   - name: The repository name, with any `.git` suffix already stripped.
+    /// - Returns: The browser URL, or nil if `owner`/`name` can't form a valid URL.
     public func browseURL(owner: String, name: String) -> URL? {
         switch self {
         case .github: URL(string: "https://github.com/\(owner)/\(name)")

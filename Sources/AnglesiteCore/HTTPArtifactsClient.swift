@@ -40,6 +40,18 @@ public struct HTTPArtifactsClient: Sendable {
 
     /// Creates a repository under the account and returns it as a `RemoteRepo` with
     /// `host == .cloudflareArtifacts` and `owner == accountID`.
+    ///
+    /// - Parameters:
+    ///   - name: The repository name to create.
+    ///   - isPrivate: Whether the repository should be private.
+    ///   - accountID: The Cloudflare account under which to create the repository; becomes the
+    ///     returned `RemoteRepo`'s `owner`.
+    ///   - token: A Cloudflare API token authorized for Artifacts on `accountID`.
+    /// - Returns: The created repository as a `RemoteRepo`.
+    /// - Throws: ``ArtifactsAPIError`` — `.network` if the request never got a response,
+    ///   `.unauthorized(status:)` for a 401/403, `.http(status:)` for any other non-2xx status,
+    ///   `.api(message:)` for a 2xx envelope with `success: false`, or `.malformedResponse` for a
+    ///   2xx envelope that didn't decode or that yielded an unusable browse URL.
     public func createRepo(name: String, isPrivate: Bool, accountID: String, token: String) async throws -> RemoteRepo {
         struct Body: Encodable {
             let name: String
@@ -64,6 +76,12 @@ public struct HTTPArtifactsClient: Sendable {
     /// purpose: only a 2xx `success: true` envelope counts, so a 404 from an account without
     /// beta access reads as unavailable (`CloudflareCapabilityProber`'s permissive not-401/403
     /// rule would get this wrong). Advisory like all probes — callers may re-probe.
+    ///
+    /// - Parameters:
+    ///   - accountID: The Cloudflare account to probe.
+    ///   - token: A Cloudflare API token to probe with.
+    /// - Returns: `true` when a 2xx `success: true` envelope came back; `false` for any other
+    ///   outcome, including a transport failure or non-2xx status — this never throws.
     public func probeAvailability(accountID: String, token: String) async -> Bool {
         struct Repo: Decodable {}
         guard let data = try? await send(
