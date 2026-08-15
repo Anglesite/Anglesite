@@ -37,4 +37,28 @@ import Foundation
     @Test func rejectsColonBeforeAtWithoutCrashing() {
         #expect(RemoteRepo.parse(remoteURL: "host:user@path/repo.git") == nil)
     }
+
+    @Test func parsesArtifactsHTTPSRemote() {
+        let raw = "https://\(RepoHost.artifactsHostName)/acct123/my-site.git"
+        let repo = RemoteRepo.parse(remoteURL: raw)
+        #expect(repo?.host == .cloudflareArtifacts)
+        #expect(repo?.owner == "acct123")
+        #expect(repo?.name == "my-site")
+        #expect(repo?.url == URL(string: "https://\(RepoHost.artifactsHostName)/acct123/my-site"))
+    }
+
+    @Test func parsesArtifactsSSHRemote() {
+        let repo = RemoteRepo.parse(remoteURL: "git@\(RepoHost.artifactsHostName):acct123/my-site.git")
+        #expect(repo?.host == .cloudflareArtifacts)
+        #expect(repo?.url == URL(string: "https://\(RepoHost.artifactsHostName)/acct123/my-site"))
+    }
+
+    @Test func githubRemoteParsesWithGitHubHost() {
+        #expect(RemoteRepo.parse(remoteURL: "https://github.com/acme/site.git")?.host == .github)
+    }
+
+    @Test func stillRejectsUnknownHosts() {
+        #expect(RemoteRepo.parse(remoteURL: "https://gitlab.com/foo/bar.git") == nil)
+        #expect(RemoteRepo.parse(remoteURL: "git@bitbucket.org:foo/bar.git") == nil)
+    }
 }

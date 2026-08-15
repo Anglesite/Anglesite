@@ -1,6 +1,37 @@
 import Foundation
 
-/// A site's GitHub remote, derived from `origin`. Source of truth for "is this site published?".
+/// A git-hosting provider the app recognizes in a site's `origin` remote. Owns host matching and
+/// browse-URL derivation so `RemoteRepo` consumers never re-parse URLs to learn the provider.
+public enum RepoHost: String, CaseIterable, Codable, Sendable {
+    /// GitHub (`github.com`) — the original provider; `gh`/REST bootstrap paths.
+    case github
+    /// Cloudflare Artifacts — private beta. Host and URL shapes are assumed pending beta access;
+    /// ``artifactsHostName`` is the single value to correct once verified (#1266).
+    case cloudflareArtifacts
+
+    /// The Artifacts git/browse host. Unverified private-beta assumption — the one place to fix.
+    public static let artifactsHostName = "artifacts.cloudflare.com"
+
+    /// The provider for a remote's host name, or nil for hosts the app doesn't recognize —
+    /// callers treat nil as "not published", never as an error.
+    public static func match(hostName: String) -> RepoHost? {
+        switch hostName.lowercased() {
+        case "github.com", "www.github.com": .github
+        case artifactsHostName: .cloudflareArtifacts
+        default: nil
+        }
+    }
+
+    /// Browser URL for a repo on this host (no `.git` suffix).
+    public func browseURL(owner: String, name: String) -> URL? {
+        switch self {
+        case .github: URL(string: "https://github.com/\(owner)/\(name)")
+        case .cloudflareArtifacts: URL(string: "https://\(Self.artifactsHostName)/\(owner)/\(name)")
+        }
+    }
+}
+
+/// A site's git remote (GitHub or Cloudflare Artifacts), derived from `origin`. Source of truth for "is this site published?".
 public struct RemoteRepo: Sendable, Equatable {
     /// Browser URL, e.g. `https://github.com/owner/name` — always https, regardless of whether
     /// the remote itself was an ssh URL.
@@ -9,17 +40,20 @@ public struct RemoteRepo: Sendable, Equatable {
     public let owner: String
     /// The repository name, with any `.git` suffix already stripped.
     public let name: String
+    /// Which provider hosts this remote — derived from the host in `parse(remoteURL:)`.
+    public let host: RepoHost
 
     /// Memberwise initializer; prefer ``parse(remoteURL:)``, which derives all three fields
     /// consistently from a raw remote URL.
-    public init(url: URL, owner: String, name: String) {
+    public init(url: URL, owner: String, name: String, host: RepoHost = .github) {
         self.url = url
         self.owner = owner
         self.name = name
+        self.host = host
     }
 
     /// Parse a git remote URL (https or scp-like ssh) into owner/name + a browser URL.
-    /// Returns nil for empty/unparseable input or if the host is not github.com.
+    /// Returns nil for empty/unparseable input or hosts `RepoHost` doesn't recognize.
     public static func parse(remoteURL raw: String) -> RemoteRepo? {
         let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
@@ -46,15 +80,13 @@ public struct RemoteRepo: Sendable, Equatable {
             return nil
         }
 
-        // Only accept github.com remotes — non-GitHub origins (GitLab, Bitbucket, etc.) must not
-        // produce a broken github.com browse URL or mislead consumers about published state.
-        guard host.lowercased() == "github.com" || host.lowercased() == "www.github.com" else { return nil }
+        guard let repoHost = RepoHost.match(hostName: host) else { return nil }
 
         if name.hasSuffix(".git") { name = String(name.dropLast(4)) }
-        guard !owner.isEmpty, !name.isEmpty, let browse = URL(string: "https://github.com/\(owner)/\(name)") else {
+        guard !owner.isEmpty, !name.isEmpty, let browse = repoHost.browseURL(owner: owner, name: name) else {
             return nil
         }
-        return RemoteRepo(url: browse, owner: owner, name: name)
+        return RemoteRepo(url: browse, owner: owner, name: name, host: repoHost)
     }
 }
 
