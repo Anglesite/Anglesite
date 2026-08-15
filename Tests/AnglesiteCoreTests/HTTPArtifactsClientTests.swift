@@ -69,4 +69,28 @@ import Foundation
             _ = try await failing.createRepo(name: "n", isPrivate: true, accountID: "a", token: "t")
         }
     }
+
+    @Test func probeAvailabilityTrueOnSuccessEnvelope() async {
+        let ok = #"{"success":true,"errors":[],"result":[]}"#
+        let available = await client(status: 200, json: ok)
+            .probeAvailability(accountID: "acct123", token: "tok")
+        #expect(available)
+    }
+
+    @Test func probeAvailabilityFalseWithoutBetaAccess() async {
+        // 404 = endpoint unknown to this account (no beta); must NOT read as available,
+        // unlike CloudflareCapabilityProber's permissive not-401/403 semantics.
+        let unavailable404 = await client(status: 404, json: "{}")
+            .probeAvailability(accountID: "acct123", token: "tok")
+        #expect(unavailable404 == false)
+        let unavailable403 = await client(status: 403, json: "{}")
+            .probeAvailability(accountID: "acct123", token: "tok")
+        #expect(unavailable403 == false)
+    }
+
+    @Test func probeAvailabilityFalseOnTransportFailure() async {
+        let failing = HTTPArtifactsClient(transport: { _ in throw URLError(.timedOut) })
+        let available = await failing.probeAvailability(accountID: "a", token: "t")
+        #expect(available == false)
+    }
 }

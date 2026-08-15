@@ -60,6 +60,19 @@ public struct HTTPArtifactsClient: Sendable {
         return RemoteRepo(url: url, owner: accountID, name: result.name, host: .cloudflareArtifacts)
     }
 
+    /// True when the account can list Artifacts repos — the #1266 private-beta gate. Strict on
+    /// purpose: only a 2xx `success: true` envelope counts, so a 404 from an account without
+    /// beta access reads as unavailable (`CloudflareCapabilityProber`'s permissive not-401/403
+    /// rule would get this wrong). Advisory like all probes — callers may re-probe.
+    public func probeAvailability(accountID: String, token: String) async -> Bool {
+        struct Repo: Decodable {}
+        guard let data = try? await send(
+            path: "accounts/\(accountID)/artifacts/repos?per_page=1",
+            method: "GET", body: nil, token: token)
+        else { return false }
+        return (try? Self.decodeEnvelope(data) as [Repo]) != nil
+    }
+
     /// Sends one authenticated request; maps transport/status failures to `ArtifactsAPIError`.
     private func send(path: String, method: String, body: Data?, token: String) async throws -> Data {
         guard let url = URL(string: baseURL.absoluteString + "/" + path) else {
