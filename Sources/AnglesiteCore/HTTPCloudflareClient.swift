@@ -921,9 +921,15 @@ extension HTTPCloudflareClient: AISearchProvisioning {
     ///
     /// Flat shape, no `namespaces` segment — follows developers.cloudflare.com/ai-search/
     /// get-started/api/'s verbatim curl examples. Cloudflare's auto-generated API reference
-    /// disagrees (documents a namespaced /namespaces/{name}/instances path instead) — see
-    /// Global Constraints. CONFIRM WHICH SHAPE THE LIVE API ACTUALLY ACCEPTS before trusting
-    /// this code sample; don't just re-read either doc page again.
+    /// disagrees (documents a namespaced /namespaces/{name}/instances path instead), but the
+    /// flat shape is **verified against the live API** (2026-08-15, issue #691): a real POST
+    /// with this exact body got past routing and schema to domain validation (400
+    /// `missing_sitemap`, code 7028, for a sitemap-less source) — a wrong shape would have
+    /// failed with a routing (7003) or schema error instead. The namespaced path requires a
+    /// pre-created namespace (7063 `namespace_not_found`) and is a different workflow.
+    ///
+    /// Note 7028 also means a source whose sitemap isn't live yet fails creation — surfaced
+    /// today as a generic HTTP 400; see the follow-up filed off #1477 for friendlier wording.
     public func createAISearchInstance(
         domain: String, instanceID: String, apiToken: String
     ) async throws -> AISearchInstance {
