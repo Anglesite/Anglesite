@@ -7,6 +7,9 @@ struct SecurityReportingReadinessTests {
     private static let repo = RemoteRepo(
         url: URL(string: "https://github.com/acme/site")!, owner: "acme", name: "site")
     private static let form = "https://github.com/acme/site/security/advisories/new"
+    private static let artifactsRepo = RemoteRepo(
+        url: URL(string: "https://\(RepoHost.artifactsHostName)/acct123/site")!,
+        owner: "acct123", name: "site", host: .cloudflareArtifacts)
 
     @Test("no repo means nothing to offer")
     func notGitHub() {
@@ -47,5 +50,13 @@ struct SecurityReportingReadinessTests {
     func notGitHubOutranksConfigured() {
         #expect(SecurityReportingReadiness.evaluate(
             repo: nil, isPrivate: false, pvrEnabled: true, contacts: Self.form) == .notGitHub)
+    }
+
+    @Test("a Cloudflare Artifacts repo is not GitHub — must not fall through to PVR/advisory-form logic (#1266)")
+    func artifactsRepoIsNotGitHub() {
+        #expect(SecurityReportingReadiness.evaluate(
+            repo: Self.artifactsRepo, isPrivate: false, pvrEnabled: true, contacts: "s@example.com") == .notGitHub)
+        #expect(SecurityReportingReadiness.evaluate(
+            repo: Self.artifactsRepo, isPrivate: true, pvrEnabled: false, contacts: "s@example.com") == .notGitHub)
     }
 }

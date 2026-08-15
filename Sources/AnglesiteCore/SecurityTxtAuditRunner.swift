@@ -56,12 +56,16 @@ public struct SecurityTxtAuditRunner: AuditRunner {
         )]
     }
 
-    /// The site's GitHub `origin`, or nil when there is no remote, git can't run, or the remote
-    /// isn't GitHub (`RemoteRepo.parse` rejects every other host). None of those is an audit
+    /// The site's GitHub `origin`, or nil when there is no remote, git can't run, the remote
+    /// isn't a host `RemoteRepo.parse` recognizes, or it's a recognized non-GitHub host (e.g.
+    /// Cloudflare Artifacts, #1266) — this audit's advisory-form hint is GitHub-specific, so a
+    /// non-GitHub remote must read the same as no remote at all. None of those is an audit
     /// failure — a site without a GitHub remote is a normal state, so this never throws.
     private func remoteRepo(in siteDirectory: URL) async -> RemoteRepo? {
         guard let result = try? await gitRunner(siteDirectory, ["remote", "get-url", "origin"]),
-              result.exitCode == 0 else { return nil }
-        return RemoteRepo.parse(remoteURL: result.stdout)
+              result.exitCode == 0,
+              let repo = RemoteRepo.parse(remoteURL: result.stdout),
+              repo.host == .github else { return nil }
+        return repo
     }
 }

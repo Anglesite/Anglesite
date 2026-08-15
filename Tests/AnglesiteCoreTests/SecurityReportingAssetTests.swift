@@ -6,6 +6,9 @@ import Testing
 struct SecurityReportingAssetTests {
     private static let repo = RemoteRepo(
         url: URL(string: "https://github.com/acme/site")!, owner: "acme", name: "site")
+    private static let artifactsRepo = RemoteRepo(
+        url: URL(string: "https://\(RepoHost.artifactsHostName)/acct123/site")!,
+        owner: "acct123", name: "site", host: .cloudflareArtifacts)
 
     @Test("parses a comma-separated contact list into newline-separated UI text")
     func parseSettings() {
@@ -67,6 +70,15 @@ struct SecurityReportingAssetTests {
         #expect(!SecurityReportingAsset.usesAdvisoryForm("", repo: Self.repo))
     }
 
+    @Test("always false for a non-GitHub repo — there is no GitHub advisory form to match (#1266)")
+    func usesAdvisoryFormFalseForArtifactsRepo() {
+        // Even the GitHub-shaped URL a caller might already have on file must not read as a match.
+        #expect(!SecurityReportingAsset.usesAdvisoryForm(
+            "https://\(RepoHost.artifactsHostName)/acct123/site/security/advisories/new",
+            repo: Self.artifactsRepo))
+        #expect(!SecurityReportingAsset.usesAdvisoryForm("s@example.com", repo: Self.artifactsRepo))
+    }
+
     @Test("prepends the advisory form, preserving order and never duplicating it")
     func prependingAdvisoryForm() {
         #expect(SecurityReportingAsset.prependingAdvisoryForm("s@example.com\nt@example.com", repo: Self.repo)
@@ -75,6 +87,12 @@ struct SecurityReportingAssetTests {
             == "https://github.com/acme/site/security/advisories/new")
         let already = "https://github.com/acme/site/security/advisories/new\ns@example.com"
         #expect(SecurityReportingAsset.prependingAdvisoryForm(already, repo: Self.repo) == already)
+    }
+
+    @Test("leaves contacts unchanged for a non-GitHub repo — there is no GitHub advisory form to prepend (#1266)")
+    func prependingAdvisoryFormUnchangedForArtifactsRepo() {
+        #expect(SecurityReportingAsset.prependingAdvisoryForm("s@example.com", repo: Self.artifactsRepo) == "s@example.com")
+        #expect(SecurityReportingAsset.prependingAdvisoryForm("", repo: Self.artifactsRepo) == "")
     }
 
     @Test("install writes normalized settings while preserving unrelated config")

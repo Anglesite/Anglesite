@@ -106,20 +106,31 @@ public enum SecurityReportingAsset {
             .joined(separator: ",")
     }
 
-    /// The repo's private advisory form. `RemoteRepo` is GitHub-by-construction
-    /// (`RemoteRepo.parse` rejects every other host), so this needs no host check of its own.
+    /// The repo's private advisory form, GitHub's `security/advisories/new` path appended to
+    /// `repo.url`. `RemoteRepo.parse` no longer rejects every non-GitHub host (`RepoHost`,
+    /// #1266), so this is *not* GitHub-by-construction any more — this function builds the
+    /// GitHub-shaped path regardless of `repo.host` and does not check it itself. Its two
+    /// AnglesiteCore callers below (`usesAdvisoryForm`, `prependingAdvisoryForm`) are the guarded
+    /// entry points that skip non-`.github` repos; call this directly only for a repo already
+    /// known to be GitHub-hosted.
     public static func advisoryURL(for repo: RemoteRepo) -> URL {
         repo.url.appendingPathComponent("security/advisories/new")
     }
 
-    /// True when `contacts` already lists this repo's advisory form.
+    /// True when `contacts` already lists this repo's advisory form. Always false for a
+    /// non-GitHub repo (e.g. Cloudflare Artifacts, #1266) — there is no GitHub advisory form to
+    /// match against, so this must not be confused with "no contacts configured yet".
     public static func usesAdvisoryForm(_ contacts: String, repo: RemoteRepo) -> Bool {
-        normalizedContacts(contacts).contains(advisoryURL(for: repo).absoluteString)
+        guard repo.host == .github else { return false }
+        return normalizedContacts(contacts).contains(advisoryURL(for: repo).absoluteString)
     }
 
     /// `contacts` with the advisory form as the most-preferred entry, preserving the rest in
-    /// order and never duplicating a form that is already listed.
+    /// order and never duplicating a form that is already listed. Returns `contacts` unchanged
+    /// for a non-GitHub repo (e.g. Cloudflare Artifacts, #1266) — there is no GitHub advisory
+    /// form to prepend.
     public static func prependingAdvisoryForm(_ contacts: String, repo: RemoteRepo) -> String {
+        guard repo.host == .github else { return contacts }
         let form = advisoryURL(for: repo).absoluteString
         return ([form] + normalizedContacts(contacts).filter { $0 != form }).joined(separator: "\n")
     }

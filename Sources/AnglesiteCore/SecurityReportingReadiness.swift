@@ -10,7 +10,9 @@ public enum SecurityReportingReadiness: Sendable, Equatable {
     /// remote, the caller just doesn't know its state yet. `evaluate` never returns this case; a
     /// caller assigns it directly when it cannot get as far as calling `evaluate` at all.
     case unknown
-    /// No `origin`, or an origin that isn't GitHub.
+    /// No `origin`, an origin `RemoteRepo.parse` doesn't recognize, or a recognized origin hosted
+    /// somewhere other than GitHub (e.g. Cloudflare Artifacts, #1266) — this whole security-
+    /// reporting flow (advisory form, PVR) is GitHub-specific.
     case notGitHub
     /// The repo's advisory form is already one of the published contacts.
     case alreadyConfigured
@@ -32,7 +34,10 @@ public enum SecurityReportingReadiness: Sendable, Equatable {
         pvrEnabled: Bool,
         contacts: String
     ) -> SecurityReportingReadiness {
-        guard let repo else { return .notGitHub }
+        // `RemoteRepo.parse` accepts recognized non-GitHub hosts too (#1266's `RepoHost`), so a
+        // nil check alone isn't enough — an Artifacts repo must read as `.notGitHub` here, not
+        // fall through to the GitHub-specific PVR/advisory-form logic below.
+        guard let repo, repo.host == .github else { return .notGitHub }
         if SecurityReportingAsset.usesAdvisoryForm(contacts, repo: repo) { return .alreadyConfigured }
         if isPrivate { return .repoPrivate }
         return pvrEnabled ? .ready : .needsPVR
