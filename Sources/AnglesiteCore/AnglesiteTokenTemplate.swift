@@ -44,6 +44,12 @@ public enum AnglesiteTokenTemplate {
         ("registrar", "edit"),
     ]
 
+    /// The Artifacts permission group (#1266) — deliberately **not** in ``permissionGroups`` yet.
+    /// The key is an unverified private-beta assumption, and an unknown key in the dashboard
+    /// prefill would break token creation for everyone. Slice 3 appends this once verified,
+    /// which extends ``oauthScope`` and ``createTokenURL`` automatically.
+    public static let artifactsPermissionGroup: (key: String, type: String) = ("artifacts", "edit")
+
     /// The OAuth `scope` string covering every permission group above. Cloudflare's self-managed
     /// OAuth scope names equal API-token permission-group names, so this is the same list,
     /// space-joined per OAuth's multi-scope convention — not a separately maintained vocabulary.
