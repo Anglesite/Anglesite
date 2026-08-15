@@ -595,11 +595,23 @@ public struct NativeContentOperations: ContentOperationsService {
     /// entry plus the card image it references (#1451), which must never land in separate commits
     /// (a clone would see an entry pointing at an image that isn't there yet). Same best-effort
     /// contract: nil on any failure, and the caveats on `processGitCommit` apply unchanged.
+    ///
+    /// Staging several paths is a loop of `add(path:)` calls, and this fork has no index-only
+    /// unstage (`remove(path:)` deletes from disk too), so bailing out mid-loop would leave an
+    /// earlier path staged with no commit to consume it — which would break `processGitCommit`'s
+    /// "nothing else staged in between" assumption for whichever commit runs next. Every path is
+    /// therefore checked to exist up front, turning the realistic failure (a path that isn't on
+    /// disk) into a clean no-op before anything is staged. An `add` that fails for some *other*
+    /// reason after that check can still leave a partial stage; that window is narrow enough to
+    /// accept rather than grow the fork's API for.
     @Sendable public static func processGitCommitPaths(
         _ projectRoot: URL, _ relPaths: [String], _ message: String
     ) async -> String? {
         SwiftGit2Bootstrap.ensureInitialized
         guard !relPaths.isEmpty else { return nil }
+        guard relPaths.allSatisfy({
+            FileManager.default.fileExists(atPath: projectRoot.appendingPathComponent($0).path)
+        }) else { return nil }
         guard case .success(let repo) = Repository.at(projectRoot) else { return nil }
         for relPath in relPaths {
             guard case .success = repo.add(path: relPath) else { return nil }

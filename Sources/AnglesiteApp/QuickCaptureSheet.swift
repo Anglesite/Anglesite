@@ -218,9 +218,13 @@ enum QuickCapture {
         siteID: String, title: String, urlString: String, commentary: String,
         imageURL: String?, draft: Bool
     ) async -> ContentCreateResult {
+        // Resolved once and shared by the create and the capture. Re-querying `SiteStore` after
+        // the write would be a second actor hop, and a site closed in between the two lookups
+        // would silently skip the card image for an entry the first lookup just wrote (#1451).
+        let sourceDirectory = await SiteStore.shared.find(id: siteID)?.sourceDirectory
         let workflow = ContentCreationWorkflow.native(
             contentGraph: nil,
-            siteDirectory: { id in await SiteStore.shared.find(id: id)?.sourceDirectory }
+            siteDirectory: { _ in sourceDirectory }
         )
         let result = await workflow.createTyped(
             siteID: siteID, typeID: "bookmark", title: title, slug: nil,
@@ -228,8 +232,7 @@ enum QuickCapture {
         // Best-effort card image, after the entry exists (#1451) — a failure here leaves a
         // perfectly good link post, so its result is deliberately ignored.
         _ = await LinkPostImageCapture().capture(
-            imageURL: imageURL, createResult: result,
-            siteDirectory: await SiteStore.shared.find(id: siteID)?.sourceDirectory)
+            imageURL: imageURL, createResult: result, siteDirectory: sourceDirectory)
         return result
     }
 }
