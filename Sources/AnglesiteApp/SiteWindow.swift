@@ -423,6 +423,23 @@ struct SiteWindow: View {
             }
             .defaultCustomization(.hidden)
 
+            ToolbarItem(id: SiteToolbarItemID.aiSearch.rawValue, placement: .primaryAction) {
+                Button {
+                    model.aiSearch.openSheet()
+                } label: {
+                    if model.aiSearch.isRunning {
+                        Label("Setting Up AI Search…", systemImage: "text.magnifyingglass")
+                    } else {
+                        Label("AI Search", systemImage: "text.magnifyingglass")
+                    }
+                }
+                .disabled(!model.canRunAISearch)
+                .help(site.isValid
+                      ? "Provision Cloudflare AI Search for this site"
+                      : "Site is missing required files")
+            }
+            .defaultCustomization(.hidden)
+
             ToolbarItem(id: SiteToolbarItemID.domainConfigAudit.rawValue, placement: .primaryAction) {
                 Button {
                     model.domainConfigAudit.openSheet()
@@ -679,6 +696,9 @@ struct SiteWindow: View {
         }
         .sheet(isPresented: $bindableModel.harden.sheetPresented) {
             HardenSheetView(model: model.harden)
+        }
+        .sheet(isPresented: $bindableModel.aiSearch.sheetPresented) {
+            AISearchSheetView(model: model.aiSearch, sourceDirectory: site.sourceDirectory)
         }
         .sheet(isPresented: $bindableModel.agentReadiness.sheetPresented) {
             AgentReadinessSheetView(model: model.agentReadiness)

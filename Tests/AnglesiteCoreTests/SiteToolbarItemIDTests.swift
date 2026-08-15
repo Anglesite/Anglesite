@@ -17,6 +17,7 @@ struct SiteToolbarItemIDTests {
             "domainConfigAudit",
             "agentReadiness",
             "onionRouting",
+            "aiSearch",
             "domain",
             "integration",
             "siriReadiness",

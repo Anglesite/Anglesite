@@ -182,6 +182,7 @@ final class SiteWindowModel {
     /// the owner to close and reopen the site.
     private(set) var isHostedCommunity = false
     var harden = HardenModel()
+    var aiSearch = AISearchModel()
     var domainConfigAudit = DomainConfigAuditModel()
     /// Cloudflare Agent Readiness score for the deployed site (#1248).
     var agentReadiness = AgentReadinessModel()
@@ -835,6 +836,7 @@ final class SiteWindowModel {
     var canRunBackup: Bool { site?.isValid == true && !siteOperationRunning }
     var canRunAudit: Bool { site?.isValid == true && !siteOperationRunning && preview.canDeploy }
     var canRunHarden: Bool { site?.isValid == true && !harden.isRunning }
+    var canRunAISearch: Bool { site?.isValid == true && !aiSearch.isRunning }
     var canRunDomainConfigAudit: Bool { site?.isValid == true && !domainConfigAudit.isRunning }
     var canRunAgentReadiness: Bool { site?.isValid == true && !agentReadiness.isRunning }
     var canRunOnionRouting: Bool { site?.isValid == true && !onionRouting.isRunning }

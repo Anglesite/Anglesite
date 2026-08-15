@@ -72,6 +72,9 @@ struct WebsiteCommands: Commands {
             Button("Harden…") { model?.harden.openSheet() }
                 .disabled(model?.canRunHarden != true)
 
+            Button("AI Search…") { model?.aiSearch.openSheet() }
+                .disabled(model?.canRunAISearch != true)
+
             Button("Agent Readiness…") { model?.agentReadiness.openSheet() }
                 .disabled(model?.canRunAgentReadiness != true)
 
