@@ -25,6 +25,12 @@
     "Branch" : {
 
     },
+    "Camera Access Needed" : {
+
+    },
+    "Cancel" : {
+
+    },
     "Choose File" : {
 
     },
@@ -70,10 +76,19 @@
     "Couldn't Open Site" : {
 
     },
+    "Couldn't Pair" : {
+
+    },
+    "Couldn't Reach Your Site" : {
+
+    },
     "Couldn't reach your site. Check your connection and try again." : {
 
     },
     "Couldn't sign in to Cloudflare. Try again in a moment." : {
+
+    },
+    "Current site: %@" : {
 
     },
     "Decide Later" : {
@@ -92,6 +107,12 @@
 
     },
     "Draft saved to your site." : {
+
+    },
+    "Edit Site" : {
+
+    },
+    "Editing your site happens through your Mac. In Anglesite on your Mac, open Settings, choose Devices, then scan the pairing code shown there." : {
 
     },
     "Finding your sites…" : {
@@ -133,16 +154,25 @@
     "Nothing Selected" : {
 
     },
+    "Open Settings" : {
+
+    },
     "Open Site" : {
 
     },
     "Open your site in the remote sandbox to preview and edit it." : {
 
     },
+    "Pair Your Mac" : {
+
+    },
     "Pick a Site" : {
 
     },
     "Pick a post to edit, or start a new one." : {
+
+    },
+    "Point the camera at the pairing code on your Mac." : {
 
     },
     "Post to Your Site" : {
@@ -179,6 +209,12 @@
 
     },
     "Save Draft" : {
+
+    },
+    "Scan Pairing Code" : {
+
+    },
+    "Scanning the pairing code needs the camera. You can allow camera access for Anglesite in Settings." : {
 
     },
     "Sending to your site…" : {
@@ -244,6 +280,9 @@
     "Starting %@ in the sandbox…" : {
 
     },
+    "Starting your site…" : {
+
+    },
     "Stop" : {
 
     },
@@ -296,6 +335,9 @@
 
     },
     "Waiting for sign-in…" : {
+
+    },
+    "Waking your Mac…" : {
 
     },
     "You closed the sign-in page before finishing. Sign in when you're ready." : {
