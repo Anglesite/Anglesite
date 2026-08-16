@@ -39,8 +39,21 @@ enum HTMLLinkAttributeScanning {
     /// lookup for `rel` does not match inside a longer attribute name like `data-rel=`. (A
     /// plain `\b` word-boundary anchor does *not* achieve this: `-` is a non-word character, so
     /// `\brel\b` still matches the `rel` inside `data-rel=`.)
+    /// Cached compiled regexes for the two attribute names this scanner is actually called with —
+    /// recompiling an `NSRegularExpression` on every `attributeValue(_:in:)` call was a real
+    /// performance regression versus the pre-refactor `WebmentionEndpointDiscovery`, which cached
+    /// its `rel`/`href` regexes as `static let`s. This scanner runs on every `<link>`/`<a>` tag on
+    /// every target page, for both webmention discovery and (#1483) feed discovery.
+    private static let relRegex = attributeRegex(for: "rel")
+    private static let hrefRegex = attributeRegex(for: "href")
+
     static func attributeValue(_ name: String, in source: String) -> String? {
-        let regex = attributeRegex(for: name)
+        let regex: NSRegularExpression
+        switch name {
+        case "rel": regex = relRegex
+        case "href": regex = hrefRegex
+        default: regex = attributeRegex(for: name)
+        }
         let range = NSRange(source.startIndex..<source.endIndex, in: source)
         guard let match = regex.firstMatch(in: source, range: range) else { return nil }
         for groupIndex in [2, 3, 4] {
