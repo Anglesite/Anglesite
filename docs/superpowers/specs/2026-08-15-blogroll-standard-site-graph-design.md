@@ -169,7 +169,20 @@ collection at build time (no network — `feedURL` is already committed data by 
 reads it, per the write-back lag above) and emits an OPML 2.0 document with one
 `<outline type="rss" text="{name}" title="{name}" xmlUrl="{feedURL}" htmlUrl="{url}">` per entry
 that has a `feedURL`. Entries without one are omitted from the OPML but still render as plain
-links on `/blogroll/` (§2), which gets a "Subscribe (OPML)" link to `/blogroll.opml`.
+links on `/blogroll/` (§2).
+
+**OPML badge.** Most RSS readers only know how to subscribe to a single feed URL, not an OPML
+file of many — so a bare "here's an OPML file" link undersells what it does. `/blogroll/` gets a
+visible badge, styled after the classic orange RSS badge (rounded rectangle, dot-and-broadcast-
+wave mark) but relabeled "OPML" and pointed at `/blogroll.opml`. Built as a small, scoped Astro
+component (`OpmlBadge.astro`, co-locating its markup and `<style>` — this project's established
+component convention) using plain HTML/CSS only: no `<img>`, no external asset, no inline SVG —
+the badge shape (rounded-rect background, dot, concentric quarter-circle arcs) is drawn with
+layered `border-radius`/`box-shadow`/pseudo-elements, the same family of technique long used for
+CSS-only RSS icons. The "OPML" text is real, visible text inside the badge (not an icon-only
+button with an `aria-label`), so it's self-describing without extra accessibility scaffolding.
+Shown only when the OPML file would be non-empty (at least one entry has a resolved `feedURL`) —
+advertising a subscribe badge for an empty file is worse than not showing one.
 
 ### 5. Naming note (not solved here)
 
@@ -205,8 +218,9 @@ per-entry outcomes, matching `StandardSitePublishCommand`'s existing convention 
 - `ContentTypeRegistryTests`: the new `blogroll` type decodes/encodes and round-trips like the
   other personal types.
 - Template-coupled test (per `CONTRIBUTING.md`'s "if you touch `Resources/Template/`, run `swift
-  test` too") for the `blogroll.opml.ts` route's output shape and the `/blogroll/` page's Zod
-  schema addition.
+  test` too") for the `blogroll.opml.ts` route's output shape, the `/blogroll/` page's Zod schema
+  addition, and `OpmlBadge.astro` rendering/hiding correctly based on whether any entry has a
+  `feedURL`.
 
 ## Alternatives considered
 
