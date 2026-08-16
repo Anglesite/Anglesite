@@ -546,6 +546,110 @@ jobs:
       - name: Build (release)
         run: swift build -c release
 
+  xcode27-compile:
+    name: Swift 6.4 compile check (Xcode 27 preview, non-required)
+    # #855: build-test's macos-26 image tops out at Xcode 26.6 / Swift 6.3.3, so the
+    # `#if compiler(>=6.4) && canImport(Darwin)`-gated targets (AnglesiteAppCore,
+    # AnglesiteAppTests, AnglesiteIntentsTests) are silently absent from its package graph —
+    # the coverage gap that let #853's compile error land on main undetected. GitHub's
+    # hosted `xcode-27` image (public preview since 2026-07-16, actions/runner-images#14404;
+    # also available as `xcode-27-xlarge`) ships Xcode 27.0 beta / Swift 6.4 as the default
+    # /Applications/Xcode.app, which satisfies the gate — so this lane COMPILES those
+    # targets (`swift build --build-tests`), closing the #853-class regression gap.
+    #
+    # COMPILE-ONLY, deliberately: the image pairs the Xcode 27 SDK with a macOS 26.x HOST,
+    # and this package's .macOS("27.0") deployment target makes every macOS-27-only symbol
+    # a hard dyld bind — so the built test bundles cannot be LOADED on this host, and
+    # SwiftPM's test enumeration dlopens every built bundle before any --skip/--filter
+    # applies. Verified live across four runs (jobs 95081077293/95085647674/95093238559/
+    # 95095131839), each clearing one wall only to hit the next 27-only bind:
+    # the _CoreSpotlight_FoundationModels cross-import overlay (framework absent on the
+    # host), CloudKit's async overlay (CKDatabase._deleteRecord(withID:)), and finally
+    # AppIntents.EntityQuery.allowedExecutionTargets — inside AnglesiteIntentsTests itself,
+    # one of the very suites this lane exists for. Run coverage therefore has to wait for a
+    # hosted image whose HOST OS is macOS 27, not just its SDK; flip this lane's build step
+    # back to `swift test` when one exists. Until then contributors must run `swift test`
+    # locally on Xcode 27 (see CONTRIBUTING.md ▸ Testing).
+    #
+    # NON-REQUIRED / non-blocking while the image is in preview: the runner image is marked
+    # preview (possible instability, queueing while capacity balances) and its Xcode is a
+    # beta build, so a red here must not block unrelated PRs. That's why this job carries
+    # `continue-on-error: true` and is deliberately NOT in the `ci` aggregation job's
+    # `needs` list below. Promote to required (drop `continue-on-error`, add it to `ci`'s
+    # needs) once the xcode-27 image reaches GA — per the #855 owner decision (2026-08-15).
+    #
+    # No sibling-plugin checkout here (same as timing-sensitive-tests): nothing executes,
+    # and the gated targets have no plugin/Node dependency.
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
+    runs-on: xcode-27
+    # Longer than build-test's 15: the gated targets add the whole Sources/AnglesiteApp
+    # tree (AnglesiteAppCore) to the compile, and a preview image's cache starts cold.
+    timeout-minutes: 30
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Select latest available Xcode
+        # The xcode-27 image already defaults /Applications/Xcode.app to Xcode 27.0 beta;
+        # this step pins the newest install explicitly (matching every other macOS lane) and
+        # emits the version for the cache key. The guard below makes the lane fail loudly —
+        # instead of green-with-suites-silently-dropped — if the preview label is ever
+        # repointed at an image whose newest Xcode predates 27: on a <6.4 toolchain the
+        # gated targets vanish from the package graph and the compile check would "pass"
+        # without them, recreating the exact gap this lane exists to close.
+        id: xcode
+        run: |
+          set -euo pipefail
+          ls -d /Applications/Xcode*.app 2>/dev/null | sort -V
+          LATEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | tail -1)
+          echo "Selecting: $LATEST"
+          sudo xcode-select -s "$LATEST"
+          MAJOR=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\).*/\1/p')
+          if [ "${MAJOR:-0}" -lt 27 ]; then
+            echo "::error title=xcode-27 lane has no Xcode 27::Selected Xcode is ${MAJOR:-unknown} (<27), so the compiler(>=6.4)-gated suites would silently drop out of the package graph. Check the xcode-27 runner image contents."
+            exit 1
+          fi
+          echo "version=$(basename "$LATEST")" >> "$GITHUB_OUTPUT"
+
+      - name: Show toolchain versions
+        # sw_vers included deliberately: the preview image pairs Xcode 27 beta with a
+        # macOS 26.x HOST (26.5.2 on first run) — the host/SDK split is what makes some
+        # test bundles unloadable below, so the host version must be visible in every log.
+        run: |
+          sw_vers
+          swift --version
+          xcodebuild -version
+
+      # Distinct key namespace from build-test's `swiftpm-macos-...`: this lane's Swift 6.4
+      # toolchain compiles a larger target set (the gated targets join the graph), so
+      # sharing a cache would just churn. See linux-build-test's cache step for the general
+      # key-scheme rationale.
+      - name: Cache SwiftPM build
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: swiftpm-xcode27-v1-${{ steps.xcode.outputs.version }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
+          restore-keys: |
+            swiftpm-xcode27-v1-${{ steps.xcode.outputs.version }}-${{ hashFiles('Package.resolved') }}-
+            swiftpm-xcode27-v1-${{ steps.xcode.outputs.version }}-
+
+      # tee + pipefail + annotate step: same compile-error-burying fix as build-test's Test
+      # step (#1335). `swift build --build-tests`, NOT `swift test` — see the job comment:
+      # the built bundles cannot be dlopen'd on this image's macOS 26.x host, so compiling
+      # them (which is what catches the #853 class of regression) is the whole job. Flip to
+      # `swift test` when a hosted image pairs Xcode 27 with a macOS 27 host.
+      - name: Build all targets including tests (compile check)
+        id: build-tests
+        run: |
+          set -o pipefail
+          echo "::warning title=Swift 6.4 lane is compile-only::The xcode-27 preview image's host OS ($(sw_vers -productVersion)) predates macOS 27, so the built test bundles cannot be loaded here. The compiler(>=6.4)-gated targets are compile-checked only; run 'swift test' locally on Xcode 27 for execution coverage. See CONTRIBUTING.md ▸ Testing."
+          swift build --build-tests -c debug 2>&1 | tee "$RUNNER_TEMP/swift-build-tests-xcode27.log"
+
+      - name: Surface Swift errors (annotations + job summary)
+        if: failure() && steps.build-tests.outcome == 'failure'
+        run: scripts/annotate-swift-log.sh "$RUNNER_TEMP/swift-build-tests-xcode27.log" "Swift 6.4 compile check (Xcode 27 preview) ▸ Build all targets including tests"
+
   timing-sensitive-tests:
     name: Timing-sensitive suites (isolated lane)
     # Same macos-15 task-allocator rationale as build-test: this lane also runs Swift
