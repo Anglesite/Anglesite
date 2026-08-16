@@ -110,9 +110,16 @@ final class AISearchModel {
         try? await CloudflareAPICredentials.resolve(secretStore: keychain)
     }
 
+    /// See `HardenModel.setPhase(_:)` — same helper, same rationale, kept in sync since the two
+    /// models deliberately mirror each other (#1479).
+    private func setPhase(_ newPhase: Phase) {
+        guard !Task.isCancelled else { return }
+        phase = newPhase
+    }
+
     private func runCheckPolicyAndResolveZone(domain: String, sourceDirectory: URL) async {
         guard let token = await apiToken() else {
-            phase = .failed(reason: "No Cloudflare API token found. Add one in Settings → Credentials.")
+            setPhase(.failed(reason: "No Cloudflare API token found. Add one in Settings → Credentials."))
             return
         }
 
@@ -120,11 +127,11 @@ final class AISearchModel {
         do {
             policy = try LicensingStore(sourceDirectory: sourceDirectory).load()
         } catch {
-            phase = .failed(reason: "Couldn't read this site's AI usage policy: \(error.localizedDescription)")
+            setPhase(.failed(reason: "Couldn't read this site's AI usage policy: \(error.localizedDescription)"))
             return
         }
         if let reason = AISearchExecutor.policyBlockReason(for: policy) {
-            phase = .blockedByPolicy(reason: reason)
+            setPhase(.blockedByPolicy(reason: reason))
             return
         }
 
@@ -138,56 +145,46 @@ final class AISearchModel {
         async let sitemapReachability = preflight.checkSitemap(domain: domain)
         do {
             guard let zoneID = try await reader.resolveZoneID(domain: domain, apiToken: token) else {
-                guard !Task.isCancelled else { return }
-                phase = .failed(reason: "Zone not found for \"\(domain)\". Check the domain and ensure your API token has Zone Read permission.")
+                setPhase(.failed(reason: "Zone not found for \"\(domain)\". Check the domain and ensure your API token has Zone Read permission."))
                 return
             }
             let reachability = await sitemapReachability
             // Cancellation can surface as a *value*, not a thrown error: the preflight's
             // catch-all folds a cancelled request into `.indeterminate`, and a stub reader
-            // may not throw at all. A superseded task (new domain typed, or the sheet
-            // dismissed) must never write a stale phase over the current task's — the
-            // classic wrong-domain footgun — so every phase write below is gated.
-            guard !Task.isCancelled else { return }
+            // may not throw at all. `setPhase(_:)` (the same guard used everywhere else in
+            // this runner) catches that case too, so a superseded task can't write a stale
+            // phase over the current task's — the classic wrong-domain footgun.
             if reachability == .unreachable {
-                phase = .failed(reason: Self.missingSitemapGuidance)
+                setPhase(.failed(reason: Self.missingSitemapGuidance))
                 return
             }
-            phase = .awaitingCostConfirmation(domain: domain, zoneID: zoneID)
+            setPhase(.awaitingCostConfirmation(domain: domain, zoneID: zoneID))
         } catch let error as CloudflareError {
-            guard !Task.isCancelled else { return }
-            phase = .failed(reason: cloudflareErrorMessage(error))
+            setPhase(.failed(reason: cloudflareErrorMessage(error)))
         } catch {
-            guard !Task.isCancelled else { return }
-            phase = .failed(reason: "Failed to resolve zone: \(error.localizedDescription)")
+            setPhase(.failed(reason: "Failed to resolve zone: \(error.localizedDescription)"))
         }
     }
 
     private func runProvision(domain: String, zoneID: String) async {
         guard let token = await apiToken() else {
-            phase = .failed(reason: "No Cloudflare API token found.")
+            setPhase(.failed(reason: "No Cloudflare API token found."))
             return
         }
 
         let executor = AISearchExecutor(reader: reader, writer: writer, provisioner: provisioner)
         do {
             let result = try await executor.provision(zoneID: zoneID, domain: domain, apiToken: token)
-            // Same stale-write gate as runCheckPolicyAndResolveZone: a dismissed sheet
-            // (phase already reset to .idle) must not be overwritten by this task's result.
-            guard !Task.isCancelled else { return }
-            phase = .succeeded(result)
+            setPhase(.succeeded(result))
         } catch AISearchProvisionError.missingSitemap {
-            guard !Task.isCancelled else { return }
             // Cloudflare 7028: the crawler can't find a sitemap at the domain. The app knows
             // the fix (the sitemap ships in every build but isn't live until the first
             // deploy), so say that — not the API code (#1486).
-            phase = .failed(reason: Self.missingSitemapGuidance)
+            setPhase(.failed(reason: Self.missingSitemapGuidance))
         } catch let error as CloudflareError {
-            guard !Task.isCancelled else { return }
-            phase = .failed(reason: cloudflareErrorMessage(error))
+            setPhase(.failed(reason: cloudflareErrorMessage(error)))
         } catch {
-            guard !Task.isCancelled else { return }
-            phase = .failed(reason: "Failed to provision AI Search: \(error.localizedDescription)")
+            setPhase(.failed(reason: "Failed to provision AI Search: \(error.localizedDescription)"))
         }
     }
 

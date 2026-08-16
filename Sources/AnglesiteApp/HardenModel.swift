@@ -117,31 +117,41 @@ final class HardenModel {
         try? await CloudflareAPICredentials.resolve(secretStore: keychain)
     }
 
+    /// `dismissSheet()`/re-entry cancel `inFlight` but only set the cancellation flag — the
+    /// abandoned task keeps executing across its network awaits. Routing every `phase` write in
+    /// the async runners through this guard (mirroring `DomainModel.runVerifyBlueskyHandle`'s
+    /// idiom) stops a stale task's completion from clobbering a phase the user already reset by
+    /// dismissing/reopening, or a newer run's phase after a re-entrant call (#1479).
+    private func setPhase(_ newPhase: Phase) {
+        guard !Task.isCancelled else { return }
+        phase = newPhase
+    }
+
     private func runResolveAndPlan(domain: String) async {
         guard let token = await apiToken() else {
-            phase = .failed(reason: "No Cloudflare API token found. Add one in Settings → Credentials.")
+            setPhase(.failed(reason: "No Cloudflare API token found. Add one in Settings → Credentials."))
             return
         }
 
         do {
             guard let zoneID = try await reader.resolveZoneID(domain: domain, apiToken: token) else {
-                phase = .failed(reason: "Zone not found for \"\(domain)\". Check the domain and ensure your API token has Zone Read permission.")
+                setPhase(.failed(reason: "Zone not found for \"\(domain)\". Check the domain and ensure your API token has Zone Read permission."))
                 return
             }
 
             let state = try await reader.zoneState(zoneID: zoneID, domain: domain, apiToken: token)
             let plan = HardenPlanner.plan(from: state, domain: domain)
-            phase = .preview(plan: plan, domain: domain, zoneID: zoneID)
+            setPhase(.preview(plan: plan, domain: domain, zoneID: zoneID))
         } catch let error as CloudflareError {
-            phase = .failed(reason: cloudflareErrorMessage(error, domain: domain))
+            setPhase(.failed(reason: cloudflareErrorMessage(error, domain: domain)))
         } catch {
-            phase = .failed(reason: "Failed to read zone state: \(error.localizedDescription)")
+            setPhase(.failed(reason: "Failed to read zone state: \(error.localizedDescription)"))
         }
     }
 
     private func runApply(plan: HardenPlan, domain: String, zoneID: String) async {
         guard let token = await apiToken() else {
-            phase = .failed(reason: "No Cloudflare API token found.")
+            setPhase(.failed(reason: "No Cloudflare API token found."))
             return
         }
 
@@ -150,12 +160,12 @@ final class HardenModel {
             plan: plan, zoneID: zoneID, domain: domain, apiToken: token,
             sourceDirectory: currentSite?.sourceDirectory)
 
-        phase = .succeeded(result: HardenResult(
+        setPhase(.succeeded(result: HardenResult(
             appliedCount: result.appliedCount,
             failedItems: result.failedItems.map { .init(description: $0.item.description, error: $0.error) },
             postAuditFindings: result.postAuditFindings,
             auditError: result.auditError
-        ))
+        )))
     }
 
     private func cloudflareErrorMessage(_ error: CloudflareError, domain: String) -> String {
