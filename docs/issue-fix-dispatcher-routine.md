@@ -22,9 +22,8 @@ recreated on any surface, copy the config and prompt below verbatim.
   unlike Phase B, see design doc §3; migrated per "Operational update (2026-08-15)" below)
 - **Repo:** `https://github.com/Anglesite/Anglesite`
 - **Model:** `claude-sonnet-5`
-- **Schedule:** hourly (now locally scheduled; the `34 * * * *` detail below records the
-  retired Cloud instance). Originally live as `34 * * * *` (hourly, UTC, fires at :34 past
-  the hour). This was
+- **Schedule:** hourly on the hour (`0 * * * *`, local scheduled task). The retired Cloud
+  instance ran as `34 * * * *` (hourly, UTC, fires at :34 past the hour) — it was
   requested as `0 * * * *` at enable time; the Routines API applied the same server-side
   phase shift documented in `docs/issue-intake-routine.md` and the effective
   `cron_expression` came back as `34 * * * *`, confirmed via `RemoteTrigger action:"get"`
@@ -221,8 +220,8 @@ Guardrails — follow strictly:
 The Cloud routine documented below was retired: `trig_01FVQNJsVAnUC6mDha4HbXd3` now returns
 404 from the RemoteTrigger API and no longer appears on claude.ai/code/routines. The
 dispatcher runs instead as a **local Claude Code scheduled task on the owner's second Mac**
-(owner-confirmed 2026-08-15), with the prompt and parameters above unchanged — hourly
-cadence, concurrency cap 3, per-issue attempt cap 2, Tier-1 allowlist, `claude-sonnet-5`.
+(owner-confirmed 2026-08-15), with the prompt and parameters above unchanged — hourly on
+the hour, concurrency cap 3, per-issue attempt cap 2, Tier-1 allowlist, `claude-sonnet-5`.
 This file remains the master copy of that configuration.
 
 Practical notes:
