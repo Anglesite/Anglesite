@@ -575,6 +575,17 @@ jobs:
     # tree (AnglesiteAppCore) to the compile, and a preview image's cache starts cold.
     timeout-minutes: 30
     continue-on-error: true
+    env:
+      # #855: omit AnglesiteP2PTests/AnglesiteRemoteTests from this lane's package graph.
+      # Their objects (the #1465 CloudKit signaling code) strong-link macOS-27-only CloudKit
+      # Swift-overlay symbols that this preview image's macOS 26.x host doesn't export, so
+      # dlopen aborts loading those bundles before any test runs — and SwiftPM's test
+      # enumeration loads every built bundle, so no --skip/--filter can route around an
+      # unloadable one. The AnglesiteP2P/AnglesiteRemote library targets still compile here;
+      # only the two test bundles are dropped, and every other lane/local run keeps them.
+      # See Package.swift's ANGLESITE_SKIP_CLOUDKIT_TESTS comment; remove when the hosted
+      # image's host macOS reaches 27.
+      ANGLESITE_SKIP_CLOUDKIT_TESTS: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -626,13 +637,16 @@ jobs:
       # step (#1335). Same --skip filter too, so the timing-sensitive suites stay confined
       # to their isolated lane.
       #
-      # History of this step (runs 95081077293/95085647674): on this image (27 SDK on a
-      # macOS 26.x host) test bundles that hard-linked the macOS-27-only
-      # _CoreSpotlight_FoundationModels cross-import overlay failed dlopen before a single
-      # test ran, and --skip could not route around it — SwiftPM's test enumeration dlopens
-      # every built bundle before skip/filter applies. Fixed at the source instead:
-      # Package.swift's disableFoundationModelsAutolink now suppresses that overlay's
-      # autolink hint (see its comment), so the bundles load on this host again.
+      # History of this step (runs 95081077293/95085647674/95093238559): on this image
+      # (27 SDK on a macOS 26.x host) test bundles failed dlopen before a single test ran,
+      # and --skip could not route around it — SwiftPM's test enumeration dlopens every
+      # built bundle before skip/filter applies. Two distinct causes, two fixes:
+      # (1) 9 of 11 bundles hard-linked the macOS-27-only _CoreSpotlight_FoundationModels
+      #     cross-import overlay (absent on this host) — fixed at the source, see
+      #     Package.swift's disableFoundationModelsAutolink/weakLinkFoundationModels;
+      # (2) the two CloudKit-signaling test bundles strong-link 27-only CloudKit overlay
+      #     symbols that can't be weak-linked away — dropped from this lane's graph via
+      #     ANGLESITE_SKIP_CLOUDKIT_TESTS above.
       - name: Test
         id: swift-test
         run: |

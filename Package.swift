@@ -420,13 +420,6 @@ packageTargets.append(contentsOf: [
         swiftSettings: strictConcurrency,
         linkerSettings: weakLinkFoundationModels
     ),
-    .testTarget(
-        name: "AnglesiteP2PTests",
-        dependencies: ["AnglesiteP2P"],
-        path: "Tests/AnglesiteP2PTests",
-        swiftSettings: strictConcurrency,
-        linkerSettings: weakLinkFoundationModels + webRTCTestRPath
-    ),
     // Anywhere runtime P1 (#1208): the Mac helper's implementation library —
     // LoginItemRegistering today, RemoteSessionRegistry/RemoteContainerSession/etc. added by
     // later tasks in this plan. Darwin-only, matching AnglesiteP2P above: it wraps
@@ -447,14 +440,40 @@ packageTargets.append(contentsOf: [
         path: "Sources/AnglesiteRemote",
         swiftSettings: strictConcurrency
     ),
-    .testTarget(
-        name: "AnglesiteRemoteTests",
-        dependencies: ["AnglesiteRemote", "AnglesiteCore"],
-        path: "Tests/AnglesiteRemoteTests",
-        swiftSettings: strictConcurrency,
-        linkerSettings: weakLinkFoundationModels + webRTCTestRPath
-    ),
 ])
+
+// #855: AnglesiteP2PTests and AnglesiteRemoteTests are the two test bundles whose objects
+// (the #1465 CloudKit signaling code) strong-reference macOS-27-only CloudKit Swift-overlay
+// symbols — e.g. CKDatabase._deleteRecord(withID:) — because the package's .macOS("27.0")
+// deployment target makes every 27-only symbol a hard dyld bind (verified by `nm -u`: these
+// two bundles and no others). On CI's `xcode-27` preview image (Xcode 27 beta on a macOS 26.x
+// host) dlopen therefore aborts loading them before a single test runs, and SwiftPM's test
+// enumeration loads every built bundle, so no --skip/--filter can route around an unloadable
+// one (verified live, jobs 95081077293/95085647674/95093238559). Framework-level weak-link
+// flags can't fix it either: the references are Swift overlay symbols expected in CloudKit
+// itself, and each one patched would just expose the next 27-only bind. So that lane sets
+// ANGLESITE_SKIP_CLOUDKIT_TESTS=1 to omit exactly these two test targets from its package
+// graph — the AnglesiteP2P/AnglesiteRemote *library* targets still compile there — while
+// every other context (local dev, the macos-26 CI lanes, Xcode) keeps the default, unchanged
+// graph. Remove the gate when the hosted image's host macOS reaches 27.
+if ProcessInfo.processInfo.environment["ANGLESITE_SKIP_CLOUDKIT_TESTS"] != "1" {
+    packageTargets.append(contentsOf: [
+        .testTarget(
+            name: "AnglesiteP2PTests",
+            dependencies: ["AnglesiteP2P"],
+            path: "Tests/AnglesiteP2PTests",
+            swiftSettings: strictConcurrency,
+            linkerSettings: weakLinkFoundationModels + webRTCTestRPath
+        ),
+        .testTarget(
+            name: "AnglesiteRemoteTests",
+            dependencies: ["AnglesiteRemote", "AnglesiteCore"],
+            path: "Tests/AnglesiteRemoteTests",
+            swiftSettings: strictConcurrency,
+            linkerSettings: weakLinkFoundationModels + webRTCTestRPath
+        ),
+    ])
+}
 #endif
 
 var packageProducts: [Product] = [
