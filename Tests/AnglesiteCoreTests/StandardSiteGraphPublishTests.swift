@@ -82,3 +82,39 @@ struct StandardSitePublicationResolverTests {
         #expect(resolved == nil)
     }
 }
+
+@Suite("Standard.site graph publish log")
+struct StandardSiteGraphPublishLogTests {
+    @Test("round-trips through save/load")
+    func roundTrips() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: dir) }
+
+        var log = StandardSiteGraphPublishLog()
+        log.record(.init(
+            sourceFile: "src/content/blogroll/friend.md",
+            uri: "at://did:plc:owner/site.standard.graph.subscription/anglesite-xyz",
+            lastPublishedAt: Date(timeIntervalSince1970: 1_755_000_000)
+        ))
+        try log.save(to: dir)
+
+        let loaded = try #require(StandardSiteGraphPublishLog.load(from: dir))
+        #expect(loaded.entries.count == 1)
+        #expect(loaded.entries.first?.sourceFile == "src/content/blogroll/friend.md")
+    }
+
+    @Test("record(_:) replaces an existing entry with the same sourceFile")
+    func recordDedupsBySourceFile() {
+        var log = StandardSiteGraphPublishLog()
+        log.record(.init(sourceFile: "a.md", uri: "at://one", lastPublishedAt: Date()))
+        log.record(.init(sourceFile: "a.md", uri: "at://two", lastPublishedAt: Date()))
+        #expect(log.entries.count == 1)
+        #expect(log.entries.first?.uri == "at://two")
+    }
+
+    @Test("load returns nil when no file exists yet")
+    func loadReturnsNilWhenMissing() {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        #expect(StandardSiteGraphPublishLog.load(from: dir) == nil)
+    }
+}
