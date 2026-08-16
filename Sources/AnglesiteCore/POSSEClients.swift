@@ -84,7 +84,12 @@ public enum BlueskyPOSSEClient {
         enum CodingKeys: String, CodingKey { case type = "$type"; case uri }
     }
     private struct Facet: Encodable { let index: ByteSlice; let features: [LinkFeature] }
-    private struct External: Encodable { let uri: URL; let title: String; let description: String }
+    private struct External: Encodable {
+        let uri: URL
+        let title: String
+        let description: String
+        let thumb: AtprotoPutRecordClient.BlobRef?
+    }
     private struct Embed: Encodable {
         let type = "app.bsky.embed.external"
         let external: External
@@ -120,6 +125,10 @@ public enum BlueskyPOSSEClient {
     ///   - recordKey: Deterministic record key (see ``POSSEStableKey``); the same input must
     ///     always yield the same key or the 409-dedupe guarantee breaks.
     ///   - now: The record's `createdAt`; injected for test determinism.
+    ///   - thumbnail: The post's cover image, read and ready for upload (see
+    ///     ``StandardSiteImageBlob``), or `nil` to post a plain link card. A failed upload is
+    ///     swallowed rather than failing the post — the embed thumb is a decorative nice-to-have,
+    ///     not something worth losing the whole POSSE cross-post over (#1484).
     ///   - transport: HTTP seam (see ``POSSEHTTPTransport``).
     /// - Throws: ``POSSEClientError`` for a bad endpoint, non-2xx status (other than the
     ///   handled 409), or undecodable body.
@@ -128,6 +137,7 @@ public enum BlueskyPOSSEClient {
         credentials: POSSECredentials.Bluesky,
         recordKey: String,
         now: Date,
+        thumbnail: StandardSiteImageBlob.Prepared? = nil,
         transport: POSSEHTTPTransport
     ) async throws -> URL {
         let session: SessionResponse = try await jsonRequest(
@@ -137,6 +147,15 @@ public enum BlueskyPOSSEClient {
             bearer: nil,
             transport: transport
         )
+        var thumb: AtprotoPutRecordClient.BlobRef?
+        if let thumbnail {
+            thumb = try? await AtprotoPutRecordClient.uploadBlob(
+                data: thumbnail.data, mimeType: thumbnail.mimeType,
+                pdsURL: credentials.pdsURL,
+                session: AtprotoPutRecordClient.Session(did: session.did, accessJwt: session.accessJwt),
+                transport: transport
+            )
+        }
         let text = post.text(limit: 300)
         let link = post.canonicalURL.absoluteString
         guard let linkRange = text.range(of: link, options: .backwards) else {
@@ -148,7 +167,7 @@ public enum BlueskyPOSSEClient {
             text: text,
             createdAt: ISO8601DateFormatter().string(from: now),
             facets: [Facet(index: ByteSlice(byteStart: byteStart, byteEnd: byteEnd), features: [LinkFeature(uri: post.canonicalURL)])],
-            embed: Embed(external: External(uri: post.canonicalURL, title: post.title, description: post.summary))
+            embed: Embed(external: External(uri: post.canonicalURL, title: post.title, description: post.summary, thumb: thumb))
         )
         let body = CreateRecordRequest(repo: session.did, rkey: recordKey, record: record)
         do {

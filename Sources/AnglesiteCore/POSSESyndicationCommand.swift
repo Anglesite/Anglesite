@@ -129,8 +129,10 @@ public actor POSSESyndicationCommand {
                             await logError("bluesky requested by \(entry.sourceFile), but its identifier/app password are not configured", source: source)
                             continue
                         }
+                        let thumbnail = await resolveThumbnail(post: post, siteDirectory: siteDirectory, source: source)
                         syndicationURL = try await BlueskyPOSSEClient.post(
-                            post, credentials: bluesky, recordKey: "anglesite-\(stableKey)", now: now(), transport: transport)
+                            post, credentials: bluesky, recordKey: "anglesite-\(stableKey)", now: now(),
+                            thumbnail: thumbnail, transport: transport)
                     default:
                         continue
                     }
@@ -165,6 +167,38 @@ public actor POSSESyndicationCommand {
                     text: "posse: syndicated \(entry.canonicalURL.absoluteString) to \(platform): \(syndicationURL.absoluteString)"
                 )
             }
+        }
+    }
+
+    /// Resolves `post`'s frontmatter `image` to a local file ready for upload as the Bluesky
+    /// embed's `thumb` (#1484), or `nil` when there's nothing to attach. Only a root-relative
+    /// path (`/uploads/hero.jpg` — Astro's `public/` served at the site root, the same convention
+    /// `StandardSitePublishCommand.resolveCoverImage` uses) resolves to a local file; anything
+    /// else (an external URL, a colocated-asset relative path) is left unresolved rather than
+    /// guessed at. A missing file is silently skipped — the common case is simply no cover image
+    /// — but an oversize or unrecognized image is one the owner did configure, so it's logged.
+    private func resolveThumbnail(post: POSSEPost, siteDirectory: URL, source: String) async -> StandardSiteImageBlob.Prepared? {
+        guard let sourcePath = post.coverImageSourcePath, sourcePath.hasPrefix("/") else { return nil }
+        let fileURL = siteDirectory
+            .appendingPathComponent(WebsiteIconAsset.publicDirectoryRelativePath, isDirectory: true)
+            .appendingPathComponent(String(sourcePath.dropFirst()))
+        switch StandardSiteImageBlob.prepare(fileURL: fileURL) {
+        case .success(let prepared):
+            return prepared
+        case .failure(.fileNotFound):
+            return nil
+        case .failure(.tooLarge(let bytes)):
+            await logCenter.append(
+                source: source, stream: .stdout,
+                text: "posse: skipped bluesky thumb — \(bytes) bytes exceeds the 1 MB limit (no downscaling yet)"
+            )
+            return nil
+        case .failure(.unsupportedExtension(let ext)):
+            await logCenter.append(
+                source: source, stream: .stdout,
+                text: "posse: skipped bluesky thumb — unrecognized image extension \"\(ext)\""
+            )
+            return nil
         }
     }
 

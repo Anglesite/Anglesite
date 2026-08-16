@@ -12,12 +12,18 @@ public struct POSSEPost: Equatable, Sendable {
     /// The permalink on the owner's own site — always appended to the outgoing text
     /// (see ``text(limit:)``), since pointing back home is the point of POSSE.
     public let canonicalURL: URL
+    /// Frontmatter `image` value, root-relative to the site (e.g. `/uploads/hero.jpg`) — the same
+    /// convention ``StandardSiteDocumentPlan/Entry/coverImageSourcePath`` uses. `nil` when the
+    /// post has no `image` frontmatter field. Resolving this to a local file and uploading it as
+    /// a Bluesky embed thumb is the syndication command's job, not this type's.
+    public let coverImageSourcePath: String?
 
     /// Memberwise initializer; production code goes through ``load(entry:projectRoot:)``.
-    public init(title: String, summary: String, canonicalURL: URL) {
+    public init(title: String, summary: String, canonicalURL: URL, coverImageSourcePath: String? = nil) {
         self.title = title
         self.summary = summary
         self.canonicalURL = canonicalURL
+        self.coverImageSourcePath = coverImageSourcePath
     }
 
     /// Reads the entry's source file and derives the post copy per the precedence in
@@ -34,7 +40,11 @@ public struct POSSEPost: Equatable, Sendable {
         let description = string(frontmatter["description"])
         let body = SiteContentChunker.plainText(markdown: Frontmatter.body(source))
         let summary = firstNonBlank([explicit, description, body]) ?? title
-        return POSSEPost(title: title, summary: summary, canonicalURL: entry.canonicalURL)
+        let coverImageSourcePath = string(frontmatter["image"])
+        return POSSEPost(
+            title: title, summary: summary, canonicalURL: entry.canonicalURL,
+            coverImageSourcePath: coverImageSourcePath
+        )
     }
 
     /// Produces a platform-bounded post while always preserving the canonical URL.
