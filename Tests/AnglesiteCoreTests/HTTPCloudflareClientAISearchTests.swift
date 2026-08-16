@@ -26,6 +26,44 @@ struct HTTPCloudflareClientAISearchTests {
         #expect(body["source"] as? String == "example.com")
     }
 
+    @Test("createAISearchInstance maps a 400 with Cloudflare code 7028 to .missingSitemap")
+    func createInstanceMissingSitemap() async throws {
+        let accountsJSON = #"{"success":true,"errors":[],"result":[{"id":"acct1"}]}"#
+        let errorJSON = #"{"success":false,"errors":[{"code":7028,"message":"missing_sitemap: no sitemap found for source"}],"result":null}"#
+        let client = HTTPCloudflareClient(transport: fakeTransport([
+            "/accounts?per_page=1": (200, accountsJSON),
+            "/ai-search/instances": (400, errorJSON),
+        ]))
+        await #expect(throws: AISearchProvisionError.missingSitemap) {
+            try await client.createAISearchInstance(domain: "example.com", instanceID: "example-com", apiToken: "t")
+        }
+    }
+
+    @Test("createAISearchInstance surfaces other 400 error bodies as .api with Cloudflare's message")
+    func createInstanceOther400WithMessage() async throws {
+        let accountsJSON = #"{"success":true,"errors":[],"result":[{"id":"acct1"}]}"#
+        let errorJSON = #"{"success":false,"errors":[{"code":7003,"message":"instance already exists"}],"result":null}"#
+        let client = HTTPCloudflareClient(transport: fakeTransport([
+            "/accounts?per_page=1": (200, accountsJSON),
+            "/ai-search/instances": (400, errorJSON),
+        ]))
+        await #expect(throws: CloudflareError.api(message: "instance already exists")) {
+            try await client.createAISearchInstance(domain: "example.com", instanceID: "example-com", apiToken: "t")
+        }
+    }
+
+    @Test("createAISearchInstance falls back to .http(400) when the error body doesn't decode")
+    func createInstance400Undecodable() async throws {
+        let accountsJSON = #"{"success":true,"errors":[],"result":[{"id":"acct1"}]}"#
+        let client = HTTPCloudflareClient(transport: fakeTransport([
+            "/accounts?per_page=1": (200, accountsJSON),
+            "/ai-search/instances": (400, "<html>Bad Request</html>"),
+        ]))
+        await #expect(throws: CloudflareError.http(status: 400)) {
+            try await client.createAISearchInstance(domain: "example.com", instanceID: "example-com", apiToken: "t")
+        }
+    }
+
     @Test("createAISearchInstance surfaces .unauthorized on a 403")
     func createInstanceUnauthorized() async throws {
         let accountsJSON = #"{"success":true,"errors":[],"result":[{"id":"acct1"}]}"#

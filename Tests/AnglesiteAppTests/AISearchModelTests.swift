@@ -42,6 +42,14 @@ private final class StubProvisioner: AISearchProvisioning, @unchecked Sendable {
     }
 }
 
+private final class FailingProvisioner: AISearchProvisioning, @unchecked Sendable {
+    private let error: any Error
+    init(throwing error: any Error) { self.error = error }
+    func createAISearchInstance(domain: String, instanceID: String, apiToken: String) async throws -> AISearchInstance {
+        throw error
+    }
+}
+
 @Suite(.serialized)
 struct AISearchModelTests {
     /// Per-instance scratch service, matching `HardenModelTests`' rationale: every test here
@@ -124,5 +132,32 @@ struct AISearchModelTests {
             return
         }
         #expect(result.instance.id == "inst1")
+    }
+
+    @MainActor
+    @Test("confirmCost maps missingSitemap (Cloudflare 7028) to deploy-first guidance")
+    func missingSitemapNamesDeployFirstFix() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let model = AISearchModel(
+            reader: StubReader(zoneID: "z1"), writer: StubWriter(),
+            provisioner: FailingProvisioner(throwing: AISearchProvisionError.missingSitemap),
+            keychain: keychain)
+        model.domainInput = "example.com"
+        model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
+        while model.isRunning { await Task.yield() }
+
+        model.confirmCost()
+        while model.isRunning { await Task.yield() }
+
+        guard case .failed(let reason) = model.phase else {
+            Issue.record("expected .failed, got \(model.phase)")
+            return
+        }
+        // The owner-facing fix, not a raw API code or bare HTTP status (#1486).
+        #expect(reason.localizedCaseInsensitiveContains("deploy"))
+        #expect(reason.localizedCaseInsensitiveContains("sitemap"))
+        #expect(!reason.contains("7028"))
+        #expect(!reason.contains("HTTP 400"))
     }
 }
