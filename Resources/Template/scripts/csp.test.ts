@@ -144,8 +144,24 @@ test("buildHeaders: no noindex entries leaves output unchanged from today", () =
   assert.equal(buildHeaders(""), buildHeaders("", false, []));
 });
 
-test("buildHeaders: no rslUrl omits the Link header", () => {
-  assert.doesNotMatch(buildHeaders(""), /Link:/);
+test("buildHeaders: no rslUrl omits the license Link header", () => {
+  assert.doesNotMatch(buildHeaders(""), /rel="license"/);
+});
+
+// Agent Readiness `linkHeaders` (#1481): every response advertises the sitemap and the three
+// feed formats as RFC 8288 Link headers, mirroring BaseLayout.astro's <link rel="alternate">
+// trio so agents can discover them without parsing HTML. All four targets are unconditional
+// template routes (src/pages/{sitemap.xml,rss.xml,atom.xml,feed.json}.ts).
+test("buildHeaders: always emits discovery Link headers inside the /* block", () => {
+  const out = buildHeaders("");
+  assert.match(out, /\n {2}Link: <\/sitemap\.xml>; rel="sitemap"; type="application\/xml"\n/);
+  assert.match(out, /\n {2}Link: <\/rss\.xml>; rel="alternate"; type="application\/rss\+xml"\n/);
+  assert.match(out, /\n {2}Link: <\/atom\.xml>; rel="alternate"; type="application\/atom\+xml"\n/);
+  assert.match(out, /\n {2}Link: <\/feed\.json>; rel="alternate"; type="application\/feed\+json"\n/);
+  // Inside the /* block: the last Link line still precedes the block's blank-line terminator.
+  const lastLink = out.lastIndexOf("Link:");
+  const blockEnd = out.indexOf("\n\n");
+  assert.ok(lastLink > 0 && lastLink < blockEnd, "Link: headers must be inside the /* block");
 });
 
 test("buildHeaders: rslUrl adds a rel=license Link header inside the /* block", () => {
