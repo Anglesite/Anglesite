@@ -119,7 +119,7 @@ public enum AgentReadinessCatalog {
             displayName: "Page discovery links",
             passHint: "Your pages point AI agents to related resources automatically.",
             failHint: "Your pages don't point AI agents to related resources (RFC 8288 Link headers).",
-            anglesiteProvides: false),
+            anglesiteProvides: true),
         "markdownNegotiation": .init(
             displayName: "Markdown for AI agents",
             passHint: "AI agents get a clean, Markdown version of your pages instead of raw HTML.",

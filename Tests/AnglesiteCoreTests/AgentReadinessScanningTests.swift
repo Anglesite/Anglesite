@@ -127,6 +127,11 @@ struct AgentReadinessScanningTests {
         }
     }
 
+    @Test("catalog marks linkHeaders as provided by the template (#1481 _headers Link headers)")
+    func linkHeadersMarkedProvided() {
+        #expect(AgentReadinessCatalog.checkInfo(for: "linkHeaders").anglesiteProvides == true)
+    }
+
     @Test("agentReadinessResult maps 401 to unauthorized")
     func resultUnauthorized() async throws {
         let client = HTTPCloudflareClient(transport: fakeTransport([
