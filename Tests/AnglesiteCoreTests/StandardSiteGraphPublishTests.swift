@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 @Suite("Standard.site graph records")
@@ -116,5 +117,135 @@ struct StandardSiteGraphPublishLogTests {
     func loadReturnsNilWhenMissing() {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         #expect(StandardSiteGraphPublishLog.load(from: dir) == nil)
+    }
+}
+
+@Suite("Standard.site graph publish pass")
+struct StandardSiteGraphPublishCommandTests {
+    private actor APIStub {
+        var requests: [URLRequest] = []
+        let did: String
+        var wellKnownResponses: [String: (status: Int, body: String)] = [:]
+        var deleteRecordStatus: Int = 200
+
+        init(did: String = "did:plc:owner") { self.did = did }
+
+        func respond(_ request: URLRequest) throws -> (Data, HTTPURLResponse) {
+            requests.append(request)
+            let url = request.url ?? URL(string: "https://invalid.example")!
+            if url.path == "/.well-known/site.standard.publication" {
+                let match = wellKnownResponses[url.host ?? ""] ?? (404, "")
+                return (Data(match.body.utf8), HTTPURLResponse(url: url, statusCode: match.status, httpVersion: nil, headerFields: nil)!)
+            }
+            switch url.path {
+            case "/xrpc/com.atproto.server.createSession":
+                return json(#"{"accessJwt":"jwt","did":"\#(did)"}"#, url: url)
+            case "/xrpc/com.atproto.repo.putRecord":
+                let body = (try? JSONSerialization.jsonObject(with: request.httpBody ?? Data())) as? [String: Any]
+                let collection = body?["collection"] as? String ?? "unknown"
+                let rkey = body?["rkey"] as? String ?? "unknown"
+                return json(#"{"uri":"at://\#(did)/\#(collection)/\#(rkey)","cid":"bafycid"}"#, url: url)
+            case "/xrpc/com.atproto.repo.deleteRecord":
+                return json("{}", url: url, statusCode: deleteRecordStatus)
+            default:
+                return json("{}", url: url)
+            }
+        }
+
+        private func json(_ body: String, url: URL, statusCode: Int = 200) -> (Data, HTTPURLResponse) {
+            (Data(body.utf8), HTTPURLResponse(url: url, statusCode: statusCode, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!)
+        }
+
+        func set(wellKnown host: String, status: Int, body: String) { wellKnownResponses[host] = (status, body) }
+        func count(path: String) -> Int { requests.count { $0.url?.path == path } }
+        func bodies(path: String) -> [[String: Any]] {
+            requests.filter { $0.url?.path == path }.compactMap {
+                guard let data = $0.httpBody else { return nil }
+                return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
+            }
+        }
+    }
+
+    private var credentials: POSSECredentials {
+        POSSECredentials(bluesky: .init(pdsURL: URL(string: "https://pds.example")!, identifier: "owner.test", appPassword: "secret-b"))
+    }
+
+    private func makeSite(siteURL: String? = "https://owner.example", blogroll: [String: String] = [:]) throws -> (root: URL, source: URL, config: URL) {
+        var files: [String: String] = [:]
+        for (name, content) in blogroll { files["Source/src/content/blogroll/\(name)"] = content }
+        if let siteURL { files["Source/.site-config"] = "SITE_NAME=Owner Site\nSITE_URL=\(siteURL)\n" }
+        let root = try writeSiteTree(prefix: "standardsitegraph-command", files)
+        return (root, root.appendingPathComponent("Source"), root.appendingPathComponent("Config"))
+    }
+
+    @Test("no-ops without a Bluesky credential")
+    func noopWithoutCredential() async throws {
+        let site = try makeSite(blogroll: ["friend.md": "---\nname: Friend\nurl: https://friend.example\naddedDate: 2026-08-01\n---\n"])
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        let stub = APIStub()
+        let command = StandardSiteGraphPublishCommand(
+            credentials: { _, _ in POSSECredentials() },
+            transport: { try await stub.respond($0) }
+        )
+        await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
+        #expect(await stub.count(path: "/xrpc/com.atproto.server.createSession") == 0)
+    }
+
+    @Test("publishes a subscription record when the target resolves")
+    func publishesResolvedEntry() async throws {
+        let site = try makeSite(blogroll: ["friend.md": "---\nname: Friend\nurl: https://friend.example\naddedDate: 2026-08-01\n---\n"])
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        let stub = APIStub()
+        await stub.set(wellKnown: "friend.example", status: 200, body: "at://did:plc:friend/site.standard.publication/anglesite-abc\n")
+        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) })
+
+        await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
+
+        let putBodies = await stub.bodies(path: "/xrpc/com.atproto.repo.putRecord")
+        let graphPuts = putBodies.filter { ($0["collection"] as? String) == "site.standard.graph.subscription" }
+        #expect(graphPuts.count == 1)
+        let record = graphPuts.first?["record"] as? [String: Any]
+        #expect(record?["publication"] as? String == "at://did:plc:friend/site.standard.publication/anglesite-abc")
+
+        let log = try #require(StandardSiteGraphPublishLog.load(from: site.config))
+        #expect(log.entries.count == 1)
+    }
+
+    @Test("skips, without failing the pass, when the target has no standard.site well-known file")
+    func skipsUnresolvedEntry() async throws {
+        let site = try makeSite(blogroll: ["plain.md": "---\nname: Plain Site\nurl: https://plain.example\naddedDate: 2026-08-01\n---\n"])
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        let stub = APIStub()
+        let logCenter = LogCenter()
+        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) }, logCenter: logCenter)
+
+        await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
+
+        let graphPuts = (await stub.bodies(path: "/xrpc/com.atproto.repo.putRecord"))
+            .filter { ($0["collection"] as? String) == "site.standard.graph.subscription" }
+        #expect(graphPuts.isEmpty)
+        let lines = await logCenter.snapshot()
+        #expect(lines.contains { $0.text.contains("skipped") && $0.text.contains("plain.example") })
+    }
+
+    @Test("unpublishes a removed entry's subscription record")
+    func unpublishesRemovedEntry() async throws {
+        let site = try makeSite(blogroll: [:])
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        var log = StandardSiteGraphPublishLog()
+        log.record(.init(
+            sourceFile: "src/content/blogroll/gone.md",
+            uri: "at://did:plc:owner/site.standard.graph.subscription/anglesite-old",
+            lastPublishedAt: Date()
+        ))
+        try log.save(to: site.config)
+        let stub = APIStub()
+        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) })
+
+        await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
+
+        #expect(await stub.count(path: "/xrpc/com.atproto.repo.deleteRecord") == 1)
+        let reloaded = try #require(StandardSiteGraphPublishLog.load(from: site.config))
+        #expect(reloaded.entries.isEmpty)
     }
 }
