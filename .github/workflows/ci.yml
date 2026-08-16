@@ -626,23 +626,19 @@ jobs:
       # step (#1335). Same --skip filter too, so the timing-sensitive suites stay confined
       # to their isolated lane.
       #
-      # --skip AnglesiteRemoteTests: that bundle links the macOS-27-only Swift overlay
-      # _CoreSpotlight_FoundationModels (via AnglesiteRemote, compiled against the 27 SDK),
-      # which the preview image's macOS 26.x host doesn't ship — dlopen fails with "built
-      # for macOS 27.0 which is newer than running OS" before a single test runs (first run
-      # of this lane, job 95081077293; same class as the libswift_DarwinFoundation3 trap on
-      # the 26.x images). The framework absence is inherent to the image's host OS, not a
-      # flake. Drop this skip when the hosted image's host macOS reaches 27. The suites this
-      # lane exists for (AnglesiteAppTests, AnglesiteIntentsTests) still run.
+      # History of this step (runs 95081077293/95085647674): on this image (27 SDK on a
+      # macOS 26.x host) test bundles that hard-linked the macOS-27-only
+      # _CoreSpotlight_FoundationModels cross-import overlay failed dlopen before a single
+      # test ran, and --skip could not route around it — SwiftPM's test enumeration dlopens
+      # every built bundle before skip/filter applies. Fixed at the source instead:
+      # Package.swift's disableFoundationModelsAutolink now suppresses that overlay's
+      # autolink hint (see its comment), so the bundles load on this host again.
       - name: Test
         id: swift-test
         run: |
           set -o pipefail
           source scripts/lib/timing-sensitive-tests.sh
-          swift test -c debug --parallel \
-            --skip "$TIMING_SENSITIVE_TEST_FILTER" \
-            --skip AnglesiteRemoteTests \
-            2>&1 | tee "$RUNNER_TEMP/swift-test-xcode27.log"
+          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" 2>&1 | tee "$RUNNER_TEMP/swift-test-xcode27.log"
 
       - name: Surface Swift errors (annotations + job summary)
         if: failure() && steps.swift-test.outcome == 'failure'

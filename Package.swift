@@ -22,12 +22,28 @@ let strictConcurrency: [SwiftSetting] = [
 // `.when(platforms: [.macOS])`: `-weak_framework` is a Darwin ld option — ld.gold on the Linux
 // CI leg rejects it, and AnglesiteBridgeCoreTests (which carries this setting) is in the
 // off-Darwin portable target set, so the flag must never reach a non-Darwin link.
-let weakLinkFoundationModels: [LinkerSetting] = [
-    .unsafeFlags(
-        ["-Xlinker", "-weak_framework", "-Xlinker", "FoundationModels"],
-        .when(platforms: [.macOS])
-    )
-]
+let weakLinkFoundationModels: [LinkerSetting] = {
+    var frameworks = ["FoundationModels"]
+    // #855: FoundationModelAssistant's SpotlightSearchTool path uses the
+    // _CoreSpotlight_FoundationModels cross-import overlay, whose hard autolink hint is
+    // suppressed alongside FoundationModels' below (see disableFoundationModelsAutolink) so
+    // that test bundles can load on hosts older than macOS 27 — CI's `xcode-27` preview image
+    // pairs the 27 SDK with a macOS 26.x host. The explicit weak link here is what resolves
+    // those symbols at link time instead (dyld then tolerates the framework's absence at load,
+    // and the calling paths are unreachable on such hosts — FoundationModels availability
+    // gates them). compiler(>=6.4) matches the import site's own gate in
+    // FoundationModelAssistant.swift: on older toolchains the overlay isn't in the SDK, the
+    // symbols are never referenced, and ld would error on a -weak_framework it can't find.
+    #if compiler(>=6.4)
+    frameworks.append("_CoreSpotlight_FoundationModels")
+    #endif
+    return [
+        .unsafeFlags(
+            frameworks.flatMap { ["-Xlinker", "-weak_framework", "-Xlinker", $0] },
+            .when(platforms: [.macOS])
+        )
+    ]
+}()
 
 // Anywhere runtime (#1208): stasel/WebRTC vends a real dynamic .xcframework (unlike the
 // source packages above), and SwiftPM's build system places its resolved WebRTC.framework
@@ -53,7 +69,20 @@ let webRTCTestRPath: [LinkerSetting] = [
 // the autolink hint at the source makes the app target's weak-link flag the only (and effective)
 // link request. See #541.
 let disableFoundationModelsAutolink: [SwiftSetting] = [
-    .unsafeFlags(["-Xfrontend", "-disable-autolink-framework", "-Xfrontend", "FoundationModels"])
+    .unsafeFlags([
+        "-Xfrontend", "-disable-autolink-framework", "-Xfrontend", "FoundationModels",
+        // #855: FoundationModelAssistant.swift imports FoundationModels and CoreSpotlight in the
+        // same file, which — on the Xcode 27 SDK, where the overlay first exists — autolinks the
+        // _CoreSpotlight_FoundationModels cross-import overlay as a *hard* LC_LOAD_DYLIB into
+        // every binary linking AnglesiteCore's objects (9 of 11 test bundles, verified by otool).
+        // CI's hosted `xcode-27` preview image pairs that SDK with a macOS 26.x host where the
+        // framework doesn't exist, so dyld refuses to load those bundles before a single test
+        // runs — and SwiftPM's test enumeration dlopens every built bundle, so no --skip/--filter
+        // can route around it (verified live, runs 95081077293/95085647674). Nothing references
+        // the overlay's API (repo-wide grep), so dropping the hint is behavior-neutral; on
+        // pre-Xcode-27 SDKs the overlay doesn't exist and the flag is inert.
+        "-Xfrontend", "-disable-autolink-framework", "-Xfrontend", "_CoreSpotlight_FoundationModels",
+    ])
 ]
 
 // AnglesiteContainer imports apple/containerization — a Swift 6.2, macOS-15+ package that pulls in

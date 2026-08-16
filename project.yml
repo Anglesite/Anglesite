@@ -125,7 +125,12 @@ targets:
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) ANGLESITE_MAS"
         # #541: weak-link FoundationModels so a beta Xcode SDK ahead of the installed macOS beta
         # seed (a symbol the SDK added but the OS doesn't export yet) can't abort dyld at launch.
-        OTHER_LDFLAGS: "$(inherited) -weak_framework FoundationModels"
+        # #855 adds the _CoreSpotlight_FoundationModels cross-import overlay: its hard autolink
+        # hint is suppressed in AnglesiteCore (see Package.swift's disableFoundationModelsAutolink),
+        # so the app link — which pulls FoundationModelAssistant.o and with it the overlay's
+        # SpotlightSearchTool symbols — must request the framework explicitly, weak for the same
+        # SDK-ahead-of-OS reason as FoundationModels itself.
+        OTHER_LDFLAGS: "$(inherited) -weak_framework FoundationModels -weak_framework _CoreSpotlight_FoundationModels"
       configs:
         Debug:
           # #775 workaround: punch the com.apple.NetworkSharing mach look-up back
