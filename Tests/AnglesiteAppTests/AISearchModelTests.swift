@@ -62,6 +62,18 @@ private final class StubPreflight: SitemapPreflighting, @unchecked Sendable {
     }
 }
 
+/// Spins until its surrounding task is cancelled, then answers `.indeterminate` — the live
+/// preflight's exact behavior when cancellation hits mid-request (its catch-all can't tell a
+/// cancelled URLSession call from a timeout). Lets a test hold the model mid-preflight.
+private final class HangUntilCancelledPreflight: SitemapPreflighting, @unchecked Sendable {
+    private(set) var started = false
+    func checkSitemap(domain: String) async -> SitemapPreflightResult {
+        started = true
+        while !Task.isCancelled { await Task.yield() }
+        return .indeterminate
+    }
+}
+
 @Suite(.serialized)
 struct AISearchModelTests {
     /// Per-instance scratch service, matching `HardenModelTests`' rationale: every test here
@@ -233,5 +245,29 @@ struct AISearchModelTests {
             return
         }
         #expect(preflight.checkedDomains.isEmpty)
+    }
+
+    @MainActor
+    @Test("a task cancelled mid-preflight never writes a stale phase (dismiss stays dismissed)")
+    func cancelledMidPreflightWritesNothing() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let preflight = HangUntilCancelledPreflight()
+        let model = AISearchModel(
+            reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(),
+            preflight: preflight, keychain: keychain)
+        model.domainInput = "example.com"
+        model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
+
+        // Hold until the task is genuinely awaiting the preflight, then cancel via dismiss.
+        while !preflight.started { await Task.yield() }
+        model.dismissSheet()
+        #expect(model.phase == .idle)
+
+        // Give the cancelled task every chance to (wrongly) finish its fall-through write:
+        // the preflight answers `.indeterminate` on cancellation, so without the isCancelled
+        // guard the stale task would land `.awaitingCostConfirmation` here.
+        for _ in 0..<50 { await Task.yield() }
+        #expect(model.phase == .idle)
     }
 }

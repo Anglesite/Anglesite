@@ -33,12 +33,33 @@ struct SitemapPreflightTests {
         #expect(request.url?.absoluteString == "https://example.com/sitemap.xml")
     }
 
-    @Test("a definitive non-2xx HEAD response (404) is .unreachable")
+    @Test("a definitive not-there HEAD response (404) is .unreachable")
     func headNotFound() async {
         let spy = SequencedTransport([.success((404, "not found"))])
         let result = await HTTPSitemapPreflight(transport: spy.transport).checkSitemap(domain: "example.com")
         #expect(result == .unreachable)
         #expect(spy.requests.count == 1)
+    }
+
+    @Test("a 410 Gone is .unreachable too")
+    func headGone() async {
+        let spy = SequencedTransport([.success((410, ""))])
+        let result = await HTTPSitemapPreflight(transport: spy.transport).checkSitemap(domain: "example.com")
+        #expect(result == .unreachable)
+    }
+
+    @Test("a 403 is .indeterminate — Bot Fight Mode challenges a bare URLSession probe on a live site")
+    func headForbiddenIsIndeterminate() async {
+        let spy = SequencedTransport([.success((403, "challenge page"))])
+        let result = await HTTPSitemapPreflight(transport: spy.transport).checkSitemap(domain: "example.com")
+        #expect(result == .indeterminate)
+    }
+
+    @Test("a 5xx is .indeterminate — an origin hiccup says nothing about the sitemap")
+    func headServerErrorIsIndeterminate() async {
+        let spy = SequencedTransport([.success((522, ""))])
+        let result = await HTTPSitemapPreflight(transport: spy.transport).checkSitemap(domain: "example.com")
+        #expect(result == .indeterminate)
     }
 
     @Test("a 405 to HEAD falls back to a ranged GET; 206 there is .reachable")
@@ -52,11 +73,18 @@ struct SitemapPreflightTests {
         #expect(fallback.value(forHTTPHeaderField: "Range") == "bytes=0-0")
     }
 
-    @Test("a 405 to HEAD whose GET fallback also fails definitively is .unreachable")
+    @Test("a 405 to HEAD whose GET fallback 404s is .unreachable")
     func fallbackGETNotFound() async {
         let spy = SequencedTransport([.success((501, "")), .success((404, ""))])
         let result = await HTTPSitemapPreflight(transport: spy.transport).checkSitemap(domain: "example.com")
         #expect(result == .unreachable)
+    }
+
+    @Test("a 405 to HEAD whose GET fallback is also ambiguous (403) is .indeterminate")
+    func fallbackGETForbiddenIsIndeterminate() async {
+        let spy = SequencedTransport([.success((405, "")), .success((403, ""))])
+        let result = await HTTPSitemapPreflight(transport: spy.transport).checkSitemap(domain: "example.com")
+        #expect(result == .indeterminate)
     }
 
     @Test("a transport failure (timeout/DNS) is .indeterminate — advisory, never a wedge")

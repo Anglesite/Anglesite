@@ -11,10 +11,16 @@ import FoundationNetworking
 public enum SitemapPreflightResult: Sendable, Equatable {
     /// An HTTP 2xx came back — the sitemap is live at the domain.
     case reachable
-    /// A definitive non-2xx HTTP response came back (e.g. 404) — the sitemap isn't there.
+    /// The server definitively said the sitemap isn't there (404/410). Only these statuses
+    /// count: anything else non-2xx can't distinguish "no sitemap" from the *probe itself*
+    /// being rejected — notably Bot Fight Mode 403-challenging a bare `URLSession` request on
+    /// a perfectly deployed site (the same bot-detection this feature's WAF skip rule exists
+    /// for, see `AISearchExecutor`), or an origin hiccup (5xx).
     case unreachable
-    /// No HTTP answer (timeout, DNS failure, TLS error, …). Treat as "don't know" and let
-    /// the create call itself decide — the 7028 mapping (#1486) remains the backstop.
+    /// Anything that isn't a definitive answer: no HTTP response at all (timeout, DNS
+    /// failure, TLS error, …) or an ambiguous status (403 challenge, 429, 5xx). Treat as
+    /// "don't know" and let the create call itself decide — the 7028 mapping (#1486)
+    /// remains the backstop.
     case indeterminate
 }
 
@@ -58,20 +64,25 @@ public struct HTTPSitemapPreflight: SitemapPreflighting {
         head.httpMethod = "HEAD"
         do {
             let (_, http) = try await transport(head)
-            switch http.statusCode {
-            case 200..<300:
-                return .reachable
-            case 405, 501:
+            if http.statusCode == 405 || http.statusCode == 501 {
                 // Host doesn't do HEAD — ask again with the cheapest possible GET.
                 var get = URLRequest(url: url, timeoutInterval: Self.timeout)
                 get.setValue("bytes=0-0", forHTTPHeaderField: "Range")
                 let (_, getHTTP) = try await transport(get)
-                return (200..<300).contains(getHTTP.statusCode) ? .reachable : .unreachable
-            default:
-                return .unreachable
+                return Self.result(forStatus: getHTTP.statusCode)
             }
+            return Self.result(forStatus: http.statusCode)
         } catch {
             return .indeterminate
+        }
+    }
+
+    /// See ``SitemapPreflightResult``'s case docs for why only 404/410 are definitive.
+    private static func result(forStatus status: Int) -> SitemapPreflightResult {
+        switch status {
+        case 200..<300: return .reachable
+        case 404, 410: return .unreachable
+        default: return .indeterminate
         }
     }
 }
