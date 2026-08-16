@@ -162,6 +162,7 @@ struct StandardSiteGraphPublishCommandTests {
 
         func set(wellKnown host: String, status: Int, body: String) { wellKnownResponses[host] = (status, body) }
         func set(homepage: String, body: String) { homepageResponses[homepage] = body }
+        func set(deleteRecordStatus status: Int) { deleteRecordStatus = status }
         func count(path: String) -> Int { requests.count { $0.url?.path == path } }
         func bodies(path: String) -> [[String: Any]] {
             requests.filter { $0.url?.path == path }.compactMap {
@@ -190,7 +191,7 @@ struct StandardSiteGraphPublishCommandTests {
         let stub = APIStub()
         let command = StandardSiteGraphPublishCommand(
             credentials: { _, _ in POSSECredentials() },
-            transport: { try await stub.respond($0) }
+            transport: { try await stub.respond($0) }, thirdPartyTransport: { try await stub.respond($0) }
         )
         await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
         #expect(await stub.count(path: "/xrpc/com.atproto.server.createSession") == 0)
@@ -202,7 +203,7 @@ struct StandardSiteGraphPublishCommandTests {
         defer { try? FileManager.default.removeItem(at: site.root) }
         let stub = APIStub()
         await stub.set(wellKnown: "friend.example", status: 200, body: "at://did:plc:friend/site.standard.publication/anglesite-abc\n")
-        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) })
+        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) }, thirdPartyTransport: { try await stub.respond($0) })
 
         await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
 
@@ -222,7 +223,7 @@ struct StandardSiteGraphPublishCommandTests {
         defer { try? FileManager.default.removeItem(at: site.root) }
         let stub = APIStub()
         let logCenter = LogCenter()
-        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) }, logCenter: logCenter)
+        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) }, thirdPartyTransport: { try await stub.respond($0) }, logCenter: logCenter)
 
         await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
 
@@ -245,7 +246,7 @@ struct StandardSiteGraphPublishCommandTests {
         ))
         try log.save(to: site.config)
         let stub = APIStub()
-        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) })
+        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) }, thirdPartyTransport: { try await stub.respond($0) })
 
         await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
 
@@ -264,7 +265,7 @@ struct StandardSiteGraphPublishCommandTests {
             homepage: "https://friend.example",
             body: #"<link rel="alternate" type="application/rss+xml" href="/feed.xml">"#
         )
-        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) })
+        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) }, thirdPartyTransport: { try await stub.respond($0) })
 
         await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
 
@@ -286,7 +287,7 @@ struct StandardSiteGraphPublishCommandTests {
             homepage: "https://friend.example",
             body: #"<link rel="alternate" type="application/rss+xml" href="/different-feed.xml">"#
         )
-        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) })
+        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) }, thirdPartyTransport: { try await stub.respond($0) })
 
         await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
 
@@ -295,5 +296,84 @@ struct StandardSiteGraphPublishCommandTests {
         )
         #expect(written.contains("feedURL: https://friend.example/manual.xml"))
         #expect(!written.contains("different-feed.xml"))
+    }
+
+    @Test("discovers and writes back a feed URL even when standard.site resolution fails")
+    func discoversFeedWhenResolutionFails() async throws {
+        // Most blogroll targets don't run standard.site at all — resolution failing (404 on the
+        // well-known lookup) must not gate feed discovery, or an ordinary blogroll of regular
+        // blogs never gets any OPML content (#1483 final review, Fix 1).
+        let site = try makeSite(blogroll: ["plain.md": "---\nname: Plain\nurl: https://plain.example\naddedDate: 2026-08-01\n---\n"])
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        let stub = APIStub()
+        await stub.set(wellKnown: "plain.example", status: 404, body: "")
+        await stub.set(
+            homepage: "https://plain.example",
+            body: #"<link rel="alternate" type="application/rss+xml" href="/feed.xml">"#
+        )
+        let command = StandardSiteGraphPublishCommand(
+            credentials: { _, _ in credentials },
+            transport: { try await stub.respond($0) },
+            thirdPartyTransport: { try await stub.respond($0) }
+        )
+
+        await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
+
+        let written = try String(
+            contentsOf: site.source.appendingPathComponent("src/content/blogroll/plain.md"), encoding: .utf8
+        )
+        #expect(written.contains("feedURL: \"https://plain.example/feed.xml\""))
+
+        let graphPuts = (await stub.bodies(path: "/xrpc/com.atproto.repo.putRecord"))
+            .filter { ($0["collection"] as? String) == "site.standard.graph.subscription" }
+        #expect(graphPuts.isEmpty)
+    }
+
+    @Test("logs when \"Publish posts to the Atmosphere\" is off in Site Settings")
+    func logsWhenDisabledInSettings() async throws {
+        let site = try makeSite(blogroll: ["friend.md": "---\nname: Friend\nurl: https://friend.example\naddedDate: 2026-08-01\n---\n"])
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        try await SiteConfigStore(configDirectory: site.config).save(SiteSettings(publishToAtmosphere: false))
+        let stub = APIStub()
+        let logCenter = LogCenter()
+        let command = StandardSiteGraphPublishCommand(
+            credentials: { _, _ in credentials },
+            transport: { try await stub.respond($0) },
+            thirdPartyTransport: { try await stub.respond($0) },
+            logCenter: logCenter
+        )
+
+        await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
+
+        #expect(await stub.count(path: "/xrpc/com.atproto.server.createSession") == 0)
+        let lines = await logCenter.snapshot()
+        #expect(lines.contains { $0.text.contains("skipped") && $0.text.contains("off in Site Settings") })
+    }
+
+    @Test("keeps a stale ledger entry in place when deleteRecord fails")
+    func keepsLedgerEntryWhenDeleteFails() async throws {
+        let site = try makeSite(blogroll: [:])
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        var log = StandardSiteGraphPublishLog()
+        log.record(.init(
+            sourceFile: "src/content/blogroll/gone.md",
+            uri: "at://did:plc:owner/site.standard.graph.subscription/anglesite-old",
+            lastPublishedAt: Date()
+        ))
+        try log.save(to: site.config)
+        let stub = APIStub()
+        await stub.set(deleteRecordStatus: 500)
+        let command = StandardSiteGraphPublishCommand(
+            credentials: { _, _ in credentials },
+            transport: { try await stub.respond($0) },
+            thirdPartyTransport: { try await stub.respond($0) }
+        )
+
+        await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
+
+        #expect(await stub.count(path: "/xrpc/com.atproto.repo.deleteRecord") == 1)
+        let reloaded = try #require(StandardSiteGraphPublishLog.load(from: site.config))
+        #expect(reloaded.entries.count == 1)
+        #expect(reloaded.entries.first?.sourceFile == "src/content/blogroll/gone.md")
     }
 }

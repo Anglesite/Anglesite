@@ -16,18 +16,26 @@ public actor StandardSiteGraphPublishCommand {
 
     private let credentials: POSSECredentialResolver.Provider
     private let transport: POSSEHTTPTransport
+    private let thirdPartyTransport: POSSEHTTPTransport
     private let logCenter: LogCenter
     private let now: @Sendable () -> Date
     private var inFlight: [String: InFlight] = [:]
 
+    /// `transport` above is only ever pointed at this app's own atproto PDS. Feed discovery and
+    /// standard.site resolution instead fetch whatever URL the owner typed as a blogroll entry —
+    /// third-party, untrusted, and potentially slow or hostile — so they get a separate,
+    /// capped/time-bounded transport (#1483 final review, Fix 2) rather than reusing
+    /// `URLSession.shared` via the PDS transport.
     public init(
         credentials: @escaping POSSECredentialResolver.Provider = POSSECredentialResolver.provider(),
         transport: @escaping POSSEHTTPTransport = POSSESyndicationCommand.defaultTransport,
+        thirdPartyTransport: @escaping POSSEHTTPTransport = StandardSiteGraphPublishCommand.defaultThirdPartyTransport,
         logCenter: LogCenter = .shared,
         now: @escaping @Sendable () -> Date = { Date.now }
     ) {
         self.credentials = credentials
         self.transport = transport
+        self.thirdPartyTransport = thirdPartyTransport
         self.logCenter = logCenter
         self.now = now
     }
@@ -59,8 +67,17 @@ public actor StandardSiteGraphPublishCommand {
               siteURLString != "https://example.com"
         else { return }
 
+        // Unlike the two gates above (not yet configured — nothing for the owner to act on), this
+        // one is a deliberate choice made in Site Settings (#1233), so skipping it is logged
+        // rather than silent — matches `StandardSitePublishCommand`'s equivalent gate.
         let settings = (try? SiteConfigStore.read(from: configDirectory)) ?? SiteSettings()
-        guard settings.publishToAtmosphere ?? true else { return }
+        guard settings.publishToAtmosphere ?? true else {
+            await logCenter.append(
+                source: source, stream: .stdout,
+                text: "standardsitegraph: skipped — \"Publish posts to the Atmosphere\" is off in Site Settings"
+            )
+            return
+        }
 
         let plan = BlogrollPlan.build(projectRoot: siteDirectory)
         var ledger = StandardSiteGraphPublishLog.load(from: configDirectory) ?? StandardSiteGraphPublishLog()
@@ -86,19 +103,23 @@ public actor StandardSiteGraphPublishCommand {
         var failedCount = 0
 
         for entry in plan.entries {
-            guard let publicationURI = await StandardSitePublicationResolver.resolve(homepage: entry.url, transport: transport) else {
+            // Feed discovery runs unconditionally, before the standard.site resolve guard below —
+            // most blogroll targets don't run standard.site at all (that's the expected common
+            // case), so gating discovery behind a successful resolve would make it never run for
+            // an ordinary blogroll (#1483 final review, Fix 1).
+            if entry.feedURL == nil {
+                if let discovered = try? await FeedEndpointDiscovery.discover(target: entry.url, transport: thirdPartyTransport) {
+                    writeBackFeedURL(discovered, entry: entry, siteDirectory: siteDirectory)
+                }
+            }
+
+            guard let publicationURI = await StandardSitePublicationResolver.resolve(homepage: entry.url, transport: thirdPartyTransport) else {
                 skippedCount += 1
                 await logCenter.append(
                     source: source, stream: .stdout,
                     text: "standardsitegraph: skipped \(entry.url.absoluteString) — no site.standard.publication found"
                 )
                 continue
-            }
-
-            if entry.feedURL == nil {
-                if let discovered = try? await FeedEndpointDiscovery.discover(target: entry.url, transport: transport) {
-                    writeBackFeedURL(discovered, entry: entry, siteDirectory: siteDirectory)
-                }
             }
 
             let rkey = "anglesite-\(POSSEStableKey.make("\(siteID)\n\(entry.sourceFile)"))"
@@ -173,4 +194,30 @@ public actor StandardSiteGraphPublishCommand {
     private func logError(_ message: String, source: String) async {
         await logCenter.append(source: source, stream: .stderr, text: "standardsitegraph: \(message)")
     }
+
+    private static let thirdPartyRequestTimeout: TimeInterval = 10
+    private static let thirdPartyResourceTimeout: TimeInterval = 20
+    private static let thirdPartyMaximumResponseBytes = 1 * 1024 * 1024 // 1 MB
+
+    private static let thirdPartySession = CappedHTTPTransport.session(
+        requestTimeout: thirdPartyRequestTimeout, resourceTimeout: thirdPartyResourceTimeout)
+
+    /// Production transport for fetching an owner-typed blogroll target's homepage or
+    /// well-known file — capped and time-bounded (10s request / 20s resource / 1 MB body) so a
+    /// slow or byte-dribbling third-party site can't stall the rest of the post-deploy pipeline,
+    /// which runs this pass serially ahead of POSSE/WebSub/ActivityPub (#1483 final review, Fix
+    /// 2). Follows the same `CappedHTTPTransport` wiring as `CommunityActorResolver.defaultTransport`.
+    public static let defaultThirdPartyTransport: POSSEHTTPTransport = { request in
+        try await CappedHTTPTransport.fetch(
+            request, session: thirdPartySession, cap: thirdPartyMaximumResponseBytes,
+            tooLarge: { StandardSiteGraphPublishCommandError.responseTooLarge(bytes: $0) })
+    }
+}
+
+/// Error thrown by ``StandardSiteGraphPublishCommand/defaultThirdPartyTransport`` when a
+/// third-party blogroll target's response exceeds the size cap. Both callers
+/// (`StandardSitePublicationResolver.resolve`, `FeedEndpointDiscovery.discover`) treat any
+/// transport failure as "no match found" rather than inspecting this error's payload.
+enum StandardSiteGraphPublishCommandError: Error {
+    case responseTooLarge(bytes: Int)
 }
