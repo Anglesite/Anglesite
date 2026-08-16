@@ -1,0 +1,53 @@
+# REUSE licensing metadata — https://reuse.software, specification 3.3.
+#
+# This file makes the repo's licensing machine-readable so `reuse lint` (CI's
+# `reuse-lint` lane, #1468) can verify that every tracked file has both a
+# copyright holder and an SPDX license identifier.
+#
+# Bulk annotation rather than per-file `SPDX-License-Identifier` headers: the
+# tree is ~2,300 files that are all first-party and all ISC, so per-file headers
+# would be ~4,600 lines of boilerplate to keep correct forever, and every newly
+# added file would become a compliance trap. A `path = "**"` rule instead makes
+# coverage the default and per-file headers the exception (see #1318's
+# "Alternatives considered"). Add a narrower `[[annotations]]` block below only
+# when a file genuinely deviates — e.g. if third-party code is ever vendored in.
+
+version = 1
+
+# Package identity. Declared for completeness and for future tool versions —
+# but note that `reuse` 6.2.0 (the version CI pins) does not consume these three
+# keys. Its `ReuseTOML.from_dict` reads only `version` and `annotations`, and
+# `reuse spdx` against this tree emits an SBOM with zero PackageName /
+# PackageSupplier / PackageDownloadLocation entries. They are not a lint
+# failure and not misspelled — reuse's own `dep5` converter writes exactly these
+# key names — they are simply write-only under the pinned version. Don't assume
+# the generated SBOM carries package identity until a later `reuse` reads them.
+SPDX-PackageName = "Anglesite"
+SPDX-PackageSupplier = "David W. Keith <me@dwk.io>"
+SPDX-PackageDownloadLocation = "https://github.com/Anglesite/Anglesite"
+
+# Default for the whole tree. `precedence = "override"` (rather than the default
+# "closest") is about correctness of the emitted metadata, not about passing the
+# lint — `reuse lint` exits 0 either way. No file here carries a real REUSE
+# header, but several *quote* upstream license texts as data, and reuse's header
+# scanner cannot tell a quotation from a declaration.
+# `Resources/Attributions/*.json` and `scripts/attributions-overrides.json` are
+# Anglesite-authored records of npm dependency licensing that between them embed
+# ~380 upstream "Copyright (c) …" lines; `docs/` prose and
+# `Tests/…/ThirdPartyNoticeRendererTests.swift` fixtures quote a few more. Under
+# "closest" those quotations get read as the enclosing file's own header — with
+# "closest", `app-binary.json` alone is credited to 26 copyright holders,
+# starting with "Copyright (C) 2023 Marcin Krzyzanowski", none of whom wrote it.
+# That is what would land in an SBOM produced by `reuse spdx`. "override" states
+# plainly that this file, not incidental file content, is the authority on who
+# holds copyright in the repo's own source.
+#
+# The corollary: if third-party code is ever vendored in with a genuine SPDX
+# header, an "override" default would silently swallow it — so vendored paths
+# must get their own `[[annotations]]` block here, with their license text added
+# to `LICENSES/`.
+[[annotations]]
+path = "**"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 David W. Keith"
+SPDX-License-Identifier = "ISC"
