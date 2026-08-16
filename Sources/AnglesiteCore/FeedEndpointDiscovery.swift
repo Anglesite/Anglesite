@@ -21,7 +21,7 @@ enum FeedEndpointDiscovery {
                   feedTypes.contains(type.lowercased()),
                   let href = HTMLLinkAttributeScanning.attributeValue("href", in: attrs)
             else { continue }
-            if let url = URL(string: href, relativeTo: finalURL)?.absoluteURL {
+            if let url = URL(string: href, relativeTo: finalURL)?.absoluteURL, isHTTPOrHTTPS(url) {
                 return url
             }
         }
@@ -30,5 +30,14 @@ enum FeedEndpointDiscovery {
 
     private static func isAlternateRel(_ rel: String) -> Bool {
         rel.split(whereSeparator: { $0.isWhitespace }).contains { $0.caseInsensitiveCompare("alternate") == .orderedSame }
+    }
+
+    /// A discovered feed URL gets committed into the owner's own git repo (write-back) and later
+    /// emitted into `/blogroll.opml`, so a hostile or malformed target's markup can't smuggle a
+    /// `javascript:`/`data:` (or other non-web) scheme through — filtered out here the same way a
+    /// non-matching `rel`/`type` is: as "no feed found", not as an error (#1483 final review, Fix 7).
+    private static func isHTTPOrHTTPS(_ url: URL) -> Bool {
+        guard let scheme = url.scheme?.lowercased() else { return false }
+        return scheme == "http" || scheme == "https"
     }
 }

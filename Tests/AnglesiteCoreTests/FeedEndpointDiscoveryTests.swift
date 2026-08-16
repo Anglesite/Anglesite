@@ -54,4 +54,16 @@ struct FeedEndpointDiscoveryTests {
         )
         #expect(discovered == nil)
     }
+
+    @Test("a javascript: href is ignored, not returned as a discovered feed")
+    func ignoresNonHTTPScheme() async throws {
+        // A discovered feed URL gets committed into the owner's git repo and later emitted into
+        // /blogroll.opml, so a non-http(s) scheme from hostile or malformed markup must be
+        // filtered out here rather than trusted (#1483 final review, Fix 7).
+        let html = #"<link rel="alternate" type="application/rss+xml" href="javascript:alert(1)">"#
+        let discovered = try await FeedEndpointDiscovery.discover(
+            target: URL(string: "https://target.example")!, transport: transport(body: html)
+        )
+        #expect(discovered == nil)
+    }
 }
