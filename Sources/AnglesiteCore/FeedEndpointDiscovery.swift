@@ -1,4 +1,9 @@
 import Foundation
+// URLSession/URLRequest/HTTPURLResponse live in FoundationNetworking on non-Darwin
+// platforms (swift-corelibs-foundation); this import is a no-op on macOS.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Discovers a target URL's declared RSS/Atom feed for the blogroll's OPML export (#1483):
 /// fetch the target once, scan its `<link>` elements in document order for the first
