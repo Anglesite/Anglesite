@@ -50,6 +50,7 @@ Fields:
 | `url` | `.url` | yes | The recommended site's homepage. |
 | `name` | `.string` | yes | Owner-authored display name (see §2 — rendering never fetches the target's own name). |
 | `note` | `.markdown` | no | Optional short blurb, e.g. why the owner recommends it. |
+| `feedURL` | `.url` | no | The site's RSS/Atom feed, for OPML export (§4). Owner may paste it directly; if left blank, auto-discovered (§4) and written back once found. |
 
 No `microformat`/`schemaType` projection: there's no h-entry-shaped or schema.org vocabulary
 that fits "a site I follow" the way `h-entry`/`u-bookmark-of` fits a single bookmarked URL, and
@@ -125,7 +126,52 @@ reverse against someone else's:
 ledger but no longer in the current `blogroll` collection has its `site.standard.graph.subscription`
 record deleted via `AtprotoPutRecordClient.deleteRecord`.
 
-### 4. Naming note (not solved here)
+### 4. OPML export and feed discovery
+
+The blogroll should be subscribable as a whole, not just link-by-link — a `/blogroll.opml` file
+listing every entry's feed. This needs each entry's *feed* URL, which is a different thing from
+its homepage `url`, so:
+
+**Discovery, reusing the webmention-discovery shape.** `WebmentionEndpointDiscovery`
+(`Sources/AnglesiteCore/WebmentionEndpointDiscovery.swift`) already does exactly this kind of
+job for a different `rel`: fetch a page once, scan its `<link>`/`<a>` tags in document order for
+a matching attribute, resolve a relative `href` against the final (post-redirect) URL. Its
+tag-scanning loop and `attributeValue`/`attributeRegex` helpers are the reusable part; the
+`rel=webmention` predicate is the only feature-specific bit. This design factors that shared
+scanning machinery out into an internal helper both files call, and adds a new
+`FeedEndpointDiscovery.discover(target:transport:)` that looks for
+`<link rel="alternate" type="application/rss+xml">` or `type="application/atom+xml"` and returns
+the first match's `href`. This is a targeted refactor of existing code the work touches, not a
+speculative abstraction — the alternative is duplicating ~80 lines of subtle regex/attribute-
+parsing logic verbatim.
+
+**When discovery runs.** As part of `StandardSiteGraphPublishCommand`'s per-entry loop (§3): an
+entry with no `feedURL` already set gets one extra best-effort GET of its `url` (separate from
+the `.well-known` lookup, which targets a different path) through the same `FeedEndpointDiscovery`
+call. A 404/timeout/no-`<link>`-found result is logged as another expected "skipped" line, not an
+error — most sites don't have (or don't advertise) a feed.
+
+**Write-back, reusing the frontmatter-splice pattern.** POSSE already writes discovered data back
+into a post's own frontmatter after the fact (`SyndicationFrontmatter.adding(urls:to:)`, built on
+`Frontmatter`'s canonical parse/fence helpers, preserving the file's existing formatting/line
+endings). A new sibling, `BlogrollFeedFrontmatter.setting(feedURL:in:)`, does the single-scalar
+version: writes `feedURL:` into the entry's frontmatter **only if the key is currently absent or
+blank** — an owner-provided value is never overwritten — and is a no-op (no file write, no git
+diff) when nothing new was discovered or the field is already set. This means a newly added
+entry's `feedURL` lags by one deploy (discovered this deploy, visible in `Source/` and thus in
+the OPML starting next build) — the same "not atomic, but converges" characteristic increment 2's
+bidirectional well-known verification already has.
+
+**OPML generation.** A new Astro endpoint route (`src/pages/blogroll.opml.ts`), following the
+same `getCollection()` + typed-route pattern the existing RSS/Atom/JSON feed generation already
+uses (V-1.6, #348) rather than introducing a new templating mechanism. Reads the `blogroll`
+collection at build time (no network — `feedURL` is already committed data by the time a build
+reads it, per the write-back lag above) and emits an OPML 2.0 document with one
+`<outline type="rss" text="{name}" title="{name}" xmlUrl="{feedURL}" htmlUrl="{url}">` per entry
+that has a `feedURL`. Entries without one are omitted from the OPML but still render as plain
+links on `/blogroll/` (§2), which gets a "Subscribe (OPML)" link to `/blogroll.opml`.
+
+### 5. Naming note (not solved here)
 
 The unimplemented "Collections ▸ Add RSS Feed to Directory" feature from the menubar IA doc also
 uses "blogroll" informally, for a different, feed-URL-based mechanism. This design claims the
@@ -149,11 +195,18 @@ per-entry outcomes, matching `StandardSitePublishCommand`'s existing convention 
 - `BlogrollGraphPublishTests` (new, mirrors `StandardSitePublishTests`): resolve/skip/publish/
   unpublish behavior against the injectable transport, no real network — a stubbed transport
   returns a canned `.well-known` body for "resolves" cases and a 404/timeout for "skip" cases.
+- `FeedEndpointDiscoveryTests` (new, mirrors the existing webmention-discovery test coverage):
+  `<link rel="alternate" type="application/rss+xml">`/`atom+xml` matched in document order,
+  relative `href` resolution against the post-redirect URL, no-match returns `nil` rather than
+  throwing.
+- `BlogrollFeedFrontmatterTests` (new, mirrors `SyndicationFrontmatter`'s tests): writes `feedURL`
+  into frontmatter with no existing fence, an existing fence with other keys, and is a no-op
+  (byte-identical output) when the key is already set or nothing was discovered.
 - `ContentTypeRegistryTests`: the new `blogroll` type decodes/encodes and round-trips like the
   other personal types.
 - Template-coupled test (per `CONTRIBUTING.md`'s "if you touch `Resources/Template/`, run `swift
-  test` too") if the `/blogroll/` page or content collection schema needs a matching Zod schema
-  addition.
+  test` too") for the `blogroll.opml.ts` route's output shape and the `/blogroll/` page's Zod
+  schema addition.
 
 ## Alternatives considered
 
@@ -167,6 +220,10 @@ per-entry outcomes, matching `StandardSitePublishCommand`'s existing convention 
 - **Fetch the target's own publication record to enrich the rendered page.** Rejected for v1:
   adds a build-time (or pre-build) network dependency this app has deliberately avoided
   elsewhere, for marginal benefit over the owner's own typed name/note.
+- **Cache the discovered `feedURL` in `.site-config` instead of writing it into the entry's own
+  frontmatter.** Rejected (owner's call): the content file is the natural, git-visible home for a
+  per-entry field, `SyndicationFrontmatter`/`Frontmatter` already exist to do this kind of write
+  safely, and `.site-config` would need an ad hoc per-entry keying scheme it wasn't designed for.
 
 ## Open questions
 
