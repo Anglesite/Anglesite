@@ -13,7 +13,12 @@ const { hasFeeds } = Astro.props;
 ---
 
 {hasFeeds && (
-  <a class="opml-badge" href="/blogroll.opml" title="Subscribe to this blogroll via OPML">
+  <a
+    class="opml-badge"
+    href="/blogroll.opml"
+    title="Subscribe to this blogroll via OPML"
+    aria-label="Subscribe to this blogroll via OPML"
+  >
     <span class="opml-badge-icon" aria-hidden="true"></span>
     <span class="opml-badge-text">OPML</span>
   </a>
@@ -26,7 +31,10 @@ const { hasFeeds } = Astro.props;
     gap: 0.35rem;
     padding: 0.2rem 0.5rem 0.2rem 0.35rem;
     border-radius: 0.2rem;
-    background: #ee802f;
+    /* #a8480a clears WCAG AA's 4.5:1 text-contrast threshold against white (computed: 5.84:1) —
+       #ee802f, the original "classic RSS orange", only cleared ~2.7:1. Still reads as the same
+       orange-badge family, just darkened enough to carry white text legibly. */
+    background: #a8480a;
     color: #fff;
     font-size: 0.8rem;
     font-weight: 700;
@@ -35,7 +43,8 @@ const { hasFeeds } = Astro.props;
   }
 
   .opml-badge:hover {
-    background: #d97227;
+    /* Darkened proportionally further than the base (computed: 7.40:1 against white). */
+    background: #8f3d09;
   }
 
   /* The classic feed-icon mark: a dot plus two concentric quarter-circle "broadcast" arcs
@@ -55,6 +64,7 @@ const { hasFeeds } = Astro.props;
     width: 1rem;
     height: 1rem;
     overflow: hidden;
+    background-image: radial-gradient(circle at 0.12rem calc(100% - 0.12rem), #fff 0.08rem, transparent 0.09rem);
   }
 
   .opml-badge-icon::before,
@@ -77,9 +87,5 @@ const { hasFeeds } = Astro.props;
     bottom: -0.3rem;
     width: 0.6rem;
     height: 0.6rem;
-  }
-
-  .opml-badge-icon {
-    background-image: radial-gradient(circle at 0.12rem calc(100% - 0.12rem), #fff 0.08rem, transparent 0.09rem);
   }
 </style>
