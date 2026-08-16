@@ -154,6 +154,7 @@ const members = defineCollection({
 const blogroll = defineCollection({
   loader: glob({ pattern: "**/*.md", base: "./src/content/blogroll" }),
   schema: z.object({
+    ...socialFields,
     name: z.string(),
     url: z.string().url(),
     feedURL: z.string().url().optional(),
