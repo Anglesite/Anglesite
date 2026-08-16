@@ -28,18 +28,27 @@ final class AISearchModel {
     private let reader: any CloudflareReading
     private let writer: any CloudflareWriting
     private let provisioner: any AISearchProvisioning
+    private let preflight: any SitemapPreflighting
     private let keychain: any SecretStore
     private var inFlight: Task<Void, Never>?
+
+    /// The owner-facing fix for a sitemap that isn't live at the domain — shared by the
+    /// preflight short-circuit (#1494) and the create-time 7028 mapping (#1486) so the two
+    /// paths can't drift apart.
+    static let missingSitemapGuidance =
+        "Your site's sitemap isn't reachable yet. Deploy the site first, then set up AI Search."
 
     init(
         reader: any CloudflareReading = HTTPCloudflareClient(),
         writer: any CloudflareWriting = HTTPCloudflareClient(),
         provisioner: any AISearchProvisioning = HTTPCloudflareClient(),
+        preflight: any SitemapPreflighting = HTTPSitemapPreflight(),
         keychain: any SecretStore = KeychainStore()
     ) {
         self.reader = reader
         self.writer = writer
         self.provisioner = provisioner
+        self.preflight = preflight
         self.keychain = keychain
     }
 
@@ -124,6 +133,15 @@ final class AISearchModel {
                 phase = .failed(reason: "Zone not found for \"\(domain)\". Check the domain and ensure your API token has Zone Read permission.")
                 return
             }
+            // Advisory sitemap probe (#1494): a definitive "not there" surfaces the
+            // deploy-first fix *before* the owner is asked to confirm cost, instead of after
+            // a failed create. Only `.unreachable` blocks — `.indeterminate` (timeout, DNS)
+            // proceeds and lets the create itself decide, with the 7028 mapping (#1486) as
+            // the backstop, so a flaky probe can never wedge the wizard.
+            if await preflight.checkSitemap(domain: domain) == .unreachable {
+                phase = .failed(reason: Self.missingSitemapGuidance)
+                return
+            }
             phase = .awaitingCostConfirmation(domain: domain, zoneID: zoneID)
         } catch let error as CloudflareError {
             phase = .failed(reason: cloudflareErrorMessage(error))
@@ -146,7 +164,7 @@ final class AISearchModel {
             // Cloudflare 7028: the crawler can't find a sitemap at the domain. The app knows
             // the fix (the sitemap ships in every build but isn't live until the first
             // deploy), so say that — not the API code (#1486).
-            phase = .failed(reason: "Your site's sitemap isn't reachable yet. Deploy the site first, then set up AI Search.")
+            phase = .failed(reason: Self.missingSitemapGuidance)
         } catch let error as CloudflareError {
             phase = .failed(reason: cloudflareErrorMessage(error))
         } catch {
