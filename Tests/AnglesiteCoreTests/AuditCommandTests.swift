@@ -102,7 +102,18 @@ struct AuditCommandTests {
             return
         }
         #expect(reason.contains("terminated"))
-        #expect(await waitForMarker("__SIGTERM__", in: center, timeout: .seconds(10)), "build subprocess was not actually SIGTERM'd")
+        // 30s, not the 10s every other marker wait in this file uses: `task.cancel()` only
+        // resumes `waitForExit`'s continuation immediately (ProcessSupervisor.waitForExit's
+        // documented cancel-fast-forward contract) — the actual SIGTERM send is a *separate*,
+        // un-awaited `Task { await supervisor.terminate(handle) }` fired from
+        // `HostAuditExecutor.spawn`'s `onCancel` handler (AuditExecutor.swift). `task.value`
+        // above can therefore resolve well before that detached task is even scheduled, so this
+        // wait is racing real OS/GCD scheduling latency, not a fixed-cost operation. #1500 saw
+        // this lose a 10s budget twice in the isolated, low-concurrency timing-sensitive lane
+        // (scripts/lib/timing-sensitive-tests.sh) — i.e. even reduced cross-suite contention
+        // doesn't bound how long a bare `Task {}` waits for a runner-loaded scheduler. Don't
+        // re-tighten this without evidence the detached-task scheduling gap has been closed.
+        #expect(await waitForMarker("__SIGTERM__", in: center, timeout: .seconds(30)), "build subprocess was not actually SIGTERM'd")
     }
 
     // MARK: Build failure
