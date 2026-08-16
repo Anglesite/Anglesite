@@ -125,10 +125,11 @@ public enum BlueskyPOSSEClient {
     ///   - recordKey: Deterministic record key (see ``POSSEStableKey``); the same input must
     ///     always yield the same key or the 409-dedupe guarantee breaks.
     ///   - now: The record's `createdAt`; injected for test determinism.
-    ///   - thumbnail: The post's cover image, read and ready for upload (see
-    ///     ``StandardSiteImageBlob``), or `nil` to post a plain link card. A failed upload is
-    ///     swallowed rather than failing the post — the embed thumb is a decorative nice-to-have,
-    ///     not something worth losing the whole POSSE cross-post over (#1484).
+    ///   - thumb: The post's cover image, already uploaded to the same PDS (see
+    ///     ``AtprotoPutRecordClient/uploadBlob(data:mimeType:pdsURL:session:transport:)``), or
+    ///     `nil` to post a plain link card. Uploading is the caller's job — this method only
+    ///     embeds an already-resolved blob ref, so a failed upload never risks the post itself
+    ///     (#1484).
     ///   - transport: HTTP seam (see ``POSSEHTTPTransport``).
     /// - Throws: ``POSSEClientError`` for a bad endpoint, non-2xx status (other than the
     ///   handled 409), or undecodable body.
@@ -137,7 +138,7 @@ public enum BlueskyPOSSEClient {
         credentials: POSSECredentials.Bluesky,
         recordKey: String,
         now: Date,
-        thumbnail: StandardSiteImageBlob.Prepared? = nil,
+        thumb: AtprotoPutRecordClient.BlobRef? = nil,
         transport: POSSEHTTPTransport
     ) async throws -> URL {
         let session: SessionResponse = try await jsonRequest(
@@ -147,15 +148,6 @@ public enum BlueskyPOSSEClient {
             bearer: nil,
             transport: transport
         )
-        var thumb: AtprotoPutRecordClient.BlobRef?
-        if let thumbnail {
-            thumb = try? await AtprotoPutRecordClient.uploadBlob(
-                data: thumbnail.data, mimeType: thumbnail.mimeType,
-                pdsURL: credentials.pdsURL,
-                session: AtprotoPutRecordClient.Session(did: session.did, accessJwt: session.accessJwt),
-                transport: transport
-            )
-        }
         let text = post.text(limit: 300)
         let link = post.canonicalURL.absoluteString
         guard let linkRange = text.range(of: link, options: .backwards) else {

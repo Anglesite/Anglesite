@@ -129,10 +129,11 @@ public actor POSSESyndicationCommand {
                             await logError("bluesky requested by \(entry.sourceFile), but its identifier/app password are not configured", source: source)
                             continue
                         }
-                        let thumbnail = await resolveThumbnail(post: post, siteDirectory: siteDirectory, source: source)
+                        let thumb = await resolveThumbnail(
+                            post: post, credentials: bluesky, siteDirectory: siteDirectory, source: source)
                         syndicationURL = try await BlueskyPOSSEClient.post(
                             post, credentials: bluesky, recordKey: "anglesite-\(stableKey)", now: now(),
-                            thumbnail: thumbnail, transport: transport)
+                            thumb: thumb, transport: transport)
                     default:
                         continue
                     }
@@ -170,21 +171,31 @@ public actor POSSESyndicationCommand {
         }
     }
 
-    /// Resolves `post`'s frontmatter `image` to a local file ready for upload as the Bluesky
-    /// embed's `thumb` (#1484), or `nil` when there's nothing to attach. Only a root-relative
-    /// path (`/uploads/hero.jpg` — Astro's `public/` served at the site root, the same convention
+    /// Resolves `post`'s frontmatter `image` to an uploaded Bluesky blob ref for the embed's
+    /// `thumb` (#1484), or `nil` when there's nothing to attach. Only a root-relative path
+    /// (`/uploads/hero.jpg` — Astro's `public/` served at the site root, the same convention
     /// `StandardSitePublishCommand.resolveCoverImage` uses) resolves to a local file; anything
     /// else (an external URL, a colocated-asset relative path) is left unresolved rather than
-    /// guessed at. A missing file is silently skipped — the common case is simply no cover image
-    /// — but an oversize or unrecognized image is one the owner did configure, so it's logged.
-    private func resolveThumbnail(post: POSSEPost, siteDirectory: URL, source: String) async -> StandardSiteImageBlob.Prepared? {
+    /// guessed at. Every failure mode — missing file, oversize, unrecognized extension, or a
+    /// rejected upload — degrades to "no thumb" rather than failing the post; a missing file
+    /// stays silent (the common case is simply no cover image configured), but every other case
+    /// is one the owner *did* configure, so it's logged ("logs are sacred, no silent drops").
+    ///
+    /// Logs in fresh via ``AtprotoPutRecordClient/createSession(credentials:transport:)`` rather
+    /// than reusing ``BlueskyPOSSEClient/post(_:credentials:recordKey:now:thumb:transport:)``'s own
+    /// session — the two clients don't share session state, and this keeps the upload's success/
+    /// failure fully observable here instead of silently swallowed inside the post call.
+    private func resolveThumbnail(
+        post: POSSEPost, credentials: POSSECredentials.Bluesky, siteDirectory: URL, source: String
+    ) async -> AtprotoPutRecordClient.BlobRef? {
         guard let sourcePath = post.coverImageSourcePath, sourcePath.hasPrefix("/") else { return nil }
         let fileURL = siteDirectory
             .appendingPathComponent(WebsiteIconAsset.publicDirectoryRelativePath, isDirectory: true)
             .appendingPathComponent(String(sourcePath.dropFirst()))
+        let prepared: StandardSiteImageBlob.Prepared
         switch StandardSiteImageBlob.prepare(fileURL: fileURL) {
-        case .success(let prepared):
-            return prepared
+        case .success(let value):
+            prepared = value
         case .failure(.fileNotFound):
             return nil
         case .failure(.tooLarge(let bytes)):
@@ -198,6 +209,16 @@ public actor POSSESyndicationCommand {
                 source: source, stream: .stdout,
                 text: "posse: skipped bluesky thumb — unrecognized image extension \"\(ext)\""
             )
+            return nil
+        }
+        do {
+            let session = try await AtprotoPutRecordClient.createSession(credentials: credentials, transport: transport)
+            return try await AtprotoPutRecordClient.uploadBlob(
+                data: prepared.data, mimeType: prepared.mimeType,
+                pdsURL: credentials.pdsURL, session: session, transport: transport
+            )
+        } catch {
+            await logError("couldn't upload bluesky thumb: \(error.localizedDescription)", source: source)
             return nil
         }
     }

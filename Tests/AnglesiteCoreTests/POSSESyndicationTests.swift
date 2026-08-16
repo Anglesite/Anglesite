@@ -10,6 +10,7 @@ import AnglesiteTestSupport
 struct POSSESyndicationTests {
     private actor APIStub {
         var requests: [URLRequest] = []
+        var failUploadBlob = false
 
         func respond(_ request: URLRequest) throws -> (Data, HTTPURLResponse) {
             requests.append(request)
@@ -31,8 +32,13 @@ struct POSSESyndicationTests {
                 status = 200
                 json = #"{"uri":"at://did:plc:owner/site.standard.publication/anglesite-stable","cid":"bafycid"}"#
             case "/xrpc/com.atproto.repo.uploadBlob":
-                status = 200
-                json = #"{"blob":{"$type":"blob","ref":{"$link":"bafkreicid"},"mimeType":"image/png","size":3}}"#
+                if failUploadBlob {
+                    status = 500
+                    json = #"{"error":"InternalServerError"}"#
+                } else {
+                    status = 200
+                    json = #"{"blob":{"$type":"blob","ref":{"$link":"bafkreicid"},"mimeType":"image/png","size":3}}"#
+                }
             default:
                 // Existing ledger entries try standard Webmention discovery on the next deploy.
                 status = 200
@@ -43,6 +49,10 @@ struct POSSESyndicationTests {
                 headerFields: ["Content-Type": path.hasPrefix("/xrpc/") ? "application/json" : "text/html"]
             ) else { throw URLError(.badServerResponse) }
             return (Data(json.utf8), response)
+        }
+
+        func setFailUploadBlob(_ value: Bool) {
+            failUploadBlob = value
         }
 
         func count(path: String, method: String = "POST") -> Int {
@@ -135,24 +145,25 @@ struct POSSESyndicationTests {
         #expect(request?.value(forHTTPHeaderField: "Authorization") == "Bearer jwt")
     }
 
-    @Test("Bluesky uploads a thumbnail blob and embeds it in the external card")
+    @Test("Bluesky embeds a pre-uploaded thumbnail blob in the external card without re-uploading it")
     func blueskyThumbnailRequest() async throws {
         let stub = APIStub()
         let canonical = URL(string: "https://example.com/notes/hello/")!
         let post = POSSEPost(title: "Hello", summary: "Summary", canonicalURL: canonical)
-        let thumbnail = StandardSiteImageBlob.Prepared(data: Data([0xFF, 0xD8, 0xFF]), mimeType: "image/jpeg")
+        let thumb = AtprotoPutRecordClient.BlobRef(
+            ref: .init(link: "bafkreicid"), mimeType: "image/jpeg", size: 3
+        )
         _ = try await BlueskyPOSSEClient.post(
             post,
             credentials: credentials.bluesky!,
             recordKey: "anglesite-stable",
             now: Date(timeIntervalSince1970: 1_700_000_000),
-            thumbnail: thumbnail,
+            thumb: thumb,
             transport: { request in try await stub.respond(request) }
         )
-        #expect(await stub.count(path: "/xrpc/com.atproto.repo.uploadBlob") == 1)
-        let uploadRequest = await stub.first(path: "/xrpc/com.atproto.repo.uploadBlob")
-        #expect(uploadRequest?.value(forHTTPHeaderField: "Content-Type") == "image/jpeg")
-        #expect(uploadRequest?.value(forHTTPHeaderField: "Authorization") == "Bearer jwt")
+        // The blob is already uploaded by the caller (see `commandAttachesCoverImageThumb`) —
+        // `post` itself only ever embeds it, never performs I/O for it.
+        #expect(await stub.count(path: "/xrpc/com.atproto.repo.uploadBlob") == 0)
 
         let createRequest = await stub.first(path: "/xrpc/com.atproto.repo.createRecord")
         let body = try #require(createRequest?.httpBody)
@@ -160,9 +171,9 @@ struct POSSESyndicationTests {
         let record = try #require(object["record"] as? [String: Any])
         let embed = try #require(record["embed"] as? [String: Any])
         let external = try #require(embed["external"] as? [String: Any])
-        let thumb = try #require(external["thumb"] as? [String: Any])
-        #expect(thumb["mimeType"] as? String == "image/png")
-        let ref = try #require(thumb["ref"] as? [String: Any])
+        let thumbJSON = try #require(external["thumb"] as? [String: Any])
+        #expect(thumbJSON["mimeType"] as? String == "image/jpeg")
+        let ref = try #require(thumbJSON["ref"] as? [String: Any])
         #expect(ref["$link"] as? String == "bafkreicid")
     }
 
@@ -261,6 +272,52 @@ struct POSSESyndicationTests {
         let embed = try #require(record["embed"] as? [String: Any])
         let external = try #require(embed["external"] as? [String: Any])
         #expect(external["thumb"] != nil)
+    }
+
+    @Test("command logs and posts without a thumb when the cover-image upload fails")
+    func commandLogsFailedThumbnailUpload() async throws {
+        let site = try makeSite()
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        try Data("""
+        ---
+        title: Hello world
+        description: A short update from my own site.
+        posse: [bluesky]
+        image: /uploads/hero.jpg
+        ---
+        Full body.
+        """.utf8).write(to: site.file)
+        let imageURL = site.source.appendingPathComponent("public/uploads/hero.jpg")
+        try FileManager.default.createDirectory(
+            at: imageURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data([0xFF, 0xD8, 0xFF, 0xE0]).write(to: imageURL)
+
+        let stub = APIStub()
+        await stub.setFailUploadBlob(true)
+        let logCenter = LogCenter()
+        let command = POSSESyndicationCommand(
+            credentials: { _, _ in credentials },
+            transport: { request in try await stub.respond(request) },
+            logCenter: logCenter,
+            now: { Date(timeIntervalSince1970: 1_700_000_000) }
+        )
+        await command.syndicate(
+            siteID: "site-1", siteDirectory: site.source, configDirectory: site.config,
+            siteBase: URL(string: "https://example.com")!
+        )
+
+        // The post still goes out even though its cover image couldn't be uploaded.
+        #expect(await stub.count(path: "/xrpc/com.atproto.repo.createRecord") == 1)
+        let createRequest = await stub.first(path: "/xrpc/com.atproto.repo.createRecord")
+        let body = try #require(createRequest?.httpBody)
+        let object = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        let record = try #require(object["record"] as? [String: Any])
+        let embed = try #require(record["embed"] as? [String: Any])
+        let external = try #require(embed["external"] as? [String: Any])
+        #expect(external["thumb"] == nil)
+
+        let log = await logCenter.snapshot()
+        #expect(log.contains { $0.text.contains("couldn't upload") && $0.text.contains("bluesky thumb") })
     }
 
     @Test("putRecord creates a session, then writes the record with the caller's collection/rkey — create-or-update, no 409 handling")
