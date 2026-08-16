@@ -25,6 +25,29 @@ explanatory suffix). Every item below carries an availability tag:
 
 Shortcut re-keys (§3) land **with** the skeleton so muscle memory changes only once.
 
+> **Documented convention departure (#960, owner decision 2026-08-15).** Shipping the full
+> skeleton means Release builds carry a large set of permanently-disabled `PlannedItem` rows
+> (`Sources/AnglesiteApp/MenuSkeleton.swift`) — 113 at the time of the #960 audit, 74 of them
+> in Insert/Format/Arrange — whose reserved shortcuts are dead keys until their features land.
+> This departs from the macOS convention (see
+> [`docs/mac-assed-app-spec.md`](../../mac-assed-app-spec.md) §2 and its release
+> acceptance checklist) that a disabled item means *"not applicable right now — change the
+> selection or state and it will light up."*
+>
+> - **Why it's intentional:** the skeleton keeps the north-star IA visible in every build —
+>   roadmap visibility for users and testers, a standing design-review surface, and reserved
+>   shortcut assignments and menu placement that stay stable so muscle memory changes only
+>   once.
+> - **Trade-off acknowledged:** at this ratio, dimmed items stop carrying the conventional
+>   "change state to enable" signal, which can devalue the genuinely state-dependent
+>   disabling elsewhere (deploy/backup gating, the Find items). A user opening Format today
+>   can use none of its rows.
+> - **Re-examination checkpoint:** revisit before the #617 App Store submission. Weigh
+>   #960's options 1–2 (Debug-only skeleton via a build flag, or hiding menus that are
+>   entirely planned) against the shipped/planned ratio at that point; an App Review pass
+>   over a mostly-dead menu is a bad first impression independent of the reservation
+>   argument.
+
 ## 2. Menu-by-menu IA
 
 Top-level lineup: **Anglesite · File · Edit · Insert · Page · Format · Arrange · View ·
