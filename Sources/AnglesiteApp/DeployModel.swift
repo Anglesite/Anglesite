@@ -154,6 +154,7 @@ final class DeployModel {
     private let command: DeployCommand
     private let webmentionCommand: WebmentionSendCommand
     private let standardSitePublishCommand: StandardSitePublishCommand
+    private let standardSiteGraphPublishCommand: StandardSiteGraphPublishCommand
     private let posseCommand: POSSESyndicationCommand
     private let websubPing: WebSubPublishPing
     private let activityPubOutboxBackfill: ActivityPubOutboxBackfill
@@ -198,6 +199,7 @@ final class DeployModel {
         command: DeployCommand = DeployCommand(),
         webmentionCommand: WebmentionSendCommand = WebmentionSendCommand(),
         standardSitePublishCommand: StandardSitePublishCommand = StandardSitePublishCommand(),
+        standardSiteGraphPublishCommand: StandardSiteGraphPublishCommand = StandardSiteGraphPublishCommand(),
         posseCommand: POSSESyndicationCommand = POSSESyndicationCommand(),
         websubPing: WebSubPublishPing = WebSubPublishPing(),
         activityPubOutboxBackfill: ActivityPubOutboxBackfill = ActivityPubOutboxBackfill(),
@@ -216,6 +218,7 @@ final class DeployModel {
         self.command = command
         self.webmentionCommand = webmentionCommand
         self.standardSitePublishCommand = standardSitePublishCommand
+        self.standardSiteGraphPublishCommand = standardSiteGraphPublishCommand
         self.posseCommand = posseCommand
         self.websubPing = websubPing
         self.activityPubOutboxBackfill = activityPubOutboxBackfill
@@ -1026,6 +1029,12 @@ final class DeployModel {
                 publishStandardSite: { [weak self] in
                     guard let self else { return }
                     await self.standardSitePublishCommand.publish(
+                        siteID: siteID, siteDirectory: siteDirectory, configDirectory: configDirectory
+                    )
+                },
+                publishStandardSiteGraph: { [weak self] in
+                    guard let self else { return }
+                    await self.standardSiteGraphPublishCommand.publish(
                         siteID: siteID, siteDirectory: siteDirectory, configDirectory: configDirectory
                     )
                 },
