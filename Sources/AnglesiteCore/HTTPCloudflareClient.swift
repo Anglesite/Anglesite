@@ -15,7 +15,13 @@ private struct CFResultInfo: Decodable, Sendable {
 private struct CFEnvelope<T: Decodable & Sendable>: Decodable, Sendable {
     let success: Bool
     let result: T?
-    struct APIError: Decodable, Sendable { let message: String }
+    struct APIError: Decodable, Sendable {
+        let message: String
+        /// Cloudflare's numeric error code (e.g. 7028 `missing_sitemap`). Optional because
+        /// only paths that branch on a specific code consult it, and older envelope fixtures
+        /// omit it.
+        let code: Int?
+    }
     let errors: [APIError]?
     let result_info: CFResultInfo?
 }
@@ -398,11 +404,15 @@ public struct HTTPCloudflareClient: CloudflareReading {
     /// only checks the envelope's `success` flag) and the Registrar `post` helper below (which
     /// also decodes and returns the envelope's `result`) — both need identical request
     /// construction and status handling and previously duplicated it verbatim.
+    /// `passthroughStatuses` mirrors `fetchRaw`'s parameter of the same name: statuses a caller
+    /// opts out of the `.http` mapping so it can inspect the response body itself (e.g. a 400
+    /// whose error envelope carries an actionable Cloudflare error code).
     private func send<Body: Encodable & Sendable>(
         method: String,
         _ path: String,
         body: Body,
-        apiToken: String
+        apiToken: String,
+        passthroughStatuses: Set<Int> = []
     ) async throws -> (Data, HTTPURLResponse) {
         guard let url = URL(string: Self.base + path) else { throw CloudflareError.malformedResponse }
         var request = URLRequest(url: url)
@@ -411,6 +421,7 @@ public struct HTTPCloudflareClient: CloudflareReading {
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(body)
         let (data, http) = try await transport(request)
+        if passthroughStatuses.contains(http.statusCode) { return (data, http) }
         if http.statusCode == 401 || http.statusCode == 403 { throw CloudflareError.unauthorized }
         guard (200..<300).contains(http.statusCode) else { throw CloudflareError.http(status: http.statusCode) }
         return (data, http)
@@ -693,6 +704,14 @@ extension HTTPCloudflareClient: CloudflareRegistrarReading {
         _ path: String, body: Body, apiToken: String, as type: T.Type
     ) async throws -> T {
         let (data, _) = try await send(method: "POST", path, body: body, apiToken: apiToken)
+        return try Self.decodeEnvelopeResult(from: data, as: T.self)
+    }
+
+    /// Decodes a `CFEnvelope<T>` response body and returns its `result`, mapping an
+    /// undecodable body to ``CloudflareError/malformedResponse`` and a `success: false` or
+    /// missing `result` to ``CloudflareError/api(message:)``. Shared by `post` and
+    /// `createAISearchInstance` (which can't use `post` because it inspects 400 bodies itself).
+    private static func decodeEnvelopeResult<T: Decodable & Sendable>(from data: Data, as type: T.Type) throws -> T {
         let env: CFEnvelope<T>
         do {
             env = try JSONDecoder().decode(CFEnvelope<T>.self, from: data)
@@ -916,14 +935,22 @@ extension HTTPCloudflareClient: AgentReadinessScanning {
 extension HTTPCloudflareClient: AISearchProvisioning {
     /// `POST /accounts/{id}/ai-search/instances`, creating a web-crawler-backed AI Search
     /// instance for `domain`. Resolves the account first via `resolveAccountID` (the Registrar
-    /// conformance above, same file so its `private` scope still applies) and reuses `post` for
-    /// the request/response handling, same as `checkDomainAvailability`.
+    /// conformance above, same file so its `private` scope still applies).
+    ///
+    /// Unlike the other write paths, a 400 here is passed through and its error envelope
+    /// decoded (#1486): Cloudflare validates the source website at create time, and a source
+    /// with no reachable sitemap fails with code 7028 `missing_sitemap` (confirmed live,
+    /// 2026-08-15) — for an Anglesite site that nearly always means "not deployed yet", which
+    /// deserves better than a bare "HTTP 400". Code 7028 maps to
+    /// ``AISearchProvisionError/missingSitemap``; any other decodable 400 surfaces Cloudflare's
+    /// own message as ``CloudflareError/api(message:)``; an undecodable 400 body keeps the old
+    /// ``CloudflareError/http(status:)`` behavior.
     ///
     /// Flat shape, no `namespaces` segment — follows developers.cloudflare.com/ai-search/
     /// get-started/api/'s verbatim curl examples. Cloudflare's auto-generated API reference
     /// disagrees (documents a namespaced /namespaces/{name}/instances path instead) — see
-    /// Global Constraints. CONFIRM WHICH SHAPE THE LIVE API ACTUALLY ACCEPTS before trusting
-    /// this code sample; don't just re-read either doc page again.
+    /// Global Constraints. The flat shape is what the live API accepts (confirmed 2026-08-15,
+    /// same verification session that surfaced the 7028 behavior).
     public func createAISearchInstance(
         domain: String, instanceID: String, apiToken: String
     ) async throws -> AISearchInstance {
@@ -933,10 +960,25 @@ extension HTTPCloudflareClient: AISearchProvisioning {
             let type: String
             let source: String
         }
-        let result = try await post(
-            "/accounts/\(accountID)/ai-search/instances",
+        let (data, http) = try await send(
+            method: "POST", "/accounts/\(accountID)/ai-search/instances",
             body: CreateBody(id: instanceID, type: "web-crawler", source: domain),
-            apiToken: apiToken, as: CFAISearchInstance.self)
+            apiToken: apiToken, passthroughStatuses: [400])
+        if http.statusCode == 400 { throw Self.createFailureError(from: data) }
+        let result = try Self.decodeEnvelopeResult(from: data, as: CFAISearchInstance.self)
         return AISearchInstance(id: result.id, name: result.name ?? instanceID)
+    }
+
+    /// Maps a create's 400 body to the most actionable error available: code 7028 →
+    /// ``AISearchProvisionError/missingSitemap``, any other decodable envelope with a message →
+    /// ``CloudflareError/api(message:)``, everything else → ``CloudflareError/http(status:)``
+    /// (the pre-#1486 behavior).
+    private static func createFailureError(from data: Data) -> any Error {
+        guard let env = try? JSONDecoder().decode(CFEnvelope<CFEmpty>.self, from: data),
+              let errors = env.errors, !errors.isEmpty else {
+            return CloudflareError.http(status: 400)
+        }
+        if errors.contains(where: { $0.code == 7028 }) { return AISearchProvisionError.missingSitemap }
+        return CloudflareError.api(message: errors[0].message)
     }
 }

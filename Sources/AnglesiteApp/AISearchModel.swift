@@ -142,6 +142,11 @@ final class AISearchModel {
         do {
             let result = try await executor.provision(zoneID: zoneID, domain: domain, apiToken: token)
             phase = .succeeded(result)
+        } catch AISearchProvisionError.missingSitemap {
+            // Cloudflare 7028: the crawler can't find a sitemap at the domain. The app knows
+            // the fix (the sitemap ships in every build but isn't live until the first
+            // deploy), so say that — not the API code (#1486).
+            phase = .failed(reason: "Your site's sitemap isn't reachable yet. Deploy the site first, then set up AI Search.")
         } catch let error as CloudflareError {
             phase = .failed(reason: cloudflareErrorMessage(error))
         } catch {
