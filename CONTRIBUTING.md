@@ -65,6 +65,7 @@ Notes:
 - MCP/apply-edit e2e tests run only when `ANGLESITE_PLUGIN_PATH` points at an Anglesite plugin checkout; otherwise they skip.
 - If you touch `Resources/Template/`, run `swift test` too — some Swift tests couple to the template markup.
 - CI runs the JS overlay checks, Linux portable-target builds, macOS `swift test` (including ThreadSanitizer and timing-sensitive-isolation lanes), an `Anglesite.xcodeproj` ↔ `project.yml` sync check, and an AppIntents schema check. All must pass.
+- **CI never *executes* `AnglesiteAppTests` or `AnglesiteIntentsTests`** — local `swift test` on Xcode 27 is the only run coverage for them (#855). The `macos-26` lanes' Xcode 26.6 (Swift 6.3.3) excludes those `compiler(>=6.4)`-gated targets from the package graph entirely, and the non-required `xcode-27` preview lane can only *compile* them: that image pairs the Xcode 27 SDK with a macOS 26.x **host**, and test bundles built for macOS 27 hard-link 27-only symbols (verified live: FoundationModels' CoreSpotlight cross-import overlay, CloudKit's async overlay, `AppIntents.EntityQuery.allowedExecutionTargets`) that dyld cannot resolve there, so the bundles can never even be loaded. If your change touches `Sources/AnglesiteApp`, `Sources/AnglesiteIntents`, or their tests, run `swift test` locally on Xcode 27 before opening the PR — CI will not catch a runtime regression in those suites. Revisit when a hosted runner image ships with a macOS 27 *host OS* (not just the SDK): flip the `xcode-27` lane's build step back to `swift test` and delete this note.
 
 ## Code guidelines
 
