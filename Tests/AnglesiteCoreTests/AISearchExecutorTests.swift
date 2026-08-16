@@ -5,7 +5,7 @@ import Foundation
 private final class StubProvisioner: AISearchProvisioning, @unchecked Sendable {
     private(set) var lastDomain: String?
     private(set) var lastInstanceID: String?
-    var errorToThrow: CloudflareError?
+    var errorToThrow: (any Error)?
 
     func createAISearchInstance(domain: String, instanceID: String, apiToken: String) async throws -> AISearchInstance {
         if let errorToThrow { throw errorToThrow }
@@ -136,10 +136,20 @@ struct AISearchExecutorTests {
     @Test("provision surfaces the provisioner's thrown error")
     func provisionPropagatesProvisionerError() async throws {
         let provisioner = StubProvisioner()
-        provisioner.errorToThrow = .unauthorized
+        provisioner.errorToThrow = CloudflareError.unauthorized
         let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: false)), writer: StubWriter(), provisioner: provisioner)
         await #expect(throws: CloudflareError.unauthorized) {
             try await executor.provision(zoneID: "z1", domain: "example.com", apiToken: "t")
         }
+    }
+
+    @Test("provision treats an already-exists create error as success, reusing the derived instance id (#1478)")
+    func provisionIsReRunnableAfterInstanceAlreadyExists() async throws {
+        let provisioner = StubProvisioner()
+        provisioner.errorToThrow = AISearchProvisionError.instanceAlreadyExists
+        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: false)), writer: StubWriter(), provisioner: provisioner)
+        let result = try await executor.provision(zoneID: "z1", domain: "Example.com", apiToken: "t")
+        #expect(result.instance.id == "example-com")
+        #expect(result.instance.name == "example-com")
     }
 }

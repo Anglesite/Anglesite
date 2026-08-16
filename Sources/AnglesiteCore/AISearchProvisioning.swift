@@ -21,6 +21,14 @@ public enum AISearchProvisionError: Error, Equatable, Sendable {
     /// the site hasn't had its first deploy yet, so the fix is "deploy first" — the sitemap
     /// (#982) is in every build but isn't live at the domain until a deploy publishes it.
     case missingSitemap
+
+    /// Cloudflare rejected the create with error code 7022
+    /// (`ai_search_with_this_name_already_exist`): an instance with this id already exists in
+    /// the namespace. `instanceID` is derived deterministically from the domain
+    /// (`AISearchExecutor.namespaceID(for:)`), so this is expected on a re-run of the wizard
+    /// after a prior partial or complete success — callers should treat it as "already
+    /// provisioned" rather than a failure (#1478).
+    case instanceAlreadyExists
 }
 
 /// Provisions Cloudflare AI Search instances. Kept separate from `CloudflareWriting` — that

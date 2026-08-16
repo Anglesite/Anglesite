@@ -39,6 +39,19 @@ struct HTTPCloudflareClientAISearchTests {
         }
     }
 
+    @Test("createAISearchInstance maps a 400 with Cloudflare code 7022 to .instanceAlreadyExists")
+    func createInstanceAlreadyExists() async throws {
+        let accountsJSON = #"{"success":true,"errors":[],"result":[{"id":"acct1"}]}"#
+        let errorJSON = #"{"success":false,"errors":[{"code":7022,"message":"An instance with this name already exists in the namespace."}],"result":null}"#
+        let client = HTTPCloudflareClient(transport: fakeTransport([
+            "/accounts?per_page=1": (200, accountsJSON),
+            "/ai-search/instances": (400, errorJSON),
+        ]))
+        await #expect(throws: AISearchProvisionError.instanceAlreadyExists) {
+            try await client.createAISearchInstance(domain: "example.com", instanceID: "example-com", apiToken: "t")
+        }
+    }
+
     @Test("createAISearchInstance surfaces other 400 error bodies as .api with Cloudflare's message")
     func createInstanceOther400WithMessage() async throws {
         let accountsJSON = #"{"success":true,"errors":[],"result":[{"id":"acct1"}]}"#
