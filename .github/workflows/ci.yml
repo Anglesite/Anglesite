@@ -546,16 +546,30 @@ jobs:
       - name: Build (release)
         run: swift build -c release
 
-  xcode27-test:
-    name: Swift tests (Xcode 27 preview lane, non-required)
+  xcode27-compile:
+    name: Swift 6.4 compile check (Xcode 27 preview, non-required)
     # #855: build-test's macos-26 image tops out at Xcode 26.6 / Swift 6.3.3, so the
     # `#if compiler(>=6.4) && canImport(Darwin)`-gated targets (AnglesiteAppCore,
     # AnglesiteAppTests, AnglesiteIntentsTests) are silently absent from its package graph —
     # the coverage gap that let #853's compile error land on main undetected. GitHub's
     # hosted `xcode-27` image (public preview since 2026-07-16, actions/runner-images#14404;
     # also available as `xcode-27-xlarge`) ships Xcode 27.0 beta / Swift 6.4 as the default
-    # /Applications/Xcode.app, which satisfies the gate — so this lane is the first one to
-    # actually compile and run those suites in CI.
+    # /Applications/Xcode.app, which satisfies the gate — so this lane COMPILES those
+    # targets (`swift build --build-tests`), closing the #853-class regression gap.
+    #
+    # COMPILE-ONLY, deliberately: the image pairs the Xcode 27 SDK with a macOS 26.x HOST,
+    # and this package's .macOS("27.0") deployment target makes every macOS-27-only symbol
+    # a hard dyld bind — so the built test bundles cannot be LOADED on this host, and
+    # SwiftPM's test enumeration dlopens every built bundle before any --skip/--filter
+    # applies. Verified live across four runs (jobs 95081077293/95085647674/95093238559/
+    # 95095131839), each clearing one wall only to hit the next 27-only bind:
+    # the _CoreSpotlight_FoundationModels cross-import overlay (framework absent on the
+    # host), CloudKit's async overlay (CKDatabase._deleteRecord(withID:)), and finally
+    # AppIntents.EntityQuery.allowedExecutionTargets — inside AnglesiteIntentsTests itself,
+    # one of the very suites this lane exists for. Run coverage therefore has to wait for a
+    # hosted image whose HOST OS is macOS 27, not just its SDK; flip this lane's build step
+    # back to `swift test` when one exists. Until then contributors must run `swift test`
+    # locally on Xcode 27 (see CONTRIBUTING.md ▸ Testing).
     #
     # NON-REQUIRED / non-blocking while the image is in preview: the runner image is marked
     # preview (possible instability, queueing while capacity balances) and its Xcode is a
@@ -564,10 +578,8 @@ jobs:
     # `needs` list below. Promote to required (drop `continue-on-error`, add it to `ci`'s
     # needs) once the xcode-27 image reaches GA — per the #855 owner decision (2026-08-15).
     #
-    # No sibling-plugin checkout here (same as timing-sensitive-tests): without
-    # ANGLESITE_PLUGIN_PATH the `.enabled(if:)`-gated e2e suites skip cleanly, and
-    # build-test already exercises that round-trip. This lane's purpose is the gated
-    # targets, which have no plugin/Node dependency.
+    # No sibling-plugin checkout here (same as timing-sensitive-tests): nothing executes,
+    # and the gated targets have no plugin/Node dependency.
     needs: changes
     if: needs.changes.outputs.swift == 'true'
     runs-on: xcode-27
@@ -575,17 +587,6 @@ jobs:
     # tree (AnglesiteAppCore) to the compile, and a preview image's cache starts cold.
     timeout-minutes: 30
     continue-on-error: true
-    env:
-      # #855: omit AnglesiteP2PTests/AnglesiteRemoteTests from this lane's package graph.
-      # Their objects (the #1465 CloudKit signaling code) strong-link macOS-27-only CloudKit
-      # Swift-overlay symbols that this preview image's macOS 26.x host doesn't export, so
-      # dlopen aborts loading those bundles before any test runs — and SwiftPM's test
-      # enumeration loads every built bundle, so no --skip/--filter can route around an
-      # unloadable one. The AnglesiteP2P/AnglesiteRemote library targets still compile here;
-      # only the two test bundles are dropped, and every other lane/local run keeps them.
-      # See Package.swift's ANGLESITE_SKIP_CLOUDKIT_TESTS comment; remove when the hosted
-      # image's host macOS reaches 27.
-      ANGLESITE_SKIP_CLOUDKIT_TESTS: '1'
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -595,8 +596,8 @@ jobs:
         # emits the version for the cache key. The guard below makes the lane fail loudly —
         # instead of green-with-suites-silently-dropped — if the preview label is ever
         # repointed at an image whose newest Xcode predates 27: on a <6.4 toolchain the
-        # gated targets vanish from the package graph and `swift test` would "pass" without
-        # them, recreating the exact gap this lane exists to close.
+        # gated targets vanish from the package graph and the compile check would "pass"
+        # without them, recreating the exact gap this lane exists to close.
         id: xcode
         run: |
           set -euo pipefail
@@ -634,29 +635,20 @@ jobs:
             swiftpm-xcode27-v1-${{ steps.xcode.outputs.version }}-
 
       # tee + pipefail + annotate step: same compile-error-burying fix as build-test's Test
-      # step (#1335). Same --skip filter too, so the timing-sensitive suites stay confined
-      # to their isolated lane.
-      #
-      # History of this step (runs 95081077293/95085647674/95093238559): on this image
-      # (27 SDK on a macOS 26.x host) test bundles failed dlopen before a single test ran,
-      # and --skip could not route around it — SwiftPM's test enumeration dlopens every
-      # built bundle before skip/filter applies. Two distinct causes, two fixes:
-      # (1) 9 of 11 bundles hard-linked the macOS-27-only _CoreSpotlight_FoundationModels
-      #     cross-import overlay (absent on this host) — fixed at the source, see
-      #     Package.swift's disableFoundationModelsAutolink/weakLinkFoundationModels;
-      # (2) the two CloudKit-signaling test bundles strong-link 27-only CloudKit overlay
-      #     symbols that can't be weak-linked away — dropped from this lane's graph via
-      #     ANGLESITE_SKIP_CLOUDKIT_TESTS above.
-      - name: Test
-        id: swift-test
+      # step (#1335). `swift build --build-tests`, NOT `swift test` — see the job comment:
+      # the built bundles cannot be dlopen'd on this image's macOS 26.x host, so compiling
+      # them (which is what catches the #853 class of regression) is the whole job. Flip to
+      # `swift test` when a hosted image pairs Xcode 27 with a macOS 27 host.
+      - name: Build all targets including tests (compile check)
+        id: build-tests
         run: |
           set -o pipefail
-          source scripts/lib/timing-sensitive-tests.sh
-          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" 2>&1 | tee "$RUNNER_TEMP/swift-test-xcode27.log"
+          echo "::warning title=Swift 6.4 lane is compile-only::The xcode-27 preview image's host OS ($(sw_vers -productVersion)) predates macOS 27, so the built test bundles cannot be loaded here. The compiler(>=6.4)-gated targets are compile-checked only; run 'swift test' locally on Xcode 27 for execution coverage. See CONTRIBUTING.md ▸ Testing."
+          swift build --build-tests -c debug 2>&1 | tee "$RUNNER_TEMP/swift-build-tests-xcode27.log"
 
       - name: Surface Swift errors (annotations + job summary)
-        if: failure() && steps.swift-test.outcome == 'failure'
-        run: scripts/annotate-swift-log.sh "$RUNNER_TEMP/swift-test-xcode27.log" "Swift tests (Xcode 27 preview lane) ▸ Test"
+        if: failure() && steps.build-tests.outcome == 'failure'
+        run: scripts/annotate-swift-log.sh "$RUNNER_TEMP/swift-build-tests-xcode27.log" "Swift 6.4 compile check (Xcode 27 preview) ▸ Build all targets including tests"
 
   timing-sensitive-tests:
     name: Timing-sensitive suites (isolated lane)
