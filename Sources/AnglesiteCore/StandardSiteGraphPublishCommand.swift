@@ -95,6 +95,12 @@ public actor StandardSiteGraphPublishCommand {
                 continue
             }
 
+            if entry.feedURL == nil {
+                if let discovered = try? await FeedEndpointDiscovery.discover(target: entry.url, transport: transport) {
+                    writeBackFeedURL(discovered, entry: entry, siteDirectory: siteDirectory)
+                }
+            }
+
             let rkey = "anglesite-\(POSSEStableKey.make("\(siteID)\n\(entry.sourceFile)"))"
             let record = StandardSiteGraphSubscriptionRecord(publication: publicationURI, createdAt: iso8601(now()))
             do {
@@ -141,6 +147,23 @@ public actor StandardSiteGraphPublishCommand {
             text: "standardsitegraph: done — published \(publishedCount), skipped \(skippedCount), "
                 + "unpublished \(unpublishedCount), failed \(failedCount)"
         )
+    }
+
+    /// Writes a discovered feed URL back into `entry`'s own content file (#1483). Best-effort:
+    /// a read/write failure here is a local-file problem, not a publish failure, so it's silently
+    /// skipped (see the `catch` below) rather than aborting the entry's record publish.
+    private func writeBackFeedURL(_ feedURL: URL, entry: BlogrollPlan.Entry, siteDirectory: URL) {
+        let fileURL = siteDirectory.appendingPathComponent(entry.sourceFile)
+        guard let contents = try? String(contentsOf: fileURL, encoding: .utf8) else { return }
+        let updated = BlogrollFeedFrontmatter.setting(feedURL: feedURL.absoluteString, in: contents)
+        guard updated != contents else { return }
+        do {
+            try updated.write(to: fileURL, atomically: true, encoding: .utf8)
+        } catch {
+            // Best-effort; no log line — matches how `persistIdentity` in
+            // `StandardSitePublishCommand` treats a write-through failure as silent, since it
+            // never turns a successful publish into a failed one and will simply retry next pass.
+        }
     }
 
     private func iso8601(_ date: Date) -> String {

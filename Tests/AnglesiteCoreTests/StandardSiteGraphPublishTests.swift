@@ -126,6 +126,7 @@ struct StandardSiteGraphPublishCommandTests {
         var requests: [URLRequest] = []
         let did: String
         var wellKnownResponses: [String: (status: Int, body: String)] = [:]
+        var homepageResponses: [String: String] = [:]
         var deleteRecordStatus: Int = 200
 
         init(did: String = "did:plc:owner") { self.did = did }
@@ -136,6 +137,9 @@ struct StandardSiteGraphPublishCommandTests {
             if url.path == "/.well-known/site.standard.publication" {
                 let match = wellKnownResponses[url.host ?? ""] ?? (404, "")
                 return (Data(match.body.utf8), HTTPURLResponse(url: url, statusCode: match.status, httpVersion: nil, headerFields: nil)!)
+            }
+            if let body = homepageResponses[url.absoluteString] {
+                return (Data(body.utf8), HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }
             switch url.path {
             case "/xrpc/com.atproto.server.createSession":
@@ -157,6 +161,7 @@ struct StandardSiteGraphPublishCommandTests {
         }
 
         func set(wellKnown host: String, status: Int, body: String) { wellKnownResponses[host] = (status, body) }
+        func set(homepage: String, body: String) { homepageResponses[homepage] = body }
         func count(path: String) -> Int { requests.count { $0.url?.path == path } }
         func bodies(path: String) -> [[String: Any]] {
             requests.filter { $0.url?.path == path }.compactMap {
@@ -247,5 +252,48 @@ struct StandardSiteGraphPublishCommandTests {
         #expect(await stub.count(path: "/xrpc/com.atproto.repo.deleteRecord") == 1)
         let reloaded = try #require(StandardSiteGraphPublishLog.load(from: site.config))
         #expect(reloaded.entries.isEmpty)
+    }
+
+    @Test("discovers and writes back a feed URL when the entry has none")
+    func discoversAndWritesBackFeedURL() async throws {
+        let site = try makeSite(blogroll: ["friend.md": "---\nname: Friend\nurl: https://friend.example\naddedDate: 2026-08-01\n---\n"])
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        let stub = APIStub()
+        await stub.set(wellKnown: "friend.example", status: 200, body: "at://did:plc:friend/site.standard.publication/anglesite-abc\n")
+        await stub.set(
+            homepage: "https://friend.example",
+            body: #"<link rel="alternate" type="application/rss+xml" href="/feed.xml">"#
+        )
+        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) })
+
+        await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
+
+        let written = try String(
+            contentsOf: site.source.appendingPathComponent("src/content/blogroll/friend.md"), encoding: .utf8
+        )
+        #expect(written.contains("feedURL: \"https://friend.example/feed.xml\""))
+    }
+
+    @Test("never overwrites an owner-supplied feedURL")
+    func neverOverwritesOwnerFeedURL() async throws {
+        let site = try makeSite(blogroll: [
+            "friend.md": "---\nname: Friend\nurl: https://friend.example\nfeedURL: https://friend.example/manual.xml\naddedDate: 2026-08-01\n---\n",
+        ])
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        let stub = APIStub()
+        await stub.set(wellKnown: "friend.example", status: 200, body: "at://did:plc:friend/site.standard.publication/anglesite-abc\n")
+        await stub.set(
+            homepage: "https://friend.example",
+            body: #"<link rel="alternate" type="application/rss+xml" href="/different-feed.xml">"#
+        )
+        let command = StandardSiteGraphPublishCommand(credentials: { _, _ in credentials }, transport: { try await stub.respond($0) })
+
+        await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
+
+        let written = try String(
+            contentsOf: site.source.appendingPathComponent("src/content/blogroll/friend.md"), encoding: .utf8
+        )
+        #expect(written.contains("feedURL: https://friend.example/manual.xml"))
+        #expect(!written.contains("different-feed.xml"))
     }
 }
