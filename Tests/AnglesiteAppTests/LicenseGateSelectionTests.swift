@@ -95,4 +95,13 @@ struct LicenseGateSelectionTests {
         // Still resolves back to the same ref, since an empty name falls back to the URL.
         #expect(selection.resolvedLicense() == ref)
     }
+
+    @Test("every catalog entry's AI interpretation has a defined row label")
+    func everyInterpretationIsCovered() {
+        // LicenseGateSheetView.aiInterpretationLabel is private and unrenderable in a unit
+        // test, so this pins the *input* it must handle: every case of AIInterpretation, so a
+        // future case added to the enum without a matching row label fails loudly instead of
+        // silently falling through to a default.
+        #expect(LicenseCatalog.AIInterpretation.allCases == [.permits, .unclear, .prohibits])
+    }
 }

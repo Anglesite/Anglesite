@@ -96,7 +96,8 @@ struct LicenseGateSheetView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6)
 
-                row(title: "All rights reserved", permits: "Nothing without asking", aiNote: nil,
+                row(title: "All rights reserved", permits: "Nothing without asking",
+                    aiNote: aiInterpretationLabel(LicenseCatalog.allRightsReservedInterpretation),
                     choice: .allRightsReserved)
 
                 ForEach(LicenseCatalog.entries) { entry in
@@ -106,11 +107,12 @@ struct LicenseGateSheetView: View {
                         // lookup just falls back to the name itself.
                         title: LocalizedStringKey(entry.name),
                         permits: permitsSummary(for: entry),
-                        aiNote: entry.permitsAIUse ? "✅ Permits" : "❔ Unclear",
+                        aiNote: aiInterpretationLabel(entry.aiInterpretation),
                         choice: .catalog(entry.id))
                 }
 
-                row(title: "Custom…", permits: "Your own terms", aiNote: nil, choice: .custom)
+                row(title: "Custom…", permits: "Your own terms",
+                    aiNote: aiInterpretationLabel(.unclear), choice: .custom)
             }
 
             if selection.choice == .custom {
@@ -167,7 +169,7 @@ struct LicenseGateSheetView: View {
     /// The columns line up because every row — including the header — states the same three
     /// explicit frame widths, which is the alignment job `Grid` used to do.
     private func row(
-        title: LocalizedStringKey, permits: LocalizedStringKey, aiNote: LocalizedStringKey?,
+        title: LocalizedStringKey, permits: LocalizedStringKey, aiNote: LocalizedStringKey,
         choice: Selection.Choice
     ) -> some View {
         Button {
@@ -179,7 +181,7 @@ struct LicenseGateSheetView: View {
                 Text(permits)
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(width: Self.permitsColumnWidth, alignment: .leading)
-                Text(aiNote ?? "—")
+                Text(aiNote)
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(width: Self.aiColumnWidth, alignment: .leading)
             }
@@ -217,6 +219,16 @@ struct LicenseGateSheetView: View {
         // column just repeats the license name (and, being catalog data rather than UI copy,
         // isn't a literal key the way every case above is).
         default: return LocalizedStringKey(entry.name)
+        }
+    }
+
+    /// Row copy for the "AI systems" column, keyed by the 3-state classification (#999) rather
+    /// than a bare bool — see `LicenseCatalog.AIInterpretation`.
+    private func aiInterpretationLabel(_ interpretation: LicenseCatalog.AIInterpretation) -> LocalizedStringKey {
+        switch interpretation {
+        case .permits: return "✅ Permits"
+        case .unclear: return "❔ Unclear"
+        case .prohibits: return "🚫 Prohibits"
         }
     }
 }
