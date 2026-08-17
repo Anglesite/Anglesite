@@ -127,6 +127,11 @@ struct FollowersModelTests {
         func delete(account: String) throws { values.removeValue(forKey: account) }
     }
 
+    private actor Recorder {
+        private(set) var events: [(String, Int)] = []
+        func record(_ event: (String, Int)) { events.append(event) }
+    }
+
     /// Serves `GET <actor>/follow_requests` out of a scripted routing table, same shape as
     /// `Server` but for the membership (outbox/follow_requests) transport rather than the
     /// public followers transport.
@@ -525,5 +530,77 @@ struct FollowersModelTests {
         }
 
         #expect(model.pendingRows.first?.profile?.name == "Alice")
+    }
+
+    @Test("the first loadPending establishes a baseline without notifying")
+    func firstLoadDoesNotNotify() async throws {
+        let (site, root) = try Self.makeSite(siteURL: "https://example.com")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let membershipServer = MembershipServer(routes: [
+            "/users/site/follow_requests": (
+                200, Self.followRequestsBody(items: [("https://mastodon.social/users/alice", "2026-08-01T00:00:00.000Z")])
+            )
+        ])
+        let model = await Self.makeModelWithPending(
+            server: Server(routes: [:]), membershipServer: membershipServer, secretStore: secretStore)
+        model.configure(site: site)
+        let recorder = Recorder()
+        model.onNewPendingRequests = { siteID, count in Task { await recorder.record((siteID, count)) } }
+
+        await model.loadPending()
+
+        try await Task.sleep(for: .milliseconds(20))
+        let notified = await recorder.events
+        #expect(notified.isEmpty)
+    }
+
+    @Test("a later poll notifies once when the pending count grows past the baseline")
+    func laterPollNotifiesOnGrowth() async throws {
+        let (site, root) = try Self.makeSite(siteURL: "https://example.com")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let membershipServer = MembershipServer(routes: [
+            "/users/site/follow_requests": (
+                200, Self.followRequestsBody(items: [("https://mastodon.social/users/alice", "2026-08-01T00:00:00.000Z")])
+            )
+        ])
+        let model = FollowersModel(
+            fetcher: ActorProfileFetcher(transport: { _ in throw ActorProfileError.requestFailed(status: 500) }),
+            avatarLoader: AvatarLoader(transport: { _ in throw AvatarLoadError.requestFailed(status: 500) }),
+            followersTransport: { _ in
+                (Data(), HTTPURLResponse(
+                    url: URL(string: "https://example.com")!, statusCode: 404, httpVersion: nil, headerFields: nil)!)
+            },
+            secretStore: secretStore,
+            membershipTransport: await membershipServer.transport,
+            pendingPollInterval: .milliseconds(20))
+        model.configure(site: site)
+        let recorder = Recorder()
+        model.onNewPendingRequests = { siteID, count in Task { await recorder.record((siteID, count)) } }
+        await model.loadPending()  // establishes the baseline of 1, as in the test above
+
+        await membershipServer.setRoute(
+            "/users/site/follow_requests", status: 200,
+            body: Self.followRequestsBody(items: [
+                ("https://mastodon.social/users/alice", "2026-08-01T00:00:00.000Z"),
+                ("https://mastodon.social/users/carol", "2026-08-02T00:00:00.000Z"),
+            ]))
+        model.startPendingPollingIfNeeded()
+        defer { model.stopPendingPolling() }
+
+        var events: [(String, Int)] = []
+        for _ in 0..<50 where events.isEmpty {
+            try await Task.sleep(for: .milliseconds(10))
+            events = await recorder.events
+        }
+
+        // `[(String, Int)]` doesn't conform to `Equatable` (tuples can't conform to protocols),
+        // so this compares the array's shape field-by-field instead of via `==`.
+        #expect(events.count == 1)
+        #expect(events.first?.0 == "site-1")
+        #expect(events.first?.1 == 2)
     }
 }

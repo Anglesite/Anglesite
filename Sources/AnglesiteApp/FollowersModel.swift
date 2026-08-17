@@ -128,6 +128,17 @@ final class FollowersModel {
     private let membershipTransport: CommunityMembershipClient.Transport
     private var membershipClient: CommunityMembershipClient?
 
+    private var pollTask: Task<Void, Never>?
+    private var lastNotifiedPendingCount = 0
+    private var hasEstablishedPendingBaseline = false
+    private let pendingPollInterval: Duration
+
+    /// Fired with the current total pending count whenever a `loadPending()` finds it greater
+    /// than the last count this fired for. The *first* `loadPending()` per model instance only
+    /// establishes the baseline — it never fires on its own (a relaunch must not re-notify
+    /// about requests the owner has already seen and simply hasn't acted on yet).
+    var onNewPendingRequests: ((String, Int) -> Void)?
+
     init(
         fetcher: ActorProfileFetcher = ActorProfileFetcher(),
         avatarLoader: AvatarLoader = AvatarLoader(),
@@ -135,13 +146,15 @@ final class FollowersModel {
             = ActivityPubFollowersClient.defaultTransport,
         secretStore: any SecretStore = PlatformSecretStore.make(),
         membershipTransport: @escaping CommunityMembershipClient.Transport
-            = CommunityMembershipClient.defaultTransport
+            = CommunityMembershipClient.defaultTransport,
+        pendingPollInterval: Duration = .seconds(300)
     ) {
         self.fetcher = fetcher
         self.avatarLoader = avatarLoader
         self.followersTransport = followersTransport
         self.secretStore = secretStore
         self.membershipTransport = membershipTransport
+        self.pendingPollInterval = pendingPollInterval
     }
 
     var canLoadMore: Bool { nextPage != nil && state == .loaded }
@@ -341,6 +354,7 @@ final class FollowersModel {
                 PendingRequestRow(request: request, profile: cache.profile(for: request.actor))
             }
             pendingState = .loaded
+            notifyIfNewRequestsArrived()
         } catch CommunityMembershipError.requestFailed(status: 404, body: _) {
             pendingRows = []
             pendingState = .unavailable
@@ -350,6 +364,41 @@ final class FollowersModel {
             // for the main list.
             pendingState = .unreachable("\(error)")
         }
+    }
+
+    private func notifyIfNewRequestsArrived() {
+        guard let siteID else { return }
+        defer { hasEstablishedPendingBaseline = true }
+        guard hasEstablishedPendingBaseline, pendingRows.count > lastNotifiedPendingCount else {
+            lastNotifiedPendingCount = pendingRows.count
+            return
+        }
+        lastNotifiedPendingCount = pendingRows.count
+        onNewPendingRequests?(siteID, pendingRows.count)
+    }
+
+    /// Starts the recurring background recheck, idempotently — a second call (e.g. a window
+    /// replayed onto a different site) is a no-op; `loadPending()` always reads the *current*
+    /// `membershipClient`/`siteID` at call time, so the one running loop naturally picks up a
+    /// replayed site's data on its next tick. Callers that want fresher data immediately after
+    /// a replay should `await loadPending()` explicitly (this method only owns the recurring
+    /// timer, not an immediate fetch — see `SiteWindowModel.loadAndStart`).
+    func startPendingPollingIfNeeded() {
+        guard pollTask == nil else { return }
+        pollTask = Task { [weak self] in
+            guard let interval = self?.pendingPollInterval else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled, let self else { return }
+                await self.loadPending()
+            }
+        }
+    }
+
+    /// Stops the recurring recheck — called from `SiteWindowModel.close()`.
+    func stopPendingPolling() {
+        pollTask?.cancel()
+        pollTask = nil
     }
 
     var pendingActionFailure: String?
