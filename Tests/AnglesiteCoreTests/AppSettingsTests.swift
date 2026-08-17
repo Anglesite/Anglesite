@@ -127,6 +127,25 @@ final class AppSettingsTests {
         }
         #expect(resolver.callCount == 1)
     }
+
+    @Test("External LLM base URL round trips and is nil when unset")
+    func externalLLMBaseURLRoundTrips() {
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.externalLLMBaseURL == nil)
+        let url = URL(string: "https://api.example.com/v1")!
+        settings.externalLLMBaseURL = url
+        #expect(settings.externalLLMBaseURL == url)
+        settings.externalLLMBaseURL = nil
+        #expect(settings.externalLLMBaseURL == nil)
+    }
+
+    @Test("External LLM model defaults to empty and round trips")
+    func externalLLMModelRoundTrips() {
+        let settings = AppSettings(defaults: defaults)
+        #expect(settings.externalLLMModel == "")
+        settings.externalLLMModel = "gpt-4o-mini"
+        #expect(settings.externalLLMModel == "gpt-4o-mini")
+    }
 #else
     @Test("Sites root source reports the home fallback (no iCloud API on this platform)")
     func sitesRootSourceIsHomeFallback() {

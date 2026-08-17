@@ -4,7 +4,7 @@
   "version": "0.0.1",
   "scripts": {
     "dev": "astro dev",
-    "prebuild": "npx tsx scripts/well-known.ts check && npx tsx scripts/csp.ts && npx tsx scripts/edge-artifacts.ts",
+    "prebuild": "npx tsx scripts/well-known.ts check && npx tsx scripts/csp.ts && npx tsx scripts/edge-artifacts.ts && npx tsx scripts/experiments-artifact.ts",
     "build": "astro check && astro build && npx tsx scripts/check-microformats.ts && npx tsx scripts/validate-html.ts",
     "postbuild": "npx pagefind --site dist && npx tsx scripts/well-known.ts verify",
     "preview": "astro preview",
@@ -15,6 +15,7 @@
     "embed": "tsx scripts/embed-snapshot.ts",
     "build:ci": "npm run build && npx tsx scripts/pre-deploy-check.ts --json --strict",
     "test": "tsx --test \"scripts/**/*.test.ts\" \"src/**/*.test.ts\" && npm run test:astro",
+    "pretest:worker": "npx tsx scripts/experiments-artifact.ts",
     "test:worker": "vitest run --config vitest.config.ts",
     "test:scripts": "npx tsx --test scripts/*.test.ts scripts/embeds/*.test.ts src/lib/*.test.ts",
     "test:astro": "vitest run --config vitest.astro.config.ts"

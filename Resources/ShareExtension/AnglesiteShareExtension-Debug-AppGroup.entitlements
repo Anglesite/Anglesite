@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Opt-in Debug entitlements (#1450): identical to AnglesiteShareExtension-Debug.entitlements
+	     plus the App Group, for contributors with a real Team who want to exercise share-extension
+	     bookmark sharing locally. Point ANGLESITE_SHARE_EXTENSION_DEBUG_ENTITLEMENTS at this file
+	     from xcconfig/Signing-Debug.local.xcconfig, and also opt the main app in via
+	     ANGLESITE_DEBUG_ENTITLEMENTS = Resources/Anglesite-Debug-iCloud.entitlements — the group
+	     has to be on both bundle IDs or nothing is shared. -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.io.dwk.anglesite</string>
+	</array>
+</dict>
+</plist>

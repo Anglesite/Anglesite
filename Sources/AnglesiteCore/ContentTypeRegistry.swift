@@ -665,7 +665,7 @@ extension ContentTypeRegistry {
 
     // MARK: Identity and directory (h-card collections, #462)
 
-    static let identityAndDirectoryTypes: [ContentTypeDescriptor] = [member]
+    static let identityAndDirectoryTypes: [ContentTypeDescriptor] = [member, blogroll]
 
     static let member = ContentTypeDescriptor(
         id: "member",
@@ -689,6 +689,28 @@ extension ContentTypeRegistry {
                 "bio": "p-note",
             ],
             schemaType: "Person"
+        )
+    )
+
+    static let blogroll = ContentTypeDescriptor(
+        id: "blogroll",
+        displayName: "Blogroll entry",
+        storage: .collection("blogroll"),
+        fields: [
+            ContentTypeField("name", .string, required: true),
+            ContentTypeField("url", .url, required: true),
+            ContentTypeField("feedURL", .url),
+            ContentTypeField("addedDate", .date, required: true),
+            ContentTypeField("note", .markdown),
+        ],
+        projections: ContentTypeProjections(
+            microformat: "h-card",
+            microformatProperties: [
+                "name": "p-name",
+                "url": "u-url",
+                "note": "p-note",
+            ],
+            schemaType: nil
         )
     )
 }

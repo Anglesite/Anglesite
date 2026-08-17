@@ -23,3 +23,10 @@ DEVELOPMENT_TEAM = YOUR_TEAM_ID
 // main app picks it up from the -Debug-iCloud file (which carries it alongside iCloud).
 // ANGLESITE_DEBUG_ENTITLEMENTS = Resources/Anglesite-Debug-iCloud.entitlements
 // ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS = Resources/AnglesiteRemote-Debug-Keychain.entitlements
+
+// Optional (#1450): only if you want to exercise the Safari share extension's site access in
+// local Debug builds. Requires a real Team above — application-groups needs an Apple Developer
+// portal capability + provisioning profile that ad-hoc signing can't self-grant.
+// Uncomment BOTH lines or nothing is shared: the group has to be on both bundle IDs.
+// ANGLESITE_DEBUG_ENTITLEMENTS = Resources/Anglesite-Debug-iCloud.entitlements
+// ANGLESITE_SHARE_EXTENSION_DEBUG_ENTITLEMENTS = Resources/ShareExtension/AnglesiteShareExtension-Debug-AppGroup.entitlements

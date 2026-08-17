@@ -40,6 +40,7 @@ private final class StubProvisioner: AISearchProvisioning, @unchecked Sendable {
     func createAISearchInstance(domain: String, instanceID: String, apiToken: String) async throws -> AISearchInstance {
         AISearchInstance(id: "inst1", name: instanceID)
     }
+    func aiSearchInstanceSource(instanceID: String, apiToken: String) async throws -> String { "" }
 }
 
 private final class FailingProvisioner: AISearchProvisioning, @unchecked Sendable {
@@ -48,6 +49,7 @@ private final class FailingProvisioner: AISearchProvisioning, @unchecked Sendabl
     func createAISearchInstance(domain: String, instanceID: String, apiToken: String) async throws -> AISearchInstance {
         throw error
     }
+    func aiSearchInstanceSource(instanceID: String, apiToken: String) async throws -> String { "" }
 }
 
 /// Every test passes one of these explicitly — the model's production default is a live

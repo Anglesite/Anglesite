@@ -56,6 +56,32 @@ private final class StubWriter: CloudflareWriting, @unchecked Sendable {
     func setMarkdownForAgents(hostname: String, enabled: Bool, apiToken: String) async throws -> Bool { true }
 }
 
+/// A `CloudflareReading` whose `resolveZoneID` calls suspend until the test explicitly resolves
+/// them — mirrors `HardenModelTests`/`AISearchModelTests`' `ControllableReader`, used to exercise
+/// a run still in flight when the sheet is dismissed/reopened out from under it (#1506).
+private actor ControllableReader: CloudflareReading {
+    private var continuations: [(domain: String, continuation: CheckedContinuation<String?, any Error>)] = []
+    private let state: CloudflareZoneState
+
+    init(state: CloudflareZoneState = StubReader.cleanState) {
+        self.state = state
+    }
+
+    func resolveZoneID(domain: String, apiToken: String) async throws -> String? {
+        try await withCheckedThrowingContinuation { continuation in
+            continuations.append((domain, continuation))
+        }
+    }
+    func zoneState(zoneID: String, domain: String, apiToken: String) async throws -> CloudflareZoneState { state }
+    func listDNSRecords(zoneID: String, apiToken: String) async throws -> [DNSRecord] { [] }
+    func workerScriptNames(apiToken: String) async throws -> [String] { [] }
+
+    func resolve(callIndex index: Int, zoneID: String?) {
+        continuations[index].continuation.resume(returning: zoneID)
+    }
+    func callCount() -> Int { continuations.count }
+}
+
 /// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
 /// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
 /// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
@@ -259,5 +285,84 @@ struct DomainConfigAuditModelTests {
         model.openSheet()
         model.dismissSheet()
         #expect(model.sheetPresented == false)
+    }
+
+    /// Regression coverage for #1506 (mirroring #1479's fix for `HardenModel`/`AISearchModel`):
+    /// `dismissSheet()` only sets `inFlight`'s cancellation flag — the abandoned task keeps
+    /// running across its network awaits. Without the `Task.isCancelled` guard on every `phase`
+    /// write in the async runner, a stale completion after dismissal would clobber the `.idle`
+    /// reset with a result the user never asked for in this session.
+    @MainActor
+    @Test("dismissing the sheet mid-audit does not let a stale completion clobber the reset phase")
+    func dismissDuringAuditDoesNotClobberResetState() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let reader = ControllableReader()
+        let declared = DomainConfig(domain: .init(hostname: "example.com"))
+        let (site, cleanup) = try tempSite(declaring: declared)
+        defer { cleanup() }
+        let model = DomainConfigAuditModel(reader: reader, writer: StubWriter(), keychain: keychain)
+        model.configure(site: site)
+
+        model.runAudit()
+        // Let the spawned `Task` actually start and suspend inside `reader.resolveZoneID`, so
+        // dismissal below races a run that's genuinely still in flight.
+        while await reader.callCount() == 0 { await Task.yield() }
+        #expect(model.phase == .auditing(domain: "example.com"))
+
+        model.dismissSheet()
+        #expect(model.phase == .idle)
+
+        // The in-flight lookup finally resolves *after* dismissal cancelled its `Task` — the
+        // result must not land and clobber the `.idle` reset (the bug this test guards).
+        await reader.resolve(callIndex: 0, zoneID: "z1")
+        for _ in 0..<5 { await Task.yield() }
+
+        #expect(model.phase == .idle)
+    }
+
+    /// Regression coverage for #1506's second acceptance criterion: a stale run's completion
+    /// must not overwrite a newer run's phase, even when the newer run was started before the
+    /// older one finally resolves.
+    @MainActor
+    @Test("a newer run's phase survives a stale older run resolving after it")
+    func newerRunSurvivesStaleOlderRunCompleting() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let reader = ControllableReader()
+        let model = DomainConfigAuditModel(reader: reader, writer: StubWriter(), keychain: keychain)
+
+        let staleDeclared = DomainConfig(domain: .init(hostname: "stale.example"))
+        let (staleSite, staleCleanup) = try tempSite(declaring: staleDeclared)
+        defer { staleCleanup() }
+        model.configure(site: staleSite)
+        model.runAudit()
+        while await reader.callCount() == 0 { await Task.yield() }
+
+        model.dismissSheet()
+
+        let freshDeclared = DomainConfig(domain: .init(hostname: "fresh.example"))
+        let (freshSite, freshCleanup) = try tempSite(declaring: freshDeclared)
+        defer { freshCleanup() }
+        model.configure(site: freshSite)
+        model.runAudit()
+        while await reader.callCount() == 1 { await Task.yield() }
+        #expect(model.phase == .auditing(domain: "fresh.example"))
+
+        // The stale first lookup resolves after the second run has already started — it must not
+        // overwrite the second run's phase.
+        await reader.resolve(callIndex: 0, zoneID: "stale-zone")
+        for _ in 0..<5 { await Task.yield() }
+        #expect(model.phase == .auditing(domain: "fresh.example"))
+
+        await reader.resolve(callIndex: 1, zoneID: "fresh-zone")
+        while model.isRunning { await Task.yield() }
+
+        guard case .results(_, _, let domain, let zoneID) = model.phase else {
+            Issue.record("expected .results, got \(model.phase)")
+            return
+        }
+        #expect(domain == "fresh.example")
+        #expect(zoneID == "fresh-zone")
     }
 }

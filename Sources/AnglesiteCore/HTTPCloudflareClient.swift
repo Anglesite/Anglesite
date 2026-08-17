@@ -970,15 +970,28 @@ extension HTTPCloudflareClient: AISearchProvisioning {
     }
 
     /// Maps a create's 400 body to the most actionable error available: code 7028 →
-    /// ``AISearchProvisionError/missingSitemap``, any other decodable envelope with a message →
-    /// ``CloudflareError/api(message:)``, everything else → ``CloudflareError/http(status:)``
-    /// (the pre-#1486 behavior).
+    /// ``AISearchProvisionError/missingSitemap``, code 7022
+    /// (`ai_search_with_this_name_already_exist`) → ``AISearchProvisionError/instanceAlreadyExists``
+    /// (#1478), any other decodable envelope with a message → ``CloudflareError/api(message:)``,
+    /// everything else → ``CloudflareError/http(status:)`` (the pre-#1486 behavior).
     private static func createFailureError(from data: Data) -> any Error {
         guard let env = try? JSONDecoder().decode(CFEnvelope<CFEmpty>.self, from: data),
               let errors = env.errors, !errors.isEmpty else {
             return CloudflareError.http(status: 400)
         }
         if errors.contains(where: { $0.code == 7028 }) { return AISearchProvisionError.missingSitemap }
+        if errors.contains(where: { $0.code == 7022 }) { return AISearchProvisionError.instanceAlreadyExists }
         return CloudflareError.api(message: errors[0].message)
+    }
+
+    /// `GET /accounts/{id}/ai-search/instances/{id}`, returning just the instance's configured
+    /// `source` (the crawled domain). See ``AISearchProvisioning/aiSearchInstanceSource(instanceID:apiToken:)``.
+    public func aiSearchInstanceSource(instanceID: String, apiToken: String) async throws -> String {
+        let accountID = try await resolveAccountID(apiToken: apiToken)
+        struct CFAISearchInstanceDetail: Decodable, Sendable { let source: String }
+        let result = try await get(
+            "/accounts/\(accountID)/ai-search/instances/\(instanceID)", apiToken: apiToken,
+            as: CFAISearchInstanceDetail.self)
+        return result.source
     }
 }

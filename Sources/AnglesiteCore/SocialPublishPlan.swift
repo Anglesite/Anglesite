@@ -67,6 +67,14 @@ public enum SocialPublishPlan {
     }
 
     static let entryExtensions: Set<String> = ["md", "mdx", "mdoc", "markdown"]
+    /// Collections that produce `Entry`/document-plan candidates under `src/content` but aren't
+    /// real content pages with a canonical URL of their own. Currently just `blogroll` (#1483):
+    /// its entries describe sites the owner follows, published via
+    /// `site.standard.graph.subscription` (see `StandardSiteGraphPublishCommand`) instead of a
+    /// Webmention/POSSE/`site.standard.document` path — the app only ever generates a `/blogroll/`
+    /// index page and a `/blogroll.opml` feed, never a per-entry `/blogroll/<slug>/` page. Shared
+    /// with `StandardSiteDocumentPlan` so the two planners can't drift on what to exclude.
+    static let excludedCollections: Set<String> = ["blogroll"]
     private static let outboundURLPattern: NSRegularExpression = {
         do {
             return try NSRegularExpression(
@@ -123,6 +131,7 @@ public enum SocialPublishPlan {
         let parts = relPath.split(separator: "/").map(String.init)
         guard parts.count >= 4, parts[0] == "src", parts[1] == "content" else { return nil }
         let collection = parts[2]
+        guard !excludedCollections.contains(collection) else { return nil }
         let collectionRelParts = Array(parts.dropFirst(3))
         guard let lastPart = collectionRelParts.last else { return nil }
         let fallbackSlug = (collectionRelParts.dropLast() + [basenameWithoutExtension(lastPart)])

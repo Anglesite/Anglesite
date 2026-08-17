@@ -20,15 +20,9 @@ struct AISearchSheetView: View {
     // MARK: - Header
 
     private var header: some View {
-        HStack(spacing: 10) {
+        SheetHeader(title: headerTitle) {
             statusIcon
-            VStack(alignment: .leading, spacing: 1) {
-                Text(headerTitle).font(.headline)
-            }
-            Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     @ViewBuilder

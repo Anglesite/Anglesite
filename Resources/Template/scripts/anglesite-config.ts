@@ -56,6 +56,40 @@ export interface AnglesiteExperimentalConfig {
   webmcp?: boolean;
 }
 
+export type AnglesiteExperimentGoalKind = "pageview" | "route" | "scroll" | "visible";
+
+export interface AnglesiteExperimentGoal {
+  kind: AnglesiteExperimentGoalKind;
+  /** Required for "pageview" and "route" goals; absent for "scroll"/"visible" (observed on the
+   *  tested page itself by the client-side beacon, slice 2). */
+  path?: string;
+  /** Required for "scroll" goals: 1-100, percent of page scrolled. */
+  depth?: number;
+  /** Required for "visible" goals: CSS selector of the element to observe. */
+  selector?: string;
+}
+
+export interface AnglesiteExperimentVariant {
+  id: string;
+  name: string;
+  page: string;
+}
+
+export interface AnglesiteExperiment {
+  id: string;
+  name: string;
+  page: string;
+  variant: AnglesiteExperimentVariant;
+  split: number;
+  goal: AnglesiteExperimentGoal;
+  status: "draft" | "running";
+  startedAt?: string;
+}
+
+export interface AnglesiteExperimentsConfig {
+  active?: AnglesiteExperiment[];
+}
+
 /// The `Source/anglesite.json` shape this reader hands back. Mirrors the Swift `DomainConfig`
 /// model (`Sources/AnglesiteCore/DomainConfig.swift`) field-for-field; kept as a hand-written
 /// parallel type rather than a generated one, matching how `RedirectEntry` in `redirects.ts`
@@ -68,6 +102,7 @@ export interface AnglesiteConfig {
   email?: AnglesiteEmailConfig;
   workers?: AnglesiteWorkersConfig;
   experimental?: AnglesiteExperimentalConfig;
+  experiments?: AnglesiteExperimentsConfig;
 }
 
 /// Schema versions this build understands. Shared with `pre-deploy-check.ts`'s structural

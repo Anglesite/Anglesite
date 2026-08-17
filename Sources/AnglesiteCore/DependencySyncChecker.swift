@@ -36,11 +36,23 @@ public enum DependencySyncChecker {
         templateDeps.merge(templateSections.devDependencies) { _, new in new }
 
         let baseline = DependencyBaseline.load(from: configDirectory)
-        return DependencySync.diff(
+        let offers = DependencySync.diff(
             site: siteDeps,
             baseline: baseline,
             template: templateDeps,
             templateDevDependencyNames: Set(templateSections.devDependencies.keys)
         )
+        guard !offers.updates.isEmpty else { return offers }
+
+        // #1440: the site's *foreign* dependencies (declared in its package.json but not
+        // tracked by the template) may pin a peer range a template bump would violate —
+        // e.g. an imported site's own @astrojs/cloudflare requiring the astro major the
+        // template just moved past. Such a bump is held for the owner, not auto-offered.
+        let untrackedNames = Set(siteDeps.keys).subtracting(templateDeps.keys)
+        let foreignPeers = DependencyPeerCheck.foreignPeerRequirements(
+            sourceDirectory: sourceDirectory, untrackedDependencyNames: untrackedNames)
+        let (allowed, held) = DependencyPeerCheck.partition(
+            updates: offers.updates, foreignPeerRequirements: foreignPeers)
+        return DependencySyncOffers(updates: allowed, additions: offers.additions, heldUpdates: held)
     }
 }

@@ -165,6 +165,8 @@ targets:
         embed: true
       - target: AnglesiteQuickLookThumbnail
         embed: true
+      - target: AnglesiteShareExtension
+        embed: true
       - target: AnglesiteRemote
         embed: true
         codeSign: true
@@ -311,6 +313,51 @@ targets:
     dependencies:
       - package: Anglesite
         product: AnglesiteQuickLookSupport
+
+  # Safari share extension (#1450, spec: docs/superpowers/plans/2026-08-16-share-extension-quick-capture-plan.md):
+  # posts the current Safari page as a link post without the app frontmost. See
+  # AnglesiteCore/ShareExtension/ for the App-Group bookmark-sharing design.
+  AnglesiteShareExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Sources/AnglesiteShareExtension
+    # See the Anglesite target's matching comment on configFiles above. Extensions embedded in
+    # the host app need matching signing style/team for automatic signing to resolve.
+    configFiles:
+      Debug: xcconfig/Signing-Debug.xcconfig
+      Release: xcconfig/Signing-Release.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.dwk.anglesite.ShareExtension
+        PRODUCT_NAME: AnglesiteShareExtension
+        INFOPLIST_FILE: Resources/ShareExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Resources/ShareExtension/AnglesiteShareExtension.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
+        SWIFT_VERSION: "5.10"
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "0.1.0"
+        SKIP_INSTALL: YES
+        # Matches AnglesiteRemote: the extension only ever runs embedded in the MAS-distributed
+        # host app, so its Core-layer bookmark-resolution code should take the ANGLESITE_MAS
+        # branch, not the DevID/test fallback.
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) ANGLESITE_MAS"
+        # #1495: this target links AnglesiteCore (FoundationModelAssistant.swift) the same way the
+        # Anglesite/AnglesiteRemote targets above do, and hits the identical hard-link — confirmed
+        # via a failed Debug link ("symbol(s) not found for architecture arm64" across both
+        # FoundationModels and the _CoreSpotlight_FoundationModels overlay). Same SDK-ahead-of-
+        # installed-OS-seed risk during the Xcode 27 beta cycle. Mirrors AnglesiteRemote's matching
+        # OTHER_LDFLAGS above.
+        OTHER_LDFLAGS: "$(inherited) -weak_framework FoundationModels -weak_framework _CoreSpotlight_FoundationModels"
+      configs:
+        Debug:
+          # See the AnglesiteRemote target's matching comment on this indirection pattern.
+          CODE_SIGN_ENTITLEMENTS: $(ANGLESITE_SHARE_EXTENSION_DEBUG_ENTITLEMENTS)
+    dependencies:
+      - package: Anglesite
+        product: AnglesiteCore
 
   # Anywhere runtime (#1208 P1): faceless helper, login item via SMAppService.agent, embedded
   # inside Anglesite.app so one install covers both. No Dock icon, no windows (LSUIElement).
