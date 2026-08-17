@@ -9,10 +9,13 @@ import Foundation
 public enum BlockManifestSync {
     public enum SyncError: Error {
         case invalidTemplateManifest
+        case corruptSiteManifest
     }
 
     /// Merges `templateBlocksManifest`'s `modules` into `siteBlocksManifest`, creating the site
-    /// file if absent, appending only entries whose `path` isn't already present.
+    /// file if absent, appending only entries whose `path` isn't already present. If the site
+    /// manifest exists but is invalid or malformed, throws `.corruptSiteManifest` rather than
+    /// silently overwriting the owner's file.
     public static func sync(templateBlocksManifest: URL, siteBlocksManifest: URL) throws {
         let templateData = try Data(contentsOf: templateBlocksManifest)
         guard let templateManifest = try JSONSerialization.jsonObject(with: templateData) as? [String: Any],
@@ -22,12 +25,21 @@ public enum BlockManifestSync {
 
         var siteManifest: [String: Any]
         var siteModules: [[String: Any]]
-        if let siteData = try? Data(contentsOf: siteBlocksManifest),
-           let decoded = try? JSONSerialization.jsonObject(with: siteData) as? [String: Any],
-           let modules = decoded["modules"] as? [[String: Any]] {
+
+        let siteFileExists = FileManager.default.fileExists(atPath: siteBlocksManifest.path)
+        if siteFileExists {
+            // Site file exists; it must be valid or we error rather than overwrite
+            guard let siteData = try? Data(contentsOf: siteBlocksManifest) else {
+                throw SyncError.corruptSiteManifest
+            }
+            guard let decoded = try? JSONSerialization.jsonObject(with: siteData) as? [String: Any],
+                  let modules = decoded["modules"] as? [[String: Any]] else {
+                throw SyncError.corruptSiteManifest
+            }
             siteManifest = decoded
             siteModules = modules
         } else {
+            // Site file doesn't exist; build fresh from template schema
             siteManifest = ["schemaVersion": "anglesite-block-manifest/1", "modules": [[String: Any]]()]
             siteModules = []
         }

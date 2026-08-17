@@ -39,4 +39,37 @@ import Foundation
         // once in "export":"ParticleField" and once in the path. Split gives 3 components.
         #expect(written.components(separatedBy: "ParticleField").count == 3) // not duplicated
     }
+
+    @Test func throwsOnCorruptSiteManifest() throws {
+        let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let templateManifest = tmp.appendingPathComponent("template/blocks.manifest.json")
+        let siteManifest = tmp.appendingPathComponent("site/blocks.manifest.json")
+
+        let templateJSON = "{\"schemaVersion\":\"anglesite-block-manifest/1\",\"modules\":[]}"
+        try write(templateJSON, to: templateManifest)
+
+        // Test case 1: valid JSON but missing "modules" key
+        let corruptJSON1 = "{\"schemaVersion\":\"anglesite-block-manifest/1\"}"
+        try write(corruptJSON1, to: siteManifest)
+
+        #expect(throws: BlockManifestSync.SyncError.corruptSiteManifest) {
+            try BlockManifestSync.sync(templateBlocksManifest: templateManifest, siteBlocksManifest: siteManifest)
+        }
+
+        // Verify original corrupt file is untouched
+        let stillThere = try String(contentsOf: siteManifest, encoding: .utf8)
+        #expect(stillThere == corruptJSON1)
+
+        // Test case 2: valid JSON but "modules" is not an array
+        let corruptJSON2 = "{\"schemaVersion\":\"anglesite-block-manifest/1\",\"modules\":{}}"
+        try write(corruptJSON2, to: siteManifest)
+
+        #expect(throws: BlockManifestSync.SyncError.corruptSiteManifest) {
+            try BlockManifestSync.sync(templateBlocksManifest: templateManifest, siteBlocksManifest: siteManifest)
+        }
+
+        // Verify original corrupt file is untouched
+        let stillThere2 = try String(contentsOf: siteManifest, encoding: .utf8)
+        #expect(stillThere2 == corruptJSON2)
+    }
 }
