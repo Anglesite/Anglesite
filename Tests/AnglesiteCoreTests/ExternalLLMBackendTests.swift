@@ -594,6 +594,61 @@ struct ExternalLLMBackendConversationTests {
         #expect(messages[1]["content"] == "next prompt")
     }
 
+#if canImport(Darwin)
+    @Test("cancel() cancels a pending setup-phase network task instead of leaving it running (regression: #1482 Darwin proactive-cancel)")
+    func cancelCancelsActiveSetupTask() async throws {
+        // End-to-end HTTP timing tests for this exact race proved unreliable for the sibling
+        // stale-turn guard (see `finishTurnSkipsStaleTurn`'s comment): this stub's gate blocks a
+        // raw GCD thread, not a cancellable async operation, so racing real network timing can't
+        // deterministically prove "was the underlying request actually torn down." Testing the
+        // wiring directly instead: does `cancel()` actually cancel whatever `Task` is parked in
+        // `activeSetupTask`, rather than merely leaving it to run to its own timeout — which is
+        // the exact gap the review found (`cancel()`'s own doc comment claims it "frees the
+        // connection promptly," which was false during this window before the fix).
+        let backend = makeBackend()
+        let sentinel = Task<(URLSession.AsyncBytes, URLResponse), Error> {
+            try await Task.sleep(nanoseconds: .max)
+            fatalError("unreachable — Task.sleep(nanoseconds: .max) never returns normally")
+        }
+        await backend.setActiveSetupTaskForTesting(sentinel)
+        await backend.cancel()
+        // A cancelled `Task.sleep` throws promptly — if `cancel()` never actually cancelled the
+        // sentinel, this would hang instead of finishing.
+        _ = try? await sentinel.value
+        #expect(sentinel.isCancelled)
+    }
+#endif
+
+    @Test("a non-2xx response for an already-superseded turn discards as CancellationError, not HTTPError (regression: #1482 staleness-before-status ordering)")
+    func nonTwoHundredForSupersededTurnDiscardsSilently() async throws {
+        ExternalLLMStubURLProtocol.reset()
+        let gate = DispatchSemaphore(value: 0)
+        ExternalLLMStubURLProtocol.queue.append(.init(
+            status: 401, headers: [:], body: #"{"error":{"message":"bad key"}}"#.data(using: .utf8)!, gate: gate
+        ))
+        let backend = makeBackend()
+
+        let turn = Task { try await backend.converse(prompt: "hi", context: context()) }
+        try await awaitGatedRequests(1)
+        // Bumps `turnGeneration` directly rather than calling `cancel()`/`resetSession()`, which
+        // would *also* cancel `activeSetupTask` (Darwin) — that cancellation races the stub's
+        // gated response and empirically wins, throwing `CancellationError` from the setup-task
+        // catch block before the response is even interpreted, which would make this test pass
+        // regardless of whether the ordering fix under test exists. Bumping the generation alone
+        // isolates that: the response still arrives normally through the gate, and only the
+        // staleness-vs-status ordering below determines what it turns into.
+        await backend.bumpTurnGenerationForTesting()
+        gate.signal()
+
+        // Without the fix, the non-2xx status is interpreted *before* the staleness check, so this
+        // throws `HTTPError.http(status: 401, ...)` — a misleading "auth failure" for a request
+        // the caller already gave up on — instead of the same `CancellationError` every other
+        // superseded turn discards as.
+        await #expect(throws: CancellationError.self) { _ = try await turn.value }
+        let messages = await backend.messages
+        #expect(messages.map(\.role) == ["system"])
+    }
+
     @Test("generate flattens converse's event stream to plain text")
     func generateFlattensToText() async throws {
         ExternalLLMStubURLProtocol.reset()

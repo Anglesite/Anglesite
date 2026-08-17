@@ -68,6 +68,10 @@ public final class AppSettings: @unchecked Sendable {
         public static let externalLLMBaseURL = "anglesite.externalLLM.baseURL"
         /// Backs ``AppSettings/externalLLMModel`` (#1482).
         public static let externalLLMModel   = "anglesite.externalLLM.model"
+        /// Backs ``AppSettings/externalLLMVerifiedBaseURL`` (#1482).
+        public static let externalLLMVerifiedBaseURL = "anglesite.externalLLM.verifiedBaseURL"
+        /// Backs ``AppSettings/externalLLMVerifiedDetail`` (#1482).
+        public static let externalLLMVerifiedDetail = "anglesite.externalLLM.verifiedDetail"
     }
 
     private enum LegacyKey {
@@ -279,6 +283,36 @@ public final class AppSettings: @unchecked Sendable {
     public var externalLLMModel: String {
         get { defaults.string(forKey: Key.externalLLMModel) ?? "" }
         set { defaults.set(newValue, forKey: Key.externalLLMModel) }
+    }
+
+    /// The exact (whitespace-trimmed) base URL text that last verified successfully — the
+    /// cache-key half of the "Connected" state `KeychainTokenRow` shows for the external-LLM API
+    /// key row, so opening Settings doesn't fire a live network call against the configured
+    /// endpoint every time (#1482 review). `nil` until a verify succeeds. Compared against the
+    /// live Base URL field's current text, not just read blindly: editing the endpoint after a
+    /// successful verify must not keep showing "Connected" for a URL that was never actually
+    /// checked. A mismatch falls back to `KeychainTokenRow`'s existing silent live-reverify path
+    /// (the same one GitHub/Cloudflare use when nothing's cached yet), not a hard failure.
+    public var externalLLMVerifiedBaseURL: String? {
+        get {
+            guard let value = defaults.string(forKey: Key.externalLLMVerifiedBaseURL), !value.isEmpty else { return nil }
+            return value
+        }
+        set {
+            if let newValue {
+                defaults.set(newValue, forKey: Key.externalLLMVerifiedBaseURL)
+            } else {
+                defaults.removeObject(forKey: Key.externalLLMVerifiedBaseURL)
+            }
+        }
+    }
+
+    /// Best-effort "N models available" detail string from the last successful verify — purely
+    /// cosmetic, so a stale or absent value never blocks the "Connected" state itself (see
+    /// ``externalLLMVerifiedBaseURL``, the field that actually gates it).
+    public var externalLLMVerifiedDetail: String? {
+        get { defaults.string(forKey: Key.externalLLMVerifiedDetail) }
+        set { setOptionalString(newValue, forKey: Key.externalLLMVerifiedDetail) }
     }
 
     /// Security-scoped bookmark for the sites root, persisted so the sandboxed (MAS) build only

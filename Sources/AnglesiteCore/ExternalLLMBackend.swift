@@ -113,12 +113,40 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     /// instruction, since `seedHistoryIfNeeded` only reseeds when `messages` is empty). A counter
     /// is set before the suspension and so covers the whole turn, relay or not.
     var turnGeneration = 0
+
+    /// Test seam: bumps `turnGeneration` alone, without the rest of `cancel()`'s teardown (in
+    /// particular, without cancelling `activeSetupTask`) — lets a test simulate "this turn was
+    /// superseded" in isolation, for cases where also invoking the real setup-task cancellation
+    /// would race and mask the specific behavior under test.
+    func bumpTurnGenerationForTesting() {
+        turnGeneration &+= 1
+    }
+#if canImport(Darwin)
+    /// The in-flight setup-phase network call (`urlSession.bytes(for:)`, wrapped in a `Task` so it
+    /// can be cancelled), retained only between `converse()` issuing the request and either
+    /// throwing or handing off to `activeDrainTask`. Without this, `cancel()`/`resetSession()` —
+    /// separate actor calls, not a cancellation of *this* call's own enclosing `Task` — have
+    /// nothing to cancel while a turn is still waiting on response headers: `activeRelay`/
+    /// `activeDrainTask` don't exist yet, so a direct `await backend.cancel()` left the underlying
+    /// `URLSessionTask` running silently to its own timeout instead of tearing it down promptly,
+    /// contradicting `cancel()`'s own doc comment (#1482 review). Mirrors `activeRunner`'s role
+    /// for the exact same window off-Darwin.
+    var activeSetupTask: Task<(URLSession.AsyncBytes, URLResponse), Error>?
+
+    /// Test seam: lets `ExternalLLMBackendConversationTests` inject an arbitrary sentinel task
+    /// into `activeSetupTask` and assert `cancel()` actually cancels it, deterministically —
+    /// driving this specific race through real HTTP timing proved unreliable for the sibling
+    /// stale-turn guard (see `finishTurn`'s doc comment), and the underlying stub's `stopLoading()`
+    /// can't observe real cancellation either, so there's no reliable end-to-end alternative.
+    func setActiveSetupTaskForTesting(_ task: Task<(URLSession.AsyncBytes, URLResponse), Error>?) {
+        activeSetupTask = task
+    }
+#else
     // `HTTPStreamingRunner` only exists off-Darwin (see its type doc); retaining it here lets
     // `cancel()`/`resetSession()` actually tear down the in-flight network read on that platform
     // instead of merely cancelling the drain `Task`, which — unlike the Darwin `AsyncBytes` path
     // — does not by itself stop `URLSessionDataTask` from continuing to fill `bodyStream` (#1482
     // review).
-#if !canImport(Darwin)
     var activeRunner: HTTPStreamingRunner?
 #endif
 
@@ -180,7 +208,10 @@ public actor ExternalLLMBackend: ConversationalAssistant {
         activeRelay = nil
         activeDrainTask?.cancel()
         activeDrainTask = nil
-#if !canImport(Darwin)
+#if canImport(Darwin)
+        activeSetupTask?.cancel()
+        activeSetupTask = nil
+#else
         activeRunner?.cancel()
         activeRunner = nil
 #endif
@@ -190,13 +221,53 @@ public actor ExternalLLMBackend: ConversationalAssistant {
         let request = try makeURLRequest(messages: Self.trimmed(messages + [userMessage]))
 
 #if canImport(Darwin)
-        let (asyncBytes, response) = try await urlSession.bytes(for: request)
+        // Wrapped in its own `Task` (rather than a bare `try await urlSession.bytes(for:
+        // request)`) so `cancel()`/`resetSession()` have something to actually cancel while this
+        // turn is still in its setup phase — see `activeSetupTask`'s doc comment. Cancelling this
+        // task propagates into the underlying `URLSessionTask` (documented `URLSession` async-API
+        // cancellation behavior), tearing the connection down instead of leaving it to run silently
+        // to its own timeout (#1482 review).
+        let setupTask = Task { try await urlSession.bytes(for: request) }
+        activeSetupTask = setupTask
+        let asyncBytes: URLSession.AsyncBytes
+        let response: URLResponse
+        do {
+            (asyncBytes, response) = try await setupTask.value
+        } catch {
+            activeSetupTask = nil
+            // A real network failure (DNS, connection refused) and a cancellation this actor
+            // itself triggered both surface here as *some* thrown error — normalize to the same
+            // `CancellationError()` the staleness check below throws for a superseded turn, so a
+            // cancelled/superseded turn never surfaces a confusing raw network error to the caller.
+            throw turnGeneration == myGeneration ? error : CancellationError()
+        }
+        activeSetupTask = nil
 #else
         let runner = HTTPStreamingRunner()
         activeRunner = runner
         let response = try await runner.start(request, configuration: urlSession.configuration)
 #endif
         guard let http = response as? HTTPURLResponse else { throw HTTPError.badResponse }
+
+        // Check staleness *before* interpreting the response status: a turn that was
+        // cancelled/superseded while its request was in flight (actor isolation only serializes
+        // *between* `await` points) must always discard silently as `CancellationError`, never
+        // surface as a misleading HTTP error (e.g. a stray 401) for a request the caller already
+        // gave up on. Checking status first would let a non-2xx response for an already-abandoned
+        // turn masquerade as a real failure (#1482 review).
+        // Check staleness *before* interpreting the response status: a turn that was
+        // cancelled/superseded while its request was in flight (actor isolation only serializes
+        // *between* `await` points) must always discard silently as `CancellationError`, never
+        // surface as a misleading HTTP error (e.g. a stray 401) for a request the caller already
+        // gave up on. Checking status first would let a non-2xx response for an already-abandoned
+        // turn masquerade as a real failure (#1482 review).
+        guard turnGeneration == myGeneration else {
+#if canImport(Darwin)
+            asyncBytes.task.cancel()  // off-Darwin the superseder already cancelled `activeRunner`
+#endif
+            throw CancellationError()
+        }
+
         guard (200...299).contains(http.statusCode) else {
 #if canImport(Darwin)
             let body = await Self.readBounded(asyncBytes)
@@ -204,18 +275,6 @@ public actor ExternalLLMBackend: ConversationalAssistant {
             let body = await Self.readBounded(runner)
 #endif
             throw HTTPError.http(status: http.statusCode, body: body)
-        }
-
-        // A `resetSession()`/`cancel()`/superseding `converse()` may have landed while the request
-        // above was in flight (actor isolation only serializes *between* `await` points). Bail
-        // before creating a relay: handing the caller a stream here would attach a consumer to a
-        // turn nothing will ever terminate, and letting its drain run would append this turn's
-        // reply to history the actor has already moved past.
-        guard turnGeneration == myGeneration else {
-#if canImport(Darwin)
-            asyncBytes.task.cancel()  // off-Darwin the superseder already cancelled `activeRunner`
-#endif
-            throw CancellationError()
         }
 
         let (stream, continuation) = AsyncStream.makeStream(of: AssistantEvent.self)
@@ -251,7 +310,10 @@ public actor ExternalLLMBackend: ConversationalAssistant {
         activeRelay = nil
         activeDrainTask?.cancel()
         activeDrainTask = nil
-#if !canImport(Darwin)
+#if canImport(Darwin)
+        activeSetupTask?.cancel()
+        activeSetupTask = nil
+#else
         activeRunner?.cancel()
         activeRunner = nil
 #endif
@@ -263,7 +325,10 @@ public actor ExternalLLMBackend: ConversationalAssistant {
         activeRelay = nil
         activeDrainTask?.cancel()
         activeDrainTask = nil
-#if !canImport(Darwin)
+#if canImport(Darwin)
+        activeSetupTask?.cancel()
+        activeSetupTask = nil
+#else
         activeRunner?.cancel()
         activeRunner = nil
 #endif
@@ -399,6 +464,11 @@ public actor ExternalLLMBackend: ConversationalAssistant {
         } catch {
             // A partial read is still useful for an error message below.
         }
+        // Whether we stopped at `limit` or the stream ended naturally, there's nothing more this
+        // caller wants — cancel proactively so a large or never-ending body (from a misconfigured
+        // or hostile user-supplied endpoint) doesn't keep arriving into a stream nothing reads
+        // (#1482 review). A no-op if the task already finished.
+        bytes.task.cancel()
         return data.isEmpty ? nil : String(decoding: data, as: UTF8.self)
     }
 #else
@@ -469,6 +539,9 @@ public actor ExternalLLMBackend: ConversationalAssistant {
         } catch {
             // A partial read is still useful for an error message below.
         }
+        // See the Darwin variant's comment — cancel proactively regardless of why the loop ended
+        // (#1482 review). `HTTPStreamingRunner.cancel()` is documented idempotent.
+        runner.cancel()
         return data.isEmpty ? nil : String(decoding: data, as: UTF8.self)
     }
 #endif
