@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+	<!-- Shares the site registry/bookmarks Anglesite.app publishes (Resources/Anglesite.entitlements
+	     carries the identical array) — the canonical Apple pattern for handing a sandboxed
+	     extension direct file access to a resource the container app already has permission for
+	     (#1450). Requires a real provisioning profile, same class of capability as the main app's
+	     iCloud/associated-domains entitlements below. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.io.dwk.anglesite</string>
+	</array>
+</dict>
+</plist>
