@@ -11,7 +11,9 @@ import {
   checkSecurityTxt,
   checkEmbedMedia,
   checkAnglesiteConfig,
+  checkExperiments,
   checkRSL,
+  runningExperimentVariantDistPath,
 } from "./pre-deploy-check";
 import { MTA_STS_MARKER, SECURITY_TXT_MARKER } from "./edge-artifacts";
 
@@ -578,4 +580,228 @@ test("checkAnglesiteConfig: an unrecognized version number is an error naming th
 
 test("checkAnglesiteConfig: unknown top-level keys are tolerated (hand-edit rule)", () => {
   assert.deepEqual(checkAnglesiteConfig(JSON.stringify({ version: 1, somethingFromANewerApp: true })), []);
+});
+
+const VALID_ACTIVE = [
+  {
+    id: "homepage-hero",
+    name: "Homepage headline",
+    page: "/",
+    variant: { id: "b", name: "Fresh eggs headline", page: "/x/homepage-hero/b/" },
+    split: 0.5,
+    goal: { kind: "pageview", path: "/contact/thanks/" },
+    status: "running",
+    startedAt: "2026-08-16",
+  },
+];
+
+const VALID_VARIANT_HTML =
+  '<html><head><link rel="canonical" href="https://example.com/"><meta name="robots" content="noindex"></head><body></body></html>';
+
+function distFilesFor(paths: string[]): Set<string> {
+  return new Set(paths);
+}
+
+test("runningExperimentVariantDistPath: null config returns null", () => {
+  assert.equal(runningExperimentVariantDistPath(null), null);
+});
+
+test("runningExperimentVariantDistPath: invalid JSON returns null", () => {
+  assert.equal(runningExperimentVariantDistPath("not json"), null);
+});
+
+test("runningExperimentVariantDistPath: no running experiment returns null", () => {
+  const active = [{ ...VALID_ACTIVE[0], status: "draft" }];
+  assert.equal(runningExperimentVariantDistPath(JSON.stringify({ version: 1, experiments: { active } })), null);
+});
+
+test("runningExperimentVariantDistPath: more than one running experiment returns null", () => {
+  const active = [VALID_ACTIVE[0], { ...VALID_ACTIVE[0], id: "second-test" }];
+  assert.equal(runningExperimentVariantDistPath(JSON.stringify({ version: 1, experiments: { active } })), null);
+});
+
+test("runningExperimentVariantDistPath: a well-formed running experiment resolves its variant's dist path", () => {
+  assert.equal(
+    runningExperimentVariantDistPath(JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } })),
+    "dist/x/homepage-hero/b/index.html",
+  );
+});
+
+test("runningExperimentVariantDistPath: a malformed variant.page returns null rather than throwing", () => {
+  const active = [{ ...VALID_ACTIVE[0], variant: { ...VALID_ACTIVE[0].variant, page: 42 } }];
+  assert.equal(runningExperimentVariantDistPath(JSON.stringify({ version: 1, experiments: { active } })), null);
+});
+
+test("checkExperiments: null config returns no issues", () => {
+  assert.deepEqual(checkExperiments(null, new Set(), null, null), []);
+});
+
+test("checkExperiments: no experiments section returns no issues", () => {
+  assert.deepEqual(checkExperiments(JSON.stringify({ version: 1 }), new Set(), null, null), []);
+});
+
+test("checkExperiments: experiments.active must be an array", () => {
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active: "nope" } }), new Set(), null, null);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].category, "experiments-invalid");
+});
+
+test("checkExperiments: rejects a malformed id", () => {
+  const active = [{ ...VALID_ACTIVE[0], id: "not valid!" }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes(".id must match")));
+});
+
+test("checkExperiments: rejects split outside (0,1)", () => {
+  const active = [{ ...VALID_ACTIVE[0], split: 1.5 }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes(".split must be")));
+});
+
+test("checkExperiments: rejects an unrecognized goal kind", () => {
+  const active = [{ ...VALID_ACTIVE[0], goal: { kind: "bogus", path: "/x/" } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes("goal.kind must be one of")));
+});
+
+test("checkExperiments: flags scroll/visible goal kinds as not yet supported", () => {
+  const active = [{ ...VALID_ACTIVE[0], goal: { kind: "scroll", depth: 75 } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.category === "experiments-unsupported"));
+});
+
+test("checkExperiments: rejects more than one running experiment", () => {
+  const active = [VALID_ACTIVE[0], { ...VALID_ACTIVE[0], id: "second-test" }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes("Only one experiment may be")));
+});
+
+test("checkExperiments: rejects a variant.id that fails the id pattern", () => {
+  const active = [{ ...VALID_ACTIVE[0], variant: { ...VALID_ACTIVE[0].variant, id: "not valid; nope" } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes(".variant.id must match")));
+});
+
+test('checkExperiments: rejects variant.id "control" as reserved for the unmodified page', () => {
+  const active = [{ ...VALID_ACTIVE[0], variant: { ...VALID_ACTIVE[0].variant, id: "control" } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(
+    issues.some((i) => i.category === "experiments-invalid" && i.message.includes('"control" is reserved for the unmodified page')),
+  );
+});
+
+test("checkExperiments: rejects a running experiment's page without a trailing slash", () => {
+  const active = [{ ...VALID_ACTIVE[0], page: "/pricing" }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes('.page must end with "/"')));
+});
+
+test("checkExperiments: rejects a running experiment's variant.page without a trailing slash", () => {
+  const active = [{ ...VALID_ACTIVE[0], variant: { ...VALID_ACTIVE[0].variant, page: "/x/homepage-hero/b" } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes('.variant.page must end with "/"')));
+});
+
+test("checkExperiments: rejects a pageview goal path without a trailing slash", () => {
+  const active = [{ ...VALID_ACTIVE[0], goal: { kind: "pageview", path: "/contact/thanks" } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes('.goal.path must end with "/"')));
+});
+
+test("checkExperiments: accepts a route goal path without a trailing slash (regression)", () => {
+  const active = [{ ...VALID_ACTIVE[0], goal: { kind: "route", path: "/api/contact" } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(!issues.some((i) => i.message.includes("goal.path must end")));
+});
+
+test("checkExperiments: a well-formed draft-only config (nothing running) has no dist-dependent issues", () => {
+  const active = [{ ...VALID_ACTIVE[0], status: "draft" }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.deepEqual(issues, []);
+});
+
+test("checkExperiments: flags a running experiment's page missing from dist/", () => {
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } }),
+    distFilesFor(["dist/x/homepage-hero/b/index.html"]),
+    VALID_VARIANT_HTML,
+    "<urlset></urlset>",
+  );
+  assert.ok(issues.some((i) => i.category === "experiments-not-built" && i.message.includes('"/")')));
+});
+
+test("checkExperiments: flags a running experiment's pageview goal path missing from dist/", () => {
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html"]),
+    VALID_VARIANT_HTML,
+    "<urlset></urlset>",
+  );
+  assert.ok(issues.some((i) => i.category === "experiments-not-built" && i.message.includes("pageview goal")));
+});
+
+test("checkExperiments: flags a variant page missing rel=canonical to the control page", () => {
+  const html = '<html><head><meta name="robots" content="noindex"></head></html>';
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/contact/thanks/index.html"]),
+    html,
+    "<urlset></urlset>",
+  );
+  assert.ok(issues.some((i) => i.category === "experiments-variant-seo" && i.message.includes("canonical")));
+});
+
+test("checkExperiments: flags a variant page missing noindex", () => {
+  const html = '<html><head><link rel="canonical" href="https://example.com/"></head></html>';
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/contact/thanks/index.html"]),
+    html,
+    "<urlset></urlset>",
+  );
+  assert.ok(issues.some((i) => i.category === "experiments-variant-seo" && i.message.includes("noindex")));
+});
+
+test("checkExperiments: flags a variant page present in the sitemap", () => {
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/contact/thanks/index.html"]),
+    VALID_VARIANT_HTML,
+    "<urlset><url><loc>https://example.com/x/homepage-hero/b/</loc></url></urlset>",
+  );
+  assert.ok(issues.some((i) => i.category === "experiments-variant-seo" && i.message.includes("sitemap")));
+});
+
+test("checkExperiments: a fully well-formed, fully built running experiment has no issues", () => {
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/contact/thanks/index.html"]),
+    VALID_VARIANT_HTML,
+    "<urlset></urlset>",
+  );
+  assert.deepEqual(issues, []);
+});
+
+test("checkExperiments: recognizes rel=canonical even when href precedes rel in the tag", () => {
+  const html =
+    '<html><head><link href="https://example.com/" rel="canonical"><meta name="robots" content="noindex"></head><body></body></html>';
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/contact/thanks/index.html"]),
+    html,
+    "<urlset></urlset>",
+  );
+  assert.deepEqual(issues, []);
+});
+
+test("checkExperiments: recognizes noindex even when content precedes name in the tag", () => {
+  const html =
+    '<html><head><link rel="canonical" href="https://example.com/"><meta content="noindex" name="robots"></head><body></body></html>';
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/contact/thanks/index.html"]),
+    html,
+    "<urlset></urlset>",
+  );
+  assert.deepEqual(issues, []);
 });

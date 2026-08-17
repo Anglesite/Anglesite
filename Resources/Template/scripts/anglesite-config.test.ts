@@ -102,6 +102,47 @@ test("readAnglesiteConfig: returns declared sections as-is", () => {
   }
 });
 
+test("readAnglesiteConfig: passes through a declared experiments section as-is", () => {
+  const siteRoot = makeTempSiteRoot();
+  const raw = JSON.stringify({
+    version: 1,
+    experiments: {
+      active: [
+        {
+          id: "homepage-hero",
+          name: "Homepage headline",
+          page: "/",
+          variant: { id: "b", name: "Fresh eggs headline", page: "/x/homepage-hero/b/" },
+          split: 0.5,
+          goal: { kind: "pageview", path: "/contact/thanks/" },
+          status: "running",
+          startedAt: "2026-08-16",
+        },
+      ],
+    },
+  });
+  writeFileSync(join(siteRoot, "anglesite.json"), raw);
+  try {
+    const result = readAnglesiteConfig(siteRoot);
+    assert.deepEqual(result.experiments, {
+      active: [
+        {
+          id: "homepage-hero",
+          name: "Homepage headline",
+          page: "/",
+          variant: { id: "b", name: "Fresh eggs headline", page: "/x/homepage-hero/b/" },
+          split: 0.5,
+          goal: { kind: "pageview", path: "/contact/thanks/" },
+          status: "running",
+          startedAt: "2026-08-16",
+        },
+      ],
+    });
+  } finally {
+    rmSync(siteRoot, { recursive: true, force: true });
+  }
+});
+
 test("readAnglesiteConfig: defaults version to 1 when the file omits it", () => {
   const siteRoot = makeTempSiteRoot();
   writeFileSync(join(siteRoot, "anglesite.json"), JSON.stringify({ domain: { hostname: "example.com" } }));

@@ -53,6 +53,13 @@ import {
   type SolidPodEnv,
   type SolidPodGcEnv,
 } from "@dwk/solid-pod";
+import {
+  handleExperimentPageRequest,
+  applyGoalConversion,
+  matchesGoal,
+  type ExperimentsArtifact,
+} from "./experiments.ts";
+import experimentsArtifact from "./experiments.json";
 
 /**
  * Per-site Cloudflare Worker entry point.
@@ -201,6 +208,13 @@ export interface WorkerEnv extends IndieAuthEnv {
    */
   MICROSUB_DB?: D1Database;
   MICROSUB_QUEUE?: Queue<MicrosubJob>;
+  /**
+   * Edge A/B testing event counters (#1270 slice 1). Optional: an experiment can be configured
+   * and served without this binding provisioned (assignment/serving still works), but impressions
+   * and conversions silently don't count until it's bound — see `incrementExperimentCounter` in
+   * `./experiments.ts`. Provisioning this alongside the other social D1 bindings is slice 3.
+   */
+  EXPERIMENTS_DB?: D1Database;
 }
 
 export { ActivityPubObject };
@@ -1861,6 +1875,8 @@ function isWellKnownNamespace(pathname: string): boolean {
   return lower === "/.well-known" || lower === "/.well-known/" || lower.startsWith("/.well-known/");
 }
 
+const RUNNING_EXPERIMENT = (experimentsArtifact as ExperimentsArtifact).experiment;
+
 export default {
   async fetch(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
     const url = new URL(request.url);
@@ -1878,6 +1894,13 @@ export default {
       return notFound();
     }
 
+    // Experiment assignment + serving (#1270 slice 1): a request on the running experiment's own
+    // page is fully owned by this branch — it never reaches ROUTES or asset-first serving.
+    if (RUNNING_EXPERIMENT && pathname === RUNNING_EXPERIMENT.page) {
+      return handleExperimentPageRequest(request, env, ctx, RUNNING_EXPERIMENT);
+    }
+
+    let response: Response;
     const route = matchRoute(pathname);
     if (route) {
       const mirrorsGet = request.method === "HEAD" && route.methods.includes("HEAD") && route.methods.includes("GET");
@@ -1888,34 +1911,40 @@ export default {
           env,
           ctx,
         );
-        return new Response(null, {
+        response = new Response(null, {
           status: getResponse.status,
           statusText: getResponse.statusText,
           headers: getResponse.headers,
         });
-      }
-      if (!route.methods.includes(request.method)) {
-        return new Response("Method Not Allowed", {
+      } else if (!route.methods.includes(request.method)) {
+        response = new Response("Method Not Allowed", {
           status: 405,
           headers: { allow: route.methods.join(", "), "content-type": "text/plain; charset=utf-8" },
         });
+      } else {
+        response = await route.handler(request, env, ctx);
       }
-      return route.handler(request, env, ctx);
-    }
-
-    // Unclaimed well-known names, the bare directory, and case/trailing-slash or encoded
-    // variants (checked post-decode so `/%2Ewell-known/...` can't slip past) return a true 404
-    // rather than falling through to an HTML asset 404. Genuinely static well-known files (e.g.
-    // security.txt) are served asset-first and never reach this Worker.
-    if (isWellKnownNamespace(pathname) || isWellKnownNamespace(decoded)) {
+    } else if (isWellKnownNamespace(pathname) || isWellKnownNamespace(decoded)) {
+      // Unclaimed well-known names, the bare directory, and case/trailing-slash or encoded
+      // variants (checked post-decode so `/%2Ewell-known/...` can't slip past) return a true 404
+      // rather than falling through to an HTML asset 404. Genuinely static well-known files (e.g.
+      // security.txt) are served asset-first and never reach this Worker.
       return notFound();
+    } else {
+      const assets = env.ASSETS;
+      if (!assets) {
+        return new Response("No assets binding configured", { status: 500 });
+      }
+      response = await assets.fetch(request);
     }
 
-    const assets = env.ASSETS;
-    if (!assets) {
-      return new Response("No assets binding configured", { status: 500 });
+    // Goal-signal conversion counting (#1270 slice 1): applied to whatever response the branches
+    // above produced, so a pageview goal still renders its page normally and a route goal still
+    // returns its handler's real response — this only ever adds a Set-Cookie header.
+    if (RUNNING_EXPERIMENT && matchesGoal(RUNNING_EXPERIMENT, pathname, request.method)) {
+      response = await applyGoalConversion(request, env, ctx, RUNNING_EXPERIMENT, response);
     }
-    return assets.fetch(request);
+    return response;
   },
 
   // Async queue work, present unconditionally; no-ops for sites without the matching feature
