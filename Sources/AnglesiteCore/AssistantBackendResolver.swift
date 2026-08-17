@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Resolves `AppSettings.activeAssistantBackend` into an `ACPAssistant`, or `nil` when the active
 /// backend is `"foundationModels"` (the default) or references an agent that no longer exists —
