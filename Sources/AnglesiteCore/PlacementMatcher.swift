@@ -47,8 +47,8 @@ public enum PlacementMatcher {
 
     /// Depth-first walk collecting every node whose tag, `nthChild` position among its element
     /// siblings, and immediate-parent tag (if `allowedParents` is set) line up with `element`.
-    /// Ancestor chain is consulted only to break ties when more than one node shares the same
-    /// (tag, nthChild) pair at different depths — the common case (one match) never needs it.
+    /// Returns matches with full-array child indices (for correct insertion positions when
+    /// mixed with non-element siblings like `.text` or `.expression` nodes).
     private static func collectMatches(
         node: PageModel.Node, parentId: String?, element: ElementInfo, allowedParents: [String]?,
         into matches: inout [(node: PageModel.Node, parentId: String, indexInParent: Int)]
@@ -57,8 +57,11 @@ public enum PlacementMatcher {
         for (index, child) in elementSiblings.enumerated() {
             let position = index + 1 // 1-based, matches CSS :nth-child / the overlay's nthChild
             if child.tag?.uppercased() == element.tag.uppercased(), position == element.nthChild {
-                if allowedParents == nil || allowedParents!.map({ $0.uppercased() }).contains(node.tag?.uppercased() ?? "") {
-                    matches.append((child, node.id, index))
+                if allowedParents == nil || allowedParents?.map({ $0.uppercased() }).contains(node.tag?.uppercased() ?? "") ?? true {
+                    // Find the child's actual index in the full children array (not filtered)
+                    if let fullIndex = node.children.firstIndex(where: { $0.id == child.id }) {
+                        matches.append((child, node.id, fullIndex))
+                    }
                 }
             }
         }
