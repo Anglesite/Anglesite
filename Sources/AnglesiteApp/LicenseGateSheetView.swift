@@ -112,7 +112,7 @@ struct LicenseGateSheetView: View {
                 }
 
                 row(title: "Custom…", permits: "Your own terms",
-                    aiNote: aiInterpretationLabel(.unclear), choice: .custom)
+                    aiNote: aiInterpretationLabel(LicenseCatalog.customLicenseInterpretation), choice: .custom)
             }
 
             if selection.choice == .custom {
@@ -201,12 +201,12 @@ struct LicenseGateSheetView: View {
     private static let columnSpacing: CGFloat = 16
     private static let licenseColumnWidth: CGFloat = 150
     private static let permitsColumnWidth: CGFloat = 260
-    private static let aiColumnWidth: CGFloat = 80
+    private static let aiColumnWidth: CGFloat = 100
 
     /// Plain-language summary of what each catalog license permits — the middle comparison-table
-    /// column. Keyed by catalog id rather than re-deriving from `permitsAIUse` so it stays
+    /// column. Keyed by catalog id rather than re-deriving from `aiInterpretation` so it stays
     /// independent of the AI classification the last column already renders.
-    private func permitsSummary(for entry: LicenseCatalog.Entry) -> LocalizedStringKey {
+    func permitsSummary(for entry: LicenseCatalog.Entry) -> LocalizedStringKey {
         switch entry.id {
         case "cc0-1.0": return "Any use, no credit required"
         case "cc-by-4.0": return "Any use, with credit"
@@ -224,7 +224,7 @@ struct LicenseGateSheetView: View {
 
     /// Row copy for the "AI systems" column, keyed by the 3-state classification (#999) rather
     /// than a bare bool — see `LicenseCatalog.AIInterpretation`.
-    private func aiInterpretationLabel(_ interpretation: LicenseCatalog.AIInterpretation) -> LocalizedStringKey {
+    func aiInterpretationLabel(_ interpretation: LicenseCatalog.AIInterpretation) -> LocalizedStringKey {
         switch interpretation {
         case .permits: return "✅ Permits"
         case .unclear: return "❔ Unclear"

@@ -45,14 +45,12 @@ public enum LicenseCatalog {
         public var ref: LicenseRef { LicenseRef(url: url, name: name) }
     }
 
-    /// The offered licenses in picker order: CC0 and Public Domain Mark first, then the CC 4.0
-    /// suite from most to least permissive. Extending this list requires the same "unambiguous
-    /// grant" test the type doc describes before marking an entry `.permits`.
+    /// The offered licenses in picker order: CC0 first, then the CC 4.0 suite from most to least
+    /// permissive. Extending this list requires the same "unambiguous grant" test the type doc
+    /// describes before marking an entry `.permits`.
     public static let entries: [Entry] = [
         Entry(id: "cc0-1.0", name: "CC0 1.0",
               url: "https://creativecommons.org/publicdomain/zero/1.0/", aiInterpretation: .permits),
-        Entry(id: "pdm-1.0", name: "Public Domain Mark 1.0",
-              url: "https://creativecommons.org/publicdomain/mark/1.0/", aiInterpretation: .permits),
         Entry(id: "cc-by-4.0", name: "CC BY 4.0",
               url: "https://creativecommons.org/licenses/by/4.0/", aiInterpretation: .permits),
         Entry(id: "cc-by-sa-4.0", name: "CC BY-SA 4.0",
@@ -73,6 +71,10 @@ public enum LicenseCatalog {
     /// exception, so this is `.prohibits` rather than `.unclear`: unlike NC/ND (a live question
     /// about how far an *existing* grant reaches), there is no grant here to be uncertain about.
     public static let allRightsReservedInterpretation: AIInterpretation = .prohibits
+
+    /// A custom (non-catalog) license's grant is unknown by construction — Anglesite has never
+    /// read its text, so this is always `.unclear`, never guessed at.
+    public static let customLicenseInterpretation: AIInterpretation = .unclear
 
     /// The catalog entry a stored license refers to, matched on URL — a hand-edited `name` should
     /// not stop the picker recognizing a standard license. nil means custom or none.

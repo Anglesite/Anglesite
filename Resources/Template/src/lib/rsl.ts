@@ -38,8 +38,9 @@ export type RslPaymentType = "free" | "attribution";
 /**
  * Classifies a catalog license's RSL payment type by the license's own terms — CC0 requires
  * nothing, every other Creative Commons 4.0 variant (including the NC/ND restrictions) requires
- * attribution. This is a narrower, more factual claim than `LicenseCatalog.permitsAIUse` in the
- * Swift app (which is about AI-training ambiguity): "does this license require attribution" has
+ * attribution. This is a narrower, more factual claim than `LicenseCatalog.AIInterpretation` (the
+ * `.permits`/`.unclear`/`.prohibits` classification) in the Swift app, which is about AI-training
+ * ambiguity: "does this license require attribution" has
  * one answer per CC deed, not a live legal question. A custom URL isn't in this table and
  * classifies as `null` — Anglesite doesn't know its terms well enough to assert a payment type,
  * so `<payment>` is omitted for it (the license's `<terms>` link still carries the real terms).

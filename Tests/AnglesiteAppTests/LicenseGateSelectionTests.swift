@@ -1,4 +1,5 @@
 import Foundation
+import SwiftUI
 import Testing
 import AnglesiteCore
 @testable import AnglesiteAppCore
@@ -96,12 +97,36 @@ struct LicenseGateSelectionTests {
         #expect(selection.resolvedLicense() == ref)
     }
 
-    @Test("every catalog entry's AI interpretation has a defined row label")
-    func everyInterpretationIsCovered() {
-        // LicenseGateSheetView.aiInterpretationLabel is private and unrenderable in a unit
-        // test, so this pins the *input* it must handle: every case of AIInterpretation, so a
-        // future case added to the enum without a matching row label fails loudly instead of
-        // silently falling through to a default.
-        #expect(LicenseCatalog.AIInterpretation.allCases == [.permits, .unclear, .prohibits])
+    @Test("aiInterpretationLabel gives every case a distinct, non-empty label")
+    @MainActor
+    func aiInterpretationLabelsAreDistinct() {
+        let view = LicenseGateSheetView(model: DeployModel())
+        let cases = LicenseCatalog.AIInterpretation.allCases
+        let labels = cases.map { view.aiInterpretationLabel($0) }
+        for label in labels {
+            #expect(label != LocalizedStringKey(""))
+        }
+        // LocalizedStringKey is Equatable but not Hashable, so compare pairwise rather than via Set.
+        for i in labels.indices {
+            for j in labels.indices where j > i {
+                #expect(labels[i] != labels[j], "\(cases[i]) and \(cases[j]) share a row label")
+            }
+        }
+    }
+
+    @Test("every catalog entry's Permits summary is distinct from its bare license name")
+    @MainActor
+    func permitsSummaryIsNotJustTheName() {
+        // Catches the class of bug the #999 review found: a `LicenseCatalog.entries` addition
+        // with no matching `case` in `permitsSummary(for:)`'s switch falls through to `default:
+        // return LocalizedStringKey(entry.name)`, silently repeating the license name in the
+        // Permits column instead of describing what the license actually permits.
+        let view = LicenseGateSheetView(model: DeployModel())
+        for entry in LicenseCatalog.entries {
+            let summary = view.permitsSummary(for: entry)
+            #expect(
+                summary != LocalizedStringKey(entry.name),
+                "\(entry.id) has no dedicated Permits summary case")
+        }
     }
 }

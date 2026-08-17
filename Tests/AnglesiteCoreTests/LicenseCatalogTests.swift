@@ -10,17 +10,17 @@ struct LicenseCatalogTests {
 
     @Test("every catalog entry has a safe URL and a unique id")
     func entriesWellFormed() {
-        #expect(LicenseCatalog.entries.count == 8)
+        #expect(LicenseCatalog.entries.count == 7)
         #expect(Set(LicenseCatalog.entries.map(\.id)).count == LicenseCatalog.entries.count)
         for entry in LicenseCatalog.entries {
             #expect(LicenseRef.isSafeLicenseURL(entry.url), "\(entry.id) has an unsafe URL")
         }
     }
 
-    @Test("only CC0, CC BY, CC BY-SA, and Public Domain Mark are classified as permitting AI use")
+    @Test("only CC0, CC BY, and CC BY-SA are classified as permitting AI use")
     func classification() {
         let permitting = Set(LicenseCatalog.entries.filter { $0.aiInterpretation == .permits }.map(\.id))
-        #expect(permitting == ["cc0-1.0", "cc-by-4.0", "cc-by-sa-4.0", "pdm-1.0"])
+        #expect(permitting == ["cc0-1.0", "cc-by-4.0", "cc-by-sa-4.0"])
         let unclear = Set(LicenseCatalog.entries.filter { $0.aiInterpretation == .unclear }.map(\.id))
         #expect(unclear == ["cc-by-nc-4.0", "cc-by-nd-4.0", "cc-by-nc-sa-4.0", "cc-by-nc-nd-4.0"])
     }
@@ -28,6 +28,11 @@ struct LicenseCatalogTests {
     @Test("all-rights-reserved is classified as prohibiting AI use — it grants no permission at all")
     func allRightsReservedInterpretation() {
         #expect(LicenseCatalog.allRightsReservedInterpretation == .prohibits)
+    }
+
+    @Test("a custom license is classified as unclear — its terms are never read")
+    func customLicenseInterpretation() {
+        #expect(LicenseCatalog.customLicenseInterpretation == .unclear)
     }
 
     @Test("entry(for:) matches by URL and returns nil for a custom or absent license")
