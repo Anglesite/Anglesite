@@ -1,4 +1,4 @@
-// Resources/Template/src/pages/markdown-mirror.build.test.ts
+// Resources/Template/src/pages/_markdown-mirror.build.test.ts
 //
 // Build-level test for the WebMCP markdown-mirror routes (#1279): a real `astro build` must
 // emit a `.md` sibling for the blog's seed post and for one representative ENTRY_COLLECTIONS
@@ -63,7 +63,8 @@ test("markdown-mirror routes emit .md siblings for blog and entry-collection pag
     // Content-Type is asserted indirectly: the response headers aren't captured by a static
     // build (there's no server to observe), so this build-fixture test only proves the *body*
     // is correct; markdown-mirror.test.ts's MARKDOWN_MIRROR_CONTENT_TYPE assertion plus a code
-    // read of the two route files (Step 3 below) cover the header itself.
+    // read of the two route files (blog/[...slug].md.ts, [collection]/[...slug].md.ts) cover the
+    // header itself.
 
     // A page must not exist for a route these endpoints don't cover.
     await assert.rejects(access(join(fixtureDir, "dist/blog/nonexistent-post.md")));

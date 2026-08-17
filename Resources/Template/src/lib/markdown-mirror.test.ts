@@ -84,6 +84,39 @@ test("renderMarkdownMirror: a title containing a colon and quotes is JSON-quoted
   );
 });
 
+test("renderMarkdownMirror: non-string entries in tags are filtered out", () => {
+  const out = renderMarkdownMirror({
+    collection: "notes",
+    id: "mixed-tags",
+    data: { publishDate: new Date("2026-06-26T12:00:00.000Z"), tags: ["hello", 42, null, "world"] },
+    body: "Body.",
+  });
+  assert.equal(
+    out,
+    '---\ndate: 2026-06-26T12:00:00.000Z\ntags: ["hello", "world"]\n---\n\nBody.',
+  );
+});
+
+test("renderMarkdownMirror: an empty tags array omits the tags line", () => {
+  const out = renderMarkdownMirror({
+    collection: "notes",
+    id: "empty-tags",
+    data: { publishDate: new Date("2026-06-26T12:00:00.000Z"), tags: [] },
+    body: "Body.",
+  });
+  assert.equal(out, "---\ndate: 2026-06-26T12:00:00.000Z\n---\n\nBody.");
+});
+
+test("renderMarkdownMirror: an unparseable date string omits the date line", () => {
+  const out = renderMarkdownMirror({
+    collection: "notes",
+    id: "bad-date",
+    data: { publishDate: "not a date" },
+    body: "Body.",
+  });
+  assert.equal(out, "Body.");
+});
+
 test("renderMarkdownMirror: throws for an unrouted collection name", () => {
   assert.throws(
     () => renderMarkdownMirror({ collection: "members", id: "x", data: {}, body: "" }),

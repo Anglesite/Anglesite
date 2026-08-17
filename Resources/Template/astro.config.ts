@@ -1,4 +1,4 @@
-import { readdirSync, readFileSync, unlinkSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, unlinkSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "astro/config";
@@ -43,7 +43,11 @@ function webmcpChunkPrune(enabled: boolean) {
     hooks: {
       "astro:build:done": async ({ dir }: { dir: URL }) => {
         if (enabled) return;
-        pruneMarkedFiles(fileURLToPath(dir), "anglesite_search_posts");
+        // Scoped to dist/_astro/ — where Astro actually places hoisted script chunks — rather
+        // than the whole dist/ tree, so this can never touch an unrelated .js file an owner
+        // placed under public/ that happens to contain the marker string.
+        const astroDir = join(fileURLToPath(dir), "_astro");
+        if (existsSync(astroDir)) pruneMarkedFiles(astroDir, "anglesite_search_posts");
       },
     },
   };
@@ -82,8 +86,13 @@ export default defineConfig({
       // file, not the script's own filename — e.g. `BaseLayout.astro_astro_type_script_…js` for
       // the webmcp tool-registration script referenced from every page via BaseLayout) as
       // external, browser-cacheable files rather than letting Astro's default < 4KB inlining
-      // duplicate their compiled output into every page's HTML. Matches on the
-      // `_astro_type_script_` token Astro/Vite give every such chunk, so this doesn't regress
+      // duplicate their compiled output into every page's HTML. This isn't just a caching/
+      // duplication nicety: the webmcp script chunk (~3.1KB) is *under* Astro's 4KB default
+      // inline threshold, and this template's generated CSP (`script-src 'self'`, no
+      // `'unsafe-inline'`, no hashes — see scripts/csp.ts) would silently block an inlined
+      // `<script>` at runtime, with no build error and no test failure to catch it. Don't revert
+      // this override as a stray perf tweak — it's load-bearing for CSP compliance. Matches on
+      // the `_astro_type_script_` token Astro/Vite give every such chunk, so this doesn't regress
       // (or need updating) if a script's compiled size later drifts across the 4KB threshold, or
       // a future script is added elsewhere. Other small assets (images, etc.) keep Vite's
       // default inlining — this returns `undefined` for anything that isn't a script chunk.
