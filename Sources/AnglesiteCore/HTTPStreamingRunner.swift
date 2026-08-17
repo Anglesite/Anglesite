@@ -15,7 +15,7 @@ final class HTTPStreamingRunner: NSObject, URLSessionDataDelegate, @unchecked Se
     private var responseContinuation: CheckedContinuation<URLResponse, Error>?
     private let bodyContinuation: AsyncThrowingStream<Data, Error>.Continuation
     let bodyStream: AsyncThrowingStream<Data, Error>
-    /// Retained so ``cancel()`` can tear the connection down; `nil` before `start` is called and
+    /// Retained so `cancel()` can tear the connection down; `nil` before `start` is called and
     /// after `cancel()` has run once (cancellation is one-shot).
     private var session: URLSession?
 

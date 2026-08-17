@@ -38,7 +38,7 @@ public actor ExternalLLMBackend: ConversationalAssistant {
         case http(status: Int, body: String?)
         case badResponse
         /// A single SSE line (the bytes accumulated since the last newline) exceeded
-        /// ``ExternalLLMBackend/maxLineBytes`` — guards against unbounded memory growth from an
+        /// `maxLineBytes` — guards against unbounded memory growth from an
         /// endpoint that never emits a newline. This backend's endpoint is *user-configured* and
         /// unvetted (a typo'd URL, a hostile host, or a plain non-SSE response all reach here), so
         /// the read is bounded rather than trusted. Mirrors
@@ -103,7 +103,7 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     /// Monotonic id of the most recently *started* turn. Bumped synchronously by `converse()`,
     /// `cancel()`, and `resetSession()` — the three things that can end a turn's claim on this
     /// actor — so any turn holding an older value is, by definition, logically superseded and must
-    /// not mutate ``messages`` or hand out a stream (#1482 review).
+    /// not mutate `messages` or hand out a stream (#1482 review).
     ///
     /// Replaces the earlier `activeRelay === relay` identity check, which could only see a turn
     /// that had already reached its post-`await` relay assignment. A turn suspended in
@@ -158,7 +158,7 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     /// malformed chunk) becomes `.failed`.
     ///
     /// - Important: The turn's user message is *staged locally* for the outgoing request and only
-    ///   joins ``messages`` in `finishTurn`, paired with the assistant reply it earned. Appending
+    ///   joins `messages` in `finishTurn`, paired with the assistant reply it earned. Appending
     ///   it up front (as an earlier version did) left it behind whenever the turn didn't complete
     ///   — a cancel, a bad API key, a mid-stream drop — so history accumulated unpaired `user`
     ///   entries that were re-sent on every later request (and that some OpenAI-*compatible*
@@ -166,7 +166,7 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     ///   leave no trace, which is also what "the turn didn't happen" should mean to the owner
     ///   (#1482 review).
     /// - Throws: `CancellationError` if the turn is superseded while its request is in flight; see
-    ///   ``turnGeneration``.
+    ///   `turnGeneration`.
     public func converse(prompt: String, context: AssistantContext) async throws -> AsyncStream<AssistantEvent> {
         // Claim a new generation *before* the network `await` below, so this turn is identifiable
         // (and supersedable) for its whole lifetime rather than only after the relay exists.
@@ -242,7 +242,7 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     /// running (cancelling it mid-flight traps the process), cancelling a plain HTTP read is safe
     /// and frees the connection promptly.
     ///
-    /// The cancelled turn contributes nothing to ``messages``: its user message was never staged
+    /// The cancelled turn contributes nothing to `messages`: its user message was never staged
     /// into history, and the generation bump keeps its `finishTurn` from committing the partial
     /// reply the consumer already stopped seeing.
     public func cancel() async {
@@ -300,7 +300,7 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     /// Commits the turn — appends its user message and the completed assistant reply as a pair (so
     /// the next request carries both), trims if needed, and ends the turn with `.turnComplete`.
     ///
-    /// - Important: Guarded on `generation` still being ``turnGeneration`` — `drainSSE`'s
+    /// - Important: Guarded on `generation` still being `turnGeneration` — `drainSSE`'s
     ///   normal-completion path (the SSE body ends, with or without a `[DONE]` sentinel) calls
     ///   this with no prior `Task.checkCancellation()` check, so a `resetSession()`/`cancel()`/
     ///   superseding `converse()` that raced this same turn (actor isolation only serializes
