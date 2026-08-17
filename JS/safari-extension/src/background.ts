@@ -34,6 +34,23 @@ export function parseWebmentionHeader(headerValue: string, baseUrl: string): str
   return url ? new URL(url, baseUrl).href : null;
 }
 
+/**
+ * Scans every `Link` response header (a server may send several separate header lines rather
+ * than one comma-joined value) for a `rel="webmention"` target, returning the first match.
+ */
+export function findWebmentionHeaderUrl(
+  headers: { name: string; value?: string }[] | undefined,
+  baseUrl: string
+): string | null {
+  if (!headers) return null;
+  for (const header of headers) {
+    if (header.name.toLowerCase() !== "link" || !header.value) continue;
+    const url = parseWebmentionHeader(header.value, baseUrl);
+    if (url) return url;
+  }
+  return null;
+}
+
 // Service-worker wiring below. Guarded so the pure helpers above stay unit-testable outside a
 // real extension context (no `chrome` global under vitest).
 interface ChromeLike {
@@ -64,26 +81,45 @@ interface ChromeLike {
 declare const chrome: ChromeLike | undefined;
 
 if (typeof chrome !== "undefined") {
+  // `onHeadersReceived` fires as response headers arrive — before the page's DOM is parsed —
+  // while the content script's FINDINGS message arrives much later (after `document_idle`). So
+  // a header-detected webmention URL usually has no stored Findings to merge into yet. Stash it
+  // here, keyed by tab, until the FINDINGS message for that same navigation shows up. Cleared on
+  // consumption and on tab removal so it never carries over onto an unrelated later navigation.
+  const pendingWebmentionHeaders = new Map<number, string>();
+
   chrome.runtime.onMessage.addListener((message, sender) => {
     const tabId = sender.tab?.id;
     if (tabId === undefined || !isFindingsMessage(message)) return;
-    void chrome.storage.session.set({ [String(tabId)]: message.findings });
-    chrome.action.setBadgeText({ tabId, text: badgeTextFor(countFindings(message.findings)) });
+    const pendingWebmentionUrl = pendingWebmentionHeaders.get(tabId);
+    pendingWebmentionHeaders.delete(tabId);
+    const findings =
+      pendingWebmentionUrl && !message.findings.webmentionUrl
+        ? { ...message.findings, webmentionUrl: pendingWebmentionUrl }
+        : message.findings;
+    void chrome.storage.session.set({ [String(tabId)]: findings });
+    chrome.action.setBadgeText({ tabId, text: badgeTextFor(countFindings(findings)) });
   });
 
   chrome.tabs.onRemoved.addListener((tabId) => {
+    pendingWebmentionHeaders.delete(tabId);
     void chrome.storage.session.set({ [String(tabId)]: null });
   });
 
   chrome.webRequest.onHeadersReceived.addListener(
     (details) => {
       if (details.tabId < 0) return;
-      const linkHeader = details.responseHeaders?.find((h) => h.name.toLowerCase() === "link");
-      const webmentionUrl = linkHeader?.value ? parseWebmentionHeader(linkHeader.value, details.url) : null;
+      const webmentionUrl = findWebmentionHeaderUrl(details.responseHeaders, details.url);
       if (!webmentionUrl) return;
       void chrome.storage.session.get(String(details.tabId)).then((stored) => {
         const existing = stored[String(details.tabId)] as Findings | undefined;
-        if (!existing || existing.webmentionUrl) return;
+        if (!existing) {
+          // FINDINGS hasn't arrived yet for this tab (the common case) — stash for the message
+          // handler above to pick up once it does.
+          pendingWebmentionHeaders.set(details.tabId, webmentionUrl);
+          return;
+        }
+        if (existing.webmentionUrl) return;
         const merged: Findings = { ...existing, webmentionUrl };
         void chrome.storage.session.set({ [String(details.tabId)]: merged });
         chrome.action.setBadgeText({ tabId: details.tabId, text: badgeTextFor(countFindings(merged)) });

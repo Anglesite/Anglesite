@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { badgeTextFor, countFindings, isFindingsMessage, parseWebmentionHeader } from "../src/background";
+import {
+  badgeTextFor,
+  countFindings,
+  findWebmentionHeaderUrl,
+  isFindingsMessage,
+  parseWebmentionHeader,
+} from "../src/background";
 import type { Findings } from "../src/types";
 
 function emptyFindings(overrides: Partial<Findings> = {}): Findings {
@@ -69,5 +75,37 @@ describe("parseWebmentionHeader", () => {
 
   it("returns null when the header has no webmention rel", () => {
     expect(parseWebmentionHeader('<https://example.com/x>; rel="next"', "https://example.com/")).toBeNull();
+  });
+});
+
+describe("findWebmentionHeaderUrl", () => {
+  it("returns null when there are no headers", () => {
+    expect(findWebmentionHeaderUrl(undefined, "https://example.com/")).toBeNull();
+  });
+
+  it("returns null when no header is named link", () => {
+    const headers = [{ name: "Content-Type", value: "text/html" }];
+    expect(findWebmentionHeaderUrl(headers, "https://example.com/")).toBeNull();
+  });
+
+  it("finds the webmention URL when it is the only link header", () => {
+    const headers = [{ name: "Link", value: '<https://example.com/webmention>; rel="webmention"' }];
+    expect(findWebmentionHeaderUrl(headers, "https://example.com/post")).toBe("https://example.com/webmention");
+  });
+
+  it("checks every separate Link header line, not just the first", () => {
+    const headers = [
+      { name: "Link", value: '<https://example.com/next>; rel="next"' },
+      { name: "Link", value: '<https://example.com/webmention>; rel="webmention"' },
+    ];
+    expect(findWebmentionHeaderUrl(headers, "https://example.com/post")).toBe("https://example.com/webmention");
+  });
+
+  it("returns null when none of the link headers advertise rel=webmention", () => {
+    const headers = [
+      { name: "Link", value: '<https://example.com/next>; rel="next"' },
+      { name: "Link", value: '<https://example.com/prev>; rel="prev"' },
+    ];
+    expect(findWebmentionHeaderUrl(headers, "https://example.com/post")).toBeNull();
   });
 });
