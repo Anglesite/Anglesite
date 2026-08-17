@@ -151,6 +151,45 @@ setup_linux() {
     echo "Tests:  swift test"
 }
 
+# Worktree hygiene (#1461): .claude/worktrees/ and per-worktree DerivedData
+# accumulate silently (a 2026-08-13 audit found 287GB combined). When the
+# count/size crosses a threshold, surface it here and OFFER the prune report —
+# setup never deletes anything itself; scripts/prune-worktrees.sh only removes
+# with an explicit --remove and its own per-candidate safety checks.
+WORKTREE_COUNT_THRESHOLD=5
+WORKTREE_SIZE_GB_THRESHOLD=20
+check_worktree_hygiene() {
+    # Resolve the MAIN checkout — when setup runs from inside a worktree, the
+    # worktrees root lives beside the main checkout's .git, not this one.
+    local main_root wt_dir count size_kb size_gb
+    main_root=$(dirname "$(git -C "$REPO_ROOT" rev-parse --path-format=absolute --git-common-dir)")
+    wt_dir="$main_root/.claude/worktrees"
+    [[ -d "$wt_dir" ]] || return 0
+    count=$(find "$wt_dir" -mindepth 1 -maxdepth 1 -type d | wc -l | tr -d ' ')
+    [[ "$count" -gt 0 ]] || return 0
+    size_kb=$(du -sk "$wt_dir" 2>/dev/null | awk '{ print $1 }')
+    size_gb=$(( ${size_kb:-0} / 1048576 ))
+
+    echo
+    if [[ "$count" -le "$WORKTREE_COUNT_THRESHOLD" && "$size_gb" -lt "$WORKTREE_SIZE_GB_THRESHOLD" ]]; then
+        ok "worktree hygiene: $count worktree dir(s), ~${size_gb}GB (thresholds: >$WORKTREE_COUNT_THRESHOLD or ≥${WORKTREE_SIZE_GB_THRESHOLD}GB)"
+        return 0
+    fi
+
+    echo "Worktree hygiene: $count dir(s) under .claude/worktrees/ (~${size_gb}GB) — over the" \
+         ">$WORKTREE_COUNT_THRESHOLD/≥${WORKTREE_SIZE_GB_THRESHOLD}GB threshold."
+    note "stale worktrees (merged PRs, orphaned dirs) and their DerivedData can be pruned safely:"
+    note "report:  scripts/prune-worktrees.sh"
+    note "remove:  scripts/prune-worktrees.sh --remove   (per-candidate confirmation; never forced)"
+    if [[ -t 0 && -t 1 ]]; then
+        local ans
+        read -r -p "  Run the prune report now (read-only, deletes nothing)? [y/N] " ans
+        if [[ "$ans" == [yY]* ]]; then
+            "$SCRIPT_DIR/prune-worktrees.sh" || true
+        fi
+    fi
+}
+
 case "$(uname -s)" in
     Darwin) setup_macos ;;
     Linux)  setup_linux ;;
@@ -159,6 +198,8 @@ case "$(uname -s)" in
         exit 1
         ;;
 esac
+
+check_worktree_hygiene
 
 echo
 if [[ "$FAILURES" -gt 0 ]]; then
