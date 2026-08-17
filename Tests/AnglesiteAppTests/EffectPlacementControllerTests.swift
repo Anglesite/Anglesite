@@ -76,6 +76,111 @@ import AnglesiteCore
         #expect(exited)
         #expect(controller.state == .idle)
     }
+
+    // MARK: - acknowledge()
+
+    @Test func acknowledgeReturnsToIdleFromSucceeded() async {
+        let controller = await makeControllerAtTerminalState(applyReply: EditReply(id: "x", status: .applied, message: nil))
+        guard case .succeeded = controller.state else {
+            Issue.record("expected .succeeded before acknowledge()")
+            return
+        }
+        controller.acknowledge()
+        #expect(controller.state == .idle)
+    }
+
+    @Test func acknowledgeReturnsToIdleFromFailed() async {
+        let controller = await makeControllerAtTerminalState(applyReply: EditReply(id: "x", status: .failed, message: "nope"))
+        guard case .failed = controller.state else {
+            Issue.record("expected .failed before acknowledge()")
+            return
+        }
+        controller.acknowledge()
+        #expect(controller.state == .idle)
+    }
+
+    @Test func acknowledgeIsNoOpFromIdle() {
+        let controller = EffectPlacementController(
+            path: "src/pages/index.astro",
+            pageModelClient: PageModelClient { _, _ in MCPClient.ToolCallResult(content: [], isError: false) },
+            editRouter: TestEditRouter { _ in EditReply(id: "x", status: .applied, message: nil) })
+        #expect(controller.state == .idle)
+        controller.acknowledge()
+        #expect(controller.state == .idle)
+    }
+
+    @Test func acknowledgeIsNoOpFromPicking() {
+        let controller = EffectPlacementController(
+            path: "src/pages/index.astro",
+            pageModelClient: PageModelClient { _, _ in MCPClient.ToolCallResult(content: [], isError: false) },
+            editRouter: TestEditRouter { _ in EditReply(id: "x", status: .applied, message: nil) })
+        controller.startPlacement(for: Self.entry, enterOverlayMode: {}, exitOverlayMode: {})
+        controller.acknowledge()
+        guard case .picking = controller.state else {
+            Issue.record("expected acknowledge() to leave .picking untouched")
+            return
+        }
+    }
+
+    @Test func acknowledgeIsNoOpFromApplying() async {
+        // Gate the model fetch on a manually-controlled `AsyncStream` so the test can observe
+        // `.applying` and call `acknowledge()` mid-flight, deterministically, rather than racing
+        // a fixed sleep against `handlePick`'s internal awaits.
+        let (stream, continuation) = AsyncStream<Void>.makeStream()
+        let pageModelClient = PageModelClient { _, _ in
+            for await _ in stream { break }
+            return MCPClient.ToolCallResult(content: [.init(type: "text", text: Self.modelJSON)], isError: false)
+        }
+        let controller = EffectPlacementController(
+            path: "src/pages/index.astro", pageModelClient: pageModelClient,
+            editRouter: TestEditRouter { _ in EditReply(id: "x", status: .applied, message: nil) })
+        controller.startPlacement(for: Self.entry, enterOverlayMode: {}, exitOverlayMode: {})
+
+        let click = PlacementPickMessage(
+            path: "/", element: .init(tag: "SECTION", id: nil, classes: ["hero"], nthChild: 1, ancestors: [], dataAnglesiteId: nil, dataTestId: nil, role: nil, ariaLabel: nil, textContent: nil))
+        let handlePickTask = Task { await controller.handlePick(click) }
+
+        await pollUntil(timeout: .seconds(5)) {
+            if case .applying = controller.state { return true }
+            return false
+        }
+        guard case .applying = controller.state else {
+            Issue.record("expected .applying before acknowledge()")
+            continuation.finish()
+            await handlePickTask.value
+            return
+        }
+
+        controller.acknowledge()
+        #expect(controller.state == .applying)
+
+        continuation.finish()
+        await handlePickTask.value
+    }
+
+    /// Drives a controller through a full pick → apply flow to land it on `.succeeded`/`.failed`,
+    /// per `applyReply.status`, for the `acknowledge()` terminal-state tests above.
+    private func makeControllerAtTerminalState(applyReply: EditReply) async -> EffectPlacementController {
+        let pageModelClient = PageModelClient { _, _ in
+            MCPClient.ToolCallResult(content: [.init(type: "text", text: Self.modelJSON)], isError: false)
+        }
+        let controller = EffectPlacementController(
+            path: "src/pages/index.astro", pageModelClient: pageModelClient,
+            editRouter: TestEditRouter { _ in applyReply })
+        controller.startPlacement(for: Self.entry, enterOverlayMode: {}, exitOverlayMode: {})
+        let click = PlacementPickMessage(
+            path: "/", element: .init(tag: "SECTION", id: nil, classes: ["hero"], nthChild: 1, ancestors: [], dataAnglesiteId: nil, dataTestId: nil, role: nil, ariaLabel: nil, textContent: nil))
+        await controller.handlePick(click)
+        return controller
+    }
+
+    private func pollUntil(timeout: Duration, _ condition: () -> Bool) async {
+        let deadline = ContinuousClock.now.advanced(by: timeout)
+        while ContinuousClock.now < deadline {
+            if condition() { return }
+            try? await Task.sleep(for: .milliseconds(5))
+        }
+    }
 }
 
 /// Minimal `EditRouter` test double, matching the shape of per-suite doubles elsewhere in this

@@ -63,9 +63,11 @@ struct EffectsGalleryView: View {
     @Environment(\.dismiss) private var dismiss
 
     /// Controls the transient success/failure banner: set true when `controller.state` becomes
-    /// `.succeeded`/`.failed`, then cleared after a short delay so the banner fades away without
-    /// requiring `EffectPlacementController` itself to transition back out of those terminal
-    /// states (its `cancel()` only rewinds `.picking`, by design — see `EffectPlacementController`).
+    /// `.succeeded`/`.failed`, then cleared after a short delay so the banner fades away. Once the
+    /// banner is cleared, `controller.acknowledge()` returns the controller to `.idle` — until
+    /// then "Apply to Page…" stays disabled (see `EffectPlacementController`'s `.idle` guard on
+    /// `startPlacement`), which is the point: no second pick can start while this one's result is
+    /// still on screen.
     @State private var showTransientBanner = false
 
     var body: some View {
@@ -88,6 +90,7 @@ struct EffectsGalleryView: View {
                 Task {
                     try? await Task.sleep(for: .seconds(2.5))
                     showTransientBanner = false
+                    controller.acknowledge()
                 }
             default:
                 showTransientBanner = false

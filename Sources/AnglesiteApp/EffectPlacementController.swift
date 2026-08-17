@@ -52,6 +52,23 @@ public final class EffectPlacementController {
         state = .idle
     }
 
+    /// Dismisses a completed placement's terminal state — the counterpart to `cancel()` for
+    /// `.succeeded`/`.failed` rather than `.picking`. Without this, nothing ever transitions the
+    /// controller back out of a terminal state, so `startPlacement`'s `.idle` guard would refuse
+    /// every placement after the first one for the rest of this instance's lifetime. Kept as a
+    /// separate method rather than folding into `cancel()` — "cancel a pick" and "dismiss a
+    /// result" are different user actions even though both end at `.idle`. `EffectsGalleryView`
+    /// calls this once its transient success/failure banner has run its course. A no-op from any
+    /// other state (`.idle`, `.picking`, `.applying`).
+    public func acknowledge() {
+        switch state {
+        case .succeeded, .failed:
+            state = .idle
+        case .idle, .picking, .applying:
+            return
+        }
+    }
+
     /// Handles a reported placement click: fetches the current page model, matches the click,
     /// builds and applies the `insertBlock` edit. Always exits overlay mode on return, success
     /// or failure — a picking session is one click.
