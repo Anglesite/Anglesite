@@ -702,11 +702,26 @@ const EXPERIMENT_ID_PATTERN = /^[A-Za-z0-9-]+$/;
 const EDGE_VISIBLE_GOAL_KINDS = new Set(["pageview", "route"]);
 const KNOWN_GOAL_KINDS = new Set(["pageview", "route", "scroll", "visible"]);
 
-function experimentPathProblem(path: unknown): string | null {
+/**
+ * `requireTrailingSlash` covers page routes: this template's Astro build emits directory-format
+ * output (`distPathFor` maps both "/pricing" and "/pricing/" to the same
+ * `dist/pricing/index.html`), so the gate's dist-file check passes either way — but at the edge,
+ * `worker.ts` and `matchesGoal` do an exact `pathname ===` match against the *runtime* request
+ * path, which Cloudflare's default trailing-slash canonicalization always gives a trailing slash
+ * for a directory-format route. A page/variant.page/pageview-goal path missing the slash passes
+ * this gate today but the experiment silently never fires at the edge. Route-kind goal paths
+ * (API/action endpoints like "/api/contact") are a different shape — this codebase's convention
+ * for them has no trailing slash (see worker.ts's ROUTES table) — so callers must NOT set this for
+ * those.
+ */
+function experimentPathProblem(path: unknown, opts?: { requireTrailingSlash?: boolean }): string | null {
   if (typeof path !== "string" || path.length === 0) return "must be a non-empty string";
   if (!path.startsWith("/")) return 'must start with "/"';
   if (path.includes("..")) return 'must not contain ".."';
   if (path.includes("%")) return "must not contain percent-encoding";
+  if (opts?.requireTrailingSlash && !path.endsWith("/")) {
+    return 'must end with "/" (page routes build to a directory\'s index.html, and the runtime request path is canonicalized to match)';
+  }
   return null;
 }
 
@@ -755,6 +770,50 @@ function hasNoindexRobotsMeta(html: string): boolean {
 }
 
 /**
+ * Computes the single dist path (if any) worth reading during `scan()`'s `dist/` walk: the built
+ * variant page of the one well-formed running experiment, if `anglesiteConfigRaw` declares one.
+ * `checkExperiments` only ever needs that one file's content, so `scan()` uses this to decide
+ * what to retain while walking, rather than keeping every built HTML file's content in memory for
+ * a lookup that's always exactly one entry.
+ *
+ * Mirrors just enough of `checkExperiments`'s own parsing to find that one path — deliberately not
+ * shared with it beyond that. Returns `null` on ANY problem (missing, malformed JSON, no
+ * experiments, zero or multiple running, malformed variant/variant.page, etc.) rather than
+ * raising or reporting: this is a cheap, best-effort lookup for what to read, not a second
+ * validator — full validation of the config, including of `variant.page` itself, still happens in
+ * `checkExperiments`.
+ */
+export function runningExperimentVariantDistPath(anglesiteConfigRaw: string | null): string | null {
+  if (anglesiteConfigRaw === null) return null;
+  try {
+    const parsed: unknown = JSON.parse(anglesiteConfigRaw);
+    if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return null;
+
+    const experimentsSection = (parsed as Record<string, unknown>).experiments;
+    if (typeof experimentsSection !== "object" || experimentsSection === null) return null;
+
+    const active = (experimentsSection as Record<string, unknown>).active;
+    if (!Array.isArray(active)) return null;
+
+    const runningEntries = active.filter(
+      (entry): entry is Record<string, unknown> =>
+        typeof entry === "object" && entry !== null && !Array.isArray(entry) && entry.status === "running",
+    );
+    if (runningEntries.length !== 1) return null;
+
+    const variant = runningEntries[0].variant;
+    if (typeof variant !== "object" || variant === null || Array.isArray(variant)) return null;
+
+    const variantPage = (variant as Record<string, unknown>).page;
+    if (typeof variantPage !== "string" || variantPage.length === 0) return null;
+
+    return distPathFor(variantPage);
+  } catch {
+    return null;
+  }
+}
+
+/**
  * Validates the `experiments` section of `anglesite.json` (#1270 slice 1) and, for the one
  * running experiment (if any), that its edge machinery is actually built and wired — a page,
  * variant, or pageview-goal path that doesn't exist in `dist/`, or a variant missing its
@@ -768,7 +827,7 @@ function hasNoindexRobotsMeta(html: string): boolean {
 export function checkExperiments(
   anglesiteConfigRaw: string | null,
   distFiles: Set<string>,
-  distFileContent: Map<string, string>,
+  variantHtmlContent: string | null,
   sitemapContent: string | null,
 ): Issue[] {
   if (anglesiteConfigRaw === null) return [];
@@ -819,7 +878,7 @@ export function checkExperiments(
       });
     }
 
-    const pageProblem = experimentPathProblem(entry.page);
+    const pageProblem = experimentPathProblem(entry.page, { requireTrailingSlash: true });
     if (pageProblem) {
       issues.push({ severity: "error", category: "experiments-invalid", message: `${label}.page ${pageProblem}.`, file: "anglesite.json" });
     }
@@ -828,15 +887,22 @@ export function checkExperiments(
     if (typeof variant !== "object" || variant === null) {
       issues.push({ severity: "error", category: "experiments-invalid", message: `${label}.variant must be an object.`, file: "anglesite.json" });
     } else {
-      if (typeof variant.id !== "string" || variant.id.length === 0) {
+      if (typeof variant.id !== "string" || !EXPERIMENT_ID_PATTERN.test(variant.id)) {
         issues.push({
           severity: "error",
           category: "experiments-invalid",
-          message: `${label}.variant.id must be a non-empty string.`,
+          message: `${label}.variant.id must match ${EXPERIMENT_ID_PATTERN} (found ${JSON.stringify(variant.id)}).`,
+          file: "anglesite.json",
+        });
+      } else if (variant.id === "control") {
+        issues.push({
+          severity: "error",
+          category: "experiments-invalid",
+          message: `${label}.variant.id must not be "control" — "control" is reserved for the unmodified page. A variant sharing that id is indistinguishable from control once assigned, silently breaking assignment stickiness.`,
           file: "anglesite.json",
         });
       }
-      const variantPageProblem = experimentPathProblem(variant.page);
+      const variantPageProblem = experimentPathProblem(variant.page, { requireTrailingSlash: true });
       if (variantPageProblem) {
         issues.push({
           severity: "error",
@@ -884,7 +950,10 @@ export function checkExperiments(
         remediation: 'Use goal.kind "pageview" or "route" for now.',
       });
     } else {
-      const goalPathProblem = experimentPathProblem(goal.path);
+      // Only "pageview" goals are page routes (Astro directory-format output); "route" goals are
+      // API/action endpoints, which this codebase never gives a trailing slash (see worker.ts's
+      // ROUTES table) — see experimentPathProblem's doc comment.
+      const goalPathProblem = experimentPathProblem(goal.path, { requireTrailingSlash: goal.kind === "pageview" });
       if (goalPathProblem) {
         issues.push({ severity: "error", category: "experiments-invalid", message: `${label}.goal.path ${goalPathProblem}.`, file: "anglesite.json" });
       }
@@ -943,9 +1012,8 @@ export function checkExperiments(
     }
   }
 
-  const variantHtml = distFileContent.get(distPathFor(variantPage));
-  if (variantHtml !== undefined) {
-    const canonicalHref = findCanonicalHref(variantHtml);
+  if (variantHtmlContent !== null) {
+    const canonicalHref = findCanonicalHref(variantHtmlContent);
     const canonicalPath = canonicalHref ? tryParsePathname(canonicalHref) : null;
     if (canonicalPath !== page) {
       issues.push({
@@ -956,7 +1024,7 @@ export function checkExperiments(
         remediation: 'Add <link rel="canonical"> to the variant page pointing at the control page.',
       });
     }
-    if (!hasNoindexRobotsMeta(variantHtml)) {
+    if (!hasNoindexRobotsMeta(variantHtmlContent)) {
       issues.push({
         severity: "error",
         category: "experiments-variant-seo",
@@ -1035,7 +1103,11 @@ async function scan(): Promise<Issue[]> {
   const sitemapContent = await readFile(join(DIST_DIR, "sitemap.xml"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
   );
-  const htmlContent = new Map<string, string>();
+  // Only ever one file's content is needed out of the whole walk below — the running
+  // experiment's variant page, if there is one — so this is computed up front rather than
+  // retaining every built HTML file's content in memory (#1513 final review).
+  const variantDistPath = runningExperimentVariantDistPath(anglesiteConfigContent);
+  let variantHtmlContent: string | null = null;
 
   const relPaths: string[] = [];
 
@@ -1048,7 +1120,7 @@ async function scan(): Promise<Issue[]> {
     issues.push(...checkPII(content, rel));
 
     const isHtmlOrCss = /\.(html?|css)$/i.test(file);
-    if (/\.html?$/i.test(file)) htmlContent.set(rel, content);
+    if (variantDistPath !== null && rel === variantDistPath) variantHtmlContent = content;
     if (isHtmlOrCss) {
       issues.push(...checkEmbedMedia(content, rel));
     }
@@ -1094,7 +1166,7 @@ async function scan(): Promise<Issue[]> {
 
   issues.push(...checkArtifactPresence(relPaths));
 
-  issues.push(...checkExperiments(anglesiteConfigContent, new Set(relPaths), htmlContent, sitemapContent));
+  issues.push(...checkExperiments(anglesiteConfigContent, new Set(relPaths), variantHtmlContent, sitemapContent));
 
   return issues;
 }
