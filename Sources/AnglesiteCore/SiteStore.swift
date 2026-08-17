@@ -155,6 +155,9 @@ public actor SiteStore {
 
     private let fileManager: FileManager
     private let persistenceURL: URL
+    /// Where to best-effort mirror the registry for the share extension (#1450). `nil` means
+    /// sharing is unavailable (no App Group entitlement) — every publish call becomes a no-op.
+    private let sharedRegistryDirectory: URL?
     /// The in-memory registry, most-recently-used first. Empty until `load()` runs; read-only
     /// from outside — every mutation goes through the actor's methods so persistence and change
     /// broadcasts can't be skipped.
@@ -171,12 +174,17 @@ public actor SiteStore {
     ///   - persistenceURL: where to read/write `recents.json`. Defaults to
     ///     `~/Library/Application Support/Anglesite/recents.json`. Tests should pass a temp URL.
     ///   - fileManager: injection seam for tests.
+    ///   - sharedRegistryDirectory: where to best-effort mirror the share-extension manifest
+    ///     (#1450). Defaults to `SharedContainer.url(fileManager:)`, which is `nil` outside a
+    ///     process with the real App Group entitlement (e.g. every `swift test` run).
     public init(
         persistenceURL: URL? = nil,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        sharedRegistryDirectory: URL? = nil
     ) {
         self.fileManager = fileManager
         self.persistenceURL = persistenceURL ?? Self.defaultPersistenceURL(fileManager: fileManager)
+        self.sharedRegistryDirectory = sharedRegistryDirectory ?? SharedContainer.url(fileManager: fileManager)
     }
 
     /// Install (or replace, or clear with `nil`) the post-mutation change handler.
@@ -419,6 +427,21 @@ public actor SiteStore {
         try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
         let data = try Self.encoder.encode(sites)
         try data.write(to: persistenceURL, options: [.atomic])
+        publishSharedRegistry()
+    }
+
+    /// Best-effort mirror of the registry into the App Group container so the share extension
+    /// (#1450) can list sites and resolve their bookmarks — a completely separate sandboxed
+    /// process with no visibility into this app's own container. No-op when
+    /// `sharedRegistryDirectory` is `nil`. Never throws: sharing is a bonus, never a reason to
+    /// fail whatever mutation just called `persist()`.
+    private func publishSharedRegistry() {
+        guard let sharedRegistryDirectory else { return }
+        let shared = sites.compactMap { site -> SharedSite? in
+            guard let bookmarkData = site.bookmarkData else { return nil }
+            return SharedSite(id: site.id, name: site.name, bookmarkData: bookmarkData, lastSeen: site.lastSeen)
+        }
+        SharedSiteRegistry.publish(shared, to: sharedRegistryDirectory, fileManager: fileManager)
     }
 
     private static var encoder: JSONEncoder {

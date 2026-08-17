@@ -55,5 +55,13 @@
 	<array>
 		<string>webcredentials:auth.anglesite.dwk.io</string>
 	</array>
+
+	<!-- Share extension App Group (#1450): shares this app's site bookmarks with
+	     AnglesiteShareExtension so it can post directly without the app frontmost — the array
+	     must match Resources/ShareExtension/AnglesiteShareExtension.entitlements' exactly. -->
+	<key>com.apple.security.application-groups</key>
+	<array>
+		<string>group.io.dwk.anglesite</string>
+	</array>
 </dict>
 </plist>

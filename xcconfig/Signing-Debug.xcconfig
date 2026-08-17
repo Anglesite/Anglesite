@@ -32,4 +32,12 @@ ANGLESITE_MOBILE_DEBUG_ENTITLEMENTS = Resources/AnglesiteMobile-Debug.entitlemen
 // build promise exactly the way iCloud does.
 ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS = Resources/AnglesiteRemote-Debug.entitlements
 
+// The AnglesiteShareExtension target's CODE_SIGN_ENTITLEMENTS (Debug config) reads this
+// indirection (#1450, mirrors ANGLESITE_REMOTE_DEBUG_ENTITLEMENTS above) so a local override can
+// point at Resources/ShareExtension/AnglesiteShareExtension-Debug-AppGroup.entitlements without
+// editing this tracked file. Must stay the no-app-group file by default:
+// com.apple.security.application-groups requires a real provisioning profile even under the
+// ad-hoc signing above, which breaks the no-Apple-account Debug build promise.
+ANGLESITE_SHARE_EXTENSION_DEBUG_ENTITLEMENTS = Resources/ShareExtension/AnglesiteShareExtension-Debug.entitlements
+
 #include? "Signing-Debug.local.xcconfig"

@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<!-- Default, CI-safe Debug entitlements for the share extension (#1450): NO
+	     application-groups here — that capability needs a real Apple Developer provisioning
+	     profile even under ad-hoc/Manual signing (mirrors Resources/Anglesite-Debug.entitlements'
+	     reasoning for iCloud/associated-domains). The extension still builds and installs without
+	     it; it just can't reach the shared site registry, so its compose sheet shows no sites
+	     until a contributor opts into ANGLESITE_SHARE_EXTENSION_DEBUG_ENTITLEMENTS locally (see
+	     xcconfig/Signing-Debug.local.xcconfig.example). -->
+	<key>com.apple.security.app-sandbox</key>
+	<true/>
+	<key>com.apple.security.network.client</key>
+	<true/>
+	<key>com.apple.security.files.bookmarks.app-scope</key>
+	<true/>
+</dict>
+</plist>
