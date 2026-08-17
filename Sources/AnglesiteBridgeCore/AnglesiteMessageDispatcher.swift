@@ -20,6 +20,8 @@ import AnglesiteCore
 ///    (`JS/edit-overlay/src/component-canvas.ts`) on click. No reply.
 /// 4. `anglesite:computed-styles` (a `ComputedStylesReport`) — dispatched to the optional
 ///    `onComputedStyles` callback, posted alongside a canvas selection. No reply.
+/// 5. anglesite:pick-placement (a PlacementPickMessage) — dispatched to the optional
+///    onPlacementPick callback. No reply.
 public enum AnglesiteMessageDispatcher {
     /// Receives the decoded elements of an `anglesite:visible-elements` report (message type 2
     /// above). Async so implementations can hop to their model's actor; no reply flows back.
@@ -28,6 +30,8 @@ public enum AnglesiteMessageDispatcher {
     public typealias CanvasSelectionHandler = @Sendable (CanvasSelectionMessage) async -> Void
     /// Receives a decoded `anglesite:computed-styles` report (message type 4 above).
     public typealias ComputedStylesHandler = @Sendable (ComputedStylesReport) async -> Void
+    /// Receives a decoded `anglesite:pick-placement` message (message type 5 above).
+    public typealias PlacementPickHandler = @Sendable (PlacementPickMessage) async -> Void
 
     /// The `WKUserContentController`/`WebKitUserContentManager`/WebView2 script-message name
     /// every platform adapter registers its handler under — the JS overlay posts messages here
@@ -52,6 +56,10 @@ public enum AnglesiteMessageDispatcher {
         case computedStylesHandled
         /// `anglesite:computed-styles` arrived but no `onComputedStyles` handler is installed.
         case computedStylesDropped
+        /// `anglesite:pick-placement` was forwarded to the optional handler.
+        case placementPickHandled
+        /// `anglesite:pick-placement` arrived but no `onPlacementPick` handler is installed.
+        case placementPickDropped
         /// Body was undecodable. Log and move on.
         case rejected(RejectionReason)
 
@@ -75,6 +83,8 @@ public enum AnglesiteMessageDispatcher {
             case canvasSelectionDecode(ComponentCanvasDecodeError)
             /// `anglesite:computed-styles` matched but the payload failed to decode.
             case computedStylesDecode(ComponentCanvasDecodeError)
+            /// `anglesite:pick-placement` matched but the payload failed to decode.
+            case placementPickDecode(ComponentCanvasDecodeError)
         }
     }
 
@@ -85,7 +95,8 @@ public enum AnglesiteMessageDispatcher {
         via router: EditRouter,
         onVisibleElements: VisibleElementsHandler? = nil,
         onCanvasSelection: CanvasSelectionHandler? = nil,
-        onComputedStyles: ComputedStylesHandler? = nil
+        onComputedStyles: ComputedStylesHandler? = nil,
+        onPlacementPick: PlacementPickHandler? = nil
     ) async -> DispatchResult {
         guard let dict = body as? [String: Any] else { return .rejected(.notAnObject) }
         guard let rawType = dict["type"] else { return .rejected(.missingType) }
@@ -129,6 +140,16 @@ public enum AnglesiteMessageDispatcher {
                 return .computedStylesHandled
             case .failure(let error):
                 return .rejected(.computedStylesDecode(error))
+            }
+
+        case PlacementPickMessage.messageType:
+            switch PlacementPickMessage.decode(from: body) {
+            case .success(let message):
+                guard let handler = onPlacementPick else { return .placementPickDropped }
+                await handler(message)
+                return .placementPickHandled
+            case .failure(let error):
+                return .rejected(.placementPickDecode(error))
             }
 
         default:
