@@ -91,7 +91,7 @@ struct WorkerRouteClaimsTests {
         "webfinger",
         "/.well-known",
         "/a//b",
-        "/a/b/",
+        "/a/b//",
         "/a/../b",
         "/a/./b",
         "/a%2Fb",
@@ -103,7 +103,17 @@ struct WorkerRouteClaimsTests {
 
     @Test("experimentPathProblem accepts an ordinary well-formed path")
     func experimentPathProblemAcceptsOrdinaryPath() {
-        #expect(WorkerRouteClaims.experimentPathProblem("/x/homepage-hero/b") == nil)
+        #expect(WorkerRouteClaims.experimentPathProblem("/x/homepage-hero/b/") == nil)
+    }
+
+    @Test("experimentPathProblem still rejects a doubled trailing slash")
+    func experimentPathProblemRejectDoubledTrailingSlash() {
+        #expect(WorkerRouteClaims.experimentPathProblem("/a//") != nil)
+    }
+
+    @Test("experimentPathProblem still rejects internal empty segments")
+    func experimentPathProblemRejectInternalEmptySegment() {
+        #expect(WorkerRouteClaims.experimentPathProblem("/a//b") != nil)
     }
 
     // MARK: Method validation

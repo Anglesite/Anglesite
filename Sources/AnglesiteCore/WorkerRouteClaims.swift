@@ -88,10 +88,12 @@ public enum WorkerRouteClaims {
         pathSyntaxProblem(path, allowRoot: false)
     }
 
-    /// Same character-class, traversal, and length rules as ``pathProblem(_:)``, but permits the
-    /// bare root `/` — an A/B experiment's tested page may legitimately be the site's homepage
-    /// (#1270 design doc §3), unlike a `@dwk/workers` catalog route claim, which
-    /// ``pathProblem(_:)`` deliberately refuses to let claim `/` at all.
+    /// Same character-class, traversal, and length rules as ``pathProblem(_:)``, but permits two
+    /// additional cases: the bare root `/` — an A/B experiment's tested page may legitimately be
+    /// the site's homepage (#1270 design doc §3) — and exactly one trailing slash on non-root
+    /// paths, matching Astro's directory-style routes (design doc §2's own example: "/x/homepage-hero/b/",
+    /// "/contact/thanks/"). A `@dwk/workers` catalog route claim (``pathProblem(_:)``) deliberately
+    /// refuses both cases.
     static func experimentPathProblem(_ path: String) -> String? {
         pathSyntaxProblem(path, allowRoot: true)
     }
@@ -110,9 +112,16 @@ public enum WorkerRouteClaims {
         if let bad = path.unicodeScalars.first(where: { !allowedPathScalars.contains($0) }) {
             return "disallowed character \(String(reflecting: Character(bad)))"
         }
-        // Leading "/" dropped; keep empty subsequences so "//" and a trailing "/" both surface
-        // as empty segments.
-        let segments = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false)
+        var segments = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false)
+        // An experiment path may end in exactly one trailing slash — Astro's directory-style
+        // routes (design doc §2's own example: "/x/homepage-hero/b/", "/contact/thanks/") — but a
+        // route claim (an API endpoint, allowRoot == false) never permits one. Dropping at most
+        // one trailing empty segment here still leaves a genuine doubled slash ("/a//") or an
+        // internal empty segment ("/a//b") caught by the check below, since those leave more than
+        // one empty segment (or one not at the end) behind.
+        if allowRoot, segments.count > 1, segments.last?.isEmpty == true {
+            segments.removeLast()
+        }
         if segments.contains(where: \.isEmpty) {
             return "empty path segment (no doubled or trailing slashes)"
         }
