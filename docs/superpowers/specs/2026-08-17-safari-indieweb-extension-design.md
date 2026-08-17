@@ -31,7 +31,7 @@ full interactive popup (not just a passive badge).
 | RSS / Atom / JSON Feed | `<link rel="alternate" type="application/{rss,atom,feed}+…">` | Open feed URL in a new tab |
 | microformats2 (general) | Full mf2 parse of `document.body` | Collapsible type → properties tree (h-entry, h-event, h-recipe, h-review, `rel=me`, …) |
 | Webmention | `<link rel="webmention">` or `Link:` response header | Badge + "View endpoint" link (no send) |
-| ActivityPub | `<link rel="alternate" type="application/activity+json">` or `rel=me` fediverse link | Badge + "View endpoint" link (no follow) |
+| ActivityPub | `<link rel="alternate" type="application/activity+json">` | Badge + "View endpoint" link (no follow) |
 
 ### Non-goals (v1)
 
@@ -98,8 +98,11 @@ fast.
   `application/feed+json` in `<head>`.
 - **Webmention:** `<link rel="webmention">` (content script) or an HTTP `Link:` header with
   `rel="webmention"` (background, via `webRequest` response headers).
-- **ActivityPub:** `<link rel="alternate" type="application/activity+json">`, or a `rel="me"` link
-  pointing at a recognizable fediverse profile URL pattern.
+- **ActivityPub:** `<link rel="alternate" type="application/activity+json">` only. A `rel="me"`
+  fediverse-pattern heuristic was considered but descoped from v1 (2026-08-17 final review) — it
+  was never specified precisely enough to implement safely (matching arbitrary URL shapes as
+  "looks like a fediverse profile" is fuzzy and error-prone), so it's left as a candidate
+  fast-follow rather than shipped underspecified.
 - **microformats2:** `microformat-shiv` parse of `document.body`; report root types found
   (`h-card`, `h-entry`, `h-feed`, `h-event`, `h-recipe`, `h-review`, `rel=me`) with counts, and
   keep the full parsed tree available for the popup.
@@ -109,8 +112,14 @@ fast.
 - **Toolbar icon:** dim/inactive when nothing is found; active with a badge count when features
   are detected. Click always opens the popup — no auto-popup on detection.
 - **Popup:** header (page title + total count), then one section per detected feature type:
-  - h-card → rendered fields (name, photo, org, links) + Copy / Export vCard.
+  - h-card → rendered fields (name, org, links) + Copy / Export vCard. Photo, if present, is
+    rendered as a link (not an `<img>`) — an `<img src>` would fetch the page-chosen photo URL,
+    which both violates the no-extra-fetch principle below and gives the visited site a timing
+    signal for exactly when the visitor opened the extension popup (2026-08-17 final review).
   - Feeds → list of feed links, each "Open feed" (new tab).
+  - `rel=me` → list of linked profile URLs, when present (added 2026-08-17 final review — these
+    were being counted toward the header total without a section to show them, an empty-popup
+    dead end on pages that have only `rel=me` links and no h-card/feeds).
   - mf2 tree → collapsible structured view (type → properties) for entries beyond h-card/feeds.
   - Webmention / ActivityPub → a badge line + "View endpoint" link (raw URL). No action buttons.
   - Nothing detected → plain empty state, not styled as an error.
