@@ -85,9 +85,26 @@ public enum WorkerRouteClaims {
 
     /// Returns why `path` is not a valid route-claim path, or `nil` if it is valid.
     static func pathProblem(_ path: String) -> String? {
+        pathSyntaxProblem(path, allowRoot: false)
+    }
+
+    /// Same character-class, traversal, and length rules as ``pathProblem(_:)``, but permits the
+    /// bare root `/` — an A/B experiment's tested page may legitimately be the site's homepage
+    /// (#1270 design doc §3), unlike a `@dwk/workers` catalog route claim, which
+    /// ``pathProblem(_:)`` deliberately refuses to let claim `/` at all.
+    static func experimentPathProblem(_ path: String) -> String? {
+        pathSyntaxProblem(path, allowRoot: true)
+    }
+
+    /// Shared character/traversal/length validation behind ``pathProblem(_:)`` and
+    /// ``experimentPathProblem(_:)`` — the two differ only in whether the bare root `/` is
+    /// itself acceptable.
+    private static func pathSyntaxProblem(_ path: String, allowRoot: Bool) -> String? {
         if path.isEmpty { return "empty path" }
         if !path.hasPrefix("/") { return "path must be absolute (start with \"/\")" }
-        if path == "/" { return "the origin root cannot be claimed" }
+        if path == "/" {
+            return allowRoot ? nil : "the origin root cannot be claimed"
+        }
         if path.count > maxPathLength { return "path exceeds \(maxPathLength) characters" }
         if path.contains("%") { return "percent-encoding is not allowed in route claims" }
         if let bad = path.unicodeScalars.first(where: { !allowedPathScalars.contains($0) }) {
