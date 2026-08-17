@@ -37,12 +37,12 @@ struct ContactEditValidationTests {
     func acceptsValidInput() {
         let result = ContactEditValidation.validate(
             displayName: "  Alice  ", meText: "  https://alice.example  ")
-        guard case .success(let validated) = result else {
+        guard case .success(let url, let displayName) = result else {
             Issue.record("expected success")
             return
         }
-        #expect(validated.displayName == "Alice")
-        #expect(validated.url.absoluteString == "https://alice.example")
+        #expect(displayName == "Alice")
+        #expect(url.absoluteString == "https://alice.example")
     }
 
     @Test("accepts a plain http URL")

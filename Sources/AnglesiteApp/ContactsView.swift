@@ -238,20 +238,26 @@ private struct ContactEditSheet: View {
         switch ContactEditValidation.validate(displayName: displayName, meText: meText) {
         case .failure(let message):
             validationError = message
-        case .success(let validated):
+        case .success(let url, let validatedDisplayName):
             Task {
-                await onSave(validated.url, validated.displayName)
+                await onSave(url, validatedDisplayName)
                 dismiss()
             }
         }
     }
 }
 
-/// `Result`'s `Failure` generic parameter requires `Error` conformance, but
-/// `ContactEditValidation.validate(displayName:meText:)` returns its failure message as a plain
-/// `String` (it's UI text for `ContactEditSheet`, never thrown) — this narrow, file-local
-/// conformance is what makes `Result<_, String>` compile.
-extension String: Error {}
+/// Result of `ContactEditValidation.validate(displayName:meText:)`. A dedicated type rather than
+/// `Result<_, String>` — `Result`'s `Failure` generic parameter requires `Error` conformance, and
+/// the validation failure message is plain UI text (never thrown), so reusing `Result` would
+/// require conforming `String` to `Error` module-wide, which is a footgun far outside this file's
+/// scope (silently accepting bare strings at any `catch`/`throw`/`<E: Error>` call site).
+enum ContactEditValidationResult: Equatable {
+    /// The trimmed name and parsed URL, ready to hand to `onSave`.
+    case success(url: URL, displayName: String)
+    /// The message `ContactEditSheet` shows under the fields.
+    case failure(String)
+}
 
 /// Pure validation for `ContactEditSheet`'s Save action, pulled out of the view so it can be
 /// unit-tested directly — see this task's test strategy note above. Not `private`, for the same
@@ -261,7 +267,7 @@ enum ContactEditValidation {
     /// carries the message `ContactEditSheet` shows under the fields.
     static func validate(
         displayName: String, meText: String
-    ) -> Result<(url: URL, displayName: String), String> {
+    ) -> ContactEditValidationResult {
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
             return .failure("Enter a name.")
@@ -272,6 +278,6 @@ enum ContactEditValidation {
         else {
             return .failure("Enter a valid http(s) website address.")
         }
-        return .success((url, trimmedName))
+        return .success(url: url, displayName: trimmedName)
     }
 }
