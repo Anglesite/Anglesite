@@ -29,18 +29,9 @@ struct AuditSheetView: View {
     // MARK: Header
 
     private var header: some View {
-        HStack(spacing: 10) {
+        SheetHeader(title: headerTitle, subtitle: headerSubtitle) {
             statusIcon
-            VStack(alignment: .leading, spacing: 1) {
-                Text(headerTitle).font(.headline)
-                if let subtitle = headerSubtitle {
-                    Text(subtitle).font(.caption).foregroundStyle(.secondary)
-                }
-            }
-            Spacer()
         }
-        .padding(.horizontal, 16)
-        .padding(.vertical, 12)
     }
 
     @ViewBuilder
