@@ -90,6 +90,15 @@ export interface AnglesiteExperimentsConfig {
   active?: AnglesiteExperiment[];
 }
 
+/** Picks the one "running" experiment (v1: one at a time) out of `experiments.active`, or `null`.
+ *  Shared by the worker artifact generator (`experiments-artifact.ts`) and the goal-beacon layout
+ *  injection (`BaseLayout.astro`) so both derive the same answer from `anglesite.json` without
+ *  depending on each other's build order — see `GOAL_BEACON_SCRIPT_PATH`'s doc comment for why the
+ *  layout can't just import the generated `worker/experiments.json` artifact directly. */
+export function pickRunningExperiment(config: AnglesiteConfig): AnglesiteExperiment | null {
+  return config.experiments?.active?.find((experiment) => experiment.status === "running") ?? null;
+}
+
 /// The `Source/anglesite.json` shape this reader hands back. Mirrors the Swift `DomainConfig`
 /// model (`Sources/AnglesiteCore/DomainConfig.swift`) field-for-field; kept as a hand-written
 /// parallel type rather than a generated one, matching how `RedirectEntry` in `redirects.ts`

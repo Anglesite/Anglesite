@@ -11,16 +11,15 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { readAnglesiteConfig, type AnglesiteConfig, type AnglesiteExperiment } from "./anglesite-config.ts";
+import { readAnglesiteConfig, pickRunningExperiment, type AnglesiteConfig, type AnglesiteExperiment } from "./anglesite-config.ts";
 import type { ExperimentsArtifact, RunningExperiment } from "../worker/experiments.ts";
 
-/** Picks the one "running" experiment (v1: one at a time) out of `active`, or `null`. Multiple
- *  running entries would be a `checkExperiments` gate failure before deploy — this generator
- *  stays defensive rather than throwing, so a mid-edit config still produces a buildable (if
- *  soon-to-be-gate-rejected) artifact. */
+/** Projects the config's one running experiment (v1: one at a time), or `null`, to the Worker's
+ *  runtime shape. Multiple running entries would be a `checkExperiments` gate failure before
+ *  deploy — `pickRunningExperiment` picks the first regardless, so a mid-edit config still
+ *  produces a buildable (if soon-to-be-gate-rejected) artifact rather than throwing. */
 export function buildExperimentsArtifact(config: AnglesiteConfig): ExperimentsArtifact {
-  const active = config.experiments?.active ?? [];
-  const running = active.find((experiment) => experiment.status === "running");
+  const running = pickRunningExperiment(config);
   return { experiment: running ? toRunningExperiment(running) : null };
 }
 

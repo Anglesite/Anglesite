@@ -3,7 +3,7 @@ import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { readAnglesiteConfig } from "./anglesite-config";
+import { readAnglesiteConfig, pickRunningExperiment, type AnglesiteConfig, type AnglesiteExperiment } from "./anglesite-config";
 
 /// Temporarily replaces `console.warn` for the duration of `fn`, recording calls, then restores it.
 function withWarnSpy<T>(fn: (calls: unknown[][]) => T): T {
@@ -177,4 +177,44 @@ test("readAnglesiteConfig: defaults version to 1 when the file omits it", () => 
   } finally {
     rmSync(siteRoot, { recursive: true, force: true });
   }
+});
+
+function makeExperiment(overrides: Partial<AnglesiteExperiment> = {}): AnglesiteExperiment {
+  return {
+    id: "homepage-hero",
+    name: "Homepage headline",
+    page: "/",
+    variant: { id: "b", name: "Fresh eggs headline", page: "/x/homepage-hero/b/" },
+    split: 0.5,
+    goal: { kind: "pageview", path: "/contact/thanks/" },
+    status: "running",
+    startedAt: "2026-08-16",
+    ...overrides,
+  };
+}
+
+test("pickRunningExperiment: no experiments section returns null", () => {
+  const config: AnglesiteConfig = { version: 1 };
+  assert.equal(pickRunningExperiment(config), null);
+});
+
+test("pickRunningExperiment: only draft experiments returns null", () => {
+  const config: AnglesiteConfig = { version: 1, experiments: { active: [makeExperiment({ status: "draft" })] } };
+  assert.equal(pickRunningExperiment(config), null);
+});
+
+test("pickRunningExperiment: returns the one running experiment", () => {
+  const config: AnglesiteConfig = {
+    version: 1,
+    experiments: { active: [makeExperiment({ id: "draft-one", status: "draft" }), makeExperiment({ id: "running-one" })] },
+  };
+  assert.equal(pickRunningExperiment(config)?.id, "running-one");
+});
+
+test("pickRunningExperiment: picks the first running experiment when multiple are (invalidly) running", () => {
+  const config: AnglesiteConfig = {
+    version: 1,
+    experiments: { active: [makeExperiment({ id: "first" }), makeExperiment({ id: "second" })] },
+  };
+  assert.equal(pickRunningExperiment(config)?.id, "first");
 });

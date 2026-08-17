@@ -1,9 +1,9 @@
 /**
- * Edge A/B testing runtime (#1270 slice 1): variant assignment/serving and D1 event counting for
- * `worker.ts`'s experiments middleware. Edge-visible goal kinds only ("pageview"/"route") —
- * "scroll"/"visible" ship with the goal beacon in slice 2; `matchesGoal` never matches those kinds
- * here, so a misconfigured client-side-goal experiment is caught by `checkExperiments` (the
- * pre-deploy gate) rather than silently never converting at the edge.
+ * Edge A/B testing runtime (#1270 slices 1-2): variant assignment/serving and D1 event counting
+ * for `worker.ts`'s experiments middleware. `matchesGoal` only ever matches "pageview"/"route" —
+ * "scroll"/"visible" are never observed by pathname/method at this layer; they're reported by the
+ * first-party goal beacon (`public/x/goal-beacon.js`) via `handleGoalBeaconRequest`'s dedicated
+ * `/x/goal` endpoint instead (see `GOAL_ENDPOINT_PATH` in `../scripts/experiments-paths.ts`).
  */
 
 export type ExperimentGoalKind = "pageview" | "route" | "scroll" | "visible";
@@ -111,8 +111,9 @@ export async function incrementExperimentCounter(
 }
 
 /** True when `pathname`/`method` is this experiment's goal signal. Only "pageview" (any method,
- *  matched by path) and "route" (POST, matched by path) are edge-observable in this slice —
- *  "scroll"/"visible" are observed client-side by the slice-2 beacon, never at this layer. */
+ *  matched by path) and "route" (POST, matched by path) are edge-observable here — "scroll"/
+ *  "visible" are observed client-side by the goal beacon (`handleGoalBeaconRequest` below), never
+ *  by pathname/method matching. */
 export function matchesGoal(experiment: RunningExperiment, pathname: string, method: string): boolean {
   const { goal } = experiment;
   if (goal.path === undefined) return false;
@@ -199,4 +200,39 @@ export async function applyGoalConversion(
 
   ctx.waitUntil(incrementExperimentCounter(env.EXPERIMENTS_DB, experiment.id, arm, "conversion", currentDay()));
   return withSetCookie(response, serializeCookie(conversionCookie, "1"));
+}
+
+const CLIENT_GOAL_KINDS: ReadonlySet<ExperimentGoalKind> = new Set(["scroll", "visible"]);
+
+/**
+ * The `/x/goal` endpoint (#1270 slice 2): `worker.ts` dispatches every request on
+ * `GOAL_ENDPOINT_PATH` here, running experiment or not. `sendBeacon`/`fetch(keepalive)` bodies are
+ * always empty (no request body is ever read) — the experiment id travels as the `e` query
+ * parameter instead (`public/x/goal-beacon.js`'s `send()`).
+ *
+ * A `204` no-op — never a conversion — for: any non-POST method (`405` instead), no experiment
+ * running, a running experiment whose goal isn't client-side (`scroll`/`visible` — a forged hit
+ * against a `pageview`/`route` experiment must not count, since only the beacon script for a
+ * client-side goal is ever supposed to call this), an `e` that doesn't match the running
+ * experiment's id, or (inside `applyGoalConversion`) a visitor with no assignment cookie or one
+ * that's already converted. Reuses `applyGoalConversion`'s cookie/dedupe logic against a bare
+ * `204` response, which is `response.ok`, so it's still eligible to count.
+ */
+export async function handleGoalBeaconRequest(
+  request: Request,
+  env: ExperimentsEnv,
+  ctx: ExecutionContext,
+  experiment: RunningExperiment | null,
+): Promise<Response> {
+  if (request.method !== "POST") {
+    return new Response("Method Not Allowed", { status: 405, headers: { allow: "POST" } });
+  }
+
+  const emptyResponse = new Response(null, { status: 204 });
+  if (!experiment || !CLIENT_GOAL_KINDS.has(experiment.goal.kind)) return emptyResponse;
+
+  const requestedId = new URL(request.url).searchParams.get("e");
+  if (requestedId !== experiment.id) return emptyResponse;
+
+  return applyGoalConversion(request, env, ctx, experiment, emptyResponse);
 }

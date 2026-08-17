@@ -13,9 +13,11 @@ import {
   checkAnglesiteConfig,
   checkExperiments,
   checkRSL,
+  runningExperimentControlDistPath,
   runningExperimentVariantDistPath,
 } from "./pre-deploy-check";
 import { MTA_STS_MARKER, SECURITY_TXT_MARKER } from "./edge-artifacts";
+import { GOAL_BEACON_SCRIPT_PATH } from "./experiments-paths";
 
 const GOOD = `/*
   Content-Security-Policy: default-src 'self'; frame-src 'self' js.stripe.com
@@ -664,10 +666,40 @@ test("checkExperiments: rejects an unrecognized goal kind", () => {
   assert.ok(issues.some((i) => i.message.includes("goal.kind must be one of")));
 });
 
-test("checkExperiments: flags scroll/visible goal kinds as not yet supported", () => {
+test("checkExperiments: rejects a scroll goal with a non-numeric depth", () => {
+  const active = [{ ...VALID_ACTIVE[0], goal: { kind: "scroll", depth: "75" } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes(".goal.depth must be")));
+});
+
+test("checkExperiments: rejects a scroll goal with an out-of-range depth", () => {
+  const active = [{ ...VALID_ACTIVE[0], goal: { kind: "scroll", depth: 150 } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes(".goal.depth must be")));
+});
+
+test("checkExperiments: accepts an in-range scroll depth (no goal-parameter issue)", () => {
   const active = [{ ...VALID_ACTIVE[0], goal: { kind: "scroll", depth: 75 } }];
   const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
-  assert.ok(issues.some((i) => i.category === "experiments-unsupported"));
+  assert.ok(!issues.some((i) => i.message.includes(".goal.depth") || i.message.includes(".goal.selector")));
+});
+
+test("checkExperiments: rejects a visible goal missing a selector", () => {
+  const active = [{ ...VALID_ACTIVE[0], goal: { kind: "visible" } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes(".goal.selector must be")));
+});
+
+test("checkExperiments: rejects a visible goal with an empty/whitespace selector", () => {
+  const active = [{ ...VALID_ACTIVE[0], goal: { kind: "visible", selector: "   " } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(issues.some((i) => i.message.includes(".goal.selector must be")));
+});
+
+test("checkExperiments: accepts a non-empty visible selector (no goal-parameter issue)", () => {
+  const active = [{ ...VALID_ACTIVE[0], goal: { kind: "visible", selector: "#testimonials" } }];
+  const issues = checkExperiments(JSON.stringify({ version: 1, experiments: { active } }), new Set(), null, null);
+  assert.ok(!issues.some((i) => i.message.includes(".goal.depth") || i.message.includes(".goal.selector")));
 });
 
 test("checkExperiments: rejects more than one running experiment", () => {
@@ -804,4 +836,95 @@ test("checkExperiments: recognizes noindex even when content precedes name in th
     "<urlset></urlset>",
   );
   assert.deepEqual(issues, []);
+});
+
+const SCROLL_GOAL_ACTIVE = [{ ...VALID_ACTIVE[0], goal: { kind: "scroll", depth: 75 } }];
+const BEACON_SCRIPT_TAG = `<script src="${GOAL_BEACON_SCRIPT_PATH}" defer data-experiment="homepage-hero" data-kind="scroll" data-depth="75"></script>`;
+const VARIANT_WITH_BEACON_HTML = `<html><head><link rel="canonical" href="https://example.com/"><meta name="robots" content="noindex">${BEACON_SCRIPT_TAG}</head><body></body></html>`;
+const CONTROL_WITH_BEACON_HTML = `<html><head>${BEACON_SCRIPT_TAG}</head><body></body></html>`;
+const NO_BEACON_TAG_HTML = "<html><head></head><body></body></html>";
+
+test("checkExperiments: flags a running client-side-goal experiment missing the built beacon script", () => {
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: SCROLL_GOAL_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html"]),
+    VARIANT_WITH_BEACON_HTML,
+    "<urlset></urlset>",
+    CONTROL_WITH_BEACON_HTML,
+  );
+  assert.ok(issues.some((i) => i.category === "experiments-goal-beacon" && i.message.includes("goal beacon script")));
+});
+
+test("checkExperiments: flags a control page missing the beacon <script> tag for a client-side goal", () => {
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: SCROLL_GOAL_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/x/goal-beacon.js"]),
+    VARIANT_WITH_BEACON_HTML,
+    "<urlset></urlset>",
+    NO_BEACON_TAG_HTML,
+  );
+  assert.ok(
+    issues.some(
+      (i) => i.category === "experiments-goal-beacon" && i.message.includes("control page") && i.message.includes("beacon"),
+    ),
+  );
+});
+
+test("checkExperiments: flags a variant page missing the beacon <script> tag for a client-side goal", () => {
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: SCROLL_GOAL_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/x/goal-beacon.js"]),
+    NO_BEACON_TAG_HTML,
+    "<urlset></urlset>",
+    CONTROL_WITH_BEACON_HTML,
+  );
+  assert.ok(
+    issues.some(
+      (i) => i.category === "experiments-goal-beacon" && i.message.includes("variant page") && i.message.includes("beacon"),
+    ),
+  );
+});
+
+test("checkExperiments: a fully built client-side-goal experiment (script + both tags) has no issues", () => {
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: SCROLL_GOAL_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/x/goal-beacon.js"]),
+    VARIANT_WITH_BEACON_HTML,
+    "<urlset></urlset>",
+    CONTROL_WITH_BEACON_HTML,
+  );
+  assert.deepEqual(issues, []);
+});
+
+test("checkExperiments: does not require the beacon script/tag for an edge-visible goal (regression)", () => {
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/contact/thanks/index.html"]),
+    VALID_VARIANT_HTML,
+    "<urlset></urlset>",
+    NO_BEACON_TAG_HTML,
+  );
+  assert.ok(!issues.some((i) => i.category === "experiments-goal-beacon"));
+});
+
+test("checkExperiments: skips the beacon-tag check when control HTML wasn't captured (older call sites)", () => {
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: SCROLL_GOAL_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/x/goal-beacon.js"]),
+    VARIANT_WITH_BEACON_HTML,
+    "<urlset></urlset>",
+  );
+  assert.ok(!issues.some((i) => i.message.includes("control page")));
+});
+
+test("runningExperimentControlDistPath: a well-formed running experiment resolves its own dist path", () => {
+  assert.equal(
+    runningExperimentControlDistPath(JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } })),
+    "dist/index.html",
+  );
+});
+
+test("runningExperimentControlDistPath: no running experiment returns null", () => {
+  const active = [{ ...VALID_ACTIVE[0], status: "draft" }];
+  assert.equal(runningExperimentControlDistPath(JSON.stringify({ version: 1, experiments: { active } })), null);
 });
