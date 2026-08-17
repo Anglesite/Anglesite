@@ -60,8 +60,16 @@ public enum ContactsMatcher {
         }
 
         let existingKeys = Set(existingContacts.map { normalizedIdentityKey(for: $0.me) })
+        // `candidateFollowerURLs` can contain duplicates (a plausible shape from
+        // `FollowersModel`'s paged, non-deduped remote data) — track keys already processed in
+        // this loop so a repeated URL doesn't produce two identical `MatchSuggestion`s, which
+        // `ContactsView`'s `ForEach(..., id: \.candidateURL)` would then render with duplicate
+        // SwiftUI IDs.
+        var seenKeys: Set<String> = []
         for followerURL in candidateFollowerURLs {
-            guard !existingKeys.contains(normalizedIdentityKey(for: followerURL)) else { continue }
+            let key = normalizedIdentityKey(for: followerURL)
+            guard !existingKeys.contains(key) else { continue }
+            guard seenKeys.insert(key).inserted else { continue }
             guard let match = firstMatch(for: followerURL, in: matchableContacts) else { continue }
             suggestions.append(
                 MatchSuggestion(

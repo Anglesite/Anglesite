@@ -49,7 +49,7 @@ struct ContactsView: View {
     private var loadedContent: some View {
         VStack(spacing: 0) {
             HStack {
-                Text("\(contacts.contacts.count) contacts").font(.headline)
+                Text("^[\(contacts.contacts.count) contact](inflect: true)").font(.headline)
                 Spacer()
                 Button("Find in Contacts…") {
                     Task {
@@ -64,6 +64,10 @@ struct ContactsView: View {
 
             if let failure = contacts.scanFailure {
                 scanFailureBanner(failure)
+            }
+
+            if let writeFailure = contacts.writeFailure {
+                writeFailureBanner(writeFailure)
             }
 
             if !contacts.suggestions.isEmpty {
@@ -103,8 +107,8 @@ struct ContactsView: View {
             switch suggestion.kind {
             case .enrichExisting:
                 Text(
-                    "Use “\(suggestion.systemContactName)” from Contacts for "
-                        + "\(suggestion.candidateURL.host ?? suggestion.candidateURL.absoluteString)?")
+                    "Use “\(suggestion.systemContactName)” from Contacts for \(suggestion.candidateURL.host ?? suggestion.candidateURL.absoluteString)?"
+                )
             case .promoteToContact:
                 Text("“\(suggestion.systemContactName)” matches a follower — add as a contact?")
             }
@@ -137,13 +141,25 @@ struct ContactsView: View {
         .padding(.bottom, 8)
     }
 
+    /// Surfaces `ContactsModel.writeFailure` (design doc §3: add/update/remove "throw normally
+    /// ... since these are direct user actions expecting feedback") — mirrors
+    /// `scanFailureBanner(_:)`'s `.other` case shape.
+    @ViewBuilder
+    private func writeFailureBanner(_ reason: String) -> some View {
+        HStack {
+            Text("Couldn't save your change").foregroundStyle(.secondary)
+            Text(reason).font(.caption).foregroundStyle(.secondary)
+        }
+        .padding(.horizontal)
+        .padding(.bottom, 8)
+    }
+
     @ViewBuilder
     private var emptyState: some View {
         VStack(alignment: .leading, spacing: 8) {
             Text("No contacts yet").font(.title2)
             Text(
-                "Add people you know by their website address, or scan Contacts to find people "
-                    + "you already follow."
+                "Add people you know by their website address, or scan Contacts to find people you already follow."
             )
             .foregroundStyle(.secondary)
         }
@@ -156,8 +172,7 @@ struct ContactsView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Couldn't read your contacts").font(.title2)
             Text(
-                "The contacts file may be damaged. Back it up, then remove Config/contacts.json "
-                    + "to start fresh."
+                "The contacts file may be damaged. Back it up, then remove Config/contacts.json to start fresh."
             )
             .foregroundStyle(.secondary)
         }

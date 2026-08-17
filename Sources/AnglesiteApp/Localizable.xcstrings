@@ -1165,19 +1165,22 @@
     "Website (e.g. https://example.com)" : {
 
     },
-    "%lld contacts" : {
+    "^[%lld contact](inflect: true)" : {
 
     },
-    "Use “%@” from Contacts for " : {
+    "Use “%@” from Contacts for %@?" : {
 
     },
     "“%@” matches a follower — add as a contact?" : {
 
     },
-    "Add people you know by their website address, or scan Contacts to find people " : {
+    "Add people you know by their website address, or scan Contacts to find people you already follow." : {
 
     },
-    "The contacts file may be damaged. Back it up, then remove Config/contacts.json " : {
+    "The contacts file may be damaged. Back it up, then remove Config/contacts.json to start fresh." : {
+
+    },
+    "Couldn't save your change" : {
 
     },
     "Contains slot-fill content — double-click to edit %@" : {

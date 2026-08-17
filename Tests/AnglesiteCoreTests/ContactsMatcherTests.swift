@@ -86,6 +86,20 @@ struct ContactsMatcherTests {
         #expect(suggestions.count == 1)
     }
 
+    @Test("deduplicates repeated follower URLs into a single promotion suggestion (#966 review)")
+    func dedupesDuplicateFollowerURLs() {
+        let systemContacts = [
+            MatchableContact(
+                displayName: "Bob Jones", urlAddresses: [], socialProfileURLs: [Self.bobActor])
+        ]
+
+        let suggestions = ContactsMatcher.suggestions(
+            matchableContacts: systemContacts, existingContacts: [],
+            candidateFollowerURLs: [Self.bobActor, Self.bobActor])
+
+        #expect(suggestions.count == 1)
+    }
+
     @Test("produces no suggestions when nothing matches")
     func noMatches() {
         let suggestions = ContactsMatcher.suggestions(

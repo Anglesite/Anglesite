@@ -26,6 +26,10 @@ final class ContactsModel {
     private(set) var suggestions: [MatchSuggestion] = []
     private(set) var isScanning = false
     private(set) var scanFailure: ScanFailure?
+    /// Set when `add`/`update`/`remove`'s underlying `ContactStore` write throws (disk-full,
+    /// `Config/` permission errors) — design doc §3 calls these out as direct user actions that
+    /// expect feedback, unlike a background scan failure. Cleared on the next successful write.
+    private(set) var writeFailure: String?
 
     private var store: ContactStore?
     /// Session-scoped, like `FollowersModel.unreachableActors`: a dismissed suggestion can
@@ -40,8 +44,21 @@ final class ContactsModel {
     /// Records which site this pane reads. Called once per site open, like
     /// `FollowersModel.configure(site:)`. Does not load — `ContactsView`'s `.task` triggers
     /// ``reload()`` the same way `FollowersView`'s `.task` triggers `FollowersModel.load()`.
+    ///
+    /// Also resets every piece of per-site state: `ContactsModel` instances are reused across a
+    /// site-window replay (`SiteWindowModel`'s cold-open path calls `contacts.configure(site:)`
+    /// unconditionally), and without this reset the previous site's contacts/suggestions would
+    /// stay visible — briefly showing one site's private contact list under another site's
+    /// window — until `reload()` completed. Resetting `loadState` to `.idle` is sufficient to
+    /// trigger a fresh load: `ContactsView`'s `.task` only calls `reload()` when idle.
     func configure(site: CurrentSite) {
         store = ContactStore(configDirectory: site.configDirectory)
+        contacts = []
+        loadState = .idle
+        suggestions = []
+        scanFailure = nil
+        writeFailure = nil
+        dismissedSuggestionKeys = []
     }
 
     func reload() async {
@@ -55,22 +72,40 @@ final class ContactsModel {
         }
     }
 
-    func add(me: URL, displayName: String) async {
+    /// `linkedActor` records the ActivityPub actor IRI when `me` came from a follower promotion
+    /// (see `accept(_:)`'s `.promoteToContact` case) — `nil` for a manually-added contact, which
+    /// is why the "Add Contact…" sheet's call site relies on this parameter's default.
+    func add(me: URL, displayName: String, linkedActor: URL? = nil) async {
         guard let store else { return }
-        let contact = Contact(me: me, displayName: displayName)
-        try? await store.add(contact)
+        let contact = Contact(me: me, displayName: displayName, linkedActor: linkedActor)
+        do {
+            try await store.add(contact)
+            writeFailure = nil
+        } catch {
+            writeFailure = "\(error)"
+        }
         await reload()
     }
 
     func update(_ contact: Contact) async {
         guard let store else { return }
-        try? await store.update(contact)
+        do {
+            try await store.update(contact)
+            writeFailure = nil
+        } catch {
+            writeFailure = "\(error)"
+        }
         await reload()
     }
 
     func remove(_ contact: Contact) async {
         guard let store else { return }
-        try? await store.remove(id: contact.id)
+        do {
+            try await store.remove(id: contact.id)
+            writeFailure = nil
+        } catch {
+            writeFailure = "\(error)"
+        }
         await reload()
     }
 
@@ -108,7 +143,13 @@ final class ContactsModel {
             updated.displayName = suggestion.systemContactName
             await update(updated)
         case .promoteToContact:
-            await add(me: suggestion.candidateURL, displayName: suggestion.systemContactName)
+            // The candidate URL IS the follower's actor IRI on this path (promotion candidates
+            // come from `SiteWindowModel.candidateFollowerURLsForContactsMatching()`, which maps
+            // `FollowersModel.rows.map(\.actor)`), so it doubles as both the best-available `me`
+            // identity and the recorded `linkedActor`.
+            await add(
+                me: suggestion.candidateURL, displayName: suggestion.systemContactName,
+                linkedActor: suggestion.candidateURL)
         }
         dismiss(suggestion)
     }

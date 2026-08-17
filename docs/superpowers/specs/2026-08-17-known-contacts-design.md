@@ -195,10 +195,15 @@ implementation.
 
 A contact list is among the most sensitive data the app holds:
 
-- `Config/` is already excluded from the site's git repo and from any sync
-  today — this needs no new code, only this explicit statement.
-- Excluded from any future iCloud sync (#876) unless that becomes its own,
-  separately-reasoned decision.
+- `Config/contacts.json` is excluded from the site's **git repo** — `Config/`
+  as a whole is never git-tracked, so this needs no new code.
+- It **does** sync via iCloud Drive along with the rest of the site
+  package's `Config/` directory: new packages default into the iCloud Drive
+  ubiquity container (#865), and only `.nosync`-suffixed paths (e.g.
+  `Config/repo.nosync/`, which `RepoRelocator` uses specifically to opt the
+  git repo *out*) are excluded from that sync. `contacts.json` carries no
+  such suffix. This is accepted as consistent with existing precedent —
+  `chat-history.jsonl` already syncs the same way — not a gap to close.
 - The feature is entirely usable — add, edit, delete contacts — without ever
   granting Contacts access; Contacts.framework is pure augmentation,
   opt-in per scan, never required.
@@ -223,4 +228,6 @@ A contact list is among the most sensitive data the app holds:
   issues will call, not the call sites themselves.
 - Microsub feed promotion (§6's documented limitation).
 - Background or periodic Contacts re-scanning.
-- Any change to sync behavior — `Config/` already isn't synced anywhere.
+- Any change to sync behavior — `contacts.json` syncs via iCloud Drive the
+  same way the rest of `Config/` already does (see §7); this issue neither
+  adds nor removes that.
