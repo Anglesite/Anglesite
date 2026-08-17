@@ -1,6 +1,7 @@
 import CoreGraphics
 import Foundation
 import ImageIO
+import PDFKit
 import Testing
 import UniformTypeIdentifiers
 @testable import AnglesiteCore
@@ -90,6 +91,58 @@ struct LicenseMetadataEmbedderTests {
         let garbage = Data([0x00, 0x01, 0x02])
         #expect(throws: LicenseMetadataEmbedder.EmbedError.unreadable) {
             _ = try LicenseMetadataEmbedder.embed(license, into: garbage, type: .png)
+        }
+    }
+
+    private func onePagePDFData() -> Data {
+        var mediaBox = CGRect(x: 0, y: 0, width: 50, height: 50)
+        let out = NSMutableData()
+        let consumer = CGDataConsumer(data: out as CFMutableData)!
+        let ctx = CGContext(consumer: consumer, mediaBox: &mediaBox, nil)!
+        ctx.beginPDFPage(nil)
+        ctx.setFillColor(CGColor(red: 0, green: 1, blue: 0, alpha: 1))
+        ctx.fill(mediaBox)
+        ctx.endPDFPage()
+        ctx.closePDF()
+        return out as Data
+    }
+
+    @Test("embedding into a PDF returns .embedded with the license in documentAttributes")
+    func embedsIntoPDF() throws {
+        let result = try LicenseMetadataEmbedder.embed(license, into: onePagePDFData(), type: .pdf)
+        guard case .embedded(let outData) = result else {
+            Issue.record("expected .embedded, got \(result)")
+            return
+        }
+        let doc = PDFDocument(data: outData)!
+        let rights = doc.documentAttributes?["Rights"] as? String
+        #expect(rights?.contains(license.name) == true)
+        #expect(rights?.contains(license.url) == true)
+    }
+
+    @Test("embedding into a PDF preserves page count and existing attributes")
+    func preservesPDFFidelity() throws {
+        let original = onePagePDFData()
+        let originalDoc = PDFDocument(data: original)!
+        let originalAttrs = originalDoc.documentAttributes ?? [:]
+
+        let result = try LicenseMetadataEmbedder.embed(license, into: original, type: .pdf)
+        guard case .embedded(let outData) = result else {
+            Issue.record("expected .embedded, got \(result)")
+            return
+        }
+        let outDoc = PDFDocument(data: outData)!
+        #expect(outDoc.pageCount == originalDoc.pageCount)
+        for (key, _) in originalAttrs {
+            #expect(outDoc.documentAttributes?[key] != nil, "lost existing attribute \(key)")
+        }
+    }
+
+    @Test("unreadable PDF bytes throw .unreadable")
+    func unreadablePDFThrows() {
+        let garbage = Data([0x00, 0x01, 0x02])
+        #expect(throws: LicenseMetadataEmbedder.EmbedError.unreadable) {
+            _ = try LicenseMetadataEmbedder.embed(license, into: garbage, type: .pdf)
         }
     }
 }

@@ -3,6 +3,7 @@ import Foundation
 import UniformTypeIdentifiers
 import ImageIO
 import CoreGraphics
+import PDFKit
 
 /// Embeds a chosen license into a media file's own metadata (#999), so the license survives the
 /// file being downloaded or shared away from the page that originally stated it.
@@ -100,7 +101,12 @@ public enum LicenseMetadataEmbedder {
     }
 
     private static func embedIntoPDF(_ license: LicenseRef, data: Data) throws -> Data {
-        throw EmbedError.unreadable // placeholder body — replaced in Task 3
+        guard let document = PDFDocument(data: data) else { throw EmbedError.unreadable }
+        var attributes = document.documentAttributes ?? [:]
+        attributes["Rights"] = "\(license.name) — \(license.url)"
+        document.documentAttributes = attributes
+        guard let output = document.dataRepresentation() else { throw EmbedError.writeFailed }
+        return output
     }
 }
 #endif
