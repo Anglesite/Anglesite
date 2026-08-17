@@ -14,7 +14,7 @@ private func runningExperiment(
     id: String = "homepage-hero",
     page: String = "/",
     goalKind: String = "pageview",
-    goalPath: String? = "/contact/thanks",
+    goalPath: String? = "/contact/thanks/",
     status: String = "running"
 ) -> DomainConfig.Experiments.Experiment {
     .init(
@@ -709,7 +709,7 @@ struct WorkerCompositionTests {
         )
         #expect(toml.contains("main = \"worker/worker.ts\""))
         #expect(toml.contains("binding = \"ASSETS\""))
-        #expect(toml.contains(#"run_worker_first = ["/", "/contact/thanks"]"#))
+        #expect(toml.contains(#"run_worker_first = ["/", "/contact/thanks/"]"#))
         #expect(toml.contains("[[d1_databases]]"))
         #expect(toml.contains("binding = \"EXPERIMENTS_DB\""))
         #expect(toml.contains("migrations_dir = \"worker/migrations\""))
