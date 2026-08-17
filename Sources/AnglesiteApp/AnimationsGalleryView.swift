@@ -115,6 +115,9 @@ extension AnimationCategory {
         case .buttons: "Buttons"
         case .backgrounds: "Backgrounds"
         case .navigation: "Navigation"
+        case .canvasBackground, .cursorReactive, .scrollDriven, .generativeArt:
+            // New effect categories (Task 2+) — display raw value capitalized
+            rawValue.prefix(1).uppercased() + rawValue.dropFirst()
         }
     }
 }
