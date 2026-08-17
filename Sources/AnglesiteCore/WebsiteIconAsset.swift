@@ -46,7 +46,7 @@ public enum WebsiteIconAsset {
         (#"href="/site.webmanifest""#, #"<link rel="manifest" href="/site.webmanifest" />"#)
     ]
 
-    /// Inserts whichever ``headLinkEntries`` lines are missing right after `<head>`, idempotently:
+    /// Inserts whichever `headLinkEntries` lines are missing right after `<head>`, idempotently:
     /// a line whose href already appears anywhere in the source (from a prior install, the
     /// template baseline, or hand-authoring) is left alone rather than duplicated. Pure — the
     /// file write lives in ``patchLayout(in:fileManager:)``.
