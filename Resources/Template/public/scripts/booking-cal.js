@@ -33,7 +33,11 @@
 
 Cal("init", { origin: "https://cal.com" });
 
-document.querySelectorAll("[data-cal-init]").forEach(function (el) {
+// This script isn't deduplicated by Astro across multiple `is:inline` instances on the same
+// page (e.g. a site-wide floating widget plus the always-present inline widget on the book
+// page), so it can run more than once. Skip elements a prior run already initialized.
+document.querySelectorAll("[data-cal-init]:not([data-cal-processed])").forEach(function (el) {
+  el.dataset.calProcessed = "";
   const calLink = el.dataset.calLink;
   const config = { theme: "auto", brandColor: el.dataset.calColor };
   switch (el.dataset.calInit) {
