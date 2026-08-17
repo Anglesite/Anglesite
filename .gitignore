@@ -49,6 +49,9 @@ fastlane/test_output
 Resources/plugin
 Resources/edit-overlay/
 Resources/wysiwyg-engine/
+Resources/SafariExtension/content-script.js
+Resources/SafariExtension/background.js
+Resources/SafariExtension/popup.js
 node_modules/
 JS/wysiwyg-engine/e2e/.generated/
 JS/wysiwyg-engine/test-results/
