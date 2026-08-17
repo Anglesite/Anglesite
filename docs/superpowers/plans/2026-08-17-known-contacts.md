@@ -576,14 +576,33 @@ git commit -m "feat(#966): add ContactsMatcher pure matching logic"
 - Produces: `public protocol ContactsProviding: Sendable { func matchableContacts() async
   throws -> [MatchableContact] }`, `public enum ContactsAccessError: Error, Equatable,
   Sendable { case denied }`, and (behind `#if canImport(Contacts)`) `public struct
-  SystemContactsProvider: ContactsProviding` with `public init()`.
+  SystemContactsProvider: ContactsProviding` with `public init()` and `static func
+  matchableContact(from contact: CNContact) -> MatchableContact?`.
 
-**No automated test for `SystemContactsProvider`**: it drives a real `CNContactStore`,
-which is TCC-gated — a bare `swift test` binary can't hold the Contacts permission (the
-same class of problem the sandboxed-binary-probe precedent solves for App Sandbox). The
-protocol seam exists precisely so `ContactsModel` (Task 4) can be tested against a fake
-instead. `SystemContactsProvider` itself is exercised manually in Task 9's verification
-pass, against a real system contact.
+**Test strategy**: `matchableContacts()` itself drives a real `CNContactStore`
+(`requestAccess`/`enumerateContacts`), which is TCC-gated — a bare `swift test` binary
+can't hold the Contacts permission (the same class of problem the sandboxed-binary-probe
+precedent solves for App Sandbox), so that thin I/O wrapper is exercised manually in
+Task 9's verification pass instead. But the actual per-contact extraction logic —
+display name plus every URL/social-profile field — is pure `CNContact` → `MatchableContact`
+mapping, and `CNMutableContact`/`CNLabeledValue`/`CNSocialProfile` are plain in-memory
+objects: constructing and reading them needs no store access and no TCC permission at
+all (verified directly against this worktree's SDK before writing this task — see the
+commands below). So that mapping is pulled out into its own `static` function and given
+a real test, the same way `FollowerAvatar.dimensionsWithinBound(_:)` is pulled out of an
+otherwise-untested view file (`FollowersView.swift`) specifically so it can be tested
+without the untestable I/O around it.
+
+Verified compiling (and running, for the non-store parts) against this worktree's SDK
+before writing the code below:
+
+```bash
+xcrun swiftc -sdk $(xcrun --show-sdk-path --sdk macosx) -target arm64-apple-macos15.0 probe.swift -o probe && ./probe
+# name: Alice Smith
+# url: https://alice.example
+# social url: https://mastodon.social/users/bob
+# CNAggregateKeyDescriptor
+```
 
 - [ ] **Step 1: Write `ContactsProviding.swift`**
 
@@ -647,35 +666,145 @@ public struct SystemContactsProvider: ContactsProviding {
         let request = CNContactFetchRequest(keysToFetch: keys)
         var results: [MatchableContact] = []
         try store.enumerateContacts(with: request) { contact, _ in
-            let name = CNContactFormatter.string(from: contact, style: .fullName)
-                ?? contact.organizationName
-            guard let name, !name.isEmpty else { return }
-            let urls = contact.urlAddresses.compactMap { URL(string: $0.value as String) }
-            let socialURLs = contact.socialProfiles.compactMap { labeled -> URL? in
-                let urlString = labeled.value.urlString
-                return urlString.isEmpty ? nil : URL(string: urlString)
+            if let matchable = matchableContact(from: contact) {
+                results.append(matchable)
             }
-            guard !urls.isEmpty || !socialURLs.isEmpty else { return }
-            results.append(
-                MatchableContact(
-                    displayName: name, urlAddresses: urls, socialProfileURLs: socialURLs))
         }
         return results
+    }
+
+    /// Maps one `CNContact` to its matchable identity signals, or `nil` if it has neither a
+    /// usable name nor any URL to match against. Pure — no store access, no I/O — so it's
+    /// pulled out of `fetchAll` specifically to be unit-tested directly (see this task's test
+    /// strategy note above and `SystemContactsProviderTests`). Not `private`, for the same
+    /// testability reason `FollowerAvatar.dimensionsWithinBound(_:)` isn't.
+    static func matchableContact(from contact: CNContact) -> MatchableContact? {
+        let name = CNContactFormatter.string(from: contact, style: .fullName)
+            ?? contact.organizationName
+        guard let name, !name.isEmpty else { return nil }
+        let urls = contact.urlAddresses.compactMap { URL(string: $0.value as String) }
+        let socialURLs = contact.socialProfiles.compactMap { labeled -> URL? in
+            let urlString = labeled.value.urlString
+            return urlString.isEmpty ? nil : URL(string: urlString)
+        }
+        guard !urls.isEmpty || !socialURLs.isEmpty else { return nil }
+        return MatchableContact(displayName: name, urlAddresses: urls, socialProfileURLs: socialURLs)
     }
 }
 #endif
 ```
 
-- [ ] **Step 2: Verify it compiles**
+- [ ] **Step 2: Write the failing tests**
+
+Create `Tests/AnglesiteCoreTests/SystemContactsProviderTests.swift`. The whole file is
+guarded by `#if canImport(Contacts)` — on a platform without Contacts (e.g. Linux) it
+compiles to nothing, same as `SystemContactsProvider` itself:
+
+```swift
+#if canImport(Contacts)
+import Testing
+import Foundation
+import Contacts
+@testable import AnglesiteCore
+
+@Suite("SystemContactsProvider matching")
+struct SystemContactsProviderTests {
+    private static func makeContact(
+        givenName: String,
+        familyName: String = "",
+        urlAddresses: [String] = [],
+        socialProfileURLs: [String] = []
+    ) -> CNContact {
+        let mutable = CNMutableContact()
+        mutable.givenName = givenName
+        mutable.familyName = familyName
+        mutable.urlAddresses = urlAddresses.map {
+            CNLabeledValue(label: CNLabelURLAddressHomePage, value: $0 as NSString)
+        }
+        mutable.socialProfiles = socialProfileURLs.map {
+            CNLabeledValue(
+                label: CNSocialProfileServiceMastodon,
+                value: CNSocialProfile(
+                    urlString: $0, username: nil, userIdentifier: nil, service: nil))
+        }
+        return mutable
+    }
+
+    @Test("extracts display name and URL addresses")
+    func extractsNameAndURLs() {
+        let contact = Self.makeContact(
+            givenName: "Alice", familyName: "Smith",
+            urlAddresses: ["https://alice.example"])
+
+        let matchable = SystemContactsProvider.matchableContact(from: contact)
+
+        #expect(matchable?.displayName == "Alice Smith")
+        #expect(matchable?.urlAddresses == [URL(string: "https://alice.example")!])
+    }
+
+    @Test("extracts social profile URLs")
+    func extractsSocialProfileURLs() {
+        let contact = Self.makeContact(
+            givenName: "Bob",
+            socialProfileURLs: ["https://mastodon.social/users/bob"])
+
+        let matchable = SystemContactsProvider.matchableContact(from: contact)
+
+        #expect(matchable?.socialProfileURLs == [URL(string: "https://mastodon.social/users/bob")!])
+    }
+
+    @Test("returns nil for a contact with no name")
+    func returnsNilForNoName() {
+        let contact = Self.makeContact(givenName: "", urlAddresses: ["https://example.com"])
+        #expect(SystemContactsProvider.matchableContact(from: contact) == nil)
+    }
+
+    @Test("returns nil for a contact with no URLs at all")
+    func returnsNilForNoURLs() {
+        let contact = Self.makeContact(givenName: "Carol")
+        #expect(SystemContactsProvider.matchableContact(from: contact) == nil)
+    }
+
+    @Test("ignores an empty social profile URL string")
+    func ignoresEmptySocialProfileURL() {
+        let mutable = CNMutableContact()
+        mutable.givenName = "Dana"
+        mutable.socialProfiles = [
+            CNLabeledValue(
+                label: CNSocialProfileServiceTwitter,
+                value: CNSocialProfile(
+                    urlString: "", username: "dana", userIdentifier: nil, service: "Twitter"))
+        ]
+        #expect(SystemContactsProvider.matchableContact(from: mutable) == nil)
+    }
+}
+#endif
+```
+
+- [ ] **Step 3: Run tests to verify they fail to compile**
+
+Run: `swift test --package-path . --filter SystemContactsProviderTests`
+Expected: FAIL — `matchableContact(from:)` isn't `static`/exposed yet (Step 1 already
+wrote it above, so run this immediately after Step 1's file is saved but before assuming
+it passes; if this worktree's `AnglesiteCore` target doesn't yet build with Step 1's
+content in place, fix that first).
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `swift test --package-path . --filter SystemContactsProviderTests`
+Expected: PASS (5 tests).
+
+- [ ] **Step 5: Verify the whole target still compiles**
 
 Run: `swift build --package-path . --target AnglesiteCore`
 Expected: BUILD SUCCEEDED (compiles both with and without `canImport(Contacts)`; this
-worktree's macOS toolchain has Contacts, so `SystemContactsProvider` compiles here).
+worktree's macOS toolchain has Contacts, so `SystemContactsProvider` and its test compile
+here).
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add Sources/AnglesiteCore/ContactsProviding.swift
+git add Sources/AnglesiteCore/ContactsProviding.swift Tests/AnglesiteCoreTests/SystemContactsProviderTests.swift
 git commit -m "feat(#966): add ContactsProviding seam and SystemContactsProvider"
 ```
 
@@ -976,16 +1105,23 @@ git commit -m "feat(#966): add ContactsModel"
 
 **Files:**
 - Create: `Sources/AnglesiteApp/ContactsView.swift`
+- Test: `Tests/AnglesiteAppTests/ContactEditValidationTests.swift`
 
 **Interfaces:**
 - Consumes: `ContactsModel` (Task 4); `Contact`, `MatchSuggestion` (`AnglesiteCore`).
 - Produces: `struct ContactsView: View` with `init(contacts: ContactsModel,
   candidateFollowerURLs: @escaping () async -> [URL])` — consumed by `SiteWindow.swift`
-  in Task 7.
+  in Task 7. Also `enum ContactEditValidation` with `static func validate(displayName:
+  String, meText: String) -> Result<(url: URL, displayName: String), String>`.
 
-No dedicated automated test: this codebase does not unit-test SwiftUI view bodies (there
-is no `FollowersViewTests.swift` either) — correctness is verified by compiling and by
-the manual run-through in Task 9.
+**Test strategy**: this codebase does not unit-test SwiftUI view bodies (there is no
+`FollowersViewTests.swift` either), so `ContactsView`'s layout is verified by compiling
+and by the manual run-through in Task 9. But `ContactEditSheet`'s Save button runs real
+validation logic (trim, require a name, require a parseable http(s) URL) that has nothing
+to do with rendering — so, like `FollowerAvatar.dimensionsWithinBound(_:)` is pulled out
+of `FollowersView.swift` specifically to be tested without the SwiftUI/AppKit code around
+it, that logic is pulled out into a standalone `ContactEditValidation` type here and given
+a real test.
 
 - [ ] **Step 1: Write `ContactsView.swift`**
 
@@ -1227,37 +1363,125 @@ private struct ContactEditSheet: View {
     }
 
     private func save() {
+        switch ContactEditValidation.validate(displayName: displayName, meText: meText) {
+        case .failure(let message):
+            validationError = message
+        case .success(let validated):
+            Task {
+                await onSave(validated.url, validated.displayName)
+                dismiss()
+            }
+        }
+    }
+}
+
+/// Pure validation for `ContactEditSheet`'s Save action, pulled out of the view so it can be
+/// unit-tested directly — see this task's test strategy note above. Not `private`, for the same
+/// testability reason `FollowerAvatar.dimensionsWithinBound(_:)` isn't.
+enum ContactEditValidation {
+    /// `.success` carries the trimmed name and parsed URL ready to hand to `onSave`; `.failure`
+    /// carries the message `ContactEditSheet` shows under the fields.
+    static func validate(
+        displayName: String, meText: String
+    ) -> Result<(url: URL, displayName: String), String> {
         let trimmedName = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmedName.isEmpty else {
-            validationError = "Enter a name."
-            return
+            return .failure("Enter a name.")
         }
         let trimmedURLText = meText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let url = URL(string: trimmedURLText),
             url.scheme == "http" || url.scheme == "https"
         else {
-            validationError = "Enter a valid http(s) website address."
+            return .failure("Enter a valid http(s) website address.")
+        }
+        return .success((url, trimmedName))
+    }
+}
+```
+
+- [ ] **Step 2: Write the failing tests**
+
+Create `Tests/AnglesiteAppTests/ContactEditValidationTests.swift`:
+
+```swift
+import Testing
+import Foundation
+@testable import AnglesiteAppCore
+
+@Suite("ContactEditValidation")
+struct ContactEditValidationTests {
+    @Test("rejects an empty (or whitespace-only) name")
+    func rejectsEmptyName() {
+        let result = ContactEditValidation.validate(
+            displayName: "   ", meText: "https://example.com")
+        guard case .failure(let message) = result else {
+            Issue.record("expected failure")
             return
         }
-        let capturedURL = url
-        Task {
-            await onSave(capturedURL, trimmedName)
-            dismiss()
+        #expect(message == "Enter a name.")
+    }
+
+    @Test("rejects a non-http(s) URL")
+    func rejectsNonHTTPURL() {
+        let result = ContactEditValidation.validate(displayName: "Alice", meText: "ftp://example.com")
+        guard case .failure = result else {
+            Issue.record("expected failure")
+            return
+        }
+    }
+
+    @Test("rejects unparseable text")
+    func rejectsUnparseableText() {
+        let result = ContactEditValidation.validate(displayName: "Alice", meText: "not a url")
+        guard case .failure = result else {
+            Issue.record("expected failure")
+            return
+        }
+    }
+
+    @Test("trims whitespace and accepts a valid https URL")
+    func acceptsValidInput() {
+        let result = ContactEditValidation.validate(
+            displayName: "  Alice  ", meText: "  https://alice.example  ")
+        guard case .success(let validated) = result else {
+            Issue.record("expected success")
+            return
+        }
+        #expect(validated.displayName == "Alice")
+        #expect(validated.url.absoluteString == "https://alice.example")
+    }
+
+    @Test("accepts a plain http URL")
+    func acceptsHTTP() {
+        let result = ContactEditValidation.validate(displayName: "Bob", meText: "http://bob.example")
+        guard case .success = result else {
+            Issue.record("expected success")
+            return
         }
     }
 }
 ```
 
-- [ ] **Step 2: Verify it compiles**
+- [ ] **Step 3: Run tests to verify they fail to compile**
+
+Run: `swift test --package-path . --filter ContactEditValidationTests`
+Expected: FAIL — `ContactEditValidation` doesn't exist until Step 1's file is saved.
+
+- [ ] **Step 4: Run tests to verify they pass**
+
+Run: `swift test --package-path . --filter ContactEditValidationTests`
+Expected: PASS (5 tests).
+
+- [ ] **Step 5: Verify the whole target compiles**
 
 Run: `swift build --package-path . --target AnglesiteAppCore`
 Expected: BUILD SUCCEEDED. (`ContactsView` isn't referenced anywhere yet — Task 7 wires
 it in — but Swift compiles unreferenced internal types without error.)
 
-- [ ] **Step 3: Commit**
+- [ ] **Step 6: Commit**
 
 ```bash
-git add Sources/AnglesiteApp/ContactsView.swift
+git add Sources/AnglesiteApp/ContactsView.swift Tests/AnglesiteAppTests/ContactEditValidationTests.swift
 git commit -m "feat(#966): add ContactsView"
 ```
 
@@ -1705,14 +1929,17 @@ git commit -m "feat(#966): add Contacts entitlement and usage description"
 **Files:** none (verification only).
 
 **Interfaces:** none — this task consumes everything from Tasks 1–8 and produces
-confidence the feature works end to end, including the parts (real `CNContactStore`,
-SwiftUI rendering) no automated test in this plan covers.
+confidence the feature works end to end, including the parts no automated test in this
+plan can reach: `CNContactStore.requestAccess`/`enumerateContacts` themselves (TCC-gated
+I/O — the pure `matchableContact(from:)` mapping around them is covered by
+`SystemContactsProviderTests`) and SwiftUI rendering (`ContactsView`'s layout — the pure
+`ContactEditValidation` logic inside it is covered by `ContactEditValidationTests`).
 
 - [ ] **Step 1: Run the full Swift test suite**
 
 Run: `swift test --package-path .`
 Expected: all suites pass, including the new `ContactStoreTests`, `ContactsMatcherTests`,
-and `ContactsModelTests`.
+`SystemContactsProviderTests`, `ContactsModelTests`, and `ContactEditValidationTests`.
 
 - [ ] **Step 2: Run the localization catalog check**
 
