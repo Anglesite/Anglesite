@@ -46,9 +46,13 @@ describe("placement-pick mode", () => {
     installPlacementPickMode(win);
     const p = document.getElementById("p") as HTMLElement;
     p.click();
-    // jsdom's `isContentEditable` getter returns `undefined` (not `false`) for a plain element —
-    // `toBeFalsy()` tolerates that while still catching a real leak (attachClickToEdit isn't
-    // installed by this helper; this just confirms no placement-mode side effect turned it on).
-    expect(p.isContentEditable).toBeFalsy();
+    // jsdom (30.0.1) doesn't implement the `isContentEditable` getter at all — it's `undefined`
+    // unconditionally, before AND after `contentEditable` is set, so an assertion on it would
+    // never fail regardless of a real leak. `contentEditable` (the string property) IS correctly
+    // implemented and is exactly what `attachClickToEdit` sets to `"true"` on click — asserting on
+    // it here actually detects whether placement-pick mode's click handler let that side effect
+    // through (it shouldn't: attachClickToEdit isn't installed by this helper at all, so this is
+    // really just confirming installPlacementPickMode has no such side effect of its own).
+    expect(p.contentEditable).not.toBe("true");
   });
 });
