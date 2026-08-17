@@ -52,6 +52,10 @@ export interface AnglesiteWorkersConfig {
   active?: string[];
 }
 
+export interface AnglesiteExperimentalConfig {
+  webmcp?: boolean;
+}
+
 /// The `Source/anglesite.json` shape this reader hands back. Mirrors the Swift `DomainConfig`
 /// model (`Sources/AnglesiteCore/DomainConfig.swift`) field-for-field; kept as a hand-written
 /// parallel type rather than a generated one, matching how `RedirectEntry` in `redirects.ts`
@@ -63,6 +67,7 @@ export interface AnglesiteConfig {
   edge?: AnglesiteEdgeConfig;
   email?: AnglesiteEmailConfig;
   workers?: AnglesiteWorkersConfig;
+  experimental?: AnglesiteExperimentalConfig;
 }
 
 /// Schema versions this build understands. Shared with `pre-deploy-check.ts`'s structural

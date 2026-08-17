@@ -102,6 +102,30 @@ test("readAnglesiteConfig: returns declared sections as-is", () => {
   }
 });
 
+test("readAnglesiteConfig: passes through experimental.webmcp", () => {
+  const siteRoot = makeTempSiteRoot();
+  writeFileSync(
+    join(siteRoot, "anglesite.json"),
+    JSON.stringify({ version: 1, experimental: { webmcp: true } }),
+  );
+  try {
+    const result = readAnglesiteConfig(siteRoot);
+    assert.deepEqual(result.experimental, { webmcp: true });
+  } finally {
+    rmSync(siteRoot, { recursive: true, force: true });
+  }
+});
+
+test("readAnglesiteConfig: experimental section absent by default", () => {
+  const siteRoot = makeTempSiteRoot();
+  try {
+    const result = readAnglesiteConfig(siteRoot);
+    assert.equal(result.experimental, undefined);
+  } finally {
+    rmSync(siteRoot, { recursive: true, force: true });
+  }
+});
+
 test("readAnglesiteConfig: defaults version to 1 when the file omits it", () => {
   const siteRoot = makeTempSiteRoot();
   writeFileSync(join(siteRoot, "anglesite.json"), JSON.stringify({ domain: { hostname: "example.com" } }));
