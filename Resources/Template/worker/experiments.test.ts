@@ -151,6 +151,22 @@ test("applyGoalConversion: counts a conversion for an assigned, not-yet-converte
   expect(row?.n).toBe(1);
 });
 
+test("applyGoalConversion: no-ops for a garbage/attacker-supplied cookie value", async () => {
+  const env: ExperimentsEnv = { EXPERIMENTS_DB: testDb };
+  const ctx = createExecutionContext();
+  const request = new Request("https://owner.example/contact/thanks/", {
+    headers: { Cookie: "exp_homepage-hero=anything" },
+  });
+  const response = await applyGoalConversion(request, env, ctx, EXPERIMENT, new Response("thanks"));
+  await waitOnExecutionContext(ctx);
+  expect(response.headers.get("Set-Cookie")).toBeNull();
+  const row = await testDb
+    .prepare("SELECT n FROM experiment_counters WHERE experiment_id = ? AND variant_id = ? AND metric = 'conversion'")
+    .bind("homepage-hero", "anything")
+    .first<{ n: number }>();
+  expect(row).toBeNull();
+});
+
 test("applyGoalConversion: no-ops for an unassigned visitor", async () => {
   const env: ExperimentsEnv = { EXPERIMENTS_DB: testDb };
   const ctx = createExecutionContext();

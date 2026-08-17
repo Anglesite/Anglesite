@@ -185,7 +185,13 @@ export async function applyGoalConversion(
   if (!response.ok) return response;
 
   const cookies = parseCookieHeader(request.headers.get("Cookie"));
-  const arm = cookies.get(assignmentCookieName(experiment.id));
+  const rawArm = cookies.get(assignmentCookieName(experiment.id));
+  // The cookie is client-supplied and HttpOnly only stops JS from *reading* it — a client can
+  // still send an arbitrary value. Only count a conversion for exactly the two arms this
+  // experiment can actually assign; anything else (garbage, or a stale value from before
+  // variant.id changed) is treated the same as no cookie at all — a no-op, not a fresh
+  // assignment (this isn't the assignment moment, see the doc comment above).
+  const arm = rawArm === "control" || rawArm === experiment.variant.id ? rawArm : undefined;
   if (arm === undefined) return response;
 
   const conversionCookie = conversionCookieName(experiment.id);
