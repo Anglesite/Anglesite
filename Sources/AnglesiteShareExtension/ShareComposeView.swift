@@ -56,9 +56,9 @@ struct ShareComposeView: View {
                     .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Save Draft") { Task { await model.save(draft: true) } }
+                    .keyboardShortcut(.defaultAction)
                     .disabled(model.isBusy || model.sites.isEmpty)
                 Button("Publish") { Task { await model.save(draft: false) } }
-                    .keyboardShortcut(.defaultAction)
                     .disabled(model.isBusy || model.sites.isEmpty)
             }
         }
