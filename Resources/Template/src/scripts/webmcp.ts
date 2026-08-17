@@ -1,0 +1,67 @@
+import {
+  SEARCH_POSTS_TOOL,
+  FETCH_POST_MARKDOWN_TOOL,
+  buildMarkdownURL,
+  formatSearchResults,
+  type PagefindResultData,
+  type WebmcpToolDefinition,
+  type WebmcpToolResult,
+} from "../lib/webmcp-tools.ts";
+
+interface ModelContextTool extends WebmcpToolDefinition {
+  execute(args: any): Promise<WebmcpToolResult>;
+}
+
+interface ModelContext {
+  registerTool(def: ModelContextTool, options?: { signal?: AbortSignal }): Promise<void>;
+}
+
+declare global {
+  interface Document {
+    modelContext?: ModelContext;
+  }
+}
+
+/** Pagefind's low-level search API module, built by this project's `postbuild` step
+ * (`npx pagefind --site dist`) alongside `pagefind-component-ui.js`. Dynamically imported —
+ * it doesn't exist at Astro/Vite build time, only after `postbuild` runs against `dist/`. */
+interface PagefindModule {
+  search(term: string): Promise<{ results: Array<{ data(): Promise<PagefindResultData> }> }>;
+}
+
+if ("modelContext" in document && document.modelContext) {
+  const modelContext = document.modelContext;
+  // Held for the page's lifetime — this script never unregisters its own tools, so the
+  // controller is never aborted; it exists only because registerTool's options accept one.
+  const controller = new AbortController();
+
+  async function registerSafely(
+    def: WebmcpToolDefinition,
+    execute: (args: any) => Promise<WebmcpToolResult>,
+  ): Promise<void> {
+    try {
+      await modelContext.registerTool({ ...def, execute }, { signal: controller.signal });
+    } catch (err) {
+      // No verified way exists to detect Cloudflare's edge-injected WebMCP bridge ahead of
+      // time (see the design spec's "Dedupe strategy") — if the platform or another pack
+      // throws on a duplicate tool name, log and move on rather than breaking the page.
+      console.warn(`[webmcp] failed to register tool "${def.name}":`, err);
+    }
+  }
+
+  void registerSafely(SEARCH_POSTS_TOOL, async ({ query, limit }: { query: string; limit?: number }) => {
+    const pagefind = (await import(/* @vite-ignore */ "/pagefind/pagefind.js")) as unknown as PagefindModule;
+    const { results } = await pagefind.search(query);
+    const top = results.slice(0, limit ?? 5);
+    const data = await Promise.all(top.map((r) => r.data()));
+    return formatSearchResults(data);
+  });
+
+  void registerSafely(FETCH_POST_MARKDOWN_TOOL, async ({ path }: { path: string }) => {
+    const res = await fetch(buildMarkdownURL(path));
+    if (!res.ok) {
+      return { content: [{ type: "text", text: `Not found: ${path}` }] };
+    }
+    return { content: [{ type: "text", text: await res.text() }] };
+  });
+}
