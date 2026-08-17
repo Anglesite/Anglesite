@@ -64,6 +64,14 @@ public final class AppSettings: @unchecked Sendable {
         public static let activeAssistantBackend = "anglesite.activeAssistantBackend"
         /// Backs ``AppSettings/communitySearchInstance``.
         public static let communitySearchInstance = "anglesite.communitySearchInstance"
+        /// Backs ``AppSettings/externalLLMBaseURL`` (#1482).
+        public static let externalLLMBaseURL = "anglesite.externalLLM.baseURL"
+        /// Backs ``AppSettings/externalLLMModel`` (#1482).
+        public static let externalLLMModel   = "anglesite.externalLLM.model"
+        /// Backs ``AppSettings/externalLLMVerifiedBaseURL`` (#1482).
+        public static let externalLLMVerifiedBaseURL = "anglesite.externalLLM.verifiedBaseURL"
+        /// Backs ``AppSettings/externalLLMVerifiedDetail`` (#1482).
+        public static let externalLLMVerifiedDetail = "anglesite.externalLLM.verifiedDetail"
     }
 
     private enum LegacyKey {
@@ -250,6 +258,61 @@ public final class AppSettings: @unchecked Sendable {
             return (stored?.isEmpty == false ? stored : nil) ?? CommunitySearchClient.defaultInstance
         }
         set { defaults.set(newValue, forKey: Key.communitySearchInstance) }
+    }
+
+    /// Base URL of the user-configured OpenAI-compatible endpoint (#1482) — `nil` until set.
+    /// `ExternalLLMBackend` appends `/chat/completions`; this value should NOT include that
+    /// suffix. Global, not per-site, matching `activeAssistantBackend`.
+    public var externalLLMBaseURL: URL? {
+        get {
+            guard let raw = defaults.string(forKey: Key.externalLLMBaseURL), !raw.isEmpty else { return nil }
+            return URL(string: raw)
+        }
+        set {
+            if let url = newValue {
+                defaults.set(url.absoluteString, forKey: Key.externalLLMBaseURL)
+            } else {
+                defaults.removeObject(forKey: Key.externalLLMBaseURL)
+            }
+        }
+    }
+
+    /// Model name sent as the `model` field of every request to ``externalLLMBaseURL`` (#1482).
+    /// Empty string (the default) means "not configured" — `AssistantBackendResolver` requires
+    /// this to be non-empty before resolving the backend.
+    public var externalLLMModel: String {
+        get { defaults.string(forKey: Key.externalLLMModel) ?? "" }
+        set { defaults.set(newValue, forKey: Key.externalLLMModel) }
+    }
+
+    /// The exact (whitespace-trimmed) base URL text that last verified successfully — the
+    /// cache-key half of the "Connected" state `KeychainTokenRow` shows for the external-LLM API
+    /// key row, so opening Settings doesn't fire a live network call against the configured
+    /// endpoint every time (#1482 review). `nil` until a verify succeeds. Compared against the
+    /// live Base URL field's current text, not just read blindly: editing the endpoint after a
+    /// successful verify must not keep showing "Connected" for a URL that was never actually
+    /// checked. A mismatch falls back to `KeychainTokenRow`'s existing silent live-reverify path
+    /// (the same one GitHub/Cloudflare use when nothing's cached yet), not a hard failure.
+    public var externalLLMVerifiedBaseURL: String? {
+        get {
+            guard let value = defaults.string(forKey: Key.externalLLMVerifiedBaseURL), !value.isEmpty else { return nil }
+            return value
+        }
+        set {
+            if let newValue {
+                defaults.set(newValue, forKey: Key.externalLLMVerifiedBaseURL)
+            } else {
+                defaults.removeObject(forKey: Key.externalLLMVerifiedBaseURL)
+            }
+        }
+    }
+
+    /// Best-effort "N models available" detail string from the last successful verify — purely
+    /// cosmetic, so a stale or absent value never blocks the "Connected" state itself (see
+    /// ``externalLLMVerifiedBaseURL``, the field that actually gates it).
+    public var externalLLMVerifiedDetail: String? {
+        get { defaults.string(forKey: Key.externalLLMVerifiedDetail) }
+        set { setOptionalString(newValue, forKey: Key.externalLLMVerifiedDetail) }
     }
 
     /// Security-scoped bookmark for the sites root, persisted so the sandboxed (MAS) build only

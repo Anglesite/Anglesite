@@ -105,9 +105,16 @@ public enum WebsiteIconAsset {
         ].map { publicDir.appendingPathComponent($0) }
     }
 
-    /// True when *any* icon artifact exists — deliberately not "all", so a partially-completed
-    /// install still reads as installed and a re-run overwrites rather than duplicates.
+    /// True when the site owner has actually gone through Website Icon install — checked via
+    /// the PWA-only artifacts (192/512 manifest icons, `site.webmanifest`), never the favicon
+    /// trio. The template ships a generic favicon.ico/favicon.png/apple-touch-icon.png with every
+    /// scaffolded site (#1525), so their mere presence no longer means "installed"; the
+    /// PWA-manifest files are still written only by `WebsiteIconInstaller.install` (AnglesiteApp),
+    /// so they're an accurate signal for the Settings ▸ Website Icon "Installed" state.
     public static func hasInstalledIcons(in siteDirectory: URL, fileManager: FileManager = .default) -> Bool {
-        installedIconURLs(in: siteDirectory).contains { fileManager.fileExists(atPath: $0.path) }
+        let publicDir = siteDirectory.appendingPathComponent(publicDirectoryRelativePath, isDirectory: true)
+        return [icon192Name, icon512Name, manifestName]
+            .map { publicDir.appendingPathComponent($0) }
+            .contains { fileManager.fileExists(atPath: $0.path) }
     }
 }

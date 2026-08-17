@@ -55,6 +55,20 @@ struct SecretStoreTests {
         #expect(try store.readCloudflareToken() == "cf-456")
     }
 
+    @Test("External LLM API key convenience methods address the shared SecretAccounts slot")
+    func externalLLMAPIKeyConvenienceUsesSharedAccount() throws {
+        let store = InMemorySecretStore()
+        try store.writeExternalLLMAPIKey("sk-test-123")
+        #expect(try store.read(account: SecretAccounts.externalLLMAPIKey) == "sk-test-123")
+        #expect(try store.readExternalLLMAPIKey() == "sk-test-123")
+        // Distinct from the GitHub slot — writing one must not clobber the other.
+        try store.writeGitHubToken("ghp_456")
+        #expect(try store.readExternalLLMAPIKey() == "sk-test-123")
+        try store.clearExternalLLMAPIKey()
+        #expect(try store.readExternalLLMAPIKey() == nil)
+        #expect(try store.readGitHubToken() == "ghp_456")
+    }
+
     @Test("Micropub session conveniences round-trip the token and DPoP key pair per site")
     func micropubSessionRoundTrips() throws {
         let store = InMemorySecretStore()

@@ -77,6 +77,7 @@ const likeCite = cited(d.likeOf);
   license={license}
   lang={d.lang || undefined}
   documentPath={Astro.url.pathname}
+  image={d.image ?? images[0]}
 >
   {jsonLd && <Schema slot="head" item={jsonLd} />}
   <article class="h-entry">
