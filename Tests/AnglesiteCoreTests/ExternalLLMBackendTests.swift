@@ -293,6 +293,35 @@ struct ExternalLLMBackendConversationTests {
         #expect(sawTextDelta)
     }
 
+    @Test("finishTurn is a no-op when its relay is no longer the actor's active turn (regression: #1482 stale-relay guard)")
+    func finishTurnSkipsStaleRelay() async throws {
+        // Exercises `finishTurn`'s `activeRelay === relay` guard directly rather than through a
+        // real `converse()`/`drainSSE` race: an end-to-end attempt (delaying an SSE response's
+        // EOF via a custom `URLProtocol` stub, then racing `resetSession()`/a superseding
+        // `converse()` against it) was tried first, but proved unreliable — `URLSession
+        // .AsyncBytes` appears to observe `Task` cancellation promptly enough on this platform
+        // that the drain's `for try await` loop throws out through `drainSSE`'s `catch` block
+        // (landing on the harmless `relay.complete(.failed(...))` path) rather than reaching the
+        // vulnerable normal-completion fall-through, regardless of timing. Calling `finishTurn`
+        // directly (made non-`private` for exactly this, matching this file's existing pattern
+        // for `seedHistoryIfNeeded`/`trimHistoryIfNeeded`/`makeURLRequest`) reproduces the actual
+        // bug state deterministically: a drain's own relay no longer matches `activeRelay`,
+        // which is precisely what `resetSession()`/`cancel()`/a superseding `converse()` leaves
+        // behind for an orphaned drain that's already in flight.
+        let backend = makeBackend()
+        let (_, continuation) = AsyncStream.makeStream(of: AssistantEvent.self)
+        let staleRelay = TurnRelay(continuation)
+
+        let before = await backend.messages
+        #expect(before.isEmpty)
+        await backend.finishTurn(accumulatedText: "orphaned", usage: nil, relay: staleRelay)
+        let after = await backend.messages
+        // Unguarded, this would corrupt `messages` — e.g. permanently losing the system
+        // instruction on a session `resetSession()` had just cleared, since
+        // `seedHistoryIfNeeded` only reseeds when `messages` is empty.
+        #expect(after.isEmpty)
+    }
+
     @Test("generate flattens converse's event stream to plain text")
     func generateFlattensToText() async throws {
         ExternalLLMStubURLProtocol.reset()

@@ -15,6 +15,9 @@ final class HTTPStreamingRunner: NSObject, URLSessionDataDelegate, @unchecked Se
     private var responseContinuation: CheckedContinuation<URLResponse, Error>?
     private let bodyContinuation: AsyncThrowingStream<Data, Error>.Continuation
     let bodyStream: AsyncThrowingStream<Data, Error>
+    /// Retained so ``cancel()`` can tear the connection down; `nil` before `start` is called and
+    /// after `cancel()` has run once (cancellation is one-shot).
+    private var session: URLSession?
 
     override init() {
         (bodyStream, bodyContinuation) = AsyncThrowingStream<Data, Error>.makeStream()
@@ -30,8 +33,28 @@ final class HTTPStreamingRunner: NSObject, URLSessionDataDelegate, @unchecked Se
             responseContinuation = continuation
             lock.unlock()
             let session = URLSession(configuration: configuration, delegate: self, delegateQueue: nil)
+            lock.lock()
+            self.session = session
+            lock.unlock()
             session.dataTask(with: request).resume()
         }
+    }
+
+    /// Cancels the in-flight request and frees the connection immediately — added for #1482's
+    /// review: without this, `ExternalLLMBackend.cancel()` could only cancel the *drain* `Task`
+    /// on non-Darwin, leaving the underlying `URLSessionDataTask` running and `bodyStream`
+    /// filling with nobody reading it. `invalidateAndCancel()` cancels the one task this runner
+    /// created (one instance per request, see the type doc) and tears down its dedicated
+    /// session; the delegate's own `didCompleteWithError` may still fire afterward with a
+    /// cancellation error, so `bodyContinuation.finish()` here is a belt-and-suspenders call —
+    /// finishing an already-finished `AsyncThrowingStream.Continuation` is a documented no-op.
+    func cancel() {
+        lock.lock()
+        let session = self.session
+        self.session = nil
+        lock.unlock()
+        session?.invalidateAndCancel()
+        bodyContinuation.finish()
     }
 
     /// Splits `bodyStream` into lines (delimited by `\n`, with an optional trailing `\r`
