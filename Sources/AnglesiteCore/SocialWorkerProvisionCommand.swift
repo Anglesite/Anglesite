@@ -206,7 +206,15 @@ public actor SocialWorkerProvisionCommand {
         /// Actor IRIs authorized to moderate this site's Group actor (`SiteSettings.moderators`).
         /// Ignored for a Person actor, same as `WorkerComposition.generateWranglerToml`'s own
         /// `moderators` parameter.
-        moderators: [String]? = nil
+        moderators: [String]? = nil,
+        /// The site's currently-declared experiments (`DomainConfig.Experiments.active`, #1270
+        /// slice 3) — forwarded to `WorkerComposition.generateWranglerToml` unchanged. Only
+        /// entries with `status == "running"` do anything: they extend the D1-provisioning gate
+        /// below (so a static-only site's first running experiment still gets the shared
+        /// `"\(siteName)-social"` database) and get their `EXPERIMENTS_DB` migration applied
+        /// after `wrangler.toml` carries a concrete database id, mirroring the IndieAuth
+        /// `AUTH_DB` migration below.
+        experiments: [DomainConfig.Experiments.Experiment] = []
     ) async -> Result {
         let token: String?
         do {
@@ -230,6 +238,7 @@ public actor SocialWorkerProvisionCommand {
         environment["CLOUDFLARE_API_TOKEN"] = token
         let source = "worker-provision:\(siteID)"
         let started = Date()
+        let hasRunningExperiment = experiments.contains(where: { $0.status == "running" })
 
         var resources = knownResources == .init() ? Self.readPersistedResources(from: siteDirectory) : knownResources
 
@@ -251,7 +260,7 @@ public actor SocialWorkerProvisionCommand {
         }
         DeployCommand.persistWorkerProvisioned(siteDirectory: siteDirectory)
 
-        if workers.contains(where: { $0.resources.needsD1 }) {
+        if workers.contains(where: { $0.resources.needsD1 }) || hasRunningExperiment {
             if resources.d1DatabaseID == nil {
                 let name = "\(siteName)-social"
                 let result = await runWrangler(
@@ -272,7 +281,7 @@ public actor SocialWorkerProvisionCommand {
                     return .failed(reason: "wrangler created D1 database \(name) but no database id was found", exitCode: 0, resources: resources)
                 }
                 resources.d1DatabaseID = id
-                if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators) {
+                if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators, experiments: experiments) {
                     return failure
                 }
             }
@@ -299,7 +308,7 @@ public actor SocialWorkerProvisionCommand {
                     return .failed(reason: "wrangler created KV namespace \(name) but no namespace id was found", exitCode: 0, resources: resources)
                 }
                 resources.kvNamespaceID = id
-                if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators) {
+                if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators, experiments: experiments) {
                     return failure
                 }
             }
@@ -319,7 +328,7 @@ public actor SocialWorkerProvisionCommand {
                     return failure
                 }
                 resources.r2BucketName = name
-                if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators) {
+                if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators, experiments: experiments) {
                     return failure
                 }
             }
@@ -342,7 +351,7 @@ public actor SocialWorkerProvisionCommand {
                     return failure
                 }
                 resources.podBlobsR2BucketName = name
-                if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators) {
+                if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators, experiments: experiments) {
                     return failure
                 }
             }
@@ -381,7 +390,7 @@ public actor SocialWorkerProvisionCommand {
             if resources.inboxAccountID == nil {
                 resources.inboxAccountID = await accountIDSource(token)
             }
-            if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators) {
+            if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators, experiments: experiments) {
                 return failure
             }
         }
@@ -394,7 +403,7 @@ public actor SocialWorkerProvisionCommand {
             // `wrangler secret put` (below) resolves the Worker's project name from
             // wrangler.toml in the working directory — persist it here first so that lookup
             // succeeds even on an ActivityPub-only first deploy.
-            if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators) {
+            if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators, experiments: experiments) {
                 return failure
             }
             let keys: ActivityPubKeyProvisioning.Secrets
@@ -489,7 +498,8 @@ public actor SocialWorkerProvisionCommand {
                 routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName,
                 apUsername: apUsername,
                 inboxCaptureEnabled: inboxCaptureEnabled,
-                activityPubActorType: activityPubActorType, moderators: moderators
+                activityPubActorType: activityPubActorType, moderators: moderators,
+                experiments: experiments
             ) {
                 return failure
             }
@@ -515,7 +525,8 @@ public actor SocialWorkerProvisionCommand {
                 routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName,
                 apUsername: apUsername,
                 inboxCaptureEnabled: inboxCaptureEnabled,
-                activityPubActorType: activityPubActorType, moderators: moderators
+                activityPubActorType: activityPubActorType, moderators: moderators,
+                experiments: experiments
             ) {
                 return failure
             }
@@ -541,13 +552,14 @@ public actor SocialWorkerProvisionCommand {
                 routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName,
                 apUsername: apUsername,
                 inboxCaptureEnabled: inboxCaptureEnabled,
-                activityPubActorType: activityPubActorType, moderators: moderators
+                activityPubActorType: activityPubActorType, moderators: moderators,
+                experiments: experiments
             ) {
                 return failure
             }
         }
 
-        if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators) {
+        if let failure = persistConfig(siteDirectory: siteDirectory, siteName: siteName, workers: workers, routeClaims: routeClaims, resources: resources, siteURL: siteURL, displayName: displayName, apUsername: apUsername, inboxCaptureEnabled: inboxCaptureEnabled, activityPubActorType: activityPubActorType, moderators: moderators, experiments: experiments) {
             return failure
         }
 
@@ -558,6 +570,23 @@ public actor SocialWorkerProvisionCommand {
             let result = await runWrangler(
                 siteDirectory: siteDirectory,
                 arguments: ["d1", "migrations", "apply", "AUTH_DB", "--remote"],
+                environment: environment,
+                source: source,
+                resources: resources
+            )
+            if case .failure(let failure) = result {
+                return failure
+            }
+        }
+
+        // #1270 slice 3: mirrors the IndieAuth AUTH_DB migration above — applies once
+        // wrangler.toml has a concrete database id (either from the D1 gate above, in this same
+        // run, or already known from a prior run) and before publishing code that can record
+        // experiment events.
+        if hasRunningExperiment {
+            let result = await runWrangler(
+                siteDirectory: siteDirectory,
+                arguments: ["d1", "migrations", "apply", "EXPERIMENTS_DB", "--remote"],
                 environment: environment,
                 source: source,
                 resources: resources
@@ -620,7 +649,8 @@ public actor SocialWorkerProvisionCommand {
         apUsername: String? = nil,
         inboxCaptureEnabled: Bool = false,
         activityPubActorType: String? = nil,
-        moderators: [String]? = nil
+        moderators: [String]? = nil,
+        experiments: [DomainConfig.Experiments.Experiment] = []
     ) -> Result? {
         do {
             let toml = try WorkerComposition.generateWranglerToml(
@@ -634,7 +664,8 @@ public actor SocialWorkerProvisionCommand {
                 displayName: displayName,
                 activityPubActorType: activityPubActorType,
                 moderators: moderators,
-                apUsername: apUsername
+                apUsername: apUsername,
+                experiments: experiments
             )
             try toml.write(
                 to: siteDirectory.appendingPathComponent("wrangler.toml"),

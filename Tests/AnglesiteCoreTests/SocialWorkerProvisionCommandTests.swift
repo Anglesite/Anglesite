@@ -108,6 +108,59 @@ struct SocialWorkerProvisionCommandTests {
         #expect(!toml.contains("[[r2_buckets]]"))
     }
 
+    @Test("a running experiment on a static-only site (no active workers) provisions D1 and applies its migration")
+    func runningExperimentProvisionsD1() async throws {
+        let site = try temporaryDirectory()
+        let recorder = WranglerRecorder([
+            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
+            ["d1", "migrations", "apply", "EXPERIMENTS_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
+        ])
+        let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
+        let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, runner: recorder.runner, deployer: deployer.deployer)
+        let experiment = DomainConfig.Experiments.Experiment(
+            id: "homepage-hero", name: "Homepage headline", page: "/",
+            variant: .init(id: "b", name: "Fresh eggs headline", page: "/x/homepage-hero/b/"),
+            split: 0.5, goal: .init(kind: "pageview", path: "/contact/thanks/"), status: "running"
+        )
+
+        let result = await command.provision(
+            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            workers: [], experiments: [experiment]
+        )
+
+        guard case .succeeded(_, let resources, _) = result else {
+            Issue.record("expected success, got \(result)")
+            return
+        }
+        #expect(resources.d1DatabaseID == "d1-id")
+        #expect(await recorder.arguments == [
+            ["d1", "create", "my-site-social", "--json"],
+            ["d1", "migrations", "apply", "EXPERIMENTS_DB", "--remote"],
+        ])
+        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        #expect(toml.contains("binding = \"EXPERIMENTS_DB\""))
+        #expect(toml.contains("database_id = \"d1-id\""))
+        #expect(toml.contains(#"run_worker_first = ["/", "/contact/thanks/"]"#))
+    }
+
+    @Test("no running experiment never invokes the EXPERIMENTS_DB migration")
+    func noRunningExperimentSkipsMigration() async throws {
+        let site = try temporaryDirectory()
+        let recorder = WranglerRecorder([:])
+        let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
+        let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, runner: recorder.runner, deployer: deployer.deployer)
+
+        let result = await command.provision(
+            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: []
+        )
+
+        guard case .succeeded = result else {
+            Issue.record("expected success, got \(result)")
+            return
+        }
+        #expect(await recorder.arguments.isEmpty)
+    }
+
     @Test("threads activityPubActorType and moderators into the deployed wrangler.toml")
     func provisionsGroupActorWithModerators() async throws {
         let site = try temporaryDirectory()
