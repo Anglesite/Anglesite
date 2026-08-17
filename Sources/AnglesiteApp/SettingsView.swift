@@ -72,6 +72,8 @@ private struct GeneralSettingsView: View {
 /// Apple Intelligence (on-device) or one of the registered agents (#602).
 private struct AgentsSettingsView: View {
     @AppStorage(AppSettings.Key.activeAssistantBackend) private var activeAssistantBackend: String = "foundationModels"
+    @AppStorage(AppSettings.Key.externalLLMBaseURL) private var externalLLMBaseURLText: String = ""
+    @AppStorage(AppSettings.Key.externalLLMModel) private var externalLLMModel: String = ""
     @State private var agents: [ACPAgentConnection] = []
     @State private var editingAgent: ACPAgentConnection?
     @State private var isPresentingEditor = false
@@ -84,11 +86,36 @@ private struct AgentsSettingsView: View {
             Section("Active Model") {
                 Picker("Model", selection: $activeAssistantBackend) {
                     Text("Apple Intelligence (On-Device)").tag("foundationModels")
+                    Text("Custom Endpoint").tag("externalLLM")
                     ForEach(agents) { agent in
                         Text(agent.name).tag("acp:\(agent.id.uuidString)")
                     }
                 }
                 .labelsHidden()
+            }
+
+            Section("External LLM Endpoint") {
+                TextField("Base URL", text: $externalLLMBaseURLText, prompt: Text("https://api.openai.com/v1"))
+                TextField("Model", text: $externalLLMModel, prompt: Text("gpt-4o-mini"))
+                KeychainTokenRow(
+                    title: "API Key",
+                    read: { try KeychainStore().readExternalLLMAPIKey() },
+                    write: { try KeychainStore().writeExternalLLMAPIKey($0) },
+                    clear: {
+                        try KeychainStore().clearExternalLLMAPIKey()
+                        AppSettings.shared.externalLLMVerifiedBaseURL = nil
+                        AppSettings.shared.externalLLMVerifiedDetail = nil
+                    },
+                    verify: { key in await Self.verifyExternalLLMEndpoint(baseURLText: externalLLMBaseURLText, apiKey: key) },
+                    cachedIdentity: {
+                        let trimmed = externalLLMBaseURLText.trimmingCharacters(in: .whitespaces)
+                        guard let verified = AppSettings.shared.externalLLMVerifiedBaseURL, verified == trimmed else { return nil }
+                        return .init(label: "Connected", detail: AppSettings.shared.externalLLMVerifiedDetail, avatarURL: nil)
+                    }
+                )
+                Text("Works with any OpenAI-compatible chat-completions endpoint — hosted providers or a self-hosted server on this machine or your network (e.g. Ollama, llama.cpp, vLLM). The base URL should not include \"/chat/completions\"; Anglesite appends it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("ACP Agents") {
@@ -175,6 +202,65 @@ private struct AgentsSettingsView: View {
         switch transport {
         case .stdio(let command, _): return "Local · \(command)"
         case .remote(let url): return "Remote · \(url.absoluteString)"
+        }
+    }
+
+    /// Upper bound on the `/models` response body this reads while verifying — the same
+    /// user-supplied-endpoint threat model `ExternalLLMBackend`'s SSE draining guards against
+    /// (a typo'd URL, a hostile host, or a plain never-ending response can all reach here), so
+    /// this read is bounded rather than trusted like the old unbounded `data(for:)` call was
+    /// (#1482 review). Generous for a real `/models` list — the far side of this limit only ever
+    /// costs the cosmetic model-count `detail`, never verification success itself.
+    private static let verifyResponseByteLimit = 65_536
+
+    /// GETs `{baseURL}/models` — the OpenAI-compatible endpoint every mainstream provider and
+    /// self-hosted server (OpenAI, Groq, vLLM, Ollama, LM Studio) implements — to confirm the
+    /// endpoint and key work before the owner starts a chat. A 2xx response whose body parses as
+    /// `{"data": [...]}` (the OpenAI list shape) reports a model count; a 2xx response in any
+    /// other shape still counts as a successful connection. On success, persists the verified
+    /// base URL + detail to `AppSettings` so `KeychainTokenRow`'s `cachedIdentity` can show
+    /// "Connected" next time Settings opens without repeating this network call (#1482 review).
+    private static func verifyExternalLLMEndpoint(baseURLText: String, apiKey: String) async -> KeychainTokenRow.VerifyOutcome {
+        let trimmed = baseURLText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, var base = URL(string: trimmed) else {
+            return .failure("enter a base URL first")
+        }
+        if base.absoluteString.hasSuffix("/") {
+            guard let trimmedBase = URL(string: String(base.absoluteString.dropLast())) else {
+                return .failure("enter a base URL first")
+            }
+            base = trimmedBase
+        }
+        guard let url = URL(string: base.absoluteString + "/models") else {
+            return .failure("enter a base URL first")
+        }
+        var request = URLRequest(url: url)
+        if !apiKey.isEmpty { request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
+        do {
+            let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
+            guard let http = response as? HTTPURLResponse else { return .failure("no HTTP response") }
+            guard (200...299).contains(http.statusCode) else {
+                asyncBytes.task.cancel()
+                return .failure("HTTP \(http.statusCode)")
+            }
+            var data = Data()
+            for try await byte in asyncBytes {
+                data.append(byte)
+                if data.count >= verifyResponseByteLimit { break }
+            }
+            // Stop the rest of a large or never-ending body from continuing to arrive into a
+            // stream nothing reads — a no-op if it already finished on its own (#1482 review).
+            asyncBytes.task.cancel()
+            var detail: String?
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let models = json["data"] as? [Any] {
+                detail = "\(models.count) model\(models.count == 1 ? "" : "s") available"
+            }
+            AppSettings.shared.externalLLMVerifiedBaseURL = trimmed
+            AppSettings.shared.externalLLMVerifiedDetail = detail
+            return .success(.init(label: "Connected", detail: detail, avatarURL: nil))
+        } catch {
+            return .failure(error.localizedDescription)
         }
     }
 }

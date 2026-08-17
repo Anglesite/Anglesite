@@ -134,6 +134,10 @@ public enum SecretAccounts {
     /// device's Anywhere-runtime pairing identity (#1208 P2) — generated once per device, not
     /// per site.
     public static let devicePairingKey = "device-pairing-key"
+
+    /// The API key for the single configured `ExternalLLMBackend` endpoint (#1482). Global, not
+    /// per-connection — unlike `acpAgentToken(id:)`, there is only ever one external-LLM config.
+    public static let externalLLMAPIKey = "external-llm-api-key"
 }
 
 /// A stored Cloudflare OAuth credential: the access token used as a Cloudflare API bearer token,
@@ -182,6 +186,21 @@ public extension SecretStore {
     /// Clear the GitHub personal access token slot.
     func clearGitHubToken() throws {
         try delete(account: SecretAccounts.gitHubToken)
+    }
+
+    /// Read the external LLM endpoint's API key under the shared account key.
+    func readExternalLLMAPIKey() throws -> String? {
+        try read(account: SecretAccounts.externalLLMAPIKey)
+    }
+
+    /// Store the external LLM endpoint's API key under the shared account key. Empty string clears.
+    func writeExternalLLMAPIKey(_ key: String) throws {
+        try write(key, account: SecretAccounts.externalLLMAPIKey)
+    }
+
+    /// Clear the external LLM endpoint's API key slot.
+    func clearExternalLLMAPIKey() throws {
+        try delete(account: SecretAccounts.externalLLMAPIKey)
     }
 
     /// Read the bearer token for a `.remote` ACP agent connection.

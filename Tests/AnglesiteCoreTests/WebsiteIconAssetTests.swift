@@ -66,4 +66,21 @@ struct WebsiteIconAssetTests {
         #expect(object?["display"] as? String == "standalone")
         #expect(icons?.map { $0["src"] } == ["/icon-192.png", "/icon-512.png"])
     }
+
+    @Test("hasInstalledIcons ignores the favicon trio the template ships by default (#1525)")
+    func hasInstalledIconsIgnoresScaffoldDefaults() throws {
+        let fm = FileManager.default
+        let root = fm.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let publicDir = root.appendingPathComponent("public")
+        try fm.createDirectory(at: publicDir, withIntermediateDirectories: true)
+        defer { try? fm.removeItem(at: root) }
+
+        for name in [WebsiteIconAsset.faviconICOName, WebsiteIconAsset.faviconPNGName, WebsiteIconAsset.appleTouchIconName] {
+            try Data().write(to: publicDir.appendingPathComponent(name))
+        }
+        #expect(!WebsiteIconAsset.hasInstalledIcons(in: root, fileManager: fm))
+
+        try Data().write(to: publicDir.appendingPathComponent(WebsiteIconAsset.icon192Name))
+        #expect(WebsiteIconAsset.hasInstalledIcons(in: root, fileManager: fm))
+    }
 }
