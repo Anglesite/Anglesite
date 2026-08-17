@@ -9,12 +9,14 @@ struct SystemContactsProviderTests {
     private static func makeContact(
         givenName: String,
         familyName: String = "",
+        organizationName: String = "",
         urlAddresses: [String] = [],
         socialProfileURLs: [String] = []
     ) -> CNContact {
         let mutable = CNMutableContact()
         mutable.givenName = givenName
         mutable.familyName = familyName
+        mutable.organizationName = organizationName
         mutable.urlAddresses = urlAddresses.map {
             CNLabeledValue(label: CNLabelURLAddressHomePage, value: $0 as NSString)
         }
@@ -52,6 +54,18 @@ struct SystemContactsProviderTests {
         let matchable = SystemContactsProvider.matchableContact(from: contact)
 
         #expect(matchable?.socialProfileURLs == [URL(string: "https://mastodon.social/users/bob")!])
+    }
+
+    @Test("falls back to organization name when there's no formattable person name")
+    func fallsBackToOrganizationName() {
+        let contact = Self.makeContact(
+            givenName: "", familyName: "", organizationName: "Acme Corp",
+            urlAddresses: ["https://acme.example"])
+
+        let matchable = SystemContactsProvider.matchableContact(from: contact)
+
+        #expect(matchable?.displayName == "Acme Corp")
+        #expect(matchable?.urlAddresses == [URL(string: "https://acme.example")!])
     }
 
     @Test("returns nil for a contact with no name")
