@@ -1622,6 +1622,14 @@ test("tagFediverseUrl: malformed individual entries in the artifact are ignored"
   expect(new URL(tagged).searchParams.get("utm_campaign")).toBe("x");
 });
 
+test("tagFediverseUrl: returns the original string unchanged rather than throwing on an unparseable URL", () => {
+  const campaigns = [
+    { source: "fediverse", medium: "social", campaign: "affiliate-2026", appliesTo: ["fediverse"] },
+  ];
+  expect(() => tagFediverseUrl("not a url", campaigns)).not.toThrow();
+  expect(tagFediverseUrl("not a url", campaigns)).toBe("not a url");
+});
+
 test("micropub-to-activitypub fan-out: outbox Note.url matches the created post's Location when the default utm-codes.json has no active Fediverse campaign", async () => {
   const { token, keyPair } = await mintAccessToken("create");
   const url = "https://owner.example/micropub";

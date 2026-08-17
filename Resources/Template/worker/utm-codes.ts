@@ -34,11 +34,18 @@ export function tagFediverseUrl(url: string, campaignsArtifact: unknown): string
   const campaigns = Array.isArray(campaignsArtifact) ? campaignsArtifact.filter(isValidUTMCampaign) : [];
   const campaign = campaigns.find((c) => c.appliesTo.includes("fediverse"));
   if (!campaign) return url;
-  const u = new URL(url);
-  u.searchParams.set("utm_source", campaign.source);
-  u.searchParams.set("utm_medium", campaign.medium);
-  u.searchParams.set("utm_campaign", campaign.campaign);
-  if (campaign.term) u.searchParams.set("utm_term", campaign.term);
-  if (campaign.content) u.searchParams.set("utm_content", campaign.content);
-  return u.href;
+  try {
+    const u = new URL(url);
+    u.searchParams.set("utm_source", campaign.source);
+    u.searchParams.set("utm_medium", campaign.medium);
+    u.searchParams.set("utm_campaign", campaign.campaign);
+    if (campaign.term) u.searchParams.set("utm_term", campaign.term);
+    if (campaign.content) u.searchParams.set("utm_content", campaign.content);
+    return u.href;
+  } catch {
+    // Never fails the fan-out (see doc comment above and `fanOutMicropubCreateToActivityPub` in
+    // worker.ts): an unparseable `location` should silently skip tagging, not throw inside a
+    // `ctx.waitUntil(...)` promise where nothing catches it.
+    return url;
+  }
 }
