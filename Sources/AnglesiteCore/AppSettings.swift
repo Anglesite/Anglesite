@@ -64,6 +64,10 @@ public final class AppSettings: @unchecked Sendable {
         public static let activeAssistantBackend = "anglesite.activeAssistantBackend"
         /// Backs ``AppSettings/communitySearchInstance``.
         public static let communitySearchInstance = "anglesite.communitySearchInstance"
+        /// Backs ``AppSettings/externalLLMBaseURL`` (#1482).
+        public static let externalLLMBaseURL = "anglesite.externalLLM.baseURL"
+        /// Backs ``AppSettings/externalLLMModel`` (#1482).
+        public static let externalLLMModel   = "anglesite.externalLLM.model"
     }
 
     private enum LegacyKey {
@@ -250,6 +254,31 @@ public final class AppSettings: @unchecked Sendable {
             return (stored?.isEmpty == false ? stored : nil) ?? CommunitySearchClient.defaultInstance
         }
         set { defaults.set(newValue, forKey: Key.communitySearchInstance) }
+    }
+
+    /// Base URL of the user-configured OpenAI-compatible endpoint (#1482) — `nil` until set.
+    /// `ExternalLLMBackend` appends `/chat/completions`; this value should NOT include that
+    /// suffix. Global, not per-site, matching `activeAssistantBackend`.
+    public var externalLLMBaseURL: URL? {
+        get {
+            guard let raw = defaults.string(forKey: Key.externalLLMBaseURL), !raw.isEmpty else { return nil }
+            return URL(string: raw)
+        }
+        set {
+            if let url = newValue {
+                defaults.set(url.absoluteString, forKey: Key.externalLLMBaseURL)
+            } else {
+                defaults.removeObject(forKey: Key.externalLLMBaseURL)
+            }
+        }
+    }
+
+    /// Model name sent as the `model` field of every request to ``externalLLMBaseURL`` (#1482).
+    /// Empty string (the default) means "not configured" — `AssistantBackendResolver` requires
+    /// this to be non-empty before resolving the backend.
+    public var externalLLMModel: String {
+        get { defaults.string(forKey: Key.externalLLMModel) ?? "" }
+        set { defaults.set(newValue, forKey: Key.externalLLMModel) }
     }
 
     /// Security-scoped bookmark for the sites root, persisted so the sandboxed (MAS) build only
