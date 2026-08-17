@@ -107,19 +107,15 @@ public enum StandardSiteDocumentPlan {
         return Plan(entries: entries.sorted { $0.sourceFile < $1.sourceFile })
     }
 
-    /// Collections whose entries are never Standard.site documents. `blogroll` (#1483) entries
-    /// describe sites the owner follows, not content the owner authored at a canonical path —
-    /// they're published as `site.standard.graph.subscription` records instead, by
-    /// `StandardSiteGraphPublishCommand`.
-    private static let nonDocumentCollections: Set<String> = ["blogroll"]
-
     /// `/<collection>/<slug>/` for a `src/content/<collection>/...` relative path — the same
     /// collection/slug derivation `SocialPublishPlan.canonicalURL` uses, minus the host join.
+    /// Collections in `SocialPublishPlan.excludedCollections` (currently just `blogroll`, #1483)
+    /// are never Standard.site documents — see that property's doc comment.
     private static func documentPath(for relPath: String, frontmatter: [String: FrontmatterValue]) -> String? {
         let parts = relPath.split(separator: "/").map(String.init)
         guard parts.count >= 4, parts[0] == "src", parts[1] == "content" else { return nil }
         let collection = parts[2]
-        guard !nonDocumentCollections.contains(collection) else { return nil }
+        guard !SocialPublishPlan.excludedCollections.contains(collection) else { return nil }
         let collectionRelParts = Array(parts.dropFirst(3))
         guard let lastPart = collectionRelParts.last else { return nil }
         let fallbackSlug = (collectionRelParts.dropLast() + [basenameWithoutExtension(lastPart)])

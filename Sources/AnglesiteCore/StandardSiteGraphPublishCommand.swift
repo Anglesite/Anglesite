@@ -129,19 +129,33 @@ public actor StandardSiteGraphPublishCommand {
 
             let rkey = "anglesite-\(POSSEStableKey.make("\(siteID)\n\(entry.sourceFile)"))"
             let record = StandardSiteGraphSubscriptionRecord(publication: publicationURI, createdAt: iso8601(now()))
+            let result: AtprotoPutRecordClient.Result
             do {
-                let result = try await AtprotoPutRecordClient.putRecord(
+                result = try await AtprotoPutRecordClient.putRecord(
                     collection: "site.standard.graph.subscription", rkey: rkey, record: record,
                     pdsURL: bluesky.pdsURL, session: session, transport: transport
                 )
-                ledger.record(.init(sourceFile: entry.sourceFile, uri: result.uri, lastPublishedAt: now()))
-                try ledger.save(to: configDirectory)
-                publishedCount += 1
-                await logCenter.append(source: source, stream: .stdout, text: "standardsitegraph: published \(entry.sourceFile) as \(result.uri)")
             } catch {
                 failedCount += 1
                 await logError("couldn't publish \(entry.sourceFile): \(error.localizedDescription)", source: source)
+                continue
             }
+            // The record write above already succeeded — a failure past this point is a local
+            // ledger problem, not a publish failure, so it gets its own message rather than
+            // falling into a shared catch that would misreport a live record as unpublished.
+            ledger.record(.init(sourceFile: entry.sourceFile, uri: result.uri, lastPublishedAt: now()))
+            do {
+                try ledger.save(to: configDirectory)
+            } catch {
+                failedCount += 1
+                await logError(
+                    "published \(entry.sourceFile) as \(result.uri), but its ledger update failed: \(error.localizedDescription)",
+                    source: source
+                )
+                continue
+            }
+            publishedCount += 1
+            await logCenter.append(source: source, stream: .stdout, text: "standardsitegraph: published \(entry.sourceFile) as \(result.uri)")
         }
 
         // Unpublish: a ledgered entry whose sourceFile no longer appears in the current plan
@@ -158,14 +172,23 @@ public actor StandardSiteGraphPublishCommand {
                     collection: "site.standard.graph.subscription", rkey: String(rkey),
                     pdsURL: bluesky.pdsURL, session: session, transport: transport
                 )
-                ledger.entries.removeAll { $0.sourceFile == staleEntry.sourceFile }
-                try ledger.save(to: configDirectory)
-                unpublishedCount += 1
-                await logCenter.append(source: source, stream: .stdout, text: "standardsitegraph: unpublished \(staleEntry.sourceFile)")
             } catch {
                 failedCount += 1
                 await logError("couldn't unpublish \(staleEntry.sourceFile): \(error.localizedDescription)", source: source)
+                continue
             }
+            ledger.entries.removeAll { $0.sourceFile == staleEntry.sourceFile }
+            do {
+                try ledger.save(to: configDirectory)
+            } catch {
+                await logError(
+                    "unpublished \(staleEntry.sourceFile), but its ledger update failed: \(error.localizedDescription)",
+                    source: source
+                )
+                continue
+            }
+            unpublishedCount += 1
+            await logCenter.append(source: source, stream: .stdout, text: "standardsitegraph: unpublished \(staleEntry.sourceFile)")
         }
 
         await logCenter.append(

@@ -353,6 +353,74 @@ struct StandardSiteGraphPublishCommandTests {
         #expect(lines.contains { $0.text.contains("skipped") && $0.text.contains("off in Site Settings") })
     }
 
+    @Test("reports a ledger-save failure distinctly from a failed remote publish")
+    func ledgerSaveFailureAfterSuccessfulPublishIsNotMisreported() async throws {
+        // Regression for #1483 final review, Fix 2: putRecord succeeding but the local ledger
+        // write failing afterward must not be logged as "couldn't publish" (which would imply the
+        // remote write itself failed) — the record really did land on the PDS.
+        let site = try makeSite(blogroll: ["friend.md": "---\nname: Friend\nurl: https://friend.example\naddedDate: 2026-08-01\n---\n"])
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        let stub = APIStub()
+        await stub.set(wellKnown: "friend.example", status: 200, body: "at://did:plc:friend/site.standard.publication/anglesite-abc\n")
+
+        // Pre-create Config/ writable, then make it read-only so `SiteConfigStore`/log reads
+        // still succeed but `StandardSiteGraphPublishLog.save`'s atomic write fails — same
+        // technique `NativeContentOperationsTests` uses to force a write failure deterministically.
+        try FileManager.default.createDirectory(at: site.config, withIntermediateDirectories: true)
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: site.config.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: site.config.path) }
+
+        let logCenter = LogCenter()
+        let command = StandardSiteGraphPublishCommand(
+            credentials: { _, _ in credentials },
+            transport: { try await stub.respond($0) }, thirdPartyTransport: { try await stub.respond($0) },
+            logCenter: logCenter
+        )
+
+        await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
+
+        // The remote record write went through even though the ledger couldn't persist it.
+        let graphPuts = (await stub.bodies(path: "/xrpc/com.atproto.repo.putRecord"))
+            .filter { ($0["collection"] as? String) == "site.standard.graph.subscription" }
+        #expect(graphPuts.count == 1)
+
+        let lines = await logCenter.snapshot()
+        #expect(lines.contains { $0.text.contains("published") && $0.text.contains("ledger update failed") })
+        #expect(!lines.contains { $0.text.contains("couldn't publish") })
+    }
+
+    @Test("reports an unpublish ledger-save failure without losing the successful delete")
+    func ledgerSaveFailureAfterSuccessfulUnpublishIsNotMisreported() async throws {
+        let site = try makeSite(blogroll: [:])
+        defer { try? FileManager.default.removeItem(at: site.root) }
+        var log = StandardSiteGraphPublishLog()
+        log.record(.init(
+            sourceFile: "src/content/blogroll/gone.md",
+            uri: "at://did:plc:owner/site.standard.graph.subscription/anglesite-old",
+            lastPublishedAt: Date()
+        ))
+        try log.save(to: site.config)
+        // Make Config/ read-only only after the initial ledger write above succeeds, so the
+        // delete's own `ledger.save` re-write is what fails.
+        try FileManager.default.setAttributes([.posixPermissions: 0o555], ofItemAtPath: site.config.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: site.config.path) }
+
+        let stub = APIStub()
+        let logCenter = LogCenter()
+        let command = StandardSiteGraphPublishCommand(
+            credentials: { _, _ in credentials },
+            transport: { try await stub.respond($0) }, thirdPartyTransport: { try await stub.respond($0) },
+            logCenter: logCenter
+        )
+
+        await command.publish(siteID: "site-1", siteDirectory: site.source, configDirectory: site.config)
+
+        #expect(await stub.count(path: "/xrpc/com.atproto.repo.deleteRecord") == 1)
+        let lines = await logCenter.snapshot()
+        #expect(lines.contains { $0.text.contains("unpublished") && $0.text.contains("ledger update failed") })
+        #expect(!lines.contains { $0.text.contains("couldn't unpublish") })
+    }
+
     @Test("keeps a stale ledger entry in place when deleteRecord fails")
     func keepsLedgerEntryWhenDeleteFails() async throws {
         let site = try makeSite(blogroll: [:])
