@@ -167,6 +167,26 @@ test("toFeedItem leaves the link untagged when no UTM campaign is passed", () =>
   assert.equal(item.link, "https://example.com/blog/hello/");
 });
 
+test("toFeedItem sets canonicalLink to the untagged URL, distinct from the tagged link", () => {
+  const item = toFeedItem(
+    "blog",
+    entry("blog", { title: "Hi", pubDate: "2026-01-02" }),
+    SITE,
+    "<p>Hi</p>",
+    undefined,
+    { source: "rss", medium: "feed", campaign: "affiliate-2026", appliesTo: ["blog"] },
+  );
+  assert.equal(item.canonicalLink, "https://example.com/blog/hello/");
+  assert.notEqual(item.canonicalLink, item.link);
+  const u = new URL(item.canonicalLink!);
+  assert.equal([...u.searchParams.keys()].some((k) => k.startsWith("utm_")), false);
+});
+
+test("toFeedItem sets canonicalLink equal to link when no campaign is applied", () => {
+  const item = toFeedItem("blog", entry("blog", { title: "Hi", pubDate: "2026-01-02" }), SITE, "<p>Hi</p>");
+  assert.equal(item.canonicalLink, item.link);
+});
+
 test("siteFrom returns the href or throws a clear error when site is unset", () => {
   assert.equal(siteFrom({ site: new URL("https://x.test/") }), "https://x.test/");
   assert.throws(() => siteFrom({}), /not configured/);
@@ -263,6 +283,64 @@ test("renderAtom emits the full HTML content as an escaped <content type=\"html\
   const xml = await res.text();
   assert.match(xml, /<content type="html">.*Paragraph one\..*Paragraph two\..*<\/content>/s);
   assert.match(xml, /&lt;p&gt;Paragraph one\.&lt;\/p&gt;/);
+});
+
+test("renderAtom uses canonicalLink for <id> when present, falling back to link otherwise", async () => {
+  const res = renderAtom({
+    title: "All",
+    site: SITE,
+    feedUrl: `${SITE}/atom.xml`,
+    items: [
+      {
+        title: "A",
+        link: `${SITE}/blog/a/?utm_source=rss`,
+        canonicalLink: `${SITE}/blog/a/`,
+        date: new Date("2026-01-02"),
+        summary: "hi",
+        contentHtml: "",
+      },
+      {
+        title: "B",
+        link: `${SITE}/blog/b/`,
+        date: new Date("2026-01-02"),
+        summary: "hi",
+        contentHtml: "",
+      },
+    ],
+  });
+  const xml = await res.text();
+  assert.match(xml, /<id>https:\/\/example\.com\/blog\/a\/<\/id>/);
+  assert.doesNotMatch(xml, /<id>https:\/\/example\.com\/blog\/a\/\?utm_source=rss<\/id>/);
+  assert.match(xml, /<id>https:\/\/example\.com\/blog\/b\/<\/id>/);
+});
+
+test("renderJsonFeed uses canonicalLink for id when present, falling back to link otherwise", async () => {
+  const res = renderJsonFeed({
+    title: "All",
+    site: SITE,
+    feedUrl: `${SITE}/feed.json`,
+    items: [
+      {
+        title: "A",
+        link: `${SITE}/blog/a/?utm_source=rss`,
+        canonicalLink: `${SITE}/blog/a/`,
+        date: new Date("2026-01-02"),
+        summary: "hi",
+        contentHtml: "",
+      },
+      {
+        title: "B",
+        link: `${SITE}/blog/b/`,
+        date: new Date("2026-01-02"),
+        summary: "hi",
+        contentHtml: "",
+      },
+    ],
+  });
+  const feed = JSON.parse(await res.text());
+  assert.equal(feed.items[0].id, `${SITE}/blog/a/`);
+  assert.equal(feed.items[0].url, `${SITE}/blog/a/?utm_source=rss`);
+  assert.equal(feed.items[1].id, `${SITE}/blog/b/`);
 });
 
 test("renderJsonFeed produces valid JSON Feed 1.1", async () => {

@@ -9,6 +9,10 @@ export interface FeedItem {
    * not a real title, so we omit the field rather than fake one. */
   title?: string;
   link: string; // absolute
+  /** Absolute, untagged — used for stable entry identity (Atom <id>, JSON Feed id); falls back to
+   * `link` when unset. `link` may carry a UTM tag that changes independently of the entry itself
+   * (assigning/editing/removing a campaign), so identity must be pinned to the untagged URL. */
+  canonicalLink?: string;
   date: Date;
   summary: string;
   /** Full entry body rendered to HTML at build time (see `feed-data.ts`). */
@@ -209,9 +213,11 @@ export function toFeedItem(
   const absolutized = contentHtml ? absolutizeHtmlUrls(contentHtml, site) : contentHtml;
   const body = absolutized || interactionContentFallback(collection, entry.data);
   const withImage = collection === "photos" ? photoImageHtml(entry.data, site) + body : body;
+  const untaggedLink = new URL(`/${collection}/${entry.id}/`, site).href;
   return {
     title: cfg.deriveTitle(entry) || undefined,
-    link: tagUrl(new URL(`/${collection}/${entry.id}/`, site).href, utmCampaign),
+    link: tagUrl(untaggedLink, utmCampaign),
+    canonicalLink: untaggedLink,
     date,
     summary: String(summary),
     license: licenseInfo.license,
@@ -267,6 +273,11 @@ export function renderRss(o: {
       // Zod's `title` field is optional and `@astrojs/rss` only emits <title> when truthy, so an
       // absent `i.title` correctly drops the element rather than rendering it empty.
       title: i.title,
+      // Known limitation: @astrojs/rss derives <guid> unconditionally from this link, with no
+      // override — unlike Atom/JSON Feed (which use i.canonicalLink for identity), an RSS reader
+      // will see this item's identity change whenever its UTM tag changes. Accepted tradeoff:
+      // RSS's guid stability loses to keeping UTM attribution correct on the one link RSS
+      // actually exposes.
       link: i.link,
       pubDate: i.date,
       // Invariant: RSS 2.0 requires title *or* description on every item, so a title-less item
@@ -335,7 +346,7 @@ export function renderAtom(o: {
       return `  <entry>
     <title>${escapeXml(i.title ?? "")}</title>
     <link href="${escapeXml(i.link)}"/>
-    <id>${escapeXml(i.link)}</id>
+    <id>${escapeXml(i.canonicalLink ?? i.link)}</id>
     <updated>${i.date.toISOString()}</updated>
 ${categories}${summaryXml}    <content type="html">${escapeXml(i.contentHtml)}</content>
 ${rslXml ? `${rslXml}\n` : ""}  </entry>`;
@@ -381,7 +392,7 @@ export function renderJsonFeed(o: {
     ...(o.hubUrl ? { hubs: [{ type: "WebSub", url: o.hubUrl }] } : {}),
     ...(o.author ? { authors: [{ name: o.author.name, url: o.author.url }] } : {}),
     items: o.items.map((i) => ({
-      id: i.link,
+      id: i.canonicalLink ?? i.link,
       url: i.link,
       // Undefined `title` is dropped by JSON.stringify below, matching JSON Feed's "title is
       // optional" contract for items with no natural title.
