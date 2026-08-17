@@ -59,7 +59,13 @@ public enum DependencySyncApplier {
             throw ApplyError.writeFailed
         }
 
-        try? FileManager.default.removeItem(at: sourceDirectory.appendingPathComponent("package-lock.json"))
+        // Only invalidate the lockfile when an offer actually changed package.json (#1440):
+        // a decision that lands nothing — e.g. every bump was held back by a foreign peer
+        // range, or a stale offer's target isn't in the file — must not force the next boot
+        // through a from-scratch resolve for an unchanged dependency set.
+        if updatedText != originalText {
+            try? FileManager.default.removeItem(at: sourceDirectory.appendingPathComponent("package-lock.json"))
+        }
 
         // Seed from every dependency in the freshly-written package.json when the
         // site has no baseline yet (legacy sites scaffolded before the baseline

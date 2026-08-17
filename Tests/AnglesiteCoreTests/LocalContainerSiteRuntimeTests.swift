@@ -356,6 +356,32 @@ struct LocalContainerSiteRuntimeTests {
         } else { Issue.record("expected .failed, got \(await rt.state)") }
     }
 
+    /// #1440 part 1: when the boot's `npm install` (hydrate) fails to resolve the site's own
+    /// dependency tree, the ERESOLVE evidence is in the boot output but the thrown error is a
+    /// generic serving timeout — the settled `.failed` message must carry the dependency
+    /// diagnosis, not the timeout.
+    @Test("a boot failure with npm resolution errors in its output settles to a dependency-specific message")
+    func bootFailureWithEresolveOutputSurfacesTheDependencyDiagnosis() async {
+        let fake = FakeLocalContainerControl(
+            startResult: .failure(.bootFailed("waitUntilServing: timed out after 300.0s waiting for http://127.0.0.1:51001")),
+            startStdoutLines: [
+                "==> npm ci (warm cache, offline-first)",
+                "npm error code ERESOLVE",
+                "npm error Could not resolve dependency:",
+                "npm error peer astro@\"^6.3.0\" from @astrojs/cloudflare@13.5.0",
+            ])
+        let mcp = MCPClient(supervisor: ProcessSupervisor(), logCenter: LogCenter())
+        let rt = LocalContainerSiteRuntime(
+            ref: "HEAD", control: fake, mcpClient: mcp, connect: { _, _ in },
+            workerCatalog: { [] })
+        await rt.start(siteID: "s1", siteDirectory: URL(fileURLWithPath: "/unused"))
+        if case .failed(let id, let msg) = await rt.state {
+            #expect(id == "s1")
+            #expect(!msg.contains("timed out"))
+            #expect(msg.contains("@astrojs/cloudflare"))
+        } else { Issue.record("expected .failed, got \(await rt.state)") }
+    }
+
     /// Regression test: the boot-log stream must be finished immediately when `control.start()`
     /// throws, not left for the next `start()`/`stop()` call's `teardown()` to clean up. Verifies
     /// this by checking the failure path delivers its lines through the SAME live subscription

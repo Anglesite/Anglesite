@@ -394,11 +394,20 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
             await drainTask.value
         }
 
+        // #1440: the boot's hydrate step (`npm ci`/`npm install`) is the install verification
+        // for any just-applied dependency update, but it runs as a detached guest process —
+        // its resolution failure only reaches this actor as a generic serving timeout. Scan
+        // the output stream for that evidence so the settled `.failed` names the real problem.
+        let installFailureScanner = DependencyInstallFailureScanner()
+
         var containerStarted = false
         do {
             let session = try await control.start(
                 siteID: siteID, sourceRepo: siteDirectory, ref: ref,
-                onOutput: { line, stream in continuation.yield((line, stream)) })
+                onOutput: { line, stream in
+                    installFailureScanner.ingest(line: line)
+                    continuation.yield((line, stream))
+                })
             containerStarted = true
             guard stateMachine.isCurrent(gen) else { await abandonSupersededAttempt(); return }
             do {
@@ -470,7 +479,11 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
             guard stateMachine.isCurrent(gen) else { return }
             bootLogContinuation = nil
             bootLogDrainTask = nil
-            stateMachine.settle(gen: gen, to: .failed(siteID: siteID, message: Self.friendlyMessage(for: error)))
+            // A dependency-resolution diagnosis from the boot output beats the raw error:
+            // when npm printed ERESOLVE evidence, the thrown error is just the downstream
+            // serving timeout, and the owner needs the actual cause (#1440).
+            let message = installFailureScanner.diagnosis ?? Self.friendlyMessage(for: error)
+            stateMachine.settle(gen: gen, to: .failed(siteID: siteID, message: message))
         }
     }
 
