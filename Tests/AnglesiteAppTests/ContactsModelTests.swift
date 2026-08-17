@@ -32,6 +32,20 @@ struct ContactsModelTests {
         #expect(model.contacts.isEmpty)
     }
 
+    @Test("reload surfaces corruptFile when contacts.json fails to decode")
+    func reloadSurfacesCorruptFile() async throws {
+        let site = try Self.makeSite()
+        try Data("{ not json".utf8).write(
+            to: site.configDirectory.appendingPathComponent(ContactStore.filename))
+
+        let model = ContactsModel(contactsProvider: FakeContactsProvider(result: .success([])))
+        model.configure(site: site)
+        await model.reload()
+
+        #expect(model.loadState == .corruptFile)
+        #expect(model.contacts.isEmpty)
+    }
+
     @Test("add then remove round-trips through the store")
     func addAndRemove() async throws {
         let model = ContactsModel(contactsProvider: FakeContactsProvider(result: .success([])))
