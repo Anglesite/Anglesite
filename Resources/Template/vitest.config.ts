@@ -85,7 +85,7 @@ export default defineConfig({
       miniflare: {
         compatibilityDate: "2026-07-15",
         compatibilityFlags: ["nodejs_compat"],
-        d1Databases: ["AUTH_DB", "WEBMENTION_INBOX", "MICROPUB_DB", "WEBSUB_DB", "MICROSUB_DB"],
+        d1Databases: ["AUTH_DB", "WEBMENTION_INBOX", "MICROPUB_DB", "WEBSUB_DB", "MICROSUB_DB", "EXPERIMENTS_DB"],
         kvNamespaces: ["INBOX_KV", "SOCIAL_KV"],
         r2Buckets: ["MEDIA"],
         queueProducers: {
