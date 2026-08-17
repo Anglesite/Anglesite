@@ -72,6 +72,8 @@ private struct GeneralSettingsView: View {
 /// Apple Intelligence (on-device) or one of the registered agents (#602).
 private struct AgentsSettingsView: View {
     @AppStorage(AppSettings.Key.activeAssistantBackend) private var activeAssistantBackend: String = "foundationModels"
+    @AppStorage(AppSettings.Key.externalLLMBaseURL) private var externalLLMBaseURLText: String = ""
+    @AppStorage(AppSettings.Key.externalLLMModel) private var externalLLMModel: String = ""
     @State private var agents: [ACPAgentConnection] = []
     @State private var editingAgent: ACPAgentConnection?
     @State private var isPresentingEditor = false
@@ -84,11 +86,27 @@ private struct AgentsSettingsView: View {
             Section("Active Model") {
                 Picker("Model", selection: $activeAssistantBackend) {
                     Text("Apple Intelligence (On-Device)").tag("foundationModels")
+                    Text("Custom Endpoint").tag("externalLLM")
                     ForEach(agents) { agent in
                         Text(agent.name).tag("acp:\(agent.id.uuidString)")
                     }
                 }
                 .labelsHidden()
+            }
+
+            Section("External LLM Endpoint") {
+                TextField("Base URL", text: $externalLLMBaseURLText, prompt: Text("https://api.openai.com/v1"))
+                TextField("Model", text: $externalLLMModel, prompt: Text("gpt-4o-mini"))
+                KeychainTokenRow(
+                    title: "API Key",
+                    read: { try KeychainStore().readExternalLLMAPIKey() },
+                    write: { try KeychainStore().writeExternalLLMAPIKey($0) },
+                    clear: { try KeychainStore().clearExternalLLMAPIKey() },
+                    verify: { key in await Self.verifyExternalLLMEndpoint(baseURLText: externalLLMBaseURLText, apiKey: key) }
+                )
+                Text("Works with any OpenAI-compatible chat-completions endpoint — hosted providers or a self-hosted server on this machine or your network (e.g. Ollama, llama.cpp, vLLM). The base URL should not include \"/chat/completions\"; Anglesite appends it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("ACP Agents") {
@@ -175,6 +193,37 @@ private struct AgentsSettingsView: View {
         switch transport {
         case .stdio(let command, _): return "Local · \(command)"
         case .remote(let url): return "Remote · \(url.absoluteString)"
+        }
+    }
+
+    /// GETs `{baseURL}/models` — the OpenAI-compatible endpoint every mainstream provider and
+    /// self-hosted server (OpenAI, Groq, vLLM, Ollama, LM Studio) implements — to confirm the
+    /// endpoint and key work before the owner starts a chat. A 2xx response whose body parses as
+    /// `{"data": [...]}` (the OpenAI list shape) reports a model count; a 2xx response in any
+    /// other shape still counts as a successful connection.
+    private static func verifyExternalLLMEndpoint(baseURLText: String, apiKey: String) async -> KeychainTokenRow.VerifyOutcome {
+        let trimmed = baseURLText.trimmingCharacters(in: .whitespaces)
+        guard !trimmed.isEmpty, var base = URL(string: trimmed) else {
+            return .failure("enter a base URL first")
+        }
+        if base.absoluteString.hasSuffix("/") { base = URL(string: String(base.absoluteString.dropLast()))! }
+        guard let url = URL(string: base.absoluteString + "/models") else {
+            return .failure("enter a base URL first")
+        }
+        var request = URLRequest(url: url)
+        if !apiKey.isEmpty { request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            guard let http = response as? HTTPURLResponse else { return .failure("no HTTP response") }
+            guard (200...299).contains(http.statusCode) else { return .failure("HTTP \(http.statusCode)") }
+            var detail: String?
+            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+               let models = json["data"] as? [Any] {
+                detail = "\(models.count) model\(models.count == 1 ? "" : "s") available"
+            }
+            return .success(.init(label: "Connected", detail: detail, avatarURL: nil))
+        } catch {
+            return .failure(error.localizedDescription)
         }
     }
 }

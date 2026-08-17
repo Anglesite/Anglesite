@@ -701,6 +701,9 @@
     "Ban this member?" : {
 
     },
+    "Base URL" : {
+
+    },
     "Base styles" : {
 
     },
@@ -1311,6 +1314,9 @@
     "Custom Element…" : {
 
     },
+    "Custom Endpoint" : {
+
+    },
     "Custom domain already in use" : {
 
     },
@@ -1609,6 +1615,9 @@
 
     },
     "Export this site's source files to a folder." : {
+
+    },
+    "External LLM Endpoint" : {
 
     },
     "Extract" : {
@@ -4028,6 +4037,9 @@
     "Working…" : {
 
     },
+    "Works with any OpenAI-compatible chat-completions endpoint — hosted providers or a self-hosted server on this machine or your network (e.g. Ollama, llama.cpp, vLLM). The base URL should not include \"/chat/completions\"; Anglesite appends it." : {
+
+    },
     "Writing" : {
 
     },
@@ -4106,6 +4118,9 @@
     "example.com" : {
 
     },
+    "gpt-4o-mini" : {
+
+    },
     "handle" : {
 
     },
@@ -4113,6 +4128,9 @@
 
     },
     "https://agent.example.com/acp" : {
+
+    },
+    "https://api.openai.com/v1" : {
 
     },
     "https://example.com/license" : {
