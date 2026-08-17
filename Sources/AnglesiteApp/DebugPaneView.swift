@@ -79,6 +79,7 @@ struct DebugPaneView: View {
                 }
             }
             .frame(maxWidth: 200)
+            .accessibilityIdentifier(AXID.debugSourceFilter)
 
             Picker("Stream", selection: $streamFilter) {
                 ForEach(StreamFilter.allCases, id: \.self) { f in
@@ -87,10 +88,12 @@ struct DebugPaneView: View {
             }
             .pickerStyle(.segmented)
             .frame(maxWidth: 200)
+            .accessibilityIdentifier(AXID.debugStreamFilter)
 
             TextField("Search", text: $searchQuery)
                 .textFieldStyle(.roundedBorder)
                 .frame(minWidth: 140, maxWidth: 240)
+                .accessibilityIdentifier(AXID.debugSearchField)
 
             Spacer()
 
@@ -99,17 +102,22 @@ struct DebugPaneView: View {
                 set: { frozenLines = $0 ? lines : nil }
             ))
             .toggleStyle(.switch)
+            .accessibilityIdentifier(AXID.debugPauseToggle)
 
             Toggle("Auto-scroll", isOn: $autoScroll)
                 .toggleStyle(.switch)
                 .disabled(isPaused)
+                .accessibilityIdentifier(AXID.debugAutoScrollToggle)
 
             Button("Clear") {
                 lines.removeAll()
                 frozenLines = nil
             }
+            .accessibilityIdentifier(AXID.debugClearButton)
             Button("Copy") { copyVisibleToClipboard() }
+                .accessibilityIdentifier(AXID.debugCopyButton)
             Button("Save…") { saveVisibleToFile() }
+                .accessibilityIdentifier(AXID.debugSaveButton)
         }
     }
 
