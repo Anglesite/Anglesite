@@ -8,6 +8,8 @@ import Foundation
 /// operational store (there's nothing to delete from it after a successful commit), so a stale
 /// snapshot file — one whose interaction was later unverified or its source deleted — must be
 /// removed on the next reconcile too, per the design doc's "sender-side delete" behavior.
+/// Two independent sources can share this directory safely via `commit`'s `scopedTo` parameter —
+/// see `docs/superpowers/specs/2026-08-17-bluesky-replies-comment-section-design.md`.
 public enum ReceivedInteractionCommitter {
     /// JSON encoding for one interaction's snapshot file: sorted keys (stable, clean diffs) and
     /// ISO 8601 dates, matching the Astro template's zod schema
@@ -18,6 +20,22 @@ public enum ReceivedInteractionCommitter {
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         encoder.dateEncodingStrategy = .iso8601
         return try encoder.encode(interaction)
+    }
+
+    /// Whether an existing snapshot file's own decoded `type` is in `protocolTypes` — scopes
+    /// staleness deletion so two independent sources sharing `data/interactions/` (#1236 adds a
+    /// second one, the Bluesky backfeed, alongside the existing webmention/AP sync) don't delete
+    /// each other's files. A file that fails to decode (malformed, or hand-authored without a
+    /// recognized `type`) is treated as out of scope — never deleted by a source that can't
+    /// identify it as its own.
+    private static func isInScope(
+        _ file: URL, protocolTypes: Set<ReceivedInteraction.ProtocolType>, fileManager: FileManager
+    ) -> Bool {
+        struct TypeOnly: Decodable { let type: ReceivedInteraction.ProtocolType }
+        guard let data = fileManager.contents(atPath: file.path),
+              let decoded = try? JSONDecoder().decode(TypeOnly.self, from: data)
+        else { return false }
+        return protocolTypes.contains(decoded.type)
     }
 
     /// Reconciles `data/interactions/` under `siteDirectory` against `interactions` (the full,
@@ -35,6 +53,7 @@ public enum ReceivedInteractionCommitter {
     @discardableResult
     public static func commit(
         interactions: [ReceivedInteraction],
+        scopedTo protocolTypes: Set<ReceivedInteraction.ProtocolType>? = nil,
         into siteDirectory: URL,
         fileManager: FileManager = .default,
         gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch
@@ -50,6 +69,7 @@ public enum ReceivedInteractionCommitter {
         for file in existingFiles where file.pathExtension == "json" {
             let id = file.deletingPathExtension().lastPathComponent
             guard !currentIDs.contains(id) else { continue }
+            if let protocolTypes, !Self.isInScope(file, protocolTypes: protocolTypes, fileManager: fileManager) { continue }
             guard (try? fileManager.removeItem(at: file)) != nil else { continue }
             relPaths.append("data/interactions/\(id).json")
             deletedIDs.append(id)
