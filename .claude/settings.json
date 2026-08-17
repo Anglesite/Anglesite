@@ -3,6 +3,7 @@
     "allow": [
       "Bash(swift test *)",
       "Bash(swift build *)",
+      "Bash(scripts/build-app.sh *)",
       "Bash(xcodebuild *)",
       "Bash(xcodegen generate)",
       "Bash(git fetch *)",

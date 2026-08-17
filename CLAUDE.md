@@ -96,6 +96,8 @@ Do feature work — and **all** dispatched-agent work — in a git worktree, nev
 
 ## Build
 
+**Building, testing, or smoke-testing from a CLI-only/agent session: follow [`docs/testing-macos-app.md`](docs/testing-macos-app.md).** It has the toolchain preflight (run it before ever concluding "the tooling is not there" — the `SessionStart` hook prints it automatically on macOS), the fresh-worktree build steps, how to launch and smoke-test the built app, and the optional Xcode 27 MCP (`xcrun mcpbridge`) integration.
+
 Toolchain: **Xcode 27+ / Swift 6.4** (required for SwiftUI 27's `@State` macro semantics — see [`docs/specs/2026-06-10-xcode27-state-macro-audit-notes.md`](docs/specs/2026-06-10-xcode27-state-macro-audit-notes.md)).
 
 ```sh
