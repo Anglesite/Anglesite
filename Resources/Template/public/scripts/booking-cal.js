@@ -24,7 +24,7 @@
         };
         const namespace = ar[1];
         api.q = api.q || [];
-        typeof namespace === "string" ? (cal.ns[namespace] = api) && p(api, ar) : p(cal, ar);
+        typeof namespace === "string" ? ((cal.ns[namespace] = api), p(api, ar)) : p(cal, ar);
         return;
       }
       p(cal, ar);
