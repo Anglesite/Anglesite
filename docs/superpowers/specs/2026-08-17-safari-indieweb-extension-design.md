@@ -1,0 +1,136 @@
+# IndieWeb Safari Extension — Design
+
+**Issue:** [#1098](https://github.com/Anglesite/Anglesite/issues/1098)
+**Date:** 2026-08-17
+**Status:** Approved for planning
+
+## Problem
+
+Anglesite adds IndieWeb features to the sites it publishes (h-cards, feeds, webmentions,
+ActivityPub), but those features are invisible in mainstream browsers — there's no signal to a
+visitor that a page has an author identity, a feed, or a fediverse presence, the way the old
+RSS-icon-in-the-address-bar pattern used to surface feeds. This applies to *any* site the user
+visits, not just Anglesite-authored ones.
+
+## Owner decisions (issue thread)
+
+- Safari-only Web Extension target in **this** repo — no cross-browser core, no separate repo.
+- v2.0 milestone.
+
+## Scope
+
+A Safari Web Extension bundled inside `Anglesite.app` (macOS, MAS-distributed) that inspects the
+page currently open in Safari and surfaces any IndieWeb/microformats features it finds, with a
+full interactive popup (not just a passive badge).
+
+### v1 feature set
+
+| Feature | Detection | Action |
+|---|---|---|
+| h-card | microformats2 `h-card` | Show parsed fields; Copy / Export vCard |
+| RSS / Atom / JSON Feed | `<link rel="alternate" type="application/{rss,atom,feed}+…">` | Open feed URL in a new tab |
+| microformats2 (general) | Full mf2 parse of `document.body` | Collapsible type → properties tree (h-entry, h-event, h-recipe, h-review, `rel=me`, …) |
+| Webmention | `<link rel="webmention">` or `Link:` response header | Badge + "View endpoint" link (no send) |
+| ActivityPub | `<link rel="alternate" type="application/activity+json">` or `rel=me` fediverse link | Badge + "View endpoint" link (no follow) |
+
+### Non-goals (v1)
+
+- Sending a webmention from the extension.
+- Following an ActivityPub actor from the extension.
+- Any native messaging / integration with a running `Anglesite.app` instance — the extension is
+  fully standalone and works with the app closed.
+- In-app feed reader / subscription management (doesn't exist yet; "subscribe" is just "open the
+  feed URL").
+- Windows/Linux/iOS. macOS Safari only.
+
+These are candidates for fast-follow issues once v1 ships and the identity/account questions
+(whose webmention endpoint sends the mention, whose ActivityPub actor follows) have a real answer.
+
+## Architecture
+
+### Xcode target
+
+Follows the `AnglesiteShareExtension` pattern (`project.yml`):
+
+- **`AnglesiteSafariExtension`** — `type: app-extension`, `platform: macOS`, embedded in
+  `Anglesite.app`, MAS-signed (`ANGLESITE_MAS` compilation condition, matching signing config),
+  `PRODUCT_BUNDLE_IDENTIFIER: io.dwk.anglesite.SafariExtension`, sandboxed
+  (`com.apple.security.app-sandbox`). No app-group entitlement — the extension doesn't share
+  state with the host app.
+- **Swift** (`Sources/AnglesiteSafariExtension/`): a single `SafariWebExtensionHandler`
+  conforming to `SFSafariExtensionHandling` — the boilerplate shim Safari requires to host a
+  Manifest V3 web extension. No detection/business logic in Swift.
+- **Web resources** (`Resources/SafariExtension/`): `manifest.json` (Manifest V3 — supported by
+  Safari 18+ / macOS 27), `popup.html`/`popup.css`, and the JS bundles built from
+  `JS/safari-extension/`. These bundles are *build output*, checked in the same way
+  `Resources/edit-overlay/overlay.js` is — hand-written source lives under `JS/`.
+
+### JS build pipeline
+
+New `JS/safari-extension/` package, sibling to `JS/edit-overlay/`, same toolchain (TypeScript,
+esbuild, vitest, oxlint, Node 22+):
+
+- `src/content-script.ts` — runs in the page. Scans the DOM for mf2 classes and feed/webmention/AP
+  `<link>` tags; posts findings to the background script via `browser.runtime.sendMessage`.
+- `src/background.ts` — receives per-tab findings, inspects response `Link:` headers (via
+  `webRequest`, since content scripts can't see headers) for header-form Webmention discovery,
+  and sets the toolbar badge/icon state per tab (`browser.action.setBadgeText` / `setIcon`).
+- `src/popup.ts` + `popup.html`/`popup.css` — reads the active tab's findings from the background
+  script and renders the detail view.
+- `src/mf2/` — vendored `microformat-shiv` (MIT) plus a thin TypeScript wrapper. Vendored under
+  REUSE rules: license text added to `LICENSES/`, vendored path gets its own `[[annotations]]`
+  block in `REUSE.toml`.
+- `esbuild` produces three IIFE bundles (content script, background, popup) into
+  `Resources/SafariExtension/`, mirroring edit-overlay's `build` script.
+
+### Data flow
+
+Page load → content script parses DOM → message to background → background merges in
+header-based Webmention detection + sets per-tab badge → user clicks the toolbar icon → popup
+queries background for the active tab's state → renders. No extra network fetches beyond what the
+browser already loaded — the extension reads links/headers it already has, it doesn't fetch AP
+actor JSON or feed bodies itself. This avoids extra host-permission prompts and keeps detection
+fast.
+
+## Detection rules
+
+- **Feeds:** `<link rel="alternate" type="application/rss+xml">`, `application/atom+xml`,
+  `application/feed+json` in `<head>`.
+- **Webmention:** `<link rel="webmention">` (content script) or an HTTP `Link:` header with
+  `rel="webmention"` (background, via `webRequest` response headers).
+- **ActivityPub:** `<link rel="alternate" type="application/activity+json">`, or a `rel="me"` link
+  pointing at a recognizable fediverse profile URL pattern.
+- **microformats2:** `microformat-shiv` parse of `document.body`; report root types found
+  (`h-card`, `h-entry`, `h-feed`, `h-event`, `h-recipe`, `h-review`, `rel=me`) with counts, and
+  keep the full parsed tree available for the popup.
+
+## UI
+
+- **Toolbar icon:** dim/inactive when nothing is found; active with a badge count when features
+  are detected. Click always opens the popup — no auto-popup on detection.
+- **Popup:** header (page title + total count), then one section per detected feature type:
+  - h-card → rendered fields (name, photo, org, links) + Copy / Export vCard.
+  - Feeds → list of feed links, each "Open feed" (new tab).
+  - mf2 tree → collapsible structured view (type → properties) for entries beyond h-card/feeds.
+  - Webmention / ActivityPub → a badge line + "View endpoint" link (raw URL). No action buttons.
+  - Nothing detected → plain empty state, not styled as an error.
+
+## Testing
+
+- `JS/safari-extension`: vitest unit tests for content-script detection rules and the mf2 wrapper,
+  using jsdom fixtures — one fixture page per feature (h-card, webmention-only, AP actor, plain
+  page with nothing) plus oxlint + `tsc --noEmit`, matching the lanes already run for
+  `JS/edit-overlay`.
+- Swift: `AnglesiteSafariExtensionTests` covers the `SafariWebExtensionHandler` shim only, if it
+  has any logic beyond boilerplate passthrough.
+- **Manual verification required.** Safari Web Extensions can't be driven by the Chromium-based
+  in-app browser tool or the iOS Simulator tool. Automated coverage stops at the JS unit-test
+  layer and confirming the target builds/embeds correctly; actually loading the extension in
+  Safari, enabling it, and clicking through the four feature pages needs a manual pass and will be
+  reported as such rather than claimed as verified.
+
+## Follow-up issues (not this one)
+
+- Webmention send from the extension (needs an identity/account answer).
+- ActivityPub follow from the extension (needs an identity/account answer).
+- Possible native messaging to `Anglesite.app` once there's a concrete feature that needs it.
