@@ -10,6 +10,22 @@ private func worker(_ id: String, d1: Bool, kv: Bool, r2: Bool) -> WorkerDescrip
     )
 }
 
+private func runningExperiment(
+    id: String = "homepage-hero",
+    page: String = "/",
+    goalKind: String = "pageview",
+    goalPath: String? = "/contact/thanks",
+    status: String = "running"
+) -> DomainConfig.Experiments.Experiment {
+    .init(
+        id: id, name: "Homepage headline", page: page,
+        variant: .init(id: "b", name: "Fresh eggs headline", page: "/x/\(id)/b/"),
+        split: 0.5,
+        goal: .init(kind: goalKind, path: goalPath),
+        status: status
+    )
+}
+
 private let genericD1KVWorker = worker("generic-d1kv-fixture", d1: true, kv: true, r2: false)
 private let indieauthWorker = worker("indieauth", d1: true, kv: true, r2: false)
 private let micropubWorker = worker("micropub", d1: true, kv: true, r2: true)
@@ -680,5 +696,66 @@ struct WorkerCompositionTests {
         let data = try PropertyListEncoder().encode(resources)
         let decoded = try PropertyListDecoder().decode(WorkerComposition.ProvisionedResources.self, from: data)
         #expect(decoded == resources)
+    }
+
+    // MARK: experiments (#1515)
+
+    @Test("a running experiment on a static-only site composes a Worker for exactly its paths")
+    func runningExperimentComposesWorker() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site",
+            workers: [],
+            experiments: [runningExperiment()]
+        )
+        #expect(toml.contains("main = \"worker/worker.ts\""))
+        #expect(toml.contains("binding = \"ASSETS\""))
+        #expect(toml.contains(#"run_worker_first = ["/", "/contact/thanks"]"#))
+        #expect(toml.contains("[[d1_databases]]"))
+        #expect(toml.contains("binding = \"EXPERIMENTS_DB\""))
+        #expect(toml.contains("migrations_dir = \"worker/migrations\""))
+        #expect(toml.contains("[observability]"))
+    }
+
+    @Test("a draft experiment composes nothing")
+    func draftExperimentComposesNothing() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site",
+            workers: [],
+            experiments: [runningExperiment(status: "draft")]
+        )
+        #expect(!toml.contains("main ="))
+        #expect(!toml.contains("[[d1_databases]]"))
+        #expect(!toml.contains("run_worker_first"))
+    }
+
+    @Test("a client-side goal adds the shared beacon endpoint to run_worker_first")
+    func clientSideGoalAddsBeaconEndpoint() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site",
+            workers: [],
+            experiments: [runningExperiment(goalKind: "scroll", goalPath: nil)]
+        )
+        #expect(toml.contains(#"run_worker_first = ["/", "/x/goal"]"#))
+    }
+
+    @Test("an experiment path colliding with an active route claim throws")
+    func experimentPathCollisionThrows() {
+        let claim = WorkerRouteClaim(path: "/micropub", match: .exact, methods: ["POST"], handler: "micropub")
+        #expect(throws: (any Error).self) {
+            try WorkerComposition.generateWranglerToml(
+                siteName: "my-site",
+                workers: [],
+                routeClaims: [claim],
+                experiments: [runningExperiment(page: "/micropub")]
+            )
+        }
+    }
+
+    @Test("an experiment page of \"/\" is accepted even though a catalog route claim could never claim it")
+    func experimentPageRootAccepted() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [], experiments: [runningExperiment(page: "/")]
+        )
+        #expect(toml.contains("run_worker_first"))
     }
 }

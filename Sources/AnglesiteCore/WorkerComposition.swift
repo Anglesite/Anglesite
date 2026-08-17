@@ -201,6 +201,17 @@ public enum WorkerComposition {
     ///     when unset, exactly like `displayName`; the composed Worker's `preferredUsername` then
     ///     falls back to the serving hostname (`worker.ts`'s concern, not this function's). Never
     ///     affects the actor IRI, which stays fixed regardless.
+    ///   - experiments: The site's declared experiments (`DomainConfig.Experiments.active`,
+    ///     #1270 slice 3) — only entries with `status == "running"` contribute anything. A
+    ///     running experiment is Worker composition's third enabler (alongside
+    ///     `hasSocialFeatures` and `inboxCaptureEnabled`): its tested `page`, a `"pageview"`
+    ///     goal's `path`, and — when any running experiment observes a `"scroll"`/`"visible"`
+    ///     goal — the shared `/x/goal` beacon endpoint all join `[assets].run_worker_first`,
+    ///     validated via `WorkerRouteClaims.experimentPathProblem(_:)` (which, unlike
+    ///     `pathProblem`, permits the bare root `/`) and checked for collisions against
+    ///     `routeClaims`/the inbox-capture claim. A running experiment also emits its own
+    ///     `[[d1_databases]]` block bound to `EXPERIMENTS_DB` on the same shared
+    ///     `"\(siteName)-social"` database. Defaults to `[]` (no experiments).
     /// - Returns: A complete wrangler.toml string.
     /// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` contains
     ///   characters outside `[A-Za-z0-9_-]`, or ``ConfigError/invalidRouteClaim(path:reason:)``
@@ -216,7 +227,8 @@ public enum WorkerComposition {
         displayName: String? = nil,
         activityPubActorType: String? = nil,
         moderators: [String]? = nil,
-        apUsername: String? = nil
+        apUsername: String? = nil,
+        experiments: [DomainConfig.Experiments.Experiment] = []
     ) throws -> String {
         guard isValidSiteName(siteName) else {
             throw ConfigError.invalidSiteName(siteName)
@@ -236,6 +248,50 @@ public enum WorkerComposition {
                 throw ConfigError.invalidRouteClaim(path: claim.path, reason: "\(error)")
             }
         }
+        // #1270 slice 3: a running experiment's tested page, its pageview-goal path, and (when a
+        // running experiment observes a client-side goal) the shared beacon endpoint all bypass
+        // asset-first serving too, so bucketing/goal-recording can never be shadowed by a static
+        // file at that path. Draft experiments (not yet started) contribute nothing here — only
+        // a "running" status reaches composition (design doc §3/§5); the pre-deploy gate is the
+        // one place that validates a draft experiment's own path/goal completeness.
+        let runningExperiments = experiments.filter { $0.status == "running" }
+        let hasRunningExperiment = !runningExperiments.isEmpty
+        var experimentRoutes: [(id: String, path: String)] = []
+        for experiment in runningExperiments {
+            if let problem = WorkerRouteClaims.experimentPathProblem(experiment.page) {
+                throw ConfigError.invalidRouteClaim(
+                    path: experiment.page, reason: "experiment \"\(experiment.id)\": \(problem)")
+            }
+            experimentRoutes.append((id: experiment.id, path: experiment.page))
+            if experiment.goal.kind == "pageview", let goalPath = experiment.goal.path {
+                if let problem = WorkerRouteClaims.experimentPathProblem(goalPath) {
+                    throw ConfigError.invalidRouteClaim(
+                        path: goalPath, reason: "experiment \"\(experiment.id)\" goal: \(problem)")
+                }
+                experimentRoutes.append((id: experiment.id, path: goalPath))
+            }
+        }
+        // The shared client-side goal beacon endpoint (#1270 design doc §4) — one path serves
+        // every running experiment's scroll/visibility goal, so it's added at most once.
+        let hasClientSideGoal = runningExperiments.contains { $0.goal.kind == "scroll" || $0.goal.kind == "visible" }
+        if hasClientSideGoal {
+            experimentRoutes.append((id: "*", path: "/x/goal"))
+        }
+        // An experiment path can't sit on a claimed worker route (design doc §3: "an experiment
+        // can't sit on /micropub") — checked against the same effective claim set (catalog routes
+        // plus inbox-capture) already validated above.
+        for route in experimentRoutes {
+            let collides = effectiveClaims.contains { claim in
+                claim.path == route.path
+                    || (claim.match == .prefix && route.path.hasPrefix(claim.path + "/"))
+            }
+            if collides {
+                throw ConfigError.invalidRouteClaim(
+                    path: route.path,
+                    reason: "experiment \"\(route.id)\" collides with an existing worker route claim")
+            }
+        }
+
         // @dwk/indieauth's binding name is part of its public composition contract (see the
         // AUTH_DB block below) — the one place composition keys off a specific catalog id rather
         // than generic resource flags.
@@ -255,17 +311,22 @@ public enum WorkerComposition {
         lines.append("compatibility_flags = [\"nodejs_compat\"]")
 
         let hasSocialFeatures = !workers.isEmpty
-        if hasSocialFeatures || inboxCaptureEnabled {
+        // #1270 slice 3: a running experiment is the third enabler of Worker composition,
+        // alongside an active catalog worker and inbox capture — a static-only site's first
+        // running experiment gets a Worker for exactly its paths and nothing else (design §3).
+        let composesWorker = hasSocialFeatures || inboxCaptureEnabled || hasRunningExperiment
+        if composesWorker {
             lines.append("main = \"worker/worker.ts\"")
         }
         lines.append("")
         lines.append("[assets]")
         lines.append("directory = \"dist\"")
-        if hasSocialFeatures || inboxCaptureEnabled {
+        if composesWorker {
             lines.append("binding = \"ASSETS\"")
-            let patterns = WorkerRouteClaims.runWorkerFirstPatterns(effectiveClaims)
+            var patterns = Set(WorkerRouteClaims.runWorkerFirstPatterns(effectiveClaims))
+            patterns.formUnion(experimentRoutes.map(\.path))
             if !patterns.isEmpty {
-                let list = patterns.map { "\"\($0)\"" }.joined(separator: ", ")
+                let list = patterns.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
                 lines.append("run_worker_first = [\(list)]")
             }
         }
@@ -275,6 +336,24 @@ public enum WorkerComposition {
             lines.append("[[d1_databases]]")
             lines.append("binding = \"DB\"")
             lines.append("database_name = \"\(siteName)-social\"")
+            if let id = resources.d1DatabaseID, !id.isEmpty {
+                lines.append("database_id = \"\(id)\"")
+            } else {
+                lines.append("database_id = \"\"  # filled by provisioning")
+            }
+        }
+
+        // The shared per-site D1 database, bound a fifth time under EXPERIMENTS_DB — the binding
+        // name and migration file (`worker/migrations/0002_experiments.sql`) are already fixed by
+        // slice 1. Unlike DB/AUTH_DB/WEBMENTION_INBOX/MICROPUB_DB, this one carries its own
+        // migrations_dir so a static-only site with no indieauth worker (and therefore no AUTH_DB
+        // migrations-apply call) still gets the experiments schema applied.
+        if hasRunningExperiment {
+            lines.append("")
+            lines.append("[[d1_databases]]")
+            lines.append("binding = \"EXPERIMENTS_DB\"")
+            lines.append("database_name = \"\(siteName)-social\"")
+            lines.append("migrations_dir = \"worker/migrations\"")
             if let id = resources.d1DatabaseID, !id.isEmpty {
                 lines.append("database_id = \"\(id)\"")
             } else {
@@ -552,7 +631,7 @@ public enum WorkerComposition {
             lines.append("# WEBDAV_PEPPER")
         }
 
-        if hasSocialFeatures || inboxCaptureEnabled {
+        if composesWorker {
             lines.append("")
             lines.append("[observability]")
             lines.append("enabled = true")
