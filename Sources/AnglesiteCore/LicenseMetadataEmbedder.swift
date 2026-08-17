@@ -1,6 +1,8 @@
 #if canImport(Darwin)
 import Foundation
 import UniformTypeIdentifiers
+import ImageIO
+import CoreGraphics
 
 /// Embeds a chosen license into a media file's own metadata (#999), so the license survives the
 /// file being downloaded or shared away from the page that originally stated it.
@@ -55,7 +57,46 @@ public enum LicenseMetadataEmbedder {
     private static let imageTypes: Set<UTType> = [.jpeg, .png, .tiff, .heic]
 
     private static func embedIntoImage(_ license: LicenseRef, data: Data, type: UTType) throws -> Data {
-        throw EmbedError.unreadable // placeholder body — replaced in Task 2
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0,
+              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+            throw EmbedError.unreadable
+        }
+
+        let existingProperties = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]) ?? [:]
+        let existingMetadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil)
+        let metadata = existingMetadata.flatMap { CGImageMetadataCreateMutableCopy($0) } ?? CGImageMetadataCreateMutable()
+
+        let xmpRightsNamespace = "http://ns.adobe.com/xap/1.0/rights/" as CFString
+        // Registration can no-op (return false) when the namespace is already present in a
+        // metadata copy carried over from `existingMetadata` — that's fine, not a failure.
+        _ = CGImageMetadataRegisterNamespaceForPrefix(metadata, xmpRightsNamespace, "xmpRights" as CFString, nil)
+
+        guard
+            let webStatementTag = CGImageMetadataTagCreate(
+                xmpRightsNamespace, "xmpRights" as CFString, "WebStatement" as CFString, .string,
+                license.url as CFTypeRef),
+            CGImageMetadataSetTagWithPath(metadata, nil, "xmpRights:WebStatement" as CFString, webStatementTag),
+            let usageTermsTag = CGImageMetadataTagCreate(
+                xmpRightsNamespace, "xmpRights" as CFString, "UsageTerms" as CFString, .string,
+                license.name as CFTypeRef),
+            CGImageMetadataSetTagWithPath(metadata, nil, "xmpRights:UsageTerms" as CFString, usageTermsTag),
+            let markedTag = CGImageMetadataTagCreate(
+                xmpRightsNamespace, "xmpRights" as CFString, "Marked" as CFString, .string, kCFBooleanTrue),
+            CGImageMetadataSetTagWithPath(metadata, nil, "xmpRights:Marked" as CFString, markedTag)
+        else {
+            throw EmbedError.writeFailed
+        }
+
+        let output = NSMutableData()
+        guard let destination = CGImageDestinationCreateWithData(output, type.identifier as CFString, 1, nil) else {
+            throw EmbedError.writeFailed
+        }
+        var options = existingProperties
+        options[kCGImageDestinationMergeMetadata] = true
+        CGImageDestinationAddImageAndMetadata(destination, cgImage, metadata, options as CFDictionary)
+        guard CGImageDestinationFinalize(destination) else { throw EmbedError.writeFailed }
+        return output as Data
     }
 
     private static func embedIntoPDF(_ license: LicenseRef, data: Data) throws -> Data {
