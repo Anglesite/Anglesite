@@ -38,18 +38,39 @@ public struct DependencyAdditionOffer: Sendable, Equatable {
 }
 
 /// The full result of a `DependencySync.diff` call: version bumps for packages
-/// the site already has, and new packages the template has that the site
-/// doesn't.
+/// the site already has, new packages the template has that the site doesn't,
+/// and bumps held back because a foreign dependency's `peerDependencies` range
+/// excludes them (#1440).
 public struct DependencySyncOffers: Sendable, Equatable {
     public let updates: [DependencyUpdateOffer]
     public let additions: [DependencyAdditionOffer]
+    /// Bumps the template offers but ``DependencyPeerCheck`` withheld: applying one would
+    /// leave the site unable to install its own dependencies together. Surfaced to the
+    /// owner as information (consequence-phrased), never auto-applied by
+    /// ``DependencySyncApplier``.
+    public let heldUpdates: [DependencyHeldUpdate]
 
-    public init(updates: [DependencyUpdateOffer] = [], additions: [DependencyAdditionOffer] = []) {
+    /// Memberwise initializer — offer sets are normally produced by
+    /// ``DependencySyncChecker/check(sourceDirectory:configDirectory:templateDirectory:runningAppVersion:)``;
+    /// this exists so tests (and previews) can construct them directly.
+    ///
+    /// - Parameters:
+    ///   - updates: Version bumps for packages the site already has.
+    ///   - additions: New packages the template has that the site doesn't.
+    ///   - heldUpdates: Bumps withheld by ``DependencyPeerCheck`` (#1440).
+    public init(
+        updates: [DependencyUpdateOffer] = [],
+        additions: [DependencyAdditionOffer] = [],
+        heldUpdates: [DependencyHeldUpdate] = []
+    ) {
         self.updates = updates
         self.additions = additions
+        self.heldUpdates = heldUpdates
     }
 
-    public var isEmpty: Bool { updates.isEmpty && additions.isEmpty }
+    /// Held updates count as non-empty: the sheet still shows so the owner learns why a
+    /// bump isn't being applied.
+    public var isEmpty: Bool { updates.isEmpty && additions.isEmpty && heldUpdates.isEmpty }
 }
 
 /// Three-way comparison between a site's dependencies, an optional scaffold-time

@@ -792,14 +792,43 @@ struct SiteWindow: View {
                             }
                         }
                     }
+                    // #1440: bumps held back because one of the site's own packages (one the
+                    // template doesn't manage) can't work with the newer version yet. Shown as
+                    // information, not a choice — applying one would leave the site unable to
+                    // install its dependencies at all, and the app doesn't delegate decisions
+                    // it already knows the answer to.
+                    if !updateModel.offers.heldUpdates.isEmpty {
+                        Section("Not Updated") {
+                            ForEach(updateModel.offers.heldUpdates, id: \.offer.name) { held in
+                                VStack(alignment: .leading, spacing: 4) {
+                                    LabeledContent(held.offer.name) {
+                                        Text("stays at \(held.offer.currentRange)")
+                                            .font(.system(.body, design: .monospaced))
+                                    }
+                                    Text(DependencyUpdateModel.heldCopy(for: held))
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                            }
+                        }
+                    }
                 }
                 .navigationTitle("Dependency Updates Available")
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Skip") { updateModel.skip() }
-                    }
-                    ToolbarItem(placement: .confirmationAction) {
-                        Button("Update") { updateModel.update() }
+                    if updateModel.isHeldBackOnly {
+                        // Nothing to apply — a lone acknowledge still routes through
+                        // `update()` so the version stamp lands and the sheet doesn't
+                        // re-nag on every site open.
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("OK") { updateModel.update() }
+                        }
+                    } else {
+                        ToolbarItem(placement: .cancellationAction) {
+                            Button("Skip") { updateModel.skip() }
+                        }
+                        ToolbarItem(placement: .confirmationAction) {
+                            Button("Update") { updateModel.update() }
+                        }
                     }
                 }
             }

@@ -40,6 +40,9 @@ public enum ContentTypeAppEnum: String, AppEnum, Sendable, CaseIterable {
 
     /// A directory entry for a person — name, role, photo, bio (h-card → schema.org `Person`).
     case member
+    /// A site the owner follows and recommends, published as a site.standard.graph.subscription
+    /// record (h-card → no schema.org type, #1483).
+    case blogroll
 
     /// Type name shown in Shortcuts and the derived MCP schema.
     public static var typeDisplayRepresentation: TypeDisplayRepresentation { "Content Type" }
@@ -50,7 +53,7 @@ public enum ContentTypeAppEnum: String, AppEnum, Sendable, CaseIterable {
         .note: "Note", .article: "Article", .photo: "Photo", .album: "Album",
         .bookmark: "Bookmark", .reply: "Reply", .like: "Like",
         .announcement: "Announcement", .event: "Event", .review: "Review",
-        .member: "Member",
+        .member: "Member", .blogroll: "Blogroll entry",
     ]
 
     /// The Astro content collection backing this type (e.g. `.event` → "events"), via the registry.

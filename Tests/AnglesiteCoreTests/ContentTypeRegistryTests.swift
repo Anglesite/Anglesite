@@ -235,6 +235,41 @@ struct ContentTypeRegistryTests {
         #expect(like.projections.microformatProperties["likeOf"] == "u-like-of")
     }
 
+    @Test("blogroll is an h-card directory entry with no draft field and no schema.org type")
+    func blogrollDescriptor() {
+        let blogroll = try! #require(ContentTypeRegistry().descriptor(id: "blogroll"))
+        #expect(blogroll.displayName == "Blogroll entry")
+        #expect(blogroll.collection == "blogroll")
+        #expect(blogroll.projections.microformat == "h-card")
+        #expect(blogroll.projections.schemaType == nil)
+        #expect(blogroll.fields.last?.name != "draft")
+
+        let name = try! #require(blogroll.fields.first { $0.name == "name" })
+        #expect(name.kind == .string)
+        #expect(name.required)
+        #expect(blogroll.projections.microformatProperties["name"] == "p-name")
+
+        let url = try! #require(blogroll.fields.first { $0.name == "url" })
+        #expect(url.kind == .url)
+        #expect(url.required)
+        #expect(blogroll.projections.microformatProperties["url"] == "u-url")
+
+        let feedURL = try! #require(blogroll.fields.first { $0.name == "feedURL" })
+        #expect(feedURL.kind == .url)
+        #expect(!feedURL.required)
+        #expect(blogroll.projections.microformatProperties["feedURL"] == nil)
+
+        let addedDate = try! #require(blogroll.fields.first { $0.name == "addedDate" })
+        #expect(addedDate.kind == .date)
+        #expect(addedDate.required)
+        #expect(blogroll.projections.microformatProperties["addedDate"] == nil)
+
+        let note = try! #require(blogroll.fields.first { $0.name == "note" })
+        #expect(note.kind == .markdown)
+        #expect(!note.required)
+        #expect(blogroll.projections.microformatProperties["note"] == "p-note")
+    }
+
     @Test("every post-family descriptor has a trailing draft field")
     func postFamilyHasDraft() {
         let registry = ContentTypeRegistry()
@@ -281,7 +316,7 @@ struct ContentTypeRegistryTests {
     func collectionBackedIDs() {
         #expect(ContentTypeRegistry.default.collectionBackedTypeIDs == [
             "note", "article", "photo", "album", "bookmark", "reply", "like",
-            "announcement", "event", "review", "member",
+            "announcement", "event", "review", "member", "blogroll",
         ])
     }
 

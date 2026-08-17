@@ -1,0 +1,247 @@
+# Blogroll via standard.site graph lexicons — design
+
+## Problem / motivation
+
+Issue #1483, filed as a candidate follow-up when epic #1230 (Standard.site/Atmosphere
+publishing) closed: publish the owner's blogroll as `site.standard.graph` records and render a
+blogroll page. The epic's own note was that this would be "cheap now that increment 1's record
+plumbing exists" — and increment 1 (plus the rest of #1230's increments, all shipped) does
+supply nearly everything needed: `AtprotoPutRecordClient`, deterministic rkeys
+(`POSSEStableKey`), the post-deploy pass shape (`StandardSitePublishCommand`), and DID/site-ID
+persistence in `.site-config`.
+
+What's missing, confirmed by a full codebase search: there is no existing "blogroll" data model
+anywhere. A prior, unrelated design doc
+([`2026-07-13-menubar-ia-design.md`](2026-07-13-menubar-ia-design.md) §4.6) describes a planned
+**local RSS feed directory** ("Page ▸ Collections ▸ Add/Remove RSS Feed... a typed content
+object rendering as a directory page + OPML") and parenthetically calls it "(blogroll)" — but
+it's unimplemented (a single disabled menu placeholder in `PageCommands.swift`) and is a
+different mechanism (locally authored OPML/RSS subscriptions) from this issue's atproto graph
+records. See the naming note below.
+
+## Key finding: `recommend` and `subscription` are not interchangeable
+
+Fetched directly from standard.site's docs:
+
+- **`site.standard.graph.recommend`** — `{ document: at-uri, createdAt }`. Points at a
+  *`site.standard.document`* record — i.e. it endorses one specific **post**, not a site. Closer
+  to a "liked articles" or "recommended reading" feature than a blogroll.
+- **`site.standard.graph.subscription`** — `{ publication: at-uri, createdAt? }`. Points at a
+  *`site.standard.publication`* record — i.e. it follows a whole **site**. This is the
+  traditional blogroll semantic: "here are the sites I follow."
+
+Decision (confirmed with the owner): the blogroll is **subscription-only**. `graph.recommend`
+(endorsing individual articles) is a different feature with a different shape and is out of
+scope here.
+
+## Design
+
+### 1. New content type: `blogroll`
+
+Joins `ContentTypeRegistry`'s personal types alongside `bookmark`, `note`, etc. — git-tracked
+entries authored through the existing generic per-type SwiftUI editor (#346), stored as an Astro
+Content Collection (`storage: .collection("blogroll")`), same as every other typed content
+object.
+
+Fields:
+
+| Field | Type | Required | Notes |
+|---|---|---|---|
+| `url` | `.url` | yes | The recommended site's homepage. |
+| `name` | `.string` | yes | Owner-authored display name (see §2 — rendering never fetches the target's own name). |
+| `note` | `.markdown` | no | Optional short blurb, e.g. why the owner recommends it. |
+| `feedURL` | `.url` | no | The site's RSS/Atom feed, for OPML export (§4). Owner may paste it directly; if left blank, auto-discovered (§4) and written back once found. |
+
+No `microformat`/`schemaType` projection: there's no h-entry-shaped or schema.org vocabulary
+that fits "a site I follow" the way `h-entry`/`u-bookmark-of` fits a single bookmarked URL, and
+inventing one is unnecessary — `projections: nil` (or empty), matching how not every content type
+needs both projections today.
+
+### 2. Rendering: owner's own text, static, no PDS fetch
+
+A new Astro page (`/blogroll/`, following whatever route convention the other typed-content
+index pages use) statically renders the `blogroll` collection at build time: `name`, `url`,
+`note` — nothing else. This deliberately does **not** fetch each target's own
+`site.standard.publication` record (name/description/icon) to enrich the page. Two reasons:
+
+- Consistency with this app's established "no network calls at build time" rule (the same reason
+  increment 2's well-known/`<link>` emission is derived purely from `.site-config`, per the
+  original design doc's §"Build-time verifiable links").
+- Simplicity: the owner already typed a name when adding the entry; a second, possibly
+  conflicting name from the network is unnecessary surface area for v1.
+
+The page renders regardless of whether any entry successfully resolves to an atproto
+subscription record (§3) — it's a normal content listing, independent of publish success, same
+as how a post's page exists whether or not its `site.standard.document` publish succeeded.
+
+### 3. New post-deploy pass: `StandardSiteGraphPublishCommand`
+
+Modeled directly on `StandardSitePublishCommand` (`Sources/AnglesiteCore/StandardSitePublishCommand.swift`):
+an actor, injectable credentials/transport/log-center/clock, per-site serialized via the same
+in-flight-task pattern, best-effort and never throws into the deploy result, ledgers to
+`Config/` (new `StandardSiteGraphPublishLog`, mirroring `StandardSitePublishLog`), logs under the
+same `standardsite:` debug-pane source prefix (reusing the existing source naming rather than
+inventing a new one, since it's the same feature family).
+
+**Gating** — identical to `StandardSitePublishCommand`: no-op without a Bluesky POSSE credential,
+without a real deployed `SITE_URL` (not the `https://example.com` scaffold default), or when
+`settings.publishToAtmosphere == false`. No new Settings toggle — this rides the existing
+"Publish posts to the Atmosphere" switch; a second toggle for what is, to the owner, the same
+feature ("post my stuff to the Atmosphere") would be UI clutter for a distinction (documents vs.
+graph records) that's an implementation detail, not an owner decision.
+
+**Sequencing** — in `DeployCoordinator.runPostDeploySequencing`, immediately after
+`publishStandardSite`, before `syndicate`. Same rationale family as the existing ordering
+(records should exist before anything downstream might reference them), and it keeps the two
+Standard.site passes adjacent.
+
+**Per-entry resolution.** The lexicon's `subscription.publication` field needs the *target's*
+publication at-URI, which this app doesn't know a priori — the owner only typed a URL. Resolution
+mirrors the verification mechanism increment 2 already established for our own site, run in
+reverse against someone else's:
+
+1. GET `https://<entry.url host>/.well-known/site.standard.publication` over the existing
+   `POSSEHTTPTransport` seam (it's already a plain `(URLRequest) async throws -> (Data,
+   HTTPURLResponse)` closure with no atproto-specific behavior baked in — reused as-is, not
+   atproto client code).
+2. A 2xx response whose trimmed body matches `at://…/site.standard.publication/…` (same shape
+   `Resources/Template/scripts/standard-site.ts`'s `isStandardSitePublicationURI` checks
+   client-side) is a resolved target.
+3. Anything else — 404, timeout, malformed body, non-standard.site site — is an **expected,
+   non-error outcome**, not a failure: most blogroll targets won't run standard.site. Logged as a
+   single `standardsite:` stdout line (e.g. `skipped <url> — no site.standard.publication
+   found`), not `stderr`. The entry still renders on `/blogroll/` (§2); it just gets no
+   atproto record this pass.
+4. A resolved entry is `putRecord`'d to `site.standard.graph.subscription` with a deterministic
+   rkey `anglesite-<POSSEStableKey.make(siteID + "\n" + entry.path)>` (same derivation shape as
+   `StandardSitePublishCommand`'s document rkey, keyed on the *owner's* site + this entry's
+   content-collection path — not on the target — so a rename of the target's own site doesn't
+   orphan the record; re-resolution just updates the same rkey's `publication` value).
+5. Resolution is attempted on every pass, not cached — "updates are free" applies here too:
+   re-checking a handful of blogroll URLs per deploy is cheap, and it means a target who adopts
+   standard.site later gets picked up automatically on the owner's next deploy with no manual
+   retry.
+
+**Unpublish.** Same diff-based approach as `StandardSitePublishCommand`: an entry present in the
+ledger but no longer in the current `blogroll` collection has its `site.standard.graph.subscription`
+record deleted via `AtprotoPutRecordClient.deleteRecord`.
+
+### 4. OPML export and feed discovery
+
+The blogroll should be subscribable as a whole, not just link-by-link — a `/blogroll.opml` file
+listing every entry's feed. This needs each entry's *feed* URL, which is a different thing from
+its homepage `url`, so:
+
+**Discovery, reusing the webmention-discovery shape.** `WebmentionEndpointDiscovery`
+(`Sources/AnglesiteCore/WebmentionEndpointDiscovery.swift`) already does exactly this kind of
+job for a different `rel`: fetch a page once, scan its `<link>`/`<a>` tags in document order for
+a matching attribute, resolve a relative `href` against the final (post-redirect) URL. Its
+tag-scanning loop and `attributeValue`/`attributeRegex` helpers are the reusable part; the
+`rel=webmention` predicate is the only feature-specific bit. This design factors that shared
+scanning machinery out into an internal helper both files call, and adds a new
+`FeedEndpointDiscovery.discover(target:transport:)` that looks for
+`<link rel="alternate" type="application/rss+xml">` or `type="application/atom+xml"` and returns
+the first match's `href`. This is a targeted refactor of existing code the work touches, not a
+speculative abstraction — the alternative is duplicating ~80 lines of subtle regex/attribute-
+parsing logic verbatim.
+
+**When discovery runs.** As part of `StandardSiteGraphPublishCommand`'s per-entry loop (§3): an
+entry with no `feedURL` already set gets one extra best-effort GET of its `url` (separate from
+the `.well-known` lookup, which targets a different path) through the same `FeedEndpointDiscovery`
+call. A 404/timeout/no-`<link>`-found result is logged as another expected "skipped" line, not an
+error — most sites don't have (or don't advertise) a feed.
+
+**Write-back, reusing the frontmatter-splice pattern.** POSSE already writes discovered data back
+into a post's own frontmatter after the fact (`SyndicationFrontmatter.adding(urls:to:)`, built on
+`Frontmatter`'s canonical parse/fence helpers, preserving the file's existing formatting/line
+endings). A new sibling, `BlogrollFeedFrontmatter.setting(feedURL:in:)`, does the single-scalar
+version: writes `feedURL:` into the entry's frontmatter **only if the key is currently absent or
+blank** — an owner-provided value is never overwritten — and is a no-op (no file write, no git
+diff) when nothing new was discovered or the field is already set. This means a newly added
+entry's `feedURL` lags by one deploy (discovered this deploy, visible in `Source/` and thus in
+the OPML starting next build) — the same "not atomic, but converges" characteristic increment 2's
+bidirectional well-known verification already has.
+
+**OPML generation.** A new Astro endpoint route (`src/pages/blogroll.opml.ts`), following the
+same `getCollection()` + typed-route pattern the existing RSS/Atom/JSON feed generation already
+uses (V-1.6, #348) rather than introducing a new templating mechanism. Reads the `blogroll`
+collection at build time (no network — `feedURL` is already committed data by the time a build
+reads it, per the write-back lag above) and emits an OPML 2.0 document with one
+`<outline type="rss" text="{name}" title="{name}" xmlUrl="{feedURL}" htmlUrl="{url}">` per entry
+that has a `feedURL`. Entries without one are omitted from the OPML but still render as plain
+links on `/blogroll/` (§2).
+
+**OPML badge.** Most RSS readers only know how to subscribe to a single feed URL, not an OPML
+file of many — so a bare "here's an OPML file" link undersells what it does. `/blogroll/` gets a
+visible badge, styled after the classic orange RSS badge (rounded rectangle, dot-and-broadcast-
+wave mark) but relabeled "OPML" and pointed at `/blogroll.opml`. Built as a small, scoped Astro
+component (`OpmlBadge.astro`, co-locating its markup and `<style>` — this project's established
+component convention) using plain HTML/CSS only: no `<img>`, no external asset, no inline SVG —
+the badge shape (rounded-rect background, dot, concentric quarter-circle arcs) is drawn with
+layered `border-radius`/`box-shadow`/pseudo-elements, the same family of technique long used for
+CSS-only RSS icons. The "OPML" text is real, visible text inside the badge (not an icon-only
+button with an `aria-label`), so it's self-describing without extra accessibility scaffolding.
+Shown only when the OPML file would be non-empty (at least one entry has a resolved `feedURL`) —
+advertising a subscribe badge for an empty file is worse than not showing one.
+
+### 5. Naming note (not solved here)
+
+The unimplemented "Collections ▸ Add RSS Feed to Directory" feature from the menubar IA doc also
+uses "blogroll" informally, for a different, feed-URL-based mechanism. This design claims the
+`blogroll` content-type id for the atproto-subscription meaning, since it's the better semantic
+fit and ships first. Whoever eventually builds the RSS/OPML feed directory should reconcile the
+naming (e.g. call that one "feed directory" in UI copy, reserving "blogroll" for this) rather than
+introduce a second, conflicting `blogroll` concept.
+
+## Error handling
+
+Same posture as every other post-deploy pass in this family: every per-entry failure (a resolve
+attempt, a `putRecord`, a ledger write) is caught, logged, and skipped — never aborts the whole
+pass or throws into the deploy result. The pass-level no-op gates (§3) are logged distinctly from
+per-entry outcomes, matching `StandardSitePublishCommand`'s existing convention of a single
+"skipped — reason" line for a whole-pass no-op versus per-item accounting for a pass that ran.
+
+## Testing
+
+- `BlogrollGraphRecordsTests` (new, mirrors `StandardSiteRecordsTests`): record `$type`/field
+  shape, deterministic rkey derivation.
+- `BlogrollGraphPublishTests` (new, mirrors `StandardSitePublishTests`): resolve/skip/publish/
+  unpublish behavior against the injectable transport, no real network — a stubbed transport
+  returns a canned `.well-known` body for "resolves" cases and a 404/timeout for "skip" cases.
+- `FeedEndpointDiscoveryTests` (new, mirrors the existing webmention-discovery test coverage):
+  `<link rel="alternate" type="application/rss+xml">`/`atom+xml` matched in document order,
+  relative `href` resolution against the post-redirect URL, no-match returns `nil` rather than
+  throwing.
+- `BlogrollFeedFrontmatterTests` (new, mirrors `SyndicationFrontmatter`'s tests): writes `feedURL`
+  into frontmatter with no existing fence, an existing fence with other keys, and is a no-op
+  (byte-identical output) when the key is already set or nothing was discovered.
+- `ContentTypeRegistryTests`: the new `blogroll` type decodes/encodes and round-trips like the
+  other personal types.
+- Template-coupled test (per `CONTRIBUTING.md`'s "if you touch `Resources/Template/`, run `swift
+  test` too") for the `blogroll.opml.ts` route's output shape, the `/blogroll/` page's Zod schema
+  addition, and `OpmlBadge.astro` rendering/hiding correctly based on whether any entry has a
+  `feedURL`.
+
+## Alternatives considered
+
+- **Support `graph.recommend` too, for individual articles.** Rejected for v1 (owner's call): a
+  "recommend this specific post" feature is a different UI (needs picking a specific document,
+  not just a site) and a different mental model from a blogroll; can be a separate future issue.
+- **Settings-list input** instead of a new content type. Rejected: no list-editor widget exists
+  anywhere in the app today, and building one is strictly more work than reusing the content-type
+  registry's existing per-type editor, which was built for exactly this shape of owner-authored
+  structured content.
+- **Fetch the target's own publication record to enrich the rendered page.** Rejected for v1:
+  adds a build-time (or pre-build) network dependency this app has deliberately avoided
+  elsewhere, for marginal benefit over the owner's own typed name/note.
+- **Cache the discovered `feedURL` in `.site-config` instead of writing it into the entry's own
+  frontmatter.** Rejected (owner's call): the content file is the natural, git-visible home for a
+  per-entry field, `SyndicationFrontmatter`/`Frontmatter` already exist to do this kind of write
+  safely, and `.site-config` would need an ad hoc per-entry keying scheme it wasn't designed for.
+
+## Open questions
+
+- Exact route/path for the blogroll page and whether it's auto-linked in site navigation, or left
+  for the owner to link manually (like other optional content-type index pages) — resolved during
+  implementation by matching whatever convention the codebase already uses for similar optional
+  collection pages.

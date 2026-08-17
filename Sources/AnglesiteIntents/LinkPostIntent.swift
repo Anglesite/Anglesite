@@ -60,7 +60,7 @@ public struct AddLinkPostIntent: AppIntent {
 
         // `body` is always supplied — commentary text, or "" meaning "no body" — so a published
         // link post never contains the scaffold's placeholder text (Task 3's supplied-but-empty
-        // rule; same contract as the app path's `QuickCapture.fieldValues`).
+        // rule; same contract as `AnglesiteCore.LinkPostCreation.fieldValues`).
         let fieldValues = [
             "bookmarkOf": urlString,
             "draft": publish ? "false" : "true",

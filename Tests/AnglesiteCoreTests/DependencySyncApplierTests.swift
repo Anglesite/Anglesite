@@ -175,6 +175,23 @@ import Foundation
         #expect(baseline?["astro"] == "^5.0.0")
     }
 
+    @Test func keepsTheLockfileWhenNoOfferActuallyChangedPackageJSON() throws {
+        // #1440: an offer set that lands nothing (e.g. only held-back bumps, or a stale
+        // offer whose target name isn't in the site's package.json) must not delete the
+        // lockfile — regenerating it for an unchanged package.json is pure downside
+        // (slow next boot, churned resolution) and the delete is only justified by an
+        // actual dependency change.
+        let (source, config) = try makeSourceAndConfig()
+        let offers = DependencySyncOffers(updates: [
+            DependencyUpdateOffer(name: "does-not-exist", currentRange: "^1.0.0", offeredRange: "^2.0.0")
+        ])
+        try DependencySyncApplier.apply(offers, sourceDirectory: source, configDirectory: config, runningAppVersion: "1.4.0")
+        #expect(FileManager.default.fileExists(atPath: source.appendingPathComponent("package-lock.json").path))
+        // The version stamp still lands, so the sheet doesn't re-nag every open.
+        let siteConfig = try String(contentsOf: source.appendingPathComponent(".site-config"), encoding: .utf8)
+        #expect(SiteConfigFile.value(forKey: "ANGLESITE_VERSION", in: siteConfig) == "1.4.0")
+    }
+
     @Test func throwsReadFailedWhenPackageJSONIsMissing() throws {
         let root = tmpDir()
         let source = root.appendingPathComponent("Source")

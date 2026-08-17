@@ -1,0 +1,91 @@
+---
+// src/components/OpmlBadge.astro — CSS-only "subscribe via OPML" badge for the blogroll page
+// (#1483). Most RSS readers only subscribe to a single feed URL, not an OPML file of many, so
+// this is a visible affordance rather than a bare link. No <img>, no external asset, no inline
+// SVG: the badge shape (rounded rect, dot + broadcast-wave arcs) is drawn with layered
+// border-radius circles clipped by overflow:hidden, the same family of technique long used for
+// CSS-only RSS icons. Shown only when there's at least one entry with a feed — an empty OPML
+// file isn't worth advertising.
+interface Props {
+  hasFeeds: boolean;
+}
+const { hasFeeds } = Astro.props;
+---
+
+{hasFeeds && (
+  <a
+    class="opml-badge"
+    href="/blogroll.opml"
+    title="Subscribe to this blogroll via OPML"
+    aria-label="Subscribe to this blogroll via OPML"
+  >
+    <span class="opml-badge-icon" aria-hidden="true"></span>
+    <span class="opml-badge-text">OPML</span>
+  </a>
+)}
+
+<style>
+  .opml-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.35rem;
+    padding: 0.2rem 0.5rem 0.2rem 0.35rem;
+    border-radius: 0.2rem;
+    /* #a8480a clears WCAG AA's 4.5:1 text-contrast threshold against white (computed: 5.84:1) —
+       #ee802f, the original "classic RSS orange", only cleared ~2.7:1. Still reads as the same
+       orange-badge family, just darkened enough to carry white text legibly. */
+    background: #a8480a;
+    color: #fff;
+    font-size: 0.8rem;
+    font-weight: 700;
+    line-height: 1;
+    text-decoration: none;
+  }
+
+  .opml-badge:hover {
+    /* Darkened proportionally further than the base (computed: 7.40:1 against white). */
+    background: #8f3d09;
+  }
+
+  /* The classic feed-icon mark: a dot plus two concentric quarter-circle "broadcast" arcs
+     emanating from the bottom-left corner. Each arc is drawn as a full circle (`border-radius:
+     50%` on a bordered, transparent-centered box) sized and positioned so its *center* lands
+     exactly on the icon container's bottom-left corner — with `overflow: hidden` on the
+     container, only the quarter of each circle that falls inside the container's bounds (the
+     top-right quarter) ever renders, which is exactly the classic feed-icon silhouette. This is
+     more reliable than clipping via a single rounded corner (`border-radius: 100% 0 0 0`), which
+     at small sizes reads as one continuous swoosh rather than two distinct rings — a true
+     circle-clipped-by-its-container avoids that. ::before is the larger, outer arc; ::after the
+     smaller, inner one. The dot is a small radial-gradient disc anchored at the same corner,
+     underneath both rings. */
+  .opml-badge-icon {
+    position: relative;
+    display: inline-block;
+    width: 1rem;
+    height: 1rem;
+    overflow: hidden;
+    background-image: radial-gradient(circle at 0.12rem calc(100% - 0.12rem), #fff 0.08rem, transparent 0.09rem);
+  }
+
+  .opml-badge-icon::before,
+  .opml-badge-icon::after {
+    content: "";
+    position: absolute;
+    border: 0.12rem solid #fff;
+    border-radius: 50%;
+  }
+
+  .opml-badge-icon::before {
+    left: -0.6rem;
+    bottom: -0.6rem;
+    width: 1.2rem;
+    height: 1.2rem;
+  }
+
+  .opml-badge-icon::after {
+    left: -0.3rem;
+    bottom: -0.3rem;
+    width: 0.6rem;
+    height: 0.6rem;
+  }
+</style>
