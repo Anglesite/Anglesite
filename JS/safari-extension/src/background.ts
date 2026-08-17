@@ -1,4 +1,5 @@
 import type { Findings } from "./types";
+import { badgeTextFor, countFindings } from "./count";
 
 export interface FindingsMessage {
   type: "FINDINGS";
@@ -12,18 +13,6 @@ export function isFindingsMessage(message: unknown): message is FindingsMessage 
     (message as { type?: unknown }).type === "FINDINGS" &&
     "findings" in message
   );
-}
-
-export function countFindings(findings: Findings): number {
-  let count = findings.feeds.length + findings.relMeLinks.length;
-  if (findings.webmentionUrl) count += 1;
-  if (findings.activityPubUrl) count += 1;
-  if (findings.hCard) count += 1;
-  return count;
-}
-
-export function badgeTextFor(count: number): string {
-  return count > 0 ? String(count) : "";
 }
 
 const WEBMENTION_LINK = /<([^>]+)>\s*;\s*rel="webmention"/i;
@@ -58,7 +47,6 @@ interface ChromeLike {
   storage: {
     session: {
       set(items: Record<string, unknown>): Promise<void>;
-      get(key: string): Promise<Record<string, unknown>>;
     };
   };
   action: { setBadgeText(details: { tabId: number; text: string }): void };
@@ -84,8 +72,18 @@ if (typeof chrome !== "undefined") {
   // `onHeadersReceived` fires as response headers arrive — before the page's DOM is parsed —
   // while the content script's FINDINGS message arrives much later (after `document_idle`). So
   // a header-detected webmention URL usually has no stored Findings to merge into yet. Stash it
-  // here, keyed by tab, until the FINDINGS message for that same navigation shows up. Cleared on
-  // consumption and on tab removal so it never carries over onto an unrelated later navigation.
+  // here, keyed by tab, until the FINDINGS message for that same navigation shows up.
+  //
+  // A `main_frame` response is also the only reliable navigation boundary this listener sees, so
+  // it doubles as the point where per-tab state gets reset: every `main_frame` response clears
+  // any pending header URL and any previously stored findings for that tab FIRST, before looking
+  // at this response's own headers. Without that reset, `pendingWebmentionHeaders` and storage
+  // both keep whatever the *previous* page on this tab left behind, so a header-detected
+  // webmention URL from page N could get merged onto page (N-1)'s stale findings, and only a
+  // tab's very first page ever hit the "nothing stored yet" case. Resetting unconditionally on
+  // every main_frame response also means storage is always empty when this listener stashes a
+  // URL, so "stash and wait for FINDINGS" is the only path needed — no more conditional merge
+  // into storage, and no more async storage read here.
   const pendingWebmentionHeaders = new Map<number, string>();
 
   chrome.runtime.onMessage.addListener((message, sender) => {
@@ -109,21 +107,17 @@ if (typeof chrome !== "undefined") {
   chrome.webRequest.onHeadersReceived.addListener(
     (details) => {
       if (details.tabId < 0) return;
+
+      // Navigation boundary: reset this tab's state before considering the new response's
+      // headers, so nothing from the page being replaced can leak into the page arriving now.
+      pendingWebmentionHeaders.delete(details.tabId);
+      void chrome.storage.session.set({ [String(details.tabId)]: null });
+      chrome.action.setBadgeText({ tabId: details.tabId, text: "" });
+
       const webmentionUrl = findWebmentionHeaderUrl(details.responseHeaders, details.url);
-      if (!webmentionUrl) return;
-      void chrome.storage.session.get(String(details.tabId)).then((stored) => {
-        const existing = stored[String(details.tabId)] as Findings | undefined;
-        if (!existing) {
-          // FINDINGS hasn't arrived yet for this tab (the common case) — stash for the message
-          // handler above to pick up once it does.
-          pendingWebmentionHeaders.set(details.tabId, webmentionUrl);
-          return;
-        }
-        if (existing.webmentionUrl) return;
-        const merged: Findings = { ...existing, webmentionUrl };
-        void chrome.storage.session.set({ [String(details.tabId)]: merged });
-        chrome.action.setBadgeText({ tabId: details.tabId, text: badgeTextFor(countFindings(merged)) });
-      });
+      if (webmentionUrl) {
+        pendingWebmentionHeaders.set(details.tabId, webmentionUrl);
+      }
     },
     { urls: ["<all_urls>"], types: ["main_frame"] },
     ["responseHeaders"]

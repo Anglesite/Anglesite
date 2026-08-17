@@ -1,6 +1,7 @@
 import type { Findings } from "../types";
 import type { MF2Item } from "../detect/microformats";
 import { buildVCard } from "./vcard";
+import { countFindings } from "../count";
 
 export function renderPopup(container: HTMLElement, findings: Findings | null): void {
   container.innerHTML = "";
@@ -10,7 +11,7 @@ export function renderPopup(container: HTMLElement, findings: Findings | null): 
     return;
   }
 
-  const total = countTotal(findings);
+  const total = countFindings(findings);
   const header = document.createElement("h1");
   if (total > 0) {
     header.textContent = `${findings.pageTitle} — ${total} IndieWeb feature${total === 1 ? "" : "s"} found`;
@@ -26,6 +27,7 @@ export function renderPopup(container: HTMLElement, findings: Findings | null): 
 
   if (findings.hCard) container.appendChild(renderHCard(findings.hCard));
   if (findings.feeds.length) container.appendChild(renderFeeds(findings.feeds));
+  if (findings.relMeLinks.length) container.appendChild(renderRelMeLinks(findings.relMeLinks));
   if (findings.webmentionUrl) container.appendChild(renderEndpointBadge("Webmention", findings.webmentionUrl));
   if (findings.activityPubUrl) container.appendChild(renderEndpointBadge("ActivityPub", findings.activityPubUrl));
   if (findings.mf2.items.length) container.appendChild(renderMf2Tree(findings.mf2.items));
@@ -38,17 +40,6 @@ function isSafeHttpUrl(url: string): boolean {
   } catch {
     return false;
   }
-}
-
-function countTotal(findings: Findings): number {
-  const mf2Count = Object.values(findings.mf2TypeCounts).reduce((a, b) => a + b, 0);
-  return (
-    findings.feeds.length +
-    findings.relMeLinks.length +
-    (findings.webmentionUrl ? 1 : 0) +
-    (findings.activityPubUrl ? 1 : 0) +
-    mf2Count
-  );
 }
 
 function emptyState(text: string): HTMLElement {
@@ -67,16 +58,20 @@ function renderHCard(hCard: NonNullable<Findings["hCard"]>): HTMLElement {
   heading.textContent = name;
   section.appendChild(heading);
 
-  // Photo
+  // Photo — rendered as a link, not an `<img>`: an `<img src>` pointed at a page-controlled URL
+  // would both fetch it (violating the no-extra-network-fetches rule) and give the visited site a
+  // timing signal for exactly when the visitor opened the extension popup.
   const photo = hCard.properties.photo?.[0];
   if (typeof photo === "string" && isSafeHttpUrl(photo)) {
-    const img = document.createElement("img");
-    img.className = "h-card-photo";
-    img.src = photo;
-    img.alt = name;
-    img.style.maxWidth = "200px";
-    img.style.maxHeight = "200px";
-    section.appendChild(img);
+    const photoPara = document.createElement("p");
+    photoPara.className = "h-card-photo";
+    const link = document.createElement("a");
+    link.href = photo;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = "Photo";
+    photoPara.appendChild(link);
+    section.appendChild(photoPara);
   }
 
   // Org
@@ -133,6 +128,28 @@ function renderFeeds(feeds: Findings["feeds"]): HTMLElement {
     link.target = "_blank";
     link.rel = "noopener noreferrer";
     link.textContent = feed.title ?? feed.url;
+    item.appendChild(link);
+    list.appendChild(item);
+  }
+  section.appendChild(list);
+  return section;
+}
+
+function renderRelMeLinks(relMeLinks: Findings["relMeLinks"]): HTMLElement {
+  const section = document.createElement("section");
+  section.className = "rel-me-section";
+  const heading = document.createElement("h2");
+  heading.textContent = "Elsewhere";
+  section.appendChild(heading);
+  const list = document.createElement("ul");
+  for (const url of relMeLinks) {
+    if (!isSafeHttpUrl(url)) continue;
+    const item = document.createElement("li");
+    const link = document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener noreferrer";
+    link.textContent = url;
     item.appendChild(link);
     list.appendChild(item);
   }

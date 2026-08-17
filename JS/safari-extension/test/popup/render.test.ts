@@ -49,6 +49,11 @@ describe("renderPopup", () => {
       container,
       emptyFindings({
         hCard: { type: ["h-card"], properties: { name: ["Glenn Jones"] } },
+        mf2: {
+          items: [{ type: ["h-card"], properties: { name: ["Glenn Jones"] } }],
+          rels: {},
+          "rel-urls": {},
+        },
         mf2TypeCounts: { "h-card": 1 },
       })
     );
@@ -57,7 +62,7 @@ describe("renderPopup", () => {
     expect(button?.dataset.vcard).toContain("FN:Glenn Jones");
   });
 
-  it("renders h-card photo, org, and links when present", () => {
+  it("renders h-card photo as a link, plus org and links, when present", () => {
     const container = document.createElement("div");
     renderPopup(
       container,
@@ -71,14 +76,23 @@ describe("renderPopup", () => {
             url: ["https://glennjonesnet.com", "https://twitter.com/glennjones"],
           },
         },
+        mf2: {
+          items: [{ type: ["h-card"], properties: { name: ["Glenn Jones"] } }],
+          rels: {},
+          "rel-urls": {},
+        },
         mf2TypeCounts: { "h-card": 1 },
       })
     );
     const section = container.querySelector(".h-card-section");
-    expect(section?.querySelector("img")?.src).toBe("https://example.com/photo.jpg");
+    // The photo is never fetched — it's a plain link, not an <img>.
+    expect(section?.querySelector("img")).toBe(null);
+    const photoLink = section?.querySelector<HTMLAnchorElement>(".h-card-photo a");
+    expect(photoLink?.href).toBe("https://example.com/photo.jpg");
+    expect(photoLink?.textContent).toBe("Photo");
     expect(section?.textContent).toContain("Acme Corp");
     const links = section?.querySelectorAll("a");
-    expect(links).toHaveLength(2); // two URLs in the h-card section
+    expect(links).toHaveLength(3); // photo link + two URLs in the h-card section
   });
 
   it("does not render unsafe URLs in h-card", () => {
@@ -94,14 +108,18 @@ describe("renderPopup", () => {
             photo: ["javascript:alert(2)"],
           },
         },
+        mf2: {
+          items: [{ type: ["h-card"], properties: { name: ["Evil Person"] } }],
+          rels: {},
+          "rel-urls": {},
+        },
         mf2TypeCounts: { "h-card": 1 },
       })
     );
     const section = container.querySelector(".h-card-section");
     const link = section?.querySelector("a[href*='javascript']");
     expect(link).toBe(null);
-    const img = section?.querySelector("img[src*='javascript']");
-    expect(img).toBe(null);
+    expect(section?.querySelector(".h-card-photo")).toBe(null);
   });
 
   it("renders feed links", () => {
@@ -127,6 +145,33 @@ describe("renderPopup", () => {
       })
     );
     const links = container.querySelectorAll<HTMLAnchorElement>(".feeds-section a");
+    expect(links).toHaveLength(1);
+    expect(links[0]?.href).not.toContain("javascript");
+  });
+
+  it("renders rel=me links", () => {
+    const container = document.createElement("div");
+    renderPopup(
+      container,
+      emptyFindings({
+        relMeLinks: ["https://fosstodon.org/@example", "https://github.com/example"],
+      })
+    );
+    const links = container.querySelectorAll<HTMLAnchorElement>(".rel-me-section a");
+    expect(links).toHaveLength(2);
+    expect(links[0]?.href).toBe("https://fosstodon.org/@example");
+    expect(links[1]?.href).toBe("https://github.com/example");
+  });
+
+  it("does not render rel=me links with unsafe URLs", () => {
+    const container = document.createElement("div");
+    renderPopup(
+      container,
+      emptyFindings({
+        relMeLinks: ["https://example.com/safe", "javascript:alert(1)"],
+      })
+    );
+    const links = container.querySelectorAll<HTMLAnchorElement>(".rel-me-section a");
     expect(links).toHaveLength(1);
     expect(links[0]?.href).not.toContain("javascript");
   });
