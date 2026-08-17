@@ -26,25 +26,20 @@ public enum WebsiteIconAsset {
         case layoutNotFound(URL)
     }
 
-    /// The exact `<link>` block inserted after `<head>` — fixed root-relative paths matching the
-    /// filenames above, so the layout never needs regenerating when icon *content* changes.
-    public static let headLinks = """
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="icon" type="image/png" href="/favicon.png" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        <link rel="manifest" href="/site.webmanifest" />
-    """
-
-    /// ``headLinks``, one `<link>` per line, each paired with the href that marks it already
-    /// present. Some entries (e.g. `favicon.ico`) may already be baked into a site's layout by
-    /// the template itself, independent of a custom icon install — so each line's presence is
-    /// checked on its own rather than treating the block as all-or-nothing.
+    /// Every `<link>` ``insertHeadLinks(into:)`` can add, each paired with the href that marks it
+    /// already present. Some entries (e.g. `favicon.ico`) may already be baked into a site's
+    /// layout by the template itself, independent of a custom icon install — so each line's
+    /// presence is checked on its own rather than treating the set as all-or-nothing.
     static let headLinkEntries: [(href: String, line: String)] = [
         (#"href="/favicon.ico""#, #"<link rel="icon" href="/favicon.ico" sizes="any" />"#),
         (#"href="/favicon.png""#, #"<link rel="icon" type="image/png" href="/favicon.png" />"#),
         (#"href="/apple-touch-icon.png""#, #"<link rel="apple-touch-icon" href="/apple-touch-icon.png" />"#),
         (#"href="/site.webmanifest""#, #"<link rel="manifest" href="/site.webmanifest" />"#)
     ]
+
+    /// The exact `<link>` block inserted after `<head>` when none of `headLinkEntries` are
+    /// present yet — derived from that array so the two can't drift out of sync.
+    public static let headLinks = headLinkEntries.map(\.line).joined(separator: "\n")
 
     /// Inserts whichever `headLinkEntries` lines are missing right after `<head>`, idempotently:
     /// a line whose href already appears anywhere in the source (from a prior install, the
