@@ -136,6 +136,29 @@ The canonical pre-PR suites and their gotchas are in
 A smoke launch on the user's machine opens visible UI — fine for a
 verification pass, but quit the app when you're done.
 
+### Accessibility identifiers (AX automation)
+
+Key controls carry stable `accessibilityIdentifier`s (#1535), defined in
+[`Sources/AnglesiteApp/AXID.swift`](../Sources/AnglesiteApp/AXID.swift):
+site-window toolbar items derive `toolbar.<SiteToolbarItemID>` (e.g.
+`toolbar.deploy`), and the navigator, shared sheet header, and debug pane have
+hand-assigned dotted IDs (`navigator.list`, `sheet.header`, `debug.pause`).
+`AXIDTests` freezes format and uniqueness — treat the strings as automation
+API: renaming one breaks external scripts, same contract as
+`SiteToolbarItemID`.
+
+They surface as the AX element's `AXIdentifier` attribute (what XCUITest
+matches as `identifier`), so UI scripting can target controls without
+depending on localized labels. **Gate:** reading another app's AX tree
+requires the agent-host process to have Accessibility permission — without it
+every System Events query fails with `osascript is not allowed assistive
+access`, an owner-only grant in System Settings ▸ Privacy & Security ▸
+Accessibility. Example (once granted):
+
+```sh
+osascript -e 'tell application "System Events" to tell process "Anglesite" to get value of attribute "AXIdentifier" of buttons of toolbar 1 of window 1'
+```
+
 ## Xcode MCP (optional, richer control)
 
 Xcode 27 ships an MCP server (`xcrun mcpbridge`) that gives external agents
