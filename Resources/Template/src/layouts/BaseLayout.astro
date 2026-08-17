@@ -32,9 +32,14 @@ interface Props {
    * Omit for pages with no document — the index, tag pages, admin-ish routes, etc.
    */
   documentPath?: string;
+  /** Root-relative path to this page's social preview image (e.g. `/images/photo.jpg`), when it
+   * has one — renders `og:image`. Omit for pages with no image. */
+  image?: string;
+  /** The `og:type` this page advertises. Defaults to "website"; BlogPost overrides "article". */
+  ogType?: string;
 }
 
-const { title, description, lang, documentPath } = Astro.props;
+const { title, description, lang, documentPath, image, ogType = "website" } = Astro.props;
 // Standard.site (Atmosphere) verification links (#1232, increment 2 of #1230): both at-URIs are
 // computable at build time with no network call — see standard-site.ts's doc comment. Gated on
 // both `.site-config` keys `StandardSitePublishCommand` persists on first successful publish
@@ -65,6 +70,14 @@ const noindex = isNoindexed(Astro.url.pathname, readRobotsConfig(process.cwd()))
 // stronger gate `scripts/csp.ts` (the Link: header) uses, so this <link> never appears pointing
 // at an rsl.xml that wasn't actually generated (PR #1290 review).
 const rsl = rslPublished(licensingPolicy(), readConfig("SITE_URL"));
+// Same computation BlogPost.astro/Hentry.astro use for their own JSON-LD `url` — duplicated
+// rather than threaded as a prop because every page (including ones with no per-collection
+// layout) needs a canonical link, and Astro.url/Astro.site are already in scope here.
+const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url).href;
+const ogImage = image ? new URL(image, Astro.site ?? Astro.url).href : undefined;
+// PWA_THEME_COLOR is only written to .site-config by the PWA integration (derived from the
+// site's own --color-primary) — a site without it simply renders no theme-color meta.
+const themeColor = readConfig("PWA_THEME_COLOR");
 ---
 
 <!doctype html>
@@ -73,9 +86,24 @@ const rsl = rslPublished(licensingPolicy(), readConfig("SITE_URL"));
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="generator" content={Astro.generator} />
+    <meta name="color-scheme" content="light dark" />
+    {themeColor && <meta name="theme-color" content={themeColor} />}
     {effectiveDescription && <meta name="description" content={effectiveDescription} />}
     {noindex && <meta name="robots" content="noindex" />}
     <title>{effectiveTitle}</title>
+    {/* Same filenames/rels as WebsiteIconAsset.headLinks (#1525) — a site owner who later
+        installs a custom icon (Settings ▸ Website Icon) overwrites these exact files in place,
+        so the swap needs no layout patch. Deliberately no SVG favicon here: WebsiteIconInstaller
+        only ever produces raster icons from an arbitrary uploaded image, and evergreen browsers
+        prefer a declared SVG icon over ICO/PNG — a static SVG default would keep shadowing a
+        site owner's custom icon in the tab forever. */}
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:type" content={ogType} />
+    {ogImage && <meta property="og:image" content={ogImage} />}
     <link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml" />
     <link rel="alternate" type="application/atom+xml" title="Atom" href="/atom.xml" />
     <link rel="alternate" type="application/feed+json" title="JSON Feed" href="/feed.json" />
