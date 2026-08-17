@@ -53,13 +53,25 @@ struct FollowersView: View {
         }
     }
 
+    /// Whether a real, ongoing failure (revoked token, transport error, genuine 500) is worth
+    /// surfacing. `.unknown`/`.loading`/`.unavailable`/`.loaded` are all silent — `.unavailable`
+    /// in particular is the upstream route not shipping yet, never a user-facing error (see
+    /// `PendingState.unavailable`'s doc comment).
+    private var pendingUnreachableReason: String? {
+        if case .unreachable(let reason) = followers.pendingState { return reason }
+        return nil
+    }
+
     @ViewBuilder
     private var pendingSection: some View {
         // Hidden entirely when there's nothing to show — no error noise for a capability that
         // hasn't shipped upstream yet (`.unavailable`), no dead space for a site with nothing
         // pending. Deliberately independent of `followers.state`: pending arrives from its own
-        // background poll and may be known before the main list ever loads.
-        if !followers.pendingRows.isEmpty {
+        // background poll and may be known before the main list ever loads. Shown for a genuine
+        // `.unreachable` failure even with zero rows, so a revoked token or a real 500 doesn't
+        // silently vanish for good on the 5-minute poll loop (whole-branch review finding #4) —
+        // matches `ModerationModel.loadPendingFollowers()`'s same rule against the same endpoint.
+        if !followers.pendingRows.isEmpty || pendingUnreachableReason != nil {
             VStack(alignment: .leading, spacing: 0) {
                 Text("Pending Requests (\(followers.pendingRows.count))")
                     .font(.headline)
@@ -71,8 +83,15 @@ struct FollowersView: View {
                     if let failure = followers.pendingActionFailure {
                         Text(failure).font(.caption).foregroundStyle(.secondary)
                     }
+                    if let reason = pendingUnreachableReason {
+                        // Server-supplied/`localizedDescription` text, like `.unreachable`'s main-list
+                        // counterpart: rendered verbatim, never as a localization key.
+                        Text(reason).font(.caption).foregroundStyle(.secondary)
+                    }
                 }
-                .frame(height: min(CGFloat(followers.pendingRows.count) * 44 + 16, 220))
+                .frame(height: min(
+                    CGFloat(max(followers.pendingRows.count, pendingUnreachableReason == nil ? 0 : 1)) * 44 + 16,
+                    220))
                 Divider()
             }
         }

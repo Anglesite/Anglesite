@@ -166,6 +166,18 @@ final class FollowersModel {
         sourceDirectory = site.sourceDirectory
         siteID = site.id
         cache = ActorProfileCache.load(from: site.configDirectory) ?? ActorProfileCache()
+        // A window can replay onto a different site while reusing this same model instance —
+        // every piece of pending-request state carries site-specific meaning (rows are another
+        // site's actors, the notification baseline is another site's count) and must not leak
+        // across the replay. Without this reset, the very first `loadPending()` for the new site
+        // could compare against a stale baseline and fire a spurious notification, or leave the
+        // previous site's rows on screen under the new site's window.
+        pendingRows = []
+        pendingState = .unknown
+        pendingActionFailure = nil
+        rejectConfirmation = nil
+        lastNotifiedPendingCount = 0
+        hasEstablishedPendingBaseline = false
         resolveSite()
     }
 
@@ -269,6 +281,10 @@ final class FollowersModel {
         // failed actor a fresh attempt instead of honoring the session-scoped failure memory.
         unreachableActors.removeAll()
         await load()
+        // Refresh is the owner's one manual "check now" — without also re-fetching pending
+        // requests, an accept/reject made elsewhere (or a stuck `.unreachable` pending state)
+        // would stay stale in this window for up to the full 5-minute poll interval.
+        await loadPending()
     }
 
     private static func failureState(for error: Error) -> State {
@@ -348,6 +364,7 @@ final class FollowersModel {
     func loadPending() async {
         guard let membershipClient else { return }
         pendingState = .loading
+        pendingActionFailure = nil
         do {
             let requests = try await membershipClient.listFollowRequests()
             pendingRows = requests.map { request in
@@ -361,8 +378,9 @@ final class FollowersModel {
         } catch {
             // Additive, not destructive: a transient failure keeps whatever rows are already
             // on screen rather than blanking the section, matching `loadMoreFailure`'s rule
-            // for the main list.
-            pendingState = .unreachable("\(error)")
+            // for the main list. `localizedDescription`, not a raw `"\(error)"` dump, since this
+            // is owner-facing copy the view surfaces — mirrors `ModerationModel.loadPendingFollowers()`.
+            pendingState = .unreachable(error.localizedDescription)
         }
     }
 
@@ -384,6 +402,16 @@ final class FollowersModel {
     /// a replay should `await loadPending()` explicitly (this method only owns the recurring
     /// timer, not an immediate fetch — see `SiteWindowModel.loadAndStart`).
     func startPendingPollingIfNeeded() {
+        // The design spec starts the recurring poll "once `pendingState` first resolves to
+        // something other than `.unavailable`" — the upstream `follow_requests` route not being
+        // deployed yet is the whole backward-compatibility scenario this feature exists for, and
+        // without this guard every open site window would poll an authenticated request every
+        // few minutes, forever, that can only ever 404. Called (as it already is) right after the
+        // initial `await loadPending()` in `SiteWindowModel.loadAndStart(...)`, so `pendingState`
+        // already reflects whether the route exists by the time this runs. A Worker that upgrades
+        // mid-session won't be picked up until the window reopens — accepted in the design spec's
+        // non-goals.
+        guard pendingState != .unavailable else { return }
         guard pollTask == nil else { return }
         pollTask = Task { [weak self] in
             guard let interval = self?.pendingPollInterval else { return }
@@ -413,6 +441,10 @@ final class FollowersModel {
     /// `pendingActionFailure`, same additive-not-replacing shape as `loadMoreFailure`.
     func accept(_ row: PendingRequestRow) async {
         guard let membershipClient else { return }
+        // Unconditional on entry, not just on success: nothing else ever clears a previous
+        // failure, so without this a stale error from an earlier accept/reject would keep
+        // showing under a later, unrelated pending request.
+        pendingActionFailure = nil
         pendingRows.removeAll { $0.id == row.id }
         do {
             try await membershipClient.acceptFollow(target: row.request.actor)
@@ -427,6 +459,8 @@ final class FollowersModel {
     /// (mac-assed-app-spec §5).
     private func reject(_ row: PendingRequestRow) async {
         guard let membershipClient else { return }
+        // Same unconditional-on-entry clear as `accept(_:)` — see its comment.
+        pendingActionFailure = nil
         pendingRows.removeAll { $0.id == row.id }
         do {
             try await membershipClient.rejectFollow(target: row.request.actor)
