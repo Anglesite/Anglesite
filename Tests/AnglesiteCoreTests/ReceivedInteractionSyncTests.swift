@@ -103,7 +103,7 @@ struct ReceivedInteractionSyncTests {
 
         let interactionsDir = siteDirectory.appendingPathComponent("data/interactions", isDirectory: true)
         try FileManager.default.createDirectory(at: interactionsDir, withIntermediateDirectories: true)
-        try Data("{}".utf8).write(to: interactionsDir.appendingPathComponent("wm-stale.json"))
+        try Data(#"{"type":"webmention"}"#.utf8).write(to: interactionsDir.appendingPathComponent("wm-stale.json"))
 
         let body = Self.d1Body("")
         let client = WebmentionInboxD1Client(
@@ -113,6 +113,28 @@ struct ReceivedInteractionSyncTests {
         #expect(count == 1)
         #expect(!FileManager.default.fileExists(
             atPath: interactionsDir.appendingPathComponent("wm-stale.json").path))
+    }
+
+    @Test("pullAndCommit's webmention-scoped reconcile leaves an existing bluesky-sourced snapshot untouched")
+    func webmentionReconcileLeavesBlueskyFilesAlone() async throws {
+        let siteDirectory = try Self.makeThrowawayGitRepo()
+        defer { try? FileManager.default.removeItem(at: siteDirectory) }
+
+        let blueskyInteraction = try ReceivedInteraction(
+            id: "bsky-xyz", type: .bluesky,
+            source: URL(string: "https://bsky.app/profile/alice.bsky.social/post/xyz")!,
+            target: URL(string: "https://me.example/blog/hi")!, interactionType: .reply,
+            author: nil, content: "hi", published: Date(), verified: Date(), verificationStatus: .verified)
+        _ = await ReceivedInteractionCommitter.commit(
+            interactions: [blueskyInteraction], scopedTo: [.bluesky], into: siteDirectory)
+
+        let body = Self.d1Body("")
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token", transport: { _ in (body, Self.response(200)) })
+        _ = await ReceivedInteractionSync.pullAndCommit(client: client, siteDirectory: siteDirectory)
+
+        #expect(FileManager.default.fileExists(
+            atPath: siteDirectory.appendingPathComponent("data/interactions/bsky-xyz.json").path))
     }
 
     @Test("returns 0 without touching git when the D1 query fails")

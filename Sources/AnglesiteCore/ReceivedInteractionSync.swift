@@ -46,7 +46,8 @@ public enum ReceivedInteractionSync {
     public static func pullAndCommit(client: WebmentionInboxD1Client, siteDirectory: URL) async -> Int {
         guard let mentions = try? await client.listVerifiedMentions() else { return 0 }
         let interactions = mentions.compactMap(Self.makeInteraction(from:))
-        let committedIDs = await ReceivedInteractionCommitter.commit(interactions: interactions, into: siteDirectory)
+        let committedIDs = await ReceivedInteractionCommitter.commit(
+            interactions: interactions, scopedTo: [.webmention], into: siteDirectory)
         return committedIDs.count
     }
 
