@@ -206,7 +206,12 @@ private struct AgentsSettingsView: View {
         guard !trimmed.isEmpty, var base = URL(string: trimmed) else {
             return .failure("enter a base URL first")
         }
-        if base.absoluteString.hasSuffix("/") { base = URL(string: String(base.absoluteString.dropLast()))! }
+        if base.absoluteString.hasSuffix("/") {
+            guard let trimmedBase = URL(string: String(base.absoluteString.dropLast())) else {
+                return .failure("enter a base URL first")
+            }
+            base = trimmedBase
+        }
         guard let url = URL(string: base.absoluteString + "/models") else {
             return .failure("enter a base URL first")
         }
