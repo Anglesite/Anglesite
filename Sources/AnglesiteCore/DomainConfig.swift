@@ -21,6 +21,12 @@ public struct DomainConfig: Equatable, Sendable {
     public var edge: Edge?
     public var email: Email?
     public var workers: Workers?
+    /// The publish destination this site uses (#1015) — an open string (not a closed `enum`),
+    /// matching `Domain.choice`'s precedent, so an unrecognized future value degrades gracefully
+    /// for a reader that predates it. `nil` means "cloudflare," the only target that exists today
+    /// — nothing reads this field to select a `DeployTarget` conformer yet (that's a later
+    /// slice); it exists so that slice needs no schema migration when it lands.
+    public var deployTarget: String?
 
     public init(
         version: Int = 1,
@@ -28,7 +34,8 @@ public struct DomainConfig: Equatable, Sendable {
         dns: DNS? = nil,
         edge: Edge? = nil,
         email: Email? = nil,
-        workers: Workers? = nil
+        workers: Workers? = nil,
+        deployTarget: String? = nil
     ) {
         self.version = version
         self.domain = domain
@@ -36,6 +43,7 @@ public struct DomainConfig: Equatable, Sendable {
         self.edge = edge
         self.email = email
         self.workers = workers
+        self.deployTarget = deployTarget
     }
 
     /// The owner's declared hostname and attachment intent — replaces the `DOMAIN`/`DOMAIN_CHOICE`
@@ -171,7 +179,7 @@ public struct DomainConfig: Equatable, Sendable {
 
 extension DomainConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case version, domain, dns, edge, email, workers
+        case version, domain, dns, edge, email, workers, deployTarget
     }
 
     public init(from decoder: Decoder) throws {
@@ -182,6 +190,7 @@ extension DomainConfig: Codable {
         edge = try container.decodeIfPresent(Edge.self, forKey: .edge)
         email = try container.decodeIfPresent(Email.self, forKey: .email)
         workers = try container.decodeIfPresent(Workers.self, forKey: .workers)
+        deployTarget = try container.decodeIfPresent(String.self, forKey: .deployTarget)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -192,5 +201,6 @@ extension DomainConfig: Codable {
         try container.encodeIfPresent(edge, forKey: .edge)
         try container.encodeIfPresent(email, forKey: .email)
         try container.encodeIfPresent(workers, forKey: .workers)
+        try container.encodeIfPresent(deployTarget, forKey: .deployTarget)
     }
 }
