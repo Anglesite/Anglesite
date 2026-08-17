@@ -36,9 +36,10 @@ struct UTMCodesSheet: View {
 
             List {
                 ForEach($model.utmCampaigns) { $campaign in
-                    UTMCampaignRow(campaign: $campaign)
+                    UTMCampaignRow(campaign: $campaign, onDelete: {
+                        model.utmCampaigns.removeAll { $0.id == campaign.id }
+                    })
                 }
-                .onDelete { model.utmCampaigns.remove(atOffsets: $0) }
             }
             .frame(minHeight: 240)
 
@@ -61,6 +62,7 @@ struct UTMCodesSheet: View {
 
 private struct UTMCampaignRow: View {
     @Binding var campaign: UTMCodesStore.Campaign
+    let onDelete: () -> Void
 
     var body: some View {
         DisclosureGroup {
@@ -84,13 +86,22 @@ private struct UTMCampaignRow: View {
             .textFieldStyle(.roundedBorder)
             .padding(.top, 4)
         } label: {
-            VStack(alignment: .leading, spacing: 2) {
-                Text(summary)
-                if !campaign.appliesTo.isEmpty {
-                    Text(campaign.appliesTo.map(\.displayName).joined(separator: ", "))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
+            HStack {
+                VStack(alignment: .leading, spacing: 2) {
+                    Text(summary)
+                    if !campaign.appliesTo.isEmpty {
+                        Text(campaign.appliesTo.map(\.displayName).joined(separator: ", "))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
                 }
+                Spacer()
+                Button(role: .destructive) {
+                    onDelete()
+                } label: {
+                    Image(systemName: "trash")
+                }
+                .buttonStyle(.plain)
             }
         }
     }

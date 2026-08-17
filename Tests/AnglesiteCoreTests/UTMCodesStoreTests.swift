@@ -49,9 +49,36 @@ struct UTMCodesStoreTests {
         defer { try? FileManager.default.removeItem(at: dir) }
         let store = UTMCodesStore(sourceDirectory: dir)
         let campaign = UTMCodesStore.Campaign(source: "rss", medium: "feed", campaign: "x", appliesTo: [.notes, .blog])
-        try store.save([campaign])
+        let returned = try store.save([campaign])
+        #expect(returned.first?.appliesTo == [.blog, .notes])
         let loaded = try store.load()
         #expect(loaded.first?.appliesTo == [.blog, .notes])
+    }
+
+    @Test("save trims whitespace from source/medium/campaign/term/content before writing")
+    func trimsWhitespaceFromRequiredAndOptionalFields() throws {
+        let dir = try tempSourceDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = UTMCodesStore(sourceDirectory: dir)
+        let campaign = UTMCodesStore.Campaign(
+            source: "rss ",
+            medium: " feed",
+            campaign: " affiliate-2026 ",
+            term: "  ",
+            content: " promo ",
+            appliesTo: [.blog])
+        let returned = try store.save([campaign])
+        #expect(returned.first?.source == "rss")
+        #expect(returned.first?.medium == "feed")
+        #expect(returned.first?.campaign == "affiliate-2026")
+        #expect(returned.first?.term == nil)
+        #expect(returned.first?.content == "promo")
+        let loaded = try store.load()
+        #expect(loaded.first?.source == "rss")
+        #expect(loaded.first?.medium == "feed")
+        #expect(loaded.first?.campaign == "affiliate-2026")
+        #expect(loaded.first?.term == nil)
+        #expect(loaded.first?.content == "promo")
     }
 
     @Test("save rejects two campaigns claiming the same target")

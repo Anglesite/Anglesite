@@ -105,18 +105,29 @@ public struct UTMCodesStore: Sendable {
     /// so diffs should stay minimal). Validation runs here rather than only in the UI, so no code
     /// path can persist a file the template-side build/worker code would silently mis-tag from.
     ///
+    /// - Returns: The normalized array actually written to disk, so callers can keep in-memory
+    ///   "saved" state (and any live-edited copy) in agreement with what's on disk.
     /// - Throws: A ``ValidationError`` before touching disk, or the underlying encode/write error.
-    public func save(_ campaigns: [Campaign]) throws {
+    @discardableResult
+    public func save(_ campaigns: [Campaign]) throws -> [Campaign] {
         try Self.validate(campaigns)
         let normalized = campaigns.map { campaign -> Campaign in
             var campaign = campaign
             campaign.appliesTo = Target.allCases.filter { campaign.appliesTo.contains($0) }
+            campaign.source = campaign.source.trimmingCharacters(in: .whitespacesAndNewlines)
+            campaign.medium = campaign.medium.trimmingCharacters(in: .whitespacesAndNewlines)
+            campaign.campaign = campaign.campaign.trimmingCharacters(in: .whitespacesAndNewlines)
+            let trimmedTerm = campaign.term?.trimmingCharacters(in: .whitespacesAndNewlines)
+            campaign.term = (trimmedTerm?.isEmpty ?? true) ? nil : trimmedTerm
+            let trimmedContent = campaign.content?.trimmingCharacters(in: .whitespacesAndNewlines)
+            campaign.content = (trimmedContent?.isEmpty ?? true) ? nil : trimmedContent
             return campaign
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(normalized)
         try data.write(to: fileURL, options: .atomic)
+        return normalized
     }
 
     /// Checks every campaign's invariants: no two campaigns share a target, and any campaign with

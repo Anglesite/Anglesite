@@ -43,6 +43,20 @@ struct PlistEditorModelUTMCodesTests {
         #expect(try UTMCodesStore(sourceDirectory: model.sourceDirectory).load() == model.utmCampaigns)
     }
 
+    @Test("saveUTMCodes normalizes appliesTo order in both utmCampaigns and on disk")
+    func saveNormalizesOrderInMemoryAndOnDisk() async throws {
+        let model = try makeModel()
+        await model.load()
+        model.utmCampaigns = [
+            UTMCodesStore.Campaign(source: "rss", medium: "feed", campaign: "a", appliesTo: [.notes, .blog])
+        ]
+        let saved = await model.saveUTMCodes()
+        #expect(saved == true)
+        #expect(model.utmCampaigns.first?.appliesTo == [.blog, .notes])
+        let loaded = try UTMCodesStore(sourceDirectory: model.sourceDirectory).load()
+        #expect(loaded.first?.appliesTo == [.blog, .notes])
+    }
+
     @Test("saveUTMCodes surfaces a validation failure via utmCodesError and leaves isUTMCodesDirty true")
     func saveValidationFailureSurfacesError() async throws {
         let model = try makeModel()
@@ -55,5 +69,26 @@ struct PlistEditorModelUTMCodesTests {
         #expect(saved == false)
         #expect(model.utmCodesError != nil)
         #expect(model.isUTMCodesDirty == true)
+    }
+
+    @Test("saveUTMCodes clears a stale error once the owner reverts back to the saved state")
+    func staleErrorClearedOnCleanShortCircuit() async throws {
+        let model = try makeModel()
+        await model.load()
+        model.utmCampaigns = [
+            UTMCodesStore.Campaign(source: "rss", medium: "feed", campaign: "a", appliesTo: [.blog]),
+            UTMCodesStore.Campaign(source: "rss", medium: "feed", campaign: "b", appliesTo: [.blog]),
+        ]
+        let firstSave = await model.saveUTMCodes()
+        #expect(firstSave == false)
+        #expect(model.utmCodesError != nil)
+
+        // Revert back to the last saved (empty) state.
+        model.utmCampaigns = model.savedUTMCampaigns
+        #expect(model.isUTMCodesDirty == false)
+
+        let secondSave = await model.saveUTMCodes()
+        #expect(secondSave == true)
+        #expect(model.utmCodesError == nil)
     }
 }

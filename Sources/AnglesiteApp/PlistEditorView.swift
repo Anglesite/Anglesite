@@ -189,6 +189,11 @@ struct PlistEditorView: View {
                             .foregroundStyle(.orange)
                             .font(.callout)
                     }
+                    if selectedTab != .analytics, let utmCodesError = model.utmCodesError {
+                        Label(utmCodesError, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.callout)
+                    }
                     if selectedTab != .website, let langError = model.langError {
                         Label(langError, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)

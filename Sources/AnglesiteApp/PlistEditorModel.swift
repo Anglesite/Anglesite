@@ -533,7 +533,10 @@ final class PlistEditorModel {
 
     @discardableResult
     func saveUTMCodes() async -> Bool {
-        guard isUTMCodesDirty else { return true }
+        guard isUTMCodesDirty else {
+            utmCodesError = nil
+            return true
+        }
         guard !isSavingUTMCodes else { return false }
         guard !utmCodesLoadFailed else {
             utmCodesError = "Refusing to save: the existing utm-codes.json failed to load and may contain campaigns this save would discard. Fix or back up the file, then reload this site's settings."
@@ -545,10 +548,11 @@ final class PlistEditorModel {
         let sourceDirectory = sourceDirectory
         let campaigns = utmCampaigns
         do {
-            try await Task.detached(priority: .userInitiated) {
-                try UTMCodesStore(sourceDirectory: sourceDirectory).save(campaigns)
+            let normalized = try await Task.detached(priority: .userInitiated) {
+                return try UTMCodesStore(sourceDirectory: sourceDirectory).save(campaigns)
             }.value
-            savedUTMCampaigns = campaigns
+            savedUTMCampaigns = normalized
+            utmCampaigns = normalized
             return true
         } catch {
             utmCodesError = "Couldn't save UTM codes: \(error.localizedDescription)"
