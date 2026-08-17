@@ -167,6 +167,8 @@ targets:
         embed: true
       - target: AnglesiteShareExtension
         embed: true
+      - target: AnglesiteSafariExtension
+        embed: true
       - target: AnglesiteRemote
         embed: true
         codeSign: true
@@ -358,6 +360,63 @@ targets:
     dependencies:
       - package: Anglesite
         product: AnglesiteCore
+
+  # IndieWeb Safari Extension (#1098): standalone Manifest V3 Safari Web Extension embedded in
+  # Anglesite.app. Detects h-cards, feeds, webmentions, ActivityPub, and general microformats2 on
+  # the page the user is viewing in Safari. No native messaging, no dependency on a running
+  # Anglesite.app — all detection/UI logic is the JS/safari-extension bundle built into
+  # Resources/SafariExtension/ by scripts/build-safari-extension.sh. Spec:
+  # docs/superpowers/specs/2026-08-17-safari-indieweb-extension-design.md.
+  AnglesiteSafariExtension:
+    type: app-extension
+    platform: macOS
+    sources:
+      - path: Sources/AnglesiteSafariExtension
+      - path: Resources/SafariExtension/manifest.json
+      - path: Resources/SafariExtension/popup.html
+      - path: Resources/SafariExtension/popup.css
+      - path: Resources/SafariExtension/content-script.js
+        optional: true
+      - path: Resources/SafariExtension/background.js
+        optional: true
+      - path: Resources/SafariExtension/popup.js
+        optional: true
+      - path: Resources/SafariExtension/images
+        type: folder
+        buildPhase: resources
+    # See the Anglesite target's matching comment on configFiles above. Extensions embedded in
+    # the host app need matching signing style/team for automatic signing to resolve.
+    configFiles:
+      Debug: xcconfig/Signing-Debug.xcconfig
+      Release: xcconfig/Signing-Release.xcconfig
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: io.dwk.anglesite.SafariExtension
+        PRODUCT_NAME: AnglesiteSafariExtension
+        INFOPLIST_FILE: Resources/SafariExtension/Info.plist
+        GENERATE_INFOPLIST_FILE: NO
+        CODE_SIGN_ENTITLEMENTS: Resources/SafariExtension/AnglesiteSafariExtension.entitlements
+        ENABLE_HARDENED_RUNTIME: YES
+        MACOSX_DEPLOYMENT_TARGET: "27.0"
+        SWIFT_VERSION: "5.10"
+        CURRENT_PROJECT_VERSION: 1
+        MARKETING_VERSION: "0.1.0"
+        SKIP_INSTALL: YES
+        SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) ANGLESITE_MAS"
+    preBuildScripts:
+      # Same backstop as the Anglesite target's matching phase (#123) — a stale gitignored
+      # xcodeproj must regenerate before this target's own build can trust its file list.
+      - name: Regenerate Xcode project
+        script: |
+          if command -v xcodegen >/dev/null 2>&1; then
+            xcodegen generate --quiet
+          else
+            echo "warning: xcodegen not found on PATH — skipping project regeneration (brew install xcodegen)." >&2
+          fi
+        basedOnDependencyAnalysis: false
+      - name: Build Safari extension
+        script: "\"${PROJECT_DIR}/scripts/build-safari-extension.sh\""
+        basedOnDependencyAnalysis: false
 
   # Anywhere runtime (#1208 P1): faceless helper, login item via SMAppService.agent, embedded
   # inside Anglesite.app so one install covers both. No Dock icon, no windows (LSUIElement).
