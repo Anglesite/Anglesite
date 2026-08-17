@@ -1,4 +1,13 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+// Same toolchain/runtime gate as `ContentAssistant.swift` — `Generable` (used only by the
+// `generateStructured` conformance below) comes from FoundationModels, which is absent from
+// GitHub's macos-15 CI runner at *load* time even when the SDK has the symbol at compile time.
+#if compiler(>=6.4) && canImport(FoundationModels)
+import FoundationModels
+#endif
 
 /// `URLSession`-based backend speaking a single OpenAI-compatible chat-completions protocol
 /// against a user-configured endpoint (#1482) — covers hosted providers and self-hosted local
@@ -7,9 +16,7 @@ import Foundation
 /// backend the fastest route to assistant parity off-Darwin (cross-platform design §8).
 ///
 /// See docs/superpowers/specs/2026-08-16-external-llm-backend-design.md for the full design.
-/// `ConversationalAssistant` conformance (converse/cancel/resetSession/generate/generateStructured)
-/// is added in a later slice of this same file's history — see that type's doc comment once added.
-public actor ExternalLLMBackend {
+public actor ExternalLLMBackend: ConversationalAssistant {
     /// The user-configured endpoint. `baseURL` should NOT include the `/chat/completions`
     /// suffix — a trailing slash, if present, is trimmed and the suffix appended at request time.
     public struct Configuration: Sendable, Equatable {
@@ -69,6 +76,268 @@ public actor ExternalLLMBackend {
             providerName: "Custom (\(configuration.model))"
         )
     }
+
+    var activeRelay: TurnRelay?
+    var activeDrainTask: Task<Void, Never>?
+
+    // MARK: ConversationalAssistant
+
+    /// `ContentAssistant`'s plain-text path, implemented by flattening ``converse(prompt:context:)``'s
+    /// event stream — same shape as `ACPAssistant.generate`.
+    public func generate(prompt: String, context: AssistantContext) async throws -> AsyncThrowingStream<String, Error> {
+        let events = try await converse(prompt: prompt, context: context)
+        return AsyncThrowingStream { continuation in
+            Task {
+                for await event in events {
+                    switch event {
+                    case .textDelta(let text): continuation.yield(text)
+                    case .failed(let message): continuation.finish(throwing: AssistantError.streamFailed(message)); return
+                    case .turnComplete, .backendExited: continuation.finish(); return
+                    default: break
+                    }
+                }
+                continuation.finish()
+            }
+        }
+    }
+
+#if compiler(>=6.4) && canImport(FoundationModels)
+    /// Always throws: guided generation is defined by FoundationModels' `Generable` machinery,
+    /// which a plain HTTP chat-completions endpoint can't participate in.
+    public func generateStructured<T: Generable & Sendable>(prompt: String, context: AssistantContext, resultType: T.Type) async throws -> T {
+        throw AssistantError.unsupported("External LLM endpoints do not support FoundationModels guided generation")
+    }
+#endif
+
+    /// Streams one conversational turn. Performs the HTTP request and validates the initial
+    /// response *before* returning the stream — a bad response (auth failure, wrong model, DNS
+    /// failure) is a setup failure per `ConversationalAssistant`'s documented contract, not an
+    /// in-band `.failed` event. Only a failure *after* streaming begins (dropped connection,
+    /// malformed chunk) becomes `.failed`.
+    public func converse(prompt: String, context: AssistantContext) async throws -> AsyncStream<AssistantEvent> {
+        activeRelay?.cancel()
+        activeDrainTask?.cancel()
+
+        seedHistoryIfNeeded(context: context)
+        messages.append(ChatMessage(role: "user", content: Self.turnPrompt(for: prompt, context: context)))
+        trimHistoryIfNeeded()
+
+        let request = try makeURLRequest(messages: messages)
+
+#if canImport(Darwin)
+        let (asyncBytes, response) = try await urlSession.bytes(for: request)
+#else
+        let runner = HTTPStreamingRunner()
+        let response = try await runner.start(request, configuration: urlSession.configuration)
+#endif
+        guard let http = response as? HTTPURLResponse else { throw HTTPError.badResponse }
+        guard (200...299).contains(http.statusCode) else {
+#if canImport(Darwin)
+            let body = await Self.readBounded(asyncBytes)
+#else
+            let body = await Self.readBounded(runner)
+#endif
+            throw HTTPError.http(status: http.statusCode, body: body)
+        }
+
+        let (stream, continuation) = AsyncStream.makeStream(of: AssistantEvent.self)
+        let relay = TurnRelay(continuation)
+        activeRelay = relay
+        relay.deliver(.started(model: configuration.model, toolNames: []))
+
+#if canImport(Darwin)
+        let drainTask = Task { [asyncBytes] in await self.drainSSE(asyncBytes: asyncBytes, relay: relay) }
+#else
+        let drainTask = Task { [runner] in await self.drainSSE(runner: runner, relay: relay) }
+#endif
+        activeDrainTask = drainTask
+        continuation.onTermination = { _ in relay.detach() }
+        return stream
+    }
+
+    /// Ends the current turn for the consumer (`.cancelled`) and stops the underlying network
+    /// read — unlike `FoundationModelAssistant.cancel()`, which must leave the on-device stream
+    /// running (cancelling it mid-flight traps the process), cancelling a plain HTTP read is safe
+    /// and frees the connection promptly.
+    public func cancel() async {
+        activeRelay?.cancel()
+        activeRelay = nil
+        activeDrainTask?.cancel()
+        activeDrainTask = nil
+    }
+
+    public func resetSession() async {
+        activeRelay?.cancel()
+        activeRelay = nil
+        activeDrainTask?.cancel()
+        activeDrainTask = nil
+        messages = []
+    }
+
+    // MARK: History
+
+    /// Seeds the fixed system instruction (and any pre-populated `context.conversationHistory`,
+    /// for a caller that supplies it — the primary chat-panel call site never does, per the
+    /// design doc §3) the first time this session is used. A no-op on every later turn.
+    func seedHistoryIfNeeded(context: AssistantContext) {
+        guard messages.isEmpty else { return }
+        messages.append(ChatMessage(role: "system", content: Self.systemInstruction))
+        for turn in context.conversationHistory {
+            messages.append(ChatMessage(role: turn.role.externalLLMWireRole, content: turn.content))
+        }
+    }
+
+    /// Drops the oldest non-system messages once history exceeds `maxHistoryMessages` — the
+    /// system instruction at index 0 is always kept.
+    func trimHistoryIfNeeded() {
+        let cap = Self.maxHistoryMessages + 1 // +1 for the always-kept system instruction
+        guard messages.count > cap else { return }
+        messages.removeSubrange(1..<(1 + (messages.count - cap)))
+    }
+
+    /// Appends the completed assistant reply to history (so the next turn's request carries it),
+    /// trims if needed, and ends the turn with `.turnComplete`.
+    private func finishTurn(accumulatedText: String, usage: AssistantUsage?, relay: TurnRelay) {
+        messages.append(ChatMessage(role: "assistant", content: accumulatedText))
+        trimHistoryIfNeeded()
+        relay.complete(.turnComplete(usage))
+    }
+
+    // MARK: SSE draining
+
+#if canImport(Darwin)
+    private func drainSSE(asyncBytes: URLSession.AsyncBytes, relay: TurnRelay) async {
+        var dataLines: [String] = []
+        var pendingLineBytes = Data()
+        var accumulatedText = ""
+        var usage: AssistantUsage?
+
+        func handleLine(_ line: String) -> Bool {
+            if line.isEmpty {
+                guard !dataLines.isEmpty else { return false }
+                let payload = dataLines.joined(separator: "\n")
+                dataLines = []
+                if payload == "[DONE]" { return true }
+                guard let chunk = Self.decodeChunk(payload) else { return false }
+                if let delta = chunk.choices?.first?.delta?.content, !delta.isEmpty {
+                    accumulatedText += delta
+                    relay.deliver(.textDelta(delta))
+                }
+                if let chunkUsage = chunk.usage {
+                    usage = AssistantUsage(inputTokens: chunkUsage.promptTokens, outputTokens: chunkUsage.completionTokens)
+                }
+                return false
+            }
+            if line.hasPrefix("data:") {
+                let v = line.dropFirst("data:".count)
+                dataLines.append(v.hasPrefix(" ") ? String(v.dropFirst()) : String(v))
+            }
+            return false
+        }
+
+        do {
+            for try await byte in asyncBytes {
+                try Task.checkCancellation()
+                pendingLineBytes.append(byte)
+                guard byte == 0x0A else { continue }
+                var line = String(decoding: pendingLineBytes.dropLast(), as: UTF8.self)
+                if line.hasSuffix("\r") { line.removeLast() }
+                pendingLineBytes.removeAll(keepingCapacity: true)
+                if handleLine(line) {
+                    finishTurn(accumulatedText: accumulatedText, usage: usage, relay: relay)
+                    return
+                }
+            }
+        } catch {
+            relay.complete(.failed(message: "\(error)"))
+            return
+        }
+        if !pendingLineBytes.isEmpty {
+            _ = handleLine(String(decoding: pendingLineBytes, as: UTF8.self))
+        }
+        finishTurn(accumulatedText: accumulatedText, usage: usage, relay: relay)
+    }
+
+    private static func readBounded(_ bytes: URLSession.AsyncBytes, limit: Int = 4_096) async -> String? {
+        var data = Data()
+        do {
+            for try await byte in bytes {
+                data.append(byte)
+                if data.count >= limit { break }
+            }
+        } catch {
+            // A partial read is still useful for an error message below.
+        }
+        return data.isEmpty ? nil : String(decoding: data, as: UTF8.self)
+    }
+#else
+    private func drainSSE(runner: HTTPStreamingRunner, relay: TurnRelay) async {
+        var dataLines: [String] = []
+        var pendingLineBytes = Data()
+        var accumulatedText = ""
+        var usage: AssistantUsage?
+
+        func handleLine(_ line: String) -> Bool {
+            if line.isEmpty {
+                guard !dataLines.isEmpty else { return false }
+                let payload = dataLines.joined(separator: "\n")
+                dataLines = []
+                if payload == "[DONE]" { return true }
+                guard let chunk = Self.decodeChunk(payload) else { return false }
+                if let delta = chunk.choices?.first?.delta?.content, !delta.isEmpty {
+                    accumulatedText += delta
+                    relay.deliver(.textDelta(delta))
+                }
+                if let chunkUsage = chunk.usage {
+                    usage = AssistantUsage(inputTokens: chunkUsage.promptTokens, outputTokens: chunkUsage.completionTokens)
+                }
+                return false
+            }
+            if line.hasPrefix("data:") {
+                let v = line.dropFirst("data:".count)
+                dataLines.append(v.hasPrefix(" ") ? String(v.dropFirst()) : String(v))
+            }
+            return false
+        }
+
+        do {
+            for try await chunk in runner.bodyStream {
+                try Task.checkCancellation()
+                for byte in chunk {
+                    pendingLineBytes.append(byte)
+                    guard byte == 0x0A else { continue }
+                    var line = String(decoding: pendingLineBytes.dropLast(), as: UTF8.self)
+                    if line.hasSuffix("\r") { line.removeLast() }
+                    pendingLineBytes.removeAll(keepingCapacity: true)
+                    if handleLine(line) {
+                        finishTurn(accumulatedText: accumulatedText, usage: usage, relay: relay)
+                        return
+                    }
+                }
+            }
+        } catch {
+            relay.complete(.failed(message: "\(error)"))
+            return
+        }
+        if !pendingLineBytes.isEmpty {
+            _ = handleLine(String(decoding: pendingLineBytes, as: UTF8.self))
+        }
+        finishTurn(accumulatedText: accumulatedText, usage: usage, relay: relay)
+    }
+
+    private static func readBounded(_ runner: HTTPStreamingRunner, limit: Int = 4_096) async -> String? {
+        var data = Data()
+        do {
+            for try await chunk in runner.bodyStream {
+                data.append(chunk)
+                if data.count >= limit { break }
+            }
+        } catch {
+            // A partial read is still useful for an error message below.
+        }
+        return data.isEmpty ? nil : String(decoding: data, as: UTF8.self)
+    }
+#endif
 
     // MARK: Wire format
 
@@ -159,5 +428,19 @@ public actor ExternalLLMBackend {
     static func truncatedPageContent(_ content: String) -> String {
         guard content.count > maxPageContentCharacters else { return content }
         return String(content.prefix(maxPageContentCharacters)) + "…"
+    }
+}
+
+/// Maps the provider-neutral `AssistantMessage.Role` onto the chat-completions wire role string
+/// — `ExternalLLMBackend`-only, kept next to the type rather than as a general `AssistantMessage`
+/// extension since no other backend needs this mapping (both `FoundationModelAssistant` and
+/// `ACPAssistant` maintain their own session state instead of round-tripping `AssistantMessage`).
+private extension AssistantMessage.Role {
+    var externalLLMWireRole: String {
+        switch self {
+        case .user: return "user"
+        case .assistant: return "assistant"
+        case .system: return "system"
+        }
     }
 }
