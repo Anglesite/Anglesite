@@ -15,11 +15,28 @@ struct FollowerRow: Identifiable, Equatable {
 
     /// Never empty: the fetched display name, else the fetched username, else the derived
     /// handle, else the raw IRI. This chain is why a failed profile fetch needs no error state.
-    var displayName: String {
+    var displayName: String { ActorDisplay.name(profile: profile, handle: handle, actor: actor) }
+}
+
+/// Shared display-name derivation for both `FollowerRow` and `PendingRequestRow`: fetched
+/// display name, else fetched username, else derived handle, else the raw IRI.
+enum ActorDisplay {
+    static func name(profile: ActorProfile?, handle: String?, actor: URL) -> String {
         if let name = profile?.name, !name.isEmpty { return name }
         if let username = profile?.preferredUsername, !username.isEmpty { return "@\(username)" }
         return handle ?? actor.absoluteString
     }
+}
+
+/// One pending follow request in the Followers pane's "Pending Requests" section — pairs the
+/// Worker's `PendingFollower` with the same lazily-enriched display identity `FollowerRow` uses.
+struct PendingRequestRow: Identifiable, Equatable {
+    let request: PendingFollower
+    var profile: ActorProfile?
+
+    var id: URL { request.actor }
+    var handle: String? { ActorHandle.derive(from: request.actor) }
+    var displayName: String { ActorDisplay.name(profile: profile, handle: handle, actor: request.actor) }
 }
 
 /// Drives the Followers pane (Website ▸ Followers…, V-4.2 #364): reads the site's own public
@@ -37,6 +54,19 @@ final class FollowersModel {
         /// The Worker answered 503: ActivityPub isn't activated for this site.
         case notActivated
         /// 404 or a transport failure: unreachable, or the Worker isn't deployed.
+        case unreachable(String)
+    }
+
+    /// Loading lifecycle for the pending-request list — deliberately separate from `State`
+    /// (see the design doc's rationale): pending availability is orthogonal to whether the
+    /// main follower list loaded.
+    enum PendingState: Equatable {
+        case unknown
+        case loading
+        case loaded
+        /// The upstream `GET <actor>/follow_requests` route 404s — not shipped yet. Never
+        /// shown as an error; the pending section simply stays hidden.
+        case unavailable
         case unreachable(String)
     }
 
@@ -90,15 +120,28 @@ final class FollowersModel {
     private var pendingQueue: [URL] = []
     private var saveTask: Task<Void, Never>?
 
+    private(set) var pendingRows: [PendingRequestRow] = []
+    private(set) var pendingState: PendingState = .unknown
+
+    private var siteID: String?
+    private let secretStore: any SecretStore
+    private let membershipTransport: CommunityMembershipClient.Transport
+    private var membershipClient: CommunityMembershipClient?
+
     init(
         fetcher: ActorProfileFetcher = ActorProfileFetcher(),
         avatarLoader: AvatarLoader = AvatarLoader(),
         followersTransport: @escaping ActivityPubFollowersClient.Transport
-            = ActivityPubFollowersClient.defaultTransport
+            = ActivityPubFollowersClient.defaultTransport,
+        secretStore: any SecretStore = PlatformSecretStore.make(),
+        membershipTransport: @escaping CommunityMembershipClient.Transport
+            = CommunityMembershipClient.defaultTransport
     ) {
         self.fetcher = fetcher
         self.avatarLoader = avatarLoader
         self.followersTransport = followersTransport
+        self.secretStore = secretStore
+        self.membershipTransport = membershipTransport
     }
 
     var canLoadMore: Bool { nextPage != nil && state == .loaded }
@@ -108,6 +151,7 @@ final class FollowersModel {
     func configure(site: CurrentSite) {
         configDirectory = site.configDirectory
         sourceDirectory = site.sourceDirectory
+        siteID = site.id
         cache = ActorProfileCache.load(from: site.configDirectory) ?? ActorProfileCache()
         resolveSite()
     }
@@ -127,10 +171,19 @@ final class FollowersModel {
         guard let siteURL else {
             client = nil
             actorURL = nil
+            membershipClient = nil
             return
         }
         client = ActivityPubFollowersClient(siteURL: siteURL, transport: followersTransport)
         actorURL = ActivityPubActor.actorURL(siteURL: siteURL)
+        membershipClient = publishToken.map { token in
+            CommunityMembershipClient(ownActorURL: actorURL!, publishToken: token, transport: membershipTransport)
+        }
+    }
+
+    private var publishToken: String? {
+        guard let siteID else { return nil }
+        return try? secretStore.read(account: SecretAccounts.activityPubPublishToken(siteID: siteID))
     }
 
     /// The error states' Try Again. Re-resolves the site before reloading, so publishing the site
@@ -266,6 +319,33 @@ final class FollowersModel {
             unreachableActors.insert(key)
         }
         pumpQueue()
+    }
+
+    // MARK: - Pending requests
+
+    /// Fetches the pending-follow-request list from this site's own Worker. A 404 (the
+    /// upstream capability not shipped yet) degrades to `.unavailable` with an empty list —
+    /// never a user-facing error, mirroring `ModerationModel.loadPendingFollowers()`'s same
+    /// rule against the same endpoint. No-ops (leaves `.unknown`) until `configure(site:)` has
+    /// resolved a `membershipClient` — no site URL yet, or no publish token provisioned.
+    func loadPending() async {
+        guard let membershipClient else { return }
+        pendingState = .loading
+        do {
+            let requests = try await membershipClient.listFollowRequests()
+            pendingRows = requests.map { request in
+                PendingRequestRow(request: request, profile: cache.profile(for: request.actor))
+            }
+            pendingState = .loaded
+        } catch CommunityMembershipError.requestFailed(status: 404, body: _) {
+            pendingRows = []
+            pendingState = .unavailable
+        } catch {
+            // Additive, not destructive: a transient failure keeps whatever rows are already
+            // on screen rather than blanking the section, matching `loadMoreFailure`'s rule
+            // for the main list.
+            pendingState = .unreachable("\(error)")
+        }
     }
 
     // MARK: - Cache persistence

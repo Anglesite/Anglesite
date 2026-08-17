@@ -120,6 +120,66 @@ struct FollowersModelTests {
             followersTransport: await server.transport)
     }
 
+    final class InMemorySecretStore: SecretStore, @unchecked Sendable {
+        var values: [String: String] = [:]
+        func read(account: String) throws -> String? { values[account] }
+        func write(_ value: String, account: String) throws { values[account] = value }
+        func delete(account: String) throws { values.removeValue(forKey: account) }
+    }
+
+    /// Serves `GET <actor>/follow_requests` out of a scripted routing table, same shape as
+    /// `Server` but for the membership (outbox/follow_requests) transport rather than the
+    /// public followers transport.
+    private actor MembershipServer {
+        private var routes: [String: (status: Int, body: String)]
+        private(set) var requestedBodies: [[String: Any]] = []
+
+        init(routes: [String: (status: Int, body: String)] = [:]) {
+            self.routes = routes
+        }
+
+        func setRoute(_ path: String, status: Int, body: String) {
+            routes[path] = (status, body)
+        }
+
+        fileprivate func respond(to request: URLRequest) -> (Data, HTTPURLResponse) {
+            if let data = request.httpBody,
+               let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                requestedBodies.append(json)
+            }
+            let path = request.url!.path
+            let (status, body) = routes[path] ?? (404, "not found")
+            let http = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
+            return (Data(body.utf8), http)
+        }
+
+        fileprivate var transport: CommunityMembershipClient.Transport {
+            { [self] request in await respond(to: request) }
+        }
+    }
+
+    /// A model with both a scripted followers server and a scripted membership (pending/
+    /// accept/reject) server, plus a preloaded publish token — for pending-request tests.
+    private static func makeModelWithPending(
+        server: Server, membershipServer: MembershipServer, secretStore: InMemorySecretStore
+    ) async -> FollowersModel {
+        FollowersModel(
+            fetcher: ActorProfileFetcher(transport: { _ in
+                throw ActorProfileError.requestFailed(status: 500)
+            }),
+            avatarLoader: AvatarLoader(transport: { _ in
+                throw AvatarLoadError.requestFailed(status: 500)
+            }),
+            followersTransport: await server.transport,
+            secretStore: secretStore,
+            membershipTransport: await membershipServer.transport)
+    }
+
+    private static func followRequestsBody(items: [(actor: String, addedAt: String)]) -> String {
+        let list = items.map { #"{"actor":"\#($0.actor)","addedAt":"\#($0.addedAt)"}"# }.joined(separator: ",")
+        return #"{"items":[\#(list)],"total":\#(items.count)}"#
+    }
+
     // MARK: - Finding 2: every error state must be escapable
 
     /// The `.noSiteURL` message tells the owner to publish the site. Before the fix, the pane
@@ -289,5 +349,60 @@ struct FollowersModelTests {
         await paging
 
         #expect(model.rows.map(\.id) == ["https://a.example/users/a"])
+    }
+
+    // MARK: - Pending requests
+
+    @Test("loadPending decodes the follow_requests list into enrichable rows")
+    func loadPendingDecodesRequests() async throws {
+        let (site, root) = try Self.makeSite(siteURL: "https://example.com")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let membershipServer = MembershipServer(routes: [
+            "/users/site/follow_requests": (
+                200,
+                Self.followRequestsBody(items: [("https://mastodon.social/users/alice", "2026-08-01T00:00:00.000Z")])
+            )
+        ])
+        let model = await Self.makeModelWithPending(
+            server: Server(routes: [:]), membershipServer: membershipServer, secretStore: secretStore)
+        model.configure(site: site)
+
+        await model.loadPending()
+
+        #expect(model.pendingState == .loaded)
+        #expect(model.pendingRows.count == 1)
+        #expect(model.pendingRows[0].request.actor.absoluteString == "https://mastodon.social/users/alice")
+    }
+
+    @Test("loadPending treats a 404 as unavailable, not an error")
+    func loadPendingTreats404AsUnavailable() async throws {
+        let (site, root) = try Self.makeSite(siteURL: "https://example.com")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let model = await Self.makeModelWithPending(
+            server: Server(routes: [:]), membershipServer: MembershipServer(), secretStore: secretStore)
+        model.configure(site: site)
+
+        await model.loadPending()
+
+        #expect(model.pendingState == .unavailable)
+        #expect(model.pendingRows.isEmpty)
+    }
+
+    @Test("loadPending is a no-op with no publish token provisioned")
+    func loadPendingNoOpsWithoutToken() async throws {
+        let (site, root) = try Self.makeSite(siteURL: "https://example.com")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = await Self.makeModelWithPending(
+            server: Server(routes: [:]), membershipServer: MembershipServer(), secretStore: InMemorySecretStore())
+        model.configure(site: site)
+
+        await model.loadPending()
+
+        #expect(model.pendingState == .unknown)
+        #expect(model.pendingRows.isEmpty)
     }
 }
