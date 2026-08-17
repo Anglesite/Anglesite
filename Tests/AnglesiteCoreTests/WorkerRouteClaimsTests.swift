@@ -90,6 +90,7 @@ struct WorkerRouteClaimsTests {
         "",
         "webfinger",
         "/.well-known",
+        "/.well-known/",
         "/a//b",
         "/a/b//",
         "/a/../b",

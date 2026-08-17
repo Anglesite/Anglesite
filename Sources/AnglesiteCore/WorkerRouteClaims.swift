@@ -130,7 +130,10 @@ public enum WorkerRouteClaims {
         }
         // RFC 8615: `/.well-known/` itself has no representation — the bare directory is never
         // claimable, exactly or (which would swallow the whole namespace) as a prefix.
-        if path == "/.well-known" { return "the bare /.well-known directory cannot be claimed" }
+        // Normalize trailing slash when checking (an experiment path may have "/", but the
+        // reserved-directory invariant applies to both "/.well-known" and "/.well-known/").
+        let normalized = (allowRoot && path.hasSuffix("/")) ? String(path.dropLast()) : path
+        if normalized == "/.well-known" { return "the bare /.well-known directory cannot be claimed" }
         return nil
     }
 
