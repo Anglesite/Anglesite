@@ -376,7 +376,7 @@ final class FollowersModel {
     /// Declines a pending follower. Never called directly by the view — only through
     /// ``confirmReject()``, after `rejectConfirmation` is armed, since Reject is destructive
     /// (mac-assed-app-spec §5).
-    func reject(_ row: PendingRequestRow) async {
+    private func reject(_ row: PendingRequestRow) async {
         guard let membershipClient else { return }
         pendingRows.removeAll { $0.id == row.id }
         do {
