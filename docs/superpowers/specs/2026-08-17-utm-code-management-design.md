@@ -154,10 +154,21 @@ import utmCodesArtifact from "../utm-codes.json";
 
 In `fanOutMicropubCreateToActivityPub`, before `location` is assigned to
 `note.url`, look up the campaign whose `appliesTo` includes `"fediverse"`
-(if any) and tag it with the same `tagUrl` helper (hoisted into
-`utm-codes.ts` so both the Astro lib code and the Worker import the same
-pure function — the Worker bundle already pulls from `src/lib` elsewhere, so
-this isn't a new cross-boundary import pattern).
+(if any) and tag it via `worker/utm-codes.ts`. As built, this is a small,
+self-contained, fs-free duplicate of the `UTMCampaign` shape check and the
+`utm_*` tagging logic — not `readUTMCodes` itself, which needs `node:fs`/
+`node:path` and can't run in a Worker. It exports a single function,
+`tagFediverseUrl(url, campaignsArtifact)`, called from
+`fanOutMicropubCreateToActivityPub` alongside the static
+`import utmCodesArtifact from "../utm-codes.json"` above (mirroring the
+existing `experiments.json` import pattern). This is intentional
+duplication, not a shared import: `worker.ts` has no precedent for
+importing from `src/lib`, and `src/lib/utm-codes.ts` imports `node:fs`/
+`node:path` at module scope (via `readUTMCodes`), which cannot be bundled
+into a Cloudflare Worker at all — that fs dependency, not merely "no
+precedent," is the real, load-bearing reason the tagging logic lives in its
+own worker-local file instead of being hoisted into a function both sides
+import.
 
 ## Swift UI
 
