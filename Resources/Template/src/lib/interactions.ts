@@ -34,7 +34,7 @@ const httpUrl = z.string().url().refine(
 const interactionSchema = z.object({
   /// Path-traversal guard: same rule as ReceivedInteraction.swift's init.
   id: z.string().regex(/^[A-Za-z0-9_-]+$/),
-  type: z.enum(["webmention", "activitypub", "micropub"]),
+  type: z.enum(["webmention", "activitypub", "micropub", "bluesky"]),
   source: httpUrl,
   target: httpUrl,
   interactionType: z.enum(["reply", "like", "repost", "bookmark", "mention"]),
