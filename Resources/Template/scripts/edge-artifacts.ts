@@ -138,6 +138,14 @@ Disallow:
     // Sanitized: robots.txt is newline-delimited, so a path containing one would inject an extra
     // directive into the `User-agent: *` group.
     body += `Disallow: ${sanitizeForHeaderLine(entry.path)}\n`;
+    // The .md mirror routes (blog/[...slug].md.ts, [collection]/[...slug].md.ts, #1279) are
+    // unconditional — they exist regardless of experimental.webmcp — so a disallowed directory-
+    // style page (path ends in "/") gets its plain-text twin disallowed too, or a crawler could
+    // read the disallowed content straight off the .md sibling. Harmless to emit for entries with
+    // no real .md mirror (search pages, hand-authored paths): a Disallow for a 404 is a no-op.
+    if (entry.path.endsWith("/")) {
+      body += `Disallow: ${sanitizeForHeaderLine(entry.path.slice(0, -1) + ".md")}\n`;
+    }
   }
   const contentSignal = contentSignalDirective(usage);
   if (contentSignal) {
