@@ -1,0 +1,33 @@
+{
+  "manifest_version": 3,
+  "name": "Anglesite IndieWeb",
+  "version": "1.0",
+  "description": "Detects IndieWeb features on the page you're viewing: h-cards, feeds, webmentions, ActivityPub, and general microformats2.",
+  "icons": {
+    "48": "images/icon-48.png",
+    "96": "images/icon-96.png",
+    "128": "images/icon-128.png",
+    "256": "images/icon-256.png",
+    "512": "images/icon-512.png"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "action": {
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "images/icon-48.png",
+      "96": "images/icon-96.png"
+    }
+  },
+  "content_scripts": [
+    {
+      "matches": ["<all_urls>"],
+      "js": ["content-script.js"],
+      "run_at": "document_idle"
+    }
+  ],
+  "permissions": ["storage", "webRequest"],
+  "host_permissions": ["<all_urls>"]
+}

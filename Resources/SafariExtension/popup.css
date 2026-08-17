@@ -1,0 +1,54 @@
+body {
+  width: 320px;
+  margin: 0;
+  padding: 12px;
+  font: 13px -apple-system, system-ui, sans-serif;
+  color: #1c1c1e;
+}
+
+h1 {
+  font-size: 14px;
+  margin: 0 0 8px;
+}
+
+h2 {
+  font-size: 13px;
+  margin: 0 0 4px;
+}
+
+section {
+  margin-bottom: 12px;
+}
+
+ul {
+  margin: 0;
+  padding-left: 18px;
+}
+
+.empty-state {
+  color: #6e6e73;
+}
+
+.endpoint-badge a {
+  color: #0066cc;
+}
+
+button {
+  font: inherit;
+  padding: 4px 8px;
+}
+
+@media (prefers-color-scheme: dark) {
+  body {
+    background: #1c1c1e;
+    color: #f2f2f7;
+  }
+
+  .empty-state {
+    color: #8e8e93;
+  }
+
+  .endpoint-badge a {
+    color: #409cff;
+  }
+}
