@@ -2398,6 +2398,9 @@
     "Not Set" : {
 
     },
+    "Not Updated" : {
+
+    },
     "Not checked yet." : {
 
     },
@@ -4155,6 +4158,9 @@
 
     },
     "selector" : {
+
+    },
+    "stays at %@" : {
 
     },
     "trending down" : {
