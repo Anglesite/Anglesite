@@ -50,13 +50,16 @@ final class ShareComposeModel {
         self.createLinkPost = createLinkPost
     }
 
-    /// Loads the site picker and, when Safari didn't supply a usable title, fetches page
-    /// metadata to fill it — same best-effort behavior as the app's Quick Capture sheet (a fetch
-    /// failure just leaves the title blank and editable, never blocks the sheet).
+    /// Loads the site picker and fetches page metadata — same best-effort behavior as the app's
+    /// Quick Capture sheet (`QuickCaptureSheet`'s `.task(id: urlString)`): the fetch always runs
+    /// for a valid URL, since the card image (#1451) comes from it regardless of whether Safari
+    /// already supplied a title; only the *title* field is guarded against being overwritten
+    /// when one is already populated. A fetch failure just leaves the title/image blank, never
+    /// blocks the sheet.
     func onAppear() async {
         sites = listSites()
         selectedSiteID = sites.first?.id
-        guard title.isEmpty, let url = URL(string: urlString) else { return }
+        guard let url = URL(string: urlString) else { return }
         isFetchingMetadata = true
         defer { isFetchingMetadata = false }
         if let metadata = try? await fetchMetadata(url) {
