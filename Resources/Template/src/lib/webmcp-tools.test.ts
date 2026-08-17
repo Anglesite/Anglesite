@@ -55,6 +55,13 @@ test("formatSearchResults: formats title, url, and a stripped-HTML excerpt", () 
   });
 });
 
+test("formatSearchResults: strips a nested/overlapping tag construct a single-pass strip would miss", () => {
+  const result = formatSearchResults([
+    { url: "/blog/x/", excerpt: "before <<script>script>alert(1)<</script>/script> after" },
+  ]);
+  assert.equal((result.content[0].text.match(/<script/) ?? null), null);
+});
+
 test("formatSearchResults: falls back to the URL when no title is present", () => {
   const result = formatSearchResults([{ url: "/notes/hello-note/" }]);
   assert.deepEqual(result, {

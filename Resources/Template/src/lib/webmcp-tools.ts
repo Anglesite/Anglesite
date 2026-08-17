@@ -70,8 +70,18 @@ export interface PagefindResultData {
   meta?: { title?: string };
 }
 
+/** Strips HTML tags from a Pagefind excerpt. Loops to a fixed point rather than a single pass:
+ * a construct like `<<script>script>` only exposes the inner `<script>` after removing the
+ * outer angle brackets, so one pass alone can leave a live tag behind (CodeQL
+ * js/incomplete-multi-character-sanitization, flagged on PR #1523). */
 function stripHtml(html: string): string {
-  return html.replace(/<[^>]+>/g, "");
+  let previous: string;
+  let current = html;
+  do {
+    previous = current;
+    current = previous.replace(/<[^>]+>/g, "");
+  } while (current !== previous);
+  return current;
 }
 
 export function formatSearchResults(results: PagefindResultData[]): WebmcpToolResult {
