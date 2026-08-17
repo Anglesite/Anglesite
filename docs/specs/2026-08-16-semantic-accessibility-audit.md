@@ -187,15 +187,20 @@ single largest count of individual findings in the audit, but structurally it's 
 (`SettingsBox` plus a small number of hand-rolled call sites) rather than dozens of
 independent ones.
 
-Custom selection state (`.isSelected`) is inconsistently applied to hand-built selectable
-controls: `LicenseGateSheetView.swift:169-195` and `NewSiteWizard.swift:200-213`
-(`ThemeChooserCard`) get it right; the structurally-identical `ThemeApplyWizard.swift:123-174`
-(`ThemeApplyCard`) — same selectable-theme-card idiom, same `isSelected` bool already in
-scope — does not, so a VoiceOver user gets no indication which theme is selected in that
-wizard's grid even though its sibling wizard handles the identical case correctly.
+Custom selection state is inconsistently exposed on hand-built selectable controls — via two
+different, non-interchangeable mechanisms, both legitimate: `LicenseGateSheetView.swift:169-195`
+uses `.accessibilityAddTraits(.isSelected)` (the `.isSelected` trait); `NewSiteWizard.swift:200-213`
+(`ThemeChooserCard`) instead uses `.accessibilityValue("Selected"/"")` (a value, not a trait) —
+both are correct, checklist-consistent ways to convey selection, just not the same one.
+The structurally-identical `ThemeApplyWizard.swift:123-174` (`ThemeApplyCard`) — same
+selectable-theme-card idiom, same `isSelected` bool already in scope — has **no accessibility
+modifiers at all** (no combine, label, value, or trait), not merely a missing selection
+indicator: a VoiceOver user gets nothing usable from that card, let alone which theme is
+selected, even though its sibling wizard handles the identical case correctly.
 `SiteGraphExplorerView.swift:304-359` (`SiteGraphNodeButton`) and
 `ComponentEditorCanvasPane.swift:44-54` (viewport preset buttons acting as a segmented
-selector) have the same gap.
+selector) have the missing-selection-indicator version of this gap (they do have a label,
+just no selection signal).
 
 Live-updating status text (the `.updatesFrequently` case) is handled two ways: correctly
 via a purpose-built `LiveRegionAnnouncer` + `AccessibilityNotification.Announcement` in
@@ -247,9 +252,12 @@ individual findings per change):
 3. **Label the remaining icon-only "remove row" buttons** across the component/typed-entry
    editors (`ComponentMetadataInspectorPane`, `ComponentStyleInspectorPane`,
    `TypedEntryEditorView`, `PlistEditorView`) — mechanical, low-risk, one pattern repeated.
-4. **Bring `ThemeApplyCard` (`ThemeApplyWizard.swift`) up to `ThemeChooserCard`'s standard**
-   (combine + `.accessibilityValue` + `.isSelected`) — same idiom already proven correct one
-   file away.
+4. **Bring `ThemeApplyCard` (`ThemeApplyWizard.swift:123-174`) up to `ThemeChooserCard`'s
+   standard** — it currently has no accessibility modifiers at all. Copy
+   `ThemeChooserCard`'s exact mechanism (`NewSiteWizard.swift:200-213`): combine + label +
+   `.accessibilityValue("Selected"/"")` for selection state — a **value**, not the
+   `.isSelected` **trait** (that's a different, equally valid mechanism used elsewhere, e.g.
+   `LicenseGateSheetView.swift:169-195`, but not the one this sibling wizard established).
 5. **Add `.accessibilityValue` to `PhaseProgressStrip`** (deploy progress) and to
    `DesignInterviewPanel`'s five axis sliders (label them with the axis name).
 6. **Group remaining ungrouped compound rows** not covered by #1 —
