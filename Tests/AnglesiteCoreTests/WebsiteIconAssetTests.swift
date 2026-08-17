@@ -37,6 +37,29 @@ struct WebsiteIconAssetTests {
         #expect(WebsiteIconAsset.insertHeadLinks(into: source) == source)
     }
 
+    @Test("insertHeadLinks inserts only the missing manifest link when favicon links already exist")
+    func insertHeadLinksAddsOnlyMissingLink() {
+        // Mirrors a post-#1525 layout: favicon.ico/favicon.png/apple-touch-icon are baked in,
+        // but site.webmanifest was deliberately left out to avoid colliding with the PWA integration.
+        let source = """
+        <html>
+          <head>
+            <link rel="icon" href="/favicon.ico" sizes="any" />
+            <link rel="icon" type="image/png" href="/favicon.png" />
+            <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+            <title>Acme</title>
+          </head>
+        </html>
+        """
+
+        let patched = WebsiteIconAsset.insertHeadLinks(into: source)
+
+        #expect(patched.contains(#"<link rel="manifest" href="/site.webmanifest" />"#))
+        #expect(patched.components(separatedBy: #"href="/favicon.ico""#).count == 2)
+        #expect(patched.components(separatedBy: #"href="/favicon.png""#).count == 2)
+        #expect(patched.components(separatedBy: #"href="/apple-touch-icon.png""#).count == 2)
+    }
+
     @Test("patchLayout updates an Astro layout file")
     func patchLayout() throws {
         let fm = FileManager.default
