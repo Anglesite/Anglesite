@@ -191,6 +191,28 @@ public enum CompletionNoticeBuilder {
         return "Found \(parts.joined(separator: ", "))."
     }
 
+    // MARK: Follow Request
+
+    /// Builds the notice for newly-arrived pending follow requests (#965). Unlike
+    /// deploy/backup/audit this isn't a terminal phase of a user-triggered operation — it's
+    /// posted by `FollowersModel`'s background poll whenever the pending count exceeds what
+    /// was last notified (see that type's `onNewPendingRequests`). Stable identifier per site
+    /// so a later, larger count replaces the earlier banner rather than stacking — the banner
+    /// always reflects the true current pending total, never a stale partial count.
+    public static func followRequest(siteName: String, siteID: String, count: Int) -> CompletionNotice {
+        let isSingular = count == 1
+        return CompletionNotice(
+            title: isSingular ? "New Follow Request" : "New Follow Requests",
+            subtitle: siteName,
+            body: isSingular
+                ? "1 person wants to follow your site."
+                : "\(count) people want to follow your site.",
+            siteID: siteID,
+            identifier: "followRequest.\(siteID)",
+            isFailure: false
+        )
+    }
+
     // MARK: Duration
 
     /// "12s" under a minute; "1m 05s" above. Whole seconds — sub-second precision is noise in a
