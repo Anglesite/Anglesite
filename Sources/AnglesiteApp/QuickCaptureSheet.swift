@@ -197,42 +197,21 @@ enum QuickCapture {
         urls.first { $0.scheme?.lowercased() == "http" || $0.scheme?.lowercased() == "https" }
     }
 
-    /// The `fieldValues` a link post writes through `createTyped`. `body` is always supplied —
-    /// commentary text, or `""` meaning "no body" — because an absent key keeps
-    /// `renderEntry`'s "Write your bookmark here." placeholder, which must never appear in a
-    /// published post (Task 3's supplied-but-empty rule).
-    static func fieldValues(urlString: String, commentary: String, draft: Bool) -> [String: String] {
-        [
-            "bookmarkOf": urlString,
-            "draft": draft ? "true" : "false",
-            // Always supplied: commentary text, or "" meaning "no body" — never the
-            // "Write your bookmark here." placeholder (Task 3's supplied-but-empty rule).
-            "body": commentary,
-        ]
-    }
-
     /// Windowless create for the launcher flow: same native path the intents use
     /// (`Bootstrap.swift`'s resolver), no content graph (the site has no open window to
-    /// refresh; an open window's file watcher picks the new file up on its own).
+    /// refresh; an open window's file watcher picks the new file up on its own). Delegates the
+    /// actual create+card-image logic to `LinkPostCreation` (#1450), shared with the share
+    /// extension's compose flow.
     static func createLinkPost(
         siteID: String, title: String, urlString: String, commentary: String,
         imageURL: String?, draft: Bool
     ) async -> ContentCreateResult {
-        // Resolved once and shared by the create and the capture. Re-querying `SiteStore` after
-        // the write would be a second actor hop, and a site closed in between the two lookups
-        // would silently skip the card image for an entry the first lookup just wrote (#1451).
+        // Resolved once and shared with LinkPostCreation — re-querying SiteStore after the write
+        // would be a second actor hop, and a site closed in between the two lookups would
+        // silently skip the card image for an entry the first lookup just wrote (#1451).
         let sourceDirectory = await SiteStore.shared.find(id: siteID)?.sourceDirectory
-        let workflow = ContentCreationWorkflow.native(
-            contentGraph: nil,
-            siteDirectory: { _ in sourceDirectory }
-        )
-        let result = await workflow.createTyped(
-            siteID: siteID, typeID: "bookmark", title: title, slug: nil,
-            fieldValues: fieldValues(urlString: urlString, commentary: commentary, draft: draft))
-        // Best-effort card image, after the entry exists (#1451) — a failure here leaves a
-        // perfectly good link post, so its result is deliberately ignored.
-        _ = await LinkPostImageCapture().capture(
-            imageURL: imageURL, createResult: result, siteDirectory: sourceDirectory)
-        return result
+        return await LinkPostCreation.create(
+            siteID: siteID, title: title, urlString: urlString, commentary: commentary,
+            imageURL: imageURL, draft: draft, sourceDirectory: sourceDirectory)
     }
 }

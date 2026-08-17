@@ -1706,7 +1706,7 @@ final class SiteWindowModel {
             typeID: "bookmark",
             title: title,
             slug: nil,
-            fieldValues: QuickCapture.fieldValues(urlString: urlString, commentary: commentary, draft: draft)
+            fieldValues: LinkPostCreation.fieldValues(urlString: urlString, commentary: commentary, draft: draft)
         )
         if case .created(let filePath, _) = result {
             // Before the refresh and the undo snapshot, not after: the capture adds `image:` to
