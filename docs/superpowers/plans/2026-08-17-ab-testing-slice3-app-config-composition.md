@@ -17,6 +17,64 @@
 - Run `swift test --package-path .` after every task in this plan — CI's `macos-26` runner will catch build breaks, but the `AnglesiteApp`-target edits in Task 5 only get exercised by a local Xcode-27 `swift test` per this repo's CONTRIBUTING.md note on `AnglesiteAppTests`/`AnglesiteIntentsTests` coverage.
 - Commit subjects ≤72 characters, conventional-commit format, referencing `#1515`.
 
+## Amendment (decided mid-execution, supersedes Task 2 Step 3 and Task 3's test literals)
+
+Both the Task 2 and Task 3 implementers independently hit the same real bug: the design doc's own
+example `anglesite.json` (§2) uses trailing-slash paths throughout (`"page": "/x/homepage-hero/b/"`,
+goal `"path": "/contact/thanks/"`) — matching Astro's directory-style routes — but
+`experimentPathProblem`, specified below as reusing `pathProblem`'s character rules unchanged
+(only permitting the bare root `/`), rejects any trailing slash as "doubled or trailing slashes."
+As originally specified, a real experiment configured exactly like the design doc's own example
+would fail `wrangler.toml` generation. Decided (owner, 2026-08-17): `experimentPathProblem` must
+**also** permit exactly one trailing slash on a non-root path — still rejecting doubled/internal
+empty segments, traversal, encoding, and every other `pathProblem` rule unchanged. This supersedes
+Task 2 Step 3's `pathSyntaxProblem` body (below) and reverts the trailing-slash literals both
+implementers had defensively stripped from their tests back to the design doc's own paths.
+
+Corrected `pathSyntaxProblem` (replaces Task 2 Step 3's version verbatim — same function, one
+added block right after the segment split, before the empty-segment check):
+
+```swift
+    private static func pathSyntaxProblem(_ path: String, allowRoot: Bool) -> String? {
+        if path.isEmpty { return "empty path" }
+        if !path.hasPrefix("/") { return "path must be absolute (start with \"/\")" }
+        if path == "/" {
+            return allowRoot ? nil : "the origin root cannot be claimed"
+        }
+        if path.count > maxPathLength { return "path exceeds \(maxPathLength) characters" }
+        if path.contains("%") { return "percent-encoding is not allowed in route claims" }
+        if let bad = path.unicodeScalars.first(where: { !allowedPathScalars.contains($0) }) {
+            return "disallowed character \(String(reflecting: Character(bad)))"
+        }
+        var segments = path.dropFirst().split(separator: "/", omittingEmptySubsequences: false)
+        // An experiment path may end in exactly one trailing slash — Astro's directory-style
+        // routes (design doc §2's own example: "/x/homepage-hero/b/", "/contact/thanks/") — but a
+        // route claim (an API endpoint, allowRoot == false) never permits one. Dropping at most
+        // one trailing empty segment here still leaves a genuine doubled slash ("/a//") or an
+        // internal empty segment ("/a//b") caught by the check below, since those leave more than
+        // one empty segment (or one not at the end) behind.
+        if allowRoot, segments.count > 1, segments.last?.isEmpty == true {
+            segments.removeLast()
+        }
+        if segments.contains(where: \.isEmpty) {
+            return "empty path segment (no doubled or trailing slashes)"
+        }
+        if segments.contains(where: { $0 == "." || $0 == ".." }) {
+            return "path traversal segment"
+        }
+        if path == "/.well-known" { return "the bare /.well-known directory cannot be claimed" }
+        return nil
+    }
+```
+
+`pathProblem`'s own behavior is unaffected (`allowRoot: false` never enters the new branch — same
+guarantee Task 2's original reviewer already verified for every other rule). Task 2's doc comment
+on `experimentPathProblem` should be updated to describe both permitted differences, not just the
+root. Task 2's and Task 3's test literals that were changed away from the design doc's trailing-
+slash paths (`/x/homepage-hero/b/`, `/contact/thanks/`) should be reverted to match the design doc
+again, plus one new test confirming `experimentPathProblem` still rejects a doubled trailing slash
+(`"/a//"`) and an internal empty segment (`"/a//b"`).
+
 ---
 
 ## File Structure
