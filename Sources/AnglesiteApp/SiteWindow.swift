@@ -1135,6 +1135,11 @@ struct SiteWindow: View {
             CommunitiesView(communities: model.communities)
         case .moderation:
             ModerationView(moderation: model.moderation)
+        case .contacts:
+            ContactsView(
+                contacts: model.contacts,
+                candidateFollowerURLs: { await model.candidateFollowerURLsForContactsMatching() }
+            )
         case .preview:
             previewPane(for: site)
         }

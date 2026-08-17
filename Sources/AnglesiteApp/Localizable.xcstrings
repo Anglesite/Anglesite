@@ -1129,6 +1129,57 @@
     "Contacts" : {
 
     },
+    "Contacts…" : {
+
+    },
+    "Contacts access wasn't granted." : {
+
+    },
+    "Couldn't read your contacts" : {
+
+    },
+    "Couldn't scan Contacts" : {
+
+    },
+    "Find in Contacts…" : {
+
+    },
+    "Add Contact" : {
+
+    },
+    "Add Contact…" : {
+
+    },
+    "Edit Contact" : {
+
+    },
+    "No contacts yet" : {
+
+    },
+    "Open System Settings" : {
+
+    },
+    "Suggestions" : {
+
+    },
+    "Website (e.g. https://example.com)" : {
+
+    },
+    "%lld contacts" : {
+
+    },
+    "Use “%@” from Contacts for " : {
+
+    },
+    "“%@” matches a follower — add as a contact?" : {
+
+    },
+    "Add people you know by their website address, or scan Contacts to find people " : {
+
+    },
+    "The contacts file may be damaged. Back it up, then remove Config/contacts.json " : {
+
+    },
     "Contains slot-fill content — double-click to edit %@" : {
 
     },

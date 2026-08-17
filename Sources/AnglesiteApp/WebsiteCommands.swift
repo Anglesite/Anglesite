@@ -62,6 +62,9 @@ struct WebsiteCommands: Commands {
             Button("Followers…") { model?.presentFollowers() }
                 .disabled(model == nil)
 
+            Button("Contacts…") { model?.presentContacts() }
+                .disabled(model == nil)
+
             Button("Communities…") { model?.presentCommunities() }
                 .disabled(model == nil)
 
