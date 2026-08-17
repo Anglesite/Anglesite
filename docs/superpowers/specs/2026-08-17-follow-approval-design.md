@@ -14,41 +14,48 @@ contact graph, and is a prerequisite for #963's contact list (the gate that deci
 
 ## Scope
 
-This repo (`Anglesite/Anglesite`) only. The full feature spans two repos:
+This repo (`Anglesite/Anglesite`) only. **Revised after verifying upstream state directly**
+(see below) — most of the "upstream" half the issue describes turns out to already be merged:
 
-- **Upstream** (`davidwkeith/workers`, `@dwk/activitypub`): hold inbound `Follow` in a
-  pending state instead of auto-accepting; owner-only endpoints to list pending requests and
-  send Accept/Reject. **Not implemented in this session** — a separate repo, separate PR.
+- **`davidwkeith/workers` `main`** (commit `096d04b`, #476, closing #473) already ships
+  `manuallyApprovesFollowers`, pending-follower tracking (`followers.accepted_at`), and
+  owner-triggered `Accept` of a pending follower via the outbox. Owner `Reject` of a pending
+  follow has been a recognized outbox control activity since the earlier #447 — it already
+  works upstream today, `CommunityMembershipClient` (below) just never grew a Swift method
+  for it. **Not implemented in this session** (still a separate repo) because none of it
+  needs to be — it already shipped.
+- **Still genuinely missing upstream**: an *externally* bearer-gated `GET <actor>/follow_requests`
+  listing route. Only an internal, `@dwk/mastodon-api`-only variant
+  (`__client/follow_requests`, gated on a stricter internal-only header) exists on `main`
+  today. This matches what `CommunityMembershipClient.listFollowRequests()` already assumes
+  in its own doc comments (citing a not-yet-landed PR #488) — the app was already written
+  ahead of this one piece, and this plan doesn't change that. A 404 here continues to mean
+  "not available yet," not a failure.
 - **App** (this repo): everything below.
 
-Per `CONTRIBUTING.md` ▸ "`@dwk/workers` catalog coordination," the app side is built against
-an assumed wire contract, kept backward-compatible (a 404/missing capability degrades to
-"feature inert," not an error), so this PR can merge before the upstream capability ships.
-The assumed contract is documented below and must be noted in the PR body as a pending
-upstream dependency.
+Per `CONTRIBUTING.md` ▸ "`@dwk/workers` catalog coordination," the app side stays
+backward-compatible with that one still-missing route (404 degrades to "feature inert," not
+an error) — no other part of this feature is speculative.
 
 Detection of *new* pending requests polls only while a site's window is open (no
 always-on/background-when-closed daemon — that's `AnglesiteRemote`/#1208 territory) and does
 not persist "last seen count" across app launches (a relaunch re-baselines silently).
 
-## Assumed wire contract
+## Wire contract (already implemented upstream, reused as-is)
 
-Documented here as the contract the upstream PR needs to implement; the app decodes exactly
-this shape.
+`Sources/AnglesiteCore/CommunityMembershipClient.swift` already implements this exact
+contract, for the same reason: it operates on this site's own personal actor
+(`ActivityPubActor.actorURL`), not a separate Group actor — `ModerationModel` already uses it
+against the same actor URL `FollowersModel` resolves. Confirmed against the current
+`davidwkeith/workers` `main` checkout, not just the Anglesite-side comments.
 
-**`GET /users/site/followers/pending`** — owner-only, `Authorization: Bearer <token>`. Same
-`OrderedCollection`/`OrderedCollectionPage` shape as the existing public
-`/users/site/followers` endpoint (`totalItems`/`first`, `orderedItems`/`next`), except each
-page item is an object, not a bare actor IRI string:
+**`GET <actor>/follow_requests`** — owner-only, `Authorization: Bearer <token>`. Unpaged flat
+JSON (mirrors `GET <actor>/blocked`): `{"items": [{"actor": "<IRI>", "addedAt": "<ISO 8601>"}], "total": <n>}`.
+Decoded by `CommunityMembershipClient.listFollowRequests() -> [PendingFollower]`
+(`PendingFollower.id` is the actor IRI itself — there is no separate Follow-activity id to
+track; Accept/Reject target the actor, not the Follow).
 
-```json
-{ "id": "<Follow activity IRI>", "actor": "<follower actor IRI>", "published": "<ISO 8601>" }
-```
-
-The `Follow` activity's `id` is required (not just the actor IRI) because Accept/Reject
-reference it.
-
-**`POST /users/site/outbox`** (the endpoint `ActivityPubOutboxBackfill` already POSTs to,
+**`POST <actor>/outbox`** (the same endpoint `ActivityPubOutboxBackfill` already POSTs to,
 same `Authorization: Bearer <token>`):
 
 ```json
@@ -56,47 +63,44 @@ same `Authorization: Bearer <token>`):
   "@context": "https://www.w3.org/ns/activitystreams",
   "type": "Accept",
   "actor": "<site actor IRI>",
-  "object": "<Follow activity id>"
+  "object": "<follower actor IRI>"
 }
 ```
 
-`"type": "Reject"` for reject. This is standard AS2 (Accept/Reject wrapping the Follow) and
-reuses the existing outbox-POST wire shape rather than inventing a bespoke endpoint — the
-worker fans the activity out to the follower's inbox and, on Accept, folds the actor into the
-public followers collection.
+`"type": "Reject"` for reject, same shape. `CommunityMembershipClient.acceptFollow(target:)`
+already sends the `Accept` form; this plan adds the symmetric `rejectFollow(target:)`.
 
-**Auth**: reuses the existing `SecretAccounts.activityPubPublishToken(siteID:)` Keychain
-secret — already provisioned when ActivityPub is activated for a site (see
-`ActivityPubKeyProvisioning`), already used for outbox backfill. No new secret/token type.
+**Auth**: the existing `SecretAccounts.activityPubPublishToken(siteID:)` Keychain secret —
+already provisioned when ActivityPub is activated for a site (see
+`ActivityPubKeyProvisioning`), already used for outbox backfill and by `ModerationModel`. No
+new secret/token type.
 
-**Backward compatibility**: a 404 (or any non-2xx before the upstream capability ships) on
-the pending endpoint means "not available yet," not a failure — the pending section stays
-hidden rather than showing an error.
+**Backward compatibility**: a 404 from `listFollowRequests()` (the one upstream piece not yet
+externally reachable — see Scope) means "not available yet," not a failure — the pending
+section stays hidden rather than showing an error. Exactly `ModerationModel.loadPendingFollowers()`'s
+existing rule, reused verbatim.
 
 ## App-side components
 
-### `AnglesiteCore`: `ActivityPubFollowRequestsClient` (new)
+### `AnglesiteCore`: `CommunityMembershipClient` (extend, don't duplicate)
 
-Parallel to `ActivityPubFollowersClient`, but *authenticated* — that type's doc comment is
-explicit that it "deliberately carries no auth layer at all" for the public collection, so
-this is a new type rather than an extension of it. Shape:
+No new client type. `CommunityMembershipClient` already has `listFollowRequests()` and
+`acceptFollow(target:)` against exactly this actor; adding a parallel type would mean two
+Swift clients hitting the same endpoints. This plan adds one method:
 
-- `pending() async throws -> FollowersCollection`-equivalent head, `page(at:)` for paging —
-  same decode pattern as `ActivityPubFollowersClient`, but items decode to a new
-  `PendingFollowRequest { id, actor, publishedAt }` rather than a bare `URL`.
-- `accept(_ request: PendingFollowRequest) async throws` / `reject(_:)` — POST to the outbox
-  per the contract above.
-- Injectable `Transport` (same typealias shape as the other two clients), so it unit-tests
-  without real networking.
-- A dedicated `unavailable` signal (e.g. treat 404 as a typed case, not lumped into the
-  generic `requestFailed`) so `FollowersModel` can distinguish "not shipped yet" from a real
-  error without string-matching status codes at the call site.
+- `func rejectFollow(target: URL) async throws` — mirrors `acceptFollow(target:)` exactly,
+  `"type": "Reject"` instead of `"type": "Accept"`, same `post(_:)` helper.
 
 ### `FollowersModel`
 
-- New `pendingRows: [PendingRequestRow]` (mirrors `FollowerRow`: `actor`, `profile`, plus the
-  `Follow` activity `id`) and `pendingState` — a state machine **separate** from the existing
-  `State`, with cases `.unknown / .loading / .loaded / .unavailable / .unreachable(String)`.
+- New `pendingRows: [PendingRequestRow]` — `PendingRequestRow { let request: PendingFollower;
+  var profile: ActorProfile? }`, mirroring how `FollowerRow` pairs `actor` with enrichment.
+  Reuses `PendingFollower` (`Sources/AnglesiteCore/PendingFollower.swift`) as-is rather than a
+  new DTO — `id`/`actor` are the same value (there's no separate Follow-activity id to carry).
+- `pendingState` — a state machine **separate** from the existing `State`, with cases
+  `.unknown / .loading / .loaded / .unavailable / .unreachable(String)`. `.unavailable` is set
+  by catching `CommunityMembershipError.requestFailed(status: 404, body: _)`, the same guard
+  `ModerationModel.loadPendingFollowers()` already uses.
 
   This deliberately departs from the issue's own sketch ("`State` grows a pending case"):
   pending-list availability is orthogonal to whether the main follower list loaded
@@ -108,6 +112,16 @@ this is a new type rather than an extension of it. Shape:
   async`: optimistically removes the row from `pendingRows`; on failure, restores it and sets
   a `pendingActionFailure: String?` (same additive-not-replacing pattern as
   `loadMoreFailure` — a failed accept/reject shouldn't blank the whole pending section).
+  `reject(_:)` is only ever called from `confirmReject()`, gated by a `rejectConfirmation:
+  PendingRequestRow?` property — the exact `banConfirmation`/`confirmBan()` shape
+  `ModerationModel` already establishes, reused for consistency rather than inventing a new
+  confirmation idiom.
+- A dedicated `CommunityMembershipClient` instance, built the same way
+  `ModerationModel`/`CommunitiesModel` build theirs: `ownActorURL` from
+  `ActivityPubActor.actorURL(siteURL:)` (already resolved for the existing
+  `ActivityPubFollowersClient`) plus `publishToken` read via `SecretStore` +
+  `SecretAccounts.activityPubPublishToken(siteID:)`. `FollowersModel` gains a `secretStore:
+  any SecretStore = PlatformSecretStore.make()` init parameter, matching `ModerationModel`'s.
 - Pending rows reuse the existing enrichment pipeline (`ActorProfileCache`,
   `enrichIfNeeded`, `AvatarLoader`) — a pending row's `actor` enriches exactly like a
   follower row's.
@@ -116,9 +130,11 @@ this is a new type rather than an extension of it. Shape:
   `SiteWindowModel.close()` alongside the existing `preview.close()`/`sync.stop()` teardown
   (and restarted implicitly the next time `loadAndStart(...)` calls `configure(site:)` —
   covering both a fresh window open and a window replayed onto a different site).
-- `onNewPendingRequests: ((Int) -> Void)?` — fired only when a poll's pending count is
-  *greater* than the previous in-memory count (not on every poll, and not on the initial
-  load — only genuinely new arrivals warrant an interruption).
+- `onNewPendingRequests: ((Int) -> Void)?` — fired with the current total `pendingRows.count`
+  whenever it exceeds the last-notified count (tracked in a private `lastNotifiedPendingCount`),
+  not on every poll and not on the initial load. Using the running total (not a per-poll delta)
+  means a later notice always reflects the true current count rather than losing an earlier,
+  unread arrival when Notification Center replaces the stable-identifier banner.
 
 ### `FollowersView`
 
@@ -141,8 +157,11 @@ this is a new type rather than an extension of it. Shape:
 - `CompletionNotificationHub.wire(...)` gains a `followers: FollowersModel` parameter,
   wiring `onNewPendingRequests` to a new `CompletionNoticeBuilder.followRequest(siteName:
   siteID: count:)` ("1 new follow request" / "N new follow requests"). Follows the existing
-  per-operation-builder pattern (`deploy`/`backup`/`audit`); clicking the notice routes
-  through `WindowRouter` to the site's Followers pane, same as the existing notices.
+  per-operation-builder pattern (`deploy`/`backup`/`audit`). Clicking the notice focuses the
+  site's window via `WindowRouter.shared.requested`, exactly what `CompletionNotifier`
+  already does for every existing notice — it does not deep-link to a specific pane; no
+  existing notice does, and adding that would be new routing infrastructure this issue
+  doesn't need.
 - Justified under mac-assed-app-spec §7 ("notifications sparingly, only for timely
   information that warrants interruption") — a stranger asking to follow is exactly the kind
   of thing an owner curating a contact graph wants to know about promptly, unlike routine
@@ -150,18 +169,22 @@ this is a new type rather than an extension of it. Shape:
 
 ## Testing
 
-- `ActivityPubFollowRequestsClientTests` (new, `Tests/AnglesiteCoreTests`) — mirrors
-  `ActivityPubFollowersClientTests`: injected transport, decode success/failure, the
-  `.unavailable` (404) signal, accept/reject request shape.
-- `FollowersModelTests` additions: pending load into `.loaded`/`.unavailable`, accept/reject
-  optimistic update + failure rollback, polling fires `onNewPendingRequests` once per
-  genuinely-new arrival (not on every poll, not on first load).
+- `CommunityMembershipClientTests` addition: `rejectFollow(target:)` POSTs a `Reject`
+  activity with the right `actor`/`object`, mirroring the existing `acceptFollow`/`follow`
+  request-shape tests in that file.
+- `FollowersModelTests` additions: pending load into `.loaded`/`.unavailable` (404 → empty,
+  not an error), accept/reject optimistic update + failure rollback, `rejectConfirmation`
+  gating (`reject(_:)` never called directly by the view — only `confirmReject()`), polling
+  fires `onNewPendingRequests` once per genuinely-new arrival (not on every poll, not on
+  first load).
 - `CompletionNoticeBuilder` wording test for the new follow-request notice (singular vs.
   plural, identifier stability so repeated notices replace rather than stack).
 
 ## Non-goals
 
-- No upstream (`davidwkeith/workers`) implementation in this session — tracked as a pending
-  dependency to note in the PR body, per the catalog-coordination convention.
+- No upstream (`davidwkeith/workers`) implementation in this session — the one piece still
+  missing there (the externally bearer-gated `follow_requests` listing route) is a pending
+  dependency to note in the PR body, per the catalog-coordination convention. Everything else
+  the issue describes upstream has already shipped.
 - No always-on/background-when-app-closed polling.
 - No persistence of "last seen pending count" across app launches.
