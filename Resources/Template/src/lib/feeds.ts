@@ -1,6 +1,7 @@
 import rss from "@astrojs/rss";
 import { feedRslContent, RSL_NAMESPACE } from "./rsl.ts";
 import type { AIUsage, LicenseRef } from "./licensing.ts";
+import { tagUrl, type UTMCampaign } from "./utm-codes.ts";
 
 export interface FeedItem {
   /** Absent for collections whose items have no natural title (notes, replies, likes, photos,
@@ -192,6 +193,7 @@ export function toFeedItem(
     license: null,
     assertsNothingExplicitly: false,
   },
+  utmCampaign?: UTMCampaign,
 ): FeedItem {
   const cfg = FEED_COLLECTIONS[collection];
   if (!cfg) throw new Error(`No feed config for collection "${collection}"`);
@@ -209,7 +211,7 @@ export function toFeedItem(
   const withImage = collection === "photos" ? photoImageHtml(entry.data, site) + body : body;
   return {
     title: cfg.deriveTitle(entry) || undefined,
-    link: new URL(`/${collection}/${entry.id}/`, site).href,
+    link: tagUrl(new URL(`/${collection}/${entry.id}/`, site).href, utmCampaign),
     date,
     summary: String(summary),
     license: licenseInfo.license,

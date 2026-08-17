@@ -146,6 +146,27 @@ test("toFeedItem throws on a missing or invalid date field", () => {
   );
 });
 
+test("toFeedItem tags the link with the given UTM campaign", () => {
+  const item = toFeedItem(
+    "blog",
+    entry("blog", { title: "Hi", pubDate: "2026-01-02" }),
+    SITE,
+    "<p>Hi</p>",
+    undefined,
+    { source: "rss", medium: "feed", campaign: "affiliate-2026", appliesTo: ["blog"] },
+  );
+  const u = new URL(item.link);
+  assert.equal(u.pathname, "/blog/hello/");
+  assert.equal(u.searchParams.get("utm_source"), "rss");
+  assert.equal(u.searchParams.get("utm_medium"), "feed");
+  assert.equal(u.searchParams.get("utm_campaign"), "affiliate-2026");
+});
+
+test("toFeedItem leaves the link untagged when no UTM campaign is passed", () => {
+  const item = toFeedItem("blog", entry("blog", { title: "Hi", pubDate: "2026-01-02" }), SITE, "<p>Hi</p>");
+  assert.equal(item.link, "https://example.com/blog/hello/");
+});
+
 test("siteFrom returns the href or throws a clear error when site is unset", () => {
   assert.equal(siteFrom({ site: new URL("https://x.test/") }), "https://x.test/");
   assert.throws(() => siteFrom({}), /not configured/);

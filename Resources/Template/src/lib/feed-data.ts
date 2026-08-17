@@ -15,6 +15,7 @@ import { readConfig } from "../../scripts/config";
 import { assertsNothingExplicitly, type LicensableCollection } from "./licensing.ts";
 import { licensingPolicy, licenseFor } from "./licensing-data.ts";
 import { rslActive } from "./rsl.ts";
+import { readUTMCodes, activeCampaignFor } from "./utm-codes.ts";
 
 const PER_COLLECTION_LIMIT = 50;
 const COMBINED_LIMIT = 50;
@@ -56,11 +57,12 @@ async function mapCollection(collection: string, site: string): Promise<FeedItem
     license: licenseFor(licensable),
     assertsNothingExplicitly: assertsNothingExplicitly(policy, licensable),
   };
+  const utmCampaign = activeCampaignFor(readUTMCodes(), collection);
   return Promise.all(
     entries.map(async (e: any) => {
       const entry: FeedEntry = { id: e.id, collection, data: e.data, body: e.body };
       const contentHtml = await renderContentHtml(entry);
-      return toFeedItem(collection, entry, site, contentHtml, licenseInfo);
+      return toFeedItem(collection, entry, site, contentHtml, licenseInfo, utmCampaign);
     }),
   );
 }
