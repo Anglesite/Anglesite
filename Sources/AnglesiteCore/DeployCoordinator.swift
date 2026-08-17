@@ -436,6 +436,14 @@ public enum DeployCoordinator {
         /// so Bluesky's preview enhancement sees them. Best-effort and never throws, like every
         /// other step here. Callers without a Standard.site pass configured pass a no-op.
         publishStandardSite: () async -> Void = {},
+        /// Blogroll graph-record publish pass (#1483, see ``StandardSiteGraphPublishCommand``).
+        /// Ordered immediately after the Standard.site document pass — both publish into the
+        /// same PDS repo under the same session lifecycle family, and neither depends on the
+        /// other's output. Callers without a blogroll pass configured pass a no-op. The command
+        /// itself gates on credentials/`SITE_URL`/Settings the same way ``StandardSitePublishCommand``
+        /// does, but always checks for stale ledger entries to unpublish even when the current
+        /// blogroll is empty (deleting the *last* entry must still clean up its record).
+        publishStandardSiteGraph: () async -> Void = {},
         syndicate: () async -> Void,
         /// WebSub publish pings (#361): tells the site's own hub the feeds changed so it fans
         /// the update out to subscribers. Ordered before the ActivityPub backfill below — the
@@ -452,6 +460,8 @@ public enum DeployCoordinator {
         await sendWebmentions()
         onMilestone(.deployStandardSitePublishing)
         await publishStandardSite()
+        onMilestone(.deployStandardSiteGraphPublishing)
+        await publishStandardSiteGraph()
         onMilestone(.deploySyndicating)
         await syndicate()
         onMilestone(.deployNotifyingSubscribers)

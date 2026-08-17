@@ -139,6 +139,30 @@ struct SocialPublishPlanTests {
         ])
     }
 
+    @Test("excludes the blogroll collection — those entries have no real canonical page")
+    func excludesBlogroll() throws {
+        let root = try writeSiteTree(prefix: "social-plan", [
+            "src/content/blogroll/friend.md": """
+            ---
+            name: Friend's Blog
+            url: https://friend.example
+            addedDate: 2026-06-29
+            syndicateTo: mastodon
+            ---
+            Great blog, see https://friend.example for more.
+            """
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let plan = try SocialPublishPlan.build(
+            projectRoot: root,
+            siteBase: URL(string: "https://mysite.test")!,
+            referenceDate: referenceDate
+        )
+
+        #expect(plan.isEmpty)
+    }
+
     @Test("skips future-dated content")
     func skipsFutureDatedContent() throws {
         let root = try writeSiteTree(prefix: "social-plan", [

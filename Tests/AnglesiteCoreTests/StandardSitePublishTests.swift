@@ -148,6 +148,32 @@ struct StandardSiteDocumentPlanTests {
         #expect(entry.textContent.contains("Body text."))
     }
 
+    @Test("excludes the blogroll collection — those entries aren't documents")
+    func excludesBlogroll() throws {
+        let root = try writeSiteTree(prefix: "standardsite-plan", [
+            "src/content/notes/hello.md": """
+            ---
+            title: Hello World
+            publishDate: 2026-06-29
+            ---
+            Body text.
+            """,
+            "src/content/blogroll/friend.md": """
+            ---
+            name: Friend's Blog
+            url: https://friend.example
+            addedDate: 2026-06-29
+            ---
+            A friend's blog.
+            """,
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let plan = StandardSiteDocumentPlan.build(projectRoot: root, referenceDate: referenceDate)
+        #expect(plan.entries.count == 1)
+        #expect(plan.entries.first?.path == "/notes/hello/")
+    }
+
     @Test("falls back to a de-hyphenated slug title when frontmatter has none")
     func fallbackTitle() throws {
         let root = try writeSiteTree(prefix: "standardsite-plan", [

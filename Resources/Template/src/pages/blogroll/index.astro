@@ -1,0 +1,39 @@
+---
+import { getCollection, render } from "astro:content";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import OpmlBadge from "../../components/OpmlBadge.astro";
+
+const sorted = (await getCollection("blogroll")).sort(
+  (a, b) => b.data.addedDate.valueOf() - a.data.addedDate.valueOf()
+);
+const entries = await Promise.all(
+  sorted.map(async (entry) => {
+    const { Content } = await render(entry);
+    return { data: entry.data, Content };
+  }),
+);
+const hasFeeds = sorted.some((e) => e.data.feedURL);
+---
+
+<BaseLayout title="Blogroll" description="Sites I follow and recommend.">
+  <h1>Blogroll</h1>
+  <OpmlBadge hasFeeds={hasFeeds} />
+  {
+    entries.length === 0 ? (
+      <p>
+        No blogroll entries yet. Add a Markdown file in <code>src/content/blogroll/</code> to get started.
+      </p>
+    ) : (
+      <ul>
+        {entries.map(({ data, Content }) => (
+          <li class="h-card">
+            <a class="p-name u-url" href={data.url}>{data.name}</a>
+            <div class="p-note">
+              <Content />
+            </div>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+</BaseLayout>

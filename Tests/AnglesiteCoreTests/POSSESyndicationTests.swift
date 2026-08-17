@@ -434,7 +434,7 @@ struct POSSESyndicationTests {
         let spreadCount = [config, contentSchemas]
             .map { $0.components(separatedBy: "...socialFields,").count - 1 }
             .reduce(0, +)
-        #expect(spreadCount == 12)
+        #expect(spreadCount == 13)
         #expect(contentSchemas.contains("syndication: z.array(z.string().url()).optional()"))
         #expect(links.contains("class=\"u-syndication\""))
         #expect(links.contains("rel=\"syndication\""))

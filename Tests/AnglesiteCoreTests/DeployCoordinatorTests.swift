@@ -612,12 +612,14 @@ struct DeployCoordinatorTests {
             onMilestone: { progress in recorder.record("milestone:\(progress.phase)") },
             sendWebmentions: { recorder.record("send") },
             publishStandardSite: { recorder.record("standardsite") },
+            publishStandardSiteGraph: { recorder.record("standardsitegraph") },
             syndicate: { recorder.record("syndicate") },
             notifySubscribers: { recorder.record("notify") }
         )
         #expect(recorder.calls == [
             "milestone:webmentions", "send",
             "milestone:standardSitePublishing", "standardsite",
+            "milestone:standardSiteGraphPublishing", "standardsitegraph",
             "milestone:syndicating", "syndicate",
             "milestone:websubPing", "notify",
             "milestone:activityPubBackfill",
@@ -631,14 +633,15 @@ struct DeployCoordinatorTests {
             onMilestone: { _ in },
             sendWebmentions: { recorder.record("send") },
             publishStandardSite: { recorder.record("standardsite") },
+            publishStandardSiteGraph: { recorder.record("standardsitegraph") },
             syndicate: { recorder.record("syndicate") },
             notifySubscribers: { recorder.record("notify") }
         )
-        #expect(recorder.calls == ["send", "standardsite", "syndicate", "notify"])
+        #expect(recorder.calls == ["send", "standardsite", "standardsitegraph", "syndicate", "notify"])
     }
 
-    @Test("publishStandardSite defaults to a no-op so callers without a Standard.site pass change nothing")
-    func postDeploySequencingDefaultsStandardSiteToNoOp() async {
+    @Test("publishStandardSite and publishStandardSiteGraph default to no-ops so callers without those passes change nothing")
+    func postDeploySequencingDefaultsStandardSitePassesToNoOp() async {
         let recorder = CallRecorder()
         await DeployCoordinator.runPostDeploySequencing(
             onMilestone: { progress in recorder.record("milestone:\(progress.phase)") },
@@ -649,6 +652,7 @@ struct DeployCoordinatorTests {
         #expect(recorder.calls == [
             "milestone:webmentions", "send",
             "milestone:standardSitePublishing",
+            "milestone:standardSiteGraphPublishing",
             "milestone:syndicating", "syndicate",
             "milestone:websubPing", "notify",
             "milestone:activityPubBackfill",
@@ -666,6 +670,7 @@ struct DeployCoordinatorTests {
         #expect(recorder.calls == [
             "milestone:webmentions", "send",
             "milestone:standardSitePublishing",
+            "milestone:standardSiteGraphPublishing",
             "milestone:syndicating", "syndicate",
             "milestone:websubPing",
             "milestone:activityPubBackfill",
@@ -679,6 +684,7 @@ struct DeployCoordinatorTests {
             onMilestone: { progress in recorder.record("milestone:\(progress.phase)") },
             sendWebmentions: { recorder.record("send") },
             publishStandardSite: { recorder.record("standardsite") },
+            publishStandardSiteGraph: { recorder.record("standardsitegraph") },
             syndicate: { recorder.record("syndicate") },
             notifySubscribers: { recorder.record("notify") },
             backfillActivityPubOutbox: { recorder.record("backfill") }
@@ -686,6 +692,7 @@ struct DeployCoordinatorTests {
         #expect(recorder.calls == [
             "milestone:webmentions", "send",
             "milestone:standardSitePublishing", "standardsite",
+            "milestone:standardSiteGraphPublishing", "standardsitegraph",
             "milestone:syndicating", "syndicate",
             "milestone:websubPing", "notify",
             "milestone:activityPubBackfill", "backfill",

@@ -151,4 +151,15 @@ const members = defineCollection({
   }).strict(),
 });
 
-export const collections = { blog, notes, articles, photos, albums, bookmarks, replies, likes, announcements, events, reviews, members };
+const blogroll = defineCollection({
+  loader: glob({ pattern: "**/*.md", base: "./src/content/blogroll" }),
+  schema: z.object({
+    ...socialFields,
+    name: z.string(),
+    url: z.string().url(),
+    feedURL: z.string().url().optional(),
+    addedDate: z.coerce.date(),
+  }).strict(),
+});
+
+export const collections = { blog, notes, articles, photos, albums, bookmarks, replies, likes, announcements, events, reviews, members, blogroll };

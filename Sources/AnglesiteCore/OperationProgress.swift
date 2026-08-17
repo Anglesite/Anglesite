@@ -65,6 +65,11 @@ public extension OperationProgress {
     static let deployStandardSitePublishing = OperationProgress(
         kind: .deploy, phase: "standardSitePublishing", label: "Publishing to the Atmosphere…"
     )
+    /// Post-deploy: blogroll graph-record publish pass (see ``StandardSiteGraphPublishCommand``,
+    /// #1483). Ordered immediately after the Standard.site document pass.
+    static let deployStandardSiteGraphPublishing = OperationProgress(
+        kind: .deploy, phase: "standardSiteGraphPublishing", label: "Publishing blogroll to the Atmosphere…"
+    )
     /// Post-deploy: direct POSSE syndication pass (see ``POSSESyndicationCommand``).
     static let deploySyndicating = OperationProgress(kind: .deploy, phase: "syndicating", label: "Syndicating posts…")
     /// Post-deploy: WebSub ping so feed subscribers learn about the update promptly.
