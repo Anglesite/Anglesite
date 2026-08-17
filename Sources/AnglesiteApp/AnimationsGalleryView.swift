@@ -10,12 +10,12 @@ import AnglesiteCore
 @MainActor
 @Observable
 final class AnimationsGalleryModel {
-    private(set) var catalog: AnimationCatalog?
+    private(set) var catalog: EffectCatalog?
     private(set) var templateDirectory: URL?
     private(set) var loadError: String?
     var selectedComponent: String?
 
-    var selectedEntry: AnimationCatalogEntry? {
+    var selectedEntry: EffectCatalogEntry? {
         guard let selectedComponent, let catalog else { return nil }
         return catalog.entries.first { $0.component == selectedComponent }
     }
@@ -28,7 +28,7 @@ final class AnimationsGalleryModel {
             return
         }
         do {
-            let catalog = try AnimationCatalog.load(templateDirectory: templateDirectory)
+            let catalog = try EffectCatalog.load(templateDirectory: templateDirectory)
             self.templateDirectory = templateDirectory
             self.catalog = catalog
             selectedComponent = catalog.entries.first?.component
@@ -37,15 +37,15 @@ final class AnimationsGalleryModel {
         }
     }
 
-    func demoURL(for entry: AnimationCatalogEntry) -> URL? {
+    func demoURL(for entry: EffectCatalogEntry) -> URL? {
         guard let templateDirectory else { return nil }
-        return AnimationCatalog.demoURL(templateDirectory: templateDirectory, component: entry.component)
+        return EffectCatalog.demoURL(templateDirectory: templateDirectory, component: entry.component)
     }
 }
 
 /// The Animations gallery sheet (Website ▸ Animations…, #1007): browse the site template's
 /// curated, CSP-safe `@astroanimate/core` components, preview each one's prerendered demo, and
-/// copy its ready-to-paste snippet. Sidebar groups entries by `AnimationCategory`; detail shows
+/// copy its ready-to-paste snippet. Sidebar groups entries by `EffectCategory`; detail shows
 /// the owner description, key-props table, a live demo `WKWebView`, and Copy Snippet.
 struct AnimationsGalleryView: View {
     @State private var model = AnimationsGalleryModel()
@@ -89,9 +89,9 @@ struct AnimationsGalleryView: View {
         }
     }
 
-    private func sidebar(_ catalog: AnimationCatalog) -> some View {
+    private func sidebar(_ catalog: EffectCatalog) -> some View {
         List(selection: $model.selectedComponent) {
-            ForEach(AnimationCategory.allCases, id: \.self) { category in
+            ForEach(EffectCategory.allCases, id: \.self) { category in
                 let entries = catalog.entries(in: category)
                 if !entries.isEmpty {
                     Section(category.displayName) {
@@ -106,7 +106,7 @@ struct AnimationsGalleryView: View {
     }
 }
 
-extension AnimationCategory {
+extension EffectCategory {
     /// Sidebar/section title. RawValue-derived, capitalized (`text` → "Text").
     var displayName: String {
         switch self {
@@ -124,7 +124,7 @@ extension AnimationCategory {
 
 /// Detail pane for one catalog entry: description, key-props table, live demo, and Copy Snippet.
 private struct AnimationDetailView: View {
-    let entry: AnimationCatalogEntry
+    let entry: EffectCatalogEntry
     let demoURL: URL?
     @State private var didCopy = false
 
