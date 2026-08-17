@@ -4,10 +4,11 @@ Operational record for the Claude Routine implementing the dispatcher of the sof
 factory epic (#1256, Phase C #1261). Design:
 `docs/superpowers/specs/2026-08-10-phase-c-fix-dispatcher-design.md`.
 
-This routine is **not** version-controlled config — it lives in Anthropic's Claude Routines
-system (Cloud execution mode), created via the `RemoteTrigger` API. This file is the source
-of truth for what it's configured to do; if the routine is ever recreated, copy the config
-and prompt below verbatim.
+This routine is **not** version-controlled config — it runs as a **local Claude Code
+scheduled task on the owner's second Mac** (Claude Code's schedule/cron tooling), migrated
+from the original claude.ai Cloud Routine — see "Operational update (2026-08-15)" below.
+This file is the **master copy** of what it's configured to do; if the routine is ever
+recreated on any surface, copy the config and prompt below verbatim.
 
 ## Config
 
@@ -16,11 +17,13 @@ and prompt below verbatim.
   `Resources/Template/`, JS edit overlay, portable Swift targets) and launches a decoupled
   fix session per claim via a dynamically-created trigger — bounded by a concurrency cap of
   3 and a per-issue attempt cap of 2 (software factory Phase C, epic #1256).
-- **Execution mode:** Cloud (Tier-1 work is Linux-buildable — no macOS/Xcode toolchain
-  needed, unlike Phase B; see design doc §3)
+- **Execution mode:** local Claude Code scheduled task on the owner's second Mac
+  (originally Cloud — Tier-1 work is Linux-buildable, no macOS/Xcode toolchain needed,
+  unlike Phase B, see design doc §3; migrated per "Operational update (2026-08-15)" below)
 - **Repo:** `https://github.com/Anglesite/Anglesite`
 - **Model:** `claude-sonnet-5`
-- **Schedule:** Live — `34 * * * *` (hourly, UTC, fires at :34 past the hour). This was
+- **Schedule:** hourly on the hour (`0 * * * *`, local scheduled task). The retired Cloud
+  instance ran as `34 * * * *` (hourly, UTC, fires at :34 past the hour) — it was
   requested as `0 * * * *` at enable time; the Routines API applied the same server-side
   phase shift documented in `docs/issue-intake-routine.md` and the effective
   `cron_expression` came back as `34 * * * *`, confirmed via `RemoteTrigger action:"get"`
@@ -32,7 +35,8 @@ and prompt below verbatim.
   `Claude_Code_Remote` MCP connector's `mcp__Claude_Code_Remote__create_trigger` and
   `mcp__Claude_Code_Remote__list_triggers` tools (confirmed available by default via a live
   probe on 2026-08-10 — see the design doc §4).
-- **Routine ID / link:** _(fill in after creation)_
+- **Routine ID / link:** none — the local scheduled task has no claude.ai routine ID; the
+  ID under "Creating the routine" below is the retired Cloud instance's (now 404)
 
 ## Prompt
 
@@ -211,11 +215,32 @@ Guardrails — follow strictly:
 - Never touch an issue that already carries `🛠️ In Progress`.
 ```
 
-## Creating the routine
+## Operational update (2026-08-15) — migrated to a local scheduled task
+
+The Cloud routine documented below was retired: `trig_01FVQNJsVAnUC6mDha4HbXd3` now returns
+404 from the RemoteTrigger API and no longer appears on claude.ai/code/routines. The
+dispatcher runs instead as a **local Claude Code scheduled task on the owner's second Mac**
+(owner-confirmed 2026-08-15), with the prompt and parameters above unchanged — hourly on
+the hour, concurrency cap 3, per-issue attempt cap 2, Tier-1 allowlist, `claude-sonnet-5`.
+This file remains the master copy of that configuration.
+
+Practical notes:
+
+- To check the dispatcher is alive, look at GitHub state, not any Routines API:
+  `gh pr list --repo Anglesite/Anglesite --search "Opened by the software factory (Phase C)"`
+  (e.g. PR #1476 for #1467, opened 2026-08-15T22:10Z, was launched by the local dispatcher).
+- The intake routine ([`docs/issue-intake-routine.md`](issue-intake-routine.md)) is
+  unaffected and still runs as a Cloud routine (`trig_01P9igJkq6XET22PYUTcFVsq`, hourly at
+  :34 UTC) — don't confuse the two.
+- The sections below record the retired Cloud instance's creation and dry runs; they are
+  kept as the historical validation record for the prompt above, which is what actually
+  runs today.
+
+## Creating the routine (retired Cloud instance)
 
 - **Date created:** 2026-08-10
-- **Routine ID:** `trig_01FVQNJsVAnUC6mDha4HbXd3`
-- **Link:** https://claude.ai/code/routines/trig_01FVQNJsVAnUC6mDha4HbXd3
+- **Routine ID:** `trig_01FVQNJsVAnUC6mDha4HbXd3` *(retired — returns 404 as of 2026-08-15)*
+- **Link:** https://claude.ai/code/routines/trig_01FVQNJsVAnUC6mDha4HbXd3 *(dead)*
 
 Created via the `RemoteTrigger` tool (`action: "create"`) with the exact `job_config` body
 shape given in the plan's Task 2, `content` set verbatim to the `## Prompt` section above.

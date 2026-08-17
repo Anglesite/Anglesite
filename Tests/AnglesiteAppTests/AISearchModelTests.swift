@@ -52,6 +52,30 @@ private final class FailingProvisioner: AISearchProvisioning, @unchecked Sendabl
     func aiSearchInstanceSource(instanceID: String, apiToken: String) async throws -> String { "" }
 }
 
+/// Every test passes one of these explicitly — the model's production default is a live
+/// HTTP preflight, and a unit test must never reach the network.
+private final class StubPreflight: SitemapPreflighting, @unchecked Sendable {
+    private let result: SitemapPreflightResult
+    private(set) var checkedDomains: [String] = []
+    init(_ result: SitemapPreflightResult) { self.result = result }
+    func checkSitemap(domain: String) async -> SitemapPreflightResult {
+        checkedDomains.append(domain)
+        return result
+    }
+}
+
+/// Spins until its surrounding task is cancelled, then answers `.indeterminate` — the live
+/// preflight's exact behavior when cancellation hits mid-request (its catch-all can't tell a
+/// cancelled URLSession call from a timeout). Lets a test hold the model mid-preflight.
+private final class HangUntilCancelledPreflight: SitemapPreflighting, @unchecked Sendable {
+    private(set) var started = false
+    func checkSitemap(domain: String) async -> SitemapPreflightResult {
+        started = true
+        while !Task.isCancelled { await Task.yield() }
+        return .indeterminate
+    }
+}
+
 @Suite(.serialized)
 struct AISearchModelTests {
     /// Per-instance scratch service, matching `HardenModelTests`' rationale: every test here
@@ -70,7 +94,7 @@ struct AISearchModelTests {
     @MainActor
     @Test("checkPolicyAndResolveZone ignores blank domain input")
     func ignoresBlankDomain() throws {
-        let model = AISearchModel(reader: StubReader(), writer: StubWriter(), provisioner: StubProvisioner(), keychain: keychain)
+        let model = AISearchModel(reader: StubReader(), writer: StubWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "   "
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
         #expect(model.phase == .idle)
@@ -81,7 +105,7 @@ struct AISearchModelTests {
     func noPolicyFilePassesThrough() async throws {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
-        let model = AISearchModel(reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(), keychain: keychain)
+        let model = AISearchModel(reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "Example.com"
 
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
@@ -104,7 +128,7 @@ struct AISearchModelTests {
         policy.usage.aiInput = .no
         try LicensingStore(sourceDirectory: dir).save(policy)
 
-        let model = AISearchModel(reader: StubReader(), writer: StubWriter(), provisioner: StubProvisioner(), keychain: keychain)
+        let model = AISearchModel(reader: StubReader(), writer: StubWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: dir)
         while model.isRunning { await Task.yield() }
@@ -120,7 +144,7 @@ struct AISearchModelTests {
     func confirmCostProvisions() async throws {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
-        let model = AISearchModel(reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(), keychain: keychain)
+        let model = AISearchModel(reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
         while model.isRunning { await Task.yield() }
@@ -144,7 +168,7 @@ struct AISearchModelTests {
         let model = AISearchModel(
             reader: StubReader(zoneID: "z1"), writer: StubWriter(),
             provisioner: FailingProvisioner(throwing: AISearchProvisionError.missingSitemap),
-            keychain: keychain)
+            preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
         while model.isRunning { await Task.yield() }
@@ -161,5 +185,91 @@ struct AISearchModelTests {
         #expect(reason.localizedCaseInsensitiveContains("sitemap"))
         #expect(!reason.contains("7028"))
         #expect(!reason.contains("HTTP 400"))
+    }
+
+    @MainActor
+    @Test("an unreachable sitemap short-circuits with deploy-first guidance before cost confirmation")
+    func unreachableSitemapShortCircuitsBeforeCostStep() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let preflight = StubPreflight(.unreachable)
+        let model = AISearchModel(
+            reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(),
+            preflight: preflight, keychain: keychain)
+        model.domainInput = "example.com"
+        model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
+        while model.isRunning { await Task.yield() }
+
+        #expect(preflight.checkedDomains == ["example.com"])
+        guard case .failed(let reason) = model.phase else {
+            Issue.record("expected .failed before cost confirmation, got \(model.phase)")
+            return
+        }
+        #expect(reason.localizedCaseInsensitiveContains("deploy"))
+        #expect(reason.localizedCaseInsensitiveContains("sitemap"))
+    }
+
+    @MainActor
+    @Test("an indeterminate preflight (transport failure) doesn't block the flow")
+    func indeterminatePreflightProceeds() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let model = AISearchModel(
+            reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(),
+            preflight: StubPreflight(.indeterminate), keychain: keychain)
+        model.domainInput = "example.com"
+        model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
+        while model.isRunning { await Task.yield() }
+
+        #expect(model.phase == .awaitingCostConfirmation(domain: "example.com", zoneID: "z1"))
+    }
+
+    @MainActor
+    @Test("a policy block wins over the preflight — the sitemap is never probed")
+    func policyBlockSkipsPreflight() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let dir = try tempSourceDirectory()
+        var policy = LicensingPolicy()
+        policy.usage.aiInput = .no
+        try LicensingStore(sourceDirectory: dir).save(policy)
+
+        let preflight = StubPreflight(.unreachable)
+        let model = AISearchModel(
+            reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(),
+            preflight: preflight, keychain: keychain)
+        model.domainInput = "example.com"
+        model.checkPolicyAndResolveZone(sourceDirectory: dir)
+        while model.isRunning { await Task.yield() }
+
+        guard case .blockedByPolicy = model.phase else {
+            Issue.record("expected .blockedByPolicy, got \(model.phase)")
+            return
+        }
+        #expect(preflight.checkedDomains.isEmpty)
+    }
+
+    @MainActor
+    @Test("a task cancelled mid-preflight never writes a stale phase (dismiss stays dismissed)")
+    func cancelledMidPreflightWritesNothing() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
+        defer { cfToken.release() }
+        let preflight = HangUntilCancelledPreflight()
+        let model = AISearchModel(
+            reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(),
+            preflight: preflight, keychain: keychain)
+        model.domainInput = "example.com"
+        model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
+
+        // Hold until the task is genuinely awaiting the preflight, then cancel via dismiss.
+        while !preflight.started { await Task.yield() }
+        model.dismissSheet()
+        #expect(model.phase == .idle)
+
+        // Give the cancelled task every chance to (wrongly) finish its fall-through write:
+        // the preflight answers `.indeterminate` on cancellation, so without the isCancelled
+        // guard the stale task would land `.awaitingCostConfirmation` here.
+        for _ in 0..<50 { await Task.yield() }
+        #expect(model.phase == .idle)
     }
 }

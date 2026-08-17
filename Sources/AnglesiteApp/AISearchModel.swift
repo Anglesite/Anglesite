@@ -28,18 +28,27 @@ final class AISearchModel {
     private let reader: any CloudflareReading
     private let writer: any CloudflareWriting
     private let provisioner: any AISearchProvisioning
+    private let preflight: any SitemapPreflighting
     private let keychain: any SecretStore
     private var inFlight: Task<Void, Never>?
+
+    /// The owner-facing fix for a sitemap that isn't live at the domain — shared by the
+    /// preflight short-circuit (#1494) and the create-time 7028 mapping (#1486) so the two
+    /// paths can't drift apart.
+    static let missingSitemapGuidance =
+        "Your site's sitemap isn't reachable yet. Deploy the site first, then set up AI Search."
 
     init(
         reader: any CloudflareReading = HTTPCloudflareClient(),
         writer: any CloudflareWriting = HTTPCloudflareClient(),
         provisioner: any AISearchProvisioning = HTTPCloudflareClient(),
+        preflight: any SitemapPreflighting = HTTPSitemapPreflight(),
         keychain: any SecretStore = KeychainStore()
     ) {
         self.reader = reader
         self.writer = writer
         self.provisioner = provisioner
+        self.preflight = preflight
         self.keychain = keychain
     }
 
@@ -119,15 +128,37 @@ final class AISearchModel {
             return
         }
 
+        // Advisory sitemap probe (#1494): a definitive "not there" surfaces the deploy-first
+        // fix *before* the owner is asked to confirm cost, instead of after a failed create.
+        // Only `.unreachable` (404/410) blocks — ambiguous answers and transport failures
+        // proceed and let the create itself decide, with the 7028 mapping (#1486) as the
+        // backstop, so a flaky probe can never wedge the wizard. `async let`, not a
+        // sequential await: the probe only needs `domain`, so it overlaps zone resolution
+        // instead of stacking its (up to 5s) round trip on top.
+        async let sitemapReachability = preflight.checkSitemap(domain: domain)
         do {
             guard let zoneID = try await reader.resolveZoneID(domain: domain, apiToken: token) else {
+                guard !Task.isCancelled else { return }
                 phase = .failed(reason: "Zone not found for \"\(domain)\". Check the domain and ensure your API token has Zone Read permission.")
+                return
+            }
+            let reachability = await sitemapReachability
+            // Cancellation can surface as a *value*, not a thrown error: the preflight's
+            // catch-all folds a cancelled request into `.indeterminate`, and a stub reader
+            // may not throw at all. A superseded task (new domain typed, or the sheet
+            // dismissed) must never write a stale phase over the current task's — the
+            // classic wrong-domain footgun — so every phase write below is gated.
+            guard !Task.isCancelled else { return }
+            if reachability == .unreachable {
+                phase = .failed(reason: Self.missingSitemapGuidance)
                 return
             }
             phase = .awaitingCostConfirmation(domain: domain, zoneID: zoneID)
         } catch let error as CloudflareError {
+            guard !Task.isCancelled else { return }
             phase = .failed(reason: cloudflareErrorMessage(error))
         } catch {
+            guard !Task.isCancelled else { return }
             phase = .failed(reason: "Failed to resolve zone: \(error.localizedDescription)")
         }
     }
@@ -141,20 +172,27 @@ final class AISearchModel {
         let executor = AISearchExecutor(reader: reader, writer: writer, provisioner: provisioner)
         do {
             let result = try await executor.provision(zoneID: zoneID, domain: domain, apiToken: token)
+            // Same stale-write gate as runCheckPolicyAndResolveZone: a dismissed sheet
+            // (phase already reset to .idle) must not be overwritten by this task's result.
+            guard !Task.isCancelled else { return }
             phase = .succeeded(result)
         } catch AISearchProvisionError.missingSitemap {
+            guard !Task.isCancelled else { return }
             // Cloudflare 7028: the crawler can't find a sitemap at the domain. The app knows
             // the fix (the sitemap ships in every build but isn't live until the first
             // deploy), so say that — not the API code (#1486).
-            phase = .failed(reason: "Your site's sitemap isn't reachable yet. Deploy the site first, then set up AI Search.")
+            phase = .failed(reason: Self.missingSitemapGuidance)
         } catch AISearchProvisionError.instanceIDCollision {
+            guard !Task.isCancelled else { return }
             // An existing AI Search instance already owns this domain's derived id but was
             // created for a different domain (#1478) — rare, but must not be reported as
             // success against someone else's instance.
             phase = .failed(reason: "An AI Search instance name conflict was found for this domain. This is unusual — contact support if it persists.")
         } catch let error as CloudflareError {
+            guard !Task.isCancelled else { return }
             phase = .failed(reason: cloudflareErrorMessage(error))
         } catch {
+            guard !Task.isCancelled else { return }
             phase = .failed(reason: "Failed to provision AI Search: \(error.localizedDescription)")
         }
     }
