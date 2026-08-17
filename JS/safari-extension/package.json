@@ -1,0 +1,28 @@
+{
+  "name": "@anglesite/safari-extension",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Content script, background worker, and popup for the Anglesite IndieWeb Safari Web Extension (detects h-cards, feeds, webmentions, ActivityPub, and microformats2). Spec: docs/superpowers/specs/2026-08-17-safari-indieweb-extension-design.md",
+  "type": "module",
+  "scripts": {
+    "build": "npm run build:content-script && npm run build:background && npm run build:popup",
+    "build:content-script": "esbuild src/content-script.ts --bundle --format=iife --target=safari18 --outfile=../../Resources/SafariExtension/content-script.js",
+    "build:background": "esbuild src/background.ts --bundle --format=iife --target=safari18 --outfile=../../Resources/SafariExtension/background.js",
+    "build:popup": "esbuild src/popup.ts --bundle --format=iife --target=safari18 --outfile=../../Resources/SafariExtension/popup.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src test",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "@types/node": "^26.2.0",
+    "esbuild": "^0.28.1",
+    "jsdom": "^30.0.1",
+    "oxlint": "^1.77.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.10"
+  },
+  "engines": {
+    "node": ">=22"
+  }
+}
