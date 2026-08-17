@@ -138,14 +138,25 @@ final class DomainConfigAuditModel {
         try? await CloudflareAPICredentials.resolve(secretStore: keychain)
     }
 
+    /// See `HardenModel.setPhase(_:)` — same helper, same rationale: `dismissSheet()`/re-entry
+    /// cancel `inFlight` but only set the cancellation flag, so the abandoned task keeps
+    /// executing across its network awaits. Routing every `phase` write in the async runners
+    /// through this guard stops a stale task's completion from clobbering a phase the user
+    /// already reset by dismissing/reopening, or a newer run's phase after a re-entrant call
+    /// (#1506, following #1479's fix for the mirrored HardenModel/AISearchModel pattern).
+    private func setPhase(_ newPhase: Phase) {
+        guard !Task.isCancelled else { return }
+        phase = newPhase
+    }
+
     private func performAudit(declared: DomainConfig, domain: String) async {
         guard let token = await apiToken() else {
-            phase = .failed(reason: "No Cloudflare API token found. Add one in Settings → Credentials.")
+            setPhase(.failed(reason: "No Cloudflare API token found. Add one in Settings → Credentials."))
             return
         }
         do {
             guard let zoneID = try await reader.resolveZoneID(domain: domain, apiToken: token) else {
-                phase = .failed(reason: "Zone not found for \"\(domain)\". Check the domain and ensure your API token has Zone Read permission.")
+                setPhase(.failed(reason: "Zone not found for \"\(domain)\". Check the domain and ensure your API token has Zone Read permission."))
                 return
             }
 
@@ -157,13 +168,13 @@ final class DomainConfigAuditModel {
                 guard case .autoApply(let item) = finding.remediation else { return nil }
                 return item
             }
-            phase = .results(
+            setPhase(.results(
                 findings: findings, plan: DomainConfigReconcilePlan(items: planItems),
-                domain: domain, zoneID: zoneID)
+                domain: domain, zoneID: zoneID))
         } catch let error as CloudflareError {
-            phase = .failed(reason: cloudflareErrorMessage(error, domain: domain))
+            setPhase(.failed(reason: cloudflareErrorMessage(error, domain: domain)))
         } catch {
-            phase = .failed(reason: "Failed to read zone state: \(error.localizedDescription)")
+            setPhase(.failed(reason: "Failed to read zone state: \(error.localizedDescription)"))
         }
     }
 
@@ -171,19 +182,19 @@ final class DomainConfigAuditModel {
         plan: DomainConfigReconcilePlan, domain: String, zoneID: String, declared: DomainConfig
     ) async {
         guard let token = await apiToken() else {
-            phase = .failed(reason: "No Cloudflare API token found.")
+            setPhase(.failed(reason: "No Cloudflare API token found."))
             return
         }
         let reconciler = DomainConfigReconciler(reader: reader, writer: writer)
         let result = await reconciler.execute(
             plan: plan, zoneID: zoneID, domain: domain, apiToken: token, declared: declared)
 
-        phase = .succeeded(result: ReconcileResult(
+        setPhase(.succeeded(result: ReconcileResult(
             appliedCount: result.appliedCount,
             failedItems: result.failedItems.map { .init(description: $0.item.description, error: $0.error) },
             postAuditFindings: result.postAuditFindings,
             auditError: result.auditError
-        ))
+        )))
     }
 
     private func cloudflareErrorMessage(_ error: CloudflareError, domain: String) -> String {
