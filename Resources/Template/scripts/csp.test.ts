@@ -144,6 +144,20 @@ test("buildHeaders: no noindex entries leaves output unchanged from today", () =
   assert.equal(buildHeaders(""), buildHeaders("", false, []));
 });
 
+test("buildHeaders: a directory-style noindex entry also noindexes its .md mirror", () => {
+  const entries: RobotsConfigEntry[] = [{ path: "/blog/hello-world/" }];
+  const out = buildHeaders("", false, entries);
+  assert.match(out, /\n\/blog\/hello-world\/\n  X-Robots-Tag: noindex\n/);
+  assert.match(out, /\n\/blog\/hello-world\.md\n  X-Robots-Tag: noindex\n/);
+});
+
+test("buildHeaders: a non-directory noindex entry gets no .md twin", () => {
+  const entries: RobotsConfigEntry[] = [{ path: "/search" }];
+  const out = buildHeaders("", false, entries);
+  assert.match(out, /\n\/search\n  X-Robots-Tag: noindex\n/);
+  assert.doesNotMatch(out, /\/search\.md/);
+});
+
 test("buildHeaders: no rslUrl omits the license Link header", () => {
   assert.doesNotMatch(buildHeaders(""), /rel="license"/);
 });

@@ -155,6 +155,17 @@ export function buildHeaders(
 ${sanitizeForHeaderLine(entry.path)}
   X-Robots-Tag: noindex
 `;
+    // The .md mirror routes (blog/[...slug].md.ts, [collection]/[...slug].md.ts, #1279) are
+    // unconditional — they exist regardless of experimental.webmcp — so a noindexed directory-
+    // style page (path ends in "/") gets its plain-text twin covered too, or an agent could read
+    // the noindexed content straight off the .md sibling. Harmless to emit for entries with no
+    // real .md mirror (search pages, hand-authored paths): a directive for a 404 is a no-op.
+    if (entry.path.endsWith("/")) {
+      out += `
+${sanitizeForHeaderLine(entry.path.slice(0, -1) + ".md")}
+  X-Robots-Tag: noindex
+`;
+    }
   }
   if (serviceWorkerPresent) {
     out += `
