@@ -712,3 +712,27 @@ test("checkExperiments: a fully well-formed, fully built running experiment has 
   );
   assert.deepEqual(issues, []);
 });
+
+test("checkExperiments: recognizes rel=canonical even when href precedes rel in the tag", () => {
+  const html =
+    '<html><head><link href="https://example.com/" rel="canonical"><meta name="robots" content="noindex"></head><body></body></html>';
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/contact/thanks/index.html"]),
+    new Map([["dist/x/homepage-hero/b/index.html", html]]),
+    "<urlset></urlset>",
+  );
+  assert.deepEqual(issues, []);
+});
+
+test("checkExperiments: recognizes noindex even when content precedes name in the tag", () => {
+  const html =
+    '<html><head><link rel="canonical" href="https://example.com/"><meta content="noindex" name="robots"></head><body></body></html>';
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/contact/thanks/index.html"]),
+    new Map([["dist/x/homepage-hero/b/index.html", html]]),
+    "<urlset></urlset>",
+  );
+  assert.deepEqual(issues, []);
+});

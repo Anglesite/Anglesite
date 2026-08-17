@@ -727,6 +727,33 @@ function tryParsePathname(href: string): string | null {
   }
 }
 
+// Isolates each whole tag first, then tests attributes independently within it — same idiom as
+// checkSRI/checkExternalLinkRel above — so a single regex spanning two attributes never depends
+// on which one appears first in the source markup.
+function findCanonicalHref(html: string): string | null {
+  const tagPattern = /<link\b[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = tagPattern.exec(html)) !== null) {
+    const tag = m[0];
+    if (!/\brel\s*=\s*["']canonical["']/i.test(tag)) continue;
+    const hrefMatch = tag.match(/\bhref\s*=\s*["']([^"']+)["']/i);
+    if (hrefMatch) return hrefMatch[1];
+  }
+  return null;
+}
+
+function hasNoindexRobotsMeta(html: string): boolean {
+  const tagPattern = /<meta\b[^>]*>/gi;
+  let m: RegExpExecArray | null;
+  while ((m = tagPattern.exec(html)) !== null) {
+    const tag = m[0];
+    if (!/\bname\s*=\s*["']robots["']/i.test(tag)) continue;
+    const contentMatch = tag.match(/\bcontent\s*=\s*["']([^"']*)["']/i);
+    if (contentMatch && /\bnoindex\b/i.test(contentMatch[1])) return true;
+  }
+  return false;
+}
+
 /**
  * Validates the `experiments` section of `anglesite.json` (#1270 slice 1) and, for the one
  * running experiment (if any), that its edge machinery is actually built and wired — a page,
@@ -918,8 +945,8 @@ export function checkExperiments(
 
   const variantHtml = distFileContent.get(distPathFor(variantPage));
   if (variantHtml !== undefined) {
-    const canonicalMatch = variantHtml.match(/<link[^>]*rel=["']canonical["'][^>]*href=["']([^"']+)["'][^>]*>/i);
-    const canonicalPath = canonicalMatch ? tryParsePathname(canonicalMatch[1]) : null;
+    const canonicalHref = findCanonicalHref(variantHtml);
+    const canonicalPath = canonicalHref ? tryParsePathname(canonicalHref) : null;
     if (canonicalPath !== page) {
       issues.push({
         severity: "error",
@@ -929,7 +956,7 @@ export function checkExperiments(
         remediation: 'Add <link rel="canonical"> to the variant page pointing at the control page.',
       });
     }
-    if (!/<meta[^>]*name=["']robots["'][^>]*content=["'][^"']*noindex[^"']*["'][^>]*>/i.test(variantHtml)) {
+    if (!hasNoindexRobotsMeta(variantHtml)) {
       issues.push({
         severity: "error",
         category: "experiments-variant-seo",
