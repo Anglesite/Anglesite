@@ -284,7 +284,7 @@ Expected: PASS — including every pre-existing test in the file (the `type` par
 
 ```bash
 git add Sources/AnglesiteCore/ReceivedInteractionCommitter.swift Tests/AnglesiteCoreTests/ReceivedInteractionCommitterTests.swift
-git commit -m "feat(#1236): scope received-interaction staleness deletion by protocol type"
+git commit -m "feat(#1236): scope interaction reconcile by protocol type"
 ```
 
 ---
@@ -355,7 +355,7 @@ Expected: PASS — including all pre-existing tests in the file.
 
 ```bash
 git add Sources/AnglesiteCore/ReceivedInteractionSync.swift Tests/AnglesiteCoreTests/ReceivedInteractionSyncTests.swift
-git commit -m "fix(#1236): scope webmention interaction reconcile to its own protocol type"
+git commit -m "fix(#1236): scope webmention reconcile to its own protocol type"
 ```
 
 ---
@@ -1250,7 +1250,7 @@ Expected: PASS
 
 ```bash
 git add Sources/AnglesiteCore/BlueskyBackfeedSync.swift Tests/AnglesiteCoreTests/BlueskyBackfeedSyncTests.swift
-git commit -m "feat(#1236): orchestrate Bluesky backfeed into received-interaction snapshots"
+git commit -m "feat(#1236): orchestrate Bluesky interaction backfeed"
 ```
 
 ---
