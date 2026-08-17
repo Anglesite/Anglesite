@@ -173,11 +173,12 @@ enum SiteAssistantSessionFactory {
                 }
             }
         }
-        let resolvedAssistant: any ConversationalAssistant = AssistantBackendResolver.resolveActiveACPAssistant(
-            siteID: siteID,
-            sourceDirectory: sourceDirectory,
-            containerControlProvider: containerControlProvider
-        ) ?? dependencies.assistant(
+        let resolvedAssistant: any ConversationalAssistant = AssistantBackendResolver.resolveActiveExternalLLMAssistant()
+            ?? AssistantBackendResolver.resolveActiveACPAssistant(
+                siteID: siteID,
+                sourceDirectory: sourceDirectory,
+                containerControlProvider: containerControlProvider
+            ) ?? dependencies.assistant(
             editBridge,
             contentGraph,
             knowledgeIndex,

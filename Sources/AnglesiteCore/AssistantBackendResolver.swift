@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Resolves `AppSettings.activeAssistantBackend` into an `ACPAssistant`, or `nil` when the active
 /// backend is `"foundationModels"` (the default) or references an agent that no longer exists —
@@ -36,6 +39,29 @@ public enum AssistantBackendResolver {
             sourceDirectory: sourceDirectory,
             containerControlProvider: containerControlProvider,
             secretStore: secretStore
+        )
+    }
+
+    /// Builds an ``ExternalLLMBackend`` for the single configured endpoint, or `nil` when
+    /// Foundation Models (or an ACP agent) should handle the session instead. Every failure mode
+    /// — backend not selected, no base URL configured, blank model — collapses to `nil`
+    /// deliberately, matching ``resolveActiveACPAssistant(siteID:sourceDirectory:containerControlProvider:agentStore:appSettings:secretStore:)``'s
+    /// "broken selection degrades to on-device" contract. A `SecretStore` read failure degrades
+    /// to an unauthenticated request rather than blocking resolution — some self-hosted servers
+    /// need no key at all.
+    public static func resolveActiveExternalLLMAssistant(
+        appSettings: AppSettings = .shared,
+        secretStore: any SecretStore = PlatformSecretStore.make(),
+        urlSession: URLSession = .shared
+    ) -> ExternalLLMBackend? {
+        guard appSettings.activeAssistantBackend == "externalLLM" else { return nil }
+        guard let baseURL = appSettings.externalLLMBaseURL else { return nil }
+        let model = appSettings.externalLLMModel.trimmingCharacters(in: .whitespaces)
+        guard !model.isEmpty else { return nil }
+        let apiKey = try? secretStore.readExternalLLMAPIKey()
+        return ExternalLLMBackend(
+            configuration: .init(baseURL: baseURL, model: model, apiKey: apiKey),
+            urlSession: urlSession
         )
     }
 }

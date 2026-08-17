@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 final class AssistantBackendResolverTests {
     private let tempDir: URL
@@ -70,5 +71,47 @@ final class AssistantBackendResolverTests {
         )
         #expect(resolved != nil)
         #expect(resolved?.capabilities.providerName == "Test Agent")
+    }
+
+    @Test("resolveActiveExternalLLMAssistant returns nil when backend is not externalLLM")
+    func resolveExternalLLMReturnsNilWhenNotSelected() {
+        let settings = AppSettings(defaults: defaults)
+        settings.activeAssistantBackend = "foundationModels"
+        settings.externalLLMBaseURL = URL(string: "https://api.example.com/v1")
+        settings.externalLLMModel = "gpt-4o-mini"
+        let resolved = AssistantBackendResolver.resolveActiveExternalLLMAssistant(appSettings: settings)
+        #expect(resolved == nil)
+    }
+
+    @Test("resolveActiveExternalLLMAssistant returns nil when no base URL is configured")
+    func resolveExternalLLMReturnsNilWhenNoBaseURL() {
+        let settings = AppSettings(defaults: defaults)
+        settings.activeAssistantBackend = "externalLLM"
+        settings.externalLLMModel = "gpt-4o-mini"
+        let resolved = AssistantBackendResolver.resolveActiveExternalLLMAssistant(appSettings: settings)
+        #expect(resolved == nil)
+    }
+
+    @Test("resolveActiveExternalLLMAssistant returns nil when the model is blank")
+    func resolveExternalLLMReturnsNilWhenModelBlank() {
+        let settings = AppSettings(defaults: defaults)
+        settings.activeAssistantBackend = "externalLLM"
+        settings.externalLLMBaseURL = URL(string: "https://api.example.com/v1")
+        settings.externalLLMModel = "   "
+        let resolved = AssistantBackendResolver.resolveActiveExternalLLMAssistant(appSettings: settings)
+        #expect(resolved == nil)
+    }
+
+    @Test("resolveActiveExternalLLMAssistant returns a configured assistant when fully set up")
+    func resolveExternalLLMReturnsAssistantWhenConfigured() {
+        let settings = AppSettings(defaults: defaults)
+        settings.activeAssistantBackend = "externalLLM"
+        settings.externalLLMBaseURL = URL(string: "https://api.example.com/v1")
+        settings.externalLLMModel = "gpt-4o-mini"
+        let secretStore = InMemorySecretStore()
+        try? secretStore.writeExternalLLMAPIKey("sk-test")
+        let resolved = AssistantBackendResolver.resolveActiveExternalLLMAssistant(appSettings: settings, secretStore: secretStore)
+        #expect(resolved != nil)
+        #expect(resolved?.capabilities.providerName == "Custom (gpt-4o-mini)")
     }
 }
