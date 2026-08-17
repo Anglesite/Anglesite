@@ -14,30 +14,108 @@ struct FollowersView: View {
     @Bindable var followers: FollowersModel
 
     var body: some View {
-        Group {
-            switch followers.state {
-            case .idle, .loading:
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            case .loaded:
-                loadedContent
-            case .noSiteURL:
-                message(
-                    "This site hasn't been published yet",
-                    detail: Text("Publish it at least once, then followers will appear here."))
-            case .notActivated:
-                message(
-                    "The Fediverse isn't turned on for this site",
-                    detail: Text("Turn on the Fediverse in Settings ▸ Workers, then publish again."))
-            case .unreachable(let reason):
-                // `reason` is server-supplied (HTTP body / error description) — untrusted remote
-                // content, never a localization key or format string. `Text(reason)` binds to the
-                // `StringProtocol` overload and renders it verbatim.
-                message("Couldn't reach this site", detail: Text(reason))
+        VStack(spacing: 0) {
+            pendingSection
+            Group {
+                switch followers.state {
+                case .idle, .loading:
+                    ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+                case .loaded:
+                    loadedContent
+                case .noSiteURL:
+                    message(
+                        "This site hasn't been published yet",
+                        detail: Text("Publish it at least once, then followers will appear here."))
+                case .notActivated:
+                    message(
+                        "The Fediverse isn't turned on for this site",
+                        detail: Text("Turn on the Fediverse in Settings ▸ Workers, then publish again."))
+                case .unreachable(let reason):
+                    // `reason` is server-supplied (HTTP body / error description) — untrusted remote
+                    // content, never a localization key or format string. `Text(reason)` binds to the
+                    // `StringProtocol` overload and renders it verbatim.
+                    message("Couldn't reach this site", detail: Text(reason))
+                }
             }
         }
         .navigationSubtitle("Followers")
         .task { if followers.state == .idle { await followers.load() } }
         .onDisappear { followers.saveCacheNow() }
+        .confirmationDialog(
+            "Reject this follow request?",
+            isPresented: Binding(get: { followers.rejectConfirmation != nil }, set: { _ in }),
+            titleVisibility: .visible
+        ) {
+            Button("Reject", role: .destructive) { Task { await followers.confirmReject() } }
+            Button("Cancel", role: .cancel) { followers.rejectConfirmation = nil }
+        } message: {
+            Text("This declines the follow request from \(followers.rejectConfirmation?.displayName ?? "this requester").")
+        }
+    }
+
+    /// Whether a real, ongoing failure (revoked token, transport error, genuine 500) is worth
+    /// surfacing. `.unknown`/`.loading`/`.unavailable`/`.loaded` are all silent — `.unavailable`
+    /// in particular is the upstream route not shipping yet, never a user-facing error (see
+    /// `PendingState.unavailable`'s doc comment).
+    private var pendingUnreachableReason: String? {
+        if case .unreachable(let reason) = followers.pendingState { return reason }
+        return nil
+    }
+
+    @ViewBuilder
+    private var pendingSection: some View {
+        // Hidden entirely when there's nothing to show — no error noise for a capability that
+        // hasn't shipped upstream yet (`.unavailable`), no dead space for a site with nothing
+        // pending. Deliberately independent of `followers.state`: pending arrives from its own
+        // background poll and may be known before the main list ever loads. Shown for a genuine
+        // `.unreachable` failure even with zero rows, so a revoked token or a real 500 doesn't
+        // silently vanish for good on the 5-minute poll loop (whole-branch review finding #4) —
+        // matches `ModerationModel.loadPendingFollowers()`'s same rule against the same endpoint.
+        if !followers.pendingRows.isEmpty || pendingUnreachableReason != nil {
+            VStack(alignment: .leading, spacing: 0) {
+                Text("Pending Requests (\(followers.pendingRows.count))")
+                    .font(.headline)
+                    .padding()
+                List {
+                    ForEach(followers.pendingRows) { row in
+                        pendingRow(row)
+                    }
+                    if let failure = followers.pendingActionFailure {
+                        Text(failure).font(.caption).foregroundStyle(.secondary)
+                    }
+                    if let reason = pendingUnreachableReason {
+                        // Server-supplied/`localizedDescription` text, like `.unreachable`'s main-list
+                        // counterpart: rendered verbatim, never as a localization key.
+                        Text(reason).font(.caption).foregroundStyle(.secondary)
+                    }
+                }
+                .frame(height: min(
+                    CGFloat(max(followers.pendingRows.count, pendingUnreachableReason == nil ? 0 : 1)) * 44 + 16,
+                    220))
+                Divider()
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func pendingRow(_ row: PendingRequestRow) -> some View {
+        HStack(spacing: 10) {
+            avatar(iconURL: row.profile?.iconURL)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(row.displayName).font(.headline).lineLimit(1)
+                Text(row.handle ?? row.request.actor.absoluteString)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+            }
+            Spacer()
+            Button("Accept") { Task { await followers.accept(row) } }
+                .accessibilityLabel("Accept follow request from \(row.displayName)")
+            Button("Reject", role: .destructive) { followers.rejectConfirmation = row }
+                .accessibilityLabel("Reject follow request from \(row.displayName)")
+        }
+        .padding(.vertical, 2)
+        .task { followers.enrichIfNeeded(row.request.actor) }
     }
 
     @ViewBuilder
@@ -114,7 +192,7 @@ struct FollowersView: View {
     @ViewBuilder
     private func followerRow(_ row: FollowerRow) -> some View {
         HStack(spacing: 10) {
-            avatar(for: row)
+            avatar(iconURL: row.profile?.iconURL)
             VStack(alignment: .leading, spacing: 2) {
                 // Plain `Text` only: a display name is follower-supplied, so any markup in it
                 // must render literally rather than being interpreted.
@@ -142,10 +220,10 @@ struct FollowersView: View {
     }
 
     @ViewBuilder
-    private func avatar(for row: FollowerRow) -> some View {
+    private func avatar(iconURL: URL?) -> some View {
         // `iconURL` is `nil` unless the fetched value was HTTPS — `ActorProfileFetcher` drops
         // insecure ones, so this never loads an avatar over plaintext.
-        FollowerAvatar(url: row.profile?.iconURL, loader: followers.avatarLoader)
+        FollowerAvatar(url: iconURL, loader: followers.avatarLoader)
     }
 
     /// `title` is static UI copy and localizes via the `LocalizedStringKey` overload. `detail` is

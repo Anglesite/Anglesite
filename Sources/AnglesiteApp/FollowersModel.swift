@@ -15,11 +15,28 @@ struct FollowerRow: Identifiable, Equatable {
 
     /// Never empty: the fetched display name, else the fetched username, else the derived
     /// handle, else the raw IRI. This chain is why a failed profile fetch needs no error state.
-    var displayName: String {
+    var displayName: String { ActorDisplay.name(profile: profile, handle: handle, actor: actor) }
+}
+
+/// Shared display-name derivation for both `FollowerRow` and `PendingRequestRow`: fetched
+/// display name, else fetched username, else derived handle, else the raw IRI.
+enum ActorDisplay {
+    static func name(profile: ActorProfile?, handle: String?, actor: URL) -> String {
         if let name = profile?.name, !name.isEmpty { return name }
         if let username = profile?.preferredUsername, !username.isEmpty { return "@\(username)" }
         return handle ?? actor.absoluteString
     }
+}
+
+/// One pending follow request in the Followers pane's "Pending Requests" section — pairs the
+/// Worker's `PendingFollower` with the same lazily-enriched display identity `FollowerRow` uses.
+struct PendingRequestRow: Identifiable, Equatable {
+    let request: PendingFollower
+    var profile: ActorProfile?
+
+    var id: URL { request.actor }
+    var handle: String? { ActorHandle.derive(from: request.actor) }
+    var displayName: String { ActorDisplay.name(profile: profile, handle: handle, actor: request.actor) }
 }
 
 /// Drives the Followers pane (Website ▸ Followers…, V-4.2 #364): reads the site's own public
@@ -37,6 +54,19 @@ final class FollowersModel {
         /// The Worker answered 503: ActivityPub isn't activated for this site.
         case notActivated
         /// 404 or a transport failure: unreachable, or the Worker isn't deployed.
+        case unreachable(String)
+    }
+
+    /// Loading lifecycle for the pending-request list — deliberately separate from `State`
+    /// (see the design doc's rationale): pending availability is orthogonal to whether the
+    /// main follower list loaded.
+    enum PendingState: Equatable {
+        case unknown
+        case loading
+        case loaded
+        /// The upstream `GET <actor>/follow_requests` route 404s — not shipped yet. Never
+        /// shown as an error; the pending section simply stays hidden.
+        case unavailable
         case unreachable(String)
     }
 
@@ -90,15 +120,41 @@ final class FollowersModel {
     private var pendingQueue: [URL] = []
     private var saveTask: Task<Void, Never>?
 
+    private(set) var pendingRows: [PendingRequestRow] = []
+    private(set) var pendingState: PendingState = .unknown
+
+    private var siteID: String?
+    private let secretStore: any SecretStore
+    private let membershipTransport: CommunityMembershipClient.Transport
+    private var membershipClient: CommunityMembershipClient?
+
+    private var pollTask: Task<Void, Never>?
+    private var lastNotifiedPendingCount = 0
+    private var hasEstablishedPendingBaseline = false
+    private let pendingPollInterval: Duration
+
+    /// Fired with the current total pending count whenever a `loadPending()` finds it greater
+    /// than the last count this fired for. The *first* `loadPending()` per model instance only
+    /// establishes the baseline — it never fires on its own (a relaunch must not re-notify
+    /// about requests the owner has already seen and simply hasn't acted on yet).
+    var onNewPendingRequests: ((String, Int) -> Void)?
+
     init(
         fetcher: ActorProfileFetcher = ActorProfileFetcher(),
         avatarLoader: AvatarLoader = AvatarLoader(),
         followersTransport: @escaping ActivityPubFollowersClient.Transport
-            = ActivityPubFollowersClient.defaultTransport
+            = ActivityPubFollowersClient.defaultTransport,
+        secretStore: any SecretStore = PlatformSecretStore.make(),
+        membershipTransport: @escaping CommunityMembershipClient.Transport
+            = CommunityMembershipClient.defaultTransport,
+        pendingPollInterval: Duration = .seconds(300)
     ) {
         self.fetcher = fetcher
         self.avatarLoader = avatarLoader
         self.followersTransport = followersTransport
+        self.secretStore = secretStore
+        self.membershipTransport = membershipTransport
+        self.pendingPollInterval = pendingPollInterval
     }
 
     var canLoadMore: Bool { nextPage != nil && state == .loaded }
@@ -108,7 +164,20 @@ final class FollowersModel {
     func configure(site: CurrentSite) {
         configDirectory = site.configDirectory
         sourceDirectory = site.sourceDirectory
+        siteID = site.id
         cache = ActorProfileCache.load(from: site.configDirectory) ?? ActorProfileCache()
+        // A window can replay onto a different site while reusing this same model instance —
+        // every piece of pending-request state carries site-specific meaning (rows are another
+        // site's actors, the notification baseline is another site's count) and must not leak
+        // across the replay. Without this reset, the very first `loadPending()` for the new site
+        // could compare against a stale baseline and fire a spurious notification, or leave the
+        // previous site's rows on screen under the new site's window.
+        pendingRows = []
+        pendingState = .unknown
+        pendingActionFailure = nil
+        rejectConfirmation = nil
+        lastNotifiedPendingCount = 0
+        hasEstablishedPendingBaseline = false
         resolveSite()
     }
 
@@ -127,10 +196,19 @@ final class FollowersModel {
         guard let siteURL else {
             client = nil
             actorURL = nil
+            membershipClient = nil
             return
         }
         client = ActivityPubFollowersClient(siteURL: siteURL, transport: followersTransport)
         actorURL = ActivityPubActor.actorURL(siteURL: siteURL)
+        membershipClient = publishToken.map { token in
+            CommunityMembershipClient(ownActorURL: actorURL!, publishToken: token, transport: membershipTransport)
+        }
+    }
+
+    private var publishToken: String? {
+        guard let siteID else { return nil }
+        return try? secretStore.read(account: SecretAccounts.activityPubPublishToken(siteID: siteID))
     }
 
     /// The error states' Try Again. Re-resolves the site before reloading, so publishing the site
@@ -203,6 +281,10 @@ final class FollowersModel {
         // failed actor a fresh attempt instead of honoring the session-scoped failure memory.
         unreachableActors.removeAll()
         await load()
+        // Refresh is the owner's one manual "check now" — without also re-fetching pending
+        // requests, an accept/reject made elsewhere (or a stuck `.unreachable` pending state)
+        // would stay stale in this window for up to the full 5-minute poll interval.
+        await loadPending()
     }
 
     private static func failureState(for error: Error) -> State {
@@ -231,8 +313,9 @@ final class FollowersModel {
     /// each visible row's `.task`, so only rows the owner actually scrolls to cost a request.
     func enrichIfNeeded(_ actor: URL) {
         let key = actor.absoluteString
-        guard rows.first(where: { $0.actor == actor })?.profile == nil,
-              !inFlight.contains(key), !queued.contains(key), !unreachableActors.contains(key)
+        let alreadyKnown = rows.first(where: { $0.actor == actor })?.profile != nil
+            || pendingRows.first(where: { $0.request.actor == actor })?.profile != nil
+        guard !alreadyKnown, !inFlight.contains(key), !queued.contains(key), !unreachableActors.contains(key)
         else { return }
         queued.insert(key)
         pendingQueue.append(actor)
@@ -261,11 +344,136 @@ final class FollowersModel {
             if let index = rows.firstIndex(where: { $0.actor == actor }) {
                 rows[index].profile = profile
             }
+            if let index = pendingRows.firstIndex(where: { $0.request.actor == actor }) {
+                pendingRows[index].profile = profile
+            }
             scheduleCacheSave()
         } else {
             unreachableActors.insert(key)
         }
         pumpQueue()
+    }
+
+    // MARK: - Pending requests
+
+    /// Fetches the pending-follow-request list from this site's own Worker. A 404 (the
+    /// upstream capability not shipped yet) degrades to `.unavailable` with an empty list —
+    /// never a user-facing error, mirroring `ModerationModel.loadPendingFollowers()`'s same
+    /// rule against the same endpoint. No-ops (leaves `.unknown`) until `configure(site:)` has
+    /// resolved a `membershipClient` — no site URL yet, or no publish token provisioned.
+    func loadPending() async {
+        guard let membershipClient else { return }
+        pendingState = .loading
+        pendingActionFailure = nil
+        do {
+            let requests = try await membershipClient.listFollowRequests()
+            pendingRows = requests.map { request in
+                PendingRequestRow(request: request, profile: cache.profile(for: request.actor))
+            }
+            pendingState = .loaded
+            notifyIfNewRequestsArrived()
+        } catch CommunityMembershipError.requestFailed(status: 404, body: _) {
+            pendingRows = []
+            pendingState = .unavailable
+        } catch {
+            // Additive, not destructive: a transient failure keeps whatever rows are already
+            // on screen rather than blanking the section, matching `loadMoreFailure`'s rule
+            // for the main list. `localizedDescription`, not a raw `"\(error)"` dump, since this
+            // is owner-facing copy the view surfaces — mirrors `ModerationModel.loadPendingFollowers()`.
+            pendingState = .unreachable(error.localizedDescription)
+        }
+    }
+
+    private func notifyIfNewRequestsArrived() {
+        guard let siteID else { return }
+        defer { hasEstablishedPendingBaseline = true }
+        guard hasEstablishedPendingBaseline, pendingRows.count > lastNotifiedPendingCount else {
+            lastNotifiedPendingCount = pendingRows.count
+            return
+        }
+        lastNotifiedPendingCount = pendingRows.count
+        onNewPendingRequests?(siteID, pendingRows.count)
+    }
+
+    /// Starts the recurring background recheck, idempotently — a second call (e.g. a window
+    /// replayed onto a different site) is a no-op; `loadPending()` always reads the *current*
+    /// `membershipClient`/`siteID` at call time, so the one running loop naturally picks up a
+    /// replayed site's data on its next tick. Callers that want fresher data immediately after
+    /// a replay should `await loadPending()` explicitly (this method only owns the recurring
+    /// timer, not an immediate fetch — see `SiteWindowModel.loadAndStart`).
+    func startPendingPollingIfNeeded() {
+        // The design spec starts the recurring poll "once `pendingState` first resolves to
+        // something other than `.unavailable`" — the upstream `follow_requests` route not being
+        // deployed yet is the whole backward-compatibility scenario this feature exists for, and
+        // without this guard every open site window would poll an authenticated request every
+        // few minutes, forever, that can only ever 404. Called (as it already is) right after the
+        // initial `await loadPending()` in `SiteWindowModel.loadAndStart(...)`, so `pendingState`
+        // already reflects whether the route exists by the time this runs. A Worker that upgrades
+        // mid-session won't be picked up until the window reopens — accepted in the design spec's
+        // non-goals.
+        guard pendingState != .unavailable else { return }
+        guard pollTask == nil else { return }
+        pollTask = Task { [weak self] in
+            guard let interval = self?.pendingPollInterval else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: interval)
+                guard !Task.isCancelled, let self else { return }
+                await self.loadPending()
+            }
+        }
+    }
+
+    /// Stops the recurring recheck — called from `SiteWindowModel.close()`.
+    func stopPendingPolling() {
+        pollTask?.cancel()
+        pollTask = nil
+    }
+
+    var pendingActionFailure: String?
+    /// Set by the view to arm the Reject confirmation dialog; cleared by whichever button runs
+    /// (Reject or Cancel) — same no-op-setter/clear-in-button-action contract
+    /// `ModerationModel.banConfirmation` already establishes.
+    var rejectConfirmation: PendingRequestRow?
+
+    /// Confirms a pending follower. Optimistically removes the row; a failure restores it
+    /// (appended, not reinserted at its original position — pending lists are short enough
+    /// that exact ordering after a failure isn't worth the extra bookkeeping) and reports
+    /// `pendingActionFailure`, same additive-not-replacing shape as `loadMoreFailure`.
+    func accept(_ row: PendingRequestRow) async {
+        guard let membershipClient else { return }
+        // Unconditional on entry, not just on success: nothing else ever clears a previous
+        // failure, so without this a stale error from an earlier accept/reject would keep
+        // showing under a later, unrelated pending request.
+        pendingActionFailure = nil
+        pendingRows.removeAll { $0.id == row.id }
+        do {
+            try await membershipClient.acceptFollow(target: row.request.actor)
+        } catch {
+            pendingRows.append(row)
+            pendingActionFailure = "Couldn't accept \(row.displayName): \(error.localizedDescription)"
+        }
+    }
+
+    /// Declines a pending follower. Never called directly by the view — only through
+    /// ``confirmReject()``, after `rejectConfirmation` is armed, since Reject is destructive
+    /// (mac-assed-app-spec §5).
+    private func reject(_ row: PendingRequestRow) async {
+        guard let membershipClient else { return }
+        // Same unconditional-on-entry clear as `accept(_:)` — see its comment.
+        pendingActionFailure = nil
+        pendingRows.removeAll { $0.id == row.id }
+        do {
+            try await membershipClient.rejectFollow(target: row.request.actor)
+        } catch {
+            pendingRows.append(row)
+            pendingActionFailure = "Couldn't reject \(row.displayName): \(error.localizedDescription)"
+        }
+    }
+
+    func confirmReject() async {
+        guard let row = rejectConfirmation else { return }
+        rejectConfirmation = nil
+        await reject(row)
     }
 
     // MARK: - Cache persistence

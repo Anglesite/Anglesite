@@ -116,6 +116,21 @@ public struct CommunityMembershipClient: Sendable {
         _ = try await post(body)
     }
 
+    /// Declines a pending join request — the owner's alternative to ``acceptFollow(target:)``.
+    /// Same `POST <actor>/outbox` seam and target-resolution rules (bare actor IRI as
+    /// `object`), just `"Reject"` instead of `"Accept"`. Unlike `remove(target:)` (which bans
+    /// an *already-accepted* member), this only makes sense against a still-pending request —
+    /// the Worker's `#singleFollowTarget` resolves it the same way either verb does.
+    public func rejectFollow(target: URL) async throws {
+        let body: [String: Any] = [
+            "@context": "https://www.w3.org/ns/activitystreams",
+            "type": "Reject",
+            "actor": ownActorURL.absoluteString,
+            "object": target.absoluteString,
+        ]
+        _ = try await post(body)
+    }
+
     /// Lists everyone whose `Follow` is awaiting this owner's `Accept` — the bearer-gated
     /// `GET <actor>/follow_requests` `davidwkeith/workers` PR #488 added (closing workers#487),
     /// mirroring `GET <actor>/blocked`'s unpaged flat `{items, total}` JSON exactly. **Not yet in
