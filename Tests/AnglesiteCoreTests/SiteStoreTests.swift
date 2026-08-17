@@ -572,4 +572,37 @@ final class SiteStoreTests {
         let bookmark = await store.bookmarkData(for: site.id)
         #expect(bookmark == Data([0xCA, 0xFE]))
     }
+
+    // MARK: - Shared manifest (#1450)
+
+    @Test("setBookmark republishes the shared manifest for sites with a bookmark")
+    func setBookmarkPublishesSharedManifest() async throws {
+        let pkg = try makeValidPackage(named: "alpha")
+        let sharedDir = tempDir.appendingPathComponent("shared", isDirectory: true)
+        let store = SiteStore(persistenceURL: persistenceURL, sharedRegistryDirectory: sharedDir)
+        let site = try await store.record(pkg)
+
+        // record() alone (no bookmark yet) must not publish an entry for this site.
+        #expect(SharedSiteRegistry.read(from: sharedDir).isEmpty)
+
+        try await store.setBookmark(Data([9, 9]), for: site.id)
+
+        let shared = SharedSiteRegistry.read(from: sharedDir)
+        #expect(shared.map(\.id) == [site.id])
+        #expect(shared.first?.bookmarkData == Data([9, 9]))
+        #expect(shared.first?.name == "alpha")
+    }
+
+    @Test("removing a site drops it from the shared manifest")
+    func removePublishesSharedManifest() async throws {
+        let pkg = try makeValidPackage(named: "alpha")
+        let sharedDir = tempDir.appendingPathComponent("shared", isDirectory: true)
+        let store = SiteStore(persistenceURL: persistenceURL, sharedRegistryDirectory: sharedDir)
+        let site = try await store.record(pkg)
+        try await store.setBookmark(Data([1]), for: site.id)
+        #expect(SharedSiteRegistry.read(from: sharedDir).count == 1)
+
+        try await store.remove(id: site.id)
+        #expect(SharedSiteRegistry.read(from: sharedDir).isEmpty)
+    }
 }
