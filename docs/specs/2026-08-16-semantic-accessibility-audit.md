@@ -248,7 +248,8 @@ individual findings per change):
    `BackupDrawerView`, `AuditSheetView`, `HardenSheetView`, `AgentReadinessSheetView`,
    `AISearchSheetView`. Filed as [#1520](https://github.com/Anglesite/Anglesite/issues/1520).
 2. **Add `.accessibilityAddTraits(.isHeader)` to `SettingsBox`'s title** and audit its call
-   sites (`ContentLicensingTab` + others) for correctness once it's on by default.
+   sites (`ContentLicensingTab` + others) for correctness once it's on by default. Filed as
+   [#1522](https://github.com/Anglesite/Anglesite/issues/1522).
 3. **Label the remaining icon-only "remove row" buttons** across the component/typed-entry
    editors (`ComponentMetadataInspectorPane`, `ComponentStyleInspectorPane`,
    `TypedEntryEditorView`, `PlistEditorView`) — mechanical, low-risk, one pattern repeated.
