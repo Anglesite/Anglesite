@@ -40,6 +40,18 @@
         }
       }
     },
+    "NSContactsUsageDescription" : {
+      "comment" : "Privacy - Contacts Usage Description",
+      "extractionState" : "extracted_with_value",
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Anglesite can check your Contacts to suggest names for people you follow, so your contact list uses names you recognize."
+          }
+        }
+      }
+    },
     "NSHumanReadableCopyright" : {
       "comment" : "Copyright (human-readable)",
       "extractionState" : "extracted_with_value",
