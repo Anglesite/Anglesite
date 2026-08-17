@@ -11,11 +11,30 @@ final class ExternalLLMStubURLProtocol: URLProtocol, @unchecked Sendable {
         let status: Int
         let headers: [String: String]
         let body: Data
+        /// When set, nothing (not even the response head) is delivered until the semaphore is
+        /// signalled — the seam that parks a `converse()` call inside its network `await` so a
+        /// test can land a `resetSession()`/superseding `converse()` in that exact window.
+        let gate: DispatchSemaphore?
+        /// Ends the connection with an error *after* the body instead of finishing cleanly —
+        /// the "connection dropped mid-stream" case, which must surface as a `.failed` event
+        /// rather than a throw out of `converse()`.
+        let failsAfterBody: Bool
+
+        init(status: Int, headers: [String: String], body: Data, gate: DispatchSemaphore? = nil, failsAfterBody: Bool = false) {
+            self.status = status
+            self.headers = headers
+            self.body = body
+            self.gate = gate
+            self.failsAfterBody = failsAfterBody
+        }
     }
     nonisolated(unsafe) static var queue: [Response] = []
     nonisolated(unsafe) static var capturedRequests: [URLRequest] = []
+    /// How many gated requests have reached `startLoading` (i.e. are parked on their semaphore).
+    /// Tests poll this to know a `converse()` is genuinely suspended mid-request before racing it.
+    nonisolated(unsafe) static var gatedRequestsEntered = 0
 
-    static func reset() { queue = []; capturedRequests = [] }
+    static func reset() { queue = []; capturedRequests = []; gatedRequestsEntered = 0 }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
     override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
@@ -31,10 +50,29 @@ final class ExternalLLMStubURLProtocol: URLProtocol, @unchecked Sendable {
         }
         Self.capturedRequests.append(captured)
         let r = Self.queue.isEmpty ? Response(status: 500, headers: [:], body: Data()) : Self.queue.removeFirst()
-        let http = HTTPURLResponse(url: request.url!, statusCode: r.status, httpVersion: "HTTP/1.1", headerFields: r.headers)!
-        client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
-        if !r.body.isEmpty { client?.urlProtocol(self, didLoad: r.body) }
-        client?.urlProtocolDidFinishLoading(self)
+        let deliver = { [self] in
+            let http = HTTPURLResponse(url: request.url!, statusCode: r.status, httpVersion: "HTTP/1.1", headerFields: r.headers)!
+            client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
+            if !r.body.isEmpty { client?.urlProtocol(self, didLoad: r.body) }
+            if r.failsAfterBody {
+                // Delayed so `converse()`'s setup `await` has certainly returned and the drain is
+                // parked on the byte stream: the contract under test is specifically a failure
+                // *after* streaming begins.
+                DispatchQueue.global().asyncAfter(deadline: .now() + 0.05) { [self] in
+                    client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+                }
+            } else {
+                client?.urlProtocolDidFinishLoading(self)
+            }
+        }
+        guard let gate = r.gate else { return deliver() }
+        // Park on a *global-queue* thread, never the URL loading thread — blocking the latter
+        // would stop the session from starting the second, ungated request the race tests need.
+        Self.gatedRequestsEntered += 1
+        DispatchQueue.global().async {
+            gate.wait()
+            deliver()
+        }
     }
     override func stopLoading() {}
 
@@ -151,14 +189,32 @@ struct ExternalLLMBackendWireFormatTests {
 
 @Suite("ExternalLLMBackend conversation", .serialized)
 struct ExternalLLMBackendConversationTests {
-    private func makeBackend(apiKey: String? = nil) -> ExternalLLMBackend {
+    private func makeBackend(apiKey: String? = nil, maxLineBytes: Int = ExternalLLMBackend.defaultMaxLineBytes) -> ExternalLLMBackend {
         let config = URLSessionConfiguration.ephemeral
         config.protocolClasses = [ExternalLLMStubURLProtocol.self]
         let session = URLSession(configuration: config)
         return ExternalLLMBackend(
             configuration: .init(baseURL: URL(string: "https://api.example.com/v1")!, model: "test-model", apiKey: apiKey),
-            urlSession: session
+            urlSession: session,
+            maxLineBytes: maxLineBytes
         )
+    }
+
+    /// Suspends until `count` gated requests have reached the stub's `startLoading` — i.e. that
+    /// many `converse()` calls are genuinely parked inside their network `await`.
+    private func awaitGatedRequests(_ count: Int) async throws {
+        for _ in 0..<500 {
+            if ExternalLLMStubURLProtocol.gatedRequestsEntered >= count { return }
+            try await Task.sleep(nanoseconds: 2_000_000)
+        }
+        Issue.record("timed out waiting for \(count) gated request(s) to start")
+    }
+
+    /// The `messages` array of the last request the stub captured, as role/content pairs.
+    private func lastRequestMessages() throws -> [[String: String]] {
+        let body = try #require(ExternalLLMStubURLProtocol.capturedRequests.last?.httpBody)
+        let json = try JSONSerialization.jsonObject(with: body) as? [String: Any]
+        return try #require(json?["messages"] as? [[String: String]])
     }
 
     private func sseBody(_ events: [String]) -> Data {
@@ -293,33 +349,249 @@ struct ExternalLLMBackendConversationTests {
         #expect(sawTextDelta)
     }
 
-    @Test("finishTurn is a no-op when its relay is no longer the actor's active turn (regression: #1482 stale-relay guard)")
-    func finishTurnSkipsStaleRelay() async throws {
-        // Exercises `finishTurn`'s `activeRelay === relay` guard directly rather than through a
-        // real `converse()`/`drainSSE` race: an end-to-end attempt (delaying an SSE response's
-        // EOF via a custom `URLProtocol` stub, then racing `resetSession()`/a superseding
-        // `converse()` against it) was tried first, but proved unreliable — `URLSession
-        // .AsyncBytes` appears to observe `Task` cancellation promptly enough on this platform
-        // that the drain's `for try await` loop throws out through `drainSSE`'s `catch` block
-        // (landing on the harmless `relay.complete(.failed(...))` path) rather than reaching the
-        // vulnerable normal-completion fall-through, regardless of timing. Calling `finishTurn`
-        // directly (made non-`private` for exactly this, matching this file's existing pattern
-        // for `seedHistoryIfNeeded`/`trimHistoryIfNeeded`/`makeURLRequest`) reproduces the actual
-        // bug state deterministically: a drain's own relay no longer matches `activeRelay`,
-        // which is precisely what `resetSession()`/`cancel()`/a superseding `converse()` leaves
-        // behind for an orphaned drain that's already in flight.
+    @Test("finishTurn is a no-op when its turn has been superseded (regression: #1482 stale-turn guard)")
+    func finishTurnSkipsStaleTurn() async throws {
+        // The *post*-relay half of the race, exercised directly: a drain that reaches its
+        // normal-completion `finishTurn` after `resetSession()`/`cancel()`/a superseding
+        // `converse()` has already moved the actor on. Driving that half end-to-end proved
+        // unreliable — `URLSession.AsyncBytes` observes `Task` cancellation promptly enough that
+        // an artificially delayed SSE stream throws out through `drainSSE`'s `catch` (the
+        // harmless `.failed` path) instead of reaching the vulnerable fall-through. Calling
+        // `finishTurn` with a stale generation reproduces the exact state deterministically. The
+        // *pre*-relay half — the window this guard's predecessor missed — is covered end-to-end
+        // by `resetSessionDuringSetupAwaitLeavesNoHistory` below.
         let backend = makeBackend()
         let (_, continuation) = AsyncStream.makeStream(of: AssistantEvent.self)
         let staleRelay = TurnRelay(continuation)
 
         let before = await backend.messages
         #expect(before.isEmpty)
-        await backend.finishTurn(accumulatedText: "orphaned", usage: nil, relay: staleRelay)
+        let staleGeneration = await backend.turnGeneration - 1
+        await backend.finishTurn(
+            userMessage: .init(role: "user", content: "orphaned prompt"),
+            accumulatedText: "orphaned",
+            usage: nil,
+            generation: staleGeneration,
+            relay: staleRelay
+        )
         let after = await backend.messages
         // Unguarded, this would corrupt `messages` — e.g. permanently losing the system
         // instruction on a session `resetSession()` had just cleared, since
         // `seedHistoryIfNeeded` only reseeds when `messages` is empty.
         #expect(after.isEmpty)
+    }
+
+    @Test("resetSession landing inside converse's setup await leaves no history behind (regression: #1482 pre-relay race)")
+    func resetSessionDuringSetupAwaitLeavesNoHistory() async throws {
+        ExternalLLMStubURLProtocol.reset()
+        let gate = DispatchSemaphore(value: 0)
+        // Turn 1 is parked before its response head is delivered — `converse()` is suspended in
+        // `urlSession.bytes(for:)`, past the point where it staged its user turn and before it
+        // ever assigns `activeRelay`. That window is where the relay-identity guard was blind.
+        ExternalLLMStubURLProtocol.queue.append(.init(
+            status: 200, headers: ["Content-Type": "text/event-stream"],
+            body: sseBody([#"{"choices":[{"delta":{"content":"Hi"}}]}"#]), gate: gate
+        ))
+        ExternalLLMStubURLProtocol.queue.append(.init(
+            status: 200, headers: ["Content-Type": "text/event-stream"],
+            body: sseBody([#"{"choices":[{"delta":{"content":"Yo"}}]}"#])
+        ))
+        let backend = makeBackend()
+
+        let firstTurn = Task { try await backend.converse(prompt: "hi", context: context()) }
+        try await awaitGatedRequests(1)
+        await backend.resetSession()
+        gate.signal()
+
+        // The superseded turn never hands out a stream — a consumer attached to one would be
+        // waiting on a turn nothing will terminate.
+        await #expect(throws: CancellationError.self) { _ = try await firstTurn.value }
+        let afterReset = await backend.messages
+        #expect(afterReset.isEmpty)
+
+        // Before the fix, the resuming turn appended its reply to the array `resetSession()` had
+        // just emptied, so this second request went out as [assistant, user] — no system
+        // instruction (`seedHistoryIfNeeded` only reseeds an empty history) and carrying content
+        // from the conversation the owner had just cleared.
+        let second = try await backend.converse(prompt: "again", context: context())
+        for await _ in second {}
+        let messages = try lastRequestMessages()
+        #expect(messages.count == 2)
+        #expect(messages[0]["role"] == "system")
+        #expect(messages[1]["role"] == "user")
+        #expect(messages[1]["content"] == "again")
+    }
+
+    @Test("a converse superseded inside its setup await neither strands its consumer nor its user message (regression: #1482)")
+    func supersedingConverseDuringSetupAwaitIsClean() async throws {
+        ExternalLLMStubURLProtocol.reset()
+        let gate = DispatchSemaphore(value: 0)
+        ExternalLLMStubURLProtocol.queue.append(.init(
+            status: 200, headers: ["Content-Type": "text/event-stream"],
+            body: sseBody([#"{"choices":[{"delta":{"content":"first"}}]}"#]), gate: gate
+        ))
+        ExternalLLMStubURLProtocol.queue.append(.init(
+            status: 200, headers: ["Content-Type": "text/event-stream"],
+            body: sseBody([#"{"choices":[{"delta":{"content":"second"}}]}"#])
+        ))
+        ExternalLLMStubURLProtocol.queue.append(.init(
+            status: 200, headers: ["Content-Type": "text/event-stream"],
+            body: sseBody([#"{"choices":[{"delta":{"content":"third"}}]}"#])
+        ))
+        let backend = makeBackend()
+
+        let firstTurn = Task { try await backend.converse(prompt: "first prompt", context: context()) }
+        try await awaitGatedRequests(1)
+
+        // Supersedes the parked turn before it ever reached its relay assignment.
+        let second = try await backend.converse(prompt: "second prompt", context: context())
+        for await _ in second {}
+        gate.signal()
+
+        // Previously the parked turn returned a stream whose relay was never `activeRelay`, so
+        // nothing ever completed it — a consumer of that stream hung forever.
+        await #expect(throws: CancellationError.self) { _ = try await firstTurn.value }
+
+        // And its user message never entered history, so the surviving turn's pair is intact and
+        // unpolluted by the abandoned prompt.
+        let third = try await backend.converse(prompt: "third prompt", context: context())
+        for await _ in third {}
+        let messages = try lastRequestMessages()
+        #expect(messages.map { $0["role"] } == ["system", "user", "assistant", "user"])
+        #expect(messages[1]["content"] == "second prompt")
+        #expect(messages[2]["content"] == "second")
+        #expect(!messages.contains { $0["content"] == "first prompt" })
+    }
+
+    @Test("an assistant reply is carried into the next turn's request")
+    func assistantReplyEntersHistory() async throws {
+        ExternalLLMStubURLProtocol.reset()
+        ExternalLLMStubURLProtocol.queue.append(.init(
+            status: 200, headers: ["Content-Type": "text/event-stream"],
+            body: sseBody([#"{"choices":[{"delta":{"content":"Hel"}}]}"#, #"{"choices":[{"delta":{"content":"lo"}}]}"#])
+        ))
+        ExternalLLMStubURLProtocol.queue.append(.init(
+            status: 200, headers: ["Content-Type": "text/event-stream"], body: sseBody([])
+        ))
+        let backend = makeBackend()
+
+        let first = try await backend.converse(prompt: "hi", context: context())
+        for await _ in first {}
+        let second = try await backend.converse(prompt: "and again", context: context())
+        for await _ in second {}
+
+        // `historyIsCapped` would pass even if replies never reached history at all — this is the
+        // test that actually pins the multi-turn contract.
+        let messages = try lastRequestMessages()
+        #expect(messages.map { $0["role"] } == ["system", "user", "assistant", "user"])
+        #expect(messages[1]["content"] == "hi")
+        #expect(messages[2]["content"] == "Hello")
+        #expect(messages[3]["content"] == "and again")
+    }
+
+    @Test("a cancelled turn leaves no unpaired user message in history")
+    func cancelLeavesNoUnpairedUserMessage() async throws {
+        ExternalLLMStubURLProtocol.reset()
+        ExternalLLMStubURLProtocol.queue.append(.init(status: 200, headers: ["Content-Type": "text/event-stream"], body: sseBody([#"{"choices":[{"delta":{"content":"Hi"}}]}"#])))
+        ExternalLLMStubURLProtocol.queue.append(.init(status: 200, headers: ["Content-Type": "text/event-stream"], body: sseBody([#"{"choices":[{"delta":{"content":"Yo"}}]}"#])))
+        let backend = makeBackend()
+
+        let first = try await backend.converse(prompt: "cancelled prompt", context: context())
+        await backend.cancel()
+        for await _ in first {}
+
+        let second = try await backend.converse(prompt: "next prompt", context: context())
+        for await _ in second {}
+
+        let messages = try lastRequestMessages()
+        // The cancelled turn produced no assistant reply, so its user message must not linger:
+        // two consecutive `user` entries are rejected outright by some OpenAI-compatible servers
+        // and re-send the discarded prompt's page content on every later turn.
+        #expect(messages.map { $0["role"] } == ["system", "user"])
+        #expect(messages[1]["content"] == "next prompt")
+    }
+
+    @Test("a setup failure leaves no unpaired user message in history")
+    func setupFailureLeavesNoUnpairedUserMessage() async throws {
+        ExternalLLMStubURLProtocol.reset()
+        // Two rejected attempts (a bad API key, retried) then a good one.
+        for _ in 0..<2 {
+            ExternalLLMStubURLProtocol.queue.append(.init(status: 401, headers: [:], body: #"{"error":{"message":"bad key"}}"#.data(using: .utf8)!))
+        }
+        ExternalLLMStubURLProtocol.queue.append(.init(status: 200, headers: ["Content-Type": "text/event-stream"], body: sseBody([#"{"choices":[{"delta":{"content":"Hi"}}]}"#])))
+        let backend = makeBackend()
+
+        for _ in 0..<2 {
+            await #expect(throws: (any Error).self) {
+                _ = try await backend.converse(prompt: "rejected prompt", context: context())
+            }
+        }
+        let stream = try await backend.converse(prompt: "accepted prompt", context: context())
+        for await _ in stream {}
+
+        let messages = try lastRequestMessages()
+        #expect(messages.map { $0["role"] } == ["system", "user"])
+        #expect(messages[1]["content"] == "accepted prompt")
+    }
+
+    @Test("an SSE line larger than maxLineBytes fails the turn instead of growing without bound")
+    func oversizedSSELineFailsTheTurn() async throws {
+        ExternalLLMStubURLProtocol.reset()
+        // A 2xx response with the right content type, then a body that never emits a newline —
+        // a hostile or simply non-SSE endpoint. Without the bound this accumulates until the app
+        // is OOM-killed; the endpoint here is user-configured and unvetted.
+        let neverEnding = Data(repeating: UInt8(ascii: "a"), count: 4_096)
+        ExternalLLMStubURLProtocol.queue.append(.init(
+            status: 200, headers: ["Content-Type": "text/event-stream"], body: neverEnding
+        ))
+        let backend = makeBackend(maxLineBytes: 64)
+
+        let stream = try await backend.converse(prompt: "hi", context: context())
+        var events: [AssistantEvent] = []
+        for await event in stream { events.append(event) }
+
+        // A failure after streaming begins is an in-band `.failed`, never a throw.
+        guard case .failed(let message)? = events.last else {
+            Issue.record("expected a .failed terminal event, got \(String(describing: events.last))")
+            return
+        }
+        #expect(message.contains("lineTooLong"))
+        // The failed turn contributed nothing to history.
+        let messages = await backend.messages
+        #expect(messages.map(\.role) == ["system"])
+    }
+
+    @Test("a connection dropped mid-stream surfaces as .failed, not a throw")
+    func midStreamConnectionDropFails() async throws {
+        ExternalLLMStubURLProtocol.reset()
+        // A well-formed start (2xx + one complete SSE event, so streaming has genuinely begun),
+        // then the connection dies without a `[DONE]` sentinel or a clean EOF.
+        let partial = "data: \(#"{"choices":[{"delta":{"content":"Hi"}}]}"#)\n\n".data(using: .utf8)!
+        ExternalLLMStubURLProtocol.queue.append(.init(
+            status: 200, headers: ["Content-Type": "text/event-stream"], body: partial, failsAfterBody: true
+        ))
+        ExternalLLMStubURLProtocol.queue.append(.init(
+            status: 200, headers: ["Content-Type": "text/event-stream"], body: sseBody([#"{"choices":[{"delta":{"content":"Yo"}}]}"#])
+        ))
+        let backend = makeBackend()
+
+        let stream = try await backend.converse(prompt: "dropped prompt", context: context())
+        var events: [AssistantEvent] = []
+        for await event in stream { events.append(event) }
+
+        #expect(events.contains(.textDelta("Hi")))
+        guard case .failed? = events.last else {
+            Issue.record("expected a .failed terminal event, got \(String(describing: events.last))")
+            return
+        }
+
+        // The half-delivered turn is not committed — neither the discarded partial reply nor its
+        // now-unanswered user message.
+        let next = try await backend.converse(prompt: "next prompt", context: context())
+        for await _ in next {}
+        let messages = try lastRequestMessages()
+        #expect(messages.map { $0["role"] } == ["system", "user"])
+        #expect(messages[1]["content"] == "next prompt")
     }
 
     @Test("generate flattens converse's event stream to plain text")

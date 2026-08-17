@@ -37,6 +37,14 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     public enum HTTPError: Error, Sendable, Equatable {
         case http(status: Int, body: String?)
         case badResponse
+        /// A single SSE line (the bytes accumulated since the last newline) exceeded
+        /// ``ExternalLLMBackend/maxLineBytes`` — guards against unbounded memory growth from an
+        /// endpoint that never emits a newline. This backend's endpoint is *user-configured* and
+        /// unvetted (a typo'd URL, a hostile host, or a plain non-SSE response all reach here), so
+        /// the read is bounded rather than trusted. Mirrors
+        /// `ACPHTTPTransport.HTTPError.lineTooLong`. Raised mid-stream, so it surfaces as a
+        /// `.failed` event, not a throw out of ``converse(prompt:context:)``.
+        case lineTooLong
     }
 
     /// One entry in the actor-held conversation history. A private wire shape, deliberately
@@ -53,14 +61,27 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     /// — bounds request payload/cost on a paid API. The system instruction (always index 0) is
     /// never counted or dropped.
     static let maxHistoryMessages = 40
+    /// Default upper bound on one accumulated SSE line's byte size (see `HTTPError.lineTooLong`).
+    /// Generous for a real chat-completion chunk, but not unbounded. Same value as
+    /// `ACPHTTPTransport`'s.
+    static let defaultMaxLineBytes = 1 << 20  // 1 MiB
 
     let configuration: Configuration
     let urlSession: URLSession
+    let maxLineBytes: Int
     var messages: [ChatMessage] = []
 
     public init(configuration: Configuration, urlSession: URLSession = .shared) {
+        self.init(configuration: configuration, urlSession: urlSession, maxLineBytes: Self.defaultMaxLineBytes)
+    }
+
+    /// Test seam: same as ``init(configuration:urlSession:)`` but with a caller-chosen SSE line
+    /// bound, so the `HTTPError.lineTooLong` path can be exercised with a few dozen bytes instead
+    /// of a megabyte. Internal — the shipping bound is not a user-facing knob.
+    init(configuration: Configuration, urlSession: URLSession, maxLineBytes: Int) {
         self.configuration = configuration
         self.urlSession = urlSession
+        self.maxLineBytes = maxLineBytes
     }
 
     /// Static, connection-independent capabilities. No tool calling or structured output (those
@@ -79,6 +100,19 @@ public actor ExternalLLMBackend: ConversationalAssistant {
 
     var activeRelay: TurnRelay?
     var activeDrainTask: Task<Void, Never>?
+    /// Monotonic id of the most recently *started* turn. Bumped synchronously by `converse()`,
+    /// `cancel()`, and `resetSession()` — the three things that can end a turn's claim on this
+    /// actor — so any turn holding an older value is, by definition, logically superseded and must
+    /// not mutate ``messages`` or hand out a stream (#1482 review).
+    ///
+    /// Replaces the earlier `activeRelay === relay` identity check, which could only see a turn
+    /// that had already reached its post-`await` relay assignment. A turn suspended in
+    /// `converse()`'s network `await` has no relay yet, so identity couldn't distinguish it from a
+    /// live turn: a `resetSession()` landing in that window cleared `messages` and the resuming
+    /// turn then appended its reply to the emptied array (permanently losing the system
+    /// instruction, since `seedHistoryIfNeeded` only reseeds when `messages` is empty). A counter
+    /// is set before the suspension and so covers the whole turn, relay or not.
+    var turnGeneration = 0
     // `HTTPStreamingRunner` only exists off-Darwin (see its type doc); retaining it here lets
     // `cancel()`/`resetSession()` actually tear down the in-flight network read on that platform
     // instead of merely cancelling the drain `Task`, which — unlike the Darwin `AsyncBytes` path
@@ -122,15 +156,26 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     /// failure) is a setup failure per `ConversationalAssistant`'s documented contract, not an
     /// in-band `.failed` event. Only a failure *after* streaming begins (dropped connection,
     /// malformed chunk) becomes `.failed`.
+    ///
+    /// - Important: The turn's user message is *staged locally* for the outgoing request and only
+    ///   joins ``messages`` in `finishTurn`, paired with the assistant reply it earned. Appending
+    ///   it up front (as an earlier version did) left it behind whenever the turn didn't complete
+    ///   — a cancel, a bad API key, a mid-stream drop — so history accumulated unpaired `user`
+    ///   entries that were re-sent on every later request (and that some OpenAI-*compatible*
+    ///   servers reject outright as consecutive same-role messages). Staging makes a failed turn
+    ///   leave no trace, which is also what "the turn didn't happen" should mean to the owner
+    ///   (#1482 review).
+    /// - Throws: `CancellationError` if the turn is superseded while its request is in flight; see
+    ///   ``turnGeneration``.
     public func converse(prompt: String, context: AssistantContext) async throws -> AsyncStream<AssistantEvent> {
+        // Claim a new generation *before* the network `await` below, so this turn is identifiable
+        // (and supersedable) for its whole lifetime rather than only after the relay exists.
+        turnGeneration &+= 1
+        let myGeneration = turnGeneration
+
         // Clear `activeRelay`/`activeDrainTask` synchronously here (not just cancel the old
-        // relay/task) so `finishTurn`'s `activeRelay === relay` guard sees a superseding
-        // `converse()` the same way it sees `cancel()`/`resetSession()`: as soon as this line
-        // runs, `activeRelay` no longer identifies the outgoing turn, closing the window where
-        // an orphaned drain (still holding the old `TurnRelay` instance) could reach its
-        // normal-completion `finishTurn` call — during this method's own `await` below — and
-        // still pass an identity check against a stale `activeRelay` that hadn't been
-        // reassigned yet (#1482 review).
+        // relay/task) so a still-draining previous turn can't deliver into a relay this actor no
+        // longer considers current.
         activeRelay?.cancel()
         activeRelay = nil
         activeDrainTask?.cancel()
@@ -141,10 +186,8 @@ public actor ExternalLLMBackend: ConversationalAssistant {
 #endif
 
         seedHistoryIfNeeded(context: context)
-        messages.append(ChatMessage(role: "user", content: Self.turnPrompt(for: prompt, context: context)))
-        trimHistoryIfNeeded()
-
-        let request = try makeURLRequest(messages: messages)
+        let userMessage = ChatMessage(role: "user", content: Self.turnPrompt(for: prompt, context: context))
+        let request = try makeURLRequest(messages: Self.trimmed(messages + [userMessage]))
 
 #if canImport(Darwin)
         let (asyncBytes, response) = try await urlSession.bytes(for: request)
@@ -163,15 +206,31 @@ public actor ExternalLLMBackend: ConversationalAssistant {
             throw HTTPError.http(status: http.statusCode, body: body)
         }
 
+        // A `resetSession()`/`cancel()`/superseding `converse()` may have landed while the request
+        // above was in flight (actor isolation only serializes *between* `await` points). Bail
+        // before creating a relay: handing the caller a stream here would attach a consumer to a
+        // turn nothing will ever terminate, and letting its drain run would append this turn's
+        // reply to history the actor has already moved past.
+        guard turnGeneration == myGeneration else {
+#if canImport(Darwin)
+            asyncBytes.task.cancel()  // off-Darwin the superseder already cancelled `activeRunner`
+#endif
+            throw CancellationError()
+        }
+
         let (stream, continuation) = AsyncStream.makeStream(of: AssistantEvent.self)
         let relay = TurnRelay(continuation)
         activeRelay = relay
         relay.deliver(.started(model: configuration.model, toolNames: []))
 
 #if canImport(Darwin)
-        let drainTask = Task { [asyncBytes] in await self.drainSSE(asyncBytes: asyncBytes, relay: relay) }
+        let drainTask = Task { [asyncBytes] in
+            await self.drainSSE(asyncBytes: asyncBytes, userMessage: userMessage, generation: myGeneration, relay: relay)
+        }
 #else
-        let drainTask = Task { [runner] in await self.drainSSE(runner: runner, relay: relay) }
+        let drainTask = Task { [runner] in
+            await self.drainSSE(runner: runner, userMessage: userMessage, generation: myGeneration, relay: relay)
+        }
 #endif
         activeDrainTask = drainTask
         continuation.onTermination = { _ in relay.detach() }
@@ -182,7 +241,12 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     /// read — unlike `FoundationModelAssistant.cancel()`, which must leave the on-device stream
     /// running (cancelling it mid-flight traps the process), cancelling a plain HTTP read is safe
     /// and frees the connection promptly.
+    ///
+    /// The cancelled turn contributes nothing to ``messages``: its user message was never staged
+    /// into history, and the generation bump keeps its `finishTurn` from committing the partial
+    /// reply the consumer already stopped seeing.
     public func cancel() async {
+        turnGeneration &+= 1
         activeRelay?.cancel()
         activeRelay = nil
         activeDrainTask?.cancel()
@@ -194,6 +258,7 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     }
 
     public func resetSession() async {
+        turnGeneration &+= 1
         activeRelay?.cancel()
         activeRelay = nil
         activeDrainTask?.cancel()
@@ -220,37 +285,47 @@ public actor ExternalLLMBackend: ConversationalAssistant {
 
     /// Drops the oldest non-system messages once history exceeds `maxHistoryMessages` — the
     /// system instruction at index 0 is always kept.
-    func trimHistoryIfNeeded() {
-        let cap = Self.maxHistoryMessages + 1 // +1 for the always-kept system instruction
-        guard messages.count > cap else { return }
-        messages.removeSubrange(1..<(1 + (messages.count - cap)))
+    static func trimmed(_ messages: [ChatMessage]) -> [ChatMessage] {
+        let cap = maxHistoryMessages + 1 // +1 for the always-kept system instruction
+        guard messages.count > cap else { return messages }
+        var trimmed = messages
+        trimmed.removeSubrange(1..<(1 + (messages.count - cap)))
+        return trimmed
     }
 
-    /// Appends the completed assistant reply to history (so the next turn's request carries it),
-    /// trims if needed, and ends the turn with `.turnComplete`.
+    func trimHistoryIfNeeded() {
+        messages = Self.trimmed(messages)
+    }
+
+    /// Commits the turn — appends its user message and the completed assistant reply as a pair (so
+    /// the next request carries both), trims if needed, and ends the turn with `.turnComplete`.
     ///
-    /// - Important: Guarded on `activeRelay === relay` — `drainSSE`'s normal-completion path
-    ///   (the SSE body ends, with or without a `[DONE]` sentinel) calls this with no prior
-    ///   `Task.checkCancellation()` check, so a `resetSession()`/`cancel()`/superseding
-    ///   `converse()` that raced this same turn (actor isolation only serializes *between*
-    ///   `await` points, and `drainSSE` suspends at every byte it awaits) can already have ended
-    ///   it by the time this runs. Without the guard, this would still append to `messages` —
-    ///   after `resetSession()` cleared it, that means an assistant-only history with no system
-    ///   instruction, permanently (`seedHistoryIfNeeded` only reseeds when `messages` is empty);
-    ///   racing a superseding `converse()` instead, it would append the *old* turn's reply after
-    ///   the *new* turn's user message, misordering history. `activeRelay` is reassigned/cleared
-    ///   synchronously by all three of those (see `converse()`'s opening comment), so identity
-    ///   against it is exactly "is this turn still current" (#1482 review).
+    /// - Important: Guarded on `generation` still being ``turnGeneration`` — `drainSSE`'s
+    ///   normal-completion path (the SSE body ends, with or without a `[DONE]` sentinel) calls
+    ///   this with no prior `Task.checkCancellation()` check, so a `resetSession()`/`cancel()`/
+    ///   superseding `converse()` that raced this same turn (actor isolation only serializes
+    ///   *between* `await` points, and `drainSSE` suspends at every byte it awaits) can already
+    ///   have ended it by the time this runs. Unguarded, this would still mutate `messages` —
+    ///   after `resetSession()` cleared it, that means a history with no system instruction,
+    ///   permanently (`seedHistoryIfNeeded` only reseeds when `messages` is empty); racing a
+    ///   superseding `converse()` instead, it would interleave the old turn's pair into the new
+    ///   turn's history. All three bump `turnGeneration` synchronously, so the comparison is
+    ///   exactly "is this turn still current" (#1482 review).
     /// - Note: Internal rather than `private` — same testability pattern as
     ///   `seedHistoryIfNeeded`/`trimHistoryIfNeeded`/`makeURLRequest` below — so
     ///   `ExternalLLMBackendConversationTests` can exercise the guard above directly and
-    ///   deterministically. A real end-to-end race through `converse()`/`drainSSE` was tried
-    ///   first but proved unreliable to reproduce in tests: `URLSession.AsyncBytes` appears to
-    ///   observe `Task` cancellation promptly enough on this platform that an artificially
-    ///   delayed SSE stream still throws out of `drainSSE`'s `catch` block once its drain task
-    ///   is cancelled, rather than reaching this method's vulnerable fall-through path.
-    func finishTurn(accumulatedText: String, usage: AssistantUsage?, relay: TurnRelay) {
-        guard activeRelay === relay else { return }
+    ///   deterministically, alongside the end-to-end
+    ///   `resetSessionDuringSetupAwaitLeavesNoHistory` test that drives the *pre*-relay half of
+    ///   the same race through a gated `URLProtocol` stub.
+    func finishTurn(userMessage: ChatMessage, accumulatedText: String, usage: AssistantUsage?, generation: Int, relay: TurnRelay) {
+        guard turnGeneration == generation else {
+            // Belt-and-braces: whoever superseded this turn already cancelled its relay (it was
+            // `activeRelay` at the time), but ending it here too guarantees no consumer is left
+            // waiting on a stream that will never produce a terminal event.
+            relay.cancel()
+            return
+        }
+        messages.append(userMessage)
         messages.append(ChatMessage(role: "assistant", content: accumulatedText))
         trimHistoryIfNeeded()
         relay.complete(.turnComplete(usage))
@@ -259,7 +334,7 @@ public actor ExternalLLMBackend: ConversationalAssistant {
     // MARK: SSE draining
 
 #if canImport(Darwin)
-    private func drainSSE(asyncBytes: URLSession.AsyncBytes, relay: TurnRelay) async {
+    private func drainSSE(asyncBytes: URLSession.AsyncBytes, userMessage: ChatMessage, generation: Int, relay: TurnRelay) async {
         var dataLines: [String] = []
         var pendingLineBytes = Data()
         var accumulatedText = ""
@@ -292,12 +367,15 @@ public actor ExternalLLMBackend: ConversationalAssistant {
             for try await byte in asyncBytes {
                 try Task.checkCancellation()
                 pendingLineBytes.append(byte)
-                guard byte == 0x0A else { continue }
+                guard byte == 0x0A else {
+                    guard pendingLineBytes.count <= maxLineBytes else { throw HTTPError.lineTooLong }
+                    continue
+                }
                 var line = String(decoding: pendingLineBytes.dropLast(), as: UTF8.self)
                 if line.hasSuffix("\r") { line.removeLast() }
                 pendingLineBytes.removeAll(keepingCapacity: true)
                 if handleLine(line) {
-                    finishTurn(accumulatedText: accumulatedText, usage: usage, relay: relay)
+                    finishTurn(userMessage: userMessage, accumulatedText: accumulatedText, usage: usage, generation: generation, relay: relay)
                     return
                 }
             }
@@ -308,7 +386,7 @@ public actor ExternalLLMBackend: ConversationalAssistant {
         if !pendingLineBytes.isEmpty {
             _ = handleLine(String(decoding: pendingLineBytes, as: UTF8.self))
         }
-        finishTurn(accumulatedText: accumulatedText, usage: usage, relay: relay)
+        finishTurn(userMessage: userMessage, accumulatedText: accumulatedText, usage: usage, generation: generation, relay: relay)
     }
 
     private static func readBounded(_ bytes: URLSession.AsyncBytes, limit: Int = 4_096) async -> String? {
@@ -324,7 +402,7 @@ public actor ExternalLLMBackend: ConversationalAssistant {
         return data.isEmpty ? nil : String(decoding: data, as: UTF8.self)
     }
 #else
-    private func drainSSE(runner: HTTPStreamingRunner, relay: TurnRelay) async {
+    private func drainSSE(runner: HTTPStreamingRunner, userMessage: ChatMessage, generation: Int, relay: TurnRelay) async {
         var dataLines: [String] = []
         var pendingLineBytes = Data()
         var accumulatedText = ""
@@ -358,12 +436,15 @@ public actor ExternalLLMBackend: ConversationalAssistant {
                 try Task.checkCancellation()
                 for byte in chunk {
                     pendingLineBytes.append(byte)
-                    guard byte == 0x0A else { continue }
+                    guard byte == 0x0A else {
+                        guard pendingLineBytes.count <= maxLineBytes else { throw HTTPError.lineTooLong }
+                        continue
+                    }
                     var line = String(decoding: pendingLineBytes.dropLast(), as: UTF8.self)
                     if line.hasSuffix("\r") { line.removeLast() }
                     pendingLineBytes.removeAll(keepingCapacity: true)
                     if handleLine(line) {
-                        finishTurn(accumulatedText: accumulatedText, usage: usage, relay: relay)
+                        finishTurn(userMessage: userMessage, accumulatedText: accumulatedText, usage: usage, generation: generation, relay: relay)
                         return
                     }
                 }
@@ -375,7 +456,7 @@ public actor ExternalLLMBackend: ConversationalAssistant {
         if !pendingLineBytes.isEmpty {
             _ = handleLine(String(decoding: pendingLineBytes, as: UTF8.self))
         }
-        finishTurn(accumulatedText: accumulatedText, usage: usage, relay: relay)
+        finishTurn(userMessage: userMessage, accumulatedText: accumulatedText, usage: usage, generation: generation, relay: relay)
     }
 
     private static func readBounded(_ runner: HTTPStreamingRunner, limit: Int = 4_096) async -> String? {
