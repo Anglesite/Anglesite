@@ -320,8 +320,10 @@ public enum IntegrationCatalog {
                       to: "src/components/InstallPrompt.astro", when: .always),
             .copyFile(from: TemplateRef("integrations/docs/pwa-setup.md"),
                       to: "docs/pwa-setup.md", when: .always),
+            // theme-color itself is BaseLayout.astro's job now (#1525) — it already reads
+            // PWA_THEME_COLOR unconditionally, so only the manifest link needs injecting here.
             .injectAtAnchor(file: "src/layouts/BaseLayout.astro", anchor: "<!-- anglesite:head-end -->",
-                            snippet: "<link rel=\"manifest\" href=\"/manifest.webmanifest\" />\n<meta name=\"theme-color\" content={readConfig(\"PWA_THEME_COLOR\")} />",
+                            snippet: "<link rel=\"manifest\" href=\"/manifest.webmanifest\" />",
                             when: .always, style: .html),
             // No readConfig re-import here: BaseLayout.astro already imports it unconditionally
             // at the top of the file (added for WEBMENTION_RECEIVE_ENABLED), and astro check
