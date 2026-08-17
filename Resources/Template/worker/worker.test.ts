@@ -343,6 +343,21 @@ test("routing: unrelated paths fall through to the asset-first branch", async ()
   expect(await response.text()).toBe("No assets binding configured");
 });
 
+test("routing: with no running experiment configured, existing routes are unaffected", async () => {
+  const postResponse = await fetchWorker(
+    new Request("https://owner.example/inbox", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ subject: "Hi", from: "a@example.com", message: "hello" }),
+    }),
+  );
+  expect(postResponse.status).toBe(202);
+
+  const assetResponse = await fetchWorker(new Request("https://owner.example/about"));
+  expect(assetResponse.status).toBe(500);
+  expect(await assetResponse.text()).toBe("No assets binding configured");
+});
+
 test("IndieAuth metadata advertises the authorization and token endpoints", async () => {
   const response = await fetchWorker(new Request("https://owner.example/.well-known/oauth-authorization-server"));
   expect(response.status).toBe(200);
