@@ -105,8 +105,8 @@ public enum WebsiteIconAsset {
     /// the PWA-only artifacts (192/512 manifest icons, `site.webmanifest`), never the favicon
     /// trio. The template ships a generic favicon.ico/favicon.png/apple-touch-icon.png with every
     /// scaffolded site (#1525), so their mere presence no longer means "installed"; the
-    /// PWA-manifest files are still written only by ``WebsiteIconInstaller/install``, so they're
-    /// an accurate signal for the Settings ▸ Website Icon "Installed" state.
+    /// PWA-manifest files are still written only by `WebsiteIconInstaller.install` (AnglesiteApp),
+    /// so they're an accurate signal for the Settings ▸ Website Icon "Installed" state.
     public static func hasInstalledIcons(in siteDirectory: URL, fileManager: FileManager = .default) -> Bool {
         let publicDir = siteDirectory.appendingPathComponent(publicDirectoryRelativePath, isDirectory: true)
         return [icon192Name, icon512Name, manifestName]
