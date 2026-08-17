@@ -31,15 +31,77 @@ describe("renderPopup", () => {
     expect(container.textContent).toContain("Nothing found");
   });
 
+  it("includes the page title in the header", () => {
+    const container = document.createElement("div");
+    renderPopup(
+      container,
+      emptyFindings({
+        pageTitle: "My Awesome Blog",
+        feeds: [{ title: "Feed", url: "https://example.com/feed.xml", type: "rss" }],
+      })
+    );
+    expect(container.querySelector("h1")?.textContent).toContain("My Awesome Blog");
+  });
+
   it("renders an h-card section with a copy-vCard button", () => {
     const container = document.createElement("div");
     renderPopup(
       container,
-      emptyFindings({ hCard: { type: ["h-card"], properties: { name: ["Glenn Jones"] } } })
+      emptyFindings({
+        hCard: { type: ["h-card"], properties: { name: ["Glenn Jones"] } },
+        mf2TypeCounts: { "h-card": 1 },
+      })
     );
     expect(container.querySelector(".h-card-section h2")?.textContent).toBe("Glenn Jones");
     const button = container.querySelector<HTMLButtonElement>(".h-card-section button");
     expect(button?.dataset.vcard).toContain("FN:Glenn Jones");
+  });
+
+  it("renders h-card photo, org, and links when present", () => {
+    const container = document.createElement("div");
+    renderPopup(
+      container,
+      emptyFindings({
+        hCard: {
+          type: ["h-card"],
+          properties: {
+            name: ["Glenn Jones"],
+            photo: ["https://example.com/photo.jpg"],
+            org: ["Acme Corp"],
+            url: ["https://glennjonesnet.com", "https://twitter.com/glennjones"],
+          },
+        },
+        mf2TypeCounts: { "h-card": 1 },
+      })
+    );
+    const section = container.querySelector(".h-card-section");
+    expect(section?.querySelector("img")?.src).toBe("https://example.com/photo.jpg");
+    expect(section?.textContent).toContain("Acme Corp");
+    const links = section?.querySelectorAll("a");
+    expect(links).toHaveLength(2); // two URLs in the h-card section
+  });
+
+  it("does not render unsafe URLs in h-card", () => {
+    const container = document.createElement("div");
+    renderPopup(
+      container,
+      emptyFindings({
+        hCard: {
+          type: ["h-card"],
+          properties: {
+            name: ["Evil Person"],
+            url: ["javascript:alert(1)"],
+            photo: ["javascript:alert(2)"],
+          },
+        },
+        mf2TypeCounts: { "h-card": 1 },
+      })
+    );
+    const section = container.querySelector(".h-card-section");
+    const link = section?.querySelector("a[href*='javascript']");
+    expect(link).toBe(null);
+    const img = section?.querySelector("img[src*='javascript']");
+    expect(img).toBe(null);
   });
 
   it("renders feed links", () => {
@@ -53,7 +115,23 @@ describe("renderPopup", () => {
     expect(link?.href).toBe("https://example.com/feed.rss");
   });
 
-  it("renders webmention and ActivityPub as endpoint badges with no action buttons", () => {
+  it("does not render feeds with unsafe URLs", () => {
+    const container = document.createElement("div");
+    renderPopup(
+      container,
+      emptyFindings({
+        feeds: [
+          { title: "Safe Feed", url: "https://example.com/feed.rss", type: "rss" },
+          { title: "Evil Feed", url: "javascript:alert(1)", type: "rss" },
+        ],
+      })
+    );
+    const links = container.querySelectorAll<HTMLAnchorElement>(".feeds-section a");
+    expect(links).toHaveLength(1);
+    expect(links[0]?.href).not.toContain("javascript");
+  });
+
+  it("renders webmention and ActivityPub as endpoint badges", () => {
     const container = document.createElement("div");
     renderPopup(
       container,
@@ -63,12 +141,62 @@ describe("renderPopup", () => {
       })
     );
     expect(container.querySelectorAll(".endpoint-badge")).toHaveLength(2);
-    expect(container.querySelectorAll(".endpoint-badge button")).toHaveLength(0);
   });
 
-  it("renders the mf2 type-count tree", () => {
+  it("does not render endpoint badges with unsafe URLs", () => {
     const container = document.createElement("div");
-    renderPopup(container, emptyFindings({ mf2TypeCounts: { "h-entry": 2 }, feeds: [], hCard: null }));
-    expect(container.textContent).toContain("h-entry: 2");
+    renderPopup(
+      container,
+      emptyFindings({
+        webmentionUrl: "javascript:alert(1)",
+        activityPubUrl: "https://example.com/actor",
+      })
+    );
+    const badges = container.querySelectorAll(".endpoint-badge");
+    expect(badges).toHaveLength(2); // both badges render, but one has no link
+    const unsafeLink = container.querySelector<HTMLAnchorElement>("a[href*='javascript']");
+    expect(unsafeLink).toBe(null);
+  });
+
+  it("renders mf2 items with their properties", () => {
+    const container = document.createElement("div");
+    renderPopup(
+      container,
+      emptyFindings({
+        mf2: {
+          items: [
+            {
+              type: ["h-entry"],
+              properties: { "p-name": ["Hello World"], "e-content": ["This is my first post"] },
+            },
+          ],
+          rels: {},
+          "rel-urls": {},
+        },
+        mf2TypeCounts: { "h-entry": 1 },
+      })
+    );
+    expect(container.textContent).toContain("h-entry");
+    expect(container.textContent).toContain("p-name");
+    expect(container.textContent).toContain("Hello World");
+  });
+
+  it("does not double-count h-card when present in both hCard and mf2TypeCounts", () => {
+    const container = document.createElement("div");
+    renderPopup(
+      container,
+      emptyFindings({
+        hCard: { type: ["h-card"], properties: { name: ["Glenn Jones"] } },
+        mf2: {
+          items: [{ type: ["h-card"], properties: { name: ["Glenn Jones"] } }],
+          rels: {},
+          "rel-urls": {},
+        },
+        mf2TypeCounts: { "h-card": 1 },
+      })
+    );
+    const header = container.querySelector("h1");
+    // Should say "1 IndieWeb feature found", not "2"
+    expect(header?.textContent).toContain("1 IndieWeb feature found");
   });
 });
