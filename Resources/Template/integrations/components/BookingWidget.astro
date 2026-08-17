@@ -30,32 +30,29 @@ const calendlyUrl = eventSlug
   : `https://calendly.com/${username}?primary_color=${colorHex}`;
 ---
 
+{/*
+  The Cal.com/Calendly loaders live in public/scripts/ and read their per-instance config from
+  data-* attributes instead of Astro's `define:vars`. `define:vars` forces Astro to inline the
+  script body verbatim into the page — with no `'unsafe-inline'`, nonce, or hash in the site's
+  CSP script-src, an inline body like that is silently blocked by the browser. A same-origin
+  `<script src="...">` satisfies `script-src 'self'` without weakening the policy.
+*/}
+
 {/* ── Cal.com ── */}
 
 {provider === "cal" && style === "inline" && (
-  <div id="booking-cal"></div>
-  <script is:inline define:vars={{ calLink, colorHex }}>
-    (function(C,A,L){let p=function(a,ar){a.q.push(ar)};let d=C.document;C.Cal=C.Cal||function(){let cal=C.Cal;let ar=arguments;if(!cal.loaded){cal.ns={};cal.q=cal.q||[];d.head.appendChild(d.createElement("script")).src=A;cal.loaded=true}if(ar[0]===L){const api=function(){p(api,arguments)};const namespace=ar[1];api.q=api.q||[];typeof namespace==="string"?(cal.ns[namespace]=api)&&p(api,ar):p(cal,ar);return}p(cal,ar)}})(window,"https://app.cal.com/embed/embed.js","init");
-    Cal("init",{origin:"https://cal.com"});
-    Cal("inline",{elementOrSelector:"#booking-cal",calLink:calLink,config:{theme:"auto",brandColor:colorHex}});
-  </script>
+  <div id="booking-cal" data-cal-init="inline" data-cal-link={calLink} data-cal-color={colorHex}></div>
+  <script is:inline src="/scripts/booking-cal.js"></script>
 )}
 
 {provider === "cal" && style === "floating" && (
-  <script is:inline define:vars={{ calLink, colorHex, buttonText }}>
-    (function(C,A,L){let p=function(a,ar){a.q.push(ar)};let d=C.document;C.Cal=C.Cal||function(){let cal=C.Cal;let ar=arguments;if(!cal.loaded){cal.ns={};cal.q=cal.q||[];d.head.appendChild(d.createElement("script")).src=A;cal.loaded=true}if(ar[0]===L){const api=function(){p(api,arguments)};const namespace=ar[1];api.q=api.q||[];typeof namespace==="string"?(cal.ns[namespace]=api)&&p(api,ar):p(cal,ar);return}p(cal,ar)}})(window,"https://app.cal.com/embed/embed.js","init");
-    Cal("init",{origin:"https://cal.com"});
-    Cal("floatingButton",{calLink:calLink,buttonText:buttonText,config:{theme:"auto",brandColor:colorHex}});
-  </script>
+  <div data-cal-init="floating" data-cal-link={calLink} data-cal-color={colorHex} data-cal-button-text={buttonText} hidden></div>
+  <script is:inline src="/scripts/booking-cal.js"></script>
 )}
 
 {provider === "cal" && style === "button" && (
-  <button class="booking-button" data-cal-link={calLink}>{buttonText}</button>
-  <script is:inline define:vars={{ calLink, colorHex }}>
-    (function(C,A,L){let p=function(a,ar){a.q.push(ar)};let d=C.document;C.Cal=C.Cal||function(){let cal=C.Cal;let ar=arguments;if(!cal.loaded){cal.ns={};cal.q=cal.q||[];d.head.appendChild(d.createElement("script")).src=A;cal.loaded=true}if(ar[0]===L){const api=function(){p(api,arguments)};const namespace=ar[1];api.q=api.q||[];typeof namespace==="string"?(cal.ns[namespace]=api)&&p(api,ar):p(cal,ar);return}p(cal,ar)}})(window,"https://app.cal.com/embed/embed.js","init");
-    Cal("init",{origin:"https://cal.com"});
-    Cal("pop",{calLink:calLink,config:{theme:"auto",brandColor:colorHex}});
-  </script>
+  <button class="booking-button" data-cal-init="button" data-cal-link={calLink} data-cal-color={colorHex}>{buttonText}</button>
+  <script is:inline src="/scripts/booking-cal.js"></script>
 )}
 
 {/* ── Calendly ── */}
@@ -68,21 +65,15 @@ const calendlyUrl = eventSlug
 
 {provider === "calendly" && style === "floating" && (
   <link href="https://assets.calendly.com/assets/external/widget.css" rel="stylesheet" />
-  <script is:inline define:vars={{ calendlyUrl, buttonText, brandColor: `#${colorHex}` }}>
-    window.addEventListener("load", function(){Calendly.initBadgeWidget({url:calendlyUrl,text:buttonText,color:brandColor,textColor:'#ffffff'})});
-  </script>
+  <div data-calendly-init="floating" data-calendly-url={calendlyUrl} data-button-text={buttonText} data-brand-color={`#${colorHex}`} hidden></div>
+  <script is:inline src="/scripts/booking-calendly.js"></script>
   <script src="https://assets.calendly.com/assets/external/widget.js" async></script>
 )}
 
 {provider === "calendly" && style === "button" && (
   <link href="https://assets.calendly.com/assets/external/widget.css" rel="stylesheet" />
-  <button class="booking-button" id="booking-calendly-btn">{buttonText}</button>
-  <script is:inline define:vars={{ calendlyUrl }}>
-    document.getElementById('booking-calendly-btn').addEventListener('click', function(e) {
-      e.preventDefault();
-      Calendly.initPopupWidget({url: calendlyUrl});
-    });
-  </script>
+  <button class="booking-button" data-calendly-init="button" data-calendly-url={calendlyUrl}>{buttonText}</button>
+  <script is:inline src="/scripts/booking-calendly.js"></script>
   <script src="https://assets.calendly.com/assets/external/widget.js" async></script>
 )}
 
