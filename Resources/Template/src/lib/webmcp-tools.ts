@@ -49,15 +49,22 @@ export const FETCH_POST_MARKDOWN_TOOL: WebmcpToolDefinition = {
  * `[...slug].md.ts` routes) from its site-relative page path.
  *
  * Throws for anything that isn't strictly site-relative — a protocol-relative path
- * (`"//evil.com/x"`) or an absolute URL (`"https://evil.com/x"`) would otherwise produce a
- * cross-origin fetch target for an agent-supplied `path` argument. `fetchPostMarkdown` below
- * is the only caller, and its try/catch turns this throw into the existing "Failed to fetch"
- * text response — no separate error path needed. */
+ * (`"//evil.com/x"`), a backslash in the second position (`"/\\evil.com/x"` — the WHATWG URL
+ * parser treats `\` the same as `/` for authority resolution on special schemes, so this is
+ * just as much a cross-origin escape as a literal `//`, confirmed via
+ * `new URL("/\\evil.com/x", "https://example.com/").href` resolving to `evil.com`), or an
+ * absolute URL (`"https://evil.com/x"`) would otherwise produce a cross-origin fetch target
+ * for an agent-supplied `path` argument. `fetchPostMarkdown` below is the only caller, and its
+ * try/catch turns this throw into the existing "Failed to fetch" text response — no separate
+ * error path needed. */
 export function buildMarkdownURL(path: string): string {
-  if (!/^\/(?!\/)/.test(path)) {
+  if (!/^\/(?![/\\])/.test(path)) {
     throw new Error(`buildMarkdownURL: "${path}" is not a site-relative path`);
   }
-  const trimmed = path.endsWith("/") ? path.slice(0, -1) : path;
+  // The root path is exactly "/" — stripping its trailing slash would leave "", collapsing the
+  // result to the *relative* ".md" (resolves against whatever page invoked the tool) instead of
+  // the site-root mirror "/.md". Every other path keeps the existing strip-trailing-slash rule.
+  const trimmed = path === "/" ? path : path.endsWith("/") ? path.slice(0, -1) : path;
   return `${trimmed}.md`;
 }
 

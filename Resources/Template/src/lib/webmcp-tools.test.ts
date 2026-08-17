@@ -29,8 +29,8 @@ test("buildMarkdownURL: a path with no trailing slash still gets .md appended", 
   assert.equal(buildMarkdownURL("/blog/hello-world"), "/blog/hello-world.md");
 });
 
-test("buildMarkdownURL: root path", () => {
-  assert.equal(buildMarkdownURL("/"), ".md");
+test("buildMarkdownURL: root path keeps its leading slash, not just bare .md", () => {
+  assert.equal(buildMarkdownURL("/"), "/.md");
 });
 
 test("buildMarkdownURL: rejects a protocol-relative path", () => {
@@ -39,6 +39,13 @@ test("buildMarkdownURL: rejects a protocol-relative path", () => {
 
 test("buildMarkdownURL: rejects an absolute URL", () => {
   assert.throws(() => buildMarkdownURL("https://evil.com/x"), /not a site-relative path/);
+});
+
+test("buildMarkdownURL: rejects a backslash in the second position (WHATWG URL cross-origin escape)", () => {
+  // `new URL("/\\evil.com/x", "https://example.com/").href` resolves to https://evil.com/x —
+  // the URL parser treats \ the same as / for authority resolution on special schemes, so this
+  // is exactly as much a same-origin escape as the bare "//evil.com/x" case above.
+  assert.throws(() => buildMarkdownURL("/\\evil.com/x"), /not a site-relative path/);
 });
 
 test("formatSearchResults: empty results returns a plain 'no results' text response", () => {
