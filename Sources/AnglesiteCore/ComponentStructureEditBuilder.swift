@@ -60,6 +60,34 @@ public enum ComponentStructureEditBuilder {
         )
     }
 
+    /// Builds the `insertBlock` message: insert the `blocks.manifest.json`-registered block
+    /// named `manifestBlock` under `parentId` at child position `index`. The sidecar resolves
+    /// `manifestBlock` to `{tag, componentPath}` itself and handles the frontmatter import —
+    /// the caller only names the block, mirroring `insertNode`'s shape but without a `NodeSpec`.
+    public static func insertBlock(
+        id: String,
+        path: String,
+        baseVersion: String,
+        parentId: String,
+        index: Int,
+        manifestBlock: String
+    ) -> EditMessage {
+        EditMessage(
+            id: id,
+            path: path,
+            selector: nil,
+            op: EditMessage.Op.insertBlock,
+            component: .object([
+                "path": .string(path),
+                "baseVersion": .string(baseVersion),
+                "parentId": .string(parentId),
+                "index": .int(index),
+                "manifestBlock": .string(manifestBlock),
+            ]),
+            value: nil
+        )
+    }
+
     /// Builds the `move-node` message: reparent/reorder `nodeId` under `newParentId` at
     /// `newIndex`. The plugin computes `newIndex` against the child list *after* removing the
     /// dragged node — a same-parent move where the node started earlier must pre-adjust via

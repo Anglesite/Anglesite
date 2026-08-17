@@ -91,4 +91,23 @@ import Testing
         #expect(obj["newName"] == .string("Hero"))
         #expect(obj["newComponentPath"] == nil)
     }
+
+    @Test func buildsInsertBlockMessage() {
+        let message = ComponentStructureEditBuilder.insertBlock(
+            id: "e1", path: "src/pages/index.astro", baseVersion: "sha256:x",
+            parentId: "n1", index: 2, manifestBlock: "Particle Field")
+        #expect(message.op == "insertBlock")
+        #expect(message.path == "src/pages/index.astro")
+        #expect(message.selector == nil)
+        guard case .object(let component)? = message.component else {
+            Issue.record("expected object component payload")
+            return
+        }
+        #expect(component["path"] == .string("src/pages/index.astro"))
+        #expect(component["baseVersion"] == .string("sha256:x"))
+        #expect(component["parentId"] == .string("n1"))
+        #expect(component["index"] == .int(2))
+        #expect(component["manifestBlock"] == .string("Particle Field"))
+        #expect(component["node"] == nil)
+    }
 }

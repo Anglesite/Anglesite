@@ -52,6 +52,10 @@ public struct EditMessage: Sendable, Equatable {
         /// `"insert-node"` — Component Editor: insert a new element/component/slot node.
         /// Carries a `component` payload.
         public static let insertNode = "insert-node"
+        /// `"insertBlock"` — insert a `blocks.manifest.json`-registered block/component + its
+        /// import at `{parentId, index}`, resolved server-side by owner-facing name. Carries a
+        /// `component` payload with `manifestBlock` instead of `node`.
+        public static let insertBlock = "insertBlock"
         /// `"move-node"` — Component Editor: reorder/reparent an existing node. Carries a
         /// `component` payload.
         public static let moveNode = "move-node"
