@@ -405,4 +405,125 @@ struct FollowersModelTests {
         #expect(model.pendingState == .unknown)
         #expect(model.pendingRows.isEmpty)
     }
+
+    @Test("accept POSTs Accept and removes the row from pendingRows")
+    func acceptRemovesRow() async throws {
+        let (site, root) = try Self.makeSite(siteURL: "https://example.com")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let membershipServer = MembershipServer(routes: [
+            "/users/site/follow_requests": (
+                200,
+                Self.followRequestsBody(items: [("https://mastodon.social/users/alice", "2026-08-01T00:00:00.000Z")])
+            ),
+            "/users/site/outbox": (202, "{}"),
+        ])
+        let model = await Self.makeModelWithPending(
+            server: Server(routes: [:]), membershipServer: membershipServer, secretStore: secretStore)
+        model.configure(site: site)
+        await model.loadPending()
+        let row = try #require(model.pendingRows.first)
+
+        await model.accept(row)
+
+        #expect(model.pendingRows.isEmpty)
+        let body = await membershipServer.requestedBodies.last
+        #expect(body?["type"] as? String == "Accept")
+        #expect(body?["object"] as? String == "https://mastodon.social/users/alice")
+    }
+
+    @Test("a failed accept restores the row and sets pendingActionFailure")
+    func acceptFailureRestoresRow() async throws {
+        let (site, root) = try Self.makeSite(siteURL: "https://example.com")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let membershipServer = MembershipServer(routes: [
+            "/users/site/follow_requests": (
+                200,
+                Self.followRequestsBody(items: [("https://mastodon.social/users/alice", "2026-08-01T00:00:00.000Z")])
+            ),
+            "/users/site/outbox": (500, "server error"),
+        ])
+        let model = await Self.makeModelWithPending(
+            server: Server(routes: [:]), membershipServer: membershipServer, secretStore: secretStore)
+        model.configure(site: site)
+        await model.loadPending()
+        let row = try #require(model.pendingRows.first)
+
+        await model.accept(row)
+
+        #expect(model.pendingRows.count == 1)
+        #expect(model.pendingActionFailure != nil)
+    }
+
+    @Test("reject is only sent through confirmReject, after rejectConfirmation is set")
+    func rejectRequiresConfirmation() async throws {
+        let (site, root) = try Self.makeSite(siteURL: "https://example.com")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let membershipServer = MembershipServer(routes: [
+            "/users/site/follow_requests": (
+                200,
+                Self.followRequestsBody(items: [("https://mastodon.social/users/bob", "2026-08-01T00:00:00.000Z")])
+            ),
+            "/users/site/outbox": (202, "{}"),
+        ])
+        let model = await Self.makeModelWithPending(
+            server: Server(routes: [:]), membershipServer: membershipServer, secretStore: secretStore)
+        model.configure(site: site)
+        await model.loadPending()
+        let row = try #require(model.pendingRows.first)
+
+        model.rejectConfirmation = row
+        #expect(model.pendingRows.count == 1)  // unchanged until confirmed
+
+        await model.confirmReject()
+
+        #expect(model.pendingRows.isEmpty)
+        #expect(model.rejectConfirmation == nil)
+        let body = await membershipServer.requestedBodies.last
+        #expect(body?["type"] as? String == "Reject")
+        #expect(body?["object"] as? String == "https://mastodon.social/users/bob")
+    }
+
+    @Test("enrichIfNeeded also fills in a pending row's profile")
+    func enrichmentCoversPendingRows() async throws {
+        let (site, root) = try Self.makeSite(siteURL: "https://example.com")
+        defer { try? FileManager.default.removeItem(at: root) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let actor = try #require(URL(string: "https://mastodon.social/users/alice"))
+        let membershipServer = MembershipServer(routes: [
+            "/users/site/follow_requests": (
+                200, Self.followRequestsBody(items: [(actor.absoluteString, "2026-08-01T00:00:00.000Z")])
+            )
+        ])
+        let profile = ActorProfile(
+            actor: actor, preferredUsername: "alice", name: "Alice", iconURL: nil, fetchedAt: Date())
+        let model = FollowersModel(
+            fetcher: ActorProfileFetcher(transport: { _ in
+                (try JSONEncoder().encode(profile), HTTPURLResponse(
+                    url: actor, statusCode: 200, httpVersion: nil, headerFields: nil)!)
+            }),
+            avatarLoader: AvatarLoader(transport: { _ in throw AvatarLoadError.requestFailed(status: 500) }),
+            followersTransport: { _ in
+                (Data(), HTTPURLResponse(url: actor, statusCode: 404, httpVersion: nil, headerFields: nil)!)
+            },
+            secretStore: secretStore,
+            membershipTransport: await membershipServer.transport)
+        model.configure(site: site)
+        await model.loadPending()
+        #expect(model.pendingRows.first?.profile == nil)
+
+        model.enrichIfNeeded(actor)
+        // enrichIfNeeded fires a detached Task; give it a beat to land.
+        for _ in 0..<50 where model.pendingRows.first?.profile == nil {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+
+        #expect(model.pendingRows.first?.profile?.name == "Alice")
+    }
 }

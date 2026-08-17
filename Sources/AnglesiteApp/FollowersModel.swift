@@ -284,8 +284,9 @@ final class FollowersModel {
     /// each visible row's `.task`, so only rows the owner actually scrolls to cost a request.
     func enrichIfNeeded(_ actor: URL) {
         let key = actor.absoluteString
-        guard rows.first(where: { $0.actor == actor })?.profile == nil,
-              !inFlight.contains(key), !queued.contains(key), !unreachableActors.contains(key)
+        let alreadyKnown = rows.first(where: { $0.actor == actor })?.profile != nil
+            || pendingRows.first(where: { $0.request.actor == actor })?.profile != nil
+        guard !alreadyKnown, !inFlight.contains(key), !queued.contains(key), !unreachableActors.contains(key)
         else { return }
         queued.insert(key)
         pendingQueue.append(actor)
@@ -313,6 +314,9 @@ final class FollowersModel {
             cache.store(profile)
             if let index = rows.firstIndex(where: { $0.actor == actor }) {
                 rows[index].profile = profile
+            }
+            if let index = pendingRows.firstIndex(where: { $0.request.actor == actor }) {
+                pendingRows[index].profile = profile
             }
             scheduleCacheSave()
         } else {
@@ -346,6 +350,47 @@ final class FollowersModel {
             // for the main list.
             pendingState = .unreachable("\(error)")
         }
+    }
+
+    var pendingActionFailure: String?
+    /// Set by the view to arm the Reject confirmation dialog; cleared by whichever button runs
+    /// (Reject or Cancel) — same no-op-setter/clear-in-button-action contract
+    /// `ModerationModel.banConfirmation` already establishes.
+    var rejectConfirmation: PendingRequestRow?
+
+    /// Confirms a pending follower. Optimistically removes the row; a failure restores it
+    /// (appended, not reinserted at its original position — pending lists are short enough
+    /// that exact ordering after a failure isn't worth the extra bookkeeping) and reports
+    /// `pendingActionFailure`, same additive-not-replacing shape as `loadMoreFailure`.
+    func accept(_ row: PendingRequestRow) async {
+        guard let membershipClient else { return }
+        pendingRows.removeAll { $0.id == row.id }
+        do {
+            try await membershipClient.acceptFollow(target: row.request.actor)
+        } catch {
+            pendingRows.append(row)
+            pendingActionFailure = "Couldn't accept \(row.displayName): \(error.localizedDescription)"
+        }
+    }
+
+    /// Declines a pending follower. Never called directly by the view — only through
+    /// ``confirmReject()``, after `rejectConfirmation` is armed, since Reject is destructive
+    /// (mac-assed-app-spec §5).
+    func reject(_ row: PendingRequestRow) async {
+        guard let membershipClient else { return }
+        pendingRows.removeAll { $0.id == row.id }
+        do {
+            try await membershipClient.rejectFollow(target: row.request.actor)
+        } catch {
+            pendingRows.append(row)
+            pendingActionFailure = "Couldn't reject \(row.displayName): \(error.localizedDescription)"
+        }
+    }
+
+    func confirmReject() async {
+        guard let row = rejectConfirmation else { return }
+        rejectConfirmation = nil
+        await reject(row)
     }
 
     // MARK: - Cache persistence
