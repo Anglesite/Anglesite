@@ -62,10 +62,17 @@ validation/serialization contract.
   comfortably beyond any realistic personal-blog comment thread; deeper nesting is a documented
   limitation, not silently pretended-away (the API gives no truncation marker to detect and log
   against).
-- `app.bsky.feed.getLikes?uri=<at-uri>&cid=<cid>&limit=100&cursor=…` — likes, cursor-paginated up
-  to a hard cap of 20 pages (2000 likes); a `console`/log-center warning fires if the cap is hit
-  with a cursor still pending, so truncation is visible rather than silent.
-- `app.bsky.feed.getRepostedBy` — same shape as `getLikes`, for reposts.
+- `app.bsky.feed.getLikes?uri=<at-uri>&limit=100&cursor=…` — likes, cursor-paginated up to a hard
+  cap of 20 pages (2000 likes) — no `cid` is passed, since `POSSESyndicationLog` never records one
+  and the parameter is optional. The cap is silent (matches `AnnouncedPostSync.OutboxClient`'s own
+  50-page outbox cap, also silent) rather than logged: these sync types have no established
+  logging convention to hook into (unlike `MicropubContentSync`/`InboxSubmissionSync`, which do
+  log), so this follows its closer sibling (`ReceivedInteractionSync`, `AnnouncedPostSync`) rather
+  than inventing one.
+- `app.bsky.feed.getRepostedBy` — same shape as `getLikes`, for reposts. Its items are bare actor
+  profiles with no per-item timestamp (unlike `getLikes`'s `{actor, createdAt}` wrapping) — the
+  mapping treats a missing `createdAt` as "fall back to sync time" so it degrades correctly
+  whichever shape a given AppView response actually has, rather than asserting one.
 
 Uses the same `POSSEHTTPTransport` typealias (`@Sendable (URLRequest) async throws -> (Data,
 HTTPURLResponse)`) as `POSSEClients.swift` for injectable, mockable transport in tests.
@@ -200,8 +207,8 @@ Deliberately **identical** to today's webmention/ActivityPub interactions, not a
 
 - A real moderation/hide field (`moderation` in the schema) — pre-existing follow-up (#370/V-5.3).
 - Unbounded pagination beyond the documented caps (thread depth 100, 20 pages of likes/reposts
-  each) — logged when the like/repost cap is hit; thread-depth truncation cannot be detected from
-  the API response and is only documented, not logged.
+  each) — both caps are silent (see "Components" ▸ "BlueskyThreadClient" above), matching
+  `AnnouncedPostSync.OutboxClient`'s own precedent; neither is logged.
 - Nested/threaded comment UI — replies flatten into the existing chronological list.
 - Any change to `POSSESyndicationCommand`, `bskyPostRef`, or `site.standard.document` — this sync
   is fully independent of the Standard Site publish pass.
