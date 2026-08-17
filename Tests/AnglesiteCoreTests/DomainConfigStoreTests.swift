@@ -235,4 +235,42 @@ struct DomainConfigStoreTests {
         #expect(final.edge?.dnssec == true, "Edge config from concurrent save")
         #expect(final.workers?.active == ["webmention-receive"], "Workers config from concurrent save")
     }
+
+    @Test("save then load round-trips a config with experiments")
+    func saveLoadRoundTripsExperiments() throws {
+        let dir = try tempSourceDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = DomainConfigStore(sourceDirectory: dir)
+        let config = DomainConfig(
+            experiments: .init(active: [
+                .init(
+                    id: "homepage-hero",
+                    name: "Homepage headline",
+                    page: "/",
+                    variant: .init(id: "b", name: "Fresh eggs headline", page: "/x/homepage-hero/b/"),
+                    split: 0.5,
+                    goal: .init(kind: "pageview", path: "/contact/thanks/"),
+                    status: "running",
+                    startedAt: "2026-08-16"
+                ),
+            ])
+        )
+        try store.save(config)
+        #expect(try store.load() == config)
+    }
+
+    @Test("save preserves an unrecognized key nested inside the experiments section")
+    func savePreservesUnknownNestedExperimentsKey() throws {
+        let dir = try tempSourceDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fileURL = dir.appendingPathComponent("anglesite.json")
+        try #"{"version":1,"experiments":{"active":[],"futureField":"x"}}"#.write(
+            to: fileURL, atomically: true, encoding: .utf8
+        )
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(experiments: .init(active: [])))
+        let raw = try JSONSerialization.jsonObject(with: Data(contentsOf: fileURL)) as? [String: Any]
+        let experiments = raw?["experiments"] as? [String: Any]
+        #expect(experiments?["futureField"] as? String == "x")
+    }
 }

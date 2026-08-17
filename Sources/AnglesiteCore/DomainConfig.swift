@@ -21,6 +21,7 @@ public struct DomainConfig: Equatable, Sendable {
     public var edge: Edge?
     public var email: Email?
     public var workers: Workers?
+    public var experiments: Experiments?
 
     public init(
         version: Int = 1,
@@ -28,7 +29,8 @@ public struct DomainConfig: Equatable, Sendable {
         dns: DNS? = nil,
         edge: Edge? = nil,
         email: Email? = nil,
-        workers: Workers? = nil
+        workers: Workers? = nil,
+        experiments: Experiments? = nil
     ) {
         self.version = version
         self.domain = domain
@@ -36,6 +38,7 @@ public struct DomainConfig: Equatable, Sendable {
         self.edge = edge
         self.email = email
         self.workers = workers
+        self.experiments = experiments
     }
 
     /// The owner's declared hostname and attachment intent — replaces the `DOMAIN`/`DOMAIN_CHOICE`
@@ -167,11 +170,94 @@ public struct DomainConfig: Equatable, Sendable {
             self.active = active
         }
     }
+
+    /// The site's A/B experiments (#1270 design doc §2) — git-canonical *declared intent*: what
+    /// the deployed site serves. Live tallies and concluded-experiment outcomes are never
+    /// declared here (they live in D1 and `Config/experiment-history.json` respectively); see the
+    /// design doc's "Why git-canonical" section.
+    public struct Experiments: Codable, Equatable, Sendable {
+        /// v1 supports one active experiment at a time (pre-deploy-gate enforced, not here); the
+        /// array leaves room to relax that later without a schema break.
+        public var active: [Experiment]?
+
+        public init(active: [Experiment]? = nil) {
+            self.active = active
+        }
+
+        /// One declared experiment: a control page, a built variant page, a goal, and a
+        /// lifecycle status. Mirrors the template's `AnglesiteExperiment` TypeScript interface
+        /// (`Resources/Template/scripts/anglesite-config.ts`) field-for-field.
+        public struct Experiment: Codable, Equatable, Sendable {
+            /// Stable, `[A-Za-z0-9-]+` — the cookie name and D1 key.
+            public var id: String
+            /// Owner-facing display name.
+            public var name: String
+            /// The route under test; the control serves it as-is.
+            public var page: String
+            public var variant: Variant
+            /// Control's traffic share; the app always writes `0.5`.
+            public var split: Double
+            public var goal: Goal
+            /// `"draft" | "running"` — kept as an open string, not a closed `enum`, matching
+            /// ``DomainConfig/Domain/choice`` so an unrecognized future status degrades
+            /// gracefully instead of failing the whole document to decode.
+            public var status: String
+            /// ISO date the experiment started, driving the 30-day rule of thumb. `nil` while
+            /// `status` is `"draft"`.
+            public var startedAt: String?
+
+            public init(
+                id: String, name: String, page: String, variant: Variant, split: Double,
+                goal: Goal, status: String, startedAt: String? = nil
+            ) {
+                self.id = id
+                self.name = name
+                self.page = page
+                self.variant = variant
+                self.split = split
+                self.goal = goal
+                self.status = status
+                self.startedAt = startedAt
+            }
+
+            public struct Variant: Codable, Equatable, Sendable {
+                public var id: String
+                public var name: String
+                /// The variant's built route.
+                public var page: String
+
+                public init(id: String, name: String, page: String) {
+                    self.id = id
+                    self.name = name
+                    self.page = page
+                }
+            }
+
+            /// `"pageview" | "route" | "scroll" | "visible"` — kept as an open `kind` string for
+            /// the same forward-compatibility reason as ``status``.
+            public struct Goal: Codable, Equatable, Sendable {
+                public var kind: String
+                /// Required for `"pageview"`/`"route"` goals.
+                public var path: String?
+                /// Required for `"scroll"` goals: 1-100, percent of page scrolled.
+                public var depth: Int?
+                /// Required for `"visible"` goals: CSS selector of the observed element.
+                public var selector: String?
+
+                public init(kind: String, path: String? = nil, depth: Int? = nil, selector: String? = nil) {
+                    self.kind = kind
+                    self.path = path
+                    self.depth = depth
+                    self.selector = selector
+                }
+            }
+        }
+    }
 }
 
 extension DomainConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case version, domain, dns, edge, email, workers
+        case version, domain, dns, edge, email, workers, experiments
     }
 
     public init(from decoder: Decoder) throws {
@@ -182,6 +268,7 @@ extension DomainConfig: Codable {
         edge = try container.decodeIfPresent(Edge.self, forKey: .edge)
         email = try container.decodeIfPresent(Email.self, forKey: .email)
         workers = try container.decodeIfPresent(Workers.self, forKey: .workers)
+        experiments = try container.decodeIfPresent(Experiments.self, forKey: .experiments)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -192,5 +279,6 @@ extension DomainConfig: Codable {
         try container.encodeIfPresent(edge, forKey: .edge)
         try container.encodeIfPresent(email, forKey: .email)
         try container.encodeIfPresent(workers, forKey: .workers)
+        try container.encodeIfPresent(experiments, forKey: .experiments)
     }
 }
