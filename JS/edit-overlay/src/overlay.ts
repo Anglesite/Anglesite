@@ -9,6 +9,7 @@ import {
   installReplyHandler,
   nextEditID,
   postEdit,
+  postPlacementPick,
   type EditMessage,
   type EditReply,
 } from "./messages.js";
@@ -113,6 +114,47 @@ function attachClickToEdit(awaitReply: (id: string, handler: (r: { status: strin
 
     target.addEventListener("blur", finish, { once: true });
   });
+}
+
+export interface PlacementPickControls {
+  enter(): void;
+  exit(): void;
+}
+
+/** Placement-pick mode: while active, a click on ANY element (not just EDITABLE_TAG) reports its
+ *  ElementInfo via `anglesite:pick-placement` instead of the normal click-to-edit path. Entered
+ *  only via an explicit native call (`window.anglesite._enterPlacementMode()`), never ambient —
+ *  outside this mode, ordinary click-to-edit behavior (`attachClickToEdit`) is unaffected. */
+export function installPlacementPickMode(win: Window & typeof globalThis = window): PlacementPickControls {
+  let active = false;
+
+  const handler = (ev: MouseEvent) => {
+    if (!active) return;
+    const target = ev.target as Element | null;
+    if (!target || target.nodeType !== 1) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    postPlacementPick(
+      {
+        id: nextEditID(),
+        type: "anglesite:pick-placement",
+        path: location.pathname,
+        selector: elementInfoFor(target),
+      },
+      win as unknown as Parameters<typeof postPlacementPick>[1],
+    );
+  };
+  document.addEventListener("click", handler, { capture: true });
+
+  const anglesiteWin = win as unknown as { anglesite?: { _enterPlacementMode?: () => void; _exitPlacementMode?: () => void } };
+  anglesiteWin.anglesite = anglesiteWin.anglesite ?? {};
+  const controls: PlacementPickControls = {
+    enter: () => { active = true; },
+    exit: () => { active = false; },
+  };
+  anglesiteWin.anglesite._enterPlacementMode = controls.enter;
+  anglesiteWin.anglesite._exitPlacementMode = controls.exit;
+  return controls;
 }
 
 function attachImageDrop(awaitReply: (id: string, handler: (r: EditReply) => void) => void): void {
@@ -396,4 +438,5 @@ export function install(): void {
   attachClickToEdit(awaitReply);
   attachImageDrop(awaitReply);
   installVisibleElementsReporter();
+  installPlacementPickMode(window);
 }
