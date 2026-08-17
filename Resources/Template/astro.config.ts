@@ -30,4 +30,18 @@ export default defineConfig({
   markdown: {
     processor: unified({ remarkPlugins: [remarkEmbeds] }),
   },
+  vite: {
+    build: {
+      // #1279: keep hoisted <script> chunks (Astro names them after their originating .astro
+      // file, not the script's own filename — e.g. `BaseLayout.astro_astro_type_script_…js` for
+      // the webmcp tool-registration script referenced from every page via BaseLayout) as
+      // external, browser-cacheable files rather than letting Astro's default < 4KB inlining
+      // duplicate their compiled output into every page's HTML. Matches on the
+      // `_astro_type_script_` token Astro/Vite give every such chunk, so this doesn't regress
+      // (or need updating) if a script's compiled size later drifts across the 4KB threshold, or
+      // a future script is added elsewhere. Other small assets (images, etc.) keep Vite's
+      // default inlining — this returns `undefined` for anything that isn't a script chunk.
+      assetsInlineLimit: (filePath) => (filePath.includes("_astro_type_script_") ? false : undefined),
+    },
+  },
 });
