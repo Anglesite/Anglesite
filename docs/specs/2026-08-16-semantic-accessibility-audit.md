@@ -241,7 +241,7 @@ individual findings per change):
    decorative icon hidden) and migrate the ~8 duplicated call sites in §4/§5/§7 —
    `DomainSheetView`, `DomainConfigAuditSheetView`, `OnionRoutingSheetView`,
    `BackupDrawerView`, `AuditSheetView`, `HardenSheetView`, `AgentReadinessSheetView`,
-   `AISearchSheetView`.
+   `AISearchSheetView`. Filed as [#1520](https://github.com/Anglesite/Anglesite/issues/1520).
 2. **Add `.accessibilityAddTraits(.isHeader)` to `SettingsBox`'s title** and audit its call
    sites (`ContentLicensingTab` + others) for correctness once it's on by default.
 3. **Label the remaining icon-only "remove row" buttons** across the component/typed-entry
