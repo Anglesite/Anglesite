@@ -17,6 +17,7 @@ enum MainPaneMode: Equatable {
     case followers      // Website ▸ Followers… (V-4.2, #364)
     case communities    // Website ▸ Communities… (V-5.1a, #368)
     case moderation     // Website ▸ Moderation… (V-5.1b/V-5.3, #907/#370)
+    case contacts       // Website ▸ Contacts… (#966)
 }
 
 enum ActiveEditor {
@@ -171,6 +172,9 @@ final class SiteWindowModel {
     /// Drives the main-pane Moderation view (Website ▸ Moderation…, V-5.1b/V-5.3 #907/#370):
     /// moderator display, and ban/remove actions over this site's members and posts.
     var moderation = ModerationModel()
+    /// Drives the main-pane Contacts view (Website ▸ Contacts…, #966): the site's private list
+    /// of known people, plus an opt-in Contacts.framework matching scan.
+    var contacts = ContactsModel()
     /// Cached `SiteSettings.communityActorURL != nil`, refreshed once per site open in
     /// `loadAndStart()` — the gate for Website ▸ Moderation… (#907/#370). A cached `Bool`
     /// rather than a live synchronous read: `SiteConfigStore.read(from:fileManager:)` is
@@ -496,6 +500,26 @@ final class SiteWindowModel {
             await moderation.reload()
             await clearInspectorThenSwitchPane(to: .moderation)
         }
+    }
+
+    /// Switches the main pane to Contacts (Website ▸ Contacts…, #966). Mirrors
+    /// `presentModeration()`'s leave-current-surface-first guard.
+    func presentContacts() {
+        Task {
+            guard await leaveCurrentEditor(), await leaveCurrentInspector() else { return }
+            activeEditor = nil
+            await clearInspectorThenSwitchPane(to: .contacts)
+        }
+    }
+
+    /// Ensures the Followers collection is loaded before a Contacts.framework matching scan
+    /// runs, so a promotion suggestion doesn't come up empty just because the owner never opened
+    /// Followers… this session (#966 design doc §5).
+    func candidateFollowerURLsForContactsMatching() async -> [URL] {
+        if followers.state == .idle {
+            await followers.load()
+        }
+        return followers.rows.map(\.actor)
     }
 
     /// Clears the inspector and swaps the main pane, giving the inspector's own
@@ -2356,6 +2380,7 @@ final class SiteWindowModel {
         followers.configure(site: currentSite)
         communities.configure(site: currentSite)
         await moderation.configure(site: currentSite)
+        contacts.configure(site: currentSite)
         domain.configure(site: currentSite)
         connectDomain.configure(site: currentSite)
         buyDomain.configure(site: currentSite)
