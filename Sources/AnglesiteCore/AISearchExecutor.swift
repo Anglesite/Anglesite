@@ -34,19 +34,24 @@ public struct AISearchExecutor: Sendable {
     public func provision(zoneID: String, domain: String, apiToken: String) async throws -> ProvisionedResult {
         let namespace = Self.namespaceID(for: domain)
         // Fetch-or-create semantics (#1478): `namespace` is derived deterministically from
-        // `domain`, so an "already exists" error means an earlier run of this wizard (complete
-        // or interrupted before this point) already created exactly the instance we're asking
-        // for — re-running is the natural response to any failed/interrupted attempt, and it
-        // should succeed rather than fail on a duplicate-id error. There's no separate fetch
-        // call needed: the id is already known (it's `namespace`), and the create response's own
-        // `name` fallback (below, and in `HTTPCloudflareClient.createAISearchInstance`) is
-        // already `instanceID` when Cloudflare doesn't echo one back, so reusing `namespace` here
-        // matches that same convention. Any other creation error propagates as-is: nothing has
-        // been provisioned yet, so there's no partial state to degrade gracefully from.
+        // `domain`, so an "already exists" error usually means an earlier run of this wizard
+        // (complete or interrupted before this point) already created exactly the instance we're
+        // asking for — re-running is the natural response to any failed/interrupted attempt, and
+        // it should succeed rather than fail on a duplicate-id error. But `namespaceID(for:)`'s
+        // dot-to-dash normalization isn't injective ("a.b.com" and "a-b.com" collide), so an
+        // "already exists" doesn't *guarantee* the existing instance is this domain's — fetch it
+        // and compare `source` before trusting that (review finding on #1504). A mismatch means a
+        // genuine id collision with a different site, which must fail loudly rather than silently
+        // "succeed" against someone else's instance. Any other creation error propagates as-is:
+        // nothing has been provisioned yet, so there's no partial state to degrade gracefully from.
         let instance: AISearchInstance
         do {
             instance = try await provisioner.createAISearchInstance(domain: domain, instanceID: namespace, apiToken: apiToken)
         } catch AISearchProvisionError.instanceAlreadyExists {
+            let existingSource = try await provisioner.aiSearchInstanceSource(instanceID: namespace, apiToken: apiToken)
+            guard existingSource.lowercased() == domain.lowercased() else {
+                throw AISearchProvisionError.instanceIDCollision
+            }
             instance = AISearchInstance(id: namespace, name: namespace)
         }
 

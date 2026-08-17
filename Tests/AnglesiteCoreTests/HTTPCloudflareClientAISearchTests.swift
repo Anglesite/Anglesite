@@ -88,4 +88,21 @@ struct HTTPCloudflareClientAISearchTests {
             try await client.createAISearchInstance(domain: "example.com", instanceID: "example-com", apiToken: "t")
         }
     }
+
+    @Test("aiSearchInstanceSource GETs the instance and returns its configured source")
+    func fetchesInstanceSource() async throws {
+        let spy = TransportSpy()
+        let accountsJSON = #"{"success":true,"errors":[],"result":[{"id":"acct1"}]}"#
+        let getJSON = #"{"success":true,"errors":[],"result":{"source":"example.com"}}"#
+        let client = HTTPCloudflareClient(transport: spyTransport([
+            "/accounts?per_page=1": (200, accountsJSON),
+            "/ai-search/instances/example-com": (200, getJSON),
+        ], spy: spy))
+
+        let source = try await client.aiSearchInstanceSource(instanceID: "example-com", apiToken: "test-token")
+
+        #expect(source == "example.com")
+        let getReq = try #require(spy.requests.first { $0.httpMethod == "GET" && $0.url?.path.contains("ai-search") == true })
+        #expect(getReq.url?.path.hasSuffix("/accounts/acct1/ai-search/instances/example-com") == true)
+    }
 }

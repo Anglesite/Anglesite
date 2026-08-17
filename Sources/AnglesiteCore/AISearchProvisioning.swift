@@ -29,6 +29,13 @@ public enum AISearchProvisionError: Error, Equatable, Sendable {
     /// after a prior partial or complete success — callers should treat it as "already
     /// provisioned" rather than a failure (#1478).
     case instanceAlreadyExists
+
+    /// The existing instance behind an ``instanceAlreadyExists`` response was created for a
+    /// *different* domain than the one being provisioned. `namespaceID(for:)`'s dot-to-dash
+    /// normalization isn't injective (`"a.b.com"` and `"a-b.com"` collide), so an id collision
+    /// is possible without this actually being a re-run for the same site — callers must not
+    /// treat this as success (#1478 review).
+    case instanceIDCollision
 }
 
 /// Provisions Cloudflare AI Search instances. Kept separate from `CloudflareWriting` — that
@@ -38,4 +45,10 @@ public protocol AISearchProvisioning: Sendable {
     /// Creates an AI Search instance backed by a website crawler for `domain`, resolving the
     /// caller's Cloudflare account internally (mirrors `attachWorkersCustomDomain`'s pattern).
     func createAISearchInstance(domain: String, instanceID: String, apiToken: String) async throws -> AISearchInstance
+
+    /// Fetches the configured source (crawled domain) of an existing AI Search instance by id.
+    /// Used to verify, after an ``AISearchProvisionError/instanceAlreadyExists`` response, that
+    /// the existing instance really was created for the domain being provisioned rather than a
+    /// different one that happens to collide under `namespaceID(for:)`'s normalization (#1478).
+    func aiSearchInstanceSource(instanceID: String, apiToken: String) async throws -> String
 }

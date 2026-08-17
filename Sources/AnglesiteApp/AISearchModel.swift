@@ -147,6 +147,11 @@ final class AISearchModel {
             // the fix (the sitemap ships in every build but isn't live until the first
             // deploy), so say that — not the API code (#1486).
             phase = .failed(reason: "Your site's sitemap isn't reachable yet. Deploy the site first, then set up AI Search.")
+        } catch AISearchProvisionError.instanceIDCollision {
+            // An existing AI Search instance already owns this domain's derived id but was
+            // created for a different domain (#1478) — rare, but must not be reported as
+            // success against someone else's instance.
+            phase = .failed(reason: "An AI Search instance name conflict was found for this domain. This is unusual — contact support if it persists.")
         } catch let error as CloudflareError {
             phase = .failed(reason: cloudflareErrorMessage(error))
         } catch {

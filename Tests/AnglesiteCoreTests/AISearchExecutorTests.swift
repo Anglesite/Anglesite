@@ -6,12 +6,19 @@ private final class StubProvisioner: AISearchProvisioning, @unchecked Sendable {
     private(set) var lastDomain: String?
     private(set) var lastInstanceID: String?
     var errorToThrow: (any Error)?
+    /// The `source` `aiSearchInstanceSource` reports for the existing instance — only consulted
+    /// by `AISearchExecutor.provision` after an `.instanceAlreadyExists` create error.
+    var existingInstanceSource = ""
 
     func createAISearchInstance(domain: String, instanceID: String, apiToken: String) async throws -> AISearchInstance {
         if let errorToThrow { throw errorToThrow }
         lastDomain = domain
         lastInstanceID = instanceID
         return AISearchInstance(id: "inst1", name: instanceID)
+    }
+
+    func aiSearchInstanceSource(instanceID: String, apiToken: String) async throws -> String {
+        existingInstanceSource
     }
 }
 
@@ -143,13 +150,26 @@ struct AISearchExecutorTests {
         }
     }
 
-    @Test("provision treats an already-exists create error as success, reusing the derived instance id (#1478)")
+    @Test("provision treats an already-exists create error as success when the existing instance's source matches the domain (#1478)")
     func provisionIsReRunnableAfterInstanceAlreadyExists() async throws {
         let provisioner = StubProvisioner()
         provisioner.errorToThrow = AISearchProvisionError.instanceAlreadyExists
+        provisioner.existingInstanceSource = "Example.com"
         let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: false)), writer: StubWriter(), provisioner: provisioner)
         let result = try await executor.provision(zoneID: "z1", domain: "Example.com", apiToken: "t")
         #expect(result.instance.id == "example-com")
         #expect(result.instance.name == "example-com")
+    }
+
+    @Test("provision fails with instanceIDCollision when the existing instance's source is a different domain (#1478 review)")
+    func provisionFailsOnNamespaceCollisionWithADifferentDomain() async throws {
+        let provisioner = StubProvisioner()
+        provisioner.errorToThrow = AISearchProvisionError.instanceAlreadyExists
+        provisioner.existingInstanceSource = "a-b.com"
+        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: false)), writer: StubWriter(), provisioner: provisioner)
+        await #expect(throws: AISearchProvisionError.instanceIDCollision) {
+            // "a.b.com" and "a-b.com" both normalize to instance id "a-b-com".
+            try await executor.provision(zoneID: "z1", domain: "a.b.com", apiToken: "t")
+        }
     }
 }
