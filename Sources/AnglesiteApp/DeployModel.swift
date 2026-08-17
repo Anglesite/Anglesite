@@ -940,6 +940,11 @@ final class DeployModel {
         let resolvedApUsername = DeployCoordinator.resolveEffectiveActivityPubUsername(siteDirectory: siteDirectory)
         let acknowledgesPaidPlan = settings.webmentionReceivePaidPlanAcknowledged ?? false
         let isHostedCommunity = DeployCoordinator.resolveIsHostedCommunity(siteDirectory: siteDirectory)
+        // #1515: a running experiment (declared in Source/anglesite.json, today only by a hand
+        // edit or a future slice-5 UI) provisions its D1 database and composes into the Worker on
+        // the very next ordinary deploy — mirrors resolveIsHostedCommunity's declared-config read
+        // just above.
+        let runningExperiments = DeployCoordinator.resolveRunningExperiments(sourceDirectory: siteDirectory)
         let provisionResult = await socialCommand.provision(
             siteID: siteID,
             siteDirectory: siteDirectory,
@@ -953,7 +958,8 @@ final class DeployModel {
             acknowledgesPaidPlan: acknowledgesPaidPlan,
             inboxCaptureEnabled: settings.inboxCaptureEnabled ?? false,
             activityPubActorType: isHostedCommunity ? "Group" : nil,
-            moderators: isHostedCommunity ? settings.moderators : nil
+            moderators: isHostedCommunity ? settings.moderators : nil,
+            experiments: runningExperiments
         )
 
         if case .webmentionPaidPlanConfirmationNeeded = provisionResult {

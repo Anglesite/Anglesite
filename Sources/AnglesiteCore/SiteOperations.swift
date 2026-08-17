@@ -154,6 +154,10 @@ public struct SiteOperations: Sendable {
 
         onProgress?(.deployBuilding)
         onProgress?(.deployDeploying)
+        // #1515: mirrors DeployModel.runDeploy's identical resolveRunningExperiments read, so
+        // this headless path (App Intents/Shortcuts/Siri) provisions a running experiment's D1
+        // database identically regardless of trigger.
+        let runningExperiments = DeployCoordinator.resolveRunningExperiments(sourceDirectory: siteDirectory)
         let provisionResult = await factory.socialWorkerProvision().provision(
             siteID: site.id,
             siteDirectory: siteDirectory,
@@ -167,7 +171,8 @@ public struct SiteOperations: Sendable {
             // identically regardless of trigger.
             wellKnownDynamicClaims: WorkerRouteClaims.wellKnownClaims(routeClaims),
             activityPubActorType: isHostedCommunity ? "Group" : nil,
-            moderators: isHostedCommunity ? settings.moderators : nil
+            moderators: isHostedCommunity ? settings.moderators : nil,
+            experiments: runningExperiments
         )
         onProgress?(.deployFinalizing)
 
