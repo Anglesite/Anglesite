@@ -548,11 +548,10 @@ final class PlistEditorModel {
         let sourceDirectory = sourceDirectory
         let campaigns = utmCampaigns
         do {
-            let normalized = try await Task.detached(priority: .userInitiated) {
-                return try UTMCodesStore(sourceDirectory: sourceDirectory).save(campaigns)
+            try await Task.detached(priority: .userInitiated) {
+                try UTMCodesStore(sourceDirectory: sourceDirectory).save(campaigns)
             }.value
-            savedUTMCampaigns = normalized
-            utmCampaigns = normalized
+            savedUTMCampaigns = campaigns
             return true
         } catch {
             utmCodesError = "Couldn't save UTM codes: \(error.localizedDescription)"

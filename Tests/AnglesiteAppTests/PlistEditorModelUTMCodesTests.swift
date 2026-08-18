@@ -43,7 +43,7 @@ struct PlistEditorModelUTMCodesTests {
         #expect(try UTMCodesStore(sourceDirectory: model.sourceDirectory).load() == model.utmCampaigns)
     }
 
-    @Test("saveUTMCodes normalizes appliesTo order in both utmCampaigns and on disk")
+    @Test("saveUTMCodes normalizes appliesTo order on disk without touching the live in-memory order")
     func saveNormalizesOrderInMemoryAndOnDisk() async throws {
         let model = try makeModel()
         await model.load()
@@ -52,7 +52,8 @@ struct PlistEditorModelUTMCodesTests {
         ]
         let saved = await model.saveUTMCodes()
         #expect(saved == true)
-        #expect(model.utmCampaigns.first?.appliesTo == [.blog, .notes])
+        #expect(model.utmCampaigns.first?.appliesTo == [.notes, .blog])
+        #expect(model.isUTMCodesDirty == false)
         let loaded = try UTMCodesStore(sourceDirectory: model.sourceDirectory).load()
         #expect(loaded.first?.appliesTo == [.blog, .notes])
     }
