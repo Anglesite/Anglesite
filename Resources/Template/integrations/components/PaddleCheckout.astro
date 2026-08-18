@@ -13,20 +13,25 @@ interface Props {
 const { clientToken, priceId, buttonText = "Subscribe" } = Astro.props;
 ---
 
+{/*
+  The Paddle init/checkout loader lives in public/scripts/ and reads its config from data-*
+  attributes on #paddle-checkout-button instead of Astro's `define:vars`. `define:vars` forces
+  Astro to inline the script body verbatim into the page — with no `'unsafe-inline'`, nonce, or
+  hash in the site's CSP script-src, an inline body like that is silently blocked by the
+  browser. A same-origin `<script src="...">` satisfies `script-src 'self'` without weakening
+  the policy.
+*/}
+
 {clientToken && priceId && (
-  <button type="button" id="paddle-checkout-button" class="paddle-checkout-button">{buttonText}</button>
+  <button
+    type="button"
+    id="paddle-checkout-button"
+    class="paddle-checkout-button"
+    data-paddle-client-token={clientToken}
+    data-paddle-price-id={priceId}
+  >{buttonText}</button>
   <script is:inline src="https://cdn.paddle.com/paddle/v2/paddle.js"></script>
-  <script is:inline define:vars={{ clientToken, priceId }}>
-    document.addEventListener("DOMContentLoaded", function () {
-      Paddle.Initialize({ token: clientToken });
-      var button = document.getElementById("paddle-checkout-button");
-      if (button) {
-        button.addEventListener("click", function () {
-          Paddle.Checkout.open({ items: [{ priceId: priceId, quantity: 1 }] });
-        });
-      }
-    });
-  </script>
+  <script is:inline src="/scripts/paddle-checkout.js"></script>
 )}
 
 <style>
