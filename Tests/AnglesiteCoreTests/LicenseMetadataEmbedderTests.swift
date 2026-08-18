@@ -60,7 +60,7 @@ struct LicenseMetadataEmbedderTests {
         let webStatementTag = CGImageMetadataCopyTagWithPath(metadata, nil, "xmpRights:WebStatement" as CFString)
         #expect(CGImageMetadataTagCopyValue(webStatementTag!) as? String == license.url)
         let markedTag = CGImageMetadataCopyTagWithPath(metadata, nil, "xmpRights:Marked" as CFString)
-        #expect(markedTag != nil)
+        #expect(CGImageMetadataTagCopyValue(markedTag!) as? String == "True")
     }
 
     @Test("embedding preserves existing image properties like orientation")
@@ -94,6 +94,79 @@ struct LicenseMetadataEmbedderTests {
         }
     }
 
+    private func makeDetailedTestImage(width: Int = 32, height: Int = 32) -> CGImage {
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ctx = CGContext(data: nil, width: width, height: height, bitsPerComponent: 8,
+                             bytesPerRow: 0, space: colorSpace,
+                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        for y in 0..<height {
+            for x in 0..<width {
+                let r = CGFloat((x * 7 + y * 13) % 256) / 255
+                let g = CGFloat((x * 31 + y * 3) % 256) / 255
+                let b = CGFloat((x * 5 + y * 17) % 256) / 255
+                ctx.setFillColor(CGColor(red: r, green: g, blue: b, alpha: 1))
+                ctx.fill(CGRect(x: x, y: y, width: 1, height: 1))
+            }
+        }
+        return ctx.makeImage()!
+    }
+
+    private func imageData(type: UTType) -> Data {
+        let out = NSMutableData()
+        let dest = CGImageDestinationCreateWithData(out, type.identifier as CFString, 1, nil)!
+        CGImageDestinationAddImage(dest, makeDetailedTestImage(), nil)
+        #expect(CGImageDestinationFinalize(dest))
+        return out as Data
+    }
+
+    private func exactPixelBytes(of data: Data) -> [UInt8] {
+        let source = CGImageSourceCreateWithData(data as CFData, nil)!
+        let image = CGImageSourceCreateImageAtIndex(source, 0, nil)!
+        let width = image.width, height = image.height
+        var buffer = [UInt8](repeating: 0, count: width * height * 4)
+        let colorSpace = CGColorSpace(name: CGColorSpace.sRGB)!
+        let ctx = CGContext(data: &buffer, width: width, height: height, bitsPerComponent: 8,
+                             bytesPerRow: width * 4, space: colorSpace,
+                             bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue)!
+        ctx.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        return buffer
+    }
+
+    @Test("every supported image type embeds a readable license",
+          arguments: [UTType.jpeg, .png, .tiff, .heic])
+    func everySupportedImageTypeRoundTrips(type: UTType) throws {
+        let original = imageData(type: type)
+        let result = try LicenseMetadataEmbedder.embed(license, into: original, type: type)
+        guard case .embedded(let outData) = result else {
+            Issue.record("expected .embedded for \(type.identifier), got \(result)")
+            return
+        }
+        let source = CGImageSourceCreateWithData(outData as CFData, nil)!
+        let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil)!
+        let tag = CGImageMetadataCopyTagWithPath(metadata, nil, "xmpRights:WebStatement" as CFString)
+        #expect(tag != nil, "\(type.identifier) is missing its license tag")
+        #expect(CGImageMetadataTagCopyValue(tag!) as? String == license.url)
+    }
+
+    @Test("embedding into a lossy format (JPEG) does not alter pixel content")
+    func jpegEmbedIsPixelLossless() throws {
+        let original = imageData(type: .jpeg)
+        let result = try LicenseMetadataEmbedder.embed(license, into: original, type: .jpeg)
+        guard case .embedded(let outData) = result else {
+            Issue.record("expected .embedded, got \(result)")
+            return
+        }
+        #expect(exactPixelBytes(of: original) == exactPixelBytes(of: outData))
+    }
+
+    @Test("a type argument that doesn't match the actual source format fails instead of silently transcoding")
+    func mismatchedTypeFails() {
+        let pngBytes = imageData(type: .png)
+        #expect(throws: LicenseMetadataEmbedder.EmbedError.writeFailed) {
+            _ = try LicenseMetadataEmbedder.embed(license, into: pngBytes, type: .jpeg)
+        }
+    }
+
     private func onePagePDFData() -> Data {
         var mediaBox = CGRect(x: 0, y: 0, width: 50, height: 50)
         let out = NSMutableData()
@@ -115,9 +188,8 @@ struct LicenseMetadataEmbedderTests {
             return
         }
         let doc = PDFDocument(data: outData)!
-        let rights = doc.documentAttributes?["Rights"] as? String
-        #expect(rights?.contains(license.name) == true)
-        #expect(rights?.contains(license.url) == true)
+        #expect(doc.documentAttributes?["Rights"] as? String == license.name)
+        #expect(doc.documentAttributes?["RightsURL"] as? String == license.url)
     }
 
     @Test("embedding into a PDF preserves page count and existing attributes")

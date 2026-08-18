@@ -59,12 +59,10 @@ public enum LicenseMetadataEmbedder {
 
     private static func embedIntoImage(_ license: LicenseRef, data: Data, type: UTType) throws -> Data {
         guard let source = CGImageSourceCreateWithData(data as CFData, nil),
-              CGImageSourceGetCount(source) > 0,
-              let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+              CGImageSourceGetCount(source) > 0 else {
             throw EmbedError.unreadable
         }
 
-        let existingProperties = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]) ?? [:]
         let existingMetadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil)
         let metadata = existingMetadata.flatMap { CGImageMetadataCreateMutableCopy($0) } ?? CGImageMetadataCreateMutable()
 
@@ -93,17 +91,48 @@ public enum LicenseMetadataEmbedder {
         guard let destination = CGImageDestinationCreateWithData(output, type.identifier as CFString, 1, nil) else {
             throw EmbedError.writeFailed
         }
-        var options = existingProperties
-        options[kCGImageDestinationMergeMetadata] = true
-        CGImageDestinationAddImageAndMetadata(destination, cgImage, metadata, options as CFDictionary)
-        guard CGImageDestinationFinalize(destination) else { throw EmbedError.writeFailed }
+
+        // PNG carve-out: `CGImageDestinationCopyImageSource`'s metadata merge silently drops the
+        // new XMP (no `iTXt` chunk is written at all — verified by dumping the output PNG's own
+        // chunk list) whenever the source PNG already carries an `eXIf` chunk (e.g. any image
+        // with an orientation property, which is common). JPEG/TIFF/HEIC don't share this bug —
+        // only PNG. PNG is lossless, so falling back to decode+re-encode here costs nothing the
+        // copy-source path was protecting against (no lossy recompression, no page/frame to
+        // drop): it's the same approach this file shipped and tested green with before this
+        // rewrite, scoped down to just the one format where the newer API misbehaves.
+        if type == .png {
+            guard let cgImage = CGImageSourceCreateImageAtIndex(source, 0, nil) else {
+                throw EmbedError.unreadable
+            }
+            let existingProperties = (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any]) ?? [:]
+            var options = existingProperties
+            options[kCGImageDestinationMergeMetadata] = true
+            CGImageDestinationAddImageAndMetadata(destination, cgImage, metadata, options as CFDictionary)
+            guard CGImageDestinationFinalize(destination) else { throw EmbedError.writeFailed }
+            return output as Data
+        }
+
+        var writeError: Unmanaged<CFError>?
+        let copied = CGImageDestinationCopyImageSource(
+            destination, source,
+            [kCGImageDestinationMetadata: metadata, kCGImageDestinationMergeMetadata: true] as CFDictionary,
+            &writeError)
+        guard copied else { throw EmbedError.writeFailed }
         return output as Data
     }
 
+    /// Writes the license into the PDF's Info dictionary (`Rights`/`RightsURL`), not true XMP —
+    /// PDFKit's public API exposes no XMP packet writing, and retrofitting one into an existing
+    /// PDF would mean re-serializing every page through a fresh `CGContext`, risking forms,
+    /// links, and tags. This is a deliberate, lower-fidelity trade-off: `Rights`/`RightsURL` are
+    /// non-standard Info keys — Acrobat surfaces them only under its Custom properties tab, and
+    /// no XMP-aware tool will find them there. Safe (page content is never touched); not a
+    /// substitute for real XMP if that's ever needed.
     private static func embedIntoPDF(_ license: LicenseRef, data: Data) throws -> Data {
         guard let document = PDFDocument(data: data) else { throw EmbedError.unreadable }
         var attributes = document.documentAttributes ?? [:]
-        attributes["Rights"] = "\(license.name) — \(license.url)"
+        attributes["Rights"] = license.name
+        attributes["RightsURL"] = license.url
         document.documentAttributes = attributes
         guard let output = document.dataRepresentation() else { throw EmbedError.writeFailed }
         return output
