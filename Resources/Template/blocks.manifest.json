@@ -12,6 +12,39 @@
     {
       "path": "src/components/effects/DotGridPulse.astro",
       "name": "Dot Grid Pulse"
+    },
+    {
+      "path": "src/components/effects/ParticleField.astro",
+      "export": "ParticleField",
+      "kind": "astro",
+      "name": "Particle Field",
+      "description": "Drifting dots connected by faint lines when close.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
+    },
+    {
+      "path": "src/components/effects/AuroraGradient.astro",
+      "export": "AuroraGradient",
+      "kind": "astro",
+      "name": "Aurora Gradient",
+      "description": "Slow blurred color-blob blending.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
+    },
+    {
+      "path": "src/components/effects/GrainOverlay.astro",
+      "export": "GrainOverlay",
+      "kind": "astro",
+      "name": "Grain Overlay",
+      "description": "Subtle animated film-grain texture.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
     }
   ]
 }
