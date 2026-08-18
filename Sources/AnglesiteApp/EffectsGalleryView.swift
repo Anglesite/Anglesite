@@ -55,6 +55,11 @@ final class EffectsGalleryModel {
 /// `controller`, `enterOverlayMode`, and `exitOverlayMode` are injected by the caller (Task 12:
 /// `SiteWindow`/`SiteWindowModel`, which own the live preview's `WKWebView` and construct the
 /// per-window `EffectPlacementController`) — this view has no WKWebView dependency of its own.
+///
+/// Once a placement starts, this sheet is out of the picture: it dismisses itself and the
+/// placement HUD (``EffectPlacementHUD``, rendered on the site window) takes over. A sheet is
+/// window-modal, so leaving it up would block clicks to the live preview the owner is being asked
+/// to click (#768 final review, Finding 4).
 struct EffectsGalleryView: View {
     @State private var model = EffectsGalleryModel()
     let controller: EffectPlacementController
@@ -62,17 +67,14 @@ struct EffectsGalleryView: View {
     let exitOverlayMode: () -> Void
     @Environment(\.dismiss) private var dismiss
 
-    /// Controls the transient success/failure banner: set true when `controller.state` becomes
-    /// `.succeeded`/`.failed`, then cleared after a short delay so the banner fades away. Once the
-    /// banner is cleared, `controller.acknowledge()` returns the controller to `.idle` — until
-    /// then "Apply to Page…" stays disabled (see `EffectPlacementController`'s `.idle` guard on
-    /// `startPlacement`), which is the point: no second pick can start while this one's result is
-    /// still on screen.
-    @State private var showTransientBanner = false
+    /// Set by ``startPlacement(for:)`` immediately before dismissing this sheet, so `onDisappear`
+    /// can tell "the owner closed the gallery" from "the gallery handed off to the placement HUD".
+    /// Without it, the hand-off's own dismissal would cancel the pick it just started.
+    @State private var didHandOffToPlacement = false
 
     var body: some View {
         NavigationStack {
-            content
+            galleryContent
                 .navigationTitle("Effects")
                 .toolbar {
                     ToolbarItem(placement: .confirmationAction) {
@@ -82,27 +84,28 @@ struct EffectsGalleryView: View {
         }
         .frame(minWidth: 760, minHeight: 520)
         .task { model.load() }
-        .onExitCommand { controller.cancel() }
-        .onChange(of: controller.state) { _, newState in
-            switch newState {
-            case .succeeded, .failed:
-                showTransientBanner = true
-                Task {
-                    try? await Task.sleep(for: .seconds(2.5))
-                    showTransientBanner = false
-                    controller.acknowledge()
-                }
-            default:
-                showTransientBanner = false
-            }
+        // Any dismissal that isn't a placement hand-off cancels an in-progress pick (#768 final
+        // review, Finding 2). `.onExitCommand` alone covered Esc but not Done — or a click on the
+        // dimmed parent, or a programmatic dismiss — each of which used to leave the controller
+        // `.picking` and the overlay's click-capture listener live, so the owner's next unrelated
+        // click on the preview was silently swallowed and applied as an insert. `cancel()` is a
+        // no-op when nothing is in progress, so the non-placement case costs nothing.
+        .onDisappear {
+            guard !didHandOffToPlacement else { return }
+            controller.cancel()
         }
     }
 
-    @ViewBuilder private var content: some View {
-        ZStack {
-            galleryContent
-            placementHUD
-        }
+    /// Starts a pick and gets out of the way: the gallery is a window-modal sheet, so it has to be
+    /// dismissed before the owner can click the live preview underneath it at all (#768 final
+    /// review, Finding 4). From here on the placement HUD on the site window
+    /// (``EffectPlacementHUD``, presented by `SiteWindow`) owns the interaction — including Cancel
+    /// and Esc — so cancelling never means reopening this sheet.
+    private func startPlacement(for entry: EffectCatalogEntry) {
+        didHandOffToPlacement = true
+        controller.startPlacement(
+            for: entry, enterOverlayMode: enterOverlayMode, exitOverlayMode: exitOverlayMode)
+        dismiss()
     }
 
     @ViewBuilder private var galleryContent: some View {
@@ -120,8 +123,7 @@ struct EffectsGalleryView: View {
                         entry: entry,
                         demoURL: model.demoURL(for: entry),
                         controller: controller,
-                        enterOverlayMode: enterOverlayMode,
-                        exitOverlayMode: exitOverlayMode)
+                        startPlacement: { startPlacement(for: $0) })
                 } else {
                     ContentUnavailableView(
                         "No Component Selected",
@@ -132,43 +134,6 @@ struct EffectsGalleryView: View {
             ProgressView("Loading effects…")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
         }
-    }
-
-    /// Click-to-place HUD: the persistent "pick a spot" / "applying" states, plus a transient
-    /// banner for the terminal `.succeeded`/`.failed` states (see `showTransientBanner`).
-    @ViewBuilder private var placementHUD: some View {
-        switch controller.state {
-        case .picking:
-            placementBanner(message: "Click where to place this effect", tint: .accentColor, showCancelButton: true)
-        case .applying:
-            placementBanner(message: "Applying…", tint: .accentColor, showCancelButton: false)
-        case .succeeded where showTransientBanner:
-            placementBanner(message: "Effect placed.", tint: .green, showCancelButton: false)
-        case .failed(let message) where showTransientBanner:
-            placementBanner(message: message, tint: .red, showCancelButton: false)
-        default:
-            EmptyView()
-        }
-    }
-
-    private func placementBanner(message: String, tint: Color, showCancelButton: Bool) -> some View {
-        VStack {
-            Spacer()
-            HStack(spacing: 12) {
-                Text(message)
-                if showCancelButton {
-                    Button("Cancel") { controller.cancel() }
-                }
-            }
-            .padding(.horizontal, 16)
-            .padding(.vertical, 10)
-            .background(.regularMaterial, in: Capsule())
-            .overlay(Capsule().stroke(tint, lineWidth: 1))
-            .padding(.bottom, 24)
-        }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .transition(.opacity)
-        .animation(.default, value: showTransientBanner)
     }
 
     /// Sidebar list, grouped under two contiguous headings. `EffectCategory` cases are ordered by
@@ -231,8 +196,9 @@ private struct EffectDetailView: View {
     let entry: EffectCatalogEntry
     let demoURL: URL?
     @Bindable var controller: EffectPlacementController
-    let enterOverlayMode: () -> Void
-    let exitOverlayMode: () -> Void
+    /// Hands the entry back to `EffectsGalleryView.startPlacement(for:)`, which arms the
+    /// controller *and* dismisses the gallery so the live preview is clickable.
+    let startPlacement: (EffectCatalogEntry) -> Void
     @State private var didCopy = false
 
     var body: some View {
@@ -263,8 +229,7 @@ private struct EffectDetailView: View {
 
                 if entry.placement != nil {
                     Button {
-                        controller.startPlacement(
-                            for: entry, enterOverlayMode: enterOverlayMode, exitOverlayMode: exitOverlayMode)
+                        startPlacement(entry)
                     } label: {
                         Label("Apply to Page…", systemImage: "hand.tap")
                     }

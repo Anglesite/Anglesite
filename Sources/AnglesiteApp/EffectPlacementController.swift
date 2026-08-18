@@ -21,7 +21,18 @@ public final class EffectPlacementController {
 
     public private(set) var state: State = .idle
 
-    private let path: String
+    /// Which side of the clicked element an `inline` effect lands on — bound to the placement
+    /// HUD's before/after toggle (``EffectPlacementHUD``), which the design spec §3 calls for and
+    /// which nothing threaded through until now (#768 final review, Finding 6). Ignored by
+    /// `background` placements. Persists across picks so an owner placing several effects doesn't
+    /// have to re-choose each time.
+    public var inlinePosition: PlacementMatcher.InlinePosition = .after
+
+    /// The project-relative `.astro` page source this controller places into — resolved from the
+    /// live preview's route by ``PageSourcePath`` before construction, never a raw route (the
+    /// sidecar rejects those; #768 final review, Finding 1). Readable so callers and tests can
+    /// verify the target without re-deriving it.
+    public let path: String
     private let pageModelClient: PageModelClient
     private let editRouter: any EditRouter
     private var exitOverlayMode: (() -> Void)?
@@ -80,7 +91,9 @@ public final class EffectPlacementController {
 
         do {
             let model = try await pageModelClient.fetch(path: path)
-            switch PlacementMatcher.resolve(element: message.element, in: model, placement: placement) {
+            switch PlacementMatcher.resolve(
+                element: message.element, in: model, placement: placement,
+                inlinePosition: inlinePosition) {
             case .success(let insertion):
                 let edit = ComponentStructureEditBuilder.insertBlock(
                     id: UUID().uuidString, path: path, baseVersion: model.version,

@@ -355,6 +355,9 @@
     "Add" : {
 
     },
+    "Add ${effect} to ${site}" : {
+
+    },
     "Add Agent…" : {
 
     },
@@ -443,6 +446,9 @@
 
     },
     "Advanced" : {
+
+    },
+    "After" : {
 
     },
     "Agent Readiness" : {
@@ -696,6 +702,9 @@
 
     },
     "Base styles" : {
+
+    },
+    "Before" : {
 
     },
     "Before your first publish, pick what license covers your content. \"All rights reserved\" is a valid choice — Anglesite just never picks it for you silently." : {
@@ -2651,6 +2660,12 @@
 
     },
     "Pick a color scheme" : {
+
+    },
+    "Place" : {
+
+    },
+    "Place the effect before or after the element you click" : {
 
     },
     "Plan social media for ${site}" : {

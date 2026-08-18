@@ -123,10 +123,12 @@ public struct AddEffectIntent: AppIntent {
             return EffectDialogs.siteNotOpen(siteName: site.displayName)
         }
 
-        // No page picker on this front door (v1) -- the home page route, matching
-        // `EffectPlacementController`'s own `preview.activeRoute ?? "/"` default when no route is
-        // active.
-        let path = "/"
+        // No page picker on this front door (v1) -- the home page's *source file*, matching what
+        // `SiteWindowModel` resolves for a preview sitting on `/`. It has to be the project-
+        // relative `.astro` path, not the route: `get_page_model`'s `validPagePath` and
+        // `insertBlock`'s own path check both reject a route outright (#768 final review,
+        // Finding 1).
+        let path = PageSourcePath.homePage
         let model: PageModel
         do {
             model = try await pageModelClient.fetch(path: path)
