@@ -5,8 +5,9 @@ import Foundation
 
 /// Covers `AddEffectIntent`: the pure `defaultInsertion` placement math (Step 2 of the task
 /// brief), the pure `EffectDialogs` strings, and `run()`'s plan → confirm → apply flow driven
-/// through `performForTesting()` with `AddEffectIntentOverride` fakes standing in for the
-/// template-backed catalog and the site's `PageModelClient`/`EditRouter` registries.
+/// through `performForTesting()` with `EffectCatalogOverride` (mirrors `ThemeCatalogOverride`)
+/// and `AddEffectSiteConnectionOverride` standing in for the `@Dependency`-resolved catalog and
+/// the site's `PageModelClient`/`EditRouter` registries, respectively.
 @Suite struct EffectIntentsTests {
     // MARK: - Fixtures
 
@@ -63,6 +64,23 @@ import Foundation
             component: "ParticleField", title: "Particle Field", ownerDescription: "d",
             category: .canvasBackground, keyProps: [:], snippet: "s",
             placement: .init(kind: kind, allowedParents: allowedParents))
+    }
+
+    /// Binds both `AddEffectIntent` overrides (catalog + site connection) around
+    /// `intent.performForTesting()`, since `run()` needs both bound to skip
+    /// `requestConfirmation` and to resolve without a live registry/template. Nesting the two
+    /// separate `@TaskLocal`s here keeps individual tests focused on what varies.
+    static func runForTesting(
+        _ intent: AddEffectIntent, catalog: EffectCatalog,
+        pageModelClient: PageModelClient?, editRouter: EditRouter?
+    ) async throws -> String {
+        try await EffectCatalogOverride.$scoped.withValue(catalog) {
+            try await AddEffectSiteConnectionOverride.$scoped.withValue(
+                AddEffectSiteConnection(pageModelClient: pageModelClient, editRouter: editRouter)
+            ) {
+                try await intent.performForTesting()
+            }
+        }
     }
 
     // MARK: - defaultInsertion (Step 2 of the task brief)
@@ -125,13 +143,10 @@ import Foundation
         let intent = AddEffectIntent()
         intent.site = SiteEntity(id: "s1", name: "Acme", creationDate: nil, modificationDate: nil)
         intent.effect = .particleField
-        let fakes = AddEffectIntentFakes(
-            catalog: EffectCatalog(entries: [Self.particleFieldEntry()]),
+        let dialog = try await Self.runForTesting(
+            intent, catalog: EffectCatalog(entries: [Self.particleFieldEntry()]),
             pageModelClient: Self.fakePageModelClient(returning: Self.fixtureModelWithBody()),
             editRouter: StubRouter(status: .applied))
-        let dialog = try await AddEffectIntentOverride.$scoped.withValue(fakes) {
-            try await intent.performForTesting()
-        }
         #expect(dialog == "Added Particle Field to Acme.")
     }
 
@@ -139,13 +154,10 @@ import Foundation
         let intent = AddEffectIntent()
         intent.site = SiteEntity(id: "s1", name: "Acme", creationDate: nil, modificationDate: nil)
         intent.effect = .particleField
-        let fakes = AddEffectIntentFakes(
-            catalog: EffectCatalog(entries: [Self.particleFieldEntry()]),
+        let dialog = try await Self.runForTesting(
+            intent, catalog: EffectCatalog(entries: [Self.particleFieldEntry()]),
             pageModelClient: Self.fakePageModelClient(returning: Self.fixtureModelWithBody()),
             editRouter: StubRouter(status: .failed, message: "stale version"))
-        let dialog = try await AddEffectIntentOverride.$scoped.withValue(fakes) {
-            try await intent.performForTesting()
-        }
         #expect(dialog.contains("stale version"))
         #expect(dialog.contains("Acme"))
     }
@@ -154,13 +166,9 @@ import Foundation
         let intent = AddEffectIntent()
         intent.site = SiteEntity(id: "s1", name: "Acme", creationDate: nil, modificationDate: nil)
         intent.effect = .particleField
-        let fakes = AddEffectIntentFakes(
-            catalog: EffectCatalog(entries: [Self.particleFieldEntry()]),
-            pageModelClient: nil,
-            editRouter: nil)
-        let dialog = try await AddEffectIntentOverride.$scoped.withValue(fakes) {
-            try await intent.performForTesting()
-        }
+        let dialog = try await Self.runForTesting(
+            intent, catalog: EffectCatalog(entries: [Self.particleFieldEntry()]),
+            pageModelClient: nil, editRouter: nil)
         #expect(dialog == "Open Acme in Anglesite first, then try adding this effect again.")
     }
 
@@ -171,13 +179,10 @@ import Foundation
         let legacyEntry = EffectCatalogEntry(
             component: "ParticleField", title: "Particle Field", ownerDescription: "d",
             category: .canvasBackground, keyProps: [:], snippet: "s", placement: nil)
-        let fakes = AddEffectIntentFakes(
-            catalog: EffectCatalog(entries: [legacyEntry]),
+        let dialog = try await Self.runForTesting(
+            intent, catalog: EffectCatalog(entries: [legacyEntry]),
             pageModelClient: Self.fakePageModelClient(returning: Self.fixtureModelWithBody()),
             editRouter: StubRouter(status: .applied))
-        let dialog = try await AddEffectIntentOverride.$scoped.withValue(fakes) {
-            try await intent.performForTesting()
-        }
         #expect(dialog.contains("Particle Field"))
         #expect(dialog.contains("Effects gallery"))
     }
@@ -186,13 +191,10 @@ import Foundation
         let intent = AddEffectIntent()
         intent.site = SiteEntity(id: "s1", name: "Acme", creationDate: nil, modificationDate: nil)
         intent.effect = .dotGridPulse
-        let fakes = AddEffectIntentFakes(
-            catalog: EffectCatalog(entries: [Self.particleFieldEntry()]), // no "Dot Grid Pulse" entry
+        let dialog = try await Self.runForTesting(
+            intent, catalog: EffectCatalog(entries: [Self.particleFieldEntry()]), // no "Dot Grid Pulse" entry
             pageModelClient: Self.fakePageModelClient(returning: Self.fixtureModelWithBody()),
             editRouter: StubRouter(status: .applied))
-        let dialog = try await AddEffectIntentOverride.$scoped.withValue(fakes) {
-            try await intent.performForTesting()
-        }
         #expect(dialog.contains("Dot Grid Pulse"))
     }
 
@@ -203,13 +205,9 @@ import Foundation
         let notConnectedClient = PageModelClient(toolCaller: { _, _ in
             throw PageModelClient.ModelError.notConnected
         })
-        let fakes = AddEffectIntentFakes(
-            catalog: EffectCatalog(entries: [Self.particleFieldEntry()]),
-            pageModelClient: notConnectedClient,
-            editRouter: StubRouter(status: .applied))
-        let dialog = try await AddEffectIntentOverride.$scoped.withValue(fakes) {
-            try await intent.performForTesting()
-        }
+        let dialog = try await Self.runForTesting(
+            intent, catalog: EffectCatalog(entries: [Self.particleFieldEntry()]),
+            pageModelClient: notConnectedClient, editRouter: StubRouter(status: .applied))
         #expect(dialog.contains("Acme"))
         #expect(dialog.contains("not running"))
     }
