@@ -107,14 +107,18 @@ Today's `SiteInspectorView`, unchanged in shape:
 
 Always available; its toggle is never disabled.
 
-- **Metadata tab** — site identity basics from `Info.plist` /
-  `SiteConfigStore`: display name, domain, language, description, and
-  social/OG defaults. Directly editable with the same `InspectorChrome`
-  dirty/Save pattern as the page context. A **"More Settings…"** button at the
-  bottom opens the deep-config surface in the main pane.
+- **Metadata tab** — site identity basics: display name (the package
+  `Info.plist` title entry) and language (`.site-config` via
+  `SiteLanguageAsset`), directly editable with commit-on-submit/focus-loss;
+  domain shown read-only (`.site-config` `DOMAIN` via
+  `WebsiteAnalyticsAsset.bestHost` — editing stays with the Connect Domain
+  flow). *(Amended 2026-08-18 while planning: description and social/OG
+  defaults have no template/config backing yet, so they join this tab when
+  that backing exists rather than in v1.)* A **"More Settings…"** button at
+  the bottom opens the deep-config surface in the main pane.
 - **Style tab** — the site-wide styles scope: the `src/styles` stylesheets
-  listed with open-in-editor (the retained `.file` → editor pipeline), the
-  theme identity, and later theme tokens as Component Editor slice 2 (#492)
+  listed with open-in-editor (the retained `.file` → editor pipeline); theme
+  identity and theme tokens follow as Component Editor slice 2 (#492)
   deepens.
 
 ### 3.3 Deep config (main pane)
