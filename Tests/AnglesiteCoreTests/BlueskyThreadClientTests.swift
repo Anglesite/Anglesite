@@ -137,4 +137,101 @@ struct BlueskyThreadClientTests {
             atURI: "at://root.example/app.bsky.feed.post/3root", transport: { _ in (Data(), Self.response(500)) })
         #expect(replies == nil)
     }
+
+    // MARK: - fetchLikes / fetchReposts
+
+    @Test("fetchLikes parses a getLikes response including each like's createdAt")
+    func fetchLikesHappyPath() async throws {
+        let body = Data("""
+        {"uri": "at://root.example/app.bsky.feed.post/3root", "likes": [
+          {"createdAt": "2026-08-01T11:00:00.000Z", "indexedAt": "2026-08-01T11:00:01.000Z",
+           "actor": {"did": "did:plc:dave", "handle": "dave.bsky.social", "displayName": "Dave"}}
+        ]}
+        """.utf8)
+        let likes = await BlueskyThreadClient.fetchLikes(
+            atURI: "at://root.example/app.bsky.feed.post/3root", transport: { _ in (body, Self.response(200)) })
+        let unwrapped = try #require(likes)
+        #expect(unwrapped.count == 1)
+        #expect(unwrapped[0].actorHandle == "dave.bsky.social")
+        #expect(unwrapped[0].createdAt != nil)
+    }
+
+    @Test("fetchReposts parses a getRepostedBy response whose items are bare actor profiles with no createdAt")
+    func fetchRepostsHappyPath() async throws {
+        let body = Data("""
+        {"uri": "at://root.example/app.bsky.feed.post/3root", "repostedBy": [
+          {"did": "did:plc:erin", "handle": "erin.bsky.social", "displayName": "Erin"}
+        ]}
+        """.utf8)
+        let reposts = await BlueskyThreadClient.fetchReposts(
+            atURI: "at://root.example/app.bsky.feed.post/3root", transport: { _ in (body, Self.response(200)) })
+        let unwrapped = try #require(reposts)
+        #expect(unwrapped.count == 1)
+        #expect(unwrapped[0].actorHandle == "erin.bsky.social")
+        #expect(unwrapped[0].createdAt == nil)
+    }
+
+    @Test("fetchLikes follows cursor across multiple pages")
+    func fetchLikesPaginates() async throws {
+        let page1 = Data("""
+        {"uri": "x", "cursor": "page2", "likes": [{"createdAt": "2026-08-01T11:00:00.000Z", "actor": {"did": "did:plc:1", "handle": "one.bsky.social"}}]}
+        """.utf8)
+        let page2 = Data("""
+        {"uri": "x", "likes": [{"createdAt": "2026-08-01T12:00:00.000Z", "actor": {"did": "did:plc:2", "handle": "two.bsky.social"}}]}
+        """.utf8)
+        let likes = await BlueskyThreadClient.fetchLikes(atURI: "at://root.example/app.bsky.feed.post/3root", transport: { request in
+            let sawCursor = request.url?.query?.contains("cursor=page2") ?? false
+            return (sawCursor ? page2 : page1, Self.response(200))
+        })
+        let unwrapped = try #require(likes)
+        #expect(unwrapped.map(\.actorHandle) == ["one.bsky.social", "two.bsky.social"])
+    }
+
+    @Test("fetchLikes stops paginating at the page cap rather than trusting an endless cursor chain")
+    func fetchLikesStopsAtPageCap() async throws {
+        let requestCount = Counter()
+        let likes = await BlueskyThreadClient.fetchLikes(atURI: "at://root.example/app.bsky.feed.post/3root", transport: { _ in
+            let n = await requestCount.increment()
+            let body = Data("""
+            {"uri": "x", "cursor": "more", "likes": [{"createdAt": "2026-08-01T11:00:00.000Z", "actor": {"did": "did:plc:\(n)", "handle": "user\(n).bsky.social"}}]}
+            """.utf8)
+            return (body, Self.response(200))
+        })
+        let unwrapped = try #require(likes)
+        #expect(await requestCount.value == BlueskyThreadClient.maximumPages)
+        #expect(unwrapped.count == BlueskyThreadClient.maximumPages)
+    }
+
+    @Test("fetchLikes returns nil when the first page hard-fails")
+    func fetchLikesFirstPageFailureIsNil() async throws {
+        let likes = await BlueskyThreadClient.fetchLikes(
+            atURI: "at://root.example/app.bsky.feed.post/3root", transport: { _ in (Data(), Self.response(500)) })
+        #expect(likes == nil)
+    }
+
+    @Test("fetchLikes returns pages already gathered when a later page fails, rather than discarding them")
+    func fetchLikesLaterPageFailureReturnsPartial() async throws {
+        let requestCount = Counter()
+        let likes = await BlueskyThreadClient.fetchLikes(atURI: "at://root.example/app.bsky.feed.post/3root", transport: { _ in
+            let n = await requestCount.increment()
+            if n == 1 {
+                let body = Data("""
+                {"uri": "x", "cursor": "page2", "likes": [{"createdAt": "2026-08-01T11:00:00.000Z", "actor": {"did": "did:plc:1", "handle": "one.bsky.social"}}]}
+                """.utf8)
+                return (body, Self.response(200))
+            }
+            return (Data(), Self.response(500))
+        })
+        let unwrapped = try #require(likes)
+        #expect(unwrapped.map(\.actorHandle) == ["one.bsky.social"])
+    }
+}
+
+private actor Counter {
+    private(set) var value = 0
+    @discardableResult
+    func increment() -> Int {
+        value += 1
+        return value
+    }
 }
