@@ -2,6 +2,18 @@
   "schemaVersion": "anglesite-block-manifest/1",
   "modules": [
     {
+      "path": "src/components/effects/BlobMorph.astro",
+      "name": "Blob Morph"
+    },
+    {
+      "path": "src/components/effects/MeshGradient.astro",
+      "name": "Mesh Gradient"
+    },
+    {
+      "path": "src/components/effects/DotGridPulse.astro",
+      "name": "Dot Grid Pulse"
+    },
+    {
       "path": "src/components/effects/ParallaxLayers.astro",
       "export": "ParallaxLayers",
       "kind": "astro",

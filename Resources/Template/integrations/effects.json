@@ -231,6 +231,54 @@
       "snippet": "---\nimport ProgressBar from \"@astroanimate/core/ProgressBar\";\n---\n<ProgressBar value={60} label=\"Upload progress\" />"
     },
     {
+      "component": "BlobMorph",
+      "title": "Blob Morph",
+      "ownerDescription": "A soft, organic shape that continuously morphs between blob outlines.",
+      "category": "generativeArt",
+      "keyProps": {
+        "color": "CSS color (default \"currentColor\")",
+        "size": "CSS size, e.g. \"320px\" (default \"320px\")"
+      },
+      "props": {},
+      "snippet": "---\nimport BlobMorph from \"../components/effects/BlobMorph.astro\";\n---\n<BlobMorph color=\"#7c3aed\" size=\"280px\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "MeshGradient",
+      "title": "Mesh Gradient",
+      "ownerDescription": "A soft, drifting gradient mesh built from overlapping radial blobs.",
+      "category": "generativeArt",
+      "keyProps": {
+        "colors": "array of CSS colors (default 4-color palette)"
+      },
+      "props": {},
+      "snippet": "---\nimport MeshGradient from \"../components/effects/MeshGradient.astro\";\n---\n<MeshGradient colors={[\"#7c3aed\", \"#2563eb\", \"#0891b2\", \"#db2777\"]} />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "DotGridPulse",
+      "title": "Dot Grid Pulse",
+      "ownerDescription": "A grid of dots that pulses in a gentle diagonal wave.",
+      "category": "generativeArt",
+      "keyProps": {
+        "columns": "number of columns (default 8)",
+        "rows": "number of rows (default 4)",
+        "color": "CSS color (default \"currentColor\")"
+      },
+      "props": {},
+      "snippet": "---\nimport DotGridPulse from \"../components/effects/DotGridPulse.astro\";\n---\n<DotGridPulse columns={8} rows={4} color=\"#2563eb\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
       "component": "ParallaxLayers",
       "title": "Parallax Layers",
       "ownerDescription": "A layered section where the background drifts slower than the foreground as you scroll past.",
