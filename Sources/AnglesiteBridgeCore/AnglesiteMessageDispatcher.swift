@@ -8,7 +8,7 @@ import AnglesiteCore
 /// `DispatchResult` describing what to do next — the adapter's only remaining job is shuttling
 /// bytes in and out of its native webview API.
 ///
-/// Four message types ride this bridge:
+/// Five message types ride this bridge:
 ///
 /// 1. `anglesite:apply-edit` (an `EditMessage`) — routed through the injected `EditRouter`; the
 ///    adapter delivers the reply back to the page (e.g. `window.anglesite?._handleReply?.(...)`
