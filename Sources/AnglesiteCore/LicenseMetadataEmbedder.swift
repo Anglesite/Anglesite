@@ -128,13 +128,29 @@ public enum LicenseMetadataEmbedder {
     /// non-standard Info keys — Acrobat surfaces them only under its Custom properties tab, and
     /// no XMP-aware tool will find them there. Safe (page content is never touched); not a
     /// substitute for real XMP if that's ever needed.
+    ///
+    /// Serializes via `PDFDocument.write(to:)` into a scratch temp file (removed before
+    /// returning) rather than `dataRepresentation()`: the two are not equivalent in practice —
+    /// `dataRepresentation()` has a documented history of dropping document state on macOS
+    /// (confirmed here too: it silently discarded `documentAttributes`, including the pre-
+    /// existing Producer/CreationDate/ModDate keys, not just the new ones, on a CI runner's
+    /// PDFKit even though the identical code round-tripped cleanly in local testing).
+    /// `write(to:)` is the far more heavily used, disk-backed path and did not reproduce the
+    /// failure. The temp file never touches anything the caller supplied — this method's public
+    /// contract stays pure `Data` in, `Data` out.
     private static func embedIntoPDF(_ license: LicenseRef, data: Data) throws -> Data {
         guard let document = PDFDocument(data: data) else { throw EmbedError.unreadable }
         var attributes = document.documentAttributes ?? [:]
         attributes["Rights"] = license.name
         attributes["RightsURL"] = license.url
         document.documentAttributes = attributes
-        guard let output = document.dataRepresentation() else { throw EmbedError.writeFailed }
+
+        let tempURL = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString)
+            .appendingPathExtension("pdf")
+        defer { try? FileManager.default.removeItem(at: tempURL) }
+        guard document.write(to: tempURL) else { throw EmbedError.writeFailed }
+        guard let output = try? Data(contentsOf: tempURL) else { throw EmbedError.writeFailed }
         return output
     }
 }
