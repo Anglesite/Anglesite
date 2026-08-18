@@ -88,4 +88,29 @@ public enum LiveRegionAnnouncer {
     public static func deployStderrAnnouncement(previousStderrCount: Int, currentStderrCount: Int) -> String? {
         (previousStderrCount == 0 && currentStderrCount > 0) ? "Deploy log has errors" : nil
     }
+
+    // MARK: Experiment lifecycle
+
+    /// The announceable substrate of the experiment configure/start lifecycle (#1270 slice 5),
+    /// mapped from `ExperimentStatsModel.Step` the same way `DeployActivity` maps from
+    /// `DeployModel.Phase`. `.inactive` covers `.manual`/`.propose`/`.idle`-shaped states with
+    /// nothing worth announcing.
+    public enum ExperimentActivity: Equatable {
+        case inactive
+        case configuring
+        case starting
+        case running(name: String)
+        case failed(reason: String)
+    }
+
+    /// The announcement for an experiment lifecycle transition, or `nil`. Same "coarse transition,
+    /// not per-field" rule as `deployAnnouncement`.
+    public static func experimentAnnouncement(from old: ExperimentActivity, to new: ExperimentActivity) -> String? {
+        guard old != new else { return nil }
+        switch new {
+        case .running: return "Your test is live. I'll tell you when there's a clear answer."
+        case .failed(let reason): return "Couldn't start your test. \(reason)"
+        case .configuring, .starting, .inactive: return nil
+        }
+    }
 }

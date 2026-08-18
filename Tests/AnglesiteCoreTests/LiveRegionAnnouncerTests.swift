@@ -116,4 +116,20 @@ struct LiveRegionAnnouncerTests {
     func deployNoStderrIsSilent() {
         #expect(LiveRegionAnnouncer.deployStderrAnnouncement(previousStderrCount: 0, currentStderrCount: 0) == nil)
     }
+
+    // MARK: Experiment lifecycle
+
+    @Test func experimentStartRunningIsAnnounced() {
+        let announcement = LiveRegionAnnouncer.experimentAnnouncement(from: .configuring, to: .running(name: "Hero headline"))
+        #expect(announcement == "Your test is live. I'll tell you when there's a clear answer.")
+    }
+
+    @Test func experimentDeployFailureIsAnnounced() {
+        let announcement = LiveRegionAnnouncer.experimentAnnouncement(from: .starting, to: .failed(reason: "Deploy blocked"))
+        #expect(announcement == "Couldn't start your test. Deploy blocked")
+    }
+
+    @Test func noAnnouncementForANonTransition() {
+        #expect(LiveRegionAnnouncer.experimentAnnouncement(from: .configuring, to: .configuring) == nil)
+    }
 }
