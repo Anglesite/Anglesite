@@ -72,6 +72,8 @@ public final class AppSettings: @unchecked Sendable {
         public static let externalLLMVerifiedBaseURL = "anglesite.externalLLM.verifiedBaseURL"
         /// Backs ``AppSettings/externalLLMVerifiedDetail`` (#1482).
         public static let externalLLMVerifiedDetail = "anglesite.externalLLM.verifiedDetail"
+        /// Backs ``AppSettings/lastUsedFileLicenseSelection`` (#999).
+        public static let lastUsedFileLicenseSelection = "anglesite.lastUsedFileLicenseSelection"
     }
 
     private enum LegacyKey {
@@ -313,6 +315,23 @@ public final class AppSettings: @unchecked Sendable {
     public var externalLLMVerifiedDetail: String? {
         get { defaults.string(forKey: Key.externalLLMVerifiedDetail) }
         set { setOptionalString(newValue, forKey: Key.externalLLMVerifiedDetail) }
+    }
+
+    /// The attach-time license picker's last-used choice (#999) — `nil` until the picker has
+    /// been used at least once. JSON-encoded because `FileLicenseSelection` is a small struct,
+    /// not a primitive `UserDefaults` can store directly.
+    public var lastUsedFileLicenseSelection: FileLicenseSelection? {
+        get {
+            guard let data = defaults.data(forKey: Key.lastUsedFileLicenseSelection) else { return nil }
+            return try? JSONDecoder().decode(FileLicenseSelection.self, from: data)
+        }
+        set {
+            if let newValue, let data = try? JSONEncoder().encode(newValue) {
+                defaults.set(data, forKey: Key.lastUsedFileLicenseSelection)
+            } else {
+                defaults.removeObject(forKey: Key.lastUsedFileLicenseSelection)
+            }
+        }
     }
 
     /// Security-scoped bookmark for the sites root, persisted so the sandboxed (MAS) build only
