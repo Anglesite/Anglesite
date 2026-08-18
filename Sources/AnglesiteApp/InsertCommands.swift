@@ -23,6 +23,15 @@ struct InsertCommands: Commands {
     /// `SiteWindowModel.makeComponentEditorContext`'s doc comment).
     @MainActor
     private static func insertImage(into preview: PreviewModel) async {
+        let route = preview.activeRoute ?? "/"
+        let collection = LicensableCollection(routePath: route)
+
+        var policy = LicensingPolicy()
+        if let sourceDirectory = preview.openSiteDirectory {
+            policy = (try? LicensingStore(sourceDirectory: sourceDirectory).load()) ?? LicensingPolicy()
+        }
+        let suppressesEmbedding = policy.suppressesFileEmbedding(for: collection)
+
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.canChooseFiles = true
@@ -30,14 +39,47 @@ struct InsertCommands: Commands {
         panel.allowedContentTypes = [.image]
         panel.prompt = String(localized: "Insert")
         panel.message = String(localized: "Choose an image to insert into this page.")
+
+        var licenseCheckbox: NSButton?
+        var licensePopup: NSPopUpButton?
+        var initialChoice = InsertImageLicenseChoice(isEnabled: false, catalogID: LicenseCatalog.entries[0].id)
+        if !suppressesEmbedding {
+            initialChoice = InsertImageLicenseChoice.initial(
+                resolvedDefault: policy.resolvedLicense(for: collection),
+                lastUsed: AppSettings.shared.lastUsedFileLicenseSelection)
+            let (accessory, checkbox, popup) = makeLicenseAccessory(initial: initialChoice)
+            panel.accessoryView = accessory
+            licenseCheckbox = checkbox
+            licensePopup = popup
+        }
+
         guard panel.runModal() == .OK, let url = panel.url else { return }
 
-        let bytes: Data
+        var bytes: Data
         do {
             bytes = try Data(contentsOf: url)
         } catch {
             presentFailureAlert(detail: error.localizedDescription)
             return
+        }
+
+        if !suppressesEmbedding, let checkbox = licenseCheckbox, let popup = licensePopup {
+            let choice = InsertImageLicenseChoice(
+                isEnabled: checkbox.state == .on,
+                catalogID: popup.selectedItem?.representedObject as? String ?? initialChoice.catalogID)
+            AppSettings.shared.lastUsedFileLicenseSelection = choice.persisted
+            if let license = choice.resolvedLicense(),
+               let type = UTType(filenameExtension: url.pathExtension) {
+                do {
+                    let result = try LicenseMetadataEmbedder.embed(license, into: bytes, type: type)
+                    if case .embedded(let embeddedData) = result {
+                        bytes = embeddedData
+                    }
+                } catch {
+                    presentFailureAlert(detail: error.localizedDescription)
+                    return
+                }
+            }
         }
 
         let mimeType = UTType(filenameExtension: url.pathExtension)?.preferredMIMEType ?? "application/octet-stream"
@@ -53,6 +95,36 @@ struct InsertCommands: Commands {
         if reply.status != .applied {
             presentFailureAlert(detail: reply.message ?? "Unknown error")
         }
+    }
+
+    /// Builds the `NSOpenPanel` accessory view for the attach-time license picker (#999): a
+    /// checkbox plus a popup of catalog licenses, following the same plain-`NSView`-with-AppKit-
+    /// controls idiom `SiteActions.exportSource(of:)` uses for its "Include Git history"
+    /// checkbox — no `NSHostingView`/SwiftUI needed for a control this simple, and it keeps this
+    /// file's only new AppKit surface consistent with the one other accessory view in the app.
+    @MainActor
+    private static func makeLicenseAccessory(
+        initial: InsertImageLicenseChoice
+    ) -> (view: NSView, checkbox: NSButton, popup: NSPopUpButton) {
+        let checkbox = NSButton(
+            checkboxWithTitle: String(localized: "Embed a license in this file"), target: nil, action: nil)
+        checkbox.state = initial.isEnabled ? .on : .off
+        checkbox.frame = NSRect(x: 12, y: 32, width: 280, height: 20)
+
+        let popup = NSPopUpButton(frame: NSRect(x: 12, y: 4, width: 280, height: 24), pullsDown: false)
+        for entry in LicenseCatalog.entries {
+            let item = NSMenuItem(title: entry.name, action: nil, keyEquivalent: "")
+            item.representedObject = entry.id
+            popup.menu?.addItem(item)
+        }
+        if let index = LicenseCatalog.entries.firstIndex(where: { $0.id == initial.catalogID }) {
+            popup.selectItem(at: index)
+        }
+
+        let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 304, height: 60))
+        accessory.addSubview(checkbox)
+        accessory.addSubview(popup)
+        return (accessory, checkbox, popup)
     }
 
     @MainActor
