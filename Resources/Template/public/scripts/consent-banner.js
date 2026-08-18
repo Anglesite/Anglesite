@@ -63,7 +63,7 @@
       var category = el.getAttribute("data-consent");
       if (!grants[category]) return;
       var dataSrc = el.getAttribute("data-src");
-      if (dataSrc) el.setAttribute("src", dataSrc);
+      if (dataSrc && isSafeSrc(dataSrc)) el.setAttribute("src", dataSrc);
       if (el.tagName === "SCRIPT" && el.getAttribute("type") === "text/plain") {
         var replacement = document.createElement("script");
         for (var i = 0; i < el.attributes.length; i++) {
@@ -77,6 +77,17 @@
   }
   function hide(el) { if (el) el.hidden = true; }
   function show(el) { if (el) el.hidden = false; }
+  // Guards against a `data-src` value using a dangerous scheme (e.g. javascript:) reaching
+  // `setAttribute("src", ...)` below — the gated elements are template-authored, but this keeps
+  // the sink itself safe regardless of what ends up in data-src.
+  function isSafeSrc(value) {
+    try {
+      var protocol = new URL(value, document.baseURI).protocol;
+      return protocol === "http:" || protocol === "https:";
+    } catch (e) {
+      return false;
+    }
+  }
 
   var modal = document.getElementById("consent-modal");
   var stored = loadState();
