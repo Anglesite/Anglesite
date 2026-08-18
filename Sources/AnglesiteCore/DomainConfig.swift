@@ -28,6 +28,11 @@ public struct DomainConfig: Equatable, Sendable {
     /// — nothing reads this field to select a `DeployTarget` conformer yet (that's a later
     /// slice); it exists so that slice needs no schema migration when it lands.
     public var deployTarget: String?
+    /// The dedicated public repo a `GitHubPagesDeployTarget` publishes built output to (#1015
+    /// slice 2a) — always a separate repo from wherever `Source/` itself might be backed up, so
+    /// choosing GitHub Pages never forces the site's source history public. `nil` until a
+    /// GitHub Pages deploy target has created (or been pointed at) one.
+    public var githubPages: GitHubPages?
 
     public init(
         version: Int = 1,
@@ -37,7 +42,8 @@ public struct DomainConfig: Equatable, Sendable {
         email: Email? = nil,
         workers: Workers? = nil,
         experiments: Experiments? = nil,
-        deployTarget: String? = nil
+        deployTarget: String? = nil,
+        githubPages: GitHubPages? = nil
     ) {
         self.version = version
         self.domain = domain
@@ -47,6 +53,7 @@ public struct DomainConfig: Equatable, Sendable {
         self.workers = workers
         self.experiments = experiments
         self.deployTarget = deployTarget
+        self.githubPages = githubPages
     }
 
     /// The owner's declared hostname and attachment intent — replaces the `DOMAIN`/`DOMAIN_CHOICE`
@@ -169,6 +176,19 @@ public struct DomainConfig: Equatable, Sendable {
         }
     }
 
+    /// The dedicated public repo backing a GitHub Pages deploy target (#1015 slice 2a). Never the
+    /// same repo as any `Source/` backup — see the field-level doc comment on `DomainConfig
+    /// .githubPages` above for why.
+    public struct GitHubPages: Codable, Equatable, Sendable {
+        public var owner: String?
+        public var repo: String?
+
+        public init(owner: String? = nil, repo: String? = nil) {
+            self.owner = owner
+            self.repo = repo
+        }
+    }
+
     /// The owner's active Worker set — moves out of `Config/settings.plist.activeWorkerIDs` in a
     /// later slice (#1172); this slice only models the shape.
     public struct Workers: Codable, Equatable, Sendable {
@@ -265,7 +285,7 @@ public struct DomainConfig: Equatable, Sendable {
 
 extension DomainConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case version, domain, dns, edge, email, workers, experiments, deployTarget
+        case version, domain, dns, edge, email, workers, experiments, deployTarget, githubPages
     }
 
     public init(from decoder: Decoder) throws {
@@ -278,6 +298,7 @@ extension DomainConfig: Codable {
         workers = try container.decodeIfPresent(Workers.self, forKey: .workers)
         experiments = try container.decodeIfPresent(Experiments.self, forKey: .experiments)
         deployTarget = try container.decodeIfPresent(String.self, forKey: .deployTarget)
+        githubPages = try container.decodeIfPresent(GitHubPages.self, forKey: .githubPages)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -290,5 +311,6 @@ extension DomainConfig: Codable {
         try container.encodeIfPresent(workers, forKey: .workers)
         try container.encodeIfPresent(experiments, forKey: .experiments)
         try container.encodeIfPresent(deployTarget, forKey: .deployTarget)
+        try container.encodeIfPresent(githubPages, forKey: .githubPages)
     }
 }
