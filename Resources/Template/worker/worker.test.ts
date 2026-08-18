@@ -343,6 +343,17 @@ test("routing: unrelated paths fall through to the asset-first branch", async ()
   expect(await response.text()).toBe("No assets binding configured");
 });
 
+test("routing: /x/goal is handled unconditionally (#1270 slice 2), even with no running experiment", async () => {
+  const postResponse = await fetchWorker(
+    new Request("https://owner.example/x/goal?e=homepage-hero", { method: "POST" }),
+  );
+  expect(postResponse.status).toBe(204);
+
+  const getResponse = await fetchWorker(new Request("https://owner.example/x/goal?e=homepage-hero"));
+  expect(getResponse.status).toBe(405);
+  expect(getResponse.headers.get("allow")).toBe("POST");
+});
+
 test("routing: with no running experiment configured, existing routes are unaffected", async () => {
   const postResponse = await fetchWorker(
     new Request("https://owner.example/inbox", {
