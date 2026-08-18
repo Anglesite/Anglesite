@@ -102,38 +102,117 @@ separately, same as CMS mode already requires today.
 ### 5.3 Create path
 
 `NewPostSheet.onCreate` changes shape to
-`(_ title: String, _ visibility: MicropubPostVisibility, _ body: String) async -> ContentCreateResult`
-(`body` empty/unused when `visibility == .public`). `SiteWindow.swift`'s call site branches on
-`visibility`: `.public` calls the existing `SiteWindowModel.createPost(title:)` unchanged;
-`.contacts` calls the new method below.
+`(_ title: String, _ visibility: MicropubPostVisibility, _ body: String) async -> ComposerCreateOutcome`
+(§5.4; `body` empty/unused when `visibility == .public`). `SiteWindow.swift`'s call site
+branches on `visibility`: `.public` calls the existing `SiteWindowModel.createPost(title:)` and
+maps its `ContentCreateResult` down to `ComposerCreateOutcome`; `.contacts` calls the new method
+below, which already returns `ComposerCreateOutcome` directly.
 
-`SiteWindowModel` gains `createRestrictedPost(title:body:) async -> ContentCreateResult`:
-
-1. Resolves a `MicropubClient` for the site (same factory pattern as §5.1's gating check —
-   the gating check and this resolution should share one implementation rather than checking
-   twice; the implementation plan decides whether that's a shared free function/type or
-   duplicated per `TypedEntryEditorModel`'s existing precedent).
-2. Builds the post via `MicropubPost.entry(title:content:status: .published, visibility: .contacts)` — a single "Create" action, immediately published, matching `NewPostSheet`'s existing
-   single-action semantics (no separate draft/publish step on Mac today).
-3. Calls `client.create(_:)`.
-4. On success, returns the new `.createdRemote(url:)` result case (§5.4) — deliberately does
-   **not** call `refreshAfterContentMutation()` or `registerContentUndo(...)`, both of which
-   assume a `Source/`-relative file path that doesn't exist for this path.
-5. On failure, maps `MicropubError` to `.failed(reason:)` the same way other call sites already
-   describe Micropub errors (mirrors `TypedEntryEditorModel.saveViaMicropub`'s catch arms).
-
-### 5.4 `ContentCreateResult`
-
-`Sources/AnglesiteCore/ContentOperationsService.swift` gains a new case:
+A new small type, `RestrictedPostPublisher` (new file
+`Sources/AnglesiteApp/RestrictedPostPublisher.swift`), owns both the gating check (§5.1) and the
+create call, so there is exactly one implementation of "resolve this site's Micropub client" on
+the Mac side for restricted posts — mirroring `TypedEntryEditorModel`'s injectable
+`MicropubClientFactory` shape (same typealias/default-factory pattern) so it stays unit-testable
+without a real Keychain/network, without refactoring `TypedEntryEditorModel` itself (out of
+scope — CONTRIBUTING.md's no-drive-by-refactor guidance):
 
 ```swift
-/// Created via Micropub directly into the site's D1 store — never written to Source/, so
-/// there is no file path. Carries the post's canonical URL.
-case createdRemote(url: URL)
+struct RestrictedPostPublisher {
+    typealias MicropubClientFactory = @Sendable (_ siteID: String, _ sourceDirectory: URL) async -> MicropubClient?
+
+    static func defaultMicropubClientFactory(
+        sessions: StoredMicropubSessions = StoredMicropubSessions()
+    ) -> MicropubClientFactory {
+        { siteID, sourceDirectory in
+            await sessions.session(siteID: siteID, sourceDirectory: sourceDirectory)?.makeClient()
+        }
+    }
+
+    private let makeMicropubClient: MicropubClientFactory
+
+    init(makeMicropubClient: @escaping MicropubClientFactory = RestrictedPostPublisher.defaultMicropubClientFactory()) {
+        self.makeMicropubClient = makeMicropubClient
+    }
+
+    func isAvailable(siteID: String, sourceDirectory: URL) async -> Bool {
+        await makeMicropubClient(siteID, sourceDirectory) != nil
+    }
+
+    func createPost(title: String, body: String, siteID: String, sourceDirectory: URL) async -> ComposerCreateOutcome {
+        guard let client = await makeMicropubClient(siteID, sourceDirectory) else {
+            return .failed(reason: "This site isn't connected for restricted posts. Connect it from Website ▸ Connect Site first.")
+        }
+        let post = MicropubPost.entry(title: title, content: body, status: .published, visibility: .contacts)
+        do {
+            _ = try await client.create(post)
+            return .success
+        } catch let error as MicropubError where error.requiresReauthorization {
+            return .failed(reason: "Sign in again to publish restricted posts on this site.")
+        } catch {
+            return .failed(reason: "Publish failed: \(error.localizedDescription)")
+        }
+    }
+}
 ```
 
-`NewPostSheet`'s `onCreate` closure and `SiteWindow.swift`'s call site both need their `switch`
-over `ContentCreateResult` extended for this case (dismiss on success, same as `.created`).
+`status: .published` — a single "Create" action, immediately published, matching
+`NewPostSheet`'s existing single-action semantics (no separate draft/publish step on Mac today).
+
+`SiteWindowModel` gains a `private let restrictedPostPublisher = RestrictedPostPublisher()`
+stored property (fixed default, mirroring the existing `private let integrationOps =
+IntegrationOperations.live()` pattern — no init signature change needed) and two thin methods:
+
+```swift
+func canPublishRestrictedPosts() async -> Bool {
+    guard let site else { return false }
+    return await restrictedPostPublisher.isAvailable(siteID: site.id, sourceDirectory: site.sourceDirectory)
+}
+
+func createRestrictedPost(title: String, body: String) async -> ComposerCreateOutcome {
+    guard let site else { return .siteNotFound }
+    return await restrictedPostPublisher.createPost(
+        title: title, body: body, siteID: site.id, sourceDirectory: site.sourceDirectory)
+}
+```
+
+Deliberately never calls `refreshAfterContentMutation()` or `registerContentUndo(...)` — both
+assume a `Source/`-relative file path that doesn't exist for this path. `RestrictedPostPublisher`
+is the real unit under test (§7); these two methods are thin enough not to need their own
+separate fakes-heavy coverage.
+
+### 5.4 Result type: `ComposerCreateOutcome`, not `ContentCreateResult`
+
+`ContentCreateResult` (`Sources/AnglesiteCore/ContentOperationsService.swift`) has ~15
+call sites across `AnglesiteIntents`, `AnglesiteShareExtension`, `AnglesiteApp`, and
+`AnglesiteCore` — most switch over it exhaustively for operations (pages, components, link
+posts, AppleScript, Intents) that will never produce a restricted-post result. Adding a case to
+that shared enum would force every one of those unrelated switches to grow a dead arm just to
+keep compiling — exactly the drive-by-refactor blast radius CONTRIBUTING.md's PR guidance warns
+against.
+
+`NewPostSheet` doesn't actually need `ContentCreateResult`'s payload (`filePath`/`identifier`)
+at all — today's `create()` handler already discards it, branching only on
+success/site-not-found/failed. So instead: a small new type, scoped to the composer UI only,
+in `NewContentSheets.swift` next to `NewPostSheet`:
+
+```swift
+/// The composer-facing outcome of a create attempt — deliberately smaller than
+/// `ContentCreateResult`: the sheet only needs to know whether to dismiss or show an error,
+/// never a created file's path/identifier (that bookkeeping is `SiteWindowModel`'s own
+/// concern, already handled before this value is returned).
+enum ComposerCreateOutcome {
+    case success
+    case siteNotFound
+    case failed(reason: String)
+}
+```
+
+`NewPostSheet.onCreate` returns `ComposerCreateOutcome` directly.
+`SiteWindow.swift`'s public-visibility branch maps the existing
+`SiteWindowModel.createPost(title:)`'s `ContentCreateResult` down to it inline (`.created` →
+`.success`, `.siteNotFound` → `.siteNotFound`, `.failed(let r)` → `.failed(reason: r)`).
+`SiteWindowModel.createRestrictedPost(title:body:)` (§5.3) returns `ComposerCreateOutcome`
+directly — `ContentCreateResult` is never touched.
 
 ## 6. Error handling
 
@@ -155,9 +234,13 @@ All Swift Testing (`AnglesiteCoreTests`/`AnglesiteIOSTests`/`AnglesiteAppTests` 
   `MicropubClientTests`-adjacent coverage for `.entry(...)`'s new parameter.
 - `AnglesiteIOSTests`: extend `PostComposerModelTests` — visibility set on create, read back on
   `openExisting`, restored from a persisted `ComposerDraft`.
-- `AnglesiteAppTests`: new tests for `SiteWindowModel.createRestrictedPost` against a faked
-  `MicropubClient` transport (success → `.createdRemote`, 400/401/5xx → mapped `.failed`/error
-  states) and the gating computation (provisioned+session vs. either missing).
+- `AnglesiteAppTests`: new `RestrictedPostPublisherTests` — a fake `MicropubClientFactory`
+  closure (mirroring how `TypedEntryEditorModelTests` fakes its own factory) covering
+  `isAvailable` (session resolves vs. `nil`) and `createPost` (success → `.success`, a faked
+  400/401/5xx `MicropubError` from the client → the matching `.failed(reason:)`/re-auth
+  message). `SiteWindowModel.createRestrictedPost`/`canPublishRestrictedPosts` are thin
+  pass-throughs (§5.3) and don't need separate coverage beyond a compile-time check that they
+  wire `site.id`/`site.sourceDirectory` through correctly.
 
 ## 8. Explicitly out of scope (deferred, not forgotten)
 
