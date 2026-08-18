@@ -531,23 +531,29 @@ jobs:
         # drops AnglesiteContainer's whole dependency graph (grpc-swift, containerization, etc.)
         # from Package.swift's manifest evaluation for speed — the preceding `swift build` step
         # re-resolves against that reduced target set, silently shrinking the working copy's
-        # Package.resolved from 43 pins down to ~14. The committed Resources/Attributions/app-binary.json
-        # must reflect the FULL app (the real Xcode build, which never sets this var), so this step
-        # overrides back to '0' and re-resolves before generating, restoring all 43 pins/checkouts.
-        # Deleting Package.resolved first is load-bearing, not cleanup: with the file left in place,
-        # `swift package resolve` under the restored `Cache SwiftPM build` step's .build (keyed off a
-        # prior run's cache, not this job's own) can silently no-op and keep the reduced ~14-pin
-        # resolution instead of adding the container graph back — reproduced twice in CI (2026-08-01,
-        # PR #1205) with zero "Creating working copy" fetch lines logged despite the env override.
-        # Forcing a from-scratch resolution here (still reusing already-cloned checkouts under
-        # .build/checkouts, so only the ~29 newly-needed packages pay real clone cost) is the only
-        # variant that reproduced the correct 43-pin manifest locally; a stale Package.resolved is the
-        # one variable common to every failing case.
+        # Package.resolved from 44 pins down to ~14 (and rewriting the file on disk to match). The
+        # committed Resources/Attributions/app-binary.json must reflect the FULL app (the real
+        # Xcode build, which never sets this var), so this step overrides back to '0' and restores
+        # the full pin set before generating.
+        #
+        # Package.resolved is a tracked, committed file (not gitignored — see its own history):
+        # restoring it from git is what makes this deterministic. `git checkout` puts back the
+        # exact pinned revisions/versions the committed attributions manifest was generated
+        # against, and `swift package resolve` then only fetches the checkouts the reduced build
+        # step above didn't need — it does not upgrade any pin, because the restored lock file
+        # already satisfies the full manifest's version constraints (that's the whole point of a
+        # committed Package.resolved). This must NOT be `rm -f Package.resolved; swift package
+        # resolve`: with no lock file at all, resolve picks whatever is newest upstream for each
+        # dependency's version range at the moment CI happens to run, which drifts independently
+        # of any change in this repo (confirmed: swift-service-lifecycle 2.11.0 → 2.12.0 upstream
+        # broke this exact check on main with no relevant diff, 2026-08-18) — a flaky, unreviewable
+        # failure with no local repro, since a contributor's own machine keeps whatever Package.resolved
+        # already sits in their working copy instead of discarding it.
         env:
           ANGLESITE_SKIP_CONTAINER: '0'
         run: |
           set -euo pipefail
-          rm -f Package.resolved
+          git checkout -- Package.resolved
           swift package resolve
           scripts/generate-swift-attributions.sh "$PWD" /tmp/app-binary.json scripts/attributions-overrides.json
           diff -u Resources/Attributions/app-binary.json /tmp/app-binary.json
