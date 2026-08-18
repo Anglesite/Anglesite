@@ -3,117 +3,6 @@
   "modules": [
     {
       "path": "src/components/effects/BlobMorph.astro",
-      "name": "Blob Morph"
-    },
-    {
-      "path": "src/components/effects/MeshGradient.astro",
-      "name": "Mesh Gradient"
-    },
-    {
-      "path": "src/components/effects/DotGridPulse.astro",
-      "name": "Dot Grid Pulse"
-    },
-    {
-      "path": "src/components/effects/ParticleField.astro",
-      "export": "ParticleField",
-      "kind": "astro",
-      "name": "Particle Field",
-      "description": "Drifting dots connected by faint lines when close.",
-      "icon": null,
-      "propEditors": [],
-      "slots": [],
-      "placement": { "allowedParents": null }
-    },
-    {
-      "path": "src/components/effects/AuroraGradient.astro",
-      "export": "AuroraGradient",
-      "kind": "astro",
-      "name": "Aurora Gradient",
-      "description": "Slow blurred color-blob blending.",
-      "icon": null,
-      "propEditors": [],
-      "slots": [],
-      "placement": { "allowedParents": null }
-    },
-    {
-      "path": "src/components/effects/GrainOverlay.astro",
-      "export": "GrainOverlay",
-      "kind": "astro",
-      "name": "Grain Overlay",
-      "description": "Subtle animated film-grain texture.",
-      "icon": null,
-      "propEditors": [],
-      "slots": [],
-      "placement": { "allowedParents": null }
-    },
-    {
-      "path": "src/components/effects/MagneticButton.astro",
-      "export": "MagneticButton",
-      "kind": "astro",
-      "name": "Magnetic Button",
-      "description": "A button that eases toward the pointer as it gets close, then springs back.",
-      "icon": null,
-      "propEditors": [],
-      "slots": [],
-      "placement": { "allowedParents": null }
-    },
-    {
-      "path": "src/components/effects/CursorGlow.astro",
-      "export": "CursorGlow",
-      "kind": "astro",
-      "name": "Cursor Glow",
-      "description": "A soft glow that follows the pointer around the page.",
-      "icon": null,
-      "propEditors": [],
-      "slots": [],
-      "placement": { "allowedParents": null }
-    },
-    {
-      "path": "src/components/effects/TiltCard.astro",
-      "export": "TiltCard",
-      "kind": "astro",
-      "name": "Tilt Card",
-      "description": "A card that tilts in 3D as the pointer moves over it.",
-      "icon": null,
-      "propEditors": [],
-      "slots": [],
-      "placement": { "allowedParents": null }
-    },
-    {
-      "path": "src/components/effects/ParallaxLayers.astro",
-      "export": "ParallaxLayers",
-      "kind": "astro",
-      "name": "Parallax Layers",
-      "description": "A two-layer decorative block where the back layer drifts slower than the page scroll.",
-      "icon": null,
-      "propEditors": [],
-      "slots": [],
-      "placement": { "allowedParents": null }
-    },
-    {
-      "path": "src/components/effects/RevealMask.astro",
-      "export": "RevealMask",
-      "kind": "astro",
-      "name": "Reveal Mask",
-      "description": "Content that reveals with a clip-path wipe the first time it scrolls into view.",
-      "icon": null,
-      "propEditors": [],
-      "slots": [],
-      "placement": { "allowedParents": null }
-    },
-    {
-      "path": "src/components/effects/ScrollProgressTrace.astro",
-      "export": "ScrollProgressTrace",
-      "kind": "astro",
-      "name": "Scroll Progress Trace",
-      "description": "A slim reading-progress line along the viewport edge that fills as the page scrolls.",
-      "icon": null,
-      "propEditors": [],
-      "slots": [],
-      "placement": { "allowedParents": null }
-    },
-    {
-      "path": "src/components/effects/BlobMorph.astro",
       "export": "BlobMorph",
       "kind": "astro",
       "name": "Blob Morph",
@@ -121,7 +10,9 @@
       "icon": null,
       "propEditors": [],
       "slots": [],
-      "placement": { "allowedParents": null }
+      "placement": {
+        "allowedParents": null
+      }
     },
     {
       "path": "src/components/effects/MeshGradient.astro",
@@ -132,7 +23,9 @@
       "icon": null,
       "propEditors": [],
       "slots": [],
-      "placement": { "allowedParents": null }
+      "placement": {
+        "allowedParents": null
+      }
     },
     {
       "path": "src/components/effects/DotGridPulse.astro",
@@ -143,7 +36,126 @@
       "icon": null,
       "propEditors": [],
       "slots": [],
-      "placement": { "allowedParents": null }
+      "placement": {
+        "allowedParents": null
+      }
+    },
+    {
+      "path": "src/components/effects/ParticleField.astro",
+      "export": "ParticleField",
+      "kind": "astro",
+      "name": "Particle Field",
+      "description": "Drifting dots connected by faint lines when close.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": {
+        "allowedParents": null
+      }
+    },
+    {
+      "path": "src/components/effects/AuroraGradient.astro",
+      "export": "AuroraGradient",
+      "kind": "astro",
+      "name": "Aurora Gradient",
+      "description": "Slow blurred color-blob blending.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": {
+        "allowedParents": null
+      }
+    },
+    {
+      "path": "src/components/effects/GrainOverlay.astro",
+      "export": "GrainOverlay",
+      "kind": "astro",
+      "name": "Grain Overlay",
+      "description": "Subtle animated film-grain texture.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": {
+        "allowedParents": null
+      }
+    },
+    {
+      "path": "src/components/effects/MagneticButton.astro",
+      "export": "MagneticButton",
+      "kind": "astro",
+      "name": "Magnetic Button",
+      "description": "A button that eases toward the pointer as it gets close, then springs back.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": {
+        "allowedParents": null
+      }
+    },
+    {
+      "path": "src/components/effects/CursorGlow.astro",
+      "export": "CursorGlow",
+      "kind": "astro",
+      "name": "Cursor Glow",
+      "description": "A soft glow that follows the pointer around the page.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": {
+        "allowedParents": null
+      }
+    },
+    {
+      "path": "src/components/effects/TiltCard.astro",
+      "export": "TiltCard",
+      "kind": "astro",
+      "name": "Tilt Card",
+      "description": "A card that tilts in 3D as the pointer moves over it.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": {
+        "allowedParents": null
+      }
+    },
+    {
+      "path": "src/components/effects/ParallaxLayers.astro",
+      "export": "ParallaxLayers",
+      "kind": "astro",
+      "name": "Parallax Layers",
+      "description": "A two-layer decorative block where the back layer drifts slower than the page scroll.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": {
+        "allowedParents": null
+      }
+    },
+    {
+      "path": "src/components/effects/RevealMask.astro",
+      "export": "RevealMask",
+      "kind": "astro",
+      "name": "Reveal Mask",
+      "description": "Content that reveals with a clip-path wipe the first time it scrolls into view.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": {
+        "allowedParents": null
+      }
+    },
+    {
+      "path": "src/components/effects/ScrollProgressTrace.astro",
+      "export": "ScrollProgressTrace",
+      "kind": "astro",
+      "name": "Scroll Progress Trace",
+      "description": "A slim reading-progress line along the viewport edge that fills as the page scrolls.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": {
+        "allowedParents": null
+      }
     }
   ]
 }
