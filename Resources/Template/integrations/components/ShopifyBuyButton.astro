@@ -13,34 +13,21 @@ interface Props {
 const { shopDomain, storefrontAccessToken, productId } = Astro.props;
 ---
 
+{/*
+  The Shopify Buy Button loader lives in public/scripts/ and reads its config from data-*
+  attributes on #shopify-buy-button-container instead of Astro's `define:vars`. `define:vars`
+  forces Astro to inline the script body verbatim into the page — with no `'unsafe-inline'`,
+  nonce, or hash in the site's CSP script-src, an inline body like that is silently blocked by
+  the browser. A same-origin `<script src="...">` satisfies `script-src 'self'` without
+  weakening the policy.
+*/}
+
 {shopDomain && storefrontAccessToken && productId && (
-  <div id="shopify-buy-button-container"></div>
-  <script is:inline define:vars={{ shopDomain, storefrontAccessToken, productId }}>
-    (function () {
-      var scriptURL = "https://sdks.shopifycdn.com/buy-button/latest/buy-button-storefront.min.js";
-      function loadScript() {
-        var script = document.createElement("script");
-        script.async = true;
-        script.src = scriptURL;
-        (document.getElementsByTagName("head")[0] || document.getElementsByTagName("body")[0]).appendChild(script);
-        script.onload = ShopifyBuyInit;
-      }
-      function ShopifyBuyInit() {
-        var client = ShopifyBuy.buildClient({ domain: shopDomain, storefrontAccessToken: storefrontAccessToken });
-        ShopifyBuy.UI.onReady(client).then(function (ui) {
-          ui.createComponent("product", {
-            id: productId,
-            node: document.getElementById("shopify-buy-button-container"),
-            moneyFormat: "%24%7B%7Bamount%7D%7D",
-            options: { product: { contents: { img: true, title: true, price: true } } },
-          });
-        });
-      }
-      if (window.ShopifyBuy && window.ShopifyBuy.UI) {
-        ShopifyBuyInit();
-      } else {
-        loadScript();
-      }
-    })();
-  </script>
+  <div
+    id="shopify-buy-button-container"
+    data-shopify-shop-domain={shopDomain}
+    data-shopify-storefront-access-token={storefrontAccessToken}
+    data-shopify-product-id={productId}
+  ></div>
+  <script is:inline src="/scripts/shopify-buy-button.js"></script>
 )}
