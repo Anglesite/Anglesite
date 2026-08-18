@@ -158,6 +158,34 @@ struct DeployCoordinatorTests {
         #expect(!DeployCoordinator.resolveIsHostedCommunity(siteDirectory: dir))
     }
 
+    // MARK: - resolveRunningExperiments (#1515)
+
+    @Test("resolveRunningExperiments returns only status == running entries")
+    func resolveRunningExperimentsFiltersStatus() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(experiments: .init(active: [
+            .init(
+                id: "draft-one", name: "Draft", page: "/about",
+                variant: .init(id: "b", name: "B", page: "/x/draft-one/b/"),
+                split: 0.5, goal: .init(kind: "pageview", path: "/thanks/"), status: "draft"
+            ),
+            .init(
+                id: "homepage-hero", name: "Homepage headline", page: "/",
+                variant: .init(id: "b", name: "Fresh eggs headline", page: "/x/homepage-hero/b/"),
+                split: 0.5, goal: .init(kind: "pageview", path: "/contact/thanks/"), status: "running"
+            ),
+        ])))
+        let result = DeployCoordinator.resolveRunningExperiments(sourceDirectory: dir)
+        #expect(result.map(\.id) == ["homepage-hero"])
+    }
+
+    @Test("resolveRunningExperiments is empty with no anglesite.json at all")
+    func resolveRunningExperimentsEmptyByDefault() throws {
+        let dir = try temporaryDirectory()
+        #expect(DeployCoordinator.resolveRunningExperiments(sourceDirectory: dir).isEmpty)
+    }
+
     // MARK: - deployLogSources
 
     @Test("deployLogSources includes worker-provision:<siteID> so SocialWorkerProvisionCommand's wrangler output reaches the drawer")

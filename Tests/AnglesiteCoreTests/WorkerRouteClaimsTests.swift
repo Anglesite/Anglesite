@@ -78,6 +78,45 @@ struct WorkerRouteClaimsTests {
         }
     }
 
+    // MARK: experimentPathProblem (#1515)
+
+    @Test("experimentPathProblem permits the bare root, unlike pathProblem")
+    func experimentPathProblemPermitsRoot() {
+        #expect(WorkerRouteClaims.pathProblem("/") != nil)
+        #expect(WorkerRouteClaims.experimentPathProblem("/") == nil)
+    }
+
+    @Test("experimentPathProblem rejects the same malformed/traversal/encoded paths as pathProblem", arguments: [
+        "",
+        "webfinger",
+        "/.well-known",
+        "/.well-known/",
+        "/a//b",
+        "/a/b//",
+        "/a/../b",
+        "/a/./b",
+        "/a%2Fb",
+        "/a b",
+    ])
+    func experimentPathProblemRejectsMalformed(_ path: String) {
+        #expect(WorkerRouteClaims.experimentPathProblem(path) != nil)
+    }
+
+    @Test("experimentPathProblem accepts an ordinary well-formed path")
+    func experimentPathProblemAcceptsOrdinaryPath() {
+        #expect(WorkerRouteClaims.experimentPathProblem("/x/homepage-hero/b/") == nil)
+    }
+
+    @Test("experimentPathProblem still rejects a doubled trailing slash")
+    func experimentPathProblemRejectDoubledTrailingSlash() {
+        #expect(WorkerRouteClaims.experimentPathProblem("/a//") != nil)
+    }
+
+    @Test("experimentPathProblem still rejects internal empty segments")
+    func experimentPathProblemRejectInternalEmptySegment() {
+        #expect(WorkerRouteClaims.experimentPathProblem("/a//b") != nil)
+    }
+
     // MARK: Method validation
 
     @Test("rejects empty, unknown, lowercase, duplicate, and unpaired-HEAD method lists", arguments: [

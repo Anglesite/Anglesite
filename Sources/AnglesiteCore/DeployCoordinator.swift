@@ -247,6 +247,18 @@ public enum DeployCoordinator {
         return SiteConfigFile.value(forKey: "SITE_TYPE", in: existingConfig) == SiteType.community.rawValue
     }
 
+    /// The site's currently-declared running experiment(s) (`Source/anglesite.json`'s
+    /// `experiments.active`, filtered to `status == "running"` — #1270 slice 3). Threaded into
+    /// `SocialWorkerProvisionCommand.provision`/`WorkerComposition.generateWranglerToml` so a
+    /// static-only site's first running experiment provisions the shared `{siteName}-social` D1
+    /// database and composes a Worker for exactly its paths on the very next ordinary deploy —
+    /// mirrors `resolveIsHostedCommunity`'s "read the declared config, default to the inert case
+    /// on any failure" shape.
+    public static func resolveRunningExperiments(sourceDirectory: URL) -> [DomainConfig.Experiments.Experiment] {
+        let domainConfig = (try? DomainConfigStore(sourceDirectory: sourceDirectory).load()) ?? DomainConfig()
+        return (domainConfig.experiments?.active ?? []).filter { $0.status == "running" }
+    }
+
     /// The site's best-known public URL for `WorkerComposition`'s `SITE_URL` var (#359) — the
     /// address the composed Worker uses for its own outbound requests, e.g. `CommunityMembershipClient`'s
     /// ActivityPub actor ID and outbox (#1085). The workers.dev host `DeployCommand.persistSiteURL`
