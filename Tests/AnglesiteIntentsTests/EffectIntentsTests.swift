@@ -198,6 +198,56 @@ import Foundation
         #expect(dialog.contains("Dot Grid Pulse"))
     }
 
+    /// The one thing every other `run()` test took for granted: the path this front door actually
+    /// hands the sidecar. `get_page_model`'s `validPagePath` and `insertBlock`'s own path check
+    /// both reject a route, so a hardcoded `"/"` here failed 100% of real invocations with
+    /// `invalid-input: not a project-relative .astro path: /` (#768 final review, Finding 1).
+    @Test func fetchesAndEditsTheHomePageSourcePathNotARoute() async throws {
+        let recorder = PathRecorder()
+        let model = Self.fixtureModelWithBody()
+        let client = PageModelClient(toolCaller: { name, arguments in
+            #expect(name == "get_page_model")
+            if case .object(let object) = arguments, case .string(let path)? = object["path"] {
+                await recorder.recordFetch(path)
+            }
+            let data = try JSONEncoder().encode(model)
+            return MCPClient.ToolCallResult(content: [.init(type: "text", text: String(data: data, encoding: .utf8)!)], isError: false)
+        })
+        let router = RecordingRouter()
+
+        let intent = AddEffectIntent()
+        intent.site = SiteEntity(id: "s1", name: "Acme", creationDate: nil, modificationDate: nil)
+        intent.effect = .particleField
+        _ = try await Self.runForTesting(
+            intent, catalog: EffectCatalog(entries: [Self.particleFieldEntry()]),
+            pageModelClient: client, editRouter: router)
+
+        let fetched = await recorder.fetchedPath
+        #expect(fetched == "src/pages/index.astro")
+        #expect(PageSourcePath.isValidPageSourcePath(fetched ?? "/"))
+
+        let editedPath = await router.lastComponentPath
+        #expect(editedPath == "src/pages/index.astro")
+        #expect(PageSourcePath.isValidPageSourcePath(editedPath ?? "/"))
+    }
+
+    /// Records the `path` argument `AddEffectIntent` sends to `get_page_model`.
+    actor PathRecorder {
+        private(set) var fetchedPath: String?
+        func recordFetch(_ path: String) { fetchedPath = path }
+    }
+
+    /// Applies successfully while capturing the `component.path` of the `insertBlock` edit.
+    actor RecordingRouter: EditRouter {
+        private(set) var lastComponentPath: String?
+        func apply(_ message: EditMessage) async -> EditReply {
+            if case .object(let component)? = message.component, case .string(let path)? = component["path"] {
+                lastComponentPath = path
+            }
+            return EditReply(id: message.id, status: .applied, message: nil)
+        }
+    }
+
     @Test func reportsAFriendlyMessageWhenTheModelFailsToLoad() async throws {
         let intent = AddEffectIntent()
         intent.site = SiteEntity(id: "s1", name: "Acme", creationDate: nil, modificationDate: nil)

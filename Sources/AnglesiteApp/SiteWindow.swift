@@ -1076,6 +1076,13 @@ struct SiteWindow: View {
             model.quickCaptureURL = urlString
             model.quickCapturePresented = true
         }
+        // The click-to-place HUD lives here, on the site window itself — NOT inside the Effects
+        // gallery sheet, which is window-modal and therefore blocks input to the very preview it
+        // asks the owner to click (#768 final review, Finding 4). Bottom-aligned so it occupies
+        // only the capsule's own bounds; idle, it renders as an `EmptyView`.
+        .overlay(alignment: .bottom) {
+            EffectPlacementHUD(controller: model.effectPlacementController)
+        }
         .sheet(isPresented: $bindableModel.effectsPresented) {
             EffectsGalleryView(
                 controller: model.effectPlacementController,
@@ -1192,6 +1199,14 @@ struct SiteWindow: View {
                 wysiwygTransport: model.preview.wysiwygCanvas,
                 onPlacementPick: { message in
                     await model.effectPlacementController.handlePick(message)
+                },
+                // A finished navigation means the page's injected JS — including the overlay's
+                // placement-pick listener — was just thrown away and came back inactive. Cancel
+                // rather than silently re-arm: the page may be a different page entirely now, and
+                // an armed HUD over a listener that no longer exists waits forever (#768 final
+                // review, Finding 8). `cancel()` is a no-op unless a pick is actually in flight.
+                onPreviewNavigated: {
+                    model.effectPlacementController.cancel()
                 },
                 onWebView: { [preview = model.preview] webView in
                     preview.webView = webView
