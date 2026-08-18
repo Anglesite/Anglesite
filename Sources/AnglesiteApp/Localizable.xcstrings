@@ -517,15 +517,6 @@
     "Animation" : {
 
     },
-    "Animations" : {
-
-    },
-    "Animations Unavailable" : {
-
-    },
-    "Animations…" : {
-
-    },
     "Announce live updates to VoiceOver" : {
 
     },
@@ -594,6 +585,9 @@
 
     },
     "Apply this rewrite?" : {
+
+    },
+    "Apply to Page…" : {
 
     },
     "Applying hardening changes…" : {
@@ -1509,6 +1503,15 @@
     "Edit…" : {
 
     },
+    "Effects" : {
+
+    },
+    "Effects Unavailable" : {
+
+    },
+    "Effects…" : {
+
+    },
     "Email Setup…" : {
 
     },
@@ -2104,7 +2107,7 @@
     "Load records" : {
 
     },
-    "Loading animations…" : {
+    "Loading effects…" : {
 
     },
     "Loading site…" : {

@@ -101,8 +101,8 @@ struct WebsiteCommands: Commands {
             Button("Connect for CMS Mode…") { model?.presentMicropubConnect() }
                 .disabled(model?.canOpenMicropubConnect != true)
 
-            Button("Animations…") { model?.presentAnimations() }
-                .disabled(model?.canOpenAnimations != true)
+            Button("Effects…") { model?.presentEffects() }
+                .disabled(model?.canOpenEffects != true)
 
             Button("Apply a Theme…") { model?.openThemeApplyWizard() }
                 .disabled(model?.canOpenThemeApplyWizard != true)

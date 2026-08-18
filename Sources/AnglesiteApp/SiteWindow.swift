@@ -1054,8 +1054,16 @@ struct SiteWindow: View {
             model.quickCaptureURL = urlString
             model.quickCapturePresented = true
         }
-        .sheet(isPresented: $bindableModel.animationsPresented) {
-            AnimationsGalleryView()
+        .sheet(isPresented: $bindableModel.effectsPresented) {
+            EffectsGalleryView(
+                controller: model.effectPlacementController,
+                enterOverlayMode: {
+                    model.preview.webView?.evaluateJavaScript("window.anglesite?._enterPlacementMode?.()")
+                },
+                exitOverlayMode: {
+                    model.preview.webView?.evaluateJavaScript("window.anglesite?._exitPlacementMode?.()")
+                }
+            )
         }
         .sheet(isPresented: $bindableModel.micropubConnectPresented) {
             MicropubSiteConnectSheet(site: site)
@@ -1155,6 +1163,9 @@ struct SiteWindow: View {
                 router: model.preview.editRouter,
                 annotationProvider: model.annotationProvider,
                 wysiwygTransport: model.preview.wysiwygCanvas,
+                onPlacementPick: { message in
+                    await model.effectPlacementController.handlePick(message)
+                },
                 onWebView: { [preview = model.preview] webView in
                     preview.webView = webView
                     // #1225 Task 10: gives WYSIWYGCanvasController.applyFormat something to post
