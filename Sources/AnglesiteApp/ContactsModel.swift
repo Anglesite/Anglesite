@@ -43,7 +43,7 @@ final class ContactsModel {
 
     /// Records which site this pane reads. Called once per site open, like
     /// `FollowersModel.configure(site:)`. Does not load — `ContactsView`'s `.task` triggers
-    /// ``reload()`` the same way `FollowersView`'s `.task` triggers `FollowersModel.load()`.
+    /// `reload()` the same way `FollowersView`'s `.task` triggers `FollowersModel.load()`.
     ///
     /// Also resets every piece of per-site state: `ContactsModel` instances are reused across a
     /// site-window replay (`SiteWindowModel`'s cold-open path calls `contacts.configure(site:)`

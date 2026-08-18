@@ -42,7 +42,7 @@ public actor ContactStore {
     }
 
     /// Adds a contact, replacing any existing entry with the same `me` identity (comparing via
-    /// ``normalizedIdentityKey(for:)``, so `https://x.example` and `https://x.example/` collide).
+    /// `normalizedIdentityKey(for:)`, so `https://x.example` and `https://x.example/` collide).
     public func add(_ contact: Contact) throws {
         var contacts = try load()
         contacts.removeAll {
