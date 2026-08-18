@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Grain Overlay</title>
+<style>body{margin:0;display:grid;place-items:center;min-height:100vh;
+font-family:-apple-system,system-ui,sans-serif;background:Canvas;color:CanvasText;color-scheme:light dark}</style>
+<style>.effect-demo-stage{position:relative;isolation:isolate;width:min(90vw,480px);height:min(60vh,300px)}</style>
+<style>
+  .grain-overlay-root {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    mix-blend-mode: overlay;
+  }
+  .grain-overlay-root canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+</style>
+</head><body>
+<div class="effect-demo-stage">
+<div class="grain-overlay-root" data-opacity="0.05" data-astro-cid-iahzwo5d><canvas data-astro-cid-iahzwo5d></canvas></div>
+</div>
+</body></html>
