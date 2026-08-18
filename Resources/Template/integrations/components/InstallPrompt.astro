@@ -63,40 +63,11 @@ const { appName = "this site" } = Astro.props;
   }
 </style>
 
-<script is:inline>
-  (function () {
-    var DISMISS_KEY = "pwa-install-dismissed";
-    var DISMISS_MS = 30 * 24 * 60 * 60 * 1000;
-    var banner = document.querySelector(".install-prompt");
-    if (!banner) return;
+{/*
+  The install-prompt controller lives in public/scripts/ instead of an Astro `is:inline` inline
+  script body — with no `'unsafe-inline'`, nonce, or hash in the site's CSP script-src, an
+  inline body like that is silently blocked by the browser. A same-origin `<script src="...">`
+  satisfies `script-src 'self'` without weakening the policy.
+*/}
 
-    var dismissed = localStorage.getItem(DISMISS_KEY);
-    if (dismissed && Date.now() - parseInt(dismissed, 10) < DISMISS_MS) return;
-
-    var deferredPrompt = null;
-
-    window.addEventListener("beforeinstallprompt", function (e) {
-      e.preventDefault();
-      deferredPrompt = e;
-      banner.hidden = false;
-    });
-
-    banner.addEventListener("click", function (e) {
-      var action = e.target && e.target.dataset && e.target.dataset.action;
-      if (action === "install" && deferredPrompt) {
-        deferredPrompt.prompt();
-        deferredPrompt.userChoice.then(function () {
-          deferredPrompt = null;
-          banner.hidden = true;
-        });
-      } else if (action === "dismiss") {
-        localStorage.setItem(DISMISS_KEY, String(Date.now()));
-        banner.hidden = true;
-      }
-    });
-
-    window.addEventListener("appinstalled", function () {
-      banner.hidden = true;
-    });
-  })();
-</script>
+<script is:inline src="/scripts/install-prompt.js"></script>
