@@ -69,10 +69,18 @@ struct ExperimentConfigureView: View {
         }
     }
 
+    // Not a `Button`-per-row like `LicenseGateSheetView`'s comparison table: each row's actual
+    // controls (a `TextField`+button, a `Slider`+button, or a picker-launching button) must stay
+    // independently focusable and tappable, and SwiftUI doesn't support nested interactive
+    // controls inside an outer `Button`. Instead, the identifying title+icon is grouped into a
+    // single combined accessibility element carrying the `.isSelected` state — so VoiceOver
+    // reaches one clearly identified "selected"/"not selected" landmark per option, distinct from
+    // (and before) the real controls underneath it that remain separately reachable.
     @ViewBuilder
     private func goalOptionRow<Content: View>(title: String, isSelected: Bool, @ViewBuilder content: () -> Content) -> some View {
         VStack(alignment: .leading) {
             Label(title, systemImage: isSelected ? "checkmark.circle.fill" : "circle")
+                .accessibilityElement(children: .combine)
                 .accessibilityAddTraits(isSelected ? .isSelected : [])
             content()
         }

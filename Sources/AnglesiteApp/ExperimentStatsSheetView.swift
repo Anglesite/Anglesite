@@ -100,11 +100,15 @@ struct ExperimentStatsSheetView: View {
 
             Section("Test ideas") {
                 ForEach(model.suggestions, id: \.title) { suggestion in
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(suggestion.title).font(.callout.weight(.medium))
-                        Text(suggestion.rationale).font(.caption).foregroundStyle(.secondary)
+                    Button {
+                        model.openPropose()
+                    } label: {
+                        VStack(alignment: .leading, spacing: 2) {
+                            Text(suggestion.title).font(.callout.weight(.medium))
+                            Text(suggestion.rationale).font(.caption).foregroundStyle(.secondary)
+                        }
                     }
-                    .onTapGesture { model.openPropose() }
+                    .buttonStyle(.plain)
                 }
             }
         }
