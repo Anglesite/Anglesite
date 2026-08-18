@@ -156,14 +156,24 @@ import Foundation
         #expect(!model.canStart) // no variantPage yet
     }
 
-    @Test func startWritesRunningStatusAndInvokesDeploy() throws {
+    // start/observeDeployPhase need a draft with both a scaffolded variant and a goal set, reached
+    // the same way settingAGoalPersistsTheDraftToConfig does above: a real fixture on disk plus
+    // scaffoldVariant()/setPageviewGoal(), not a test-only draft setter.
+    @Test func startWritesRunningStatusAndInvokesDeploy() async throws {
         let tmp = try tempDirectory()
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("src/pages"), withIntermediateDirectories: true)
+        try """
+        ---
+        import BaseLayout from "../layouts/BaseLayout.astro";
+        ---
+        <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
+        """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
+
         let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
-        guard case .configure(var draft) = model.step else { Issue.record("expected .configure"); return }
-        draft.variantPage = "/x/hero-headline/b"
-        draft.goalKind = "pageview"; draft.goalPath = "/thanks/"
-        model.applyDraftForTesting(draft)
+        await model.scaffoldVariant()
+        model.setPageviewGoal(path: "/thanks/")
 
         var deployCalled = false
         model.start(deploy: { _, _, _, _ in deployCalled = true })
@@ -174,14 +184,21 @@ import Foundation
         #expect(saved.experiments?.active?.first?.status == "running")
     }
 
-    @Test func deploySuccessMovesToRunning() throws {
+    @Test func deploySuccessMovesToRunning() async throws {
         let tmp = try tempDirectory()
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("src/pages"), withIntermediateDirectories: true)
+        try """
+        ---
+        import BaseLayout from "../layouts/BaseLayout.astro";
+        ---
+        <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
+        """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
+
         let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
-        guard case .configure(var draft) = model.step else { Issue.record("expected .configure"); return }
-        draft.variantPage = "/x/hero-headline/b"
-        draft.goalKind = "pageview"; draft.goalPath = "/thanks/"
-        model.applyDraftForTesting(draft)
+        await model.scaffoldVariant()
+        model.setPageviewGoal(path: "/thanks/")
         model.start(deploy: { _, _, _, _ in })
 
         model.observeDeployPhase(.succeeded(url: URL(string: "https://example.com")!, duration: 1))
@@ -190,14 +207,21 @@ import Foundation
         #expect(experiment.status == "running")
     }
 
-    @Test func deployFailureRevertsToConfigureWithoutClearingTheDraft() throws {
+    @Test func deployFailureRevertsToConfigureWithoutClearingTheDraft() async throws {
         let tmp = try tempDirectory()
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("src/pages"), withIntermediateDirectories: true)
+        try """
+        ---
+        import BaseLayout from "../layouts/BaseLayout.astro";
+        ---
+        <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
+        """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
+
         let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
-        guard case .configure(var draft) = model.step else { Issue.record("expected .configure"); return }
-        draft.variantPage = "/x/hero-headline/b"
-        draft.goalKind = "pageview"; draft.goalPath = "/thanks/"
-        model.applyDraftForTesting(draft)
+        await model.scaffoldVariant()
+        model.setPageviewGoal(path: "/thanks/")
         model.start(deploy: { _, _, _, _ in })
 
         model.observeDeployPhase(.failed(reason: "Network error", exitCode: nil))

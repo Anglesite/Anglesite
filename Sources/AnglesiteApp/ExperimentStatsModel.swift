@@ -205,16 +205,6 @@ final class ExperimentStatsModel: Identifiable {
         return draft.asExperiment != nil
     }
 
-    /// Test-only: replaces the in-progress `.configure` draft directly, bypassing
-    /// `scaffoldVariant`'s real file-system requirement so start-related tests can assemble a
-    /// fully-formed draft (variant page + goal) without an Astro page fixture on disk. A no-op
-    /// outside `.configure` — mirrors the guard pattern the rest of this file uses for its own
-    /// draft mutators (`updateDraftGoal`, `scaffoldVariant`).
-    func applyDraftForTesting(_ draft: Draft) {
-        guard case .configure = step else { return }
-        step = .configure(draft)
-    }
-
     /// Flips the draft's status to `running`, persists it, and invokes `deploy` — a closure rather
     /// than a direct `DeployModel` dependency so this model stays testable without constructing one
     /// (`DeployModel` pulls in token/license/container machinery none of this model's own logic
