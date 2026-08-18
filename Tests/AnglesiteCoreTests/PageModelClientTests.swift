@@ -34,4 +34,17 @@ import Foundation
             _ = try await client.fetch(path: "src/pages/index.astro")
         }
     }
+
+    /// These strings are owner-facing HUD text on the click-to-place failure path, so they have to
+    /// read like the rest of the app: "sidecar", not "plugin", and a sentence a person can act on
+    /// rather than a raw validator message (#768 final review, Finding 10).
+    @Test func friendlyMessagesAreWrittenForOwnersNotForTheWire() {
+        let decodeFailed = PageModelClient.ModelError.decodeFailed("keyNotFound(...)").friendlyMessage
+        #expect(decodeFailed.contains("sidecar"))
+        #expect(!decodeFailed.lowercased().contains("plugin"))
+
+        let invalidInput = PageModelClient.ModelError
+            .toolFailed(reason: "invalid-input", detail: "not a project-relative .astro path: /").friendlyMessage
+        #expect(invalidInput.hasPrefix("Couldn't place the effect here"))
+    }
 }

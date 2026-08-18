@@ -82,12 +82,17 @@ extension PageModelClient.ModelError {
         case .toolFailed(let reason, let detail):
             switch reason {
             case "read-failed": return "Couldn't read this page: \(detail)"
-            case "invalid-input": return detail
+            // `invalid-input` is the sidecar rejecting the *path* we sent it (e.g. "not a
+            // project-relative .astro path: /"). With `PageSourcePath` resolving every caller's
+            // path this shouldn't reach an owner at all — but it's now HUD text on the
+            // click-to-place failure path, so it gets a sentence written for a person, with the
+            // raw detail kept alongside for the log rather than led with.
+            case "invalid-input": return "Couldn't place the effect here — try a different spot. (\(detail))"
             case "parse-failed": return detail
             default: return "Something went wrong loading this page: \(detail)"
             }
         case .decodeFailed:
-            return "Anglesite couldn't understand the page model returned by the plugin. Try updating the bundled plugin."
+            return "Anglesite couldn't understand the page model returned by the sidecar. Try updating the bundled sidecar."
         }
     }
 }
