@@ -7,9 +7,11 @@ import Foundation
 // concurrently with the rest of the subprocess-heavy suite.
 @Suite(.serialized)
 struct ReceivedInteractionCommitterTests {
-    private static func interaction(id: String, content: String = "Great post!") -> ReceivedInteraction {
+    private static func interaction(
+        id: String, type: ReceivedInteraction.ProtocolType = .webmention, content: String = "Great post!"
+    ) -> ReceivedInteraction {
         try! ReceivedInteraction(
-            id: id, type: .webmention,
+            id: id, type: type,
             source: URL(string: "https://alice.example/post")!,
             target: URL(string: "https://me.example/blog/hi")!,
             interactionType: .reply,
@@ -58,6 +60,31 @@ struct ReceivedInteractionCommitterTests {
             interactions: [Self.interaction(id: "wm-abc123")], into: siteDirectory)
         #expect(ids == ["wm-def456"])
         #expect(!FileManager.default.fileExists(atPath: staleFile.path))
+    }
+
+    @Test("commit with scopedTo only reconciles staleness within its own scope, leaving other sources' files untouched")
+    func commitScopedToLeavesOtherSourcesAlone() async throws {
+        let siteDirectory = try Self.makeThrowawayGitRepo()
+        defer { try? FileManager.default.removeItem(at: siteDirectory) }
+
+        _ = await ReceivedInteractionCommitter.commit(
+            interactions: [Self.interaction(id: "wm-abc123", type: .webmention)], into: siteDirectory)
+        _ = await ReceivedInteractionCommitter.commit(
+            interactions: [Self.interaction(id: "bsky-def456", type: .bluesky)],
+            scopedTo: [.bluesky], into: siteDirectory)
+
+        let webmentionFile = siteDirectory.appendingPathComponent("data/interactions/wm-abc123.json")
+        let blueskyFile = siteDirectory.appendingPathComponent("data/interactions/bsky-def456.json")
+        #expect(FileManager.default.fileExists(atPath: webmentionFile.path))
+        #expect(FileManager.default.fileExists(atPath: blueskyFile.path))
+
+        // A bluesky-scoped reconcile with zero current bluesky interactions deletes bsky-def456
+        // (stale within its own scope) but must leave wm-abc123 alone (out of scope entirely).
+        let ids = await ReceivedInteractionCommitter.commit(
+            interactions: [], scopedTo: [.bluesky], into: siteDirectory)
+        #expect(ids == ["bsky-def456"])
+        #expect(FileManager.default.fileExists(atPath: webmentionFile.path))
+        #expect(!FileManager.default.fileExists(atPath: blueskyFile.path))
     }
 
     @Test("commit is a no-op when every interaction already matches what's on disk and nothing needs deleting")

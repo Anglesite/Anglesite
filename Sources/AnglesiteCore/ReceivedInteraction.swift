@@ -20,6 +20,9 @@ public struct ReceivedInteraction: Codable, Sendable, Equatable, Identifiable {
         case activitypub
         /// Created through the site's Micropub endpoint.
         case micropub
+        /// Pulled from Bluesky's public AppView — a reply, like, or repost on the owner's POSSE'd
+        /// copy of this post (#1236), not delivered to any endpoint of ours.
+        case bluesky
     }
 
     /// What kind of interaction this represents.

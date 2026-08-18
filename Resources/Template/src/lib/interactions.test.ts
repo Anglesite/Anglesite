@@ -95,6 +95,12 @@ test("author and content are optional", () => {
   assert.equal(all[0].content, undefined);
 });
 
+test("accepts type: bluesky", () => {
+  const all = parseInteractions(mods(raw({ id: "bsky-abc123", type: "bluesky" })));
+  assert.equal(all.length, 1);
+  assert.equal(all[0].type, "bluesky");
+});
+
 test("interactionsFor matches targets regardless of trailing slash", () => {
   const all = parseInteractions(
     mods(

@@ -43,6 +43,30 @@ struct ReceivedInteractionTests {
         #expect(!ReceivedInteraction.InteractionType.mention.isFacepile)
     }
 
+    @Test("bluesky is a valid protocol type and round-trips through JSON")
+    func blueskyProtocolTypeRoundTrips() throws {
+        let interaction = try ReceivedInteraction(
+            id: "bsky-abc123",
+            type: .bluesky,
+            source: URL(string: "https://bsky.app/profile/alice.bsky.social/post/abc123")!,
+            target: URL(string: "https://my.site/articles/hello-world")!,
+            interactionType: .reply,
+            author: nil,
+            content: "hello",
+            published: Date(),
+            verified: Date(),
+            verificationStatus: .verified
+        )
+
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        let data = try encoder.encode(interaction)
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let decoded = try decoder.decode(ReceivedInteraction.self, from: data)
+        #expect(decoded.type == .bluesky)
+    }
+
     @Test("gitPath produces the expected file path")
     func gitPath() throws {
         let interaction = try ReceivedInteraction(
