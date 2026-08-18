@@ -432,6 +432,63 @@
         "kind": "inline",
         "allowedParents": null
       }
+    },
+    {
+      "component": "BlobMorph",
+      "title": "Blob Morph",
+      "ownerDescription": "An organic blob shape that continuously morphs between rounded shapes.",
+      "category": "generativeArt",
+      "keyProps": {
+        "color": "CSS color (default \"currentColor\")",
+        "size": "CSS size (default \"320px\")"
+      },
+      "props": {
+        "color": "currentColor",
+        "size": "320px"
+      },
+      "snippet": "---\nimport BlobMorph from \"../components/effects/BlobMorph.astro\";\n---\n<BlobMorph color=\"#7c3aed\" size=\"320px\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "MeshGradient",
+      "title": "Mesh Gradient",
+      "ownerDescription": "Soft blurred color blobs that drift slowly, creating an organic gradient mesh.",
+      "category": "generativeArt",
+      "keyProps": {
+        "colors": "array of CSS colors (default purple/blue/teal/pink)"
+      },
+      "props": {
+        "colors": ["#7c3aed", "#2563eb", "#0891b2", "#db2777"]
+      },
+      "snippet": "---\nimport MeshGradient from \"../components/effects/MeshGradient.astro\";\n---\n<MeshGradient colors={[\"#7c3aed\", \"#2563eb\", \"#0891b2\", \"#db2777\"]} />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "DotGridPulse",
+      "title": "Dot Grid Pulse",
+      "ownerDescription": "A grid of dots that pulse in a wave pattern, creating a rhythmic animation.",
+      "category": "generativeArt",
+      "keyProps": {
+        "columns": "grid columns (default 8)",
+        "rows": "grid rows (default 4)",
+        "color": "dot color (default \"currentColor\")"
+      },
+      "props": {
+        "columns": 8,
+        "rows": 4,
+        "color": "currentColor"
+      },
+      "snippet": "---\nimport DotGridPulse from \"../components/effects/DotGridPulse.astro\";\n---\n<DotGridPulse columns={8} rows={4} color=\"currentColor\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
     }
   ]
 }

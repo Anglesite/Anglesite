@@ -111,6 +111,39 @@
       "propEditors": [],
       "slots": [],
       "placement": { "allowedParents": null }
+    },
+    {
+      "path": "src/components/effects/BlobMorph.astro",
+      "export": "BlobMorph",
+      "kind": "astro",
+      "name": "Blob Morph",
+      "description": "An organic blob shape that continuously morphs between rounded shapes.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
+    },
+    {
+      "path": "src/components/effects/MeshGradient.astro",
+      "export": "MeshGradient",
+      "kind": "astro",
+      "name": "Mesh Gradient",
+      "description": "Soft blurred color blobs that drift slowly, creating an organic gradient mesh.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
+    },
+    {
+      "path": "src/components/effects/DotGridPulse.astro",
+      "export": "DotGridPulse",
+      "kind": "astro",
+      "name": "Dot Grid Pulse",
+      "description": "A grid of dots that pulse in a wave pattern, creating a rhythmic animation.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
     }
   ]
 }
