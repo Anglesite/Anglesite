@@ -76,6 +76,7 @@ public struct AddEffectIntent: AppIntent {
     @Parameter(title: "Site") public var site: SiteEntity
     /// The catalog effect to add.
     @Parameter(title: "Effect") public var effect: EffectAppEnum
+    @Dependency private var catalog: EffectCatalog
 
     /// AppIntents requires a parameterless initializer; the framework populates `@Parameter`s
     /// after construction.
@@ -94,32 +95,26 @@ public struct AddEffectIntent: AppIntent {
     /// confirms, applies. Shared by `perform()` and `performForTesting()` so the two stay in
     /// lockstep — same shape as `AddStoreIntent.resolvedRoute()` / `confirmAndApplyForTesting()`.
     private func run() async throws -> String {
-        let fakes = AddEffectIntentOverride.scoped
+        // Tests bind EffectCatalogOverride.scoped; production goes through @Dependency —
+        // mirrors ApplyThemeIntent's `ThemeCatalogOverride.scoped ?? catalog` exactly
+        // (ThemeIntents.swift). A bound override also signals "under test" below, so
+        // `requestConfirmation` is skipped.
+        let effectCatalog = EffectCatalogOverride.scoped ?? catalog
 
-        let catalog: EffectCatalog
-        if let fakes {
-            catalog = fakes.catalog
-        } else {
-            let resolution = TemplateRuntime.resolve()
-            guard let templateDirectory = resolution.url,
-                  let loaded = try? EffectCatalog.load(templateDirectory: templateDirectory) else {
-                return EffectDialogs.catalogUnavailable()
-            }
-            catalog = loaded
-        }
-
-        guard let entry = catalog.entries.first(where: { $0.title == effect.rawValue }) else {
+        guard let entry = effectCatalog.entries.first(where: { $0.title == effect.rawValue }) else {
             return EffectDialogs.unknownEffect(title: effect.rawValue)
         }
         guard entry.placement != nil else {
             return EffectDialogs.notPlaceable(effectTitle: entry.title)
         }
 
+        // Tests bind AddEffectSiteConnectionOverride.scoped; production reads the live
+        // per-siteID registries (populated only while the site's window is open).
         let pageModelClient: PageModelClient?
         let editRouter: EditRouter?
-        if let fakes {
-            pageModelClient = fakes.pageModelClient
-            editRouter = fakes.editRouter
+        if let connection = AddEffectSiteConnectionOverride.scoped {
+            pageModelClient = connection.pageModelClient
+            editRouter = connection.editRouter
         } else {
             pageModelClient = await PageModelClientRegistry.shared.pageModelClient(for: site.id)
             editRouter = await EditRouterRegistry.shared.router(for: site.id)
@@ -146,9 +141,12 @@ public struct AddEffectIntent: AppIntent {
         // Confirm only once the plan is known-good, mirroring `AddStoreIntent`
         // (`IntegrationIntents.swift`): planning happens *before* the confirmation so a
         // placement failure above reaches the user without them confirming an apply that could
-        // never run. Skipped under test (`fakes != nil`) -- `requestConfirmation` needs the live
-        // Siri/Shortcuts runtime, which `swift test` doesn't have.
-        if fakes == nil {
+        // never run. Skipped under test (`EffectCatalogOverride.scoped != nil`), same signal
+        // `ApplyThemeIntent` reads off `ThemeCatalogOverride.scoped` -- `requestConfirmation`
+        // needs the live Siri/Shortcuts runtime, which `swift test` doesn't have. Every `run()`
+        // path that reaches this point has already required a bound `EffectCatalogOverride` under
+        // test (the entry lookup above depends on it), so this one signal covers the whole method.
+        if EffectCatalogOverride.scoped == nil {
             try await requestConfirmation(dialog: "Add \(entry.title) to \(site.displayName)?")
         }
 
@@ -199,10 +197,11 @@ public struct AddEffectIntent: AppIntent {
 
 extension AddEffectIntent {
     /// Drives `run()`'s plan → confirm → apply logic directly, bypassing the AppIntents
-    /// `requestConfirmation` gate. Only callable when `AddEffectIntentOverride.scoped` is bound.
+    /// `requestConfirmation` gate (skipped whenever `EffectCatalogOverride.scoped` is bound — see
+    /// `run()`). Only callable when `EffectCatalogOverride.scoped` is bound.
     func performForTesting() async throws -> String {
-        guard AddEffectIntentOverride.scoped != nil else {
-            fatalError("performForTesting requires a bound AddEffectIntentOverride.scoped")
+        guard EffectCatalogOverride.scoped != nil else {
+            fatalError("performForTesting requires a bound EffectCatalogOverride.scoped")
         }
         return try await run()
     }
