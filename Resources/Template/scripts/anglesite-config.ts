@@ -52,6 +52,10 @@ export interface AnglesiteWorkersConfig {
   active?: string[];
 }
 
+export interface AnglesiteExperimentalConfig {
+  webmcp?: boolean;
+}
+
 export type AnglesiteExperimentGoalKind = "pageview" | "route" | "scroll" | "visible";
 
 export interface AnglesiteExperimentGoal {
@@ -97,6 +101,7 @@ export interface AnglesiteConfig {
   edge?: AnglesiteEdgeConfig;
   email?: AnglesiteEmailConfig;
   workers?: AnglesiteWorkersConfig;
+  experimental?: AnglesiteExperimentalConfig;
   experiments?: AnglesiteExperimentsConfig;
 }
 

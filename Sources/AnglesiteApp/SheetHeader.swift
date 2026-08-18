@@ -42,6 +42,9 @@ struct SheetHeader<Icon: View, Trailing: View>: View {
                 }
             }
             .accessibilityElement(children: .combine)
+            // One shared identifier across every sheet/drawer: automation finds the frontmost
+            // sheet's header here and reads its (combined) label to learn which sheet it is.
+            .accessibilityIdentifier(AXID.sheetHeader)
             Spacer()
             trailing()
         }

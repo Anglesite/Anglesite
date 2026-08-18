@@ -335,6 +335,7 @@ struct SiteWindow: View {
                 .pickerStyle(.segmented)
                 .labelsHidden()
                 .help("Switch between Preview, Editor, and Graph")
+                .accessibilityIdentifier(AXID.toolbar(.panes))
             }
             .customizationBehavior(.disabled)
 
@@ -345,6 +346,7 @@ struct SiteWindow: View {
                     Label("Site Graph", systemImage: "point.3.connected.trianglepath.dotted")
                 }
                 .help("Explore pages, layouts, components, collections, and assets")
+                .accessibilityIdentifier(AXID.toolbar(.graph))
             }
 
             // iCloud sync status (#881): renders nothing for a package that isn't in iCloud
@@ -352,6 +354,7 @@ struct SiteWindow: View {
             // item never widens a local-only site's toolbar.
             ToolbarItem(id: SiteToolbarItemID.sync.rawValue, placement: .primaryAction) {
                 SyncStatusView(model: model.sync)
+                    .accessibilityIdentifier(AXID.toolbar(.sync))
             }
 
             // Open GitHub security advisories/Dependabot alerts (#975). Renders nothing (an
@@ -362,6 +365,7 @@ struct SiteWindow: View {
                     onRecheck: { model.recheckSecurityReports() },
                     onViewAll: { model.openWebsiteSettings(landOn: .securityReports) }
                 )
+                .accessibilityIdentifier(AXID.toolbar(.securityReports))
             }
 
             ToolbarItem(id: SiteToolbarItemID.backup.rawValue, placement: .primaryAction) {
@@ -374,6 +378,7 @@ struct SiteWindow: View {
                 .help(site.isValid
                       ? "Commit and push working-tree changes to your current branch"
                       : "Site is missing required files")
+                .accessibilityIdentifier(AXID.toolbar(.backup))
             }
 
             ToolbarItem(id: SiteToolbarItemID.audit.rawValue, placement: .primaryAction) {
@@ -392,6 +397,7 @@ struct SiteWindow: View {
                       : site.isValid
                         ? "Open the preview first to start the runtime before auditing"
                         : "Site is missing required files")
+                .accessibilityIdentifier(AXID.toolbar(.audit))
             }
 
             ToolbarItem(id: SiteToolbarItemID.openInBrowser.rawValue, placement: .primaryAction) {
@@ -402,6 +408,7 @@ struct SiteWindow: View {
                 }
                 .disabled(!model.canOpenPreviewInBrowser)
                 .help("Open the live preview in your default browser")
+                .accessibilityIdentifier(AXID.toolbar(.openInBrowser))
             }
 
             // — Palette-only items (View ▸ Customize Toolbar…) —
@@ -420,6 +427,7 @@ struct SiteWindow: View {
                 .help(site.isValid
                       ? "Preview and apply Cloudflare security hardening for this site"
                       : "Site is missing required files")
+                .accessibilityIdentifier(AXID.toolbar(.harden))
             }
             .defaultCustomization(.hidden)
 
@@ -437,6 +445,7 @@ struct SiteWindow: View {
                 .help(site.isValid
                       ? "Provision Cloudflare AI Search for this site"
                       : "Site is missing required files")
+                .accessibilityIdentifier(AXID.toolbar(.aiSearch))
             }
             .defaultCustomization(.hidden)
 
@@ -454,6 +463,7 @@ struct SiteWindow: View {
                 .help(site.isValid
                       ? "Compare anglesite.json's declared domain/DNS/edge config against live Cloudflare state"
                       : "Site is missing required files")
+                .accessibilityIdentifier(AXID.toolbar(.domainConfigAudit))
             }
             .defaultCustomization(.hidden)
 
@@ -471,6 +481,7 @@ struct SiteWindow: View {
                 .help(site.isValid
                       ? "Check Cloudflare's Agent Readiness score for this site's deployed URL"
                       : "Site is missing required files")
+                .accessibilityIdentifier(AXID.toolbar(.agentReadiness))
             }
             .defaultCustomization(.hidden)
 
@@ -484,6 +495,7 @@ struct SiteWindow: View {
                 .help(site.isValid
                       ? "Enable Tor Browser access for this site via Cloudflare's zone-level setting"
                       : "Site is missing required files")
+                .accessibilityIdentifier(AXID.toolbar(.onionRouting))
             }
             .defaultCustomization(.hidden)
 
@@ -495,6 +507,7 @@ struct SiteWindow: View {
                 }
                 .disabled(!model.canOpenDomain)
                 .help("View and manage this domain's DNS records")
+                .accessibilityIdentifier(AXID.toolbar(.domain))
             }
             .defaultCustomization(.hidden)
 
@@ -506,6 +519,7 @@ struct SiteWindow: View {
                 }
                 .disabled(!model.canOpenIntegrationWizard)
                 .help("Set up a third-party integration for this site")
+                .accessibilityIdentifier(AXID.toolbar(.integration))
             }
             .defaultCustomization(.hidden)
 
@@ -517,6 +531,7 @@ struct SiteWindow: View {
                 }
                 .disabled(!model.canOpenSiriReadiness)
                 .help("Check whether Siri workflows are ready for this site")
+                .accessibilityIdentifier(AXID.toolbar(.siriReadiness))
             }
             .defaultCustomization(.hidden)
 
@@ -528,6 +543,7 @@ struct SiteWindow: View {
                           ? "link.badge.plus" : "link")
                 }
                 .help(model.relatedPagesPresented ? "Hide related pages" : "Show related pages")
+                .accessibilityIdentifier(AXID.toolbar(.relatedPages))
             }
             .defaultCustomization(.hidden)
 
@@ -538,6 +554,7 @@ struct SiteWindow: View {
                     Label("Style Guide", systemImage: "textformat.abc")
                 }
                 .help("See and edit this site's learned writing, image, and naming conventions")
+                .accessibilityIdentifier(AXID.toolbar(.styleGuide))
             }
             .defaultCustomization(.hidden)
 
@@ -551,6 +568,7 @@ struct SiteWindow: View {
                         Label("View on GitHub", systemImage: "arrow.up.forward.square")
                     }
                     .help("Open this site's GitHub repository")
+                    .accessibilityIdentifier(AXID.toolbar(.github))
                 } else {
                     Button {
                         model.publish.publish(source: site.sourceDirectory, repoName: site.name)
@@ -559,6 +577,7 @@ struct SiteWindow: View {
                     }
                     .disabled(!model.canPublishToGitHub)
                     .help(site.isValid ? "Create a private GitHub repo and push this site" : "Site is missing required files")
+                    .accessibilityIdentifier(AXID.toolbar(.github))
                 }
             }
             .defaultCustomization(.hidden)
@@ -590,6 +609,7 @@ struct SiteWindow: View {
                           : site.isValid
                             ? "Open the preview first to start the runtime before deploying"
                             : "Site is missing required files")
+                    .accessibilityIdentifier(AXID.toolbar(.deploy))
                 }
             }
             .customizationBehavior(.reorderable)
@@ -603,6 +623,7 @@ struct SiteWindow: View {
                         : "bubble.left.and.bubble.right")
                 }
                 .help(model.chatPresented ? "Hide chat panel" : "Show chat panel")
+                .accessibilityIdentifier(AXID.toolbar(.chat))
                 // ⌘K moved to View ▸ Show/Hide Chat (#512) — a second registration here would
                 // recreate the duplicate-shortcut ambiguity #509 removed for ⌘S.
             }
@@ -616,6 +637,7 @@ struct SiteWindow: View {
                 }
                 .disabled(model.inspectorSelection == nil)
                 .help("Show or hide the inspector")
+                .accessibilityIdentifier(AXID.toolbar(.inspector))
             }
         }
         // Trailing search field (#520). Not a `.toolbar(id:)` item: `.searchable` mints its own

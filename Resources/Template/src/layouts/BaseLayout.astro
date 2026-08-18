@@ -3,6 +3,7 @@ import "../styles/global.css";
 import Hcard from "../components/Hcard.astro";
 import Rights from "../components/Rights.astro";
 import { readConfig, siteLang } from "../../scripts/config";
+import { readAnglesiteConfig } from "../../scripts/anglesite-config";
 import { licensingPolicy, siteLicense } from "../lib/licensing-data.ts";
 import { headLicense, type LicenseRef } from "../lib/licensing.ts";
 import { rslPublished } from "../lib/rsl.ts";
@@ -70,6 +71,14 @@ const noindex = isNoindexed(Astro.url.pathname, readRobotsConfig(process.cwd()))
 // stronger gate `scripts/csp.ts` (the Link: header) uses, so this <link> never appears pointing
 // at an rsl.xml that wasn't actually generated (PR #1290 review).
 const rsl = rslPublished(licensingPolicy(), readConfig("SITE_URL"));
+// #1279: experimental.webmcp — off by default, so an un-opted-in site's build stays byte-
+// identical (no <script> anywhere) to a build before this feature existed. The <script> tag
+// below deliberately omits `type="module"`: with that attribute present, Astro treats a local
+// `src` as an already-resolved external reference and emits it byte-for-byte unprocessed
+// (`src="../scripts/webmcp.ts"`, unresolvable at runtime); omitting it lets Astro hoist, bundle,
+// and (per astro.config.ts's `vite.build.assetsInlineLimit`) externalize the script into a
+// single cached chunk shared by every page, re-adding `type="module"` itself in the output.
+const webmcpEnabled = readAnglesiteConfig(process.cwd()).experimental?.webmcp === true;
 // Same computation BlogPost.astro/Hentry.astro use for their own JSON-LD `url` — duplicated
 // rather than threaded as a prop because every page (including ones with no per-collection
 // layout) needs a canonical link, and Astro.url/Astro.site are already in scope here.
@@ -139,6 +148,7 @@ const themeColor = readConfig("PWA_THEME_COLOR");
     </main>
     <Hcard />
     <Rights license={license} />
+    {webmcpEnabled && <script src="../scripts/webmcp.ts"></script>}
     <!-- anglesite:body-end -->
   </body>
 </html>

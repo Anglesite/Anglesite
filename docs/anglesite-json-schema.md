@@ -35,6 +35,7 @@ DNS records the owner already had before Anglesite touched the zone are never mi
 | `edge` | object | See [Edge](#edge). |
 | `email` | object | See [Email](#email). |
 | `workers` | object | See [Workers](#workers). |
+| `experimental` | object | See [Experimental](#experimental). |
 
 Every section is optional. A field the app has never written is simply absent — never `null`.
 
@@ -117,6 +118,12 @@ The Workers Settings tab toggle writes this array here (in addition to the app-p
 yet, so a deploy never fails or silently activates the wrong set just because the two haven't
 synced. A hand edit to `active` takes effect on the next deploy once the app's own copy in
 `Config/` matches it again (e.g. after the next toggle in the Workers tab).
+
+## Experimental
+
+| Field | Type | Meaning |
+|---|---|---|
+| `webmcp` | boolean | Registers the site's WebMCP tool pack (`anglesite_search_posts`, `anglesite_fetch_post_markdown`) with the browser's `document.modelContext`, if present. Off by default. Experimental: it depends on a browser API only Chrome 146+ ships behind `document.modelContext` — nothing happens in a browser without it. Read at build time only (`readAnglesiteConfig`); flipping it requires a rebuild/redeploy, not just a page reload. Like the `/search` page's own Pagefind index, `anglesite_search_posts` finds nothing under `astro dev` — it only works after a full `astro build` plus the `postbuild` step that generates the Pagefind index. |
 
 ## Compatibility
 
