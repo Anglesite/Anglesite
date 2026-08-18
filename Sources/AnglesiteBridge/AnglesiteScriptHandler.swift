@@ -10,8 +10,8 @@ import AnglesiteBridgeCore
 /// `.webView`, and evaluate the reply script back into the page.
 ///
 /// **API change vs prior versions:** the primary entry point is now
-/// `dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:)` (forwarding to
-/// `AnglesiteMessageDispatcher.dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:)`).
+/// `dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:)` (forwarding to
+/// `AnglesiteMessageDispatcher.dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:)`).
 /// All current callers are internal to this repo (the `WKScriptMessageHandler` impl below, the
 /// unit tests — now in `AnglesiteBridgeCoreTests`, testing `AnglesiteMessageDispatcher` directly
 /// — and `PreviewView`'s production init) and use `dispatch` directly. The old `handle(body:via:)`
@@ -31,6 +31,8 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
     public typealias CanvasSelectionHandler = AnglesiteMessageDispatcher.CanvasSelectionHandler
     /// Callback for `anglesite:computed-styles` reports (see `AnglesiteMessageDispatcher`).
     public typealias ComputedStylesHandler = AnglesiteMessageDispatcher.ComputedStylesHandler
+    /// Callback for `anglesite:pick-placement` messages (see `AnglesiteMessageDispatcher`).
+    public typealias PlacementPickHandler = AnglesiteMessageDispatcher.PlacementPickHandler
     /// Outcome of dispatching one message body (see `AnglesiteMessageDispatcher.DispatchResult`).
     public typealias DispatchResult = AnglesiteMessageDispatcher.DispatchResult
 
@@ -38,6 +40,7 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
     private let onVisibleElements: VisibleElementsHandler?
     private let onCanvasSelection: CanvasSelectionHandler?
     private let onComputedStyles: ComputedStylesHandler?
+    private let onPlacementPick: PlacementPickHandler?
     private let logCenter: LogCenter
 
     /// - Parameters:
@@ -47,23 +50,26 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
     ///     means those messages are dropped (logged as such by the dispatcher's result).
     ///   - onCanvasSelection: Optional callback for `anglesite:canvas-selection` messages.
     ///   - onComputedStyles: Optional callback for `anglesite:computed-styles` reports.
+    ///   - onPlacementPick: Optional callback for `anglesite:pick-placement` messages.
     ///   - logCenter: Destination for rejection/drop diagnostics — injectable for tests.
     public init(
         router: EditRouter,
         onVisibleElements: VisibleElementsHandler? = nil,
         onCanvasSelection: CanvasSelectionHandler? = nil,
         onComputedStyles: ComputedStylesHandler? = nil,
+        onPlacementPick: PlacementPickHandler? = nil,
         logCenter: LogCenter = .shared
     ) {
         self.router = router
         self.onVisibleElements = onVisibleElements
         self.onCanvasSelection = onCanvasSelection
         self.onComputedStyles = onComputedStyles
+        self.onPlacementPick = onPlacementPick
         self.logCenter = logCenter
         super.init()
     }
 
-    /// Forwards to `AnglesiteMessageDispatcher.dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:)`
+    /// Forwards to `AnglesiteMessageDispatcher.dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:)`
     /// — kept here so existing call sites (this class's own `userContentController`, and any
     /// code written against the pre-split API) don't need to change.
     public static func dispatch(
@@ -71,14 +77,16 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         via router: EditRouter,
         onVisibleElements: VisibleElementsHandler? = nil,
         onCanvasSelection: CanvasSelectionHandler? = nil,
-        onComputedStyles: ComputedStylesHandler? = nil
+        onComputedStyles: ComputedStylesHandler? = nil,
+        onPlacementPick: PlacementPickHandler? = nil
     ) async -> DispatchResult {
         await AnglesiteMessageDispatcher.dispatch(
             body: body,
             via: router,
             onVisibleElements: onVisibleElements,
             onCanvasSelection: onCanvasSelection,
-            onComputedStyles: onComputedStyles
+            onComputedStyles: onComputedStyles,
+            onPlacementPick: onPlacementPick
         )
     }
 
@@ -87,8 +95,8 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
     /// `onVisibleElements`, matching the prior behavior (apply-edit only). Returns the same
     /// `Result<EditReply, EditMessage.DecodeError>` shape callers were already matching on —
     /// rejection reasons map back into the legacy decode-error type.
-    @available(*, deprecated, renamed: "dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:)",
-               message: "handle() is apply-edit only and returns a less expressive shape. Use dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:) — it covers visible-elements/canvas-selection/computed-styles routing too and exposes the richer DispatchResult.")
+    @available(*, deprecated, renamed: "dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:)",
+               message: "handle() is apply-edit only and returns a less expressive shape. Use dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:) — it covers visible-elements/canvas-selection/computed-styles/pick-placement routing too and exposes the richer DispatchResult.")
     public static func handle(body: Any, via router: EditRouter) async -> Result<EditReply, EditMessage.DecodeError> {
         switch await dispatch(body: body, via: router, onVisibleElements: nil) {
         case .editReply(let reply):
@@ -113,6 +121,9 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         case .rejected(.computedStylesDecode):
             // Unreachable under `handle`'s contract (apply-edit only). Same fallthrough.
             return .failure(.unknownType(ComputedStylesReport.messageType))
+        case .rejected(.placementPickDecode):
+            // Unreachable under `handle`'s contract (apply-edit only). Same fallthrough.
+            return .failure(.unknownType(PlacementPickMessage.messageType))
         case .visibleElementsHandled, .visibleElementsDropped:
             // Unreachable: handler is nil. Same fallthrough as above.
             return .failure(.unknownType(VisibleElementReport.messageType))
@@ -122,6 +133,9 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         case .computedStylesHandled, .computedStylesDropped:
             // Unreachable: handler is nil. Same fallthrough as above.
             return .failure(.unknownType(ComputedStylesReport.messageType))
+        case .placementPickHandled, .placementPickDropped:
+            // Unreachable: handler is nil. Same fallthrough as above.
+            return .failure(.unknownType(PlacementPickMessage.messageType))
         }
     }
 
@@ -137,6 +151,7 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         let onVisibleElements = self.onVisibleElements
         let onCanvasSelection = self.onCanvasSelection
         let onComputedStyles = self.onComputedStyles
+        let onPlacementPick = self.onPlacementPick
         let logCenter = self.logCenter
         Task {
             switch await Self.dispatch(
@@ -144,7 +159,8 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
                 via: router,
                 onVisibleElements: onVisibleElements,
                 onCanvasSelection: onCanvasSelection,
-                onComputedStyles: onComputedStyles
+                onComputedStyles: onComputedStyles,
+                onPlacementPick: onPlacementPick
             ) {
             case .editReply(let reply):
                 guard let webView else { return }
@@ -185,6 +201,14 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
                     source: "bridge",
                     stream: .stderr,
                     text: "computed-styles message dropped: no handler installed"
+                )
+            case .placementPickHandled:
+                return
+            case .placementPickDropped:
+                await logCenter.append(
+                    source: "bridge",
+                    stream: .stderr,
+                    text: "pick-placement message dropped: no handler installed"
                 )
             case .rejected(let reason):
                 await logCenter.append(

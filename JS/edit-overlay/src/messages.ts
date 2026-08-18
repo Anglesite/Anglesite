@@ -65,6 +65,25 @@ export function postEdit(
   return true;
 }
 
+export interface PlacementPickMessage {
+  id: string;
+  type: "anglesite:pick-placement";
+  path: string;
+  selector: ElementInfo;
+}
+
+/** Posts a placement-pick report to native. No reply is awaited — the whole match/apply flow
+ *  runs natively and updates the app's own placement HUD, not the page. */
+export function postPlacementPick(
+  message: PlacementPickMessage,
+  win: WebKitWindow = window as unknown as WebKitWindow,
+): boolean {
+  const handler = win.webkit?.messageHandlers?.anglesite;
+  if (!handler) return false;
+  handler.postMessage(message);
+  return true;
+}
+
 /** Install `window.anglesite._handleReply` so native can deliver replies, and return an
  *  `awaitReply` registrar bound to a closure-private map — each install gets its own. */
 export function installReplyHandler(

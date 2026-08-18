@@ -233,14 +233,14 @@ final class SiteWindowModel {
     /// URL pre-fill for the quick-capture sheet — set by the drop/paste/menu entry points
     /// immediately before flipping `quickCapturePresented` (#531).
     var quickCaptureURL: String?
-    /// Website ▸ Animations… (#1007). The gallery is self-contained (owns its own
-    /// `AnimationsGalleryModel`, resolves the bundled template itself) so a plain Bool is enough —
-    /// no per-site data to carry, unlike the `.sheet(item:)` models above.
-    var animationsPresented = false
+    /// Website ▸ Effects… (#768, formerly Animations #1007). The gallery is self-contained (owns
+    /// its own `EffectsGalleryModel`, resolves the bundled template itself) so a plain Bool is
+    /// enough — no per-site data to carry, unlike the `.sheet(item:)` models above.
+    var effectsPresented = false
     /// Website ▸ Connect for CMS Mode… (#800). `MicropubSiteConnectSheet` builds its own
     /// `MicropubOnboardingModel` from the `site` `SiteWindow`'s `.sheet(isPresented:)` closure
     /// already has in scope (same as the `NewPageSheet`/`NewCollectionEntrySheet` sheets), so a
-    /// plain Bool is enough here too — same reasoning as `animationsPresented`.
+    /// plain Bool is enough here too — same reasoning as `effectsPresented`.
     var micropubConnectPresented = false
     /// Non-nil ⟺ the Delete confirmation dialog is showing for this navigator item (#516).
     /// Hosted in `SiteWindow` (mirrors `revertConfirmationPresented`'s alert-hosting pattern) —
@@ -645,23 +645,24 @@ final class SiteWindowModel {
 
     var canOpenDesignInterview: Bool { site != nil }
 
-    /// Website ▸ Animations… (#1007), same shape as `canOpenSocialPlan` — gated on a site window
-    /// being focused, even though the gallery itself only reads the bundled template.
-    var canOpenAnimations: Bool { site != nil }
+    /// Website ▸ Effects… (#768, formerly Animations #1007), same shape as `canOpenSocialPlan` —
+    /// gated on a site window being focused, even though the gallery itself only reads the
+    /// bundled template.
+    var canOpenEffects: Bool { site != nil }
 
-    /// Presents the Animations gallery sheet (Website ▸ Animations…, #1007). Mirrors
-    /// `presentReader()`'s naming (`present…`), but toggles a plain Bool rather than switching
-    /// `mainPaneMode` — the gallery is a modal browse surface, not a main-pane mode.
-    func presentAnimations() {
-        animationsPresented = true
+    /// Presents the Effects gallery sheet (Website ▸ Effects…, #768). Mirrors `presentReader()`'s
+    /// naming (`present…`), but toggles a plain Bool rather than switching `mainPaneMode` — the
+    /// gallery is a modal browse surface, not a main-pane mode.
+    func presentEffects() {
+        effectsPresented = true
     }
 
-    /// Website ▸ Connect for CMS Mode… (#800), same shape as `canOpenAnimations` — gated on a
-    /// site window being focused.
+    /// Website ▸ Connect for CMS Mode… (#800), same shape as `canOpenEffects` — gated on a site
+    /// window being focused.
     var canOpenMicropubConnect: Bool { site != nil }
 
     /// Presents the CMS-mode connect sheet (Website ▸ Connect for CMS Mode…, #800). Same
-    /// plain-Bool pattern as `presentAnimations()`.
+    /// plain-Bool pattern as `presentEffects()`.
     func presentMicropubConnect() {
         micropubConnectPresented = true
     }
@@ -1606,6 +1607,56 @@ final class SiteWindowModel {
         )
     }
 
+    /// Backing cache for `effectPlacementController` below — see that property's doc comment for
+    /// the route-staleness fix this pair implements.
+    private var cachedEffectPlacementController: (path: String, controller: EffectPlacementController)?
+
+    /// The click-to-place controller for the Effects gallery sheet (Website ▸ Effects…, #768).
+    /// `EffectPlacementController` captures its target `path` once at construction (`path` is a
+    /// `private let` on that type), so a controller built once per site-open and never refreshed
+    /// would silently keep applying edits against whatever route was active when the site first
+    /// opened — even after the owner navigates the live preview to a different page while the
+    /// window stays open (flagged during Task 10's review as a bug for Task 12 to close). This
+    /// (re)builds the controller, keyed on the live preview's current route
+    /// (`preview.activeRoute`), exactly like `ensureComponentEditorLoaded`'s (file, baseURL)-keyed
+    /// rebuild for `componentEditor` above: accessing this property when the cached controller's
+    /// path no longer matches the current route replaces it with a fresh one for the new route. A
+    /// controller with a placement already in flight, or one sitting in a terminal state awaiting
+    /// the gallery's transient-banner acknowledgment (`state != .idle`), is never swapped out from
+    /// under itself — only an idle cached controller is eligible for a route-triggered rebuild, so
+    /// an in-progress pick always resolves against the path it actually started against.
+    var effectPlacementController: EffectPlacementController {
+        let path = preview.activeRoute ?? "/"
+        if let cached = cachedEffectPlacementController,
+           cached.path == path || cached.controller.state != .idle {
+            return cached.controller
+        }
+        let controller = makeEffectPlacementController(path: path)
+        cachedEffectPlacementController = (path, controller)
+        return controller
+    }
+
+    /// Builds the click-to-place controller for the Effects gallery. Mirrors
+    /// `makeComponentEditorContext`'s `editRouter: preview.editRouter` reuse — placements apply
+    /// through the same registered router the preview/Component Editor canvases use.
+    private func makeEffectPlacementController(path: String) -> EffectPlacementController {
+        EffectPlacementController(
+            path: path,
+            pageModelClient: PageModelClient(mcpClient: { [preview] in await preview.mcpClient() }),
+            editRouter: preview.editRouter
+        )
+    }
+
+    /// Ensures the site's `blocks.manifest.json` has entries for every shipped placeable effect.
+    /// Fire-and-forget-safe (idempotent, cheap JSON merge) — called once per site attach, not on
+    /// every gallery open.
+    private func syncBlockManifest(site: SiteStore.Site) {
+        guard let templateDirectory = TemplateRuntime.resolve().url else { return }
+        let templateManifest = templateDirectory.appendingPathComponent("blocks.manifest.json")
+        let siteManifest = site.sourceDirectory.appendingPathComponent("blocks.manifest.json")
+        try? BlockManifestSync.sync(templateBlocksManifest: templateManifest, siteBlocksManifest: siteManifest)
+    }
+
     /// (Re)builds the hoisted component editor for the active editor file when it is an `.astro`
     /// component — keyed on (file, dev-server baseURL) exactly like `ComponentEditorView`'s old
     /// view-local `LoadKey`: a nil→non-nil `readyURL` transition rebuilds the model so the harness
@@ -2111,6 +2162,14 @@ final class SiteWindowModel {
         }
         site = resolved
         await refreshIsHostedCommunity()
+        // Reset alongside `annotationProvider` below: a restored `WindowGroup` can replay a
+        // different siteID into the same model instance, and a cached controller built against
+        // the previous site's route would be exactly the kind of staleness
+        // `effectPlacementController`'s cache is meant to avoid.
+        cachedEffectPlacementController = nil
+        // Idempotent per-site setup (#768): merges the template's placeable-effect entries into
+        // this site's `blocks.manifest.json` once per attach, not on every Effects gallery open.
+        syncBlockManifest(site: resolved)
         // Constructed once and threaded into every child model below instead of each one
         // separately re-deriving `id`/`sourceDirectory`/`packageURL`/`configDirectory` from
         // `resolved` at its own call site (#822) — see `CurrentSite`'s own doc comment.

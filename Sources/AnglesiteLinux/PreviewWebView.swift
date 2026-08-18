@@ -106,12 +106,13 @@ struct PreviewWebView: AdwaitaWidget {
                             .assumingMemoryBound(to: WebKitWebView.self)
                         webkit_web_view_evaluate_javascript(webView, script, -1, nil, nil, nil, nil, nil)
                     }
-                case .visibleElementsHandled, .canvasSelectionHandled, .computedStylesHandled:
+                case .visibleElementsHandled, .canvasSelectionHandled, .computedStylesHandled, .placementPickHandled:
                     return
-                case .visibleElementsDropped, .canvasSelectionDropped, .computedStylesDropped:
-                    // Expected in the MVP shell: no annotation/canvas consumers are wired yet
-                    // (they arrive with the component editor), so these land silently — unlike
-                    // the macOS adapter, where a drop means broken wiring and is logged.
+                case .visibleElementsDropped, .canvasSelectionDropped, .computedStylesDropped, .placementPickDropped:
+                    // Expected in the MVP shell: no annotation/canvas/placement consumers are
+                    // wired yet (they arrive with the component editor / Effects gallery), so
+                    // these land silently — unlike the macOS adapter, where a drop means broken
+                    // wiring and is logged.
                     return
                 case .rejected(let reason):
                     await logCenter.append(source: "bridge-gtk", stream: .stderr, text: "rejected message: \(reason)")

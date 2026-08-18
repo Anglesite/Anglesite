@@ -1,24 +1,25 @@
 import { describe, it, expect } from "vitest";
 import { readFileSync } from "node:fs";
 import { experimental_AstroContainer as AstroContainer } from "astro/container";
-import { loadAnimationsCatalog } from "../../scripts/animations-catalog";
+import { loadEffectsCatalog, legacyEntries } from "../../scripts/effects-catalog";
 
-const catalog = loadAnimationsCatalog();
+const catalog = loadEffectsCatalog();
+const legacy = legacyEntries(catalog);
 
-describe("animations catalog", () => {
+describe("effects catalog (legacy)", () => {
   it("has at least one curated component", () => {
-    expect(catalog.components.length).toBeGreaterThan(0);
+    expect(legacy.length).toBeGreaterThan(0);
   });
 
   it("never catalogs enhance=true (CSP: no inline scripts)", () => {
-    for (const entry of catalog.components) {
+    for (const entry of legacy) {
       expect(entry.props["enhance"], entry.component).not.toBe(true);
       expect(entry.snippet).not.toContain("enhance={true}");
       expect(entry.snippet).not.toContain('enhance="true"');
     }
   });
 
-  for (const entry of catalog.components) {
+  for (const entry of legacy) {
     describe(entry.component, () => {
       it("renders, is script-free, and guards reduced motion", async () => {
         const container = await AstroContainer.create();
@@ -92,15 +93,15 @@ describe("animations catalog", () => {
           "",
         ].join("\n").replace(/\r\n/g, "\n");
         await expect(page).toMatchFileSnapshot(
-          `../../integrations/animations-demos/${entry.component}.html`,
+          `../../integrations/effects-demos/${entry.component}.html`,
         );
       });
     });
   }
 
   it("every curated component is documented", () => {
-    const docs = readFileSync("integrations/docs/animations.md", "utf8");
-    for (const entry of catalog.components) {
+    const docs = readFileSync("integrations/docs/effects.md", "utf8");
+    for (const entry of legacy) {
       expect(docs, entry.component).toContain(`## ${entry.component}`);
     }
   });

@@ -164,6 +164,36 @@ struct AnglesiteMessageDispatcherTests {
             return
         }
     }
+
+    @Test("Dispatch routes pick-placement to its handler") func routesPlacementPickToHandler() async {
+        let router = RecordingRouter(reply: EditReply(id: "-", status: .failed, message: "unused"))
+        let received = LockIsolated<PlacementPickMessage?>(nil)
+        let body: [String: Any] = [
+            "type": "anglesite:pick-placement", "path": "/about/",
+            "selector": ["tag": "SECTION", "nthChild": 1, "ancestors": [] as [[String: Any]]],
+        ]
+        let result = await AnglesiteMessageDispatcher.dispatch(
+            body: body, via: router,
+            onPlacementPick: { msg in received.setValue(msg) })
+        guard case .placementPickHandled = result else {
+            Issue.record("expected .placementPickHandled, got \(result)")
+            return
+        }
+        #expect(received.value?.path == "/about/")
+    }
+
+    @Test("Pick-placement messages without a handler are dropped, not rejected") func placementPickDroppedWithoutHandler() async {
+        let router = RecordingRouter(reply: EditReply(id: "-", status: .failed, message: "unused"))
+        let body: [String: Any] = [
+            "type": "anglesite:pick-placement", "path": "/",
+            "selector": ["tag": "DIV", "nthChild": 1, "ancestors": [] as [[String: Any]]],
+        ]
+        let result = await AnglesiteMessageDispatcher.dispatch(body: body, via: router)
+        guard case .placementPickDropped = result else {
+            Issue.record("expected .placementPickDropped, got \(result)")
+            return
+        }
+    }
 }
 
 private actor RecordingRouter: EditRouter {

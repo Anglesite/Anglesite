@@ -31,6 +31,12 @@ struct PreviewView: NSViewRepresentable {
     /// is the source of truth; `SiteWindow.previewPane(for:)` passes it straight through.
     var wysiwygTransport: (any WYSIWYGHostTransport)?
 
+    /// Called with a decoded `anglesite:pick-placement` message when the owner clicks an element
+    /// in the live preview while the Effects gallery's click-to-place overlay is armed (#768).
+    /// Forwarded straight into `AnglesiteScriptHandler`'s own `onPlacementPick` — see that type's
+    /// doc comment. Defaults to a no-op for callers (e.g. tests) that don't need it.
+    var onPlacementPick: AnglesiteScriptHandler.PlacementPickHandler = { _ in }
+
     /// Called with the `WKWebView` once it's created, so the owning `PreviewModel` can hold a weak
     /// reference and drive the View-menu preview commands (reload/history/zoom).
     /// Defaults to a no-op for callers (e.g. tests) that don't need it.
@@ -60,7 +66,7 @@ struct PreviewView: NSViewRepresentable {
             // WKWebView is torn down, releasing the strong reference.
             { @Sendable elements in await provider.update(elements) }
         }
-        let handler = AnglesiteScriptHandler(router: router, onVisibleElements: onVisibleElements)
+        let handler = AnglesiteScriptHandler(router: router, onVisibleElements: onVisibleElements, onPlacementPick: onPlacementPick)
         // `wysiwygTransport` is always a `WYSIWYGCanvasController` in production
         // (`PreviewModel.wysiwygCanvas`'s concrete type); casting once here — rather than inside
         // the handler closure on every message — is what lets `updateNSView` below compare "is
