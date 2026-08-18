@@ -29,6 +29,8 @@ private actor GatedDeployExecutor: DeployExecutor {
             )
         case .bundleUpload:
             return DeployStepResult(exitCode: 0, output: "")
+        case .githubPagesPublish:
+            return DeployStepResult(exitCode: 0, output: "")
         }
     }
 

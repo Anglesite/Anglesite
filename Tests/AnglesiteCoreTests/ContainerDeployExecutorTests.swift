@@ -70,6 +70,124 @@ struct ContainerDeployExecutorTests {
         #expect(calls[0].argv == ["npx", "tsx", "scripts/pre-deploy-check.ts", "--json"])
     }
 
+    // MARK: - .githubPagesPublish argv (#1015 slice 2a)
+
+    /// A fresh host site directory with `anglesite.json` declaring the given GitHub Pages
+    /// owner/repo — mirrors `DeployCommandTests`'s `makeSiteDirectory(...)` helpers for the
+    /// Cloudflare-specific config it reads the same way.
+    private func makeSiteDirectory(githubPagesOwner owner: String, repo: String) throws -> URL {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        var config = DomainConfig()
+        config.githubPages = .init(owner: owner, repo: repo)
+        try DomainConfigStore(sourceDirectory: dir).save(config)
+        return dir
+    }
+
+    @Test("ContainerDeployExecutor maps .githubPagesPublish to a git-push argv naming the configured owner/repo")
+    func githubPagesPublishArgvNamesConfiguredRepo() throws {
+        let siteDir = try makeSiteDirectory(githubPagesOwner: "acme", repo: "my-site-pages")
+        defer { try? FileManager.default.removeItem(at: siteDir) }
+
+        let argv = ContainerDeployExecutorTestHook.guestArgv(for: .githubPagesPublish, siteDirectory: siteDir)
+        // Owner and repo must be separate positional argv elements (passed as `$1`/`$2` to `sh
+        // -c`), not interpolated into the script text — that's what makes it injection-safe (see
+        // the adjoining injection test).
+        #expect(argv.contains("acme"))
+        #expect(argv.contains("my-site-pages"))
+        #expect(argv.contains { $0.contains("git push") })
+        #expect(argv.contains { $0.contains("$GITHUB_PAGES_TOKEN") })
+        // Without `.nojekyll` at the repo root, GitHub Pages' default Jekyll processing drops
+        // every underscore-prefixed path — including Astro's `dist/_astro/` asset directory —
+        // so a real deploy would silently serve an unstyled, scriptless site.
+        #expect(argv.contains { $0.contains(".nojekyll") })
+    }
+
+    @Test("ContainerDeployExecutor's .githubPagesPublish argv fails loudly when anglesite.json has no githubPages section")
+    func githubPagesPublishArgvFailsWithoutConfig() throws {
+        let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        try FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: siteDir) }
+
+        let argv = ContainerDeployExecutorTestHook.guestArgv(for: .githubPagesPublish, siteDirectory: siteDir)
+        #expect(argv.contains { $0.contains("exit 1") })
+    }
+
+    @Test(
+        """
+        ContainerDeployExecutor's .githubPagesPublish argv passes owner/repo as positional shell \
+        parameters, so shell metacharacters in either cannot execute as commands
+        """
+    )
+    func githubPagesPublishArgvIsSafeAgainstShellInjection() throws {
+        // anglesite.json's githubPages section is app-written today, but nothing about guestArgv
+        // itself validates its contents — this proves a malformed repo name can't break out of
+        // the intended git invocation when the produced argv is actually executed by `sh`, not
+        // just that the argv strings "look" quoted. Mirrors DeployCommandTests's
+        // bundleUploadArgvIsSafeAgainstShellInjectionInBucketName exactly.
+        let markerFile = FileManager.default.temporaryDirectory
+            .appendingPathComponent("github-pages-pwned-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: markerFile) }
+        #expect(!FileManager.default.fileExists(atPath: markerFile.path))
+
+        let payload = "evil-repo'; touch \(markerFile.path); echo '"
+        let siteDir = try makeSiteDirectory(githubPagesOwner: "acme", repo: payload)
+        defer { try? FileManager.default.removeItem(at: siteDir) }
+        try FileManager.default.createDirectory(
+            at: siteDir.appendingPathComponent("dist"), withIntermediateDirectories: true)
+
+        let argv = ContainerDeployExecutorTestHook.guestArgv(for: .githubPagesPublish, siteDirectory: siteDir)
+        #expect(argv.contains(payload))
+
+        // Stub `git` on PATH so the script doesn't need a real repo or network — the point is
+        // only to observe whether the shell executes the injected `touch`, not whether git itself
+        // succeeds. Mirrors the bundle-upload injection test's `tar`/`npx` stubbing.
+        let binDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("github-pages-injection-bin-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: binDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: binDir) }
+        let gitStub = binDir.appendingPathComponent("git")
+        try "#!/bin/sh\nexit 0\n".write(to: gitStub, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: gitStub.path)
+
+        // argv is ["sh", "-c", script, "sh", owner, repo] — feed it to a real `sh` exactly as
+        // ContainerDeployExecutor would hand it to the guest's exec call.
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/bin/sh")
+        process.arguments = Array(argv.dropFirst())
+        process.currentDirectoryURL = siteDir
+        var environment = ProcessInfo.processInfo.environment
+        environment["PATH"] = binDir.path + ":" + (environment["PATH"] ?? "")
+        environment["GITHUB_PAGES_TOKEN"] = "test-token"
+        process.environment = environment
+        try process.run()
+        process.waitUntilExit()
+
+        #expect(
+            !FileManager.default.fileExists(atPath: markerFile.path),
+            "shell metacharacters in the GitHub Pages repo name executed as commands — injection is not blocked")
+    }
+
+    @Test("githubPagesPublish forwards GITHUB_PAGES_TOKEN in env, and nothing else")
+    func githubPagesPublishForwardsToken() async {
+        let fake = fakePassing()
+        let executor = makeExecutor(fake: fake)
+        _ = await executor.run(
+            step: .githubPagesPublish,
+            siteDirectory: URL(fileURLWithPath: "/host/irrelevant"),
+            environment: [
+                "GITHUB_PAGES_TOKEN": "supersecret",
+                "CLOUDFLARE_API_TOKEN": "should-not-leak",
+                "PATH": "/opt/homebrew/bin:/usr/bin"
+            ],
+            source: "deploy:site-abc"
+        )
+        let env = await fake.execCalls[0].env
+        #expect(env["GITHUB_PAGES_TOKEN"] == "supersecret")
+        #expect(env["CLOUDFLARE_API_TOKEN"] == nil)
+        #expect(env["PATH"] == nil)
+    }
+
     // MARK: - cwd is always /workspace/site
 
     @Test("exec always uses /workspace/site as working directory")

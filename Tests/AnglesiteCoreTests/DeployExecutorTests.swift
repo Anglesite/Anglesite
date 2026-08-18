@@ -125,6 +125,7 @@ struct DeployExecutorTests {
         #expect(HostDeployExecutor.defaultResolver(.build)(dir) == .unavailable(reason: "site build must run in the container runtime; host Node has been retired"))
         #expect(HostDeployExecutor.defaultResolver(.preflight)(dir) == .unavailable(reason: "pre-deploy check must run in the container runtime; host Node has been retired"))
         #expect(HostDeployExecutor.defaultResolver(.wrangler)(dir) == .unavailable(reason: "wrangler deploy must run in the container runtime; host Node has been retired"))
+        #expect(HostDeployExecutor.defaultResolver(.githubPagesPublish)(dir) == .unavailable(reason: "GitHub Pages publish must run in the container runtime; host Node has been retired"))
 
         let executor = HostDeployExecutor(supervisor: ProcessSupervisor(), logCenter: LogCenter())
         let result = await executor.run(step: .preflight, siteDirectory: dir, environment: [:], source: "test:default")

@@ -15,6 +15,12 @@ public enum DeployStep: Sendable {
     /// when `.site-config`'s `CF_SOURCE_BUCKET` is set; `DeployCommand.deploy` skips this step
     /// entirely otherwise (today, for every site — no provisioning flow writes that key yet).
     case bundleUpload
+    /// Force-pushes the built `dist/` to the site's dedicated GitHub Pages repo (#1015 slice 2a),
+    /// declared in `Source/anglesite.json`'s `githubPages` section. Only meaningful for
+    /// `ContainerDeployExecutor` — `dist/` lives in the guest's filesystem, never synced to the
+    /// host, so this step (like `.wrangler`) must run in-guest. Not yet reached by any
+    /// `DeployTarget` — the conformer that calls it is a later slice.
+    case githubPagesPublish
 }
 
 /// The result of running a single deploy step.
@@ -201,7 +207,7 @@ public struct ContainerDeployExecutor: DeployExecutor {
             result = try await control.exec(
                 siteID: siteID,
                 argv: argv,
-                environment: Self.guestEnvironment(from: environment),
+                environment: Self.guestEnvironment(from: environment, step: step),
                 workingDirectory: "/workspace/site",
                 onOutput: { line, stream in continuation.yield((line, stream)) }
             )
@@ -281,7 +287,7 @@ public struct ContainerDeployExecutor: DeployExecutor {
             result = try await control.exec(
                 siteID: siteID,
                 argv: argv,
-                environment: Self.guestEnvironment(from: environment),
+                environment: Self.guestEnvironment(from: environment, step: .build),
                 workingDirectory: "/workspace/site",
                 onOutput: { line, stream in continuation.yield((line, stream)) }
             )
@@ -343,12 +349,27 @@ public struct ContainerDeployExecutor: DeployExecutor {
     /// in the Linux guest. We must NOT forward it wholesale: the host `PATH` (`/opt/homebrew/bin:…`)
     /// would shadow the guest's Linux PATH and break `node`/`npm`/`wrangler` resolution, and
     /// `HOME`/`TMPDIR`/`XPC_*`/`__CF*` are host-only noise. The guest provides its own PATH/HOME; the
-    /// only host-originated value the deploy needs across the boundary is the Cloudflare token. Keep
-    /// this allowlist tight — add a key only when a deploy step demonstrably needs it in-guest.
-    private static let guestEnvAllowlist: Set<String> = ["CLOUDFLARE_API_TOKEN"]
+    /// only host-originated values the deploy ever needs across the boundary are per-step secrets —
+    /// the Cloudflare token for `.wrangler`/`.bundleUpload` (both invoke `wrangler`), the GitHub
+    /// Pages token for `.githubPagesPublish`. Scoped per step, not merely per key: a secret for one
+    /// deploy target must never reach a step that has no business seeing it, e.g. a GitHub Pages
+    /// push must never see `CLOUDFLARE_API_TOKEN` even when both happen to be present in the
+    /// caller-supplied environment dict. Keep each step's list tight — add a key only when that step
+    /// demonstrably needs it in-guest.
+    private static func guestEnvAllowlist(for step: DeployStep) -> Set<String> {
+        switch step {
+        case .build, .preflight:
+            return []
+        case .wrangler, .bundleUpload:
+            return ["CLOUDFLARE_API_TOKEN"]
+        case .githubPagesPublish:
+            return ["GITHUB_PAGES_TOKEN"]
+        }
+    }
 
-    private static func guestEnvironment(from hostEnvironment: [String: String]) -> [String: String] {
-        hostEnvironment.filter { guestEnvAllowlist.contains($0.key) }
+    private static func guestEnvironment(from hostEnvironment: [String: String], step: DeployStep) -> [String: String] {
+        let allowlist = guestEnvAllowlist(for: step)
+        return hostEnvironment.filter { allowlist.contains($0.key) }
     }
 
     // MARK: wrangler.toml sync (#1084)
@@ -395,6 +416,32 @@ public struct ContainerDeployExecutor: DeployExecutor {
                 "--file=/tmp/source-bundle.tar.gz --remote",
                 "sh", bucket
             ]
+        case .githubPagesPublish:
+            guard let (owner, repo) = githubPagesRepo(siteDirectory: siteDirectory) else {
+                return ["sh", "-c", "echo 'GitHub Pages repo is not configured in anglesite.json' >&2; exit 1"]
+            }
+            // Fresh, force-pushed commit each deploy (#1015 slice 2a design decision) — no
+            // incremental history, matching how the ecosystem's gh-pages tool and
+            // peaceiris/actions-gh-pages both work by default. `owner`/`repo` come from
+            // anglesite.json — attacker/owner-controlled content that must never be spliced into
+            // shell script text. Instead of interpolating them, the script references them only
+            // via `$1`/`$2`, POSITIONAL shell parameters, the same injection-safety pattern
+            // `.bundleUpload` uses for CF_SOURCE_BUCKET above. The token crosses the host→guest
+            // boundary only via `$GITHUB_PAGES_TOKEN` (an environment variable, never a shell
+            // argument, never logged) — see `guestEnvAllowlist`. `touch .nojekyll` before staging:
+            // GitHub Pages' branch-source publish path runs the site through Jekyll by default,
+            // which excludes every underscore-prefixed path — including Astro's `dist/_astro/`
+            // asset directory — unless `.nojekyll` exists at the repo root. Without it, a deploy
+            // reports success but silently serves an unstyled, scriptless site. Both ecosystem
+            // tools cited above (`gh-pages`, `peaceiris/actions-gh-pages`) write this file by
+            // default too.
+            return [
+                "sh", "-c",
+                "cd dist && touch .nojekyll && git init -q && git checkout -q -B main && git add -A && " +
+                "git -c user.email=deploy@anglesite.app -c user.name=Anglesite commit -q -m Deploy && " +
+                "git push -q --force \"https://x-access-token:$GITHUB_PAGES_TOKEN@github.com/$1/$2.git\" HEAD:main",
+                "sh", owner, repo
+            ]
         }
     }
 
@@ -405,6 +452,21 @@ public struct ContainerDeployExecutor: DeployExecutor {
         let configURL = siteDirectory.appendingPathComponent(".site-config")
         guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return nil }
         return SiteConfigFile.value(forKey: "CF_SOURCE_BUCKET", in: config)
+    }
+
+    /// Reads `Source/anglesite.json`'s `githubPages.owner`/`.repo` from the HOST `siteDirectory`
+    /// (the guest's copy is a clone of the same repo, so the value is identical) — `nil` when
+    /// either is unset, mirroring `bundleUploadBucket`'s "not configured" precedent. Unlike
+    /// `.bundleUpload` (where "not configured" means `DeployCommand.deploy` skips the step
+    /// entirely before it ever reaches the executor), a `.githubPagesPublish` step that's reached
+    /// with no configured repo is a real misconfiguration — the caller above returns a script
+    /// that fails loudly instead of silently pushing to a malformed URL.
+    private static func githubPagesRepo(siteDirectory: URL) -> (owner: String, repo: String)? {
+        guard let config = try? DomainConfigStore(sourceDirectory: siteDirectory).load(),
+              let owner = config.githubPages?.owner, !owner.isEmpty,
+              let repo = config.githubPages?.repo, !repo.isEmpty
+        else { return nil }
+        return (owner, repo)
     }
 }
 
@@ -540,6 +602,8 @@ public struct HostDeployExecutor: DeployExecutor {
             return DeployCommand.resolveWranglerCommand
         case .bundleUpload:
             return { _ in .unavailable(reason: HostNodeRetirement.reason("source bundle upload")) }
+        case .githubPagesPublish:
+            return { _ in .unavailable(reason: HostNodeRetirement.reason("GitHub Pages publish")) }
         }
     }
 

@@ -42,7 +42,8 @@ struct DomainConfigStoreTests {
             ),
             email: .init(provider: "icloud", dmarcReportEmail: "postmaster@example.com"),
             workers: .init(active: ["webmention-receive", "micropub"]),
-            deployTarget: "cloudflare"
+            deployTarget: "cloudflare",
+            githubPages: .init(owner: "example-owner", repo: "example-site-pages")
         )
         try store.save(config)
         let fileURL = dir.appendingPathComponent("anglesite.json")

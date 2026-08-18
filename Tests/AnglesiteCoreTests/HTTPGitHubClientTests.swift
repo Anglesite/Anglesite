@@ -102,6 +102,72 @@ struct HTTPGitHubClientTests {
         #expect(body?["private"] as? Bool == true)
     }
 
+    // MARK: - enablePages (#1015 slice 2a)
+
+    @Test("enablePages POSTs the legacy build type with the branch/path source")
+    func enablePagesSendsExpectedRequest() async throws {
+        let box = RequestBox()
+        let client = HTTPGitHubClient(transport: Self.recordingTransport(status: 201, json: "{}", into: box))
+        try await client.enablePages(owner: "acme", repo: "site-pages", token: "tok")
+        let request = await box.last
+        #expect(request?.url?.path == "/repos/acme/site-pages/pages")
+        #expect(request?.httpMethod == "POST")
+        #expect(request?.value(forHTTPHeaderField: "Authorization") == "Bearer tok")
+        let body = try #require(request?.httpBody)
+        let decoded = try #require(try JSONSerialization.jsonObject(with: body) as? [String: Any])
+        #expect(decoded["build_type"] as? String == "legacy")
+        let source = try #require(decoded["source"] as? [String: Any])
+        #expect(source["branch"] as? String == "main")
+        #expect(source["path"] as? String == "/")
+    }
+
+    @Test("a successful enablePages call returns normally")
+    func enablePagesSucceeds() async throws {
+        let client = HTTPGitHubClient(transport: Self.transport(status: 201, json: "{}"))
+        try await client.enablePages(owner: "acme", repo: "site-pages", token: "tok")
+    }
+
+    @Test("a 401 on enablePages maps to .unauthorized")
+    func enablePagesUnauthorized() async {
+        let client = HTTPGitHubClient(transport: Self.transport(status: 401, json: #"{"message":"Bad credentials"}"#))
+        await #expect(throws: GitHubRepoAPIError.unauthorized(status: 401)) {
+            try await client.enablePages(owner: "acme", repo: "site-pages", token: "bad")
+        }
+    }
+
+    @Test("a 403 on enablePages maps to .unauthorized")
+    func enablePagesForbidden() async {
+        let client = HTTPGitHubClient(transport: Self.transport(status: 403, json: #"{"message":"Must have admin rights"}"#))
+        await #expect(throws: GitHubRepoAPIError.unauthorized(status: 403)) {
+            try await client.enablePages(owner: "acme", repo: "site-pages", token: "scoped-wrong")
+        }
+    }
+
+    @Test("a 422 on enablePages surfaces as .api with the message")
+    func enablePagesValidationError() async {
+        let client = HTTPGitHubClient(transport: Self.transport(
+            status: 422, json: #"{"message":"Pages is not available for this repository"}"#))
+        await #expect(throws: GitHubRepoAPIError.api(message: "Pages is not available for this repository")) {
+            try await client.enablePages(owner: "acme", repo: "site-pages", token: "tok")
+        }
+    }
+
+    @Test("an unexpected status on enablePages maps to .http(status:)")
+    func enablePagesUnexpectedStatus() async {
+        let client = HTTPGitHubClient(transport: Self.transport(status: 503, json: "{}"))
+        await #expect(throws: GitHubRepoAPIError.http(status: 503)) {
+            try await client.enablePages(owner: "acme", repo: "site-pages", token: "tok")
+        }
+    }
+
+    @Test("a transport failure on enablePages maps to .network")
+    func enablePagesNetworkFailure() async {
+        let client = HTTPGitHubClient(transport: { _ in throw URLError(.notConnectedToInternet) })
+        await #expect(throws: GitHubRepoAPIError.network) {
+            try await client.enablePages(owner: "acme", repo: "site-pages", token: "tok")
+        }
+    }
+
     private actor CapturedRequest {
         private(set) var authHeader: String?
         private(set) var method: String?
