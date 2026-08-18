@@ -96,7 +96,8 @@ struct LicenseGateSheetView: View {
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 6)
 
-                row(title: "All rights reserved", permits: "Nothing without asking", aiNote: nil,
+                row(title: "All rights reserved", permits: "Nothing without asking",
+                    aiNote: aiInterpretationLabel(LicenseCatalog.allRightsReservedInterpretation),
                     choice: .allRightsReserved)
 
                 ForEach(LicenseCatalog.entries) { entry in
@@ -106,11 +107,12 @@ struct LicenseGateSheetView: View {
                         // lookup just falls back to the name itself.
                         title: LocalizedStringKey(entry.name),
                         permits: permitsSummary(for: entry),
-                        aiNote: entry.permitsAIUse ? "✅ Permits" : "❔ Unclear",
+                        aiNote: aiInterpretationLabel(entry.aiInterpretation),
                         choice: .catalog(entry.id))
                 }
 
-                row(title: "Custom…", permits: "Your own terms", aiNote: nil, choice: .custom)
+                row(title: "Custom…", permits: "Your own terms",
+                    aiNote: aiInterpretationLabel(LicenseCatalog.customLicenseInterpretation), choice: .custom)
             }
 
             if selection.choice == .custom {
@@ -167,7 +169,7 @@ struct LicenseGateSheetView: View {
     /// The columns line up because every row — including the header — states the same three
     /// explicit frame widths, which is the alignment job `Grid` used to do.
     private func row(
-        title: LocalizedStringKey, permits: LocalizedStringKey, aiNote: LocalizedStringKey?,
+        title: LocalizedStringKey, permits: LocalizedStringKey, aiNote: LocalizedStringKey,
         choice: Selection.Choice
     ) -> some View {
         Button {
@@ -179,7 +181,7 @@ struct LicenseGateSheetView: View {
                 Text(permits)
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(width: Self.permitsColumnWidth, alignment: .leading)
-                Text(aiNote ?? "—")
+                Text(aiNote)
                     .font(.caption).foregroundStyle(.secondary)
                     .frame(width: Self.aiColumnWidth, alignment: .leading)
             }
@@ -199,12 +201,12 @@ struct LicenseGateSheetView: View {
     private static let columnSpacing: CGFloat = 16
     private static let licenseColumnWidth: CGFloat = 150
     private static let permitsColumnWidth: CGFloat = 260
-    private static let aiColumnWidth: CGFloat = 80
+    private static let aiColumnWidth: CGFloat = 100
 
     /// Plain-language summary of what each catalog license permits — the middle comparison-table
-    /// column. Keyed by catalog id rather than re-deriving from `permitsAIUse` so it stays
+    /// column. Keyed by catalog id rather than re-deriving from `aiInterpretation` so it stays
     /// independent of the AI classification the last column already renders.
-    private func permitsSummary(for entry: LicenseCatalog.Entry) -> LocalizedStringKey {
+    func permitsSummary(for entry: LicenseCatalog.Entry) -> LocalizedStringKey {
         switch entry.id {
         case "cc0-1.0": return "Any use, no credit required"
         case "cc-by-4.0": return "Any use, with credit"
@@ -217,6 +219,16 @@ struct LicenseGateSheetView: View {
         // column just repeats the license name (and, being catalog data rather than UI copy,
         // isn't a literal key the way every case above is).
         default: return LocalizedStringKey(entry.name)
+        }
+    }
+
+    /// Row copy for the "AI systems" column, keyed by the 3-state classification (#999) rather
+    /// than a bare bool — see `LicenseCatalog.AIInterpretation`.
+    func aiInterpretationLabel(_ interpretation: LicenseCatalog.AIInterpretation) -> LocalizedStringKey {
+        switch interpretation {
+        case .permits: return "✅ Permits"
+        case .unclear: return "❔ Unclear"
+        case .prohibits: return "🚫 Prohibits"
         }
     }
 }

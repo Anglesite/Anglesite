@@ -211,6 +211,18 @@ public enum LicensableCollection: String, Sendable, Equatable, CaseIterable, Ide
         default: false
         }
     }
+
+    /// Best-effort collection for a page route like `/notes/my-slug/` — the route's first
+    /// non-empty path segment, when it names a licensable collection. `nil` for routes outside
+    /// every collection (the home page, static pages), which should resolve straight to the site
+    /// default via `LicensingPolicy.resolvedLicense(for: nil)`.
+    public init?(routePath: String) {
+        guard let segment = routePath.split(separator: "/", omittingEmptySubsequences: true).first,
+              let match = LicensableCollection(rawValue: String(segment)) else {
+            return nil
+        }
+        self = match
+    }
 }
 
 /// What one collection does about licensing. The three cases are exactly the three states
@@ -278,6 +290,39 @@ public struct LicensingPolicy: Sendable, Equatable {
         } else {
             collections[collection] = rule
         }
+    }
+
+    /// The license that applies to `collection`, or nil when nothing should be asserted.
+    /// Mirrors `resolveLicense` in `Resources/Template/src/lib/licensing.ts` exactly — this is
+    /// the Swift-side port of the same precedence rule (explicit per-collection entry, including
+    /// an explicit null, wins; then the non-asserting default; then the site default) — needed
+    /// app-side for the first time by the attach-time license picker (#999), which has to know
+    /// what a file's containing collection would resolve to *before* the file is written, not
+    /// just at template build time.
+    ///
+    /// `collection == nil` means a page outside every collection (e.g. a static `.astro` page) —
+    /// it resolves straight to the site default, since no per-collection rule can apply.
+    public func resolvedLicense(for collection: LicensableCollection?) -> LicenseRef? {
+        guard let collection else { return defaultLicense }
+        switch rule(for: collection) {
+        case .inherit:
+            return collection.assertsNothingByDefault ? nil : defaultLicense
+        case .assertNothing:
+            return nil
+        case .license(let ref):
+            return ref
+        }
+    }
+
+    /// Whether a per-file embedding control (the attach-time picker, and later the drop-and-
+    /// inspect picker) should be suppressed entirely for `collection` — the owner-locked rule
+    /// (#999, 2026-08-13): the four non-asserting collections don't get an embedding choice
+    /// offered at all, *unless* the site owner has explicitly overridden that collection with a
+    /// real license, in which case the override wins the same way it wins in `resolvedLicense`.
+    public func suppressesFileEmbedding(for collection: LicensableCollection?) -> Bool {
+        guard let collection else { return false }
+        if case .license = rule(for: collection) { return false }
+        return collection.assertsNothingByDefault
     }
 }
 

@@ -19,8 +19,20 @@ struct LicenseCatalogTests {
 
     @Test("only CC0, CC BY, and CC BY-SA are classified as permitting AI use")
     func classification() {
-        let permitting = Set(LicenseCatalog.entries.filter(\.permitsAIUse).map(\.id))
+        let permitting = Set(LicenseCatalog.entries.filter { $0.aiInterpretation == .permits }.map(\.id))
         #expect(permitting == ["cc0-1.0", "cc-by-4.0", "cc-by-sa-4.0"])
+        let unclear = Set(LicenseCatalog.entries.filter { $0.aiInterpretation == .unclear }.map(\.id))
+        #expect(unclear == ["cc-by-nc-4.0", "cc-by-nd-4.0", "cc-by-nc-sa-4.0", "cc-by-nc-nd-4.0"])
+    }
+
+    @Test("all-rights-reserved is classified as prohibiting AI use — it grants no permission at all")
+    func allRightsReservedInterpretation() {
+        #expect(LicenseCatalog.allRightsReservedInterpretation == .prohibits)
+    }
+
+    @Test("a custom license is classified as unclear — its terms are never read")
+    func customLicenseInterpretation() {
+        #expect(LicenseCatalog.customLicenseInterpretation == .unclear)
     }
 
     @Test("entry(for:) matches by URL and returns nil for a custom or absent license")

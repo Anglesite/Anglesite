@@ -1596,6 +1596,9 @@
     "Embed" : {
 
     },
+    "Embed a license in this file" : {
+
+    },
     "Emphasis" : {
 
     },
@@ -4344,6 +4347,9 @@
 
     },
     "👥" : {
+
+    },
+    "🚫 Prohibits" : {
 
     }
   },
