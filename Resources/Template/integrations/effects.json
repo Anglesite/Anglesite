@@ -229,6 +229,40 @@
         "value": 60
       },
       "snippet": "---\nimport ProgressBar from \"@astroanimate/core/ProgressBar\";\n---\n<ProgressBar value={60} label=\"Upload progress\" />"
+    },
+    {
+      "component": "ParallaxLayers",
+      "title": "Parallax Layers",
+      "ownerDescription": "A layered section where the background drifts slower than the foreground as you scroll past.",
+      "category": "scrollDriven",
+      "keyProps": {
+        "height": "CSS height of the layered area (default \"40vh\")"
+      },
+      "props": {},
+      "snippet": "---\nimport ParallaxLayers from \"../components/effects/ParallaxLayers.astro\";\n---\n<ParallaxLayers height=\"50vh\" />",
+      "placement": { "kind": "inline", "allowedParents": null }
+    },
+    {
+      "component": "RevealMask",
+      "title": "Reveal Mask",
+      "ownerDescription": "Content that unmasks into view, left to right, the first time you scroll it into the viewport.",
+      "category": "scrollDriven",
+      "keyProps": {},
+      "props": {},
+      "snippet": "---\nimport RevealMask from \"../components/effects/RevealMask.astro\";\n---\n<RevealMask>\n  <h2>Now you see it</h2>\n</RevealMask>",
+      "placement": { "kind": "inline", "allowedParents": null }
+    },
+    {
+      "component": "ScrollProgressTrace",
+      "title": "Scroll Progress Trace",
+      "ownerDescription": "A slender line fixed to the edge of the page that fills as the visitor reads down.",
+      "category": "scrollDriven",
+      "keyProps": {
+        "color": "CSS color for the trace line (default \"currentColor\")"
+      },
+      "props": {},
+      "snippet": "---\nimport ScrollProgressTrace from \"../components/effects/ScrollProgressTrace.astro\";\n---\n<ScrollProgressTrace color=\"#3b82f6\" />",
+      "placement": { "kind": "inline", "allowedParents": null }
     }
   ]
 }

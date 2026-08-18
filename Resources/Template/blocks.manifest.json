@@ -1,4 +1,35 @@
 {
   "schemaVersion": "anglesite-block-manifest/1",
-  "modules": []
+  "modules": [
+    {
+      "path": "src/components/effects/ParallaxLayers.astro",
+      "export": "ParallaxLayers",
+      "kind": "astro",
+      "name": "Parallax Layers",
+      "description": "A layered section where the background drifts slower than the foreground as you scroll past.",
+      "icon": null,
+      "propEditors": [],
+      "slots": []
+    },
+    {
+      "path": "src/components/effects/RevealMask.astro",
+      "export": "RevealMask",
+      "kind": "astro",
+      "name": "Reveal Mask",
+      "description": "Content that unmasks into view, left to right, the first time you scroll it into the viewport.",
+      "icon": null,
+      "propEditors": [],
+      "slots": ["default"]
+    },
+    {
+      "path": "src/components/effects/ScrollProgressTrace.astro",
+      "export": "ScrollProgressTrace",
+      "kind": "astro",
+      "name": "Scroll Progress Trace",
+      "description": "A slender line fixed to the edge of the page that fills as the visitor reads down.",
+      "icon": null,
+      "propEditors": [],
+      "slots": []
+    }
+  ]
 }
