@@ -82,6 +82,41 @@ public struct HTTPGitHubClient: Sendable {
         return RemoteRepo(url: browse, owner: created.owner.login, name: created.name)
     }
 
+    /// `POST /repos/{owner}/{repo}/pages` — enables GitHub Pages, publishing from `main` at the
+    /// repo root via the "legacy" (deploy-from-branch) build type, no GitHub Actions involved.
+    /// Error mapping matches ``createRepo(name:isPrivate:token:)`` exactly. Callers decide how to
+    /// handle a repo that already has Pages configured (#1015 slice 2b) — this method makes no
+    /// assumption about GitHub's response to a repeat call.
+    public func enablePages(owner: String, repo: String, token: String) async throws {
+        guard let url = URL(string: Self.base + "/repos/\(owner)/\(repo)/pages") else {
+            throw GitHubRepoAPIError.malformedResponse
+        }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/vnd.github+json", forHTTPHeaderField: "Accept")
+        request.setValue("2022-11-28", forHTTPHeaderField: "X-GitHub-Api-Version")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(
+            PagesConfigBody(buildType: "legacy", source: .init(branch: "main", path: "/")))
+
+        let data: Data
+        let http: HTTPURLResponse
+        do {
+            (data, http) = try await transport(request)
+        } catch {
+            throw GitHubRepoAPIError.network
+        }
+        if http.statusCode == 401 || http.statusCode == 403 {
+            throw GitHubRepoAPIError.unauthorized(status: http.statusCode)
+        }
+        if http.statusCode == 422 {
+            let envelope = try? JSONDecoder().decode(GitHubErrorResponse.self, from: data)
+            throw GitHubRepoAPIError.api(message: envelope?.message ?? "request failed")
+        }
+        guard (200..<300).contains(http.statusCode) else { throw GitHubRepoAPIError.http(status: http.statusCode) }
+    }
+
     /// Shared request builder for the repo-security calls — same headers and auth as `createRepo`.
     private func repoRequest(method: String, path: String, token: String) throws -> URLRequest {
         guard let url = URL(string: Self.base + path) else { throw GitHubRepoAPIError.malformedResponse }
@@ -177,6 +212,13 @@ public struct HTTPGitHubClient: Sendable {
         let name: String
         let isPrivate: Bool
         enum CodingKeys: String, CodingKey { case name, isPrivate = "private" }
+    }
+
+    private struct PagesConfigBody: Encodable {
+        let buildType: String
+        let source: Source
+        struct Source: Encodable { let branch: String; let path: String }
+        enum CodingKeys: String, CodingKey { case buildType = "build_type", source }
     }
 
     private struct CreatedRepoResponse: Decodable {
