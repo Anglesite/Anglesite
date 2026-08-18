@@ -54,16 +54,26 @@ describe("effects library (scroll-driven)", () => {
           slots: { default: `${entry.title} demo` },
         });
         // AstroContainer#renderToString only returns the component's own markup — it does not
-        // bundle the component's scoped <style> block, since that extraction is normally a
-        // Vite/build-time asset step the container API doesn't run. Pull the component's real
-        // CSS straight from its source so the demo actually animates offline, in a WKWebView,
-        // with no dev server: every one of this slice's components' selectors are plain classes
-        // (not Astro's :scope hash), so inlining the raw rule set is safe for a page containing
-        // exactly one instance.
+        // bundle the component's scoped <style> block (that extraction is normally a
+        // Vite/build-time asset step the container API doesn't run), so pull the raw CSS
+        // straight from the component source instead. It also renders each component's
+        // non-inline <script> as a module reference pointing at the *absolute filesystem path*
+        // of the .astro source (`<script type="module" src="/Users/.../Foo.astro?astro&...">`),
+        // which is real for the machine that ran the container but not portable — a fresh
+        // checkout on another machine (or CI) resolves to a different absolute path, making the
+        // snapshot spuriously mismatch. Strip that reference entirely: it wouldn't execute in a
+        // static demo page anyway (no dev server to serve the `?astro&type=script` transform),
+        // so the demo is a static, non-interactive preview of the component's markup and
+        // styling, matching the existing legacy `effects-catalog.spec.ts` demos.
         const componentSource = readFileSync(`src/components/effects/${entry.component}.astro`, "utf8");
         const componentCss = [...componentSource.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
           .map((match) => match[1])
           .join("\n");
+        let innerWithoutScriptRefs = inner;
+        for (let previous = ""; previous !== innerWithoutScriptRefs; ) {
+          previous = innerWithoutScriptRefs;
+          innerWithoutScriptRefs = innerWithoutScriptRefs.replace(/<script\b[^>]*><\/script>/g, "");
+        }
         const page = [
           "<!doctype html>",
           `<html lang="en"><head><meta charset="utf-8"><title>${entry.title}</title>`,
@@ -71,7 +81,7 @@ describe("effects library (scroll-driven)", () => {
           "font-family:-apple-system,system-ui,sans-serif;background:Canvas;color:CanvasText;color-scheme:light dark}</style>",
           `<style>${componentCss}</style>`,
           "</head><body>",
-          inner,
+          innerWithoutScriptRefs,
           "</body></html>",
           "",
         ]
