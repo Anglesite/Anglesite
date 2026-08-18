@@ -43,6 +43,7 @@ struct DeployCommandTests {
             case .preflight: return "preflight"
             case .wrangler: return "wrangler"
             case .bundleUpload: return "bundleUpload"
+            case .githubPagesPublish: return "githubPagesPublish"
             }
         }
 
@@ -987,6 +988,8 @@ struct DeployCommandTests {
                         return .run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "echo 'Published angle-app (1.23 sec)'; echo '  https://angle-app.example.workers.dev'; exit 0"])
                     case .bundleUpload:
                         return .unavailable(reason: "not exercised in this test")
+                    case .githubPagesPublish:
+                        return .unavailable(reason: "not exercised in this test")
                     }
                 }
             }
@@ -1018,6 +1021,8 @@ struct DeployCommandTests {
                     case .wrangler:
                         return .run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "echo \"TOKEN=$CLOUDFLARE_API_TOKEN\"; echo 'Published x (0.1 sec)'; echo '  https://x.workers.dev'"])
                     case .bundleUpload:
+                        return .unavailable(reason: "not exercised in this test")
+                    case .githubPagesPublish:
                         return .unavailable(reason: "not exercised in this test")
                     }
                 }
@@ -1066,6 +1071,8 @@ struct DeployCommandTests {
                     case .wrangler:
                         return .run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "trap 'echo __SIGTERM__; exit 143' TERM; echo __STARTED__; sleep 20; echo __COMPLETED__"])
                     case .bundleUpload:
+                        return .unavailable(reason: "not exercised in this test")
+                    case .githubPagesPublish:
                         return .unavailable(reason: "not exercised in this test")
                     }
                 }
