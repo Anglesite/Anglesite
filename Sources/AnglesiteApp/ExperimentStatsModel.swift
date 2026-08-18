@@ -59,6 +59,9 @@ final class ExperimentStatsModel: Identifiable {
 
     private(set) var step: Step
     let goalPickController = GoalElementPickController()
+    /// Resolves `siteID` back to `sourceDirectory` — the only site this model ever operates on —
+    /// rather than widening `NativeContentOperations`' general-purpose multi-site resolver.
+    private let contentOps: NativeContentOperations
 
     // #769 manual-entry fields — unchanged from before this task.
     var experimentName: String = ""
@@ -80,6 +83,8 @@ final class ExperimentStatsModel: Identifiable {
         self.sourceDirectory = sourceDirectory
         self.currentRoute = currentRoute
         self.step = Self.resolveInitialStep(sourceDirectory: sourceDirectory)
+        self.contentOps = NativeContentOperations(
+            siteDirectory: { queriedSiteID in queriedSiteID == siteID ? sourceDirectory : nil })
     }
 
     /// Reads `anglesite.json`'s declared experiment (if any) to decide where the sheet opens:
@@ -145,5 +150,58 @@ final class ExperimentStatsModel: Identifiable {
     /// entered counts themselves.
     func editAgain() {
         result = nil
+    }
+
+    /// Duplicates the control page under `/x/<experimentID>/<variantID>` via
+    /// `NativeContentOperations.duplicatePageAsVariant`, then records the built route on the
+    /// draft and persists it. A no-op outside `.configure` or once a variant is already scaffolded
+    /// (re-running would collide with the existing variant file).
+    func scaffoldVariant() async {
+        guard case .configure(var draft) = step, draft.variantPage == nil else { return }
+        let controlRelPath = "src/pages\(draft.page == "/" ? "/index" : draft.page).astro"
+        let result = await contentOps.duplicatePageAsVariant(
+            siteID: siteID, relativePath: controlRelPath, experimentID: draft.id, variantID: draft.variantID)
+        guard case .created(_, let route) = result else { return }
+        draft.variantPage = route
+        step = .configure(draft)
+        persistDraft(draft)
+    }
+
+    /// Sets a pageview goal (reaching `path` counts as a conversion) and persists the draft.
+    func setPageviewGoal(path: String) {
+        updateDraftGoal { $0.goalKind = "pageview"; $0.goalPath = path; $0.goalDepth = nil; $0.goalSelector = nil }
+    }
+
+    /// Sets a scroll-depth goal (`depth` percent of the page scrolled) and persists the draft.
+    func setScrollGoal(depth: Int) {
+        updateDraftGoal { $0.goalKind = "scroll"; $0.goalDepth = depth; $0.goalPath = nil; $0.goalSelector = nil }
+    }
+
+    /// Call after `goalPickController.state` reaches `.succeeded(selector:)` — the sheet view's
+    /// `.onChange(of: goalPickController.state)` is the caller (Task 14).
+    func applyPickedVisibleGoal() {
+        guard case .succeeded(let selector) = goalPickController.state else { return }
+        updateDraftGoal { $0.goalKind = "visible"; $0.goalSelector = selector; $0.goalPath = nil; $0.goalDepth = nil }
+        goalPickController.acknowledge()
+    }
+
+    private func updateDraftGoal(_ mutate: (inout Draft) -> Void) {
+        guard case .configure(var draft) = step else { return }
+        mutate(&draft)
+        step = .configure(draft)
+        persistDraft(draft)
+    }
+
+    /// Best-effort write-through of the in-progress draft to `anglesite.json` — a no-op until
+    /// both the variant and a goal are set (`Draft.asExperiment` is `nil` until then).
+    private func persistDraft(_ draft: Draft) {
+        guard let experiment = draft.asExperiment else { return }
+        DomainConfigStore.update(sourceDirectory: sourceDirectory) { $0.experiments = .init(active: [experiment]) }
+    }
+
+    /// Gates Task 13's start action: both the variant page and a goal must be set.
+    var canStart: Bool {
+        guard case .configure(let draft) = step else { return false }
+        return draft.asExperiment != nil
     }
 }

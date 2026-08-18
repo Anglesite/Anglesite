@@ -99,6 +99,63 @@ import Foundation
         #expect(draft.page == "/")
     }
 
+    @Test func scaffoldVariantWritesTheVariantPageAndUpdatesTheDraft() async throws {
+        let tmp = try tempDirectory()
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("src/pages"), withIntermediateDirectories: true)
+        try """
+        ---
+        import BaseLayout from "../layouts/BaseLayout.astro";
+        ---
+        <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
+        """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
+
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        model.proposeCustom(name: "Hero headline")
+        await model.scaffoldVariant()
+
+        guard case .configure(let draft) = model.step else {
+            Issue.record("expected .configure, got \(model.step)")
+            return
+        }
+        #expect(draft.variantPage == "/x/hero-headline/b")
+    }
+
+    // scaffoldVariant is async and file-backed (already covered above); this test isolates
+    // goal-setting + persistence by scaffolding a real variant via the same fixture shape rather
+    // than reaching for a test-only draft setter, keeping Draft's mutation surface private to the
+    // model's own methods.
+    @Test func settingAGoalPersistsTheDraftToConfig() async throws {
+        let tmp = try tempDirectory()
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("src/pages"), withIntermediateDirectories: true)
+        try """
+        ---
+        import BaseLayout from "../layouts/BaseLayout.astro";
+        ---
+        <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
+        """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
+
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        model.proposeCustom(name: "Hero headline")
+        await model.scaffoldVariant()
+
+        model.setPageviewGoal(path: "/contact/thanks/")
+
+        let saved = try DomainConfigStore(sourceDirectory: tmp).load()
+        #expect(saved.experiments?.active?.first?.goal.kind == "pageview")
+        #expect(saved.experiments?.active?.first?.status == "draft")
+    }
+
+    @Test func canStartOnlyOnceVariantAndGoalAreBothSet() throws {
+        let tmp = try tempDirectory()
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        model.proposeCustom(name: "Hero headline")
+        #expect(!model.canStart)
+        model.setScrollGoal(depth: 75)
+        #expect(!model.canStart) // no variantPage yet
+    }
+
     private func tempDirectory() throws -> URL {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
