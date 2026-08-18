@@ -19,6 +19,7 @@ struct SettingsBox<Content: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             title.font(.headline)
+                .accessibilityAddTraits(.isHeader)
             content()
         }
         .padding(10)
