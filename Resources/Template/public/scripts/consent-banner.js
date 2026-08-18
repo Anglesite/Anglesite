@@ -71,7 +71,8 @@
       // shape as XSS.
       var dataSrc = el.getAttribute("data-src");
       if (dataSrc && dataSrc.startsWith("https://")) {
-        el.setAttribute("src", dataSrc); // codeql[js/xss-through-dom] -- see comment above
+        // codeql[js/xss-through-dom] -- see comment above
+        el.setAttribute("src", dataSrc);
       }
       if (el.tagName === "SCRIPT" && el.getAttribute("type") === "text/plain") {
         var replacement = document.createElement("script");
