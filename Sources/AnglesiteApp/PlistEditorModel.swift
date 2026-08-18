@@ -50,6 +50,11 @@ final class PlistEditorModel {
     private(set) var redirectsError: String?
     private(set) var isSavingRedirects = false
     private(set) var redirectsLoadFailed = false
+    var utmCampaigns: [UTMCodesStore.Campaign] = []
+    private(set) var savedUTMCampaigns: [UTMCodesStore.Campaign] = []
+    private(set) var utmCodesError: String?
+    private(set) var isSavingUTMCodes = false
+    private(set) var utmCodesLoadFailed = false
     var conflictDiskContents: String?
     var licensingPolicy = LicensingPolicy() {
         didSet {
@@ -197,6 +202,7 @@ final class PlistEditorModel {
     var isAnalyticsDirty: Bool { analyticsSettings != savedAnalyticsSettings && loadError == nil && !isLoading }
     var isLangDirty: Bool { langSettings != savedLangSettings && loadError == nil && !isLoading }
     var isRedirectsDirty: Bool { redirectEntries != savedRedirectEntries && loadError == nil && !isLoading }
+    var isUTMCodesDirty: Bool { utmCampaigns != savedUTMCampaigns && loadError == nil && !isLoading }
     var isLicensingDirty: Bool { licensingPolicy != savedLicensingPolicy && loadError == nil && !isLoading }
     var isMtaStsDirty: Bool { mtaStsSettings != savedMtaStsSettings && loadError == nil && !isLoading }
     var isSecurityReportingDirty: Bool {
@@ -317,6 +323,18 @@ final class PlistEditorModel {
                 redirectsLoadFailed = true
             }
             do {
+                let campaigns = try UTMCodesStore(sourceDirectory: sourceDirectory).load()
+                utmCampaigns = campaigns
+                savedUTMCampaigns = campaigns
+                utmCodesError = nil
+                utmCodesLoadFailed = false
+            } catch {
+                utmCampaigns = []
+                savedUTMCampaigns = []
+                utmCodesError = "Couldn't load existing utm-codes.json — it may be corrupted or hand-edited with invalid entries. Fix it externally or your next save will discard it. (\(error.localizedDescription))"
+                utmCodesLoadFailed = true
+            }
+            do {
                 let policy = try LicensingStore(sourceDirectory: sourceDirectory).load()
                 licensingPolicy = policy
                 savedLicensingPolicy = policy
@@ -399,6 +417,9 @@ final class PlistEditorModel {
         }
         if isRedirectsDirty {
             guard await saveRedirects() else { return false }
+        }
+        if isUTMCodesDirty {
+            guard await saveUTMCodes() else { return false }
         }
         if isLicensingDirty {
             guard await saveLicensing() else { return false }
@@ -506,6 +527,34 @@ final class PlistEditorModel {
             return true
         } catch {
             redirectsError = "Couldn't save redirects: \(error.localizedDescription)"
+            return false
+        }
+    }
+
+    @discardableResult
+    func saveUTMCodes() async -> Bool {
+        guard isUTMCodesDirty else {
+            utmCodesError = nil
+            return true
+        }
+        guard !isSavingUTMCodes else { return false }
+        guard !utmCodesLoadFailed else {
+            utmCodesError = "Refusing to save: the existing utm-codes.json failed to load and may contain campaigns this save would discard. Fix or back up the file, then reload this site's settings."
+            return false
+        }
+        isSavingUTMCodes = true
+        utmCodesError = nil
+        defer { isSavingUTMCodes = false }
+        let sourceDirectory = sourceDirectory
+        let campaigns = utmCampaigns
+        do {
+            try await Task.detached(priority: .userInitiated) {
+                try UTMCodesStore(sourceDirectory: sourceDirectory).save(campaigns)
+            }.value
+            savedUTMCampaigns = campaigns
+            return true
+        } catch {
+            utmCodesError = "Couldn't save UTM codes: \(error.localizedDescription)"
             return false
         }
     }
@@ -1310,6 +1359,7 @@ final class PlistEditorModel {
             DirtyFacet(isDirty: isAnalyticsDirty, isSaving: isSavingAnalytics) { await self.saveAnalytics() },
             DirtyFacet(isDirty: isLangDirty, isSaving: isSavingLang) { await self.saveLang() },
             DirtyFacet(isDirty: isRedirectsDirty, isSaving: isSavingRedirects) { await self.saveRedirects() },
+            DirtyFacet(isDirty: isUTMCodesDirty, isSaving: isSavingUTMCodes) { await self.saveUTMCodes() },
             DirtyFacet(isDirty: isLicensingDirty, isSaving: isSavingLicensing) { await self.saveLicensing() },
             DirtyFacet(isDirty: isMtaStsDirty, isSaving: isSavingMtaSts) { await self.saveMtaSts() },
             DirtyFacet(isDirty: isSecurityReportingDirty, isSaving: isSavingSecurityReporting) { await self.saveSecurityReporting() },

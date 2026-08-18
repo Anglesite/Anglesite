@@ -391,6 +391,9 @@
     "Add Site" : {
 
     },
+    "Add UTM Code" : {
+
+    },
     "Add a ${type} record to ${domain}" : {
 
     },
@@ -563,6 +566,9 @@
 
     },
     "Applies only to AI agents you haven't refused above — one you've blocked never requests your pages in the first place, so this never overrides that refusal." : {
+
+    },
+    "Applies to" : {
 
     },
     "Apply" : {
@@ -817,6 +823,9 @@
 
     },
     "CMS Mode Not Available" : {
+
+    },
+    "Campaign" : {
 
     },
     "Can't Connect" : {
@@ -1190,6 +1199,9 @@
 
     },
     "Content" : {
+
+    },
+    "Content (optional)" : {
 
     },
     "Content Imported" : {
@@ -2215,6 +2227,12 @@
     "Mail domain" : {
 
     },
+    "Manage UTM Codes…" : {
+
+    },
+    "Medium (e.g. feed)" : {
+
+    },
     "Members" : {
 
     },
@@ -2357,6 +2375,9 @@
 
     },
     "No Suggestions" : {
+
+    },
+    "No UTM codes yet. Add one below." : {
 
     },
     "No agents configured." : {
@@ -3570,6 +3591,9 @@
     "Source" : {
 
     },
+    "Source (e.g. rss)" : {
+
+    },
     "Sources" : {
 
     },
@@ -3683,6 +3707,9 @@
 
     },
     "Temporary (302)" : {
+
+    },
+    "Term (optional)" : {
 
     },
     "Test ideas" : {
@@ -3888,6 +3915,9 @@
 
     },
     "URL" : {
+
+    },
+    "UTM Codes" : {
 
     },
     "Unavailable — newer edits have been made since" : {

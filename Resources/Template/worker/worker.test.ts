@@ -22,6 +22,7 @@ import {
   type WorkerEnv,
 } from "./worker";
 import worker from "./worker";
+import { tagFediverseUrl } from "./utm-codes.ts";
 
 const testEnv = env as unknown as WorkerEnv;
 
@@ -1602,6 +1603,70 @@ test("micropub-to-activitypub fan-out: never fires when ActivityPub isn't provis
   const response = await worker.fetch(request, envWithoutToken as WorkerEnv, createExecutionContext());
   // Must still succeed as a plain Micropub create — the fan-out being skipped is silent, not a failure.
   expect(response.status).toBe(201);
+});
+
+test("tagFediverseUrl: appends utm params when a campaign targets fediverse", () => {
+  const campaigns = [
+    { source: "fediverse", medium: "social", campaign: "affiliate-2026", appliesTo: ["fediverse"] },
+  ];
+  const tagged = tagFediverseUrl("https://owner.example/notes/abc/", campaigns);
+  const u = new URL(tagged);
+  expect(u.searchParams.get("utm_source")).toBe("fediverse");
+  expect(u.searchParams.get("utm_medium")).toBe("social");
+  expect(u.searchParams.get("utm_campaign")).toBe("affiliate-2026");
+});
+
+test("tagFediverseUrl: returns the url unchanged when no campaign targets fediverse", () => {
+  const campaigns = [{ source: "rss", medium: "feed", campaign: "x", appliesTo: ["blog"] }];
+  expect(tagFediverseUrl("https://owner.example/notes/abc/", campaigns)).toBe("https://owner.example/notes/abc/");
+});
+
+test("tagFediverseUrl: a malformed artifact (not an array) is treated as no campaigns", () => {
+  expect(tagFediverseUrl("https://owner.example/notes/abc/", { bad: true })).toBe(
+    "https://owner.example/notes/abc/",
+  );
+});
+
+test("tagFediverseUrl: malformed individual entries in the artifact are ignored", () => {
+  const campaigns = [{ source: "fediverse" }, { source: "fediverse", medium: "social", campaign: "x", appliesTo: ["fediverse"] }];
+  const tagged = tagFediverseUrl("https://owner.example/notes/abc/", campaigns);
+  expect(new URL(tagged).searchParams.get("utm_campaign")).toBe("x");
+});
+
+test("tagFediverseUrl: returns the original string unchanged rather than throwing on an unparseable URL", () => {
+  const campaigns = [
+    { source: "fediverse", medium: "social", campaign: "affiliate-2026", appliesTo: ["fediverse"] },
+  ];
+  expect(() => tagFediverseUrl("not a url", campaigns)).not.toThrow();
+  expect(tagFediverseUrl("not a url", campaigns)).toBe("not a url");
+});
+
+test("micropub-to-activitypub fan-out: outbox Note.url matches the created post's Location when the default utm-codes.json has no active Fediverse campaign", async () => {
+  const { token, keyPair } = await mintAccessToken("create");
+  const url = "https://owner.example/micropub";
+  const ctx = createExecutionContext();
+  const createResponse = await worker.fetch(new Request(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `DPoP ${token}`,
+      DPoP: await dpopProof(url, "POST", keyPair, token),
+    },
+    body: JSON.stringify({
+      type: ["h-entry"],
+      properties: { content: ["UTM url wiring check"] },
+    }),
+  }), testEnv, ctx);
+  expect(createResponse.status).toBe(201);
+  const location = createResponse.headers.get("location");
+  await waitOnExecutionContext(ctx);
+
+  const outboxPageResponse = await fetchWorker(new Request("https://owner.example/users/site/outbox?page=1"));
+  const outboxPage = await outboxPageResponse.json() as {
+    orderedItems?: Array<{ object?: { url?: string; content?: string } }>;
+  };
+  const item = outboxPage.orderedItems?.find((i) => i.object?.content?.includes("UTM url wiring check"));
+  expect(item?.object?.url).toBe(location);
 });
 
 test("websub queue consumer: no-ops (does not throw) when the hub is unprovisioned", async () => {

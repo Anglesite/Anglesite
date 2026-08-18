@@ -116,6 +116,17 @@ struct PlistEditorModelDirtyFacetsTests {
         #expect(model.hasAnyUnsavedEdits == true)
     }
 
+    @Test("hasAnyUnsavedEdits reflects UTM-codes dirty state alone")
+    func hasAnyUnsavedEditsReflectsUTMCodesAlone() async throws {
+        let model = try makeModel()
+        await model.load()
+        model.utmCampaigns.append(
+            UTMCodesStore.Campaign(source: "rss", medium: "feed", campaign: "a", appliesTo: [.blog]))
+        #expect(model.isDirty == false)
+        #expect(model.isRedirectsDirty == false)
+        #expect(model.hasAnyUnsavedEdits == true)
+    }
+
     @Test("saveAllDirty saves a dirty licensing policy into licensing.json")
     func saveAllDirtySavesLicensing() async throws {
         let model = try makeModel()

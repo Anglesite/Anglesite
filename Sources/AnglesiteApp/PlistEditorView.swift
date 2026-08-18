@@ -38,6 +38,7 @@ struct PlistEditorView: View {
     @Environment(\.controlActiveState) private var controlActiveState
     @State private var selectedTab: SettingsTab = .website
     @State private var showingCustomAnalyticsHelp = false
+    @State private var showingUTMCodesSheet = false
     @State private var isConfirmingEnablePVR = false
     @State private var isConfirmingEnablePVRForConfiguredRepo = false
     @FocusState private var titleFocused: Bool
@@ -77,7 +78,10 @@ struct PlistEditorView: View {
         }
         .onChange(of: selectedTab) { oldValue, _ in
             if oldValue == .analytics {
-                Task { await model.saveAnalytics() }
+                Task {
+                    await model.saveAnalytics()
+                    await model.saveUTMCodes()
+                }
             } else if oldValue == .redirects {
                 Task { await model.saveRedirects() }
             } else if oldValue == .licensing {
@@ -182,6 +186,11 @@ struct PlistEditorView: View {
                     }
                     if selectedTab != .analytics, let analyticsError = model.analyticsError {
                         Label(analyticsError, systemImage: "exclamationmark.triangle.fill")
+                            .foregroundStyle(.orange)
+                            .font(.callout)
+                    }
+                    if selectedTab != .analytics, let utmCodesError = model.utmCodesError {
+                        Label(utmCodesError, systemImage: "exclamationmark.triangle.fill")
                             .foregroundStyle(.orange)
                             .font(.callout)
                     }
@@ -344,6 +353,15 @@ struct PlistEditorView: View {
                 }
                 .textFieldStyle(.roundedBorder)
             }
+            SettingsBox(title: "UTM Codes") {
+                VStack(alignment: .leading, spacing: 8) {
+                    Text(utmCodesSummary)
+                        .foregroundStyle(.secondary)
+                    Button("Manage UTM Codes…") {
+                        showingUTMCodesSheet = true
+                    }
+                }
+            }
             HStack(spacing: 8) {
                 if model.isSavingAnalytics {
                     ProgressView()
@@ -368,6 +386,9 @@ struct PlistEditorView: View {
                     .frame(width: 280, alignment: .leading)
             }
             .padding()
+        }
+        .sheet(isPresented: $showingUTMCodesSheet) {
+            UTMCodesSheet(model: model)
         }
     }
 
@@ -1118,6 +1139,18 @@ struct PlistEditorView: View {
 
     private var customAnalyticsMessage: String? {
         model.analyticsError ?? model.customAnalyticsValidationMessage
+    }
+
+    private var utmCodesSummary: String {
+        let count = model.utmCampaigns.count
+        if count == 0 { return "No UTM codes configured." }
+        let appliedTargets = Set(model.utmCampaigns.flatMap(\.appliesTo))
+        let noun = count == 1 ? "UTM code" : "UTM codes"
+        guard !appliedTargets.isEmpty else {
+            return "\(count) \(noun) configured, none applied yet."
+        }
+        let names = UTMCodesStore.Target.allCases.filter(appliedTargets.contains).map(\.displayName)
+        return "\(count) \(noun) configured, applied to \(names.joined(separator: ", "))."
     }
 
     private func saveWebsiteTitle() async {

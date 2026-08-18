@@ -61,6 +61,8 @@ import {
   type ExperimentsArtifact,
 } from "./experiments.ts";
 import experimentsArtifact from "./experiments.json";
+import utmCodesArtifact from "../utm-codes.json";
+import { tagFediverseUrl } from "./utm-codes.ts";
 import { GOAL_ENDPOINT_PATH } from "../scripts/experiments-paths.ts";
 
 /**
@@ -1161,7 +1163,7 @@ async function fanOutMicropubCreateToActivityPub(
     type: "Note",
     attributedTo: actorIRI,
     content,
-    url: location,
+    url: tagFediverseUrl(location, utmCodesArtifact),
     ...(photos.length > 0
       ? {
           attachment: photos.map((photo) => ({
