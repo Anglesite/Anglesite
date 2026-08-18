@@ -104,7 +104,8 @@ public enum BlueskyThreadClient {
               let createdAt = parseDate(record["createdAt"])
         else { return nil }
         return RawReply(
-            rkey: String(rkey), authorHandle: handle, authorName: author["displayName"] as? String,
+            rkey: String(rkey), authorHandle: handle,
+            authorName: (author["displayName"] as? String) ?? handle,
             authorPhoto: (author["avatar"] as? String).flatMap(URL.init(string:)),
             text: text, createdAt: createdAt)
     }
@@ -134,34 +135,33 @@ public enum BlueskyThreadClient {
             let actor = (item["actor"] as? [String: Any]) ?? item
             guard let did = actor["did"] as? String, let handle = actor["handle"] as? String else { return nil }
             return RawActorEvent(
-                actorDID: did, actorHandle: handle, actorName: actor["displayName"] as? String,
+                actorDID: did, actorHandle: handle,
+                actorName: (actor["displayName"] as? String) ?? handle,
                 actorPhoto: (actor["avatar"] as? String).flatMap(URL.init(string:)),
                 createdAt: parseDate(item["createdAt"]))
         }
     }
 
     /// Shared paging loop for `fetchLikes`/`fetchReposts`: follows `cursor` up to `maximumPages`,
-    /// stopping early once a page returns no cursor. Returns `nil` only on the *first* page's hard
-    /// failure — once at least one page has been read successfully, a later page failing mid-walk
-    /// still returns what was gathered so far, since a partial-but-real list is more useful than
-    /// discarding it, and a missed later page just means an undercount until the next site-open
-    /// retries (unlike `fetchReplies`'s all-or-nothing failure, this never has to decide "zero or
-    /// retry" for the whole post — see `BlueskyBackfeedSync`'s own all-or-nothing gate for that).
+    /// stopping early once a page returns no cursor. Returns `nil` on *any* page's hard failure,
+    /// first or later — a later-page failure must not return the partial results gathered so far,
+    /// since `BlueskyBackfeedSync` treats a non-`nil` result as "this is the complete, current
+    /// set" and hands it straight to the committer's scoped reconcile: a partial set there would
+    /// read the unfetched remainder as "no longer present" and delete real, still-current
+    /// likes/reposts. All-or-nothing here matches `fetchReplies`'s own failure contract.
     private static func paginate(
         endpoint: String, atURI: String, itemsKey: String, transport: Transport
     ) async -> [RawActorEvent]? {
         var results: [RawActorEvent] = []
         var cursor: String?
         var page = 0
-        var fetchedAnyPage = false
         repeat {
             var items = [URLQueryItem(name: "uri", value: atURI), URLQueryItem(name: "limit", value: String(pageSize))]
             if let cursor { items.append(URLQueryItem(name: "cursor", value: cursor)) }
             guard let url = Self.url(path: endpoint, queryItems: items),
                   let (data, http) = try? await transport(URLRequest(url: url)), (200..<300).contains(http.statusCode),
                   let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any]
-            else { return fetchedAnyPage ? results : nil }
-            fetchedAnyPage = true
+            else { return nil }
             results.append(contentsOf: makeActorEvents(from: json, itemsKey: itemsKey))
             cursor = json["cursor"] as? String
             page += 1

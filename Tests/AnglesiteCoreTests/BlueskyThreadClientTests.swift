@@ -209,8 +209,12 @@ struct BlueskyThreadClientTests {
         #expect(likes == nil)
     }
 
-    @Test("fetchLikes returns pages already gathered when a later page fails, rather than discarding them")
-    func fetchLikesLaterPageFailureReturnsPartial() async throws {
+    @Test("fetchLikes returns nil when a later page fails, rather than returning an incomplete partial set")
+    func fetchLikesLaterPageFailureIsNil() async throws {
+        // A partial set here would flow straight into BlueskyBackfeedSync's scoped reconcile as
+        // "the complete, current set" and cause it to delete the still-real likes/reposts that
+        // were on the page that failed (#1236 review finding 4) — so any page failing, not just
+        // the first, must propagate as a hard nil.
         let requestCount = Counter()
         let likes = await BlueskyThreadClient.fetchLikes(atURI: "at://root.example/app.bsky.feed.post/3root", transport: { _ in
             let n = await requestCount.increment()
@@ -222,8 +226,25 @@ struct BlueskyThreadClientTests {
             }
             return (Data(), Self.response(500))
         })
-        let unwrapped = try #require(likes)
-        #expect(unwrapped.map(\.actorHandle) == ["one.bsky.social"])
+        #expect(likes == nil)
+    }
+
+    // MARK: - author name fallback (displayName ?? handle)
+
+    @Test("makeRawReply falls back to the handle when the author has no displayName")
+    func makeRawReplyFallsBackToHandleWhenNoDisplayName() {
+        let reply = BlueskyThreadClient.makeRawReply(from: Self.post(handle: "alice.bsky.social", displayName: nil))
+        #expect(reply?.authorName == "alice.bsky.social")
+    }
+
+    @Test("makeActorEvents falls back to the handle when the actor has no displayName")
+    func makeActorEventsFallsBackToHandleWhenNoDisplayName() {
+        let json: [String: Any] = ["likes": [
+            ["createdAt": "2026-08-01T11:00:00.000Z", "actor": ["did": "did:plc:dave", "handle": "dave.bsky.social"]],
+        ]]
+        let events = BlueskyThreadClient.makeActorEvents(from: json, itemsKey: "likes")
+        #expect(events.count == 1)
+        #expect(events[0].actorName == "dave.bsky.social")
     }
 }
 
