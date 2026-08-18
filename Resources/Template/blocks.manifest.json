@@ -33,6 +33,39 @@
       "propEditors": [],
       "slots": [],
       "placement": { "allowedParents": null }
+    },
+    {
+      "path": "src/components/effects/MagneticButton.astro",
+      "export": "MagneticButton",
+      "kind": "astro",
+      "name": "Magnetic Button",
+      "description": "A button that eases toward the pointer as it gets close, then springs back.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
+    },
+    {
+      "path": "src/components/effects/CursorGlow.astro",
+      "export": "CursorGlow",
+      "kind": "astro",
+      "name": "Cursor Glow",
+      "description": "A soft glow that follows the pointer around the page.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
+    },
+    {
+      "path": "src/components/effects/TiltCard.astro",
+      "export": "TiltCard",
+      "kind": "astro",
+      "name": "Tilt Card",
+      "description": "A card that tilts in 3D as the pointer moves over it.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
     }
   ]
 }

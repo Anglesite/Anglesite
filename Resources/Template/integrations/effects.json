@@ -282,6 +282,61 @@
         "kind": "background",
         "allowedParents": null
       }
+    },
+    {
+      "component": "MagneticButton",
+      "title": "Magnetic Button",
+      "ownerDescription": "A button that eases toward the pointer as it gets close, then springs back.",
+      "category": "cursorReactive",
+      "keyProps": {
+        "text": "button label (default \"Get in touch\")",
+        "href": "renders as a link when set"
+      },
+      "props": {
+        "text": "Get in touch"
+      },
+      "snippet": "---\nimport MagneticButton from \"../components/effects/MagneticButton.astro\";\n---\n<MagneticButton text=\"Get in touch\" href=\"/contact\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "CursorGlow",
+      "title": "Cursor Glow",
+      "ownerDescription": "A soft glow that follows the pointer around the page.",
+      "category": "cursorReactive",
+      "keyProps": {
+        "color": "glow color (default \"rgba(124, 58, 237, 0.35)\")"
+      },
+      "props": {
+        "color": "rgba(124, 58, 237, 0.35)"
+      },
+      "snippet": "---\nimport CursorGlow from \"../components/effects/CursorGlow.astro\";\n---\n<CursorGlow />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "TiltCard",
+      "title": "Tilt Card",
+      "ownerDescription": "A card that tilts in 3D as the pointer moves over it.",
+      "category": "cursorReactive",
+      "keyProps": {
+        "title": "card title (default \"Card title\")",
+        "body": "supporting copy (default a short placeholder line)",
+        "imageSrc": "optional image URL"
+      },
+      "props": {
+        "title": "Card title",
+        "body": "A short line of supporting copy."
+      },
+      "snippet": "---\nimport TiltCard from \"../components/effects/TiltCard.astro\";\n---\n<TiltCard title=\"Card title\" body=\"A short line of supporting copy.\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
     }
   ]
 }
