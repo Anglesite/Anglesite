@@ -258,11 +258,18 @@ final class PreviewModel {
         // would be enabled during the dispatch gap and could race the opening boot.
         let token = markDevServerCommandInFlight()
         let router = self.editRouter
+        // `PageModelClient` mirrors `editRouter`'s `mcpClient` getter — a fresh lookup per call
+        // rather than a value pinned at construction, so it keeps working across a dev-server
+        // restart that swaps out `runtime`'s underlying MCP connection.
+        let pageModelClient = PageModelClient(mcpClient: { [weak self] in await self?.runtime.mcpClient })
         Task {
             // Register before starting the runtime so a Siri edit fired during dev-server boot
             // hits the router (and gets an "MCP not running" failure reply) rather than
-            // returning the bridge's no-router fallback message.
+            // returning the bridge's no-router fallback message. `PageModelClientRegistry` is
+            // registered alongside it so `AddEffectIntent` (#768) can fetch a page's model for
+            // the same site the same way `EditContentIntent` reaches its edit router.
             await EditRouterRegistry.shared.register(router, for: siteID)
+            await PageModelClientRegistry.shared.register(pageModelClient, for: siteID)
             await runtime.start(siteID: siteID, siteDirectory: siteDirectory)
             // #587: pull any visitor submissions staged since the site was last open and commit
             // them into the git working copy. No-ops for sites without inbox capture configured
@@ -309,6 +316,7 @@ final class PreviewModel {
         Task {
             if let previousSiteID {
                 await EditRouterRegistry.shared.unregister(siteID: previousSiteID)
+                await PageModelClientRegistry.shared.unregister(siteID: previousSiteID)
             }
             await runtime.suspend()
         }
