@@ -72,7 +72,7 @@ describe("effects library (scroll-driven)", () => {
         let innerWithoutScriptRefs = inner;
         for (let previous = ""; previous !== innerWithoutScriptRefs; ) {
           previous = innerWithoutScriptRefs;
-          innerWithoutScriptRefs = innerWithoutScriptRefs.replace(/<script\b[^>]*>\s*<\/script\s*>/gi, "");
+          innerWithoutScriptRefs = innerWithoutScriptRefs.replace(/<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>/gi, "");
         }
         const page = [
           "<!doctype html>",
