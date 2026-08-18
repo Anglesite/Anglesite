@@ -137,6 +137,114 @@ struct BlueskyBackfeedSyncTests {
         #expect(FileManager.default.fileExists(atPath: siteDirectory.appendingPathComponent("data/interactions/wm-abc123.json").path))
     }
 
+    @Test("pullAndCommit still commits a different post's fresh replies when one tracked post's fetch hard-fails")
+    func partialFailureStillCommitsOtherPosts() async throws {
+        let siteDirectory = try Self.makeThrowawayGitRepo()
+        defer { try? FileManager.default.removeItem(at: siteDirectory) }
+
+        let ledger = POSSESyndicationLog(entries: [
+            .init(sourceFile: "src/content/blog/broken.md", canonicalURL: URL(string: "https://me.example/blog/broken")!,
+                  platform: "bluesky", syndicationURL: URL(string: "https://bsky.app/profile/me.example/post/3broken")!, postedAt: Date()),
+            .init(sourceFile: "src/content/blog/ok.md", canonicalURL: URL(string: "https://me.example/blog/ok")!,
+                  platform: "bluesky", syndicationURL: URL(string: "https://bsky.app/profile/me.example/post/3ok")!, postedAt: Date()),
+        ])
+
+        let okThreadBody = Data("""
+        {"thread": {"$type": "app.bsky.feed.defs#threadViewPost",
+          "post": {"uri": "at://me.example/app.bsky.feed.post/3ok", "author": {"did": "did:plc:me", "handle": "me.example"},
+                    "record": {"text": "my other post", "createdAt": "2026-08-01T09:00:00.000Z"}},
+          "replies": [{"$type": "app.bsky.feed.defs#threadViewPost",
+            "post": {"uri": "at://bob.bsky.social/app.bsky.feed.post/3bbb",
+                      "author": {"did": "did:plc:bob", "handle": "bob.bsky.social"},
+                      "record": {"text": "nice!", "createdAt": "2026-08-01T10:00:00.000Z"}}, "replies": []}]}}
+        """.utf8)
+
+        let count = await BlueskyBackfeedSync.pullAndCommit(ledger: ledger, siteDirectory: siteDirectory, transport: { request in
+            let query = request.url?.query ?? ""
+            let path = request.url?.path ?? ""
+            if query.contains("3broken") { return (Data(), Self.response(500)) }
+            if path.hasSuffix("getPostThread") { return (okThreadBody, Self.response(200)) }
+            if path.hasSuffix("getLikes") { return (Self.emptyLikesBody(), Self.response(200)) }
+            if path.hasSuffix("getRepostedBy") { return (Self.emptyRepostsBody(), Self.response(200)) }
+            return (Data(), Self.response(404))
+        })
+        #expect(count == 1)
+        #expect(FileManager.default.fileExists(atPath: siteDirectory.appendingPathComponent("data/interactions/bsky-3bbb.json").path))
+    }
+
+    @Test("pullAndCommit is a true no-op on a second call with unchanged upstream data, even as verified/published sync time advances")
+    func secondSyncWithUnchangedDataIsNoOp() async throws {
+        let siteDirectory = try Self.makeThrowawayGitRepo()
+        defer { try? FileManager.default.removeItem(at: siteDirectory) }
+
+        let ledger = POSSESyndicationLog(entries: [.init(
+            sourceFile: "src/content/blog/hi.md", canonicalURL: URL(string: "https://me.example/blog/hi")!,
+            platform: "bluesky", syndicationURL: URL(string: "https://bsky.app/profile/me.example/post/3root")!, postedAt: Date())])
+
+        let threadBody = Data("""
+        {"thread": {"$type": "app.bsky.feed.defs#threadViewPost",
+          "post": {"uri": "at://me.example/app.bsky.feed.post/3root", "author": {"did": "did:plc:me", "handle": "me.example"},
+                    "record": {"text": "my post", "createdAt": "2026-08-01T09:00:00.000Z"}},
+          "replies": [{"$type": "app.bsky.feed.defs#threadViewPost",
+            "post": {"uri": "at://alice.bsky.social/app.bsky.feed.post/3abc",
+                      "author": {"did": "did:plc:alice", "handle": "alice.bsky.social", "displayName": "Alice"},
+                      "record": {"text": "great post!", "createdAt": "2026-08-01T10:00:00.000Z"}}, "replies": []}]}}
+        """.utf8)
+        // A repost has no per-item createdAt, so `published` is stamped from `now` too — this
+        // exercises both halves of finding 1's fix (verified always stamped from `now`, and
+        // published additionally stamped from `now` for reposts).
+        let repostsBody = Data(#"{"uri": "x", "repostedBy": [{"did": "did:plc:erin", "handle": "erin.bsky.social"}]}"#.utf8)
+
+        let transport: BlueskyThreadClient.Transport = { request in
+            let path = request.url?.path ?? ""
+            if path.hasSuffix("getPostThread") { return (threadBody, Self.response(200)) }
+            if path.hasSuffix("getLikes") { return (Self.emptyLikesBody(), Self.response(200)) }
+            if path.hasSuffix("getRepostedBy") { return (repostsBody, Self.response(200)) }
+            return (Data(), Self.response(404))
+        }
+
+        let firstCount = await BlueskyBackfeedSync.pullAndCommit(
+            ledger: ledger, siteDirectory: siteDirectory, transport: transport, now: Date(timeIntervalSince1970: 1_000_000))
+        #expect(firstCount == 2)
+
+        let replyFile = siteDirectory.appendingPathComponent("data/interactions/bsky-3abc.json")
+        let repostFiles = try FileManager.default.contentsOfDirectory(atPath: siteDirectory.appendingPathComponent("data/interactions").path)
+            .filter { $0.hasPrefix("bsky-repost-") }
+        #expect(repostFiles.count == 1)
+        let repostFile = siteDirectory.appendingPathComponent("data/interactions/\(repostFiles[0])")
+        let replyBytesBeforeSecondSync = try Data(contentsOf: replyFile)
+        let repostBytesBeforeSecondSync = try Data(contentsOf: repostFile)
+
+        let secondCount = await BlueskyBackfeedSync.pullAndCommit(
+            ledger: ledger, siteDirectory: siteDirectory, transport: transport, now: Date(timeIntervalSince1970: 2_000_000))
+        #expect(secondCount == 0)
+        #expect(try Data(contentsOf: replyFile) == replyBytesBeforeSecondSync)
+        #expect(try Data(contentsOf: repostFile) == repostBytesBeforeSecondSync)
+    }
+
+    // MARK: - makeInteraction URL guards
+
+    @Test("makeInteraction(from reply:) skips the reply rather than crashing when urlBuilder can't produce a URL")
+    func makeInteractionSkipsReplyWithUnbuildableURL() {
+        let reply = BlueskyThreadClient.RawReply(
+            rkey: "3abc", authorHandle: "alice.bsky.social", authorName: "Alice", authorPhoto: nil,
+            text: "hi", createdAt: Date())
+        let interaction = BlueskyBackfeedSync.makeInteraction(
+            from: reply, target: URL(string: "https://me.example/blog/hi")!, now: Date(),
+            urlBuilder: { _ in nil })
+        #expect(interaction == nil)
+    }
+
+    @Test("makeInteraction(from event:) skips the like/repost rather than crashing when urlBuilder can't produce a URL")
+    func makeInteractionSkipsEventWithUnbuildableURL() {
+        let event = BlueskyThreadClient.RawActorEvent(
+            actorDID: "did:plc:dave", actorHandle: "dave.bsky.social", actorName: "Dave", actorPhoto: nil, createdAt: nil)
+        let interaction = BlueskyBackfeedSync.makeInteraction(
+            from: event, interactionType: .like, targetRkey: "3root", target: URL(string: "https://me.example/blog/hi")!,
+            now: Date(), urlBuilder: { _ in nil })
+        #expect(interaction == nil)
+    }
+
     // MARK: - pullAndCommitIfConfigured
 
     @Test("pullAndCommitIfConfigured no-ops when there is no ledger file")
