@@ -483,12 +483,16 @@ public struct NativeContentOperations: ContentOperationsService {
         do { try write(injected, to: root.appendingPathComponent(relPath)) }
         catch { return .failed(reason: "\(error)") }
 
+        let robotsChanged: Bool
         do {
-            try RobotsConfigFile.apply(
+            robotsChanged = try RobotsConfigFile.apply(
                 source: .page(file: relPath), noindex: true, disallowCrawl: false, path: route, under: root)
         } catch { return .failed(reason: "\(error)") }
 
         _ = await gitCommit(root, relPath, "anglesite: scaffold experiment variant \(route)")
+        if robotsChanged {
+            _ = await gitCommit(root, RobotsConfigFile.relativePath, "anglesite: update robots-config.json")
+        }
         return .created(filePath: relPath, identifier: route)
     }
 

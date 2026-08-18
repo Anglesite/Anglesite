@@ -1011,6 +1011,38 @@ struct NativeContentOperationsDuplicateAsVariantTests {
         #expect(config.noindex.contains { $0.path == "/x/homepage-hero/b/" })
     }
 
+    @Test("duplicatePageAsVariant commits the robots-config.json change alongside the page")
+    func commitsRobotsConfigChange() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controlRelPath = "src/pages/pricing.astro"
+        let abs = root.appendingPathComponent(controlRelPath)
+        try FileManager.default.createDirectory(at: abs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try controlContents.write(to: abs, atomically: true, encoding: .utf8)
+
+        let spy = NativeContentOperationsTests.Spy()
+        let ops = NativeContentOperations(
+            siteDirectory: { _ in root },
+            gitCommit: { proj, rel, msg in await spy.record(proj, rel, msg); return "deadbeef" })
+
+        let result = await ops.duplicatePageAsVariant(
+            siteID: "s1", relativePath: controlRelPath, experimentID: "homepage-hero", variantID: "b")
+
+        guard case .created = result else {
+            Issue.record("expected .created, got \(result)")
+            return
+        }
+        let calls = await spy.calls
+        #expect(calls.count == 2)
+        #expect(calls.contains { $0.1 == "src/pages/x/homepage-hero/b.astro" })
+        #expect(calls.contains { $0.1 == RobotsConfigFile.relativePath })
+
+        // The robots-config write itself must have actually landed on disk too, not just been
+        // claimed as committed.
+        let config = RobotsConfigFile.read(under: root)
+        #expect(config.noindex.contains { $0.path == "/x/homepage-hero/b/" })
+    }
+
     @Test("duplicatePageAsVariant fails on route collision")
     func failsOnRouteCollision() async throws {
         let root = try makeRoot()
