@@ -62,11 +62,15 @@
     document.querySelectorAll("[data-consent]").forEach(function (el) {
       var category = el.getAttribute("data-consent");
       if (!grants[category]) return;
-      // Only allow absolute https URLs through to the src sink below, guarded inline (rather
-      // than via a helper) so it blocks javascript: and other unsafe schemes regardless of what
-      // ends up in data-src.
+      // Only allow absolute https URLs through to the src sink below, guarded inline (as a
+      // dedicated, single-condition if) so it blocks javascript: and other unsafe schemes
+      // regardless of what ends up in data-src.
       var dataSrc = el.getAttribute("data-src");
-      if (dataSrc && dataSrc.startsWith("https://")) el.setAttribute("src", dataSrc);
+      if (dataSrc) {
+        if (dataSrc.startsWith("https://")) {
+          el.setAttribute("src", dataSrc);
+        }
+      }
       if (el.tagName === "SCRIPT" && el.getAttribute("type") === "text/plain") {
         var replacement = document.createElement("script");
         for (var i = 0; i < el.attributes.length; i++) {
