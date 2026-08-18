@@ -229,6 +229,59 @@
         "value": 60
       },
       "snippet": "---\nimport ProgressBar from \"@astroanimate/core/ProgressBar\";\n---\n<ProgressBar value={60} label=\"Upload progress\" />"
+    },
+    {
+      "component": "ParticleField",
+      "title": "Particle Field",
+      "ownerDescription": "Drifting dots connected by faint lines when close.",
+      "category": "canvasBackground",
+      "keyProps": {
+        "density": "particle count (default 60)",
+        "color": "dot/line color (default currentColor)"
+      },
+      "props": {
+        "density": 60,
+        "color": "#7c3aed"
+      },
+      "snippet": "---\nimport ParticleField from \"../components/effects/ParticleField.astro\";\n---\n<div style=\"position: relative;\">\n  <ParticleField />\n</div>",
+      "placement": {
+        "kind": "background",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "AuroraGradient",
+      "title": "Aurora Gradient",
+      "ownerDescription": "Slow blurred color-blob blending.",
+      "category": "canvasBackground",
+      "keyProps": {
+        "colors": "array of CSS colors (default a purple/blue/teal trio)"
+      },
+      "props": {
+        "colors": ["#7c3aed", "#2563eb", "#0891b2"]
+      },
+      "snippet": "---\nimport AuroraGradient from \"../components/effects/AuroraGradient.astro\";\n---\n<div style=\"position: relative;\">\n  <AuroraGradient />\n</div>",
+      "placement": {
+        "kind": "background",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "GrainOverlay",
+      "title": "Grain Overlay",
+      "ownerDescription": "Subtle animated film-grain texture.",
+      "category": "canvasBackground",
+      "keyProps": {
+        "opacity": "0-1 (default 0.05)"
+      },
+      "props": {
+        "opacity": 0.05
+      },
+      "snippet": "---\nimport GrainOverlay from \"../components/effects/GrainOverlay.astro\";\n---\n<div style=\"position: relative;\">\n  <GrainOverlay />\n</div>",
+      "placement": {
+        "kind": "background",
+        "allowedParents": null
+      }
     }
   ]
 }
