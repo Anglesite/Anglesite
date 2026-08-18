@@ -30,6 +30,13 @@ const linkedinHref = `https://www.linkedin.com/sharing/share-offsite/?url=${enco
 const anyEnabled = twitter || mastodon || linkedin || copyLink;
 ---
 
+{/*
+  The share-button click handler lives in public/scripts/ instead of an Astro `is:inline` inline
+  script body — with no `'unsafe-inline'`, nonce, or hash in the site's CSP script-src, an
+  inline body like that is silently blocked by the browser. A same-origin `<script src="...">`
+  satisfies `script-src 'self'` without weakening the policy.
+*/}
+
 {anyEnabled && (
   <div class="share-buttons">
     <span class="share-buttons-label">Share:</span>
@@ -56,31 +63,7 @@ const anyEnabled = twitter || mastodon || linkedin || copyLink;
     )}
   </div>
 
-  <script is:inline>
-    (function () {
-      document.addEventListener("click", function (e) {
-        var target = e.target.closest("[data-share-mastodon], [data-share-copy]");
-        if (!target) return;
-        if (target.hasAttribute("data-share-mastodon")) {
-          var instance = window.localStorage.getItem("mastodon-share-instance");
-          if (!instance) {
-            instance = window.prompt("Your Mastodon instance (e.g. mastodon.social):");
-            if (!instance) return;
-            instance = instance.replace(/^https?:\/\//, "").replace(/\/$/, "");
-            window.localStorage.setItem("mastodon-share-instance", instance);
-          }
-          var text = target.getAttribute("data-share-text") + " " + target.getAttribute("data-share-url");
-          window.open("https://" + instance + "/share?text=" + encodeURIComponent(text), "_blank", "noopener,noreferrer");
-        } else if (target.hasAttribute("data-share-copy")) {
-          navigator.clipboard.writeText(target.getAttribute("data-share-url")).then(function () {
-            var original = target.textContent;
-            target.textContent = "Copied!";
-            window.setTimeout(function () { target.textContent = original; }, 2000);
-          });
-        }
-      });
-    })();
-  </script>
+  <script is:inline src="/scripts/share-buttons.js"></script>
 )}
 
 <style>
