@@ -22,14 +22,18 @@ const { provider, domain, siteId, measurementId } = Astro.props;
   <script is:inline src="https://cdn.usefathom.com/script.js" data-site={siteId} defer></script>
 )}
 
+{/*
+  The GA4 init loader lives in public/scripts/ and reads its measurement ID from a data-*
+  attribute on the loader script tag instead of Astro's `define:vars`. `define:vars` forces
+  Astro to inline the script body verbatim into the page — with no `'unsafe-inline'`, nonce, or
+  hash in the site's CSP script-src, an inline body like that is silently blocked by the
+  browser. A same-origin `<script src="...">` satisfies `script-src 'self'` without weakening
+  the policy.
+*/}
+
 {provider === "ga4" && measurementId && (
   <>
     <script is:inline async src={`https://www.googletagmanager.com/gtag/js?id=${measurementId}`}></script>
-    <script is:inline define:vars={{ measurementId }}>
-      window.dataLayer = window.dataLayer || [];
-      function gtag() { dataLayer.push(arguments); }
-      gtag("js", new Date());
-      gtag("config", measurementId);
-    </script>
+    <script is:inline src="/scripts/ga4.js" data-ga4-measurement-id={measurementId}></script>
   </>
 )}
