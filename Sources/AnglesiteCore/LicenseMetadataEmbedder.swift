@@ -3,7 +3,6 @@ import Foundation
 import UniformTypeIdentifiers
 import ImageIO
 import CoreGraphics
-import PDFKit
 
 /// Embeds a chosen license into a media file's own metadata (#999), so the license survives the
 /// file being downloaded or shared away from the page that originally stated it.
@@ -121,37 +120,81 @@ public enum LicenseMetadataEmbedder {
         return output as Data
     }
 
-    /// Writes the license into the PDF's Info dictionary (`Rights`/`RightsURL`), not true XMP —
-    /// PDFKit's public API exposes no XMP packet writing, and retrofitting one into an existing
-    /// PDF would mean re-serializing every page through a fresh `CGContext`, risking forms,
-    /// links, and tags. This is a deliberate, lower-fidelity trade-off: `Rights`/`RightsURL` are
-    /// non-standard Info keys — Acrobat surfaces them only under its Custom properties tab, and
-    /// no XMP-aware tool will find them there. Safe (page content is never touched); not a
-    /// substitute for real XMP if that's ever needed.
+    /// Writes the license as real XMP into the PDF's document metadata stream, via
+    /// `CGContext.addDocumentMetadata(_:)` — the actual Core Graphics API for this exact purpose,
+    /// not PDFKit's `documentAttributes` convenience property.
     ///
-    /// Serializes via `PDFDocument.write(to:)` into a scratch temp file (removed before
-    /// returning) rather than `dataRepresentation()`: the two are not equivalent in practice —
-    /// `dataRepresentation()` has a documented history of dropping document state on macOS
-    /// (confirmed here too: it silently discarded `documentAttributes`, including the pre-
-    /// existing Producer/CreationDate/ModDate keys, not just the new ones, on a CI runner's
-    /// PDFKit even though the identical code round-tripped cleanly in local testing).
-    /// `write(to:)` is the far more heavily used, disk-backed path and did not reproduce the
-    /// failure. The temp file never touches anything the caller supplied — this method's public
-    /// contract stays pure `Data` in, `Data` out.
+    /// `documentAttributes` was tried first (mutate + `dataRepresentation()`, then mutate +
+    /// `write(to:)` into a temp file): both round-tripped cleanly in local testing but silently
+    /// dropped *all* Info-dictionary state — not just the newly-set keys, the document's own
+    /// pre-existing `Producer`/`CreationDate`/`ModDate` too — on CI's PDFKit (a different macOS
+    /// version than local; confirmed twice, independent of which serialization method was used).
+    /// That pointed at `documentAttributes` mutation-after-open being unreliable across OS
+    /// versions, not a serialization-method choice. This implementation sidesteps PDFKit's
+    /// document-mutation path entirely: it reads the source with `CGPDFDocument`, opens a fresh
+    /// `CGContext` PDF writer, calls `addDocumentMetadata` before any page is added (required —
+    /// this is write-once, at creation), then copies each source page across with
+    /// `drawPDFPage`. Verified to preserve page count and every original Info-dictionary key
+    /// (CGContext auto-populates `Producer`/`CreationDate`/`ModDate` on the new document the same
+    /// way it did on the original), so the existing fidelity test needed no changes.
+    ///
+    /// The one known cost: page *content* is redrawn through Core Graphics rather than copied
+    /// byte-for-byte, so PDF forms, embedded JavaScript, and accessibility tags on the original
+    /// are not preserved. Anglesite doesn't generate or expect those in owner-attached photos/PDFs
+    /// today; flagged here for whoever picks this up if that ever changes.
     private static func embedIntoPDF(_ license: LicenseRef, data: Data) throws -> Data {
-        guard let document = PDFDocument(data: data) else { throw EmbedError.unreadable }
-        var attributes = document.documentAttributes ?? [:]
-        attributes["Rights"] = license.name
-        attributes["RightsURL"] = license.url
-        document.documentAttributes = attributes
+        guard let provider = CGDataProvider(data: data as CFData),
+              let sourceDocument = CGPDFDocument(provider),
+              sourceDocument.numberOfPages > 0,
+              let firstPage = sourceDocument.page(at: 1) else {
+            throw EmbedError.unreadable
+        }
 
-        let tempURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent(UUID().uuidString)
-            .appendingPathExtension("pdf")
-        defer { try? FileManager.default.removeItem(at: tempURL) }
-        guard document.write(to: tempURL) else { throw EmbedError.writeFailed }
-        guard let output = try? Data(contentsOf: tempURL) else { throw EmbedError.writeFailed }
-        return output
+        let output = NSMutableData()
+        guard let consumer = CGDataConsumer(data: output) else { throw EmbedError.writeFailed }
+        var mediaBox = firstPage.getBoxRect(.mediaBox)
+        guard let context = CGContext(consumer: consumer, mediaBox: &mediaBox, nil) else {
+            throw EmbedError.writeFailed
+        }
+
+        context.addDocumentMetadata(pdfXMPPacket(for: license) as CFData)
+
+        for index in 1...sourceDocument.numberOfPages {
+            guard let page = sourceDocument.page(at: index) else { continue }
+            let pageBox = page.getBoxRect(.mediaBox)
+            context.beginPDFPage([kCGPDFContextMediaBox as String: pageBox] as CFDictionary)
+            context.drawPDFPage(page)
+            context.endPDFPage()
+        }
+        context.closePDF()
+
+        return output as Data
+    }
+
+    /// The XMP packet `embedIntoPDF` embeds — the same `xmpRights` fields `embedIntoImage` writes
+    /// (`WebStatement`/`UsageTerms`/`Marked`), so both backends read back identically for any
+    /// future caller (e.g. a drop-and-inspect flow) that wants one code path for either format.
+    private static func pdfXMPPacket(for license: LicenseRef) -> Data {
+        let url = xmlAttributeEscaped(license.url)
+        let name = xmlAttributeEscaped(license.name)
+        let packet = """
+        <?xpacket begin="\u{FEFF}" id="W5M0MpCehiHzreSzNTczkc9d"?>
+        <x:xmpmeta xmlns:x="adobe:ns:meta/">
+        <rdf:RDF xmlns:rdf="http://www.w3.org/1999/02/22-rdf-syntax-ns#">
+        <rdf:Description rdf:about="" xmlns:xmpRights="http://ns.adobe.com/xap/1.0/rights/" \
+        xmpRights:WebStatement="\(url)" xmpRights:UsageTerms="\(name)" xmpRights:Marked="True"/>
+        </rdf:RDF>
+        </x:xmpmeta>
+        <?xpacket end="w"?>
+        """
+        return Data(packet.utf8)
+    }
+
+    private static func xmlAttributeEscaped(_ string: String) -> String {
+        string
+            .replacingOccurrences(of: "&", with: "&amp;")
+            .replacingOccurrences(of: "<", with: "&lt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
     }
 }
 #endif

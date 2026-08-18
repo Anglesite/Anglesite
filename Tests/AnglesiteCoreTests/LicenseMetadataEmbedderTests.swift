@@ -180,16 +180,32 @@ struct LicenseMetadataEmbedderTests {
         return out as Data
     }
 
-    @Test("embedding into a PDF returns .embedded with the license in documentAttributes")
+    /// Reads the XMP packet `embedIntoPDF` writes back out — via `CGPDFDocument`'s catalog
+    /// `/Metadata` stream, the actual location `CGContext.addDocumentMetadata(_:)` writes to.
+    /// PDFKit has no XMP accessor, so this is the only way to verify the embed actually landed.
+    private func extractXMP(from data: Data) -> String? {
+        guard let provider = CGDataProvider(data: data as CFData),
+              let document = CGPDFDocument(provider),
+              let catalog = document.catalog else { return nil }
+        var metadataStream: CGPDFStreamRef?
+        guard CGPDFDictionaryGetStream(catalog, "Metadata", &metadataStream), let stream = metadataStream else {
+            return nil
+        }
+        var format: CGPDFDataFormat = .raw
+        guard let streamData = CGPDFStreamCopyData(stream, &format) else { return nil }
+        return String(data: streamData as Data, encoding: .utf8)
+    }
+
+    @Test("embedding into a PDF returns .embedded with the license in its XMP metadata")
     func embedsIntoPDF() throws {
         let result = try LicenseMetadataEmbedder.embed(license, into: onePagePDFData(), type: .pdf)
         guard case .embedded(let outData) = result else {
             Issue.record("expected .embedded, got \(result)")
             return
         }
-        let doc = PDFDocument(data: outData)!
-        #expect(doc.documentAttributes?["Rights"] as? String == license.name)
-        #expect(doc.documentAttributes?["RightsURL"] as? String == license.url)
+        let xmp = try #require(extractXMP(from: outData))
+        #expect(xmp.contains(license.url))
+        #expect(xmp.contains(license.name))
     }
 
     @Test("embedding into a PDF preserves page count and existing attributes")
