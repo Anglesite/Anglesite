@@ -449,6 +449,60 @@ public struct NativeContentOperations: ContentOperationsService {
         return .created(filePath: relPath, identifier: route)
     }
 
+    /// Scaffolds an A/B-test variant page from an existing control page (#1270 slice 5): reads the
+    /// control's contents, writes them to the deterministic route `/x/<experimentID>/<variantID>`
+    /// (never the collision-bumping "Copy 2" naming `duplicatePage` uses — an experiment's variant
+    /// route is part of its identity, not a display name), injects a `canonicalPath` prop into the
+    /// `<BaseLayout` invocation pointing back at the control route, and marks the new route noindex
+    /// via `RobotsConfigFile` — the same mechanism the app's page inspector uses (#1093), so the
+    /// variant is invisible to search from the moment it's written, with no separate "remember to
+    /// noindex it" step. Fails rather than overwriting if the target route is already taken.
+    public func duplicatePageAsVariant(
+        siteID: String, relativePath: String, experimentID: String, variantID: String
+    ) async -> ContentCreateResult {
+        guard let root = await siteDirectory(siteID) else { return .siteNotFound }
+        let sourceAbs = root.appendingPathComponent(relativePath)
+        guard fileManager.fileExists(atPath: sourceAbs.path) else {
+            return .failed(reason: "No page exists at \(relativePath)")
+        }
+        let contents: String
+        do { contents = try FileDocumentIO.load(sourceAbs, fileManager: fileManager).contents }
+        catch { return .failed(reason: "\(error)") }
+
+        let route = ContentScaffold.normalizeRoute("/x/\(experimentID)/\(variantID)")
+        let relPath = ContentScaffold.pageRelativePath(normalizedRoute: route)
+        guard !fileManager.fileExists(atPath: root.appendingPathComponent(relPath).path) else {
+            return .failed(reason: "A variant page already exists at \(relPath)")
+        }
+
+        let controlRoute = ContentScanner.routeFromPagePath(relativePath)
+        guard let injected = Self.injectingCanonicalPath(controlRoute, into: contents) else {
+            return .failed(reason: "Couldn't find a <BaseLayout> invocation to attach the variant's canonical link to")
+        }
+
+        do { try write(injected, to: root.appendingPathComponent(relPath)) }
+        catch { return .failed(reason: "\(error)") }
+
+        do {
+            try RobotsConfigFile.apply(
+                source: .page(file: relPath), noindex: true, disallowCrawl: false, path: route, under: root)
+        } catch { return .failed(reason: "\(error)") }
+
+        _ = await gitCommit(root, relPath, "anglesite: scaffold experiment variant \(route)")
+        return .created(filePath: relPath, identifier: route)
+    }
+
+    /// Inserts `canonicalPath="<controlRoute>"` as the first attribute of the first `<BaseLayout`
+    /// opening tag found, or `nil` if the source has no `<BaseLayout` invocation to attach to (an
+    /// `.astro` page not using the standard layout — out of scope for a v1 variant scaffold, matching
+    /// `PageTitleEditor.RewriteError.noEditableLocation`'s "never invent a location" stance).
+    static func injectingCanonicalPath(_ controlRoute: String, into contents: String) -> String? {
+        guard let range = contents.range(of: "<BaseLayout") else { return nil }
+        let escaped = controlRoute.replacingOccurrences(of: "\"", with: "&quot;")
+        return contents.replacingCharacters(
+            in: range, with: "<BaseLayout canonicalPath=\"\(escaped)\"")
+    }
+
     /// Duplicate an existing post within the same `collection`. Same retitle/collision/commit
     /// shape as `duplicatePage`, but derives a slug (not a route) and writes via
     /// `ContentScaffold.postRelativePath`.

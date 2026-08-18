@@ -933,6 +933,109 @@ struct NativeContentOperationsDuplicateTests {
     }
 }
 
+@Suite("NativeContentOperations.duplicatePageAsVariant")
+struct NativeContentOperationsDuplicateAsVariantTests {
+    private func makeRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("native-content-ops-variant-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private let controlContents = """
+    ---
+    import BaseLayout from "../layouts/BaseLayout.astro";
+    ---
+
+    <BaseLayout title="Pricing">
+      <h1>Pricing</h1>
+    </BaseLayout>
+    """
+
+    @Test("duplicatePageAsVariant writes a deterministic route")
+    func writesADeterministicRoute() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controlRelPath = "src/pages/pricing.astro"
+        let abs = root.appendingPathComponent(controlRelPath)
+        try FileManager.default.createDirectory(at: abs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try controlContents.write(to: abs, atomically: true, encoding: .utf8)
+
+        let ops = NativeContentOperations(siteDirectory: { _ in root }, gitCommit: { _, _, _ in "deadbeef" })
+
+        let result = await ops.duplicatePageAsVariant(
+            siteID: "s1", relativePath: controlRelPath, experimentID: "homepage-hero", variantID: "b")
+
+        guard case .created(let filePath, let identifier) = result else {
+            Issue.record("expected .created, got \(result)")
+            return
+        }
+        #expect(filePath == "src/pages/x/homepage-hero/b.astro")
+        #expect(identifier == "/x/homepage-hero/b")
+    }
+
+    @Test("duplicatePageAsVariant injects canonicalPath pointing at the control route")
+    func injectsCanonicalPathPointingAtControl() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controlRelPath = "src/pages/pricing.astro"
+        let abs = root.appendingPathComponent(controlRelPath)
+        try FileManager.default.createDirectory(at: abs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try controlContents.write(to: abs, atomically: true, encoding: .utf8)
+
+        let ops = NativeContentOperations(siteDirectory: { _ in root }, gitCommit: { _, _, _ in "deadbeef" })
+
+        _ = await ops.duplicatePageAsVariant(
+            siteID: "s1", relativePath: controlRelPath, experimentID: "homepage-hero", variantID: "b")
+
+        let written = try String(
+            contentsOf: root.appendingPathComponent("src/pages/x/homepage-hero/b.astro"), encoding: .utf8)
+        #expect(written.contains("<BaseLayout canonicalPath=\"/pricing\" title=\"Pricing\">"))
+    }
+
+    @Test("duplicatePageAsVariant writes a noindex robots-config entry")
+    func writesANoindexRobotsConfigEntry() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controlRelPath = "src/pages/pricing.astro"
+        let abs = root.appendingPathComponent(controlRelPath)
+        try FileManager.default.createDirectory(at: abs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try controlContents.write(to: abs, atomically: true, encoding: .utf8)
+
+        let ops = NativeContentOperations(siteDirectory: { _ in root }, gitCommit: { _, _, _ in "deadbeef" })
+
+        _ = await ops.duplicatePageAsVariant(
+            siteID: "s1", relativePath: controlRelPath, experimentID: "homepage-hero", variantID: "b")
+
+        let config = RobotsConfigFile.read(under: root)
+        #expect(config.noindex.contains { $0.path == "/x/homepage-hero/b/" })
+    }
+
+    @Test("duplicatePageAsVariant fails on route collision")
+    func failsOnRouteCollision() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controlRelPath = "src/pages/pricing.astro"
+        let abs = root.appendingPathComponent(controlRelPath)
+        try FileManager.default.createDirectory(at: abs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "content".write(to: abs, atomically: true, encoding: .utf8)
+        try FileManager.default.createDirectory(
+            at: root.appendingPathComponent("src/pages/x/homepage-hero"), withIntermediateDirectories: true)
+        try "existing".write(
+            to: root.appendingPathComponent("src/pages/x/homepage-hero/b.astro"), atomically: true, encoding: .utf8)
+
+        let ops = NativeContentOperations(siteDirectory: { _ in root }, gitCommit: { _, _, _ in "deadbeef" })
+
+        let result = await ops.duplicatePageAsVariant(
+            siteID: "s1", relativePath: controlRelPath, experimentID: "homepage-hero", variantID: "b")
+
+        guard case .failed = result else {
+            Issue.record("expected .failed on route collision, got \(result)")
+            return
+        }
+    }
+}
+
 @Suite("NativeContentOperations.createComponent")
 struct NativeContentOperationsComponentTests {
     private func makeRoot() throws -> URL {
