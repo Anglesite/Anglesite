@@ -62,8 +62,11 @@
     document.querySelectorAll("[data-consent]").forEach(function (el) {
       var category = el.getAttribute("data-consent");
       if (!grants[category]) return;
+      // Only allow absolute http(s) URLs through to the src sink below, guarded inline (rather
+      // than via a helper) so it blocks javascript: and other unsafe schemes regardless of what
+      // ends up in data-src.
       var dataSrc = el.getAttribute("data-src");
-      if (dataSrc && isSafeSrc(dataSrc)) el.setAttribute("src", dataSrc);
+      if (dataSrc && /^https:\/\//i.test(dataSrc)) el.setAttribute("src", dataSrc);
       if (el.tagName === "SCRIPT" && el.getAttribute("type") === "text/plain") {
         var replacement = document.createElement("script");
         for (var i = 0; i < el.attributes.length; i++) {
@@ -77,17 +80,6 @@
   }
   function hide(el) { if (el) el.hidden = true; }
   function show(el) { if (el) el.hidden = false; }
-  // Guards against a `data-src` value using a dangerous scheme (e.g. javascript:) reaching
-  // `setAttribute("src", ...)` below — the gated elements are template-authored, but this keeps
-  // the sink itself safe regardless of what ends up in data-src.
-  function isSafeSrc(value) {
-    try {
-      var protocol = new URL(value, document.baseURI).protocol;
-      return protocol === "http:" || protocol === "https:";
-    } catch (e) {
-      return false;
-    }
-  }
 
   var modal = document.getElementById("consent-modal");
   var stored = loadState();
