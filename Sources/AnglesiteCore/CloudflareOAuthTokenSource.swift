@@ -2,7 +2,7 @@ import Foundation
 
 /// Resolves a usable Cloudflare API bearer token from a stored OAuth credential, refreshing it
 /// first when it's expired. Returns `nil` (never throws) when no OAuth credential is stored, or
-/// when refreshing fails — callers (``DeployCommand/keychainTokenSource``) fall back to the legacy
+/// when refreshing fails — callers (``CloudflareDeployTarget/keychainTokenSource``) fall back to the legacy
 /// pasted-token slot in that case, exactly as they do today when there's no OAuth credential at
 /// all. A failed refresh leaves the stored credential untouched: a transient network hiccup during
 /// refresh shouldn't discard an otherwise-good refresh token.

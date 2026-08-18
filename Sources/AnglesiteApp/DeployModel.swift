@@ -653,7 +653,7 @@ final class DeployModel {
     /// OAuth doesn't issue one for this client) — in that dead-end case this falls through to the
     /// next check instead, so the sign-in sheet re-presents rather than deploys failing forever
     /// with a generic "no token" error. An expired credential that still has a refresh token is
-    /// left to `DeployCommand.keychainTokenSource` to actually refresh (this is a presence check
+    /// left to `CloudflareDeployTarget.keychainTokenSource` to actually refresh (this is a presence check
     /// only — no refresh attempted here, since it's synchronous).
     private func hasUsableToken() -> Bool {
         if let tokenAvailabilityOverride {
@@ -705,7 +705,7 @@ final class DeployModel {
     ) async -> DeployCommand.Result {
         defer { suddenTerminationLease.release() }
         transition(siteID: siteID, to: .running(siteID: siteID, since: Date()))
-        wasFirstDeploy = !DeployCommand.hasDeployedBefore(siteDirectory: siteDirectory)
+        wasFirstDeploy = !CloudflareDeployTarget.hasDeployedBefore(siteDirectory: siteDirectory)
         logLines = []
         currentMilestone = nil
         currentMilestonePhase = nil
@@ -746,10 +746,7 @@ final class DeployModel {
         let containerSecretRunner: SocialWorkerProvisionCommand.SecretRunner?
         if let cc = containerControl {
             activeCommand = DeployCommand(
-                tokenSource: command.tokenSource,
-                workerScriptNamesSource: command.workerScriptNamesSource,
-                customDomainAttachCommand: command.customDomainAttachCommand,
-                markdownForAgentsCommand: command.markdownForAgentsCommand,
+                target: command.target,
                 executor: ContainerDeployExecutor(
                     control: cc.control,
                     siteID: cc.siteID,
@@ -873,8 +870,17 @@ final class DeployModel {
             }
         }
 
+        // Both closures below only make sense against a Cloudflare target — `SocialWorkerProvisionCommand`
+        // is itself entirely a Cloudflare Workers concept (out of scope to generalize in #1015
+        // slice 1). `cloudflareTarget` is `nil` only if `command.target` were ever something else;
+        // today it's always `CloudflareDeployTarget` (the default), so the closures behave exactly
+        // as before.
+        let cloudflareTarget = command.target as? CloudflareDeployTarget
         let socialCommand = SocialWorkerProvisionCommand(
-            tokenSource: { [weak self] in try await self?.command.tokenSource() },
+            tokenSource: {
+                guard let cloudflareTarget else { return nil }
+                return try await cloudflareTarget.tokenSource()
+            },
             runner: containerRunner ?? SocialWorkerProvisionCommand.defaultRunner,
             secretRunner: containerSecretRunner ?? SocialWorkerProvisionCommand.defaultSecretRunner,
             deployer: { [weak self] _, deploySiteID, deploySiteDirectory, _ in
@@ -914,13 +920,13 @@ final class DeployModel {
                 )
             },
             // Forwards the same seam `activeCommand` uses for its own end-of-pipeline check (both
-            // are built from `command.workerScriptNamesSource` above), so `provision()`'s new
+            // are built from `cloudflareTarget.workerScriptNamesSource` above), so `provision()`'s
             // pre-provisioning check (#1075) agrees with `deployer`'s — and so a test's injected
-            // fake `DeployCommand` governs both instead of this defaulting to the real network
-            // implementation.
-            workerScriptNamesSource: { [weak self] token in
-                guard let self else { return [] }
-                return try await self.command.workerScriptNamesSource(token)
+            // fake `DeployCommand`/`CloudflareDeployTarget` governs both instead of this defaulting
+            // to the real network implementation.
+            workerScriptNamesSource: { token in
+                guard let cloudflareTarget else { return [] }
+                return try await cloudflareTarget.workerScriptNamesSource(token)
             }
         )
 

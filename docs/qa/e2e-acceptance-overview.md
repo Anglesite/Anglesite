@@ -16,8 +16,7 @@
 
 - Apple Silicon Mac, macOS 26+ (macOS 27+ for the Siri AI probes to report green).
 - Xcode 27+ / Swift 6.4 toolchain; `xcodegen generate` run in the checkout.
-- Container boot artifacts provisioned (`scripts/vendor-container-image.sh` with `ANGLESITE_PLUGIN_SRC` set, plus `scripts/vendor-container-kernel.sh`) — see [local-container-runtime-smoke-test.md](local-container-runtime-smoke-test.md) §Artifact Provisioning. A checkout without them fails every preview by design (`UnavailableSiteRuntime`).
-- `scripts/copy-plugin.sh` run so `Resources/plugin/` is populated.
+- Container boot artifacts provisioned (`scripts/vendor-container-image.sh` with `ANGLESITE_PLUGIN_SRC` set, plus `scripts/vendor-container-kernel.sh`) — see [local-container-runtime-smoke-test.md](local-container-runtime-smoke-test.md) §Artifact Provisioning. A checkout without them fails every preview by design (`UnavailableSiteRuntime`). This staging step already covers the MCP sidecar (`server/`); the app no longer bundles or loads separate Claude-plugin machinery (#466).
 - A build signed with `Resources/Anglesite.entitlements` (ad-hoc Debug is fine — the virtualization entitlement is unrestricted).
 - Network access (guest `npm install`, wrangler).
 - For Part 4: a Cloudflare account the tester controls, with no pre-existing token in Keychain or `CLOUDFLARE_API_TOKEN` in the environment.

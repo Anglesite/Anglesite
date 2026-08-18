@@ -742,6 +742,20 @@ test("buildRobotsTxt: a newline in a path can't inject an extra directive", () =
   assert.doesNotMatch(out, /^Allow: \/$/m);
 });
 
+test("buildRobotsTxt: a directory-style disallow entry also disallows its .md mirror", () => {
+  const entries: RobotsConfigEntry[] = [{ path: "/blog/hello-world/" }];
+  const out = buildRobotsTxt(undefined, undefined, entries);
+  assert.match(out, /Disallow: \/blog\/hello-world\/\n/);
+  assert.match(out, /Disallow: \/blog\/hello-world\.md\n/);
+});
+
+test("buildRobotsTxt: a non-directory disallow entry gets no .md twin", () => {
+  const entries: RobotsConfigEntry[] = [{ path: "/search" }];
+  const out = buildRobotsTxt(undefined, undefined, entries);
+  assert.match(out, /Disallow: \/search\n/);
+  assert.doesNotMatch(out, /\/search\.md/);
+});
+
 test("buildRobotsTxt: extra lines are appended verbatim after a blank line", () => {
   const out = buildRobotsTxt(undefined, undefined, [], ["User-agent: SomeBot", "Disallow: /"]);
   assert.match(out, /\n\nUser-agent: SomeBot\nDisallow: \/\n$/);

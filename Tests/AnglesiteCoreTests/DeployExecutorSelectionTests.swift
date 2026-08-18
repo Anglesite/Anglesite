@@ -40,7 +40,9 @@ struct DeployExecutorSelectionTests {
             logCenter: LogCenter()
         )
         let cmd = DeployCommand(
-            tokenSource: { "tok" },
+            target: CloudflareDeployTarget(
+                tokenSource: { "tok" }
+            ),
             executor: executor
         )
         // The fake returns exit-0 + valid scan JSON for every step, so the full
@@ -61,7 +63,7 @@ struct DeployExecutorSelectionTests {
             execStdoutLines: []
         )
         let executor = ContainerDeployExecutor(control: fake, siteID: "my-site", logCenter: LogCenter())
-        let cmd = DeployCommand(tokenSource: { "tok" }, executor: executor)
+        let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: executor)
         _ = await cmd.deploy(siteID: "my-site", siteDirectory: tmpDir)
         let calls = await fake.execCalls
         for call in calls {
@@ -85,7 +87,7 @@ struct DeployExecutorSelectionTests {
             logCenter: LogCenter(),
             resolveCommand: { _ in { _ in .unavailable(reason: "host path chosen") } }
         )
-        let cmd = DeployCommand(tokenSource: { "tok" }, executor: hostExecutor)
+        let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: hostExecutor)
         _ = await cmd.deploy(siteID: "site-1", siteDirectory: tmpDir)
         let calls = await fake.execCalls
         #expect(calls.isEmpty, "container control.exec() must NOT be called when the host executor is used")
@@ -98,7 +100,7 @@ struct DeployExecutorSelectionTests {
         // Use a step-aware fake: intercept exec calls in order and return the right payload.
         let stepAware = StepAwareFakeContainerControl()
         let executor = ContainerDeployExecutor(control: stepAware, siteID: "s", logCenter: LogCenter())
-        let cmd = DeployCommand(tokenSource: { "tok" }, executor: executor)
+        let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: executor)
         _ = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
         let calls = await stepAware.calls
         let argvs = calls.map(\.argv)

@@ -26,25 +26,29 @@ public enum WebsiteIconAsset {
         case layoutNotFound(URL)
     }
 
-    /// The exact `<link>` block inserted after `<head>` — fixed root-relative paths matching the
-    /// filenames above, so the layout never needs regenerating when icon *content* changes.
-    public static let headLinks = """
-        <link rel="icon" href="/favicon.ico" sizes="any" />
-        <link rel="icon" type="image/png" href="/favicon.png" />
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
-        <link rel="manifest" href="/site.webmanifest" />
-    """
+    /// Every `<link>` ``insertHeadLinks(into:)`` can add, each paired with the href that marks it
+    /// already present. Some entries (e.g. `favicon.ico`) may already be baked into a site's
+    /// layout by the template itself, independent of a custom icon install — so each line's
+    /// presence is checked on its own rather than treating the set as all-or-nothing.
+    static let headLinkEntries: [(href: String, line: String)] = [
+        (#"href="/favicon.ico""#, #"<link rel="icon" href="/favicon.ico" sizes="any" />"#),
+        (#"href="/favicon.png""#, #"<link rel="icon" type="image/png" href="/favicon.png" />"#),
+        (#"href="/apple-touch-icon.png""#, #"<link rel="apple-touch-icon" href="/apple-touch-icon.png" />"#),
+        (#"href="/site.webmanifest""#, #"<link rel="manifest" href="/site.webmanifest" />"#)
+    ]
 
-    /// Inserts ``headLinks`` right after `<head>`, idempotently: an existing favicon or manifest
-    /// href (from a prior install, or hand-authored) leaves the source untouched rather than
-    /// duplicating links. Pure — the file write lives in ``patchLayout(in:fileManager:)``.
+    /// The exact `<link>` block inserted after `<head>` when none of `headLinkEntries` are
+    /// present yet — derived from that array so the two can't drift out of sync.
+    public static let headLinks = headLinkEntries.map(\.line).joined(separator: "\n")
+
+    /// Inserts whichever `headLinkEntries` lines are missing right after `<head>`, idempotently:
+    /// a line whose href already appears anywhere in the source (from a prior install, the
+    /// template baseline, or hand-authoring) is left alone rather than duplicated. Pure — the
+    /// file write lives in ``patchLayout(in:fileManager:)``.
     public static func insertHeadLinks(into source: String) -> String {
-        guard !source.contains(#"href="/favicon.ico""#),
-              !source.contains(#"href="/site.webmanifest""#) else {
-            return source
-        }
-        guard let headRange = source.range(of: "<head>") else { return source }
-        let insertion = "\n" + headLinks
+        let missingLines = headLinkEntries.filter { !source.contains($0.href) }.map(\.line)
+        guard !missingLines.isEmpty, let headRange = source.range(of: "<head>") else { return source }
+        let insertion = "\n" + missingLines.joined(separator: "\n")
         var patched = source
         patched.insert(contentsOf: insertion, at: headRange.upperBound)
         return patched

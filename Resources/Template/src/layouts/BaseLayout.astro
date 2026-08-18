@@ -3,6 +3,8 @@ import "../styles/global.css";
 import Hcard from "../components/Hcard.astro";
 import Rights from "../components/Rights.astro";
 import { readConfig, siteLang } from "../../scripts/config";
+import { readAnglesiteConfig, pickRunningExperiment } from "../../scripts/anglesite-config";
+import { GOAL_BEACON_SCRIPT_PATH } from "../../scripts/experiments-paths.ts";
 import { licensingPolicy, siteLicense } from "../lib/licensing-data.ts";
 import { headLicense, type LicenseRef } from "../lib/licensing.ts";
 import { rslPublished } from "../lib/rsl.ts";
@@ -70,6 +72,28 @@ const noindex = isNoindexed(Astro.url.pathname, readRobotsConfig(process.cwd()))
 // stronger gate `scripts/csp.ts` (the Link: header) uses, so this <link> never appears pointing
 // at an rsl.xml that wasn't actually generated (PR #1290 review).
 const rsl = rslPublished(licensingPolicy(), readConfig("SITE_URL"));
+// #1279: experimental.webmcp — off by default, so an un-opted-in site's build stays byte-
+// identical (no <script> anywhere) to a build before this feature existed. The <script> tag
+// below deliberately omits `type="module"`: with that attribute present, Astro treats a local
+// `src` as an already-resolved external reference and emits it byte-for-byte unprocessed
+// (`src="../scripts/webmcp.ts"`, unresolvable at runtime); omitting it lets Astro hoist, bundle,
+// and (per astro.config.ts's `vite.build.assetsInlineLimit`) externalize the script into a
+// single cached chunk shared by every page, re-adding `type="module"` itself in the output.
+const webmcpEnabled = readAnglesiteConfig(process.cwd()).experimental?.webmcp === true;
+// Client-side goal beacon injection (#1270 slice 2): a running experiment's own page and variant
+// page carry the beacon <script> only when its goal is "scroll"/"visible" — a pageview/route goal
+// is entirely edge-observed and needs no client script. Every other page (including a *concluded*
+// experiment's former pages, once anglesite.json no longer marks it "running") stays byte-
+// identical to a build before this feature existed. Reads `anglesite.json` directly (like
+// `webmcpEnabled` above) rather than importing the gitignored, generated `worker/experiments.json`
+// artifact — `pickRunningExperiment` is the single derivation both share, so they never disagree,
+// without this layout depending on the Worker's own prebuild step having already run first.
+const runningExperiment = pickRunningExperiment(readAnglesiteConfig(process.cwd()));
+const beaconExperiment =
+  runningExperiment && (runningExperiment.goal.kind === "scroll" || runningExperiment.goal.kind === "visible")
+    && (Astro.url.pathname === runningExperiment.page || Astro.url.pathname === runningExperiment.variant.page)
+    ? runningExperiment
+    : null;
 // Same computation BlogPost.astro/Hentry.astro use for their own JSON-LD `url` — duplicated
 // rather than threaded as a prop because every page (including ones with no per-collection
 // layout) needs a canonical link, and Astro.url/Astro.site are already in scope here.
@@ -139,6 +163,17 @@ const themeColor = readConfig("PWA_THEME_COLOR");
     </main>
     <Hcard />
     <Rights license={license} />
+    {webmcpEnabled && <script src="../scripts/webmcp.ts"></script>}
+    {beaconExperiment && (
+      <script
+        src={GOAL_BEACON_SCRIPT_PATH}
+        defer
+        data-experiment={beaconExperiment.id}
+        data-kind={beaconExperiment.goal.kind}
+        data-depth={beaconExperiment.goal.kind === "scroll" ? beaconExperiment.goal.depth : undefined}
+        data-selector={beaconExperiment.goal.kind === "visible" ? beaconExperiment.goal.selector : undefined}
+      ></script>
+    )}
     <!-- anglesite:body-end -->
   </body>
 </html>

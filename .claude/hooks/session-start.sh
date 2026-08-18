@@ -1,18 +1,76 @@
 #!/bin/bash
 #
-# SessionStart hook for Claude Code on the web.
+# SessionStart hook for Claude Code.
 #
-# The Linux portable-target flow (see scripts/setup-dev-env.sh and
-# README.md#developing-on-linux) needs a Swift 6.3+ toolchain for
-# `swift build`/`swift test` to work, and web session containers don't ship
-# one. The preferred install path is the cloud environment's **setup script**
-# (fetched from GitHub via curl since the setup script runs before the
-# session's repo clone exists, cached with the environment — see
-# README.md#developing-on-linux); this hook is the per-session fallback for
-# environments without that cache, and it owns the part a setup script can't
-# do: persisting the toolchain's PATH/LD_LIBRARY_PATH into the session via
-# $CLAUDE_ENV_FILE.
+# Two jobs, by platform:
+#
+# macOS (local sessions): emit a toolchain preflight into the session context
+# so agents never misdiagnose "the build tooling is not there" — the recurring
+# failure is environment resolution (xcode-select at CommandLineTools, an
+# ungenerated worktree .xcodeproj, unprovisioned container artifacts), not
+# absent tooling. See docs/testing-macos-app.md. Best-effort: a probe failure
+# must never fail the session.
+#
+# Linux (Claude Code on the web): the portable-target flow (see
+# scripts/setup-dev-env.sh and README.md#developing-on-linux) needs a
+# Swift 6.3+ toolchain for `swift build`/`swift test` to work, and web session
+# containers don't ship one. The preferred install path is the cloud
+# environment's **setup script** (fetched from GitHub via curl since the setup
+# script runs before the session's repo clone exists, cached with the
+# environment — see README.md#developing-on-linux); this hook is the
+# per-session fallback for environments without that cache, and it owns the
+# part a setup script can't do: persisting the toolchain's
+# PATH/LD_LIBRARY_PATH into the session via $CLAUDE_ENV_FILE.
 set -euo pipefail
+
+if [ "$(uname -s)" = "Darwin" ] && [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
+  proj_dir="${CLAUDE_PROJECT_DIR:-$(cd "$(dirname "$0")/../.." && pwd)}"
+  echo "Anglesite macOS toolchain preflight (docs/testing-macos-app.md):"
+
+  sel=$(xcode-select -p 2>/dev/null || true)
+  case "$sel" in
+    *.app/Contents/Developer)
+      echo "- xcode-select: $sel ($(xcodebuild -version 2>/dev/null | head -1 || echo 'version unknown'))"
+      ;;
+    *)
+      echo "- WARNING: xcode-select points at '${sel:-nothing}', not an Xcode app. Do NOT run xcode-select --switch (needs sudo) — export DEVELOPER_DIR instead."
+      best=""
+      best_v=0
+      for app in /Applications/Xcode*.app; do
+        [ -d "$app" ] || continue
+        v=$(defaults read "$app/Contents/Info" CFBundleShortVersionString 2>/dev/null || echo 0)
+        maj=${v%%.*}
+        if [ "${maj:-0}" -ge "$best_v" ] 2>/dev/null; then
+          best="$app"
+          best_v="$maj"
+        fi
+      done
+      if [ -n "$best" ]; then
+        echo "  Fix: export DEVELOPER_DIR=\"$best/Contents/Developer\"  (Xcode ${best_v}.x found; this repo needs 27+). Re-export in every tool call — shell state does not persist."
+      else
+        echo "  No /Applications/Xcode*.app found — the macOS app cannot be built on this machine."
+      fi
+      ;;
+  esac
+
+  if command -v xcodegen >/dev/null 2>&1; then
+    echo "- xcodegen: $(command -v xcodegen)"
+  else
+    echo "- WARNING: xcodegen not on PATH (brew install xcodegen) — required to generate the gitignored Anglesite.xcodeproj."
+  fi
+
+  if [ ! -e "$proj_dir/Anglesite.xcodeproj" ]; then
+    echo "- Anglesite.xcodeproj not generated in this checkout (normal for a fresh worktree) — run 'xcodegen generate', or just use scripts/build-app.sh which does it for you."
+  fi
+
+  if [ ! -f "$proj_dir/Resources/container-image/index.json" ] \
+     || [ ! -f "$proj_dir/Resources/container-kernel/vmlinux" ] \
+     || [ ! -f "$proj_dir/Resources/container-initfs/index.json" ]; then
+    echo "- Container boot artifacts unprovisioned here: Debug builds warn, Release builds fail, and site previews fail at runtime. Fix: rsync Resources/container-{image,kernel,initfs} from the main checkout — see docs/testing-macos-app.md § Container boot artifacts."
+  fi
+
+  exit 0
+fi
 
 if [ "${CLAUDE_CODE_REMOTE:-}" != "true" ]; then
   exit 0

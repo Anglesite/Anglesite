@@ -149,6 +149,34 @@ struct CompletionNoticeTests {
         #expect(notice.isFailure)
     }
 
+    // MARK: Follow Request
+
+    @Test("Singular follow request reads as one person")
+    func followRequestSingular() {
+        let notice = CompletionNoticeBuilder.followRequest(siteName: "Pullets Forever", siteID: "site-1", count: 1)
+        #expect(notice.title == "New Follow Request")
+        #expect(notice.subtitle == "Pullets Forever")
+        #expect(notice.body == "1 person wants to follow your site.")
+        #expect(notice.siteID == "site-1")
+        #expect(!notice.isFailure)
+    }
+
+    @Test("Plural follow requests read as N people", arguments: [2, 5])
+    func followRequestPlural(count: Int) {
+        let notice = CompletionNoticeBuilder.followRequest(siteName: "Site", siteID: "site-1", count: count)
+        #expect(notice.title == "New Follow Requests")
+        #expect(notice.body == "\(count) people want to follow your site.")
+    }
+
+    @Test("Follow request identifier is stable per site so a later count replaces the banner")
+    func followRequestIdentifierStable() {
+        let a = CompletionNoticeBuilder.followRequest(siteName: "S", siteID: "site-1", count: 1)
+        let b = CompletionNoticeBuilder.followRequest(siteName: "S", siteID: "site-1", count: 3)
+        let other = CompletionNoticeBuilder.followRequest(siteName: "S", siteID: "site-2", count: 1)
+        #expect(a.identifier == b.identifier)
+        #expect(a.identifier != other.identifier)
+    }
+
     // MARK: Duration formatting
 
     @Test("Durations format as seconds under a minute and m/ss above", arguments: [

@@ -48,7 +48,7 @@ public actor SocialWorkerProvisionCommand {
 
     /// Re-exported from ``DeployCommand`` so both commands share one token-resolution seam
     /// (Keychain in production, injected values in tests).
-    public typealias TokenSource = DeployCommand.TokenSource
+    public typealias TokenSource = CloudflareDeployTarget.TokenSource
     /// Resolves the Cloudflare account id that owns a token — used only by inbox-capture
     /// provisioning (#764) to persist the id `InboxSubmissionSync` needs later. `nil` on any
     /// resolution failure (mirrors `MicropubContentSync`'s/`ReceivedInteractionSync`'s existing
@@ -112,24 +112,24 @@ public actor SocialWorkerProvisionCommand {
     private let webdavPepperSource: WebdavPepperSource
     private let secretRunner: SecretRunner
     private let deployer: Deployer
-    private let workerScriptNamesSource: DeployCommand.WorkerScriptNamesSource
+    private let workerScriptNamesSource: CloudflareDeployTarget.WorkerScriptNamesSource
     private let accountIDSource: AccountIDSource
 
     /// Creates a provisioner. Every dependency defaults to its production conformer; tests (and
     /// `DeployModel`, which threads its own runner/deployer) override only the seams they need.
     public init(
-        tokenSource: @escaping TokenSource = DeployCommand.keychainTokenSource,
+        tokenSource: @escaping TokenSource = CloudflareDeployTarget.keychainTokenSource,
         runner: @escaping CommandRunner = SocialWorkerProvisionCommand.defaultRunner,
         keyPairSource: @escaping KeyPairSource = SocialWorkerProvisionCommand.defaultKeyPairSource,
         solidOidcSigningKeySource: @escaping SolidOidcSigningKeySource = SocialWorkerProvisionCommand.defaultSolidOidcSigningKeySource,
         webdavPepperSource: @escaping WebdavPepperSource = SocialWorkerProvisionCommand.defaultWebdavPepperSource,
         secretRunner: @escaping SecretRunner = SocialWorkerProvisionCommand.defaultSecretRunner,
         deployer: @escaping Deployer = SocialWorkerProvisionCommand.defaultDeployer,
-        /// Same seam `DeployCommand` uses for its own end-of-pipeline conflict check
-        /// (`DeployCommand.defaultWorkerScriptNames` in production); injected here too so
+        /// Same seam `DeployCommand`'s `CloudflareDeployTarget` uses for its own end-of-pipeline
+        /// conflict check (`CloudflareDeployTarget.defaultWorkerScriptNames` in production); injected here too so
         /// `provision()` can run that same check *before* any wrangler call touches the
         /// candidate name (#1075) instead of only after D1/KV/R2/secrets have already run.
-        workerScriptNamesSource: @escaping DeployCommand.WorkerScriptNamesSource = DeployCommand.defaultWorkerScriptNames,
+        workerScriptNamesSource: @escaping CloudflareDeployTarget.WorkerScriptNamesSource = CloudflareDeployTarget.defaultWorkerScriptNames,
         /// Same seam shape as `workerScriptNamesSource`; only used by the inbox-capture block
         /// (#764) to persist the owning account id.
         accountIDSource: @escaping AccountIDSource = SocialWorkerProvisionCommand.defaultAccountIDSource
@@ -253,12 +253,12 @@ public actor SocialWorkerProvisionCommand {
         // confirmed ours by an earlier attempt) closes both gaps: a genuinely foreign name is
         // still caught here, before any resource creation runs, while a retry of this site never
         // re-flags its own provisioning history.
-        if case .workerNameConflict(let name)? = await DeployCommand.checkWorkerNameConflict(
+        if case .workerNameConflict(let name)? = await CloudflareDeployTarget.checkWorkerNameConflict(
             siteDirectory: siteDirectory, apiToken: token, workerScriptNamesSource: workerScriptNamesSource
         ) {
             return .workerNameConflict(name: name, resources: resources)
         }
-        DeployCommand.persistWorkerProvisioned(siteDirectory: siteDirectory)
+        CloudflareDeployTarget.persistWorkerProvisioned(siteDirectory: siteDirectory)
 
         if workers.contains(where: { $0.resources.needsD1 }) || hasRunningExperiment {
             if resources.d1DatabaseID == nil {
@@ -868,7 +868,7 @@ public actor SocialWorkerProvisionCommand {
     /// `DeployModel.runDeploy` still constructs its own deployer closure (for `configDirectory`/
     /// `onPreflight`/`onProgress`, which this default has no equivalent for).
     public static let defaultDeployer: Deployer = { token, siteID, siteDirectory, wellKnownDynamicClaims in
-        await DeployCommand(tokenSource: { token }).deploy(
+        await DeployCommand(target: CloudflareDeployTarget(tokenSource: { token })).deploy(
             siteID: siteID, siteDirectory: siteDirectory, wellKnownDynamicClaims: wellKnownDynamicClaims)
     }
 
