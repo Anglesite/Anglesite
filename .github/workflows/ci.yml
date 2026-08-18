@@ -390,7 +390,12 @@ jobs:
     needs: changes
     if: needs.changes.outputs.swift == 'true'
     runs-on: macos-26
-    timeout-minutes: 15
+    # Bumped from 15: the debug build + full test suite + release build now routinely runs
+    # 13-14m on its own, leaving no margin for the post-job SwiftPM cache save — several PRs
+    # (including an unrelated one on the same day as #966) hit "exceeded the maximum execution
+    # time of 15m0s" mid cache-save even though every actual build/test step had already
+    # succeeded. 20m restores headroom without masking a genuine hang.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 

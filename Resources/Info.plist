@@ -36,6 +36,8 @@
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Anglesite needs to coordinate with helper processes (Astro dev server, MCP server) to preview and edit your site.</string>
+	<key>NSContactsUsageDescription</key>
+	<string>Anglesite can check your Contacts to suggest names for people you follow, so your contact list uses names you recognize.</string>
 	<key>NSUserActivityTypes</key>
 	<array>
 		<string>io.dwk.anglesite.site-window</string>

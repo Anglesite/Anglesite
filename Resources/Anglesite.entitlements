@@ -14,6 +14,13 @@
 	<key>com.apple.security.files.bookmarks.app-scope</key>
 	<true/>
 
+	<!-- Contacts.framework read-only matching (#966): suggests linking a system contact to a
+	     known identity URL. Unlike the iCloud/webcredentials entitlements below, this needs no
+	     special Developer Portal provisioning, so it's safe in both the Release and CI-safe
+	     Debug entitlements files. -->
+	<key>com.apple.security.personal-information.addressbook</key>
+	<true/>
+
 	<!-- Apple Containerization framework (#69): boot local OCI containers. -->
 	<key>com.apple.security.virtualization</key>
 	<true/>
