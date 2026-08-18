@@ -97,6 +97,10 @@ struct ContainerDeployExecutorTests {
         #expect(argv.contains("my-site-pages"))
         #expect(argv.contains { $0.contains("git push") })
         #expect(argv.contains { $0.contains("$GITHUB_PAGES_TOKEN") })
+        // Without `.nojekyll` at the repo root, GitHub Pages' default Jekyll processing drops
+        // every underscore-prefixed path — including Astro's `dist/_astro/` asset directory —
+        // so a real deploy would silently serve an unstyled, scriptless site.
+        #expect(argv.contains { $0.contains(".nojekyll") })
     }
 
     @Test("ContainerDeployExecutor's .githubPagesPublish argv fails loudly when anglesite.json has no githubPages section")

@@ -428,10 +428,16 @@ public struct ContainerDeployExecutor: DeployExecutor {
             // via `$1`/`$2`, POSITIONAL shell parameters, the same injection-safety pattern
             // `.bundleUpload` uses for CF_SOURCE_BUCKET above. The token crosses the host→guest
             // boundary only via `$GITHUB_PAGES_TOKEN` (an environment variable, never a shell
-            // argument, never logged) — see `guestEnvAllowlist`.
+            // argument, never logged) — see `guestEnvAllowlist`. `touch .nojekyll` before staging:
+            // GitHub Pages' branch-source publish path runs the site through Jekyll by default,
+            // which excludes every underscore-prefixed path — including Astro's `dist/_astro/`
+            // asset directory — unless `.nojekyll` exists at the repo root. Without it, a deploy
+            // reports success but silently serves an unstyled, scriptless site. Both ecosystem
+            // tools cited above (`gh-pages`, `peaceiris/actions-gh-pages`) write this file by
+            // default too.
             return [
                 "sh", "-c",
-                "cd dist && git init -q && git checkout -q -b main && git add -A && " +
+                "cd dist && touch .nojekyll && git init -q && git checkout -q -b main && git add -A && " +
                 "git -c user.email=deploy@anglesite.app -c user.name=Anglesite commit -q -m Deploy && " +
                 "git push -q --force \"https://x-access-token:$GITHUB_PAGES_TOKEN@github.com/$1/$2.git\" HEAD:main",
                 "sh", owner, repo
