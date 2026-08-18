@@ -10,7 +10,7 @@ Slice 1 ([#1541](https://github.com/Anglesite/Anglesite/pull/1541)) extracted a 
 
 1. **`DeployStep` is a closed 4-case enum** (`.build`, `.preflight`, `.wrangler`, `.bundleUpload`) that `ContainerDeployExecutor` maps to argv run *inside the container guest*. The built `dist/` only ever exists in that guest's filesystem (`/workspace/site/dist`) — it is never synced back to the host. Cloudflare's target can use `context.executor.run(step: .wrangler, ...)` because `wrangler deploy` also runs in-guest, next to the build output it needs. A GitHub Pages target needs the same treatment — its publish step must run in-guest too — which means a new `DeployStep` case, not something a target can do entirely on its own.
 2. **No existing config tracks a site's GitHub repo.** `.site-config`/`SiteSettings` has nothing; the only source of truth today is `git remote origin`, read live via `RepoBootstrap.remote(of:)` and never persisted app-side. Publishing to a dedicated repo (decided below) needs somewhere durable to record which one.
-3. **No GitHub Pages API client method exists.** `HTTPGitHubClient` has `createRepo`, repo-security, and advisory methods, but nothing for `PUT /repos/{owner}/{repo}/pages`.
+3. **No GitHub Pages API client method exists.** `HTTPGitHubClient` has `createRepo`, repo-security, and advisory methods, but nothing for `POST /repos/{owner}/{repo}/pages`.
 
 This document scopes **slice 2a**: the plumbing alone — extend the executor seam, add the config field, add the API client method. **No behavior change**: nothing calls any of this yet. Slice 2b (a separate design) builds `GitHubPagesDeployTarget` on top of it — repo creation, token onboarding UX, and the actual deploy flow.
 
@@ -79,10 +79,16 @@ Add a `case .githubPagesPublish:` arm returning `{ _ in .unavailable(reason: Hos
 
 ```swift
 public func enablePages(owner: String, repo: String, token: String) async throws {
-    // PUT /repos/{owner}/{repo}/pages — build_type: "legacy", source: {branch: "main", path: "/"}
-    // Idempotent: safe to call on every deploy's first-run check, or once at repo-creation time
-    // (2b decides which). A 409/422 "already configured with this exact source" is treated as
-    // success, not an error — matching createRepo's existing "already exists" tolerance shape.
+    // POST /repos/{owner}/{repo}/pages — build_type: "legacy", source: {branch: "main", path: "/"}
+    // (POST creates a Pages site; PUT would update an already-configured one — POST is correct
+    // here since 2b calls this to configure Pages for the first time). Not idempotent: throws on
+    // any non-2xx status, mirroring createRepo's error mapping exactly — transport failure →
+    // .network, 401/403 → .unauthorized(status:), 422 → .api(message:) decoded from
+    // GitHubErrorResponse, any other non-2xx (including 409) → .http(status:). Unlike createRepo,
+    // there is no tolerance shape here: a repo that already has Pages configured surfaces as an
+    // error from this method, and it's on the caller (slice 2b) to decide how to handle that,
+    // since the exact status GitHub returns for "already enabled with this source" vs. "already
+    // enabled with a different source" wasn't verified against a live account.
 }
 ```
 

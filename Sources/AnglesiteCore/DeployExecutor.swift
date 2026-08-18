@@ -437,7 +437,7 @@ public struct ContainerDeployExecutor: DeployExecutor {
             // default too.
             return [
                 "sh", "-c",
-                "cd dist && touch .nojekyll && git init -q && git checkout -q -b main && git add -A && " +
+                "cd dist && touch .nojekyll && git init -q && git checkout -q -B main && git add -A && " +
                 "git -c user.email=deploy@anglesite.app -c user.name=Anglesite commit -q -m Deploy && " +
                 "git push -q --force \"https://x-access-token:$GITHUB_PAGES_TOKEN@github.com/$1/$2.git\" HEAD:main",
                 "sh", owner, repo
