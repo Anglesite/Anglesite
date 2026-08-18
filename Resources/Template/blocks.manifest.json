@@ -78,6 +78,39 @@
       "propEditors": [],
       "slots": [],
       "placement": { "allowedParents": null }
+    },
+    {
+      "path": "src/components/effects/ParallaxLayers.astro",
+      "export": "ParallaxLayers",
+      "kind": "astro",
+      "name": "Parallax Layers",
+      "description": "A two-layer decorative block where the back layer drifts slower than the page scroll.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
+    },
+    {
+      "path": "src/components/effects/RevealMask.astro",
+      "export": "RevealMask",
+      "kind": "astro",
+      "name": "Reveal Mask",
+      "description": "Content that reveals with a clip-path wipe the first time it scrolls into view.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
+    },
+    {
+      "path": "src/components/effects/ScrollProgressTrace.astro",
+      "export": "ScrollProgressTrace",
+      "kind": "astro",
+      "name": "Scroll Progress Trace",
+      "description": "A slim reading-progress line along the viewport edge that fills as the page scrolls.",
+      "icon": null,
+      "propEditors": [],
+      "slots": [],
+      "placement": { "allowedParents": null }
     }
   ]
 }
