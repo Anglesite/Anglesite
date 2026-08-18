@@ -10,7 +10,7 @@ struct DeployCommandProgressTests {
         let recorder = ProgressRecorder()
         // Build succeeds (exit 0); preflight JSON blocks so we stop early without reaching wrangler.
         let exec = BlockingPreflightExecutor()
-        let cmd = DeployCommand(tokenSource: { "token" }, executor: exec)
+        let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "token" }), executor: exec)
         _ = await cmd.deploy(siteID: "s", siteDirectory: URL(fileURLWithPath: NSTemporaryDirectory()),
                              onProgress: { recorder.record($0) })
         let phases = recorder.phases()

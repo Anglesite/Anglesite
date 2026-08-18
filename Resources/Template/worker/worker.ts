@@ -56,12 +56,14 @@ import {
 import {
   handleExperimentPageRequest,
   applyGoalConversion,
+  handleGoalBeaconRequest,
   matchesGoal,
   type ExperimentsArtifact,
 } from "./experiments.ts";
 import experimentsArtifact from "./experiments.json";
 import utmCodesArtifact from "../utm-codes.json";
 import { tagFediverseUrl } from "./utm-codes.ts";
+import { GOAL_ENDPOINT_PATH } from "../scripts/experiments-paths.ts";
 
 /**
  * Per-site Cloudflare Worker entry point.
@@ -1900,6 +1902,13 @@ export default {
     // page is fully owned by this branch — it never reaches ROUTES or asset-first serving.
     if (RUNNING_EXPERIMENT && pathname === RUNNING_EXPERIMENT.page) {
       return handleExperimentPageRequest(request, env, ctx, RUNNING_EXPERIMENT);
+    }
+
+    // Client-side goal beacon endpoint (#1270 slice 2): a fixed system path, not derived from
+    // config, so it's checked unconditionally — `handleGoalBeaconRequest` itself no-ops when
+    // there's no running experiment or its goal isn't client-side.
+    if (pathname === GOAL_ENDPOINT_PATH) {
+      return handleGoalBeaconRequest(request, env, ctx, RUNNING_EXPERIMENT);
     }
 
     let response: Response;

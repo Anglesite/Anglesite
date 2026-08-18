@@ -156,6 +156,32 @@ struct CommunityMembershipClientTests {
         }
     }
 
+    @Test("POSTs a Reject activity to this site's own outbox, confirming target resolution")
+    func postsRejectFollow() async throws {
+        let fake = FakeTransport(status: 202, body: "{}")
+        let target = try #require(URL(string: "https://mastodon.social/users/spammer"))
+
+        try await Self.client(fake).rejectFollow(target: target)
+
+        #expect(await fake.requestedURLs.first?.absoluteString == "https://example.com/users/site/outbox")
+        let headers = await fake.requestedHeaders.first
+        #expect(headers?["Authorization"] == "Bearer secret-token")
+        let body = await fake.requestedBodies.first
+        #expect(body?["type"] as? String == "Reject")
+        #expect(body?["object"] as? String == "https://mastodon.social/users/spammer")
+        #expect(body?["actor"] as? String == "https://example.com/users/site")
+    }
+
+    @Test("rejectFollow propagates a non-2xx as CommunityMembershipError")
+    func rejectFollowFailurePropagates() async throws {
+        let fake = FakeTransport(status: 403, body: "forbidden")
+        let target = try #require(URL(string: "https://mastodon.social/users/spammer"))
+
+        await #expect(throws: CommunityMembershipError.requestFailed(status: 403, body: "forbidden")) {
+            try await Self.client(fake).rejectFollow(target: target)
+        }
+    }
+
     @Test("GETs pending follow requests from this site's own actor endpoint")
     func listsFollowRequests() async throws {
         let fake = FakeTransport(

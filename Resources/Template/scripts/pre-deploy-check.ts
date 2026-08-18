@@ -27,6 +27,7 @@ import { readConfigFromString } from "./config";
 import { isMTAStsMarkerOwned, isSecurityTxtMarkerOwned, normalizeMTAStsMX, readLicensingPolicy, resolveMTAStsMode, resolveSecurityTxtMode } from "./edge-artifacts";
 import { ANGLESITE_CONFIG_RECOGNIZED_VERSIONS } from "./anglesite-config";
 import { rslActive, rslFileUrl } from "../src/lib/rsl.ts";
+import { GOAL_BEACON_SCRIPT_PATH } from "./experiments-paths.ts";
 
 interface Issue {
   severity: "error" | "warning";
@@ -699,8 +700,13 @@ export function checkAnglesiteConfig(raw: string | null): Issue[] {
 }
 
 const EXPERIMENT_ID_PATTERN = /^[A-Za-z0-9-]+$/;
-const EDGE_VISIBLE_GOAL_KINDS = new Set(["pageview", "route"]);
 const KNOWN_GOAL_KINDS = new Set(["pageview", "route", "scroll", "visible"]);
+const CLIENT_GOAL_KINDS = new Set(["scroll", "visible"]);
+const GOAL_BEACON_SCRIPT_DIST_PATH = `dist${GOAL_BEACON_SCRIPT_PATH}`;
+const GOAL_BEACON_SCRIPT_TAG_PATTERN = new RegExp(
+  `<script\\b[^>]*\\bsrc\\s*=\\s*["']${escapeRegExp(GOAL_BEACON_SCRIPT_PATH)}["'][^>]*>`,
+  "i",
+);
 
 /**
  * `requireTrailingSlash` covers page routes: this template's Astro build emits directory-format
@@ -770,20 +776,15 @@ function hasNoindexRobotsMeta(html: string): boolean {
 }
 
 /**
- * Computes the single dist path (if any) worth reading during `scan()`'s `dist/` walk: the built
- * variant page of the one well-formed running experiment, if `anglesiteConfigRaw` declares one.
- * `checkExperiments` only ever needs that one file's content, so `scan()` uses this to decide
- * what to retain while walking, rather than keeping every built HTML file's content in memory for
- * a lookup that's always exactly one entry.
- *
- * Mirrors just enough of `checkExperiments`'s own parsing to find that one path — deliberately not
- * shared with it beyond that. Returns `null` on ANY problem (missing, malformed JSON, no
- * experiments, zero or multiple running, malformed variant/variant.page, etc.) rather than
- * raising or reporting: this is a cheap, best-effort lookup for what to read, not a second
- * validator — full validation of the config, including of `variant.page` itself, still happens in
- * `checkExperiments`.
+ * Parses just enough of `anglesiteConfigRaw` to find the one well-formed running experiment's
+ * `page`/`variant.page` pair, or `null` on ANY problem (missing, malformed JSON, no experiments,
+ * zero or multiple running, malformed page/variant/variant.page, etc.) — a cheap, best-effort
+ * lookup for `scan()` to decide what dist files are worth reading, not a second validator. Full
+ * validation of the config, including of `page`/`variant.page` themselves, still happens in
+ * `checkExperiments`. Shared by `runningExperimentControlDistPath`/`runningExperimentVariantDistPath`
+ * below so both resolve the same running experiment.
  */
-export function runningExperimentVariantDistPath(anglesiteConfigRaw: string | null): string | null {
+function parseSingleRunningExperiment(anglesiteConfigRaw: string | null): { page: string; variantPage: string } | null {
   if (anglesiteConfigRaw === null) return null;
   try {
     const parsed: unknown = JSON.parse(anglesiteConfigRaw);
@@ -801,34 +802,53 @@ export function runningExperimentVariantDistPath(anglesiteConfigRaw: string | nu
     );
     if (runningEntries.length !== 1) return null;
 
-    const variant = runningEntries[0].variant;
+    const running = runningEntries[0];
+    const page = running.page;
+    if (typeof page !== "string" || page.length === 0) return null;
+
+    const variant = running.variant;
     if (typeof variant !== "object" || variant === null || Array.isArray(variant)) return null;
 
     const variantPage = (variant as Record<string, unknown>).page;
     if (typeof variantPage !== "string" || variantPage.length === 0) return null;
 
-    return distPathFor(variantPage);
+    return { page, variantPage };
   } catch {
     return null;
   }
 }
 
+/** The built dist path of the running experiment's own (control) page — see
+ *  `parseSingleRunningExperiment`'s doc comment for the resolution/error contract. */
+export function runningExperimentControlDistPath(anglesiteConfigRaw: string | null): string | null {
+  const running = parseSingleRunningExperiment(anglesiteConfigRaw);
+  return running ? distPathFor(running.page) : null;
+}
+
+/** The built dist path of the running experiment's variant page — see
+ *  `parseSingleRunningExperiment`'s doc comment for the resolution/error contract. */
+export function runningExperimentVariantDistPath(anglesiteConfigRaw: string | null): string | null {
+  const running = parseSingleRunningExperiment(anglesiteConfigRaw);
+  return running ? distPathFor(running.variantPage) : null;
+}
+
 /**
- * Validates the `experiments` section of `anglesite.json` (#1270 slice 1) and, for the one
+ * Validates the `experiments` section of `anglesite.json` (#1270 slices 1-2) and, for the one
  * running experiment (if any), that its edge machinery is actually built and wired — a page,
- * variant, or pageview-goal path that doesn't exist in `dist/`, or a variant missing its
- * canonical/noindex/sitemap-exclusion, is exactly the class of misconfiguration that burns real
- * traffic silently for a week before anyone notices (design doc §6). Runs after
- * `checkAnglesiteConfig` has already confirmed the document parses as a JSON object with a
- * recognized version — this function re-parses defensively but returns no issues of its own for a
- * document `checkAnglesiteConfig` already flagged, so the two never double-report the same root
- * cause.
+ * variant, or pageview-goal path that doesn't exist in `dist/`, a variant missing its
+ * canonical/noindex/sitemap-exclusion, or (for a "scroll"/"visible" goal) either arm missing the
+ * goal beacon script/tag, is exactly the class of misconfiguration that burns real traffic
+ * silently for a week before anyone notices (design doc §6). Runs after `checkAnglesiteConfig` has
+ * already confirmed the document parses as a JSON object with a recognized version — this function
+ * re-parses defensively but returns no issues of its own for a document `checkAnglesiteConfig`
+ * already flagged, so the two never double-report the same root cause.
  */
 export function checkExperiments(
   anglesiteConfigRaw: string | null,
   distFiles: Set<string>,
   variantHtmlContent: string | null,
   sitemapContent: string | null,
+  controlHtmlContent: string | null = null,
 ): Issue[] {
   if (anglesiteConfigRaw === null) return [];
 
@@ -941,21 +961,32 @@ export function checkExperiments(
         message: `${label}.goal.kind must be one of pageview, route, scroll, visible (found ${JSON.stringify(goal.kind)}).`,
         file: "anglesite.json",
       });
-    } else if (!EDGE_VISIBLE_GOAL_KINDS.has(goal.kind as string)) {
-      issues.push({
-        severity: "error",
-        category: "experiments-unsupported",
-        message: `${label}.goal.kind "${goal.kind}" is not supported yet — client-side goals ship in a later slice.`,
-        file: "anglesite.json",
-        remediation: 'Use goal.kind "pageview" or "route" for now.',
-      });
-    } else {
+    } else if (goal.kind === "pageview" || goal.kind === "route") {
       // Only "pageview" goals are page routes (Astro directory-format output); "route" goals are
       // API/action endpoints, which this codebase never gives a trailing slash (see worker.ts's
       // ROUTES table) — see experimentPathProblem's doc comment.
       const goalPathProblem = experimentPathProblem(goal.path, { requireTrailingSlash: goal.kind === "pageview" });
       if (goalPathProblem) {
         issues.push({ severity: "error", category: "experiments-invalid", message: `${label}.goal.path ${goalPathProblem}.`, file: "anglesite.json" });
+      }
+    } else if (goal.kind === "scroll") {
+      if (typeof goal.depth !== "number" || goal.depth < 1 || goal.depth > 100) {
+        issues.push({
+          severity: "error",
+          category: "experiments-invalid",
+          message: `${label}.goal.depth must be a number between 1 and 100 (found ${JSON.stringify(goal.depth)}).`,
+          file: "anglesite.json",
+        });
+      }
+    } else {
+      // goal.kind === "visible"
+      if (typeof goal.selector !== "string" || goal.selector.trim().length === 0) {
+        issues.push({
+          severity: "error",
+          category: "experiments-invalid",
+          message: `${label}.goal.selector must be a non-empty string (found ${JSON.stringify(goal.selector)}).`,
+          file: "anglesite.json",
+        });
       }
     }
 
@@ -1045,6 +1076,36 @@ export function checkExperiments(
     });
   }
 
+  // Client-side goals (#1270 slice 2) can never fire without the beacon script actually built and
+  // referenced from both arms — a variant/control page missing the tag is the same class of
+  // silent-traffic-burn misconfiguration the checks above guard against for edge-visible goals.
+  if (CLIENT_GOAL_KINDS.has(goal.kind as string)) {
+    if (!distFiles.has(GOAL_BEACON_SCRIPT_DIST_PATH)) {
+      issues.push({
+        severity: "error",
+        category: "experiments-goal-beacon",
+        message: `Running experiment's "${goal.kind}" goal needs the goal beacon script, but no built file exists at ${GOAL_BEACON_SCRIPT_DIST_PATH}.`,
+        file: GOAL_BEACON_SCRIPT_DIST_PATH,
+        remediation: "Confirm public/x/goal-beacon.js ships with the site and rebuild.",
+      });
+    }
+
+    for (const [html, roleLabel, distPath] of [
+      [controlHtmlContent, "control page", distPathFor(page)],
+      [variantHtmlContent, "variant page", distPathFor(variantPage)],
+    ] as const) {
+      if (html !== null && !GOAL_BEACON_SCRIPT_TAG_PATTERN.test(html)) {
+        issues.push({
+          severity: "error",
+          category: "experiments-goal-beacon",
+          message: `Running experiment's ${roleLabel} ("${roleLabel === "control page" ? page : variantPage}") must include the goal beacon <script src="${GOAL_BEACON_SCRIPT_PATH}"> tag — its "${goal.kind}" goal can never fire without it.`,
+          file: distPath,
+          remediation: "Confirm the page renders through BaseLayout, so the beacon is injected for a running client-side-goal experiment.",
+        });
+      }
+    }
+  }
+
   return issues;
 }
 
@@ -1103,10 +1164,14 @@ async function scan(): Promise<Issue[]> {
   const sitemapContent = await readFile(join(DIST_DIR, "sitemap.xml"), "utf-8").catch(
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
   );
-  // Only ever one file's content is needed out of the whole walk below — the running
-  // experiment's variant page, if there is one — so this is computed up front rather than
-  // retaining every built HTML file's content in memory (#1513 final review).
+  // Only ever two files' content is needed out of the whole walk below — the running
+  // experiment's own (control) page and its variant page, if there is one — so these are
+  // computed up front rather than retaining every built HTML file's content in memory (#1513
+  // final review). The control page's content is only used by the client-side-goal beacon-tag
+  // check (§6); every other running-experiment check only ever needed the variant's.
+  const controlDistPath = runningExperimentControlDistPath(anglesiteConfigContent);
   const variantDistPath = runningExperimentVariantDistPath(anglesiteConfigContent);
+  let controlHtmlContent: string | null = null;
   let variantHtmlContent: string | null = null;
 
   const relPaths: string[] = [];
@@ -1120,6 +1185,7 @@ async function scan(): Promise<Issue[]> {
     issues.push(...checkPII(content, rel));
 
     const isHtmlOrCss = /\.(html?|css)$/i.test(file);
+    if (controlDistPath !== null && rel === controlDistPath) controlHtmlContent = content;
     if (variantDistPath !== null && rel === variantDistPath) variantHtmlContent = content;
     if (isHtmlOrCss) {
       issues.push(...checkEmbedMedia(content, rel));
@@ -1166,7 +1232,9 @@ async function scan(): Promise<Issue[]> {
 
   issues.push(...checkArtifactPresence(relPaths));
 
-  issues.push(...checkExperiments(anglesiteConfigContent, new Set(relPaths), variantHtmlContent, sitemapContent));
+  issues.push(
+    ...checkExperiments(anglesiteConfigContent, new Set(relPaths), variantHtmlContent, sitemapContent, controlHtmlContent),
+  );
 
   return issues;
 }

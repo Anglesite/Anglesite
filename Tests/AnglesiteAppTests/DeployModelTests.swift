@@ -99,7 +99,7 @@ struct DeployModelTests {
     func suddenTerminationLeaseBracketsDeploy() async {
         let executor = GatedDeployExecutor()
         let controller = SuddenTerminationController(disable: {}, enable: {})
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let model = DeployModel(
             command: command,
             logCenter: LogCenter(),
@@ -144,8 +144,10 @@ struct DeployModelTests {
         // regression that skips the gate doesn't hang the test on the gated continuation.
         await executor.resumeBuild()
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            workerScriptNamesSource: { _ in ["my-site"] },
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                workerScriptNamesSource: { _ in ["my-site"] }
+            ),
             executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -176,9 +178,11 @@ struct DeployModelTests {
         let finding = DomainConfigAudit.Finding(
             category: .dns, title: "Missing managed DNS record", detail: "detail", remediation: .informational)
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            executor: executor,
-            domainConfigDriftSource: { _, _, _ in [finding] }
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                domainConfigDriftSource: { _, _, _ in [finding] }
+            ),
+            executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
@@ -212,9 +216,11 @@ struct DeployModelTests {
         // regression that skips the gate doesn't hang the test on the gated continuation.
         await executor.resumeBuild()
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            // "my-site" is taken; "my-site-2" (what the sheet will submit) is free.
-            workerScriptNamesSource: { _ in ["my-site"] },
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                // "my-site" is taken; "my-site-2" (what the sheet will submit) is free.
+                workerScriptNamesSource: { _ in ["my-site"] }
+            ),
             executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -257,9 +263,11 @@ struct DeployModelTests {
         // the gated continuation.
         await executor.resumeBuild()
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            // Both "my-site" (the original name) and "my-site-2" (the rename target) are taken.
-            workerScriptNamesSource: { _ in ["my-site", "my-site-2"] },
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                // Both "my-site" (the original name) and "my-site-2" (the rename target) are taken.
+                workerScriptNamesSource: { _ in ["my-site", "my-site-2"] }
+            ),
             executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -298,9 +306,11 @@ struct DeployModelTests {
         let executor = GatedDeployExecutor()
         let writer = FakeDomainAttachWriter(outcome: .attached)
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            customDomainAttachCommand: CustomDomainAttachCommand(client: writer),
-            markdownForAgentsCommand: MarkdownForAgentsCommand(client: writer),
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                customDomainAttachCommand: CustomDomainAttachCommand(client: writer),
+                markdownForAgentsCommand: MarkdownForAgentsCommand(client: writer)
+            ),
             executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -336,9 +346,11 @@ struct DeployModelTests {
         // "nothing configured" skip path.
         let writer = FakeDomainAttachWriter(outcome: .attached)
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            customDomainAttachCommand: CustomDomainAttachCommand(client: writer),
-            markdownForAgentsCommand: MarkdownForAgentsCommand(client: writer),
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                customDomainAttachCommand: CustomDomainAttachCommand(client: writer),
+                markdownForAgentsCommand: MarkdownForAgentsCommand(client: writer)
+            ),
             executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -369,8 +381,10 @@ struct DeployModelTests {
         let executor = GatedDeployExecutor()
         let writer = FakeDomainAttachWriter(outcome: .zoneNotFound)
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            customDomainAttachCommand: CustomDomainAttachCommand(client: writer),
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                customDomainAttachCommand: CustomDomainAttachCommand(client: writer)
+            ),
             executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -402,8 +416,10 @@ struct DeployModelTests {
         let executor = GatedDeployExecutor()
         let writer = FakeDomainAttachWriter(outcome: .conflict(ownedBy: "other-site"))
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            customDomainAttachCommand: CustomDomainAttachCommand(client: writer),
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                customDomainAttachCommand: CustomDomainAttachCommand(client: writer)
+            ),
             executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -436,7 +452,7 @@ struct DeployModelTests {
     @Test("No transfer domain configured reports .skipped and leaves the workers.dev URL")
     func noTransferDomainSkips() async {
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
@@ -463,8 +479,10 @@ struct DeployModelTests {
         let executor = GatedDeployExecutor()
         await executor.resumeBuild()
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            workerScriptNamesSource: { _ in ["my-site"] },
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                workerScriptNamesSource: { _ in ["my-site"] }
+            ),
             executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -510,8 +528,10 @@ struct DeployModelTests {
         let executor = GatedDeployExecutor()
         await executor.resumeBuild()
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            workerScriptNamesSource: { _ in ["my-site"] },
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                workerScriptNamesSource: { _ in ["my-site"] }
+            ),
             executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -544,8 +564,10 @@ struct DeployModelTests {
         let executor = GatedDeployExecutor()
         await executor.resumeBuild()
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            workerScriptNamesSource: { _ in ["my-site"] },
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                workerScriptNamesSource: { _ in ["my-site"] }
+            ),
             executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -574,7 +596,7 @@ struct DeployModelTests {
     @Test("a site with no active workers still deploys through the plain static path")
     func staticSiteDeploysUnaffected() async throws {
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let contentGraph = SiteContentGraph()
         let model = DeployModel(
             command: command,
@@ -607,7 +629,7 @@ struct DeployModelTests {
     func activatingAWorkerWithoutContainerFailsAtProvisioning() async throws {
         let executor = GatedDeployExecutor()
         await executor.resumeBuild()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let contentGraph = SiteContentGraph()
         let catalog = [
             WorkerDescriptor(
@@ -644,7 +666,7 @@ struct DeployModelTests {
     @Test("an active worker with no matching catalog entry logs a warning instead of deploying silently")
     func emptyCatalogWithActiveWorkerWarnsInDebugPane() async throws {
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let contentGraph = SiteContentGraph()
         let logCenter = LogCenter()
         let model = DeployModel(
@@ -682,7 +704,7 @@ struct DeployModelTests {
     @Test("a container control resolved via containerControlProvider routes deploy execs through it")
     func containerControlProviderRoutesToContainer() async throws {
         let fake = RecordingLocalContainerControl()
-        let command = DeployCommand(tokenSource: { "test-token" })
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }))
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let dir = try temporaryDirectory()
 
@@ -705,9 +727,11 @@ struct DeployModelTests {
         let executor = GatedDeployExecutor()
         await executor.resumeBuild()
         let command = DeployCommand(
-            tokenSource: { "test-token" },
-            // "my-site" is taken; "my-site-2" (what the retry submits) is free.
-            workerScriptNamesSource: { _ in ["my-site"] },
+            target: CloudflareDeployTarget(
+                tokenSource: { "test-token" },
+                // "my-site" is taken; "my-site-2" (what the retry submits) is free.
+                workerScriptNamesSource: { _ in ["my-site"] }
+            ),
             executor: executor
         )
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -746,7 +770,7 @@ struct DeployModelTests {
     @Test("wasFirstDeploy is true only when CF_WORKER_DEPLOYED was absent before this deploy")
     func wasFirstDeployReflectsPriorDeployHistory() async {
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
         let siteDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
         try! FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
@@ -780,7 +804,7 @@ struct DeployModelTests {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
         defer { cfToken.release() }
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let keychain = InMemorySecretStore()
         try? keychain.writeCloudflareOAuthCredential(CloudflareOAuthCredential(
             accessToken: "already-signed-in", refreshToken: nil, expiresAt: nil,
@@ -812,7 +836,7 @@ struct DeployModelTests {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
         defer { cfToken.release() }
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let keychain = InMemorySecretStore()
         // Definitely unrefreshable: expired in the past, and no refresh token to fall back on
         // (e.g. Cloudflare's OAuth never issued one for this client — a real open item).
@@ -839,7 +863,7 @@ struct DeployModelTests {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
         defer { cfToken.release() }
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let keychain = InMemorySecretStore()
         let client = CloudflareOAuthClient(
             scope: "workers_scripts",
@@ -898,7 +922,7 @@ struct DeployModelTests {
     func signInFailureStaysOnSheet() async {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
         defer { cfToken.release() }
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: GatedDeployExecutor())
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: GatedDeployExecutor())
         struct Boom: Error {}
         let client = CloudflareOAuthClient(
             scope: "workers_scripts",
@@ -957,7 +981,7 @@ struct DeployModelTests {
     @Test("deploy() presents the license gate instead of running when no license has been chosen")
     func deployPresentsLicenseGateWhenUnchosen() throws {
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let model = DeployModel(
             command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
             tokenAvailabilityOverride: { true })
@@ -974,7 +998,7 @@ struct DeployModelTests {
     @Test("confirmLicenseChoice saves the policy and resumes the parked deploy")
     func confirmLicenseChoiceSavesAndResumes() async throws {
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let model = DeployModel(
             command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
             tokenAvailabilityOverride: { true })
@@ -1006,7 +1030,7 @@ struct DeployModelTests {
     @Test("confirming All rights reserved (nil) still marks the choice made")
     func confirmAllRightsReservedMarksChosen() async throws {
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let model = DeployModel(
             command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
             tokenAvailabilityOverride: { true })
@@ -1026,7 +1050,7 @@ struct DeployModelTests {
     @Test("deployAutomatically defers when a license hasn't been chosen")
     func deployAutomaticallyDefersWithoutLicense() async throws {
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let model = DeployModel(
             command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
             tokenAvailabilityOverride: { true })
@@ -1050,7 +1074,7 @@ struct DeployModelTests {
     @Test("confirmLicenseChoice surfaces a save failure and keeps the deploy parked")
     func confirmLicenseChoiceSaveFailureKeepsDeployParked() async throws {
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let model = DeployModel(
             command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
             tokenAvailabilityOverride: { true })
@@ -1090,7 +1114,7 @@ struct DeployModelTests {
     @Test("cancelLicenseGate abandons the attempt without recording a choice")
     func cancelLicenseGateRecordsNothing() async throws {
         let executor = GatedDeployExecutor()
-        let command = DeployCommand(tokenSource: { "test-token" }, executor: executor)
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let model = DeployModel(
             command: command, logCenter: LogCenter(), keychain: InMemorySecretStore(),
             tokenAvailabilityOverride: { true })

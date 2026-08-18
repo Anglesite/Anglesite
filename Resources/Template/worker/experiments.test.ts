@@ -12,6 +12,7 @@ import {
   incrementExperimentCounter,
   handleExperimentPageRequest,
   applyGoalConversion,
+  handleGoalBeaconRequest,
   type RunningExperiment,
   type ExperimentsEnv,
 } from "./experiments";
@@ -34,6 +35,15 @@ const EXPERIMENT: RunningExperiment = {
   variant: { id: "b", page: "/x/homepage-hero/b/" },
   split: 0.5,
   goal: { kind: "pageview", path: "/contact/thanks/" },
+};
+
+// A distinct id from EXPERIMENT's "homepage-hero" — kept separate so these tests' counter rows
+// can never collide with (or be polluted by) the applyGoalConversion tests above, which write
+// real rows under "homepage-hero"/"b"/"conversion".
+const SCROLL_EXPERIMENT: RunningExperiment = {
+  ...EXPERIMENT,
+  id: "beacon-test",
+  goal: { kind: "scroll", depth: 75 },
 };
 
 test("assignVariant: draws control when random() is below the control share", () => {
@@ -72,7 +82,7 @@ test("matchesGoal: route goal only matches POST on its path", () => {
   expect(matchesGoal(routeExperiment, "/inbox", "GET")).toBe(false);
 });
 
-test("matchesGoal: scroll/visible goals never match at the edge in this slice", () => {
+test("matchesGoal: scroll/visible goals never match by pathname/method — the beacon reports them", () => {
   const scrollExperiment: RunningExperiment = { ...EXPERIMENT, goal: { kind: "scroll", depth: 75 } };
   expect(matchesGoal(scrollExperiment, "/", "GET")).toBe(false);
 });
@@ -197,6 +207,99 @@ test("applyGoalConversion: no-ops for a failed response", async () => {
   const ctx = createExecutionContext();
   const request = new Request("https://owner.example/contact/thanks/", { headers: { Cookie: "exp_homepage-hero=b" } });
   const response = await applyGoalConversion(request, env, ctx, EXPERIMENT, new Response("error", { status: 500 }));
+  await waitOnExecutionContext(ctx);
+  expect(response.headers.get("Set-Cookie")).toBeNull();
+});
+
+test("handleGoalBeaconRequest: 405s for a non-POST method", async () => {
+  const ctx = createExecutionContext();
+  const response = await handleGoalBeaconRequest(
+    new Request("https://owner.example/x/goal?e=beacon-test", { method: "GET" }),
+    {},
+    ctx,
+    SCROLL_EXPERIMENT,
+  );
+  expect(response.status).toBe(405);
+  expect(response.headers.get("allow")).toBe("POST");
+});
+
+test("handleGoalBeaconRequest: 204 no-ops when no experiment is running", async () => {
+  const ctx = createExecutionContext();
+  const response = await handleGoalBeaconRequest(
+    new Request("https://owner.example/x/goal?e=beacon-test", { method: "POST" }),
+    {},
+    ctx,
+    null,
+  );
+  expect(response.status).toBe(204);
+});
+
+test("handleGoalBeaconRequest: 204 no-ops for a running experiment with an edge-visible goal", async () => {
+  const pageviewGoalExperiment: RunningExperiment = { ...SCROLL_EXPERIMENT, id: "beacon-pageview-noop-test", goal: { kind: "pageview", path: "/contact/thanks/" } };
+  const ctx = createExecutionContext();
+  const request = new Request("https://owner.example/x/goal?e=beacon-pageview-noop-test", {
+    method: "POST",
+    headers: { Cookie: "exp_beacon-pageview-noop-test=b" },
+  });
+  const response = await handleGoalBeaconRequest(request, { EXPERIMENTS_DB: testDb }, ctx, pageviewGoalExperiment);
+  await waitOnExecutionContext(ctx);
+  expect(response.status).toBe(204);
+  const row = await testDb
+    .prepare("SELECT n FROM experiment_counters WHERE experiment_id = ? AND metric = 'conversion'")
+    .bind("beacon-pageview-noop-test")
+    .first<{ n: number }>();
+  expect(row).toBeNull();
+});
+
+test("handleGoalBeaconRequest: 204 no-ops when the `e` param doesn't match the running experiment's id", async () => {
+  const ctx = createExecutionContext();
+  const request = new Request("https://owner.example/x/goal?e=some-other-experiment", {
+    method: "POST",
+    headers: { Cookie: "exp_beacon-test=b" },
+  });
+  const response = await handleGoalBeaconRequest(request, { EXPERIMENTS_DB: testDb }, ctx, SCROLL_EXPERIMENT);
+  await waitOnExecutionContext(ctx);
+  expect(response.status).toBe(204);
+  const row = await testDb
+    .prepare("SELECT n FROM experiment_counters WHERE experiment_id = ? AND metric = 'conversion'")
+    .bind("beacon-test")
+    .first<{ n: number }>();
+  expect(row).toBeNull();
+});
+
+test("handleGoalBeaconRequest: counts a conversion for an assigned visitor and sets the dedupe cookie", async () => {
+  const ctx = createExecutionContext();
+  const request = new Request("https://owner.example/x/goal?e=beacon-test", {
+    method: "POST",
+    headers: { Cookie: "exp_beacon-test=b" },
+  });
+  const response = await handleGoalBeaconRequest(request, { EXPERIMENTS_DB: testDb }, ctx, SCROLL_EXPERIMENT);
+  await waitOnExecutionContext(ctx);
+  expect(response.status).toBe(204);
+  expect(response.headers.get("Set-Cookie")).toContain("exp_beacon-test_c=1");
+  const row = await testDb
+    .prepare("SELECT n FROM experiment_counters WHERE experiment_id = ? AND variant_id = ? AND metric = 'conversion'")
+    .bind("beacon-test", "b")
+    .first<{ n: number }>();
+  expect(row?.n).toBe(1);
+});
+
+test("handleGoalBeaconRequest: 204 no-ops for an unassigned visitor (no assignment cookie)", async () => {
+  const ctx = createExecutionContext();
+  const request = new Request("https://owner.example/x/goal?e=beacon-test", { method: "POST" });
+  const response = await handleGoalBeaconRequest(request, { EXPERIMENTS_DB: testDb }, ctx, SCROLL_EXPERIMENT);
+  await waitOnExecutionContext(ctx);
+  expect(response.status).toBe(204);
+  expect(response.headers.get("Set-Cookie")).toBeNull();
+});
+
+test("handleGoalBeaconRequest: 204 no-ops (dedupes) for an already-converted visitor", async () => {
+  const ctx = createExecutionContext();
+  const request = new Request("https://owner.example/x/goal?e=beacon-test", {
+    method: "POST",
+    headers: { Cookie: "exp_beacon-test=b; exp_beacon-test_c=1" },
+  });
+  const response = await handleGoalBeaconRequest(request, { EXPERIMENTS_DB: testDb }, ctx, SCROLL_EXPERIMENT);
   await waitOnExecutionContext(ctx);
   expect(response.headers.get("Set-Cookie")).toBeNull();
 });

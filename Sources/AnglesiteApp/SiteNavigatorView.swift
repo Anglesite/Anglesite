@@ -25,6 +25,7 @@ struct SiteNavigatorView: View {
             }
         }
         .listStyle(.sidebar)
+        .accessibilityIdentifier(AXID.navigatorList)
         // Bare Delete key deletes the selection, matching Xcode/Mail/Notes sidebar convention
         // (#674). `deletableSelection()` is nil during inline-rename, so Delete edits the text
         // field there instead — same guard the Return-to-rename affordance above uses. This is
@@ -89,6 +90,7 @@ struct SiteNavigatorView: View {
         if model.editingItemID == node.id {
             TextField("Title", text: $model.draftTitle)
                 .textFieldStyle(.plain)
+                .accessibilityIdentifier(AXID.navigatorRenameField)
                 .focused($editingFocused)
                 .onSubmit { Task { await model.commitEditing() } }
                 .onExitCommand { model.cancelEditing() }   // Esc

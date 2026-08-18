@@ -1,7 +1,7 @@
 import Foundation
 
 /// Shared Cloudflare API bearer-token resolution (#1211), so every call site that needs one —
-/// not just the deploy path — sees an OAuth credential the same way ``DeployCommand/keychainTokenSource``
+/// not just the deploy path — sees an OAuth credential the same way ``CloudflareDeployTarget/keychainTokenSource``
 /// already does. Order: the `CLOUDFLARE_API_TOKEN` env var (a developer's shell still wins), then a
 /// stored OAuth credential (refreshed first via ``CloudflareOAuthTokenSource`` if expired), then the
 /// legacy pasted-token slot — read-only now that `CloudflareTokenPromptView` has been replaced by
@@ -22,7 +22,7 @@ public enum CloudflareAPICredentials {
     ///   - surfaceOAuthReadErrors: When `true`, a genuine read error on the OAuth slot (as opposed
     ///     to "no credential stored," which resolves `nil`, not a throw) propagates out of
     ///     `resolve()` instead of being swallowed and falling through to the legacy token. This
-    ///     restores ``DeployCommand/keychainTokenSource``'s original, pre-#1211 behavior for the
+    ///     restores ``CloudflareDeployTarget/keychainTokenSource``'s original, pre-#1211 behavior for the
     ///     deploy path specifically: a real Keychain problem (e.g. an access-group/entitlement
     ///     issue) surfaces as an actionable "couldn't read token" error rather than silently
     ///     reading as "no token configured" and nudging the user toward an unnecessary re-sign-in.

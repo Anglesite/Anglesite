@@ -23,7 +23,7 @@ struct SiteOperationsProgressSeamTests {
 
 /// Minimal CommandFactory whose actors fail fast (no subprocess) — we only exercise signatures here.
 private struct NoopCommandFactory: CommandFactory {
-    func deploy() -> DeployCommand { DeployCommand(tokenSource: { nil }) }
+    func deploy() -> DeployCommand { DeployCommand(target: CloudflareDeployTarget(tokenSource: { nil })) }
     func backup() -> BackupCommand { BackupCommand(runner: { _, _ in .init(stdout: "", stderr: "", exitCode: 1) }, streamer: { _, _, _ in (1, "") }) }
     func audit() -> AuditCommand {
         AuditCommand(

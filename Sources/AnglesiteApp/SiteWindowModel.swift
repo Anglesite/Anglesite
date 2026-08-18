@@ -361,7 +361,7 @@ final class SiteWindowModel {
         // Wired once here (not per-site in loadAndStart): the hooks capture nothing from self
         // and receive the run's site id from the model, so there is nothing to rebind on
         // window replay — see CompletionNotificationHub's own doc comment.
-        CompletionNotificationHub.wire(deploy: deploy, backup: backup, audit: audit)
+        CompletionNotificationHub.wire(deploy: deploy, backup: backup, audit: audit, followers: followers)
         // Layered on top of (not inside) CompletionNotificationHub, which deliberately captures
         // nothing from this model: a successful backup or deploy is one of #881's three debounced
         // push triggers (design doc §2's "App wiring" paragraph). `[weak self]` mirrors the same
@@ -764,6 +764,7 @@ final class SiteWindowModel {
 
     func close(suddenTerminationLease: SuddenTerminationController.Lease? = nil) {
         stopInvisiblePublishing()
+        followers.stopPendingPolling()
         sync.stop()
         preview.close()
         startup.stop()
@@ -2354,6 +2355,8 @@ final class SiteWindowModel {
         cleanup.configure(site: currentSite)
         reader.configure(site: currentSite)
         followers.configure(site: currentSite)
+        await followers.loadPending()
+        followers.startPendingPollingIfNeeded()
         communities.configure(site: currentSite)
         await moderation.configure(site: currentSite)
         domain.configure(site: currentSite)

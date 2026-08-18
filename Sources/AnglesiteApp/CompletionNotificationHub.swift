@@ -25,7 +25,7 @@ import AnglesiteCore
 /// milestone).
 @MainActor
 enum CompletionNotificationHub {
-    static func wire(deploy: DeployModel, backup: BackupModel, audit: AuditModel) {
+    static func wire(deploy: DeployModel, backup: BackupModel, audit: AuditModel, followers: FollowersModel) {
         deploy.onPhaseTransition = { siteID, phase in
             let dockToken = "deploy:\(siteID)"
             switch phase {
@@ -127,6 +127,12 @@ enum CompletionNotificationHub {
                 postNotice(siteID: siteID) { name in
                     CompletionNoticeBuilder.audit(siteName: name, siteID: siteID, outcome: .failed(reason: reason))
                 }
+            }
+        }
+
+        followers.onNewPendingRequests = { siteID, count in
+            postNotice(siteID: siteID) { name in
+                CompletionNoticeBuilder.followRequest(siteName: name, siteID: siteID, count: count)
             }
         }
     }

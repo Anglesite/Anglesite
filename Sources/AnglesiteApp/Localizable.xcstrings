@@ -325,6 +325,12 @@
     "Accent color" : {
 
     },
+    "Accept" : {
+
+    },
+    "Accept follow request from %@" : {
+
+    },
     "Accessibility" : {
 
     },
@@ -2659,6 +2665,9 @@
     "Paused — submissions namespace kept, not receiving new ones." : {
 
     },
+    "Pending Requests (%lld)" : {
+
+    },
     "People already follow you at this handle — it can't change without losing them." : {
 
     },
@@ -2906,6 +2915,15 @@
 
     },
     "Registrar: %@" : {
+
+    },
+    "Reject" : {
+
+    },
+    "Reject follow request from %@" : {
+
+    },
+    "Reject this follow request?" : {
 
     },
     "Related Pages" : {
@@ -3707,6 +3725,9 @@
 
     },
     "This copy's content already exists in this site's git history" : {
+
+    },
+    "This declines the follow request from %@." : {
 
     },
     "This file appears unused and will be permanently removed." : {
