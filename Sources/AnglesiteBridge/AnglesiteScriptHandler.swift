@@ -124,6 +124,9 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         case .rejected(.placementPickDecode):
             // Unreachable under `handle`'s contract (apply-edit only). Same fallthrough.
             return .failure(.unknownType(PlacementPickMessage.messageType))
+        case .rejected(.goalElementPickDecode):
+            // Unreachable under `handle`'s contract (apply-edit only). Same fallthrough.
+            return .failure(.unknownType(GoalElementPickMessage.messageType))
         case .visibleElementsHandled, .visibleElementsDropped:
             // Unreachable: handler is nil. Same fallthrough as above.
             return .failure(.unknownType(VisibleElementReport.messageType))
@@ -136,6 +139,9 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         case .placementPickHandled, .placementPickDropped:
             // Unreachable: handler is nil. Same fallthrough as above.
             return .failure(.unknownType(PlacementPickMessage.messageType))
+        case .goalElementPickHandled, .goalElementPickDropped:
+            // Unreachable: handler is nil. Same fallthrough as above.
+            return .failure(.unknownType(GoalElementPickMessage.messageType))
         }
     }
 
@@ -209,6 +215,14 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
                     source: "bridge",
                     stream: .stderr,
                     text: "pick-placement message dropped: no handler installed"
+                )
+            case .goalElementPickHandled:
+                return
+            case .goalElementPickDropped:
+                await logCenter.append(
+                    source: "bridge",
+                    stream: .stderr,
+                    text: "pick-goal-element message dropped: no handler installed"
                 )
             case .rejected(let reason):
                 await logCenter.append(
