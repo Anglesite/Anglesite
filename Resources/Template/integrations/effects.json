@@ -337,6 +337,53 @@
         "kind": "inline",
         "allowedParents": null
       }
+    },
+    {
+      "component": "ParallaxLayers",
+      "title": "Parallax Layers",
+      "ownerDescription": "A two-layer decorative block where the back layer drifts slower than the page scroll.",
+      "category": "scrollDriven",
+      "keyProps": {
+        "height": "block height (default \"40vh\")"
+      },
+      "props": {
+        "height": "40vh"
+      },
+      "snippet": "---\nimport ParallaxLayers from \"../components/effects/ParallaxLayers.astro\";\n---\n<ParallaxLayers height=\"40vh\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "RevealMask",
+      "title": "Reveal Mask",
+      "ownerDescription": "Content that reveals with a clip-path wipe the first time it scrolls into view.",
+      "category": "scrollDriven",
+      "keyProps": {},
+      "props": {},
+      "snippet": "---\nimport RevealMask from \"../components/effects/RevealMask.astro\";\n---\n<RevealMask>\n  Sample content that reveals as you scroll.\n</RevealMask>",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "ScrollProgressTrace",
+      "title": "Scroll Progress Trace",
+      "ownerDescription": "A slim reading-progress line along the viewport edge that fills as the page scrolls.",
+      "category": "scrollDriven",
+      "keyProps": {
+        "color": "trace color (default \"currentColor\")"
+      },
+      "props": {
+        "color": "currentColor"
+      },
+      "snippet": "---\nimport ScrollProgressTrace from \"../components/effects/ScrollProgressTrace.astro\";\n---\n<ScrollProgressTrace />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
     }
   ]
 }
