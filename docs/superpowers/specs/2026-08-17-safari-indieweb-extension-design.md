@@ -30,7 +30,7 @@ full interactive popup (not just a passive badge).
 | h-card | microformats2 `h-card` | Show parsed fields; Copy / Export vCard |
 | RSS / Atom / JSON Feed | `<link rel="alternate" type="application/{rss,atom,feed}+…">` | Open feed URL in a new tab |
 | microformats2 (general) | Full mf2 parse of `document.body` | Collapsible type → properties tree (h-entry, h-event, h-recipe, h-review, `rel=me`, …) |
-| Webmention | `<link rel="webmention">` or `Link:` response header | Badge + "View endpoint" link (no send) |
+| Webmention | `<link rel="webmention">` — reliable. `Link:` response header — **implemented but non-functional in real Safari as of this writing**, see Known limitations | Badge + "View endpoint" link (no send) |
 | ActivityPub | `<link rel="alternate" type="application/activity+json">` | Badge + "View endpoint" link (no follow) |
 
 ### Non-goals (v1)
@@ -97,8 +97,11 @@ fast.
 
 - **Feeds:** `<link rel="alternate" type="application/rss+xml">`, `application/atom+xml`,
   `application/feed+json` in `<head>`.
-- **Webmention:** `<link rel="webmention">` (content script) or an HTTP `Link:` header with
-  `rel="webmention"` (background, via `webRequest` response headers).
+- **Webmention:** `<link rel="webmention">` (content script) — verified working in real Safari. Or
+  an HTTP `Link:` header with `rel="webmention"` (background, via `webRequest` response headers) —
+  implemented, but manual testing found `chrome.webRequest.onHeadersReceived` never fires in real
+  Safari even with the background context loaded and `webRequest` + `host_permissions` granted;
+  see Known limitations.
 - **ActivityPub:** `<link rel="alternate" type="application/activity+json">` only. A `rel="me"`
   fediverse-pattern heuristic was considered but descoped from v1 (2026-08-17 final review) — it
   was never specified precisely enough to implement safely (matching arbitrary URL shapes as
@@ -133,14 +136,45 @@ fast.
   `JS/edit-overlay`.
 - Swift: `AnglesiteSafariExtensionTests` covers the `SafariWebExtensionHandler` shim only, if it
   has any logic beyond boilerplate passthrough.
-- **Manual verification required.** Safari Web Extensions can't be driven by the Chromium-based
-  in-app browser tool or the iOS Simulator tool. Automated coverage stops at the JS unit-test
-  layer and confirming the target builds/embeds correctly; actually loading the extension in
-  Safari, enabling it, and clicking through the four feature pages needs a manual pass and will be
-  reported as such rather than claimed as verified.
+- **Manual verification: done (2026-08-17)**, via macOS Accessibility-driven Safari automation
+  (System Events UI scripting + screenshots) against real Safari, both against a live IndieWeb
+  site (aaronparecki.com) and small local HTTP fixtures built for this pass. Confirmed working:
+  extension loads (as a temporary dev extension pointed at `Resources/SafariExtension/`) and
+  enables with "Always Allow on Every Website"; toolbar badge count; popup header (page title +
+  count); h-card fields (name, org, `u-url` links, photo-as-link) with a working "Copy vCard"
+  producing a valid escaped vCard 3.0 (`FN`/`N`/`ORG`/`URL`); feed detection and "Open feed" in a
+  new tab; `rel=me` "Elsewhere" section; the mf2 type→properties tree; `<link rel="webmention">`
+  and `<link rel="alternate" type="application/activity+json">` detection; the plain empty state
+  on a feature-less page; and full operation with `Anglesite.app` completely quit (the standalone
+  claim). This pass also found and fixed a real bug (see Known limitations) and confirmed one
+  further gap that's unresolved. Swift: `AnglesiteSafariExtensionTests` covers the
+  `SafariWebExtensionHandler` shim only, if it has any logic beyond boilerplate passthrough.
+
+## Known limitations
+
+- **Fixed during manual verification:** `manifest.json`'s background declared
+  `"type": "module"` alongside an esbuild IIFE bundle (no real `import`/`export`). Safari's
+  Develop menu showed the background context permanently stuck at "not loaded" — every feature
+  depending on it (badge, storage, the webmention header listener) silently never ran. This
+  combination is harmless in Chrome, which is presumably why it shipped past unit tests and code
+  review; only real-Safari testing caught it. Fixed by dropping the `"type": "module"` key.
+- **Unresolved:** even with the background context loading correctly, `chrome.webRequest
+  .onHeadersReceived` never fires in real Safari for a `main_frame` navigation, confirmed via a
+  local test server that reliably sent a `Link: <...>; rel="webmention"` header (verified via
+  `curl` and reproduced across multiple page loads/reloads). The `webRequest` permission and
+  `host_permissions: ["<all_urls>"]` are both granted. This looks like a Safari WebExtensions
+  platform gap rather than a bug in this code — Safari's `webRequest` support has historically
+  lagged Chrome/Firefox — but it wasn't possible to get a definitive root cause without attaching
+  Safari Web Inspector's console to the background page interactively (not achievable from this
+  automated pass). **Net effect:** the HTTP-header webmention path is implemented and unit-tested
+  but does not currently work in Safari; the `<link rel="webmention">` tag path (the common case)
+  is unaffected and fully verified. Worth a follow-up issue: either root-cause with real DevTools
+  access, or drop the header-based path from the detection rules if it turns out Safari genuinely
+  doesn't support it.
 
 ## Follow-up issues (not this one)
 
 - Webmention send from the extension (needs an identity/account answer).
 - ActivityPub follow from the extension (needs an identity/account answer).
 - Possible native messaging to `Anglesite.app` once there's a concrete feature that needs it.
+- Root-cause or remove the HTTP-header webmention detection path (see Known limitations above).
