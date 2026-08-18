@@ -204,4 +204,68 @@ final class ExperimentStatsModel: Identifiable {
         guard case .configure(let draft) = step else { return false }
         return draft.asExperiment != nil
     }
+
+    /// Test-only: replaces the in-progress `.configure` draft directly, bypassing
+    /// `scaffoldVariant`'s real file-system requirement so start-related tests can assemble a
+    /// fully-formed draft (variant page + goal) without an Astro page fixture on disk. A no-op
+    /// outside `.configure` — mirrors the guard pattern the rest of this file uses for its own
+    /// draft mutators (`updateDraftGoal`, `scaffoldVariant`).
+    func applyDraftForTesting(_ draft: Draft) {
+        guard case .configure = step else { return }
+        step = .configure(draft)
+    }
+
+    /// Flips the draft's status to `running`, persists it, and invokes `deploy` — a closure rather
+    /// than a direct `DeployModel` dependency so this model stays testable without constructing one
+    /// (`DeployModel` pulls in token/license/container machinery none of this model's own logic
+    /// needs). `SiteWindow` (Task 15) supplies the real `DeployModel.deploy(...)` call; the view's
+    /// own `.onChange(of: deployModel.phase)` then calls `observeDeployPhase(_:)` below.
+    func start(deploy: (String, URL, URL, [String]) -> Void) {
+        guard case .configure(let draft) = step, var experiment = draft.asExperiment else { return }
+        experiment.status = "running"
+        experiment.startedAt = ISO8601DateFormatter().string(from: Date()).prefix(10).description
+        DomainConfigStore.update(sourceDirectory: sourceDirectory) { $0.experiments = .init(active: [experiment]) }
+        step = .starting
+        deploy(siteID, sourceDirectory, sourceDirectory, [experiment.page, experiment.variant.page])
+    }
+
+    /// Called from the sheet view's `.onChange(of: deployModel.phase)` while `step == .starting`.
+    /// Any phase other than a clean success reverts to `.configure` with the draft intact and its
+    /// config entry rolled back to `"draft"` — a failed start must never leave `anglesite.json`
+    /// claiming a test is live when the deploy that would make it so never landed.
+    func observeDeployPhase(_ phase: DeployModel.Phase) {
+        guard case .starting = step else { return }
+        switch phase {
+        case .succeeded:
+            guard let config = try? DomainConfigStore(sourceDirectory: sourceDirectory).load(),
+                  let running = config.experiments?.active?.first else { return }
+            step = .running(running)
+        case .failed(let reason, _):
+            revertToConfigureAfterFailedStart(reason: reason)
+        case .blocked:
+            revertToConfigureAfterFailedStart(reason: "The pre-deploy check found issues that need fixing first.")
+        case .idle, .running, .workerNameConflict, .webmentionPaidPlanConfirmationNeeded, .domainConfigDrift:
+            return
+        }
+    }
+
+    private func revertToConfigureAfterFailedStart(reason: String) {
+        guard case .starting = step,
+              let config = try? DomainConfigStore(sourceDirectory: sourceDirectory).load(),
+              let entry = config.experiments?.active?.first else { return }
+        DomainConfigStore.update(sourceDirectory: sourceDirectory) { config in
+            var reverted = entry
+            reverted.status = "draft"
+            reverted.startedAt = nil
+            config.experiments = .init(active: [reverted])
+        }
+        step = .configure(Draft(
+            id: entry.id, name: entry.name, page: entry.page,
+            variantID: entry.variant.id, variantName: entry.variant.name, variantPage: entry.variant.page,
+            goalKind: entry.goal.kind, goalPath: entry.goal.path,
+            goalDepth: entry.goal.depth, goalSelector: entry.goal.selector))
+        startFailureReason = reason
+    }
+
+    private(set) var startFailureReason: String?
 }

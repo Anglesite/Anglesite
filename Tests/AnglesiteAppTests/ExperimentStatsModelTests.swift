@@ -156,6 +156,58 @@ import Foundation
         #expect(!model.canStart) // no variantPage yet
     }
 
+    @Test func startWritesRunningStatusAndInvokesDeploy() throws {
+        let tmp = try tempDirectory()
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        model.proposeCustom(name: "Hero headline")
+        guard case .configure(var draft) = model.step else { Issue.record("expected .configure"); return }
+        draft.variantPage = "/x/hero-headline/b"
+        draft.goalKind = "pageview"; draft.goalPath = "/thanks/"
+        model.applyDraftForTesting(draft)
+
+        var deployCalled = false
+        model.start(deploy: { _, _, _, _ in deployCalled = true })
+
+        guard case .starting = model.step else { Issue.record("expected .starting, got \(model.step)"); return }
+        #expect(deployCalled)
+        let saved = try DomainConfigStore(sourceDirectory: tmp).load()
+        #expect(saved.experiments?.active?.first?.status == "running")
+    }
+
+    @Test func deploySuccessMovesToRunning() throws {
+        let tmp = try tempDirectory()
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        model.proposeCustom(name: "Hero headline")
+        guard case .configure(var draft) = model.step else { Issue.record("expected .configure"); return }
+        draft.variantPage = "/x/hero-headline/b"
+        draft.goalKind = "pageview"; draft.goalPath = "/thanks/"
+        model.applyDraftForTesting(draft)
+        model.start(deploy: { _, _, _, _ in })
+
+        model.observeDeployPhase(.succeeded(url: URL(string: "https://example.com")!, duration: 1))
+
+        guard case .running(let experiment) = model.step else { Issue.record("expected .running, got \(model.step)"); return }
+        #expect(experiment.status == "running")
+    }
+
+    @Test func deployFailureRevertsToConfigureWithoutClearingTheDraft() throws {
+        let tmp = try tempDirectory()
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        model.proposeCustom(name: "Hero headline")
+        guard case .configure(var draft) = model.step else { Issue.record("expected .configure"); return }
+        draft.variantPage = "/x/hero-headline/b"
+        draft.goalKind = "pageview"; draft.goalPath = "/thanks/"
+        model.applyDraftForTesting(draft)
+        model.start(deploy: { _, _, _, _ in })
+
+        model.observeDeployPhase(.failed(reason: "Network error", exitCode: nil))
+
+        guard case .configure(let reverted) = model.step else { Issue.record("expected .configure, got \(model.step)"); return }
+        #expect(reverted.variantPage == "/x/hero-headline/b")
+        let saved = try DomainConfigStore(sourceDirectory: tmp).load()
+        #expect(saved.experiments?.active?.first?.status == "draft")
+    }
+
     private func tempDirectory() throws -> URL {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
