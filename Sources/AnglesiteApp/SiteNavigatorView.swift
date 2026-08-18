@@ -141,14 +141,12 @@ struct SiteNavigatorView: View {
             }
     }
 
-    /// #714 icon table: globe (website settings) / house (home) / doc.richtext (pages, entries) /
-    /// folder (directory) — with a radio-waves badge composed on feed-bearing directories until
-    /// the custom symbol from docs/art-briefs/2026-07-13-folder-rss-symbol.md ships.
+    /// #714 icon table: house (home) / doc.richtext (pages, entries) / folder (directory) —
+    /// with a radio-waves badge composed on feed-bearing directories until the custom symbol
+    /// from docs/art-briefs/2026-07-13-folder-rss-symbol.md ships.
     @ViewBuilder
     private func icon(for node: URLTreeNode) -> some View {
         switch node.kind {
-        case .website:
-            Image(systemName: "globe")
         case .home:
             Image(systemName: "house")
         case .page:

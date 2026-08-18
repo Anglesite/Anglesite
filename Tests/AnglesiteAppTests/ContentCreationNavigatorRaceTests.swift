@@ -44,8 +44,7 @@ struct ContentCreationNavigatorRaceTests {
         let navigator = SiteNavigatorModel(graph: graph)
         navigator.start(
             site: CurrentSite(id: "site-a", packageURL: root.appendingPathComponent("Test.anglesite"),
-                               sourceDirectory: sourceDirectory),
-            websiteTitle: "Test"
+                               sourceDirectory: sourceDirectory)
         )
         // `buildSiteURLTree` returns `[]` for a site with no pages/posts (SiteURLTree.swift:62), so
         // a freshly created empty `Source/` never populates `nodes` at all — nothing to wait for here.
@@ -87,8 +86,7 @@ struct ContentCreationNavigatorRaceTests {
         let navigator = SiteNavigatorModel(graph: graph)
         navigator.start(
             site: CurrentSite(id: "site-a", packageURL: root.appendingPathComponent("Test.anglesite"),
-                               sourceDirectory: sourceDirectory),
-            websiteTitle: "Test"
+                               sourceDirectory: sourceDirectory)
         )
         let result = await workflow.createPost(siteID: "site-a", title: "Stream-Only Post", collection: nil, slug: nil)
         guard case .created = result else {

@@ -27,7 +27,6 @@ final class SiteNavigatorModel {
     var redirectSaveError: String?
 
     private var sourceDirectory: URL?
-    private var websiteTitle: String?
     private var siteID: String?
     private var siteRoot: URL?
     private let renameService = NavigatorRenameService()
@@ -58,11 +57,10 @@ final class SiteNavigatorModel {
         self.graph = graph
     }
 
-    func start(site: CurrentSite, websiteTitle: String) {
+    func start(site: CurrentSite) {
         let siteID = site.id
         let siteRoot = site.packageURL
         self.sourceDirectory = site.sourceDirectory
-        self.websiteTitle = websiteTitle
         self.siteID = siteID
         self.siteRoot = siteRoot
         // Cancel any prior observer (window reuse: SwiftUI can replay a different site into the
@@ -121,19 +119,9 @@ final class SiteNavigatorModel {
         return NavigatorItem(id: node.id, title: node.title, target: node.target)
     }
 
-    func updateWebsiteTitle(_ title: String) {
-        websiteTitle = title
-        guard let first = nodes.first, first.kind == .website else { return }
-        let trimmed = title.trimmingCharacters(in: .whitespacesAndNewlines)
-        let updated = URLTreeNode(id: first.id, title: trimmed.isEmpty ? "Website" : trimmed,
-                                  route: first.route, kind: .website, children: nil)
-        nodes[0] = updated
-        nodesByID[updated.id] = updated
-    }
-
-    /// A row is renamable/deletable/duplicable iff it is a page or post (route target) — directory
-    /// and website-settings rows are out of scope. The astro-without-title case is caught at
-    /// commit, not pre-disabled (pre-checking would read every page file per refresh).
+    /// A row is renamable/deletable/duplicable iff it is a page or post (route target) —
+    /// directory rows are out of scope. The astro-without-title case is caught at commit, not
+    /// pre-disabled (pre-checking would read every page file per refresh).
     private func isContentRow(_ id: String) -> Bool {
         guard let target = target(for: id) else { return false }
         if case .route = target { return true }
@@ -293,8 +281,7 @@ final class SiteNavigatorModel {
         } else {
             routeFileURLs = [:]
         }
-        let tree = buildSiteURLTree(
-            websiteTitle: websiteTitle, pages: pages, posts: posts, feedCollections: feeds)
+        let tree = buildSiteURLTree(pages: pages, posts: posts, feedCollections: feeds)
         nodes = tree
         nodesByID = Self.index(tree)
         routeIDs = Self.indexRoutes(nodesByID)
@@ -311,8 +298,7 @@ final class SiteNavigatorModel {
     }
 
     /// Only `.route` targets: a directory row previews its index page rather than the document a
-    /// search hit names, and the website-settings row opens `Info.plist` — neither is where
-    /// activating a content hit should land.
+    /// search hit names, which isn't where activating a content hit should land.
     private static func indexRoutes(_ nodesByID: [String: URLTreeNode]) -> [String: String] {
         var map: [String: String] = [:]
         for node in nodesByID.values {

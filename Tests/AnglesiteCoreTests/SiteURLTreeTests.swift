@@ -17,9 +17,8 @@ struct SiteURLTreeTests {
     }
     private func build(pages: [SiteContentGraph.Page] = [],
                        posts: [SiteContentGraph.Post] = [],
-                       feeds: Set<String> = [],
-                       title: String? = "My Site") -> [URLTreeNode] {
-        buildSiteURLTree(websiteTitle: title, pages: pages, posts: posts, feedCollections: feeds)
+                       feeds: Set<String> = []) -> [URLTreeNode] {
+        buildSiteURLTree(pages: pages, posts: posts, feedCollections: feeds)
     }
 
     @Test("empty site produces an empty tree (sidebar shows its empty state)")
@@ -27,33 +26,23 @@ struct SiteURLTreeTests {
         #expect(build() == [])
     }
 
-    @Test("website row is first, uses the site title, and targets website settings")
-    func websiteRow() throws {
-        let nodes = build(pages: [page("/", title: "Home")])
-        let first = try #require(nodes.first)
-        #expect(first.id == "website")
-        #expect(first.title == "My Site")
-        #expect(first.kind == .website)
-        #expect(first.target == .websiteSettings)
-        #expect(first.children == nil)
+    @Test func treeHasNoWebsiteRow() {
+        let home = page("/", title: "Home")
+        let tree = buildSiteURLTree(pages: [home], posts: [], feedCollections: [])
+        #expect(tree.allSatisfy { $0.id != "website" })
+        #expect(tree.first?.kind == .home)
     }
 
-    @Test("website row falls back to \"Website\" for a missing or blank title")
-    func websiteTitleFallback() {
-        #expect(build(pages: [page("/", title: nil)], title: nil).first?.title == "Website")
-        #expect(build(pages: [page("/", title: nil)], title: "  ").first?.title == "Website")
-    }
-
-    @Test("home is pinned after the website row, before other pages, before directories")
+    @Test("home is pinned first, before other pages, before directories")
     func topLevelOrder() {
         let nodes = build(
             pages: [page("/zebra", title: "Zebra"), page("/", title: "Home"),
                     page("/about", title: "About")],
             posts: [post("notes", "n1", "First note")])
         #expect(nodes.map(\.id) ==
-            ["website", "s:page:/", "s:page:/about", "s:page:/zebra", "dir:/notes/"])
-        #expect(nodes[1].kind == .home)
-        #expect(nodes[1].target == .route("/"))
+            ["s:page:/", "s:page:/about", "s:page:/zebra", "dir:/notes/"])
+        #expect(nodes[0].kind == .home)
+        #expect(nodes[0].target == .route("/"))
     }
 
     @Test("collection directory carries hasFeed from the probe set and its collection name")

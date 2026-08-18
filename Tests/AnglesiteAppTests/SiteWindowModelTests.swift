@@ -686,12 +686,14 @@ extension SiteWindowModelTests {
 }
 
 extension SiteWindowModelTests {
-    /// #714 slice 1, Task 3 review finding: `applyNavigatorSelection`'s two new cases
-    /// (`.websiteSettings`, `.directory`) had zero coverage. Both tests below drive a real
-    /// `SiteNavigatorModel` built from `buildSiteURLTree` (not a hand-rolled `NavigatorItem` stub),
-    /// so `navigator.target(for:)` resolves through the same code path the live sidebar uses —
-    /// and each asserts the target really is `.websiteSettings`/`.directory` before exercising the
-    /// selection, so a future change to the tree builder can't silently turn these into a no-op.
+    /// #714 slice 1, Task 3 review finding: `applyNavigatorSelection`'s `.directory` case had zero
+    /// coverage. The tests below drive a real `SiteNavigatorModel` built from `buildSiteURLTree`
+    /// (not a hand-rolled `NavigatorItem` stub), so `navigator.target(for:)` resolves through the
+    /// same code path the live sidebar uses — and each asserts the target really is `.directory`
+    /// before exercising the selection, so a future change to the tree builder can't silently turn
+    /// these into a no-op. (`.websiteSettings` coverage moved to `openWebsiteSettingsOpensInfoPlist`
+    /// below once the URL tree's pinned website row — the only source of a `.websiteSettings`
+    /// navigator target — was removed in #714 v2 slice 1.)
     private func makeSitePackage(named name: String = "Test") throws -> (root: URL, packageURL: URL, package: AnglesitePackage) {
         let root = FileManager.default.temporaryDirectory
             .appendingPathComponent("site-window-model-\(UUID().uuidString)")
@@ -699,47 +701,6 @@ extension SiteWindowModelTests {
         let packageURL = root.appendingPathComponent("\(name).anglesite", isDirectory: true)
         let (package, _) = try AnglesitePackage.createSkeleton(at: packageURL, displayName: name)
         return (root, packageURL, package)
-    }
-
-    @Test("applyNavigatorSelection opens the package Info.plist for .websiteSettings, same as the old Metadata row")
-    func applyNavigatorSelectionWebsiteSettingsOpensInfoPlist() async throws {
-        let (root, packageURL, package) = try makeSitePackage()
-        defer { try? FileManager.default.removeItem(at: root) }
-
-        let graph = SiteContentGraph()
-        await graph.load(
-            siteID: "site-a",
-            pages: [SiteContentGraph.Page(
-                id: "site-a:page:/about", siteID: "site-a", route: "/about",
-                filePath: "src/pages/about.astro", title: "About", lastModified: Date()
-            )],
-            posts: [], images: []
-        )
-        let model = makeModel(contentGraph: graph)
-        model.site = SiteStore.Site(
-            id: "site-a", name: "Test", packageURL: packageURL,
-            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
-        )
-        let navModel = SiteNavigatorModel(graph: graph)
-        navModel.start(site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL), websiteTitle: "Test")
-        while navModel.nodes.isEmpty { await Task.yield() }
-        #expect(navModel.target(for: "website") == .websiteSettings)
-        model.navigator = navModel
-
-        model.applyNavigatorSelection("website")
-
-        // `applyNavigatorSelection` calls `openFile`, which sets `activeEditor`/`mainPaneMode` from
-        // inside its own `Task { ... }` after awaiting `leaveCurrentEditor`/`leaveCurrentInspector` —
-        // both no-ops here, but still real suspension points, so poll rather than assert inline.
-        while model.activeEditor == nil { await Task.yield() }
-        guard case .plist(let plistModel) = model.activeEditor else {
-            Issue.record("expected the Info.plist to open as a .plist editor")
-            return
-        }
-        #expect(plistModel.file.url == package.infoPlistURL)
-        #expect(plistModel.file.group == .metadata)
-        #expect(model.mainPaneMode == .editor(plistModel.file))
-        #expect(model.inspectorContext == nil)
     }
 
     @Test("canOpenWebsiteSettings requires an open site")
@@ -898,7 +859,7 @@ extension SiteWindowModelTests {
         model.inspectorContext = .page(PageMetadataModel(file: priorFile, route: "/dummy/", sourceDirectory: package.sourceURL))
 
         let navModel = SiteNavigatorModel(graph: graph)
-        navModel.start(site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL), websiteTitle: "Test")
+        navModel.start(site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL))
         while navModel.nodes.count < 2 { await Task.yield() }
         let directoryID = "dir:/notes/"
         #expect(navModel.target(for: directoryID) == .directory(collection: "notes", route: "/notes/"))
@@ -962,8 +923,7 @@ extension SiteWindowModelTests {
 
         let navModel = SiteNavigatorModel(graph: graph)
         navModel.start(
-            site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL),
-            websiteTitle: "Test")
+            site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL))
         while navModel.nodes.isEmpty { await Task.yield() }
         model.navigator = navModel
         let dirID = try #require(navModel.nodes.first(where: {
@@ -1007,8 +967,7 @@ extension SiteWindowModelTests {
         )
         let navModel = SiteNavigatorModel(graph: graph)
         navModel.start(
-            site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL),
-            websiteTitle: "Test")
+            site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL))
         while navModel.nodes.count < 2 { await Task.yield() }
         let directoryID = "dir:/notes/"
         #expect(navModel.target(for: directoryID) == .directory(collection: "notes", route: "/notes/"))
@@ -1061,8 +1020,7 @@ extension SiteWindowModelTests {
         )
         let navModel = SiteNavigatorModel(graph: graph)
         navModel.start(
-            site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL),
-            websiteTitle: "Test")
+            site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL))
         while navModel.nodes.count < 2 { await Task.yield() }
         let routeID = "site-a:page:/about"
         let directoryID = "dir:/notes/"
@@ -1120,8 +1078,7 @@ extension SiteWindowModelTests {
 
         let navModel = SiteNavigatorModel(graph: graph)
         navModel.start(
-            site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL),
-            websiteTitle: "Test")
+            site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL))
         while navModel.nodes.isEmpty { await Task.yield() }
         model.navigator = navModel
         let dirID = "dir:/blog/"
@@ -1162,7 +1119,7 @@ extension SiteWindowModelTests {
             isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
         )
         let navModel = SiteNavigatorModel(graph: graph)
-        navModel.start(site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL), websiteTitle: "Test")
+        navModel.start(site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL))
         while navModel.nodes.isEmpty { await Task.yield() }
         model.navigator = navModel
 

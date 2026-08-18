@@ -1169,7 +1169,6 @@ final class SiteWindowModel {
             }
             if entry.name != site?.name {
                 site?.name = entry.name
-                navigator?.updateWebsiteTitle(entry.name)
             }
         }
     }
@@ -1699,7 +1698,6 @@ final class SiteWindowModel {
         do {
             guard let updated = try await SiteStore.shared.setDisplayName(title, for: id) else { return }
             site = updated
-            navigator?.updateWebsiteTitle(updated.name)
         } catch {
             await LogCenter.shared.append(
                 source: "editor", stream: .stderr,
@@ -2432,7 +2430,7 @@ final class SiteWindowModel {
         navModel.registerUndo = { [weak self] mutation in
             self?.contentUndoCoordinator.register(mutation)
         }
-        navModel.start(site: currentSite, websiteTitle: currentSite.name)
+        navModel.start(site: currentSite)
         navigator = navModel
         graphExplorer.start(site: currentSite)
         cleanup.configure(site: currentSite)
