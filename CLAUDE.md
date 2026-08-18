@@ -62,6 +62,12 @@ UI of its own, links `AnglesiteContainer` + `AnglesiteP2P`, and exists to serve 
 (container boot + MCP/preview bridging) when the main app is closed. It is never launched
 directly by the user or Finder.
 
+A third embedded target, `AnglesiteSafariExtension` (#1098), is a standalone Manifest V3 Safari
+Web Extension that detects IndieWeb features (h-cards, feeds, webmentions, ActivityPub,
+microformats2) on the page open in Safari. It does not talk to `Anglesite.app` or link
+`AnglesiteCore` — all logic lives in `JS/safari-extension/`, built by
+`scripts/build-safari-extension.sh` into `Resources/SafariExtension/`.
+
 ## Editing guidelines
 
 - **No frameworks beyond Apple's** unless explicitly approved.

@@ -34,6 +34,7 @@ jobs:
       swift: ${{ steps.filter.outputs.swift }}
       js: ${{ steps.filter.outputs.js }}
       wysiwyg: ${{ steps.filter.outputs.wysiwyg }}
+      safariExt: ${{ steps.filter.outputs.safariExt }}
       template: ${{ steps.filter.outputs.template }}
       helpBook: ${{ steps.filter.outputs.helpBook }}
       workers: ${{ steps.filter.outputs.workers }}
@@ -93,10 +94,11 @@ jobs:
             return 1
           }
 
-          swift=false; js=false; wysiwyg=false; template=false; helpBook=false; workers=false
+          swift=false; js=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false
           matches 'Package.swift' 'Package.resolved' 'project.yml' 'Sources/**' 'Tests/**' 'Resources/Template/**' 'Resources/Attributions/**' 'scripts/**' 'packaging/flatpak/**' '.github/workflows/ci.yml' && swift=true
           matches 'JS/edit-overlay/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && js=true
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
+          matches 'JS/safari-extension/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && safariExt=true
           matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
           matches 'Resources/Anglesite.help/**' 'scripts/check-help-links.sh' '.github/workflows/ci.yml' && helpBook=true
           matches 'Workers/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && workers=true
@@ -104,6 +106,7 @@ jobs:
           echo "swift=$swift" >> "$GITHUB_OUTPUT"
           echo "js=$js" >> "$GITHUB_OUTPUT"
           echo "wysiwyg=$wysiwyg" >> "$GITHUB_OUTPUT"
+          echo "safariExt=$safariExt" >> "$GITHUB_OUTPUT"
           echo "template=$template" >> "$GITHUB_OUTPUT"
           echo "helpBook=$helpBook" >> "$GITHUB_OUTPUT"
           echo "workers=$workers" >> "$GITHUB_OUTPUT"
@@ -126,6 +129,27 @@ jobs:
           node-version-file: scripts/node-version.txt
           cache: npm
           cache-dependency-path: JS/edit-overlay/package-lock.json
+      - run: npm ci --no-audit --no-fund
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm test
+
+  safari-extension:
+    name: JS safari-extension (lint/typecheck/test)
+    needs: changes
+    if: needs.changes.outputs.safariExt == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    defaults:
+      run:
+        working-directory: JS/safari-extension
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: scripts/node-version.txt
+          cache: npm
+          cache-dependency-path: JS/safari-extension/package-lock.json
       - run: npm ci --no-audit --no-fund
       - run: npm run lint
       - run: npm run typecheck
@@ -1120,6 +1144,7 @@ jobs:
       - changes
       - edit-overlay
       - wysiwyg-engine
+      - safari-extension
       - help-book-links
       - workers-tests
       - linux-build-test

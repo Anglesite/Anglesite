@@ -51,3 +51,9 @@ path = "**"
 precedence = "override"
 SPDX-FileCopyrightText = "2026 David W. Keith"
 SPDX-License-Identifier = "ISC"
+
+[[annotations]]
+path = "JS/safari-extension/vendor/microformat-shiv/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2016 Glenn Jones"
+SPDX-License-Identifier = "MIT"
