@@ -19,14 +19,14 @@ final class AgentReadinessModel {
     var sheetPresented: Bool = false
 
     private let scanner: any AgentReadinessScanning
-    private let tokenSource: DeployCommand.TokenSource
+    private let tokenSource: CloudflareDeployTarget.TokenSource
     private var inFlight: Task<Void, Never>?
 
     private var currentSite: CurrentSite?
 
     init(
         scanner: any AgentReadinessScanning = HTTPCloudflareClient(),
-        tokenSource: @escaping DeployCommand.TokenSource = DeployCommand.keychainTokenSource
+        tokenSource: @escaping CloudflareDeployTarget.TokenSource = CloudflareDeployTarget.keychainTokenSource
     ) {
         self.scanner = scanner
         self.tokenSource = tokenSource
