@@ -1,0 +1,24 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Blob Morph</title>
+<style>body{margin:0;position:relative;min-height:100vh;display:grid;place-items:center;
+font-family:-apple-system,system-ui,sans-serif;background:Canvas;color:CanvasText;color-scheme:light dark}</style>
+<style>
+  .blob-morph {
+    width: var(--blob-size, 320px);
+    height: var(--blob-size, 320px);
+    background: color-mix(in srgb, var(--blob-color, currentColor) 25%, transparent);
+    animation: blob-morph-shift 12s ease-in-out infinite;
+  }
+  @keyframes blob-morph-shift {
+    0%, 100% { border-radius: 42% 58% 65% 35% / 45% 40% 60% 55%; }
+    33% { border-radius: 60% 40% 30% 70% / 55% 65% 35% 45%; }
+    66% { border-radius: 35% 65% 55% 45% / 40% 30% 70% 60%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .blob-morph { animation: none; border-radius: 45% 55% 60% 40% / 50% 45% 55% 50%; }
+  }
+</style>
+</head><body>
+<div class="blob-morph" style="--blob-color: currentColor; --blob-size: 320px" data-astro-cid-iq7owtmc></div>
+
+</body></html>
