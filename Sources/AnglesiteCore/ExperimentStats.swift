@@ -19,9 +19,10 @@ import Glibc
 /// reproducible bit-for-bit across runs and platforms.
 ///
 /// Front-doors: the Experiment Results sheet (`ExperimentStatsSheetView`) and
-/// `AnalyzeExperimentIntent` (#769) take each variant's counts as owner-typed input rather than
-/// reading them from a stored experiment config — there's no edge-side variant assignment or
-/// analytics pipeline to source them from yet. That's tracked separately as #1270.
+/// `AnalyzeExperimentIntent` (#769) prefill each variant's counts from the site's declared
+/// experiment and live D1 tallies when one is running (`ExperimentResultsSync`, #1270 §4/§10
+/// slice 4) — owner-typed input is the fallback for a non-Cloudflare deploy, a site with no
+/// token configured, or no experiment running at all, not the only path anymore.
 public enum ExperimentStats {
     // MARK: - Inputs / outputs
 

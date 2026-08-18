@@ -2,17 +2,18 @@ import Foundation
 import Observation
 import AnglesiteCore
 
-/// Drives the Experiment Results sheet (#769): a manual-entry front door onto `ExperimentStats`.
-/// The retired Claude Code plugin's edge A/B machinery (cookie-based variant assignment, an
-/// analytics pipeline reporting impressions/conversions back to the app) was never rebuilt after
-/// #466 — see `ExperimentStats`' doc comment and the follow-up (#1270) — so this sheet takes the
-/// two variants' counts as owner-typed input (read off whatever analytics the owner already has)
-/// rather than reading them from a stored experiment config. Fresh-per-open, same lifecycle as
-/// `CopyEditReportModel`.
+/// Drives the Experiment Results sheet (#769, live prefill #1270 §4/§10 slice 4): a manual-entry
+/// front door onto `ExperimentStats` that now prefills itself from `ExperimentResultsSync` when
+/// the site has a running experiment, a provisioned D1 database, and a Cloudflare token — the
+/// #769 manual-entry behavior (typing in counts read off whatever analytics the owner already has)
+/// is the unconditional fallback whenever any of those isn't true, so nothing about #769 is
+/// removed. Fresh-per-open, same lifecycle as `CopyEditReportModel`.
 @Observable @MainActor
 final class ExperimentStatsModel: Identifiable {
     let id = UUID()
     let siteID: String
+    private let sourceDirectory: URL
+    private let configDirectory: URL
 
     var experimentName: String = ""
     var controlName: String = "Original"
@@ -26,10 +27,42 @@ final class ExperimentStatsModel: Identifiable {
     private(set) var hasSufficientData = false
     private(set) var sampleRatioMismatch = false
 
+    /// Set once `loadLivePrefillIfAvailable()` has filled the fields from live D1 counts, so the
+    /// sheet can tell the owner these numbers came from their site rather than typed in by hand.
+    private(set) var isLive = false
+
     let suggestions = ExperimentStats.suggestionPlaybook
 
-    init(siteID: String) {
+    init(siteID: String, sourceDirectory: URL, configDirectory: URL) {
         self.siteID = siteID
+        self.sourceDirectory = sourceDirectory
+        self.configDirectory = configDirectory
+    }
+
+    /// Fetches live counts for the site's running experiment and prefills the form, if available.
+    /// A no-op (fields stay owner-editable, empty/zeroed as usual) when there's no running
+    /// experiment, no provisioned D1 database, or no Cloudflare token — the manual-entry path is
+    /// unaffected either way. Called once, right after presentation (see `SiteWindowModel
+    /// .presentExperimentStats()`), same fire-and-forget shape as other async-prefill models.
+    /// `secretStore`/`baseURL`/`transport` are injectable, matching `ExperimentResultsSync.prefill`
+    /// itself, so tests can stub the Cloudflare API instead of hitting the network.
+    func loadLivePrefillIfAvailable(
+        secretStore: any SecretStore = PlatformSecretStore.make(),
+        baseURL: String = "https://api.cloudflare.com/client/v4",
+        transport: @escaping CloudflareTransport = HTTPCloudflareClient.defaultTransport
+    ) async {
+        guard let prefill = await ExperimentResultsSync.prefill(
+            sourceDirectory: sourceDirectory, configDirectory: configDirectory,
+            secretStore: secretStore, baseURL: baseURL, transport: transport)
+        else { return }
+        experimentName = prefill.experiment.name
+        controlName = "Original"
+        controlImpressions = prefill.counts.controlVisitors
+        controlConversions = prefill.counts.controlConversions
+        treatmentName = prefill.experiment.variant.name
+        treatmentImpressions = prefill.counts.variantVisitors
+        treatmentConversions = prefill.counts.variantConversions
+        isLive = true
     }
 
     /// Both variants need at least one visitor before there's anything to analyze —
