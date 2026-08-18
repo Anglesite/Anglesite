@@ -1,0 +1,52 @@
+---
+/**
+ * Effects gallery — Cursor-Reactive (#768). A full-viewport `position: fixed` layer with a small
+ * radial-gradient dot that follows the pointer with CSS-transition easing. Its DOM insertion
+ * point doesn't affect its visual position (it's `position: fixed`), so `inline` placement here
+ * just means "add one instance somewhere in the page" — a second instance elsewhere would be
+ * redundant but harmless (the CSS class is idempotent per-instance, not page-singleton-enforced,
+ * since enforcing a page-wide singleton is out of scope for v1).
+ */
+interface Props {
+  color?: string;
+}
+const { color = "rgba(124, 58, 237, 0.35)" } = Astro.props;
+---
+<div class="cursor-glow-root" data-color={color}>
+  <div class="cursor-glow-dot"></div>
+</div>
+
+<script>
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const canHover = matchMedia("(hover: hover) and (pointer: fine)").matches;
+  if (!reduceMotion && canHover) {
+    document.querySelectorAll<HTMLElement>(".cursor-glow-root").forEach((root) => {
+      const dot = root.querySelector<HTMLElement>(".cursor-glow-dot");
+      if (!dot) return;
+      dot.style.setProperty("--cursor-glow-color", root.dataset.color ?? "rgba(124, 58, 237, 0.35)");
+      addEventListener("pointermove", (ev) => {
+        dot.style.left = `${ev.clientX}px`;
+        dot.style.top = `${ev.clientY}px`;
+      }, { passive: true });
+    });
+  }
+</script>
+
+<style>
+  .cursor-glow-root {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2147483646;
+    overflow: hidden;
+  }
+  .cursor-glow-dot {
+    position: fixed;
+    width: 240px;
+    height: 240px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--cursor-glow-color, rgba(124, 58, 237, 0.35)), transparent 70%);
+    transform: translate(-50%, -50%);
+    transition: left 0.12s ease-out, top 0.12s ease-out;
+  }
+</style>

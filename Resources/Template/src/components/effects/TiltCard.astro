@@ -1,0 +1,53 @@
+---
+/**
+ * Effects gallery — Cursor-Reactive (#768). A self-contained card with 3D tilt on pointer move
+ * within its bounds. Inline placement: drop it anywhere a card would normally go.
+ */
+interface Props {
+  title?: string;
+  body?: string;
+  imageSrc?: string;
+}
+const { title = "Card title", body = "A short line of supporting copy.", imageSrc } = Astro.props;
+---
+<div class="tilt-card">
+  {imageSrc && <img src={imageSrc} alt="" />}
+  <h3>{title}</h3>
+  <p>{body}</p>
+</div>
+
+<script>
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const canHover = matchMedia("(hover: hover) and (pointer: fine)").matches;
+  if (!reduceMotion && canHover) {
+    document.querySelectorAll<HTMLElement>(".tilt-card").forEach((card) => {
+      card.addEventListener("pointermove", (ev) => {
+        const rect = card.getBoundingClientRect();
+        const px = (ev.clientX - rect.left) / rect.width - 0.5;
+        const py = (ev.clientY - rect.top) / rect.height - 0.5;
+        card.style.transform = `perspective(600px) rotateX(${py * -8}deg) rotateY(${px * 8}deg)`;
+      });
+      card.addEventListener("pointerleave", () => {
+        card.style.transform = "perspective(600px) rotateX(0) rotateY(0)";
+      });
+    });
+  }
+</script>
+
+<style>
+  .tilt-card {
+    display: block;
+    max-width: 320px;
+    padding: 1.5em;
+    border-radius: 12px;
+    background: color-mix(in srgb, currentColor 6%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+    transition: transform 0.15s ease-out;
+    transform-style: preserve-3d;
+  }
+  .tilt-card img {
+    width: 100%;
+    border-radius: 8px;
+    margin-bottom: 0.75em;
+  }
+</style>
