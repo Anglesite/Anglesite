@@ -11,7 +11,7 @@ interface Props {
 const { density = 60, color = "currentColor" } = Astro.props;
 ---
 
-<div class="particle-field-root" data-density={density} data-color={color}>
+<div class="particle-field-root" aria-hidden="true" data-density={density} data-color={color}>
   <canvas></canvas>
 </div>
 
@@ -36,14 +36,27 @@ const { density = 60, color = "currentColor" } = Astro.props;
       let running = false;
 
       function resize() {
+        const previousWidth = canvas.width;
+        const previousHeight = canvas.height;
         canvas.width = root.clientWidth;
         canvas.height = root.clientHeight;
-        particles = Array.from({ length: density }, () => ({
-          x: Math.random() * canvas.width,
-          y: Math.random() * canvas.height,
-          vx: (Math.random() - 0.5) * 0.3,
-          vy: (Math.random() - 0.5) * 0.3,
-        }));
+        if (particles.length === 0) {
+          particles = Array.from({ length: density }, () => ({
+            x: Math.random() * canvas.width,
+            y: Math.random() * canvas.height,
+            vx: (Math.random() - 0.5) * 0.3,
+            vy: (Math.random() - 0.5) * 0.3,
+          }));
+          return;
+        }
+        // Rescale the existing field into the new bounds rather than regenerating it. `resize`
+        // fires continuously while a window is dragged, so re-randomizing here would make the
+        // particles visibly re-shuffle dozens of times a second instead of adapting to the new
+        // size — and scrolling the layer back into view would reset it too.
+        for (const p of particles) {
+          p.x = previousWidth > 0 ? (p.x * canvas.width) / previousWidth : Math.random() * canvas.width;
+          p.y = previousHeight > 0 ? (p.y * canvas.height) / previousHeight : Math.random() * canvas.height;
+        }
       }
 
       function drawStaticFrame() {
@@ -85,7 +98,11 @@ const { density = 60, color = "currentColor" } = Astro.props;
       }
 
       if (reduceMotion) {
+        // Reduced motion still has to track the *size*: assigning canvas.width/height is what
+        // syncs the backing store to the CSS box, so without this the still frame would be
+        // stretched and blurry after a window resize rather than repainted at the new size.
         drawStaticFrame();
+        addEventListener("resize", drawStaticFrame, { passive: true });
       } else {
         const observer = new IntersectionObserver((entries) => {
           for (const entry of entries) {

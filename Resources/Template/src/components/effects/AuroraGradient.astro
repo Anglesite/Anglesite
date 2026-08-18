@@ -9,7 +9,7 @@ interface Props {
 const { colors = ["#7c3aed", "#2563eb", "#0891b2"] } = Astro.props;
 ---
 
-<div class="aurora-gradient-root" data-colors={colors.join(",")}>
+<div class="aurora-gradient-root" aria-hidden="true" data-colors={colors.join(",")}>
   <canvas></canvas>
 </div>
 
@@ -61,10 +61,18 @@ const { colors = ["#7c3aed", "#2563eb", "#0891b2"] } = Astro.props;
         raf = requestAnimationFrame(tick);
       }
 
-      resize();
       if (reduceMotion) {
-        paint(0);
+        // Reduced motion still has to track the *size*: assigning canvas.width/height is what
+        // syncs the backing store to the CSS box, so without this the single still frame would
+        // be stretched and blurry after a window resize rather than repainted at the new size.
+        const repaint = () => {
+          resize();
+          paint(0);
+        };
+        repaint();
+        addEventListener("resize", repaint, { passive: true });
       } else {
+        resize();
         const observer = new IntersectionObserver((entries) => {
           for (const entry of entries) {
             if (entry.isIntersecting && !running) {

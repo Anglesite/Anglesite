@@ -17,7 +17,9 @@ const COMPONENTS: Record<string, unknown> = {
 };
 
 const catalog = loadEffectsCatalog();
-const entries = catalog.components.filter((entry) => entry.component in COMPONENTS);
+const entries = catalog.components.filter(
+  (entry) => entry.component in COMPONENTS,
+);
 
 describe("effects catalog (canvas backgrounds)", () => {
   it("catalogs all three canvas-background components", () => {
@@ -35,12 +37,15 @@ describe("effects catalog (canvas backgrounds)", () => {
   });
 
   it("registers every one in blocks.manifest.json", () => {
-    const manifest = JSON.parse(readFileSync("blocks.manifest.json", "utf8")) as {
+    const manifest = JSON.parse(
+      readFileSync("blocks.manifest.json", "utf8"),
+    ) as {
       modules: { path: string; name: string }[];
     };
     for (const entry of entries) {
       const module = manifest.modules.find(
-        (candidate) => candidate.path === `src/components/effects/${entry.component}.astro`,
+        (candidate) =>
+          candidate.path === `src/components/effects/${entry.component}.astro`,
       );
       expect(module, entry.component).toBeDefined();
       expect(module?.name, entry.component).toBe(entry.title);
@@ -50,7 +55,10 @@ describe("effects catalog (canvas backgrounds)", () => {
   it("resolves ParticleField's currentColor default before it reaches the canvas", () => {
     // Canvas 2D silently ignores `currentColor` and keeps its default black, so the component
     // has to resolve the keyword itself for the catalog's documented default to mean anything.
-    const source = readFileSync("src/components/effects/ParticleField.astro", "utf8");
+    const source = readFileSync(
+      "src/components/effects/ParticleField.astro",
+      "utf8",
+    );
     expect(source).toContain("getComputedStyle(root).color");
   });
 
@@ -64,7 +72,9 @@ describe("effects catalog (canvas backgrounds)", () => {
       it("renders non-empty markup", async () => {
         const container = await AstroContainer.create();
         const html = await container.renderToString(
-          COMPONENTS[entry.component] as Parameters<typeof container.renderToString>[0],
+          COMPONENTS[entry.component] as Parameters<
+            typeof container.renderToString
+          >[0],
           { props: entry.props },
         );
         expect(html.length).toBeGreaterThan(0);
@@ -82,14 +92,18 @@ describe("effects catalog (canvas backgrounds)", () => {
       it("demo snapshot is fresh", async () => {
         const container = await AstroContainer.create();
         const inner = await container.renderToString(
-          COMPONENTS[entry.component] as Parameters<typeof container.renderToString>[0],
+          COMPONENTS[entry.component] as Parameters<
+            typeof container.renderToString
+          >[0],
           { props: entry.props },
         );
         // Same shape as the legacy `effects-catalog.spec.ts` demos, and for the same reason:
         // AstroContainer#renderToString returns only the component's own markup, so the scoped
         // <style> block has to be lifted out of the source by hand for the demo to look right
         // offline in the gallery's WKWebView.
-        const componentCss = [...source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g)]
+        const componentCss = [
+          ...source.matchAll(/<style[^>]*>([\s\S]*?)<\/style>/g),
+        ]
           .map((match) => match[1])
           .join("\n");
         // Drop the hoisted <script> reference the container emits. Two reasons, either one
@@ -98,7 +112,16 @@ describe("effects catalog (canvas backgrounds)", () => {
         // dev-server path into *this machine's* checkout, which would make the committed
         // snapshot unreproducible anywhere else. A canvas effect's demo is therefore a still
         // frame of its background layer, not a running animation.
-        const markup = inner.replace(/<script\b[^>]*>[\s\S]*?<\/script>/g, "");
+        //
+        // Same stripping shape as `effects-catalog.spec.ts`: case-insensitive so an uppercase
+        // <SCRIPT> can't slip through (CodeQL js/bad-tag-filter), and looped until stable so a
+        // nested/overlapping remnant can't survive a single pass
+        // (CodeQL js/incomplete-multi-character-sanitization).
+        let markup = inner;
+        for (let previous = ""; previous !== markup;) {
+          previous = markup;
+          markup = markup.replace(/<script\b[^>]*>[\s\S]*?<\/script\s*>/gi, "");
+        }
         const page = [
           "<!doctype html>",
           `<html lang="en"><head><meta charset="utf-8"><title>${entry.title}</title>`,
@@ -115,8 +138,10 @@ describe("effects catalog (canvas backgrounds)", () => {
           "</div>",
           "</body></html>",
           "",
-        ].join("\n").replace(/\r\n/g, "\n");
-        expect(page).not.toContain("<script");
+        ]
+          .join("\n")
+          .replace(/\r\n/g, "\n");
+        expect(page.toLowerCase()).not.toContain("<script");
         await expect(page).toMatchFileSnapshot(
           `../../integrations/effects-demos/${entry.component}.html`,
         );

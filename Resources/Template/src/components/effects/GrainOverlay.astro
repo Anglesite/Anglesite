@@ -9,7 +9,7 @@ interface Props {
 const { opacity = 0.05 } = Astro.props;
 ---
 
-<div class="grain-overlay-root" data-opacity={opacity}>
+<div class="grain-overlay-root" aria-hidden="true" data-opacity={opacity}>
   <canvas></canvas>
 </div>
 
@@ -53,10 +53,18 @@ const { opacity = 0.05 } = Astro.props;
         raf = requestAnimationFrame(tick);
       }
 
-      resize();
       if (reduceMotion) {
-        paintNoise();
+        // Reduced motion still has to track the *size*: assigning canvas.width/height is what
+        // syncs the backing store to the CSS box, so without this the single still frame would
+        // be stretched and blurry after a window resize rather than repainted at the new size.
+        const repaint = () => {
+          resize();
+          paintNoise();
+        };
+        repaint();
+        addEventListener("resize", repaint, { passive: true });
       } else {
+        resize();
         const observer = new IntersectionObserver((entries) => {
           for (const entry of entries) {
             if (entry.isIntersecting && !running) {
