@@ -64,6 +64,10 @@ import experimentsArtifact from "./experiments.json";
 import utmCodesArtifact from "../utm-codes.json";
 import { tagFediverseUrl } from "./utm-codes.ts";
 import { GOAL_ENDPOINT_PATH } from "../scripts/experiments-paths.ts";
+import { base64url, decodeBase64url, deriveKey } from "./token-signing.ts";
+import { escapeHTML, extractMf2ContentString, extractMf2Photos, type ExtractedPhoto } from "./render-utils.ts";
+import { handleReaderCallback, handleReaderSignin } from "./reader-auth.ts";
+import { handleGatedFallback, handlePrivateFeed } from "./gated-content.ts";
 
 /**
  * Per-site Cloudflare Worker entry point.
@@ -244,49 +248,6 @@ interface ConsentGrant {
   resources: string[];
 }
 
-function base64url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function decodeBase64url(value: string): Uint8Array<ArrayBuffer> | null {
-  try {
-    const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
-    const binary = atob(padded);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Derives a purpose-specific HMAC key from `secret` via HKDF, so that `TOKEN_SIGNING_KEY` — the
- * one secret provisioned for both consent-token signing and owner-password comparison — yields
- * independent subkeys per purpose. A weakness or misuse in one purpose's key can't cross over
- * into the other's.
- */
-async function deriveKey(secret: string, purpose: string): Promise<CryptoKey> {
-  const baseKey = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    "HKDF",
-    false,
-    ["deriveKey"],
-  );
-  return crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: new TextEncoder().encode(purpose) },
-    baseKey,
-    { name: "HMAC", hash: "SHA-256", length: 256 },
-    false,
-    ["sign", "verify"],
-  );
-}
-
 function grantFor(request: AuthorizationRequest, expiresAt: number): ConsentGrant {
   return {
     v: CONSENT_VERSION,
@@ -465,16 +426,6 @@ async function secretsMatch(provided: string, expected: string, comparisonSecret
   // Keep both passwords as message data under one server-controlled key and delegate the MAC
   // comparison to WebCrypto instead of comparing attacker-influenced bytes in JavaScript.
   return crypto.subtle.verify("HMAC", key, expectedMAC, encoder.encode(provided));
-}
-
-function escapeHTML(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    "\"": "&quot;",
-    "'": "&#39;",
-  })[character] ?? character);
 }
 
 function consentPage(request: AuthorizationRequest): Response {
@@ -973,63 +924,6 @@ function handleWebmentionQueue(
     WEBMENTION_INBOX: env.WEBMENTION_INBOX,
   };
   return consumer(batch, webmentionEnv, ctx);
-}
-
-/**
- * Extracts a plain-text value from an mf2 `content` property entry (V-4.1, #363 review fix).
- * Microformats2-JSON — and `@dwk/micropub`'s own accepted input shape — allows `content` to be
- * either a plain string or a rich-text object (`{ html, value }`); naively coercing the object
- * form with `String(...)` produces the literal `"[object Object]"`, which would silently publish
- * garbage to followers instead of skipping the fan-out. `undefined` (missing/unrecognized shape)
- * is treated the same as an empty string by the caller, which already skips the fan-out rather
- * than publish an empty Note.
- */
-function extractMf2ContentString(raw: unknown): string {
-  if (typeof raw === "string") return raw;
-  if (raw && typeof raw === "object") {
-    const obj = raw as { value?: unknown; html?: unknown };
-    if (typeof obj.value === "string") return obj.value;
-    // Standard Micropub JSON *create* shape for HTML content: { html } with no `value` key at
-    // all — `value` only appears in mf2 read back off a rendered page, not in what a client
-    // posts — so `html` is checked as a fallback, not just `value`.
-    if (typeof obj.html === "string") return obj.html;
-  }
-  return "";
-}
-
-/** A photo attachment extracted from an mf2 `photo` property entry, ready for AS2 mapping. */
-interface ExtractedPhoto {
-  readonly url: string;
-  readonly alt?: string;
-}
-
-/**
- * Extracts `{ url, alt? }` pairs from an mf2 `photo` property array (#1240) — each entry is
- * either a plain URL string or the mf2 alt-text object shape `{ value, alt }`, mirroring
- * {@link extractMf2ContentString}'s tolerance for `content`'s two accepted shapes. Feeds the AS2
- * `attachment` mapping in `fanOutMicropubCreateToActivityPub` so a photo post is renderable by
- * media-only Fediverse clients (Pixelfed shows only posts with attachments).
- */
-function extractMf2Photos(raw: unknown): ExtractedPhoto[] {
-  if (!Array.isArray(raw)) return [];
-  const photos: ExtractedPhoto[] = [];
-  for (const entry of raw) {
-    if (typeof entry === "string" && entry.length > 0) {
-      photos.push({ url: entry });
-      continue;
-    }
-    if (entry && typeof entry === "object") {
-      const obj = entry as { value?: unknown; alt?: unknown };
-      if (typeof obj.value === "string" && obj.value.length > 0) {
-        photos.push(
-          typeof obj.alt === "string" && obj.alt.length > 0
-            ? { url: obj.value, alt: obj.alt }
-            : { url: obj.value },
-        );
-      }
-    }
-  }
-  return photos;
 }
 
 /**
@@ -1853,6 +1747,31 @@ export const ROUTES: readonly WorkerRoute[] = [
     methods: ["GET", "HEAD"],
     handler: (request, env, ctx) => handleWebFinger(request, env, ctx),
   },
+  {
+    // IndieAuth relying-party sign-in for a visitor proving their own site's identity (#1568):
+    // no `me` renders the form, `me` present discovers that site's authorization_endpoint and
+    // redirects there. See gated-content.ts's design doc for the full flow.
+    path: "/contacts/signin",
+    match: "exact",
+    methods: ["GET"],
+    handler: (request, env) => handleReaderSignin(request, env),
+  },
+  {
+    // OAuth redirect target for the sign-in above: redeems the code, verifies identity, checks
+    // the pushed allowlist, and starts a reader session (#1568).
+    path: "/contacts/callback",
+    match: "exact",
+    methods: ["GET"],
+    handler: (request, env) => handleReaderCallback(request, env),
+  },
+  {
+    // Private h-feed of restricted (`visibility: contacts`) posts, gated the same way as a
+    // restricted permalink (#1568).
+    path: "/contacts/feed",
+    match: "exact",
+    methods: ["GET", "HEAD"],
+    handler: (request, env) => handlePrivateFeed(request, env),
+  },
 ];
 
 export function matchRoute(pathname: string, routes: readonly WorkerRoute[] = ROUTES): WorkerRoute | null {
@@ -1947,6 +1866,13 @@ export default {
         return new Response("No assets binding configured", { status: 500 });
       }
       response = await assets.fetch(request);
+      // A restricted (`visibility: contacts`) post is never in the static build (#1568), so its
+      // permalink always misses here — give the read gate a chance to serve it (or a uniform 403
+      // for an unauthenticated/unauthorized visitor) before falling back to the plain asset 404.
+      if (response.status === 404) {
+        const gated = await handleGatedFallback(request, env, pathname);
+        if (gated !== null) response = gated;
+      }
     }
 
     // Goal-signal conversion counting (#1270 slice 1): applied to whatever response the branches

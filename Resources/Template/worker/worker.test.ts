@@ -23,6 +23,9 @@ import {
 } from "./worker";
 import worker from "./worker";
 import { tagFediverseUrl } from "./utm-codes.ts";
+import { createMicropubStore } from "@dwk/micropub";
+import { READER_SESSION_COOKIE, createReaderSessionToken } from "./reader-session.ts";
+import { normalizeReaderIdentity } from "./reader-identity.ts";
 
 const testEnv = env as unknown as WorkerEnv;
 
@@ -2076,4 +2079,134 @@ test("activityPubConfig: AP_MODERATORS is ignored (undefined) for a Person actor
     makeActivityPubEnv({ AP_MODERATORS: "https://mod1.example/actor" }),
   );
   expect(config?.moderators).toBeUndefined();
+});
+
+// --- Worker read gate (#1568) ------------------------------------------------------------
+
+async function sessionCookieFor(me: string): Promise<string> {
+  const token = await createReaderSessionToken(normalizeReaderIdentity(me), testEnv.TOKEN_SIGNING_KEY);
+  return `${READER_SESSION_COOKIE}=${token}`;
+}
+
+/** Minimal stub satisfying `Fetcher`, since the vitest miniflare env has no real ASSETS binding. */
+function assetsAlways404(): WorkerEnv["ASSETS"] {
+  return { fetch: async () => new Response("Not Found", { status: 404 }) } as unknown as WorkerEnv["ASSETS"];
+}
+
+test("contacts/signin: renders the sign-in form with no me", async () => {
+  const response = await fetchWorker(new Request("https://owner.example/contacts/signin"));
+  expect(response.status).toBe(200);
+  expect(await response.text()).toContain('name="me"');
+});
+
+test("contacts/signin: discovers the endpoint and redirects with a signed state", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      '<html><head><link rel="authorization_endpoint" href="https://alice.example/auth"></head></html>',
+      { headers: { "content-type": "text/html" } },
+    )) as unknown as typeof fetch;
+  try {
+    const response = await fetchWorker(
+      new Request("https://owner.example/contacts/signin?me=https://alice.example/"),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toContain("https://alice.example/auth");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("contacts/callback: verifies identity, checks the allowlist, and starts a session", async () => {
+  const { createSigninState } = await import("./reader-session.ts");
+  const state = await createSigninState(
+    {
+      me: "https://alice.example/",
+      redirectTo: "/notes/hello",
+      authorizationEndpoint: "https://alice.example/auth",
+      verifier: "v",
+    },
+    testEnv.TOKEN_SIGNING_KEY,
+  );
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ me: "https://alice.example/" }), {
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+  try {
+    await testEnv.SOCIAL_KV!.put("contacts:allowlist", JSON.stringify(["alice.example"]));
+    const response = await fetchWorker(
+      new Request(`https://owner.example/contacts/callback?code=abc&state=${encodeURIComponent(state)}`),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/notes/hello");
+    expect(response.headers.get("set-cookie")).toContain(READER_SESSION_COOKIE);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("contacts/feed: 403 without a session, 200 listing only contacts-visibility posts with one", async () => {
+  const unauthorized = await fetchWorker(new Request("https://owner.example/contacts/feed"));
+  expect(unauthorized.status).toBe(403);
+
+  const store = createMicropubStore({ MICROPUB_DB: testEnv.MICROPUB_DB! });
+  await store.insertPost({
+    url: "https://owner.example/notes/gate-feed-restricted",
+    type: "h-entry",
+    properties: { name: ["Gate Feed Restricted"], visibility: ["contacts"] },
+    now: 1_000,
+  });
+  const cookie = await sessionCookieFor("https://alice.example/");
+  const authorized = await fetchWorker(
+    new Request("https://owner.example/contacts/feed", { headers: { Cookie: cookie } }),
+  );
+  expect(authorized.status).toBe(200);
+  expect(await authorized.text()).toContain("Gate Feed Restricted");
+});
+
+test("gated permalink fallback: unrelated 404s are untouched, plausible post URLs are gated", async () => {
+  const assetsEnv = { ...testEnv, ASSETS: assetsAlways404() };
+
+  // Not shaped like a post permalink — the gate never engages, plain 404 exactly as before #1568.
+  const unrelated = await worker.fetch(
+    new Request("https://owner.example/styles.css"),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(unrelated.status).toBe(404);
+
+  // Plausible post URL, no session — uniform 403, not a leak-revealing 404.
+  const noSession = await worker.fetch(
+    new Request("https://owner.example/notes/some-slug"),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(noSession.status).toBe(403);
+
+  // Authorized session, but no such post — falls back to the plain 404 (safe: only a verified,
+  // allowlisted contact ever reaches this branch).
+  const cookie = await sessionCookieFor("https://alice.example/");
+  const authorizedNoPost = await worker.fetch(
+    new Request("https://owner.example/notes/does-not-exist-either", { headers: { Cookie: cookie } }),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(authorizedNoPost.status).toBe(404);
+
+  // Authorized session, real restricted post — renders it.
+  const store = createMicropubStore({ MICROPUB_DB: testEnv.MICROPUB_DB! });
+  await store.insertPost({
+    url: "https://owner.example/notes/gate-permalink-restricted",
+    type: "h-entry",
+    properties: { name: ["Gate Permalink Restricted"], visibility: ["contacts"] },
+    now: 1_000,
+  });
+  const rendered = await worker.fetch(
+    new Request("https://owner.example/notes/gate-permalink-restricted", { headers: { Cookie: cookie } }),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(rendered.status).toBe(200);
+  expect(await rendered.text()).toContain("Gate Permalink Restricted");
 });
