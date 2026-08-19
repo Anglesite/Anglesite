@@ -20,6 +20,10 @@ public struct ComposerDraft: Codable, Equatable, Sendable {
     /// The status the pending send should stamp (`draft` for Save, `published` for Publish);
     /// `nil` while merely composing (nothing queued yet).
     public var queuedStatus: String?
+    /// The visibility selection to restore alongside the queued send — `nil` for a not-yet-set
+    /// composition (defaults to public when absent, matching `MicropubPostVisibility`'s own
+    /// absent-defaults-to-public rule).
+    public var visibility: String?
     /// The compare-and-swap baseline for a queued *update* — the `{type, properties}` JSON of
     /// the post as it was when editing began — so restoring the draft restores the CAS guard
     /// too, not just the values (#1370 review). `nil` for new posts.
@@ -28,13 +32,14 @@ public struct ComposerDraft: Codable, Equatable, Sendable {
     /// Creates a draft snapshot.
     public init(
         siteID: UUID, typeID: String, postURL: URL? = nil,
-        values: [String: Value], queuedStatus: String? = nil, baselineJSON: Data? = nil
+        values: [String: Value], queuedStatus: String? = nil, visibility: String? = nil, baselineJSON: Data? = nil
     ) {
         self.siteID = siteID
         self.typeID = typeID
         self.postURL = postURL
         self.values = values
         self.queuedStatus = queuedStatus
+        self.visibility = visibility
         self.baselineJSON = baselineJSON
     }
 
@@ -77,7 +82,7 @@ public struct ComposerDraft: Codable, Equatable, Sendable {
     public init(
         siteID: UUID, typeID: String, postURL: URL?,
         editorValues: TypedContentEditor.Values, fieldNames: [String],
-        queuedStatus: String? = nil, baseline: MicropubPost? = nil
+        queuedStatus: String? = nil, visibility: String? = nil, baseline: MicropubPost? = nil
     ) {
         var values: [String: Value] = [:]
         for name in fieldNames {
@@ -85,7 +90,7 @@ public struct ComposerDraft: Codable, Equatable, Sendable {
         }
         self.init(
             siteID: siteID, typeID: typeID, postURL: postURL,
-            values: values, queuedStatus: queuedStatus,
+            values: values, queuedStatus: queuedStatus, visibility: visibility,
             baselineJSON: baseline.flatMap(Self.encodeBaseline))
     }
 
