@@ -26,7 +26,7 @@ import { tagFediverseUrl } from "./utm-codes.ts";
 import { createMicropubStore } from "@dwk/micropub";
 import { READER_SESSION_COOKIE, createReaderSessionToken } from "./reader-session.ts";
 import { normalizeReaderIdentity } from "./reader-identity.ts";
-import { createHandleMcp, isMcpRateLimited, mcpRateLimitKey } from "./mcp-server.ts";
+import { createHandleMcp, isMcpRateLimited, isMcpToolCallRequest, mcpRateLimitKey } from "./mcp-server.ts";
 import type { McpConfigArtifact } from "./mcp-config.ts";
 
 const testEnv = env as unknown as WorkerEnv;
@@ -2237,6 +2237,23 @@ test("handleMcp: 404 when experimental.mcp is disabled", async () => {
   expect(response.status).toBe(404);
 });
 
+/** A JSON-RPC `tools/call` POST to `/mcp` — the only shape the rate limiter meters. */
+function mcpToolCallRequest(
+  name: string,
+  args: Record<string, unknown> = {},
+  extraHeaders: Record<string, string> = {},
+): Request {
+  return new Request("https://example.com/mcp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      ...extraHeaders,
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+  });
+}
+
 test("handleMcp: 429 when the rate limit is exceeded", async () => {
   const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
   const handleMcp = createHandleMcp(config);
@@ -2245,18 +2262,102 @@ test("handleMcp: 429 when the rate limit is exceeded", async () => {
   const ip = "203.0.113.7";
   for (let i = 0; i < 60; i++) {
     const response = await handleMcp(
-      new Request("https://example.com/mcp", { method: "POST", headers: { "CF-Connecting-IP": ip } }),
+      mcpToolCallRequest("list_feeds", {}, { "CF-Connecting-IP": ip }),
       env,
       createExecutionContext(),
     );
     expect(response.status).not.toBe(429);
   }
   const limited = await handleMcp(
-    new Request("https://example.com/mcp", { method: "POST", headers: { "CF-Connecting-IP": ip } }),
+    mcpToolCallRequest("list_feeds", {}, { "CF-Connecting-IP": ip }),
     env,
     createExecutionContext(),
   );
   expect(limited.status).toBe(429);
+});
+
+test("handleMcp: non-tool-call traffic costs no KV write and is never rate-limited", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const kv = makeFakeKV();
+  const env = { ...testEnv, SOCIAL_KV: kv, ASSETS: makeFakeAssets({}) };
+  const ip = "203.0.113.8";
+
+  // A bare GET (what worker.ts mirrors HEAD into) and a tools/list handshake, well past the
+  // 60/window threshold — neither may increment the mcp-tool-call: counter.
+  for (let i = 0; i < 70; i++) {
+    await handleMcp(
+      new Request("https://example.com/mcp", { method: "GET", headers: { "CF-Connecting-IP": ip } }),
+      env,
+      createExecutionContext(),
+    );
+    await handleMcp(
+      new Request("https://example.com/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "CF-Connecting-IP": ip,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      }),
+      env,
+      createExecutionContext(),
+    );
+  }
+  expect([...kv.store.keys()].filter((k) => k.startsWith("mcp-tool-call:"))).toEqual([]);
+
+  // …and a real tool call from the same IP still goes through, because nothing was counted.
+  const toolCall = await handleMcp(
+    mcpToolCallRequest("list_feeds", {}, { "CF-Connecting-IP": ip }),
+    env,
+    createExecutionContext(),
+  );
+  expect(toolCall.status).toBe(200);
+});
+
+test("isMcpToolCallRequest: only a JSON-RPC tools/call POST counts", async () => {
+  expect(await isMcpToolCallRequest(mcpToolCallRequest("list_feeds"))).toBe(true);
+  expect(await isMcpToolCallRequest(new Request("https://example.com/mcp", { method: "GET" }))).toBe(false);
+  expect(
+    await isMcpToolCallRequest(
+      new Request("https://example.com/mcp", {
+        method: "POST",
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      }),
+    ),
+  ).toBe(false);
+  expect(
+    await isMcpToolCallRequest(new Request("https://example.com/mcp", { method: "POST", body: "not json" })),
+  ).toBe(false);
+  // A JSON-RPC batch counts when any member is a tools/call.
+  expect(
+    await isMcpToolCallRequest(
+      new Request("https://example.com/mcp", {
+        method: "POST",
+        body: JSON.stringify([
+          { jsonrpc: "2.0", id: 1, method: "tools/list" },
+          { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_feeds" } },
+        ]),
+      }),
+    ),
+  ).toBe(true);
+});
+
+test("isMcpRateLimited: a failing KV write fails closed rather than throwing", async () => {
+  const throwingKV = {
+    async get() {
+      return null;
+    },
+    async put() {
+      throw new Error("KV PUT failed: 429 daily write quota exceeded");
+    },
+  } as unknown as WorkerEnv["SOCIAL_KV"];
+  const limited = await isMcpRateLimited(
+    new Request("https://example.com/mcp", { method: "POST" }),
+    { ...testEnv, SOCIAL_KV: throwingKV },
+  );
+  expect(limited).toBe(true);
 });
 
 test("isMcpRateLimited: fails closed (rate-limited) when SOCIAL_KV is unbound", async () => {
@@ -2281,10 +2382,26 @@ test("mcpRateLimitKey: distinct IPs produce distinct keys with the mcp-tool-call
  * directly against the installed package (see task-9-report.md); this parses that one `data:`
  * line rather than assuming a plain JSON body.
  */
-function parseSseJsonRpcResult(body: string): { result?: { tools?: Array<{ name: string }> } } {
+function parseSseJsonRpcResult(body: string): {
+  result?: { tools?: Array<{ name: string }>; content?: Array<{ type: string; text: string }> };
+} {
   const dataLine = body.split("\n").find((line) => line.startsWith("data: "));
   if (!dataLine) throw new Error(`Expected an SSE "data:" line in MCP response body, got: ${body}`);
   return JSON.parse(dataLine.slice("data: ".length));
+}
+
+/** Drives one `tools/call` all the way through `createMcpHandler` and returns the joined text of
+ *  the tool's `content` blocks — the real integration path `tools/list` alone never exercises. */
+async function callMcpTool(
+  handleMcp: ReturnType<typeof createHandleMcp>,
+  env: WorkerEnv,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<string> {
+  const response = await handleMcp(mcpToolCallRequest(name, args), env, createExecutionContext());
+  expect(response.status).toBe(200);
+  const body = parseSseJsonRpcResult(await response.text());
+  return (body.result?.content ?? []).map((c) => c.text).join("\n");
 }
 
 test("handleMcp: enabled with a bound ASSETS responds to a tools/list JSON-RPC request", async () => {
@@ -2301,4 +2418,90 @@ test("handleMcp: enabled with a bound ASSETS responds to a tools/list JSON-RPC r
   const body = parseSseJsonRpcResult(await response.text());
   const names = (body.result?.tools ?? []).map((t) => t.name);
   expect(names).toEqual(expect.arrayContaining(["search_posts", "fetch_page_content", "list_feeds"]));
+});
+
+test("tools/call fetch_page_content: serves the .md mirror when one exists", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const env = {
+    ...testEnv,
+    SOCIAL_KV: makeFakeKV(),
+    ASSETS: makeFakeAssets({
+      "/blog/welcome-to-your-blog.md": { status: 200, body: "---\ntitle: \"Welcome\"\n---\n\nMirror body text." },
+      // The HTML fallback must NOT win when the .md mirror is present.
+      "/blog/welcome-to-your-blog": { status: 200, body: "<html><body><p>HTML fallback</p></body></html>" },
+    }),
+  };
+  // Trailing slash normalization is part of the same path this exercises.
+  const text = await callMcpTool(handleMcp, env, "fetch_page_content", { path: "/blog/welcome-to-your-blog/" });
+  expect(text).toContain("Mirror body text.");
+  expect(text).not.toContain("HTML fallback");
+});
+
+test("tools/call fetch_page_content: falls back to plain text from the built HTML page", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const env = {
+    ...testEnv,
+    SOCIAL_KV: makeFakeKV(),
+    ASSETS: makeFakeAssets({ "/about": { status: 200, body: "<html><body><h1>About</h1><p>Hello there.</p></body></html>" } }),
+  };
+  const text = await callMcpTool(handleMcp, env, "fetch_page_content", { path: "/about" });
+  expect(text).toContain("Hello there.");
+  expect(text).not.toContain("<p>");
+});
+
+test("tools/call fetch_page_content: returns the Not found shape for an unknown path", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const env = { ...testEnv, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const text = await callMcpTool(handleMcp, env, "fetch_page_content", { path: "/nope" });
+  expect(text).toBe("Not found: /nope");
+});
+
+test("tools/call search_posts: returns a blog hit from the built search index", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  // The exact shape src/pages/mcp-search-index.json.ts emits — a blog entry included, which is
+  // what the endpoint's ENTRY_COLLECTIONS-only iteration used to make impossible (#1576 review).
+  const index = [
+    {
+      title: "Welcome to your blog",
+      url: "/blog/welcome-to-your-blog",
+      excerpt: "This is your blog's first post.",
+      collection: "blog",
+      tags: [],
+      date: "2026-01-01T00:00:00.000Z",
+    },
+  ];
+  const env = {
+    ...testEnv,
+    SOCIAL_KV: makeFakeKV(),
+    ASSETS: makeFakeAssets({ "/mcp-search-index.json": { status: 200, body: JSON.stringify(index) } }),
+  };
+  const text = await callMcpTool(handleMcp, env, "search_posts", { query: "welcome" });
+  expect(text).toContain("Welcome to your blog");
+  expect(text).toContain("/blog/welcome-to-your-blog");
+});
+
+test("tools/call search_posts: reports no results rather than throwing on an unparseable index", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  // A disabled build still ships a 0-byte mcp-search-index.json with a 200 status.
+  const env = {
+    ...testEnv,
+    SOCIAL_KV: makeFakeKV(),
+    ASSETS: makeFakeAssets({ "/mcp-search-index.json": { status: 200, body: "" } }),
+  };
+  const text = await callMcpTool(handleMcp, env, "search_posts", { query: "welcome" });
+  expect(text).toBe('No results for "welcome".');
+});
+
+test("tools/call list_feeds: returns the build-time feed path list", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml", "/blog/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const env = { ...testEnv, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const text = await callMcpTool(handleMcp, env, "list_feeds");
+  expect(text).toContain("/rss.xml");
+  expect(text).toContain("/blog/rss.xml");
 });

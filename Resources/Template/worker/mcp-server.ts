@@ -36,11 +36,21 @@ export async function isMcpRateLimited(request: Request, env: WorkerEnv): Promis
     return true;
   }
   const key = await mcpRateLimitKey(request);
-  const raw = await env.SOCIAL_KV.get(key);
-  const count = raw ? Number.parseInt(raw, 10) : 0;
-  if (count >= MCP_RATE_LIMIT_MAX_PER_WINDOW) return true;
-  await env.SOCIAL_KV.put(key, String(count + 1), { expirationTtl: MCP_RATE_LIMIT_WINDOW_SECONDS });
-  return false;
+  try {
+    const raw = await env.SOCIAL_KV.get(key);
+    const count = raw ? Number.parseInt(raw, 10) : 0;
+    if (count >= MCP_RATE_LIMIT_MAX_PER_WINDOW) return true;
+    await env.SOCIAL_KV.put(key, String(count + 1), { expirationTtl: MCP_RATE_LIMIT_WINDOW_SECONDS });
+    return false;
+  } catch (error) {
+    // A KV read/write can fail for reasons an unauthenticated caller controls the volume of —
+    // most plausibly the free plan's 1,000 writes/day quota, since `SOCIAL_KV` is shared with
+    // IndieAuth. `worker.ts`'s dispatcher has no try/catch around route handlers, so letting this
+    // propagate would surface as an uncaught Worker exception (HTTP 1101) rather than a clean
+    // 429. Degrade the same way an unbound namespace does: fail closed, never fail open.
+    console.warn(JSON.stringify({ event: "mcp.rate_limit_error", error: String(error) }));
+    return true;
+  }
 }
 
 /** Strips a trailing slash (except the bare root) and ensures a leading slash, so `"blog/x/"`,
@@ -56,7 +66,14 @@ async function fetchSearchIndex(env: WorkerEnv): Promise<McpSearchEntry[]> {
   if (!env.ASSETS) return [];
   const response = await env.ASSETS.fetch(new Request("https://internal.invalid/mcp-search-index.json"));
   if (!response.ok) return [];
-  return (await response.json()) as McpSearchEntry[];
+  try {
+    // A disabled build still materializes a 0-byte `mcp-search-index.json` (Astro always writes a
+    // file for a matched endpoint route), which is a 200 with an unparseable body. Degrade to an
+    // empty index rather than throwing, matching `fetchPageContent`'s not-found convention.
+    return (await response.json()) as McpSearchEntry[];
+  } catch {
+    return [];
+  }
 }
 
 /** For a collection entry, the already-shipped `.md` mirror (`renderMarkdownMirror`,
@@ -124,13 +141,39 @@ function notFound(): Response {
   });
 }
 
+/**
+ * True when this request's body carries at least one JSON-RPC `tools/call` — the only traffic the
+ * `mcp-tool-call:` counter is named for, and the only traffic that costs this Worker an `ASSETS`
+ * fetch. Everything else reaching `/mcp` (a bare `HEAD`, which `worker.ts`'s dispatcher mirrors
+ * into `GET`; the `initialize`/`notifications/initialized`/`tools/list` handshake; malformed
+ * bodies) is answered without a `SOCIAL_KV.put`, so an unauthenticated caller can no longer
+ * amplify one request into one KV write against a namespace shared with IndieAuth.
+ *
+ * Reads `request.clone()` so `createMcpHandler` still receives an unconsumed body. A body that
+ * doesn't parse is not a tool call: it does no asset fetch and gets rejected by the MCP handler,
+ * so declining to meter it grants no useful capability.
+ */
+export async function isMcpToolCallRequest(request: Request): Promise<boolean> {
+  if (request.method !== "POST") return false;
+  try {
+    const payload: unknown = await request.clone().json();
+    const messages = Array.isArray(payload) ? payload : [payload];
+    return messages.some((m) => (m as { method?: unknown } | null)?.method === "tools/call");
+  } catch {
+    return false;
+  }
+}
+
 /** Factory so tests can inject a config independent of the real build-time artifact — see
  *  `worker/worker.test.ts`. `handleMcp` below is the production handler, bound to the real
- *  generated `mcp-config.json`. */
+ *  generated `mcp-config.json`. The limiter runs only for `tools/call` traffic (see
+ *  `isMcpToolCallRequest`), so the fail-closed-when-`SOCIAL_KV`-is-unbound rule now guards the
+ *  tools rather than the handshake: `initialize`/`tools/list` do no asset fetch and no KV write,
+ *  and metering them bought nothing but write amplification. */
 export function createHandleMcp(config: McpConfigArtifact) {
   return async function handleMcp(request: Request, env: WorkerEnv, ctx: ExecutionContext): Promise<Response> {
     if (!config.enabled) return notFound();
-    if (await isMcpRateLimited(request, env)) {
+    if ((await isMcpToolCallRequest(request)) && (await isMcpRateLimited(request, env))) {
       return new Response("Too Many Requests", { status: 429 });
     }
     return createMcpHandler(createSiteServer(env, config), { route: "/mcp" })(request, env, ctx);
