@@ -1047,7 +1047,7 @@ Expected: PASS.
 
 ```bash
 git add Sources/AnglesiteCore/WellKnownInventory.swift Tests/AnglesiteCoreTests/WellKnownInventoryTests.swift
-git commit -m "feat(#1579): classify agent-skills output in the host-side inventory scan"
+git commit -m "feat(#1579): classify agent-skills in host-side inventory scan"
 ```
 
 ---
