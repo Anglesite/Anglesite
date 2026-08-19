@@ -2875,6 +2875,9 @@
     "Provision Cloudflare AI Search for this site" : {
 
     },
+    "Public" : {
+
+    },
     "Publish" : {
 
     },
@@ -3165,6 +3168,12 @@
 
     },
     "Restarting (attempt %lld)" : {
+
+    },
+    "Restricted posts are stored on your site's server, not in git. Contact-only access turns on once your site's read gate ships." : {
+
+    },
+    "Restricted to Contacts" : {
 
     },
     "Result" : {
@@ -4116,6 +4125,9 @@
 
     },
     "View on GitHub" : {
+
+    },
+    "Visibility" : {
 
     },
     "Visitors" : {

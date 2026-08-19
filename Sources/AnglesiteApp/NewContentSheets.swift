@@ -329,18 +329,54 @@ struct NewCollectionEntrySheet: View {
 }
 
 struct NewPostSheet: View {
-    let onCreate: (String) async -> ContentCreateResult
+    /// Whether this site can currently publish restricted posts (#1566) — checked once when the
+    /// sheet appears; the visibility picker is hidden entirely when this resolves to `false`
+    /// rather than shown-and-disabled (design §5.1).
+    let checkRestrictedAvailability: () async -> Bool
+    let onCreate: (_ title: String, _ visibility: MicropubPostVisibility, _ body: String) async -> ComposerCreateOutcome
 
     @Environment(\.dismiss) private var dismiss
     @State private var title = ""
+    @State private var visibility: MicropubPostVisibility = .public
+    @State private var postBody = ""
+    @State private var restrictedAvailable = false
     @State private var isCreating = false
     @State private var errorMessage: String?
+
+    private var canCreate: Bool {
+        let cleanTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !cleanTitle.isEmpty else { return false }
+        if visibility == .contacts {
+            return !postBody.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        }
+        return true
+    }
 
     var body: some View {
         NavigationStack {
             Form {
                 Section("Post") {
                     TextField("Title", text: $title)
+                    if restrictedAvailable {
+                        Picker("Visibility", selection: $visibility) {
+                            Text("Public").tag(MicropubPostVisibility.public)
+                            Text("Restricted to Contacts").tag(MicropubPostVisibility.contacts)
+                        }
+                        // Says plainly that picking "Restricted" doesn't yet gate who can read
+                        // the post — the site's authenticated read gate is a later slice of #963,
+                        // and an owner shouldn't infer enforcement from the label alone.
+                        if visibility == .contacts {
+                            Text("Restricted posts are stored on your site's server, not in git. Contact-only access turns on once your site's read gate ships.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                    }
+                }
+                if visibility == .contacts {
+                    Section("Content") {
+                        TextEditor(text: $postBody)
+                            .frame(minHeight: 120)
+                    }
                 }
                 if let errorMessage {
                     Text(errorMessage)
@@ -349,8 +385,11 @@ struct NewPostSheet: View {
                 }
             }
             .formStyle(.grouped)
-            .frame(minWidth: 380, minHeight: 160)
+            .frame(minWidth: 380, minHeight: visibility == .contacts ? 340 : 160)
             .navigationTitle("New Post")
+            .task {
+                restrictedAvailable = await checkRestrictedAvailability()
+            }
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
@@ -360,7 +399,7 @@ struct NewPostSheet: View {
                     Button(isCreating ? "Creating…" : "Create") {
                         create()
                     }
-                    .disabled(isCreating || title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                    .disabled(isCreating || !canCreate)
                 }
             }
         }
@@ -371,11 +410,11 @@ struct NewPostSheet: View {
         isCreating = true
         errorMessage = nil
         Task {
-            let result = await onCreate(cleanTitle)
+            let result = await onCreate(cleanTitle, visibility, postBody)
             await MainActor.run {
                 isCreating = false
                 switch result {
-                case .created:
+                case .success:
                     dismiss()
                 case .siteNotFound:
                     errorMessage = "This site is no longer available."

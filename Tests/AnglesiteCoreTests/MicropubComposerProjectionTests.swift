@@ -95,6 +95,25 @@ struct MicropubComposerProjectionTests {
         #expect(properties["post-status"] == [.string("draft")])
     }
 
+    @Test("an omitted visibility stamps no property at all; an explicit one is stamped")
+    func visibilityOmittedUnlessExplicit() {
+        // The default must OMIT, not default to public: this map is also an update's `replace`
+        // map, and re-stamping a re-derived value would downgrade a post another client set to a
+        // tier this enum doesn't model yet (`unlisted`/`private` both read back as `public`).
+        let omitted = MicropubComposerProjection.properties(
+            for: Self.everyKind, values: Self.filledValues(), status: .published)
+        #expect(omitted["visibility"] == nil)
+        #expect(omitted["post-status"] == [.string("published")])
+
+        let explicitPublic = MicropubComposerProjection.properties(
+            for: Self.everyKind, values: Self.filledValues(), status: .published, visibility: .public)
+        #expect(explicitPublic["visibility"] == [.string("public")])
+
+        let restricted = MicropubComposerProjection.properties(
+            for: Self.everyKind, values: Self.filledValues(), status: .published, visibility: .contacts)
+        #expect(restricted["visibility"] == [.string("contacts")])
+    }
+
     @Test("a non-integral number projects as a JSON double")
     func nonIntegralNumber() {
         let encoded = MicropubComposerProjection.mf2Values(for: .number(4.5), kind: .number)

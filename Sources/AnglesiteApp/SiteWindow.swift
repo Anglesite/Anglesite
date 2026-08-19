@@ -1052,8 +1052,19 @@ struct SiteWindow: View {
             }
         }
         .sheet(isPresented: $bindableModel.newPostPresented) {
-            NewPostSheet { title in
-                await model.createPost(title: title)
+            NewPostSheet(
+                checkRestrictedAvailability: { await model.canPublishRestrictedPosts() }
+            ) { title, visibility, body in
+                switch visibility {
+                case .public:
+                    switch await model.createPost(title: title) {
+                    case .created: return .success
+                    case .siteNotFound: return .siteNotFound
+                    case .failed(let reason): return .failed(reason: reason)
+                    }
+                case .contacts:
+                    return await model.createRestrictedPost(title: title, body: body)
+                }
             }
         }
         .sheet(isPresented: $bindableModel.newComponentPresented) {
