@@ -143,6 +143,59 @@ struct ContactsModelTests {
         #expect(added.linkedActor == nil)
     }
 
+    @Test("add fires a fire-and-forget allowlist push without blocking or throwing")
+    func addTriggersAllowlistPush() async throws {
+        let recorder = PushRecorder()
+        let model = ContactsModel(
+            contactsProvider: FakeContactsProvider(result: .success([])),
+            pushAllowlist: { url in await recorder.record(url) })
+        let site = try Self.makeSite()
+        model.configure(site: site)
+        await model.reload()
+
+        await model.add(me: URL(string: "https://alice.example")!, displayName: "Alice")
+        await recorder.waitForCall()
+
+        #expect(await recorder.calls == [site.configDirectory])
+    }
+
+    @Test("update fires a fire-and-forget allowlist push")
+    func updateTriggersAllowlistPush() async throws {
+        let recorder = PushRecorder()
+        let model = ContactsModel(
+            contactsProvider: FakeContactsProvider(result: .success([])),
+            pushAllowlist: { url in await recorder.record(url) })
+        model.configure(site: try Self.makeSite())
+        await model.reload()
+        await model.add(me: URL(string: "https://alice.example")!, displayName: "Alice")
+        await recorder.waitForCall()
+        var added = try #require(model.contacts.first)
+        added.displayName = "Alice Renamed"
+
+        await model.update(added)
+        await recorder.waitForCall(count: 2)
+
+        #expect(await recorder.calls.count == 2)
+    }
+
+    @Test("remove fires a fire-and-forget allowlist push")
+    func removeTriggersAllowlistPush() async throws {
+        let recorder = PushRecorder()
+        let model = ContactsModel(
+            contactsProvider: FakeContactsProvider(result: .success([])),
+            pushAllowlist: { url in await recorder.record(url) })
+        model.configure(site: try Self.makeSite())
+        await model.reload()
+        await model.add(me: URL(string: "https://alice.example")!, displayName: "Alice")
+        await recorder.waitForCall()
+        let added = try #require(model.contacts.first)
+
+        await model.remove(added)
+        await recorder.waitForCall(count: 2)
+
+        #expect(await recorder.calls.count == 2)
+    }
+
     @Test("configure(site:) resets per-site state so a window replay never leaks another site's contacts (#966 review)")
     func configureResetsStateAcrossSites() async throws {
         let model = ContactsModel(contactsProvider: FakeContactsProvider(result: .success([])))
@@ -207,5 +260,28 @@ struct ContactsModelTests {
 
         await model.scanForMatches(candidateFollowerURLs: [bob])
         #expect(model.suggestions.isEmpty)
+    }
+}
+
+/// Records `pushAllowlist` invocations from a detached `Task`, and lets a test await the Nth
+/// call deterministically instead of racing an unstructured Task with a sleep.
+private actor PushRecorder {
+    private(set) var calls: [URL] = []
+    private var continuations: [(Int, CheckedContinuation<Void, Never>)] = []
+
+    func record(_ url: URL) {
+        calls.append(url)
+        continuations.removeAll { count, continuation in
+            guard calls.count >= count else { return false }
+            continuation.resume()
+            return true
+        }
+    }
+
+    func waitForCall(count: Int = 1) async {
+        if calls.count >= count { return }
+        await withCheckedContinuation { continuation in
+            continuations.append((count, continuation))
+        }
     }
 }
