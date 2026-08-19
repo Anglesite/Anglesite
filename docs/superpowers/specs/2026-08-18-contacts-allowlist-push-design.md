@@ -30,10 +30,12 @@ table, or migration is needed. One fixed key:
 contacts:allowlist
 ```
 
-holding a bare JSON array of normalized me-URL strings, e.g.:
+holding a bare JSON array of `ContactStore.knownMeURLs()`'s output verbatim
+— `normalizedIdentityKey(for:)`'s scheme-less `host+path` strings
+(`Contact.swift:41`), not full URLs, e.g.:
 
 ```json
-["https://alice.example", "https://bob.example/blog"]
+["alice.example", "bob.example/blog"]
 ```
 
 No wrapper object, no metadata (`updatedAt`, counts, etc.), no display names
