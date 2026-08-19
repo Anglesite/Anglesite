@@ -55,7 +55,11 @@ issue's "no paired PR needed" holds — the extra surface is entirely within thi
 - A generated MCP Server Card at `/.well-known/mcp/server-card.json`, delivered through the
   existing `.well-known` claim seam, present only when the feature is enabled.
 - `experimental.mcp` opt-in flag, default off, matching the `webmcp` precedent — inert (no route
-  registered, no card generated, byte-identical build output) when absent/false.
+  registered, no card generated, no indexed content) when absent/false. One caveat, accepted
+  during implementation rather than worked around: Astro always materializes a file for a matched
+  endpoint route, so a disabled site still ships a 0-byte `dist/mcp-search-index.json` (the
+  endpoint's 404 body) alongside the enabled build's real index. Build output is therefore
+  *inert*, not literally byte-identical, when the flag is off.
 - Abuse-resistant: a fail-closed rate limiter in front of the unauthenticated endpoint.
 
 ## Non-goals
@@ -151,7 +155,13 @@ constructed server) registering the three tools below via `server.registerTool(.
 
 New build step, same shape/precedent as `sitemap.xml.ts`/`feeds.ts`, emits `dist/mcp-search-
 index.json`: an array of `{ title, url, excerpt, collection, tags, date }` for every published
-(non-draft-in-production) entry across `ENTRY_COLLECTIONS`. Pure logic lives in `src/lib/` (
+(non-draft-in-production) entry across `[...ENTRY_COLLECTIONS, "blog"]` — the same idiom
+`licensing.ts`'s `LICENSABLE_COLLECTIONS` uses, because `ENTRY_COLLECTIONS` is
+`HENTRY_COLLECTIONS` plus `events`/`reviews` and therefore *excludes* the template's default
+`blog` collection. Indexing `ENTRY_COLLECTIONS` alone would make `search_posts` blind to the
+content type a scaffolded site actually ships, while `list_feeds` still advertised `/blog/rss.xml`.
+The list is exported once as `SEARCH_INDEX_COLLECTIONS` (`src/lib/mcp-search-entries.ts`) and
+iterated by the endpoint, so the two can't drift. Pure logic lives in `src/lib/` (
 `node:test`-testable, no `import.meta.glob`), matching this repo's established "pure logic in
 `src/lib`, `import.meta.glob`/DOM stays in `.astro`-or-endpoint-file" convention. Only emitted when
 `experimental.mcp` is on — same inertness contract as everything else in this feature.
@@ -165,6 +175,15 @@ Reuses the existing KV-counter *shape* from `isConsentRateLimited`/`consentRateL
 agent tool-call traffic rather than login attempts (the existing 5/hour is tuned for consent-form
 submission, not for a client that might legitimately call 3 tools in one session). Exact numbers are
 an implementation-plan detail, not a design commitment here.
+
+The counter meters **`tools/call` traffic only**, matching its `mcp-tool-call:` prefix. `/mcp`
+accepts `GET`/`HEAD` (the dispatcher mirrors `HEAD` into `GET`) and the
+`initialize`/`tools/list` handshake, none of which fetch an asset; counting them would let an
+unauthenticated caller turn one request into one KV write against a namespace shared with
+IndieAuth, and at 60/hour that exceeds the free plan's 1,000 writes/day. A KV read or write that
+throws (quota exhaustion being the likely cause) is caught and treated as rate-limited — the
+dispatcher has no `try`/`catch` around route handlers, so an uncaught error would surface as a
+Worker exception rather than a 429.
 
 Because a plain blog with only `experimental.mcp` on may have **no** other social feature active,
 `SOCIAL_KV` provisioning currently tied to social-feature activation must also trigger on
