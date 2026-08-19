@@ -259,6 +259,20 @@ public enum DeployCoordinator {
         return (domainConfig.experiments?.active ?? []).filter { $0.status == "running" }
     }
 
+    /// The owner's email address (#1570) for `WorkerComposition`'s `inboxForwardEmail` —
+    /// `Source/anglesite.json`'s `email.dmarcReportEmail`, the same address `EmailSetupPlanner`/
+    /// `EmailSetupExecutor` already persisted there when the owner ran email setup (reconciling
+    /// #587 with the email-as-DM decision: reusing what's "already in the stack" rather than
+    /// inventing a second owner-email field). `nil` when email setup was never run, mirroring
+    /// `resolveRunningExperiments`'s "read the declared config, default to the inert case on any
+    /// failure" shape — `WorkerComposition.generateWranglerToml` then omits the `[[send_email]]`
+    /// binding entirely and `/inbox` capture stays KV/git-only.
+    public static func resolveInboxForwardEmail(sourceDirectory: URL) -> String? {
+        let domainConfig = (try? DomainConfigStore(sourceDirectory: sourceDirectory).load()) ?? DomainConfig()
+        let email = domainConfig.email?.dmarcReportEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return (email?.isEmpty ?? true) ? nil : email
+    }
+
     /// The site's best-known public URL for `WorkerComposition`'s `SITE_URL` var (#359) — the
     /// address the composed Worker uses for its own outbound requests, e.g. `CommunityMembershipClient`'s
     /// ActivityPub actor ID and outbox (#1085). The workers.dev host `DeployCommand.persistSiteURL`

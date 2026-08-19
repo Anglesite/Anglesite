@@ -186,6 +186,42 @@ struct DeployCoordinatorTests {
         #expect(DeployCoordinator.resolveRunningExperiments(sourceDirectory: dir).isEmpty)
     }
 
+    // MARK: - resolveInboxForwardEmail (#1570)
+
+    @Test("resolveInboxForwardEmail reads email.dmarcReportEmail from anglesite.json")
+    func resolveInboxForwardEmailReadsDmarcReportEmail() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(provider: "fastmail", dmarcReportEmail: "owner@example.com")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == "owner@example.com")
+    }
+
+    @Test("resolveInboxForwardEmail is nil with no anglesite.json at all")
+    func resolveInboxForwardEmailNilByDefault() throws {
+        let dir = try temporaryDirectory()
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == nil)
+    }
+
+    @Test("resolveInboxForwardEmail is nil when email setup was run but no report address was set")
+    func resolveInboxForwardEmailNilWithoutReportAddress() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(provider: "fastmail", dmarcReportEmail: nil)))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == nil)
+    }
+
+    @Test("resolveInboxForwardEmail trims whitespace and treats an all-whitespace value as nil")
+    func resolveInboxForwardEmailTrimsWhitespace() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(dmarcReportEmail: "  owner@example.com  ")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == "owner@example.com")
+
+        let dir2 = try temporaryDirectory()
+        try DomainConfigStore(sourceDirectory: dir2).save(DomainConfig(email: .init(dmarcReportEmail: "   ")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir2) == nil)
+    }
+
     // MARK: - deployLogSources
 
     @Test("deployLogSources includes worker-provision:<siteID> so SocialWorkerProvisionCommand's wrangler output reaches the drawer")
