@@ -362,6 +362,14 @@ struct NewPostSheet: View {
                             Text("Public").tag(MicropubPostVisibility.public)
                             Text("Restricted to Contacts").tag(MicropubPostVisibility.contacts)
                         }
+                        // Says plainly that picking "Restricted" doesn't yet gate who can read
+                        // the post — the site's authenticated read gate is a later slice of #963,
+                        // and an owner shouldn't infer enforcement from the label alone.
+                        if visibility == .contacts {
+                            Text("Restricted posts are stored on your site's server, not in git. Contact-only access turns on once your site's read gate ships.")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
                     }
                 }
                 if visibility == .contacts {
