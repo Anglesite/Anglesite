@@ -109,3 +109,77 @@ export function isAgentSkillsIndexOwned(content: string | null): boolean {
     (parsed as { generator?: unknown }).generator === "anglesite"
   );
 }
+
+/** `path` rendered against `ctx.siteUrl` when it's a usable HTTPS origin, so an off-site agent
+ * gets a URL it can actually fetch; falls back to the bare root-relative path otherwise (mirrors
+ * `buildSecurityTxt`'s optional-`siteUrl` handling in `edge-artifacts.ts`). */
+function absoluteOrRelative(ctx: AgentSkillsContext, path: string): string {
+  if (!ctx.siteUrl) return path;
+  try {
+    const origin = new URL(ctx.siteUrl);
+    return origin.protocol === "https:" ? `${origin.origin}${path}` : path;
+  } catch {
+    return path;
+  }
+}
+
+/** The full catalog of visitor-facing tasks this generator knows how to describe. Order is
+ * preserved in `index.json`'s `skills` array for stable build output. */
+export const AGENT_SKILLS: AgentSkillDefinition[] = [
+  {
+    name: "subscribe-feed",
+    description: "Subscribe to this site's posts via RSS, Atom, or JSON Feed.",
+    body: (ctx) =>
+      `# Subscribe to this site's feed\n\n` +
+      `Fetch one of the feeds below and parse it as the matching format to follow new posts on ` +
+      `the visitor's behalf.\n\n` +
+      `- RSS: ${absoluteOrRelative(ctx, "/rss.xml")}\n` +
+      `- Atom: ${absoluteOrRelative(ctx, "/atom.xml")}\n` +
+      `- JSON Feed: ${absoluteOrRelative(ctx, "/feed.json")}\n`,
+  },
+  {
+    name: "send-webmention",
+    description:
+      "Notify this site of a link to one of its pages — for example a reply or mention — via the Webmention protocol.",
+    body: (ctx) =>
+      `# Send a Webmention\n\n` +
+      `To notify this site that one of its pages was linked to (a reply, like, or mention), send ` +
+      `a form-encoded POST request:\n\n` +
+      "```\n" +
+      `POST ${absoluteOrRelative(ctx, "/webmention")}\n` +
+      `Content-Type: application/x-www-form-urlencoded\n\n` +
+      `source=<url-that-links-to-target>&target=<url-on-this-site-being-mentioned>\n` +
+      "```\n\n" +
+      `The \`source\` URL must actually contain a link to \`target\`. This site verifies the link ` +
+      `asynchronously; a successful submission returns \`202 Accepted\` and the mention appears ` +
+      `once verified.\n`,
+  },
+  {
+    name: "contact-site-owner",
+    description: "Send a message to the site owner.",
+    body: (ctx) =>
+      `# Contact the site owner\n\n` +
+      `Visit ${absoluteOrRelative(ctx, "/contact")} and complete the contact form on the visitor's ` +
+      `behalf. Confirm the message content and any personal details (name, email) with the ` +
+      `visitor before submitting — do not invent or submit values the visitor hasn't provided.\n`,
+  },
+  {
+    name: "book-a-time",
+    description: "Book a time with the site owner.",
+    body: (ctx) =>
+      `# Book a time\n\n` +
+      `Visit ${absoluteOrRelative(ctx, "/book")} to view availability and schedule a meeting on ` +
+      `the visitor's behalf. Confirm the selected date and time with the visitor before ` +
+      `finalizing the booking.\n`,
+  },
+];
+
+/** Which of `AGENT_SKILLS`' names are actually live for this build. `subscribe-feed` is
+ * unconditional — every site has RSS/Atom/JSON Feed routes regardless of content. */
+export function activeSkillNames(ctx: AgentSkillsContext): Set<string> {
+  const names = new Set<string>(["subscribe-feed"]);
+  if (ctx.webmentionEnabled) names.add("send-webmention");
+  if (ctx.contactPageExists) names.add("contact-site-owner");
+  if (ctx.bookingPageExists) names.add("book-a-time");
+  return names;
+}

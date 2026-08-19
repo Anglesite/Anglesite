@@ -1,7 +1,9 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import {
+  AGENT_SKILLS,
   AGENT_SKILLS_MARKER,
+  activeSkillNames,
   buildIndexJson,
   buildSkillMarkdown,
   isAgentSkillsDocOwned,
@@ -80,4 +82,42 @@ test("isAgentSkillsIndexOwned: recognizes its own marker and rejects hand-author
   assert.equal(isAgentSkillsIndexOwned(JSON.stringify({ $schema: "x", skills: [] })), false);
   assert.equal(isAgentSkillsIndexOwned("not json"), false);
   assert.equal(isAgentSkillsIndexOwned(null), false);
+});
+
+test("AGENT_SKILLS: every catalog name is RFC-valid and unique", () => {
+  const names = AGENT_SKILLS.map((s) => s.name);
+  for (const name of names) assert.equal(isValidSkillName(name), true, `${name} is RFC-valid`);
+  assert.equal(new Set(names).size, names.length, "no duplicate names");
+});
+
+test("activeSkillNames: subscribe-feed is always active", () => {
+  const names = activeSkillNames({
+    siteUrl: undefined,
+    webmentionEnabled: false,
+    contactPageExists: false,
+    bookingPageExists: false,
+  });
+  assert.deepEqual([...names], ["subscribe-feed"]);
+});
+
+test("activeSkillNames: each optional skill turns on independently", () => {
+  const webmentionOnly = activeSkillNames({
+    siteUrl: undefined,
+    webmentionEnabled: true,
+    contactPageExists: false,
+    bookingPageExists: false,
+  });
+  assert.equal(webmentionOnly.has("send-webmention"), true);
+  assert.equal(webmentionOnly.has("contact-site-owner"), false);
+  assert.equal(webmentionOnly.has("book-a-time"), false);
+
+  const contactAndBooking = activeSkillNames({
+    siteUrl: undefined,
+    webmentionEnabled: false,
+    contactPageExists: true,
+    bookingPageExists: true,
+  });
+  assert.equal(contactAndBooking.has("contact-site-owner"), true);
+  assert.equal(contactAndBooking.has("book-a-time"), true);
+  assert.equal(contactAndBooking.has("send-webmention"), false);
 });
