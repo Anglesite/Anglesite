@@ -1456,6 +1456,11 @@ extension SiteWindowModelTests {
             await Task.yield()
             iterations += 1
         }
+        // Hardens the helper itself (fix round 2 re-review): distinguishes "load landed" from
+        // "the bounded loop gave up with the title still empty" — a fixture whose title happens
+        // to be empty, or a load that silently fails, would otherwise let every caller proceed
+        // as if loading had succeeded.
+        #expect(!inspector.title.isEmpty)
     }
 
     @Test("close(...) flushes a dirty websiteInspector before clearing it, retaining the sudden-termination lease until the save finishes (fix round 1, Important 2)")
@@ -1535,5 +1540,65 @@ extension SiteWindowModelTests {
         let reread = WebsiteInspectorModel(packageURL: packageURL)
         await reread.load()
         #expect(reread.title == "Renamed on replay")
+    }
+
+    @Test("saveAllEdits (File ▸ Save) persists a dirty websiteInspector title to disk (fix round 2, Important)")
+    func saveAllEditsPersistsDirtyWebsiteInspectorTitle() async throws {
+        let (root, packageURL, package) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.ensureWebsiteInspectorLoaded()
+        let inspector = try #require(model.websiteInspector)
+        await waitForWebsiteInspectorLoad(inspector)
+        inspector.title = "Saved via File Save"
+        #expect(model.hasUnsavedEdits)
+
+        await model.saveAllEdits()
+
+        #expect(!inspector.isDirty)
+        #expect(!model.hasUnsavedEdits)
+
+        let loaded = try PlistDocumentIO.load(package.infoPlistURL)
+        guard let entry = loaded.entries.first(where: PlistEditorModel.isWebsiteTitleEntry),
+              case .string(let value) = entry.value else {
+            Issue.record("expected a website-title entry in Info.plist")
+            return
+        }
+        #expect(value == "Saved via File Save")
+    }
+
+    @Test("confirmRevertToSaved (File ▸ Revert to Saved) restores a dirty websiteInspector from disk without writing (fix round 2, Important)")
+    func confirmRevertToSavedRestoresDirtyWebsiteInspector() async throws {
+        let (root, packageURL, package) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.ensureWebsiteInspectorLoaded()
+        let inspector = try #require(model.websiteInspector)
+        await waitForWebsiteInspectorLoad(inspector)
+        let originalTitle = inspector.title
+        let onDiskBefore = try PlistDocumentIO.load(package.infoPlistURL)
+
+        inspector.title = "Discarded edit"
+        #expect(model.hasUnsavedEdits)
+
+        await model.confirmRevertToSaved()
+
+        #expect(inspector.title == originalTitle)
+        #expect(!inspector.isDirty)
+        #expect(!model.hasUnsavedEdits)
+
+        // Revert is a re-read, never a write — the file on disk must be byte-for-byte the same
+        // document as before the discarded edit (the review's failure mode: the discarded edit
+        // silently landing on disk on next focus loss).
+        let onDiskAfter = try PlistDocumentIO.load(package.infoPlistURL)
+        #expect(onDiskAfter.entries == onDiskBefore.entries)
     }
 }

@@ -1097,7 +1097,8 @@ final class SiteWindowModel {
         case .plist(let model): if model.isAnySaving { return true }
         case nil: break
         }
-        return inspectorContext?.model.isSaving ?? false
+        if inspectorContext?.model.isSaving == true { return true }
+        return (websiteInspector?.isSavingTitle ?? false) || (websiteInspector?.isSavingLang ?? false)
     }
 
     /// Serializes File ▸ Save / Revert themselves (the per-model `isSaving` flags only cover each
@@ -1119,6 +1120,9 @@ final class SiteWindowModel {
         case nil: break
         }
         if let model = inspectorContext?.model { await model.save() }
+        // The website inspector (#714 v2 slice 1) is a third dirty-able editing surface `hasUnsavedEdits`
+        // already counts — `saveAll()` no-ops per-field when clean, matching the other two above.
+        if let websiteInspector { await websiteInspector.saveAll() }
     }
 
     /// File ▸ Revert to Saved: present the confirmation alert (no-op when nothing is dirty, so a
@@ -1141,6 +1145,9 @@ final class SiteWindowModel {
         default: break
         }
         if let model = inspectorContext?.model, model.isDirty { await model.load() }
+        // Mirrors the two branches above: reverting the website inspector means re-reading its
+        // fields from disk, discarding the in-memory title/lang edit.
+        if let websiteInspector, websiteInspector.isDirty { await websiteInspector.load() }
     }
 
     func leaveCurrentEditor() async -> Bool {
