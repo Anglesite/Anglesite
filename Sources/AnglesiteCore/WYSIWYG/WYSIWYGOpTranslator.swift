@@ -44,13 +44,33 @@ public enum WYSIWYGOpTranslator {
     /// `PropValue` is richer (numbers/bools/objects/arrays) than the wire currently accepts for
     /// this op family. Non-string values stringify; `.null` removes the attribute, matching
     /// `setAttr`'s existing `value: nil` convention.
+    ///
+    /// `nil` is reserved for ``PropValue/null`` alone — `ComponentStructureEditBuilder.setAttr`
+    /// treats `value: nil` as "remove the attribute" (its own doc comment), so any other case
+    /// returning `nil` here would silently delete whatever attribute was already on the wire
+    /// instead of just failing to translate it richly. `.object`/`.array` therefore JSON-encode
+    /// into a string rather than dropping to `nil`: lossy (the wire has no structured-value
+    /// slot for this op family) but non-destructive, and round-trippable by re-parsing the JSON
+    /// text back out on read.
     private static func stringValue(_ value: PropValue) -> String? {
         switch value {
         case .string(let s): return s
-        case .number(let n): return String(n)
+        case .number(let n):
+            // Avoid Double's default `String(n)` formatting a whole number as "5.0" — the wire
+            // attribute value should read "5", matching how the number was almost certainly
+            // authored (props round-trip through JSON, where 5 and 5.0 are the same number).
+            if n.truncatingRemainder(dividingBy: 1) == 0, let whole = Int(exactly: n) {
+                return String(whole)
+            }
+            return String(n)
         case .bool(let b): return String(b)
         case .null: return nil
-        case .object, .array: return nil // not representable on this wire op; see follow-up note below
+        case .object, .array:
+            let encoder = JSONEncoder()
+            guard let data = try? encoder.encode(value), let json = String(data: data, encoding: .utf8) else {
+                return nil
+            }
+            return json
         }
     }
 

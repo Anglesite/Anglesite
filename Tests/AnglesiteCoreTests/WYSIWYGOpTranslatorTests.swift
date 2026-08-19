@@ -63,4 +63,39 @@ struct WYSIWYGOpTranslatorTests {
         let message = WYSIWYGOpTranslator.translate(op, requestId: "req-6", path: "src/pages/index.astro", baseVersion: "sha256:abc")
         #expect(message.path == "src/styles/global.css") // NOT the page path passed in
     }
+
+    // `setAttr`'s wire contract treats `value: nil` as "remove the attribute" — an object/array
+    // PropValue must never round-trip through `nil` there, or a rich-valued setProp would
+    // silently delete the attribute instead of merely failing to translate it richly.
+    @Test func translatesSetPropWithObjectValueWithoutDeletingTheAttribute() {
+        let op = Op.setProp(blockId: "n5", propName: "config", value: .object(["a": .number(1)]), previousValue: .null)
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-7", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
+        #expect(component["value"] != .null) // must not take the "remove attribute" path
+        guard case .string(let json)? = component["value"] else { Issue.record("expected value to encode as a string"); return }
+        #expect(json.contains("\"a\""))
+    }
+
+    @Test func translatesSetPropWithArrayValueWithoutDeletingTheAttribute() {
+        let op = Op.setProp(blockId: "n5", propName: "tags", value: .array([.string("x")]), previousValue: .null)
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-8", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
+        #expect(component["value"] != .null) // must not take the "remove attribute" path
+        guard case .string(let json)? = component["value"] else { Issue.record("expected value to encode as a string"); return }
+        #expect(json.contains("x"))
+    }
+
+    @Test func translatesSetPropWithWholeNumberValueDroppingTrailingZero() {
+        let op = Op.setProp(blockId: "n5", propName: "count", value: .number(5), previousValue: .null)
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-9", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
+        #expect(component["value"] == .string("5")) // not "5.0"
+    }
+
+    @Test func translatesSetPropWithFractionalNumberValue() {
+        let op = Op.setProp(blockId: "n5", propName: "opacity", value: .number(5.5), previousValue: .null)
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-10", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
+        #expect(component["value"] == .string("5.5"))
+    }
 }
