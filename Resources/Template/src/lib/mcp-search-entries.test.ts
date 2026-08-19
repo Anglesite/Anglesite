@@ -31,6 +31,18 @@ test("buildSearchEntry: title-less collection (notes) falls back to a body excer
   assert.equal(result?.url, "/notes/note-1");
 });
 
+test("buildSearchEntry: title-less collection with no body falls back to url as title", () => {
+  const entry: SearchableEntry = {
+    collection: "photos",
+    id: "photo-123",
+    data: { publishDate: "2026-02-01T00:00:00.000Z" },
+  };
+  const result = buildSearchEntry(entry);
+  assert.ok(result);
+  assert.equal(result?.title, "/photos/photo-123");
+  assert.equal(result?.url, "/photos/photo-123");
+});
+
 test("buildSearchEntry: unknown collection returns null", () => {
   const result = buildSearchEntry({ collection: "members", id: "x", data: {} });
   assert.equal(result, null);

@@ -68,11 +68,13 @@ export function buildSearchEntry(entry: SearchableEntry): McpSearchEntry | null 
 
   const rawTags = entry.data.tags;
   const tags = Array.isArray(rawTags) ? rawTags.filter((t): t is string => typeof t === "string") : [];
-  const title = mapping.title(entry.data) ?? excerptOf(entry.body, 60);
+  const url = urlFor(entry.collection, entry.id);
+  const excerptTitle = mapping.title(entry.data) ?? excerptOf(entry.body, 60);
+  const title = excerptTitle.length > 0 ? excerptTitle : url;
 
   return {
     title,
-    url: urlFor(entry.collection, entry.id),
+    url,
     excerpt: excerptOf(entry.body),
     collection: entry.collection,
     tags,
