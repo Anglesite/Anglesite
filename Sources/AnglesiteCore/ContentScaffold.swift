@@ -74,7 +74,7 @@ public enum ContentScaffold {
     /// alike — so a slash-less route written into `anglesite.json` fails the gate and blocks every
     /// subsequent deploy of the site, not just the experiment (#1518).
     ///
-    /// ``ContentScanner/routeFromPagePath(_:)`` and ``normalizeRoute(_:)`` both produce the
+    /// `ContentScanner.routeFromPagePath(_:)` and ``normalizeRoute(_:)`` both produce the
     /// slash-less file-path form, so anything crossing into a served-route position goes through
     /// here. Idempotent.
     public static func servedRoute(_ route: String) -> String {
