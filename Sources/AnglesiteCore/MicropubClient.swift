@@ -272,7 +272,7 @@ public struct MicropubClient: Sendable {
 
     /// Creates a post and returns its canonical URL (the `201 Created` response's `Location`).
     ///
-    /// - Parameter post: The mf2 create body — see ``MicropubPost/entry(title:content:status:slug:extraProperties:)``
+    /// - Parameter post: The mf2 create body — see ``MicropubPost/entry(title:content:status:slug:visibility:extraProperties:)``
     ///   for the common composer shape.
     /// - Returns: The created post's canonical URL.
     /// - Throws: ``MicropubError`` — ``MicropubError/decodingFailed(_:)`` when a 2xx response
