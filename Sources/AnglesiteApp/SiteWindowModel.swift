@@ -311,6 +311,15 @@ final class SiteWindowModel {
     /// change / window close alongside `componentEditor`.
     private(set) var websiteInspector: WebsiteInspectorModel?
 
+    /// Mirrors whether the website inspector panel is actually presented right now (#714 v2
+    /// slice 1 fix round 1, Important 3). The model has no visibility into `SiteWindow`'s
+    /// `@SceneStorage activeInspector`/`inspectorShown`, so `SiteWindow`'s toggle funcs and a
+    /// scene-level `.onChange` keep this in sync, synchronously, on every path that can flip
+    /// which inspector is active or shown. Exists solely so `clearInspectorThenSwitchPane`'s
+    /// #1126 settle predicate can tell whether *any* inspector panel is visible before a
+    /// main-pane swap, not just the selection one `inspectorSelection` already covers.
+    var websiteInspectorPresented = false
+
     /// What the window inspector is inspecting, in precedence order. Component and collection are
     /// gated on the pane mode they belong to, so a stale value from an earlier selection can never
     /// shadow the current one after a pane toggle.
@@ -550,7 +559,11 @@ final class SiteWindowModel {
     /// that gap.
     @MainActor
     private func clearInspectorThenSwitchPane(to mode: MainPaneMode) async {
-        let wasInspecting = inspectorSelection != nil
+        // `inspectorSelection != nil` alone used to equal "an inspector panel is presented", but
+        // the website inspector (#714 v2 slice 1) presents without any selection — OR in
+        // `websiteInspectorPresented` so this predicate still matches actual presentation
+        // (fix round 1, Important 3).
+        let wasInspecting = inspectorSelection != nil || websiteInspectorPresented
         inspectorContext = nil
         collectionInspection = nil
         if wasInspecting {
@@ -788,6 +801,10 @@ final class SiteWindowModel {
         // alert can be shown on a closing window, so a conflict-gated flush would silently drop
         // the edits. Last-writer-wins, matching the .text/.plist teardown above.
         if let model = inspectorContext?.model { Task { await model.save() } }
+        // Mirrors the `inspectorContext` flush above — `saveAll()` no-ops per-field when clean, so
+        // this is safe to fire unconditionally (fix round 1, Important 2: this used to drop a
+        // dirty title/lang edit silently on a site swap).
+        if let websiteInspector { Task { await websiteInspector.saveAll() } }
         inspectorContext = nil
         collectionInspection = nil
         componentEditor = nil
@@ -836,18 +853,27 @@ final class SiteWindowModel {
         let inspectorSaveTask = (inspectorContext?.model).map { model in
             Task { await model.save() }
         }
+        // Mirrors the `inspectorContext` flush immediately above — fix round 1, Important 2: this
+        // used to drop a dirty website-inspector title/lang edit silently on window close, three
+        // lines below the sibling teardown that already flushed `inspectorContext`.
+        let websiteInspectorWasDirty = websiteInspector?.isDirty == true
+        let websiteInspectorSaveTask = websiteInspector.map { inspector in
+            Task { await inspector.saveAll() }
+        }
         inspectorContext = nil
         collectionInspection = nil
         componentEditor = nil
         websiteInspector = nil
         let closeTerminationLease = suddenTerminationLease
-            ?? ((editorSaveTask != nil || inspectorWasDirty) ? SuddenTerminationController.shared.acquire() : nil)
+            ?? ((editorSaveTask != nil || inspectorWasDirty || websiteInspectorWasDirty)
+                ? SuddenTerminationController.shared.acquire() : nil)
         #if ANGLESITE_MAS
         let closingScopedURL = grantController.release()
         #endif
         Task { @MainActor in
             await editorSaveTask?.value
             _ = await inspectorSaveTask?.value
+            _ = await websiteInspectorSaveTask?.value
             #if ANGLESITE_MAS
             closingScopedURL?.stopAccessingSecurityScopedResource()
             #endif
@@ -1058,7 +1084,7 @@ final class SiteWindowModel {
         case .plist(let model): model.hasAnyUnsavedEdits
         case nil: false
         }
-        return editorDirty || (inspectorContext?.model.isDirty ?? false)
+        return editorDirty || (inspectorContext?.model.isDirty ?? false) || (websiteInspector?.isDirty ?? false)
     }
 
     /// True while any save/revert IO is in flight on either editing surface. File ▸ Save / Revert

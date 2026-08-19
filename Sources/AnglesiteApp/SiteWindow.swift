@@ -28,6 +28,19 @@ struct SiteWindow: View {
     /// 1): the existing per-selection inspector, or the new Website inspector. Mutually exclusive
     /// — switching one on switches the other off. Persisted per window like `inspectorShown`.
     @SceneStorage("siteInspector.active") private var activeInspector: ActiveSiteInspector = .selection
+    /// Suppresses exactly one stale `inspectorPresented` write-back scheduled under the inspector
+    /// kind active BEFORE a switch (#714 v2 slice 1 fix round 1, Important 1 — reopens #968/#969
+    /// through the new activation seam). SwiftUI's automatic `isPresented = false` collapse
+    /// write-back on a transient-nil selection is asynchronous (see the #968/#969 comment at
+    /// `SiteWindowModel.applyNavigatorSelection`): if the user switches `activeInspector` between
+    /// the moment that write-back is queued and the moment it lands, the binding setter's guard
+    /// would re-read under the NEW activation and wrongly persist `inspectorShown = false` on the
+    /// panel the user just opened. `toggleSelectionInspector()`/`toggleWebsiteInspector()` set
+    /// this synchronously in the same transaction that switches `activeInspector`, and clear it
+    /// one run-loop turn later — same "defer a turn" idiom as `MarkdownFindBar`'s focus
+    /// workaround — long enough for an already-queued stale write-back to land and be swallowed,
+    /// short enough that a later, genuine write-back for the NEW activation isn't suppressed too.
+    @State private var suppressNextInspectorWriteBack = false
     /// The title shown in the content-delete confirmation dialog. Held separately from
     /// `model.deleteConfirmation` so the title stays stable through the dismiss animation —
     /// mirrors `SiteNavigatorView`'s `candidateToDeleteTitle` for the same reason.
@@ -124,6 +137,14 @@ struct SiteWindow: View {
         .onChange(of: undoManager, initial: true) { _, newValue in
             model.windowUndoManager = newValue
         }
+        // Catch-all sync of `model.websiteInspectorPresented` (#714 v2 slice 1 fix round 1,
+        // Important 3) — the toggle funcs already sync it in their own transaction, but other
+        // paths can flip `inspectorShown`/`activeInspector` outside them (e.g.
+        // `SiteSearchFieldModifier`'s programmatic dismiss, scene restoration on first appearance),
+        // so this scene-level pair of `onChange`s covers those too. `initial: true` handles scene
+        // restoration landing `activeInspector == .website` before either toggle func ever runs.
+        .onChange(of: inspectorShown, initial: true) { _, _ in syncWebsiteInspectorPresented() }
+        .onChange(of: activeInspector, initial: true) { _, _ in syncWebsiteInspectorPresented() }
         .onChange(of: model.preview.state) { _, newState in
             model.previewStateChanged(newState)
         }
@@ -201,9 +222,11 @@ struct SiteWindow: View {
         if activeInspector == .selection {
             inspectorShown.toggle()
         } else {
+            armSuppressNextInspectorWriteBack()
             activeInspector = .selection
             inspectorShown = true
         }
+        syncWebsiteInspectorPresented()
     }
 
     /// The website inspector's mirror of `toggleSelectionInspector()` — see that function's doc
@@ -213,9 +236,30 @@ struct SiteWindow: View {
         if activeInspector == .website {
             inspectorShown.toggle()
         } else {
+            armSuppressNextInspectorWriteBack()
             activeInspector = .website
             inspectorShown = true
         }
+        syncWebsiteInspectorPresented()
+    }
+
+    /// Sets `suppressNextInspectorWriteBack` for one run-loop turn — see its doc comment. Called
+    /// synchronously, in the same transaction as the `activeInspector` switch, by both toggle
+    /// funcs above.
+    @MainActor
+    private func armSuppressNextInspectorWriteBack() {
+        suppressNextInspectorWriteBack = true
+        DispatchQueue.main.async { suppressNextInspectorWriteBack = false }
+    }
+
+    /// Mirrors the website inspector's actual presented state onto the model — see
+    /// `SiteWindowModel.websiteInspectorPresented`'s doc comment. Called synchronously by both
+    /// toggle funcs above and by `coreBody`'s `.onChange` (for the other paths that can flip
+    /// `inspectorShown`/`activeInspector`: `SiteSearchFieldModifier`'s programmatic dismiss,
+    /// scene restoration).
+    @MainActor
+    private func syncWebsiteInspectorPresented() {
+        model.websiteInspectorPresented = inspectorShown && activeInspector == .website
     }
 
     @ViewBuilder
@@ -232,6 +276,10 @@ struct SiteWindow: View {
                 inspectorShown && (activeInspector == .website || model.inspectorSelection != nil)
             },
             set: { newValue in
+                // Swallow a write-back scheduled under an activation that's since been switched
+                // away from — see `suppressNextInspectorWriteBack`'s doc comment (#714 v2 slice 1
+                // fix round 1, Important 1).
+                guard !suppressNextInspectorWriteBack else { return }
                 // Website inspector always has content, so its show/hide is always an explicit
                 // user choice. Selection keeps the #968 guard: never persist an auto-hide
                 // caused by a transient-nil selection.

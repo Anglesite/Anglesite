@@ -1445,4 +1445,95 @@ extension SiteWindowModelTests {
         model.handleSiteChanged()
         #expect(model.websiteInspector == nil)
     }
+
+    /// Waits (bounded) for `ensureWebsiteInspectorLoaded()`'s fire-and-forget `load()` `Task` to
+    /// land, using the same title-becomes-nonempty signal `WebsiteInspectorModelTests` doesn't
+    /// need (it awaits `load()` directly) but this file does, since the load here runs on a
+    /// detached `Task` this test has no handle to.
+    private func waitForWebsiteInspectorLoad(_ inspector: WebsiteInspectorModel) async {
+        var iterations = 0
+        while inspector.title.isEmpty, iterations < 10_000 {
+            await Task.yield()
+            iterations += 1
+        }
+    }
+
+    @Test("close(...) flushes a dirty websiteInspector before clearing it, retaining the sudden-termination lease until the save finishes (fix round 1, Important 2)")
+    func closeFlushesAndClearsDirtyWebsiteInspector() async throws {
+        let (root, packageURL, _) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.ensureWebsiteInspectorLoaded()
+        let inspector = try #require(model.websiteInspector)
+        await waitForWebsiteInspectorLoad(inspector)
+        inspector.title = "Renamed via inspector"
+        #expect(inspector.isDirty)
+
+        let controller = SuddenTerminationController(disable: {}, enable: {})
+        let lease = controller.acquire()
+        model.close(suddenTerminationLease: lease)
+
+        // Cleared synchronously, in the same transaction as `close(...)` — the review's finding
+        // was that this already happened, just three lines below a flush that never occurred.
+        #expect(model.websiteInspector == nil)
+
+        while controller.activeLeaseCount > 0 {
+            await Task.yield()
+        }
+
+        let reread = WebsiteInspectorModel(packageURL: packageURL)
+        await reread.load()
+        #expect(reread.title == "Renamed via inspector")
+    }
+
+    @Test("hasUnsavedEdits is true while the website inspector has a dirty field (fix round 1, Important 2)")
+    func hasUnsavedEditsReflectsDirtyWebsiteInspector() async throws {
+        let (root, packageURL, _) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.ensureWebsiteInspectorLoaded()
+        let inspector = try #require(model.websiteInspector)
+        await waitForWebsiteInspectorLoad(inspector)
+        #expect(!model.hasUnsavedEdits)
+
+        inspector.title = "Dirtied"
+        #expect(model.hasUnsavedEdits)
+    }
+
+    @Test("handleSiteChanged flushes a dirty websiteInspector before clearing it (fix round 1, Important 2)")
+    func handleSiteChangedFlushesDirtyWebsiteInspector() async throws {
+        let (root, packageURL, _) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.ensureWebsiteInspectorLoaded()
+        let inspector = try #require(model.websiteInspector)
+        await waitForWebsiteInspectorLoad(inspector)
+        inspector.title = "Renamed on replay"
+
+        model.handleSiteChanged()
+        #expect(model.websiteInspector == nil)
+
+        var iterations = 0
+        while inspector.isDirty, iterations < 10_000 {
+            await Task.yield()
+            iterations += 1
+        }
+        #expect(!inspector.isDirty)
+
+        let reread = WebsiteInspectorModel(packageURL: packageURL)
+        await reread.load()
+        #expect(reread.title == "Renamed on replay")
+    }
 }

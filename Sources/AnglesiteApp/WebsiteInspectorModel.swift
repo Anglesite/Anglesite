@@ -131,6 +131,18 @@ final class WebsiteInspectorModel {
         }
     }
 
+    /// Flushes every dirty field. Used by `SiteWindowModel.close(...)`/`handleSiteChanged()` as a
+    /// last-writer-wins teardown save — the website inspector's mirror of `InspectorEditorModel
+    /// .save()`, which the selection inspector's teardown already calls unconditionally and relies
+    /// on to no-op when clean. `saveTitle()`/`saveLang()` each guard on their own dirty flag the
+    /// same way, so calling both unconditionally here is safe to call even when nothing changed.
+    @discardableResult
+    func saveAll() async -> Bool {
+        let titleSaved = await saveTitle()
+        let langSaved = await saveLang()
+        return titleSaved && langSaved
+    }
+
     @discardableResult
     func saveLang() async -> Bool {
         guard isLangDirty else { return true }
