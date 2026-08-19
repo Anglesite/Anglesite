@@ -95,11 +95,19 @@ struct MicropubComposerProjectionTests {
         #expect(properties["post-status"] == [.string("draft")])
     }
 
-    @Test("visibility is stamped alongside post-status, defaulting to public")
-    func visibilityStampedWithDefault() {
-        let defaulted = MicropubComposerProjection.properties(
+    @Test("an omitted visibility stamps no property at all; an explicit one is stamped")
+    func visibilityOmittedUnlessExplicit() {
+        // The default must OMIT, not default to public: this map is also an update's `replace`
+        // map, and re-stamping a re-derived value would downgrade a post another client set to a
+        // tier this enum doesn't model yet (`unlisted`/`private` both read back as `public`).
+        let omitted = MicropubComposerProjection.properties(
             for: Self.everyKind, values: Self.filledValues(), status: .published)
-        #expect(defaulted["visibility"] == [.string("public")])
+        #expect(omitted["visibility"] == nil)
+        #expect(omitted["post-status"] == [.string("published")])
+
+        let explicitPublic = MicropubComposerProjection.properties(
+            for: Self.everyKind, values: Self.filledValues(), status: .published, visibility: .public)
+        #expect(explicitPublic["visibility"] == [.string("public")])
 
         let restricted = MicropubComposerProjection.properties(
             for: Self.everyKind, values: Self.filledValues(), status: .published, visibility: .contacts)

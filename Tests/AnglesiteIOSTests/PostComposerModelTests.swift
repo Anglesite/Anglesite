@@ -130,6 +130,60 @@ struct PostComposerModelTests {
         #expect(model.visibility == .contacts)
     }
 
+    @Test("an untouched visibility picker sends no visibility at all on update")
+    func updateOmitsUntouchedVisibility() async throws {
+        // The stored tier is one this client's enum doesn't model (the Worker's vocabulary is
+        // wider), so `MicropubPost.visibility` reads it back as `.public`. Re-stamping that lossy
+        // read would republish a restricted post to the world — the update must omit the property.
+        let stored: [String: Any] = ["content": ["original"], "visibility": ["unlisted"]]
+        nonisolated(unsafe) var updateBody: [String: Any]?
+        let box = TransportBox { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: stored), Self.response(200))
+            }
+            updateBody = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+                as? [String: Any]
+            return (Data(), Self.response(204))
+        }
+        let model = try await Self.existingModel(box: box)
+        #expect(model.visibility == .public)  // the lossy read this fix must not act on
+        model.values["body"] = .text("an edit that has nothing to do with audience")
+
+        await model.saveDraft()
+
+        let phase = model.phase
+        #expect(phase == .savedDraft(Self.postURL))
+        let replace = try #require(updateBody?["replace"] as? [String: [Any]])
+        #expect(replace["visibility"] == nil)
+        #expect(replace["content"] as? [String] == ["an edit that has nothing to do with audience"])
+        // Nor may it be deleted — `visibility` isn't a descriptor-mapped property, so the
+        // cleared-property pass must leave it alone too; the server's `unlisted` survives intact.
+        let deleted = updateBody?["delete"] as? [String] ?? []
+        #expect(!deleted.contains("visibility"))
+    }
+
+    @Test("deliberately changing the picker on an existing post does send the new value")
+    func updateSendsChangedVisibility() async throws {
+        let stored: [String: Any] = ["content": ["original"], "visibility": ["public"]]
+        nonisolated(unsafe) var capturedReplace: [String: [Any]]?
+        let box = TransportBox { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: stored), Self.response(200))
+            }
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+                as? [String: Any]
+            capturedReplace = body?["replace"] as? [String: [Any]]
+            return (Data(), Self.response(204))
+        }
+        let model = try await Self.existingModel(box: box)
+        model.visibility = .contacts
+
+        await model.saveDraft()
+
+        let replace = try #require(capturedReplace)
+        #expect(replace["visibility"] as? [String] == ["contacts"])
+    }
+
     @Test("a queued restricted composition's visibility survives a persisted draft restore")
     func draftRestoresVisibility() {
         let store = Self.scratchStore()

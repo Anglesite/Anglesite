@@ -305,8 +305,16 @@ public final class PostComposerModel {
     }
 
     private func update(url: URL, status: MicropubPostStatus) async throws {
+        // Visibility only travels on an update when the owner actually changed the picker. The
+        // Worker's tier vocabulary is wider than `MicropubPostVisibility`, and
+        // `MicropubPost.visibility` reads anything it doesn't recognize (`unlisted`, `private`)
+        // as `public` — so re-stamping the value this composition merely *read back* would
+        // silently republish a restricted post to the world. An unchanged picker sends nothing
+        // and leaves the server's real tier alone.
+        let baselineVisibility = baseline?.visibility ?? .public
         let replace = MicropubComposerProjection.properties(
-            for: descriptor, values: values, status: status, visibility: visibility)
+            for: descriptor, values: values, status: status,
+            visibility: visibility != baselineVisibility ? visibility : nil)
         // A mapped property present on the baseline but absent from this send was cleared in
         // the form — delete it server-side. Unmapped properties (another client's vocabulary)
         // are never touched.
