@@ -9,6 +9,10 @@ import AnglesiteCore
 struct ExperimentStatsSheetView: View {
     @Bindable var model: ExperimentStatsModel
     var deployModel: DeployModel
+    /// `SiteWindowModel.deploySite()` — see `ExperimentConfigureView.deploySite`.
+    var deploySite: () -> Void
+    /// See `ExperimentConfigureView.deployUnavailableReason`.
+    var deployUnavailableReason: () -> String?
     var onDone: () -> Void
     var enterGoalPickMode: () -> Void
     var exitGoalPickMode: () -> Void
@@ -23,7 +27,8 @@ struct ExperimentStatsSheetView: View {
                     ExperimentProposeView(model: model)
                 case .configure:
                     ExperimentConfigureView(
-                        model: model, deployModel: deployModel,
+                        model: model, deploySite: deploySite,
+                        deployUnavailableReason: deployUnavailableReason,
                         enterGoalPickMode: enterGoalPickMode, exitGoalPickMode: exitGoalPickMode)
                 case .starting:
                     ProgressView("Starting your test…")
@@ -34,12 +39,32 @@ struct ExperimentStatsSheetView: View {
             .formStyle(.grouped)
             .navigationTitle("Experiment Results")
             .toolbar {
+                // One shared affordance rather than a button per non-manual view: the manual-entry
+                // form (#769) is still the only working analysis surface until live counts land
+                // (#1270), so every lifecycle step needs a way back to it (#1518 review, I6).
+                if model.canReturnToManual {
+                    ToolbarItem(placement: .cancellationAction) {
+                        Button("Analyze Manually") { model.returnToManual() }
+                    }
+                }
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { onDone() }
+                        // A failed start is rolled back to `"draft"` by this view's own
+                        // `.onChange(of: deployModel.phase)` observer — which dies with the view.
+                        // Dismissing mid-deploy would leave `anglesite.json` permanently claiming a
+                        // test is live that never published (#1518 review, I4). `.starting` always
+                        // ends: `start(unavailableReason:deploy:)` refuses to enter it unless the
+                        // deploy will really run, and `observeDeployPhase(_:)` now handles every
+                        // non-`.running` phase.
+                        .disabled(model.step == .starting)
                 }
             }
         }
         .frame(minWidth: 520, idealWidth: 560, minHeight: 480, idealHeight: 620)
+        .onExitCommand { model.goalPickController.cancel() }
+        // Dismissing the sheet mid-pick would otherwise leave the preview overlay armed with no
+        // controller left to answer it. A no-op unless actually picking.
+        .onDisappear { model.goalPickController.cancel() }
         .onChange(of: model.step) { oldStep, newStep in
             guard AppSettings.shared.announcesLiveUpdates else { return }
             // `newStep`'s activity needs `model.startFailureReason` too: a failed deploy reverts

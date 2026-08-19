@@ -118,7 +118,7 @@ import Foundation
             Issue.record("expected .configure, got \(model.step)")
             return
         }
-        #expect(draft.variantPage == "/x/hero-headline/b")
+        #expect(draft.variantPage == "/x/hero-headline/b/")
     }
 
     // scaffoldVariant is async and file-backed (already covered above); this test isolates
@@ -176,7 +176,7 @@ import Foundation
         model.setPageviewGoal(path: "/thanks/")
 
         var deployCalled = false
-        model.start(deploy: { _, _, _, _ in deployCalled = true })
+        model.start(deploy: { deployCalled = true })
 
         guard case .starting = model.step else { Issue.record("expected .starting, got \(model.step)"); return }
         #expect(deployCalled)
@@ -199,7 +199,7 @@ import Foundation
         model.proposeCustom(name: "Hero headline")
         await model.scaffoldVariant()
         model.setPageviewGoal(path: "/thanks/")
-        model.start(deploy: { _, _, _, _ in })
+        model.start(deploy: {})
 
         model.observeDeployPhase(.succeeded(url: URL(string: "https://example.com")!, duration: 1))
 
@@ -222,14 +222,203 @@ import Foundation
         model.proposeCustom(name: "Hero headline")
         await model.scaffoldVariant()
         model.setPageviewGoal(path: "/thanks/")
-        model.start(deploy: { _, _, _, _ in })
+        model.start(deploy: {})
 
         model.observeDeployPhase(.failed(reason: "Network error", exitCode: nil))
 
         guard case .configure(let reverted) = model.step else { Issue.record("expected .configure, got \(model.step)"); return }
-        #expect(reverted.variantPage == "/x/hero-headline/b")
+        #expect(reverted.variantPage == "/x/hero-headline/b/")
         let saved = try DomainConfigStore(sourceDirectory: tmp).load()
         #expect(saved.experiments?.active?.first?.status == "draft")
+    }
+
+    // MARK: - #1518 whole-branch review fixes
+
+    /// Mirrors `Resources/Template/scripts/pre-deploy-check.ts`'s
+    /// `experimentPathProblem(path, { requireTrailingSlash: true })`, which the gate applies to
+    /// every `experiments.active[]` entry's `page`, `variant.page`, and (for `pageview`) goal
+    /// `path` — draft entries included. Anything this model writes into `anglesite.json` has to
+    /// pass it, or the site's *every* subsequent deploy fails, not just the experiment's.
+    private func experimentPathProblem(_ path: String?) -> String? {
+        guard let path, !path.isEmpty else { return "must be a non-empty string" }
+        if !path.hasPrefix("/") { return #"must start with "/""# }
+        if path.contains("..") { return #"must not contain "..""# }
+        if path.contains("%") { return "must not contain percent-encoding" }
+        if !path.hasSuffix("/") { return #"must end with "/""# }
+        return nil
+    }
+
+    @Test func aConfiguredDraftSatisfiesThePreDeployPathContract() async throws {
+        let tmp = try tempDirectory()
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("src/pages"), withIntermediateDirectories: true)
+        try """
+        ---
+        import BaseLayout from "../layouts/BaseLayout.astro";
+        ---
+        <BaseLayout title="Pricing"><h1>Pricing</h1></BaseLayout>
+        """.write(to: tmp.appendingPathComponent("src/pages/pricing.astro"), atomically: true, encoding: .utf8)
+
+        // `preview.activeRoute`/`ContentScanner.routeFromPagePath` hand over the slash-less form…
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/pricing")
+        model.proposeCustom(name: "Hero headline")
+        await model.scaffoldVariant()
+        model.setPageviewGoal(path: "/thanks") // …and the owner can type one too.
+
+        guard case .configure(let draft) = model.step, let experiment = draft.asExperiment else {
+            Issue.record("expected a complete .configure draft, got \(model.step)")
+            return
+        }
+        #expect(experimentPathProblem(experiment.page) == nil)
+        #expect(experimentPathProblem(experiment.variant.page) == nil)
+        #expect(experimentPathProblem(experiment.goal.path) == nil)
+        #expect(experiment.page == "/pricing/")
+        #expect(experiment.variant.page == "/x/hero-headline/b/")
+        // The slash is a URL convention only — the scaffold still resolved the control page's file.
+        #expect(FileManager.default.fileExists(
+            atPath: tmp.appendingPathComponent("src/pages/x/hero-headline/b.astro").path))
+    }
+
+    @Test func aSlashLessConfigEntryIsHealedByTheNextWrite() throws {
+        let tmp = try tempDirectory()
+        // The shape a pre-fix build would have left on disk.
+        let stale = DomainConfig.Experiments.Experiment(
+            id: "hero-headline", name: "Hero headline", page: "/pricing",
+            variant: .init(id: "b", name: "B", page: "/x/hero-headline/b"),
+            split: 0.5, goal: .init(kind: "pageview", path: "/thanks"), status: "draft")
+        DomainConfigStore.update(sourceDirectory: tmp) { $0.experiments = .init(active: [stale]) }
+
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        guard case .configure(let draft) = model.step, let healed = draft.asExperiment else {
+            Issue.record("expected a complete .configure draft, got \(model.step)")
+            return
+        }
+        #expect(experimentPathProblem(healed.page) == nil)
+        #expect(experimentPathProblem(healed.variant.page) == nil)
+        #expect(experimentPathProblem(healed.goal.path) == nil)
+    }
+
+    @Test func aRouteKindGoalPathKeepsItsSlashLessShape() throws {
+        let tmp = try tempDirectory()
+        // `pre-deploy-check.ts` deliberately does NOT require a trailing slash for `route` goals
+        // (API/action endpoints, per worker.ts's ROUTES table) — normalizing them would break them.
+        let entry = DomainConfig.Experiments.Experiment(
+            id: "hero-headline", name: "Hero headline", page: "/pricing/",
+            variant: .init(id: "b", name: "B", page: "/x/hero-headline/b/"),
+            split: 0.5, goal: .init(kind: "route", path: "/api/contact"), status: "draft")
+        DomainConfigStore.update(sourceDirectory: tmp) { $0.experiments = .init(active: [entry]) }
+
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        guard case .configure(let draft) = model.step, let round = draft.asExperiment else {
+            Issue.record("expected a complete .configure draft, got \(model.step)")
+            return
+        }
+        #expect(round.goal.path == "/api/contact")
+    }
+
+    @Test func theRootRouteStaysASingleSlash() throws {
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: try tempDirectory(), currentRoute: "/")
+        model.proposeCustom(name: "Hero headline")
+        guard case .configure(let draft) = model.step else {
+            Issue.record("expected .configure, got \(model.step)")
+            return
+        }
+        #expect(draft.page == "/")
+    }
+
+    @Test func scaffoldVariantSurfacesWhyItFailed() async throws {
+        let tmp = try tempDirectory() // no src/pages/index.astro to duplicate
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        model.proposeCustom(name: "Hero headline")
+        await model.scaffoldVariant()
+
+        #expect(model.scaffoldFailureReason?.contains("src/pages/index.astro") == true)
+        guard case .configure(let draft) = model.step else {
+            Issue.record("expected .configure, got \(model.step)")
+            return
+        }
+        #expect(draft.variantPage == nil)
+    }
+
+    @Test func startRefusesWhenTheDeployCouldNotRun() async throws {
+        let tmp = try tempDirectory()
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("src/pages"), withIntermediateDirectories: true)
+        try """
+        ---
+        import BaseLayout from "../layouts/BaseLayout.astro";
+        ---
+        <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
+        """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
+
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        model.proposeCustom(name: "Hero headline")
+        await model.scaffoldVariant()
+        model.setPageviewGoal(path: "/thanks/")
+
+        var deployCalled = false
+        model.start(unavailableReason: "Sign in to Cloudflare first.", deploy: { deployCalled = true })
+
+        #expect(!deployCalled)
+        guard case .configure = model.step else { Issue.record("expected .configure, got \(model.step)"); return }
+        #expect(model.startFailureReason == "Sign in to Cloudflare first.")
+        // Nothing may claim the test is live when no deploy was even attempted.
+        let saved = try DomainConfigStore(sourceDirectory: tmp).load()
+        #expect(saved.experiments?.active?.first?.status == "draft")
+    }
+
+    @Test func aDeployParkedOnAConfirmationRollsTheStartBack() async throws {
+        let tmp = try tempDirectory()
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("src/pages"), withIntermediateDirectories: true)
+        try """
+        ---
+        import BaseLayout from "../layouts/BaseLayout.astro";
+        ---
+        <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
+        """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
+
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        model.proposeCustom(name: "Hero headline")
+        await model.scaffoldVariant()
+        model.setPageviewGoal(path: "/thanks/")
+        model.start(deploy: {})
+
+        model.observeDeployPhase(.workerNameConflict(name: "my-site"))
+
+        guard case .configure = model.step else { Issue.record("expected .configure, got \(model.step)"); return }
+        let saved = try DomainConfigStore(sourceDirectory: tmp).load()
+        #expect(saved.experiments?.active?.first?.status == "draft")
+    }
+
+    @Test func returnToManualIsReachableFromEveryStepButStarting() async throws {
+        let tmp = try tempDirectory()
+        try FileManager.default.createDirectory(
+            at: tmp.appendingPathComponent("src/pages"), withIntermediateDirectories: true)
+        try """
+        ---
+        import BaseLayout from "../layouts/BaseLayout.astro";
+        ---
+        <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
+        """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
+
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        #expect(!model.canReturnToManual) // already there
+        model.openPropose()
+        #expect(model.canReturnToManual)
+        model.proposeCustom(name: "Hero headline")
+        #expect(model.canReturnToManual)
+        await model.scaffoldVariant()
+        model.setPageviewGoal(path: "/thanks/")
+        model.start(deploy: {})
+        #expect(!model.canReturnToManual) // a deploy is in flight
+        model.returnToManual()
+        guard case .starting = model.step else { Issue.record("expected .starting, got \(model.step)"); return }
+
+        model.observeDeployPhase(.succeeded(url: URL(string: "https://example.com")!, duration: 1))
+        #expect(model.canReturnToManual)
+        model.returnToManual()
+        #expect(model.step == .manual)
     }
 
     private func tempDirectory() throws -> URL {

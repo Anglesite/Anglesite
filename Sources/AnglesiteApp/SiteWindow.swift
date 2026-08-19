@@ -937,6 +937,17 @@ struct SiteWindow: View {
             ExperimentStatsSheetView(
                 model: statsModel,
                 deployModel: model.deploy,
+                deploySite: { model.deploySite() },
+                deployUnavailableReason: {
+                    // `deploySite()`'s own `canRunDeploy` guard first — it returns silently, which
+                    // would strand the sheet on "Starting your test…" — then `DeployModel`'s
+                    // token/license/in-flight preconditions, whose sheets can't present over this
+                    // one anyway (#1518 review, I5).
+                    guard model.canRunDeploy else {
+                        return "Your site isn't ready to publish yet. Wait for the preview to finish starting (or for the current task to end), then start your test."
+                    }
+                    return model.deploy.deployUnavailableReason(siteDirectory: statsModel.sourceDirectory)
+                },
                 onDone: { model.experimentStatsModel = nil },
                 enterGoalPickMode: {
                     model.preview.webView?.evaluateJavaScript("window.anglesite?._enterGoalPickMode?.()")

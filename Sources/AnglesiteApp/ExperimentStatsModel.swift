@@ -46,13 +46,25 @@ final class ExperimentStatsModel: Identifiable {
         /// A `draft`-status `DomainConfig.Experiments.Experiment` once the variant is scaffolded
         /// and a goal is picked — `nil` while either is still missing, matching `canStart`'s gate
         /// in Task 13.
+        ///
+        /// The single choke point through which anything reaches `anglesite.json`, so it is also
+        /// where the served-route shape `scripts/pre-deploy-check.ts` demands is enforced: `page`,
+        /// `variant.page`, and a `pageview` goal's `path` all get the trailing slash, whatever
+        /// shape the `Draft` was assembled from (a fresh propose, a legacy config entry read back
+        /// by `resolveInitialStep`, or a failed start's revert). A slash-less value here fails the
+        /// gate for *every* subsequent deploy of the site — draft entries are validated too —
+        /// which is a publishing-breaking regression the app itself would have created (#1518).
         var asExperiment: DomainConfig.Experiments.Experiment? {
             guard let variantPage, let goalKind else { return nil }
             let goal = DomainConfig.Experiments.Experiment.Goal(
-                kind: goalKind, path: goalPath, depth: goalDepth, selector: goalSelector)
+                kind: goalKind,
+                path: goalPath.map { goalKind == "pageview" ? ContentScaffold.servedRoute($0) : $0 },
+                depth: goalDepth, selector: goalSelector)
             return DomainConfig.Experiments.Experiment(
-                id: id, name: name, page: page,
-                variant: .init(id: variantID, name: variantName, page: variantPage),
+                id: id, name: name, page: ContentScaffold.servedRoute(page),
+                variant: .init(
+                    id: variantID, name: variantName,
+                    page: ContentScaffold.servedRoute(variantPage)),
                 split: 0.5, goal: goal, status: "draft")
         }
     }
@@ -115,10 +127,15 @@ final class ExperimentStatsModel: Identifiable {
     }
 
     /// Seeds a `Draft` from an owner-typed name (slugified into the experiment id) and moves to
-    /// `.configure`. `page` defaults to the route the sheet was opened from.
+    /// `.configure`. `page` defaults to the route the sheet was opened from — normalized to the
+    /// served, trailing-slash form (`ContentScaffold.servedRoute`), since `currentRoute` comes from
+    /// `PreviewModel.activeRoute`/`ContentScanner.routeFromPagePath`, which produce the slash-less
+    /// file-path shape that `pre-deploy-check.ts` rejects for `experiments.active[].page` (#1518).
     func proposeCustom(name: String) {
         let slug = ContentScaffold.slugify(name)
-        step = .configure(Draft(id: slug, name: name, page: currentRoute, variantName: "\(name) — variant"))
+        step = .configure(Draft(
+            id: slug, name: name, page: ContentScaffold.servedRoute(currentRoute),
+            variantName: "\(name) — variant"))
     }
 
     /// Both variants need at least one visitor before there's anything to analyze —
@@ -152,24 +169,48 @@ final class ExperimentStatsModel: Identifiable {
         result = nil
     }
 
-    /// Duplicates the control page under `/x/<experimentID>/<variantID>` via
+    /// Duplicates the control page under `/x/<experimentID>/<variantID>/` via
     /// `NativeContentOperations.duplicatePageAsVariant`, then records the built route on the
     /// draft and persists it. A no-op outside `.configure` or once a variant is already scaffolded
     /// (re-running would collide with the existing variant file).
+    ///
+    /// A failure is surfaced through `scaffoldFailureReason` rather than swallowed: the underlying
+    /// operation's `.failed` reasons ("No page exists at …", "A variant page already exists at …",
+    /// "Couldn't find a <BaseLayout> invocation …") are each something the owner can act on, and a
+    /// button that visibly does nothing is not (#1518 review, I3).
     func scaffoldVariant() async {
         guard case .configure(var draft) = step, draft.variantPage == nil else { return }
-        let controlRelPath = "src/pages\(draft.page == "/" ? "/index" : draft.page).astro"
+        // `draft.page` is a served route (trailing slash); the control's `.astro` is at the
+        // file-path form of it — `/` → `src/pages/index.astro`, `/pricing/` → `src/pages/pricing.astro`.
+        let controlRelPath = ContentScaffold.pageRelativePath(servedRoute: draft.page)
         let result = await contentOps.duplicatePageAsVariant(
             siteID: siteID, relativePath: controlRelPath, experimentID: draft.id, variantID: draft.variantID)
-        guard case .created(_, let route) = result else { return }
-        draft.variantPage = route
-        step = .configure(draft)
-        persistDraft(draft)
+        switch result {
+        case .created(_, let route):
+            scaffoldFailureReason = nil
+            draft.variantPage = route
+            step = .configure(draft)
+            persistDraft(draft)
+        case .failed(let reason):
+            scaffoldFailureReason = reason
+        case .siteNotFound:
+            scaffoldFailureReason = "Couldn't find this site's files on disk."
+        }
     }
 
+    /// Why the last "Create the variant page" attempt didn't produce a variant — `nil` when none
+    /// has failed since the last success. Surfaced by `ExperimentConfigureView` beside the button.
+    private(set) var scaffoldFailureReason: String?
+
     /// Sets a pageview goal (reaching `path` counts as a conversion) and persists the draft.
+    ///
+    /// `path` is normalized to the served, trailing-slash form for the same reason `page` and
+    /// `variant.page` are: `pre-deploy-check.ts` validates a `pageview` goal path with
+    /// `requireTrailingSlash`, and the edge worker's `matchesGoal` compares it against the
+    /// canonicalized request path with `===`.
     func setPageviewGoal(path: String) {
-        updateDraftGoal { $0.goalKind = "pageview"; $0.goalPath = path; $0.goalDepth = nil; $0.goalSelector = nil }
+        let normalized = ContentScaffold.servedRoute(path)
+        updateDraftGoal { $0.goalKind = "pageview"; $0.goalPath = normalized; $0.goalDepth = nil; $0.goalSelector = nil }
     }
 
     /// Sets a scroll-depth goal (`depth` percent of the page scrolled) and persists the draft.
@@ -208,15 +249,54 @@ final class ExperimentStatsModel: Identifiable {
     /// Flips the draft's status to `running`, persists it, and invokes `deploy` — a closure rather
     /// than a direct `DeployModel` dependency so this model stays testable without constructing one
     /// (`DeployModel` pulls in token/license/container machinery none of this model's own logic
-    /// needs). `SiteWindow` (Task 15) supplies the real `DeployModel.deploy(...)` call; the view's
-    /// own `.onChange(of: deployModel.phase)` then calls `observeDeployPhase(_:)` below.
-    func start(deploy: (String, URL, URL, [String]) -> Void) {
+    /// needs). The view's own `.onChange(of: deployModel.phase)` then calls `observeDeployPhase(_:)`
+    /// below.
+    ///
+    /// `deploy` takes **no arguments** on purpose (#1518 review, C2). An earlier shape handed it
+    /// the site id, directories, and routes, which invited the call site to reconstruct arguments
+    /// only `SiteWindowModel.deploySite()` knows how to build correctly — and it got them wrong:
+    /// `Source/` passed as the config directory (app-owned state must never live in the git repo),
+    /// and a two-element `currentRoutes` that would have overwritten the site's whole
+    /// `DeployedRoutesSnapshot` with just the experiment's two pages. The closure now simply calls
+    /// `SiteWindowModel.deploySite()`, the one production deploy path.
+    ///
+    /// - Parameter unavailableReason: Non-`nil` when `deploy` would *not* actually run a deploy to
+    ///   completion right now (no Cloudflare sign-in yet, no license choice yet, another publish in
+    ///   flight) — see `DeployModel.deployUnavailableReason(siteDirectory:)`. In that case nothing
+    ///   is written to `anglesite.json` and the step stays on `.configure`, because `deploy(...)`
+    ///   silently parks in those cases and `.starting` would never be left (#1518 review, I5).
+    func start(unavailableReason: String? = nil, deploy: () -> Void) {
         guard case .configure(let draft) = step, var experiment = draft.asExperiment else { return }
+        if let unavailableReason {
+            startFailureReason = unavailableReason
+            return
+        }
+        startFailureReason = nil
         experiment.status = "running"
         experiment.startedAt = ISO8601DateFormatter().string(from: Date()).prefix(10).description
         DomainConfigStore.update(sourceDirectory: sourceDirectory) { $0.experiments = .init(active: [experiment]) }
         step = .starting
-        deploy(siteID, sourceDirectory, sourceDirectory, [experiment.page, experiment.variant.page])
+        deploy()
+    }
+
+    /// Whether the "Analyze manually" escape hatch applies (#1518 review, I6). Live per-variant
+    /// counts aren't wired up yet (#1270), so the manual-entry form is the only working analysis
+    /// surface — an owner mid-configure or with a running test needs a way back to it. Excluded
+    /// from `.starting`: a deploy is in flight there and `observeDeployPhase(_:)` still needs the
+    /// step to come back to it.
+    var canReturnToManual: Bool {
+        switch step {
+        case .manual, .starting: return false
+        case .propose, .configure, .running: return true
+        }
+    }
+
+    /// Returns to the `.manual` analysis form. Purely a UI move — it neither reverts nor deletes
+    /// whatever `anglesite.json` already records, so re-opening the sheet lands back on the
+    /// lifecycle step the config implies.
+    func returnToManual() {
+        guard canReturnToManual else { return }
+        step = .manual
     }
 
     /// Called from the sheet view's `.onChange(of: deployModel.phase)` while `step == .starting`.
@@ -234,7 +314,16 @@ final class ExperimentStatsModel: Identifiable {
             revertToConfigureAfterFailedStart(reason: reason)
         case .blocked:
             revertToConfigureAfterFailedStart(reason: "The pre-deploy check found issues that need fixing first.")
-        case .idle, .running, .workerNameConflict, .webmentionPaidPlanConfirmationNeeded, .domainConfigDrift:
+        case .workerNameConflict, .webmentionPaidPlanConfirmationNeeded, .domainConfigDrift:
+            // These three park the deploy on a confirmation sheet of `DeployModel`'s own — which
+            // cannot present while this sheet occupies the window's modal slot. Treated as a failed
+            // start (config rolled back to `"draft"`, so the parked deploy can't publish a test the
+            // owner never confirmed) rather than ignored: ignoring them would strand `.starting`
+            // forever, and Done is disabled during `.starting` to keep this observation alive
+            // (#1518 review, I4).
+            revertToConfigureAfterFailedStart(
+                reason: "Publishing paused and needs an answer from you. Close this and choose Publish to finish, then start your test.")
+        case .idle, .running:
             return
         }
     }

@@ -6,7 +6,15 @@ import AnglesiteCore
 /// `model.step`'s associated `Draft` is the single source of truth for what's already set.
 struct ExperimentConfigureView: View {
     @Bindable var model: ExperimentStatsModel
-    var deployModel: DeployModel
+    /// Runs the site's one real deploy path — `SiteWindowModel.deploySite()`, threaded down from
+    /// `SiteWindow`. Deliberately not a `DeployModel.deploy(...)` call assembled here: only
+    /// `SiteWindowModel` can enumerate the site's full route set and its `Config/` directory, and
+    /// getting either wrong corrupts the deployed-routes snapshot or the worker plan (#1518 C2).
+    var deploySite: () -> Void
+    /// Owner-facing reason `deploySite` would not actually publish right now, or `nil`. Evaluated
+    /// at `SiteWindow`, where both `SiteWindowModel.canRunDeploy` and `DeployModel`'s own
+    /// preconditions are visible — see `ExperimentStatsModel.start(unavailableReason:deploy:)`.
+    var deployUnavailableReason: () -> String?
     var enterGoalPickMode: () -> Void
     var exitGoalPickMode: () -> Void
 
@@ -25,6 +33,9 @@ struct ExperimentConfigureView: View {
                     if draft.variantPage == nil {
                         Button("Create the variant page") {
                             Task { await model.scaffoldVariant() }
+                        }
+                        if let reason = model.scaffoldFailureReason {
+                            Text(reason).font(.caption).foregroundStyle(.orange)
                         }
                     } else {
                         LabeledContent("Variant page", value: draft.variantPage ?? "")
@@ -51,10 +62,19 @@ struct ExperimentConfigureView: View {
                     goalOptionRow(
                         title: "Counts when a visitor sees something on the page",
                         isSelected: draft.goalKind == "visible") {
-                        Button(model.goalPickController.state == .picking ? "Click the element in the preview…" : "Choose in the preview") {
-                            model.goalPickController.startPicking(enterOverlayMode: enterGoalPickMode, exitOverlayMode: exitGoalPickMode)
+                        HStack {
+                            Button(model.goalPickController.state == .picking ? "Click the element in the preview…" : "Choose in the preview") {
+                                model.goalPickController.startPicking(enterOverlayMode: enterGoalPickMode, exitOverlayMode: exitGoalPickMode)
+                            }
+                            .disabled(model.goalPickController.state == .picking)
+                            // Without this (and the sheet's `.onExitCommand`), picking mode has no
+                            // exit: the preview overlay stays armed and the button stays disabled
+                            // for the rest of the sheet's life (#1518 review, I1). Mirrors
+                            // `EffectsGalleryView`'s placement-HUD Cancel.
+                            if model.goalPickController.state == .picking {
+                                Button("Cancel") { model.goalPickController.cancel() }
+                            }
                         }
-                        .disabled(model.goalPickController.state == .picking)
                         if case .failed(let reason) = model.goalPickController.state {
                             Text(reason).font(.caption).foregroundStyle(.orange)
                         }
@@ -62,13 +82,12 @@ struct ExperimentConfigureView: View {
                 }
                 Section {
                     Button("Start your test") {
-                        model.start(deploy: { siteID, siteDirectory, configDirectory, routes in
-                            deployModel.deploy(
-                                siteID: siteID, siteDirectory: siteDirectory,
-                                configDirectory: configDirectory, currentRoutes: routes)
-                        })
+                        model.start(unavailableReason: deployUnavailableReason(), deploy: deploySite)
                     }
                     .disabled(!model.canStart)
+                    if let reason = model.startFailureReason {
+                        Text(reason).font(.caption).foregroundStyle(.orange)
+                    }
                 }
             }
         }
