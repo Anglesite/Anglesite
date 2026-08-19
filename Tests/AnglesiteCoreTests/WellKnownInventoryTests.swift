@@ -110,6 +110,66 @@ struct WellKnownInventoryTests {
         #expect(rows[0].delivery == .userStatic)
     }
 
+    @Test("a marker-carrying mcp/server-card.json is classified generated")
+    func mcpServerCardMarkerClassifiesAsGenerated() throws {
+        let wellKnown = try makeWellKnownDirectory()
+        defer { try? FileManager.default.removeItem(at: wellKnown.deletingLastPathComponent()) }
+        let mcpDir = wellKnown.appendingPathComponent("mcp")
+        try FileManager.default.createDirectory(at: mcpDir, withIntermediateDirectories: true)
+        // Byte-for-byte the shape `buildMcpServerCard` writes (edge-artifacts.ts).
+        let content = """
+            {
+              "__marker": "\(GeneratedEndpoints.mcpServerCardMarker)",
+              "serverInfo": { "name": "example.com", "version": "1.0.0" },
+              "transport": { "type": "streamable-http", "endpoint": "https://example.com/mcp" },
+              "capabilities": { "tools": true, "resources": false, "prompts": false }
+            }
+
+            """
+        try content.write(to: mcpDir.appendingPathComponent("server-card.json"), atomically: true, encoding: .utf8)
+
+        let (rows, findings) = WellKnownInventory.scanUserStatic(wellKnownDirectory: wellKnown)
+        #expect(findings.isEmpty)
+        #expect(rows.count == 1)
+        #expect(rows[0].suffix == "mcp/server-card.json")
+        #expect(rows[0].delivery == .generated)
+        #expect(rows[0].owner == "generator:mcp-server-card")
+        #expect(rows[0].validatorID == nil)
+        #expect(rows[0].registration == .custom("draft"))
+        #expect(!rows[0].authorityBinding)
+    }
+
+    @Test("an unmarked hand-authored mcp/server-card.json is preserved as user-static")
+    func unmarkedMcpServerCardStaysUserStatic() throws {
+        let wellKnown = try makeWellKnownDirectory()
+        defer { try? FileManager.default.removeItem(at: wellKnown.deletingLastPathComponent()) }
+        let mcpDir = wellKnown.appendingPathComponent("mcp")
+        try FileManager.default.createDirectory(at: mcpDir, withIntermediateDirectories: true)
+        try #"{"serverInfo": {"name": "hand-authored"}}"#
+            .write(to: mcpDir.appendingPathComponent("server-card.json"), atomically: true, encoding: .utf8)
+
+        let (rows, _) = WellKnownInventory.scanUserStatic(wellKnownDirectory: wellKnown)
+        #expect(rows.count == 1)
+        #expect(rows[0].delivery == .userStatic)
+        #expect(rows[0].owner == "user-static")
+    }
+
+    @Test(
+        "isMcpServerCardMarkerOwned mirrors edge-artifacts.ts's predicate on representative cases",
+        arguments: [
+            (#"{"__marker": "__anglesite_generated_mcp_server_card__", "serverInfo": {}}"#, true),
+            (#"{"hand": "authored"}"#, false),
+            (#"{"__marker": "something-else"}"#, false),
+            ("not json at all", false),
+            ("", false),
+            // A JSON array/string is not an object with a `__marker` field.
+            (#"["__anglesite_generated_mcp_server_card__"]"#, false),
+        ]
+    )
+    func mcpServerCardMarkerPredicateAgreesWithTemplate(value: String, expected: Bool) throws {
+        #expect(GeneratedEndpoints.isMcpServerCardMarkerOwned(value) == expected)
+    }
+
     @Test("a file whose content matches the site.standard.publication at-URI shape is classified generated")
     func standardSitePublicationShapeClassifiesAsGenerated() throws {
         let wellKnown = try makeWellKnownDirectory()
@@ -464,6 +524,9 @@ struct WellKnownInventoryTests {
         let source = try String(contentsOf: scriptURL, encoding: .utf8)
         #expect(source.contains(GeneratedEndpoints.securityTxtMarker))
         #expect(source.contains(GeneratedEndpoints.mtaStsMarker))
+        #expect(source.contains(GeneratedEndpoints.mcpServerCardMarker))
+        // The TypeScript side must keep reading the marker out of the same JSON field this does.
+        #expect(source.contains("parsed.__marker === MCP_SERVER_CARD_MARKER"))
     }
 
     /// `GeneratedEndpoints.isValidAtprotoDid` has no literal marker string to compare against a
