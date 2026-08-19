@@ -1116,8 +1116,10 @@ git commit -m "feat(#1579): flip agentSkills to anglesiteProvides"
 
 - [ ] **Step 1: Run the full JS suite**
 
-Run: `cd Resources/Template && npm run lint && npm run typecheck && npm test`
-Expected: PASS, no lint/type errors, all tests green.
+`Resources/Template/package.json` has no `lint`/`typecheck` scripts (that trio is `JS/edit-overlay/`'s recipe, a different subproject — `astro check` is folded into its own `build` script instead). For the template, run:
+
+Run: `cd Resources/Template && npm test`
+Expected: PASS, all tests green (includes the `agent-skills.test.ts`/`well-known.test.ts` suites from Tasks 1-5).
 
 - [ ] **Step 2: Run the full Swift suite**
 
