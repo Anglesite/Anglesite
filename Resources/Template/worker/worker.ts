@@ -835,16 +835,21 @@ function handleSolidPodGcScheduled(
   return gc(controller, env as unknown as SolidPodGcEnv, ctx);
 }
 
+/**
+ * Micropub's scopes ("create"/"update"/"delete"/"media") plus Microsub's ("follow"/"channels"/
+ * "read", V-4.3 #365) — @dwk/indieauth's constrainScopes drops any requested scope absent from
+ * this list, so a client authorizing for Microsub without "follow"/"channels" listed here would
+ * silently be granted an empty scope and then fail every Microsub action with
+ * `insufficient_scope`. Shared with the RFC 9728 protected-resource metadata (#1577) below so the
+ * two documents can't silently drift.
+ */
+const INDIEAUTH_SCOPES_SUPPORTED = ["create", "update", "delete", "media", "follow", "channels", "read"] as const;
+
 function indieAuthHandler(request: Request, env: WorkerEnv) {
   const baseUrl = new URL(request.url).origin;
   return createIndieAuth({
     baseUrl,
-    // Micropub's scopes ("create"/"update"/"delete"/"media") plus Microsub's ("follow"/
-    // "channels"/"read", V-4.3 #365) — @dwk/indieauth's constrainScopes drops any requested
-    // scope absent from this list, so a client authorizing for Microsub without "follow"/
-    // "channels" listed here would silently be granted an empty scope and then fail every
-    // Microsub action with `insufficient_scope`.
-    scopesSupported: ["create", "update", "delete", "media", "follow", "channels", "read"],
+    scopesSupported: INDIEAUTH_SCOPES_SUPPORTED,
     resourceIndicatorPolicy(resource) {
       try {
         return new URL(resource).origin === baseUrl;
@@ -863,6 +868,34 @@ function indieAuthHandler(request: Request, env: WorkerEnv) {
       }
       return consentPage(authorization);
     },
+  });
+}
+
+/**
+ * RFC 9728 OAuth 2.0 Protected Resource Metadata (#1577, slice 2 of the #1326 Agent Readiness
+ * ladder) — the resource-side counterpart to the RFC 8414 `/.well-known/oauth-authorization-server`
+ * document `indieAuthHandler` already serves. Points an agent at this site's own IndieAuth
+ * authorization server before it calls the IndieAuth-gated endpoints (Micropub, Microsub, the
+ * media endpoint).
+ *
+ * IndieAuth's endpoints are always live for every site (`AUTH_DB`/`TOKEN_SIGNING_KEY` are
+ * required, not optional, on `WorkerEnv`), so — like that document — this one is unconditional and
+ * needs no binding checks.
+ */
+function handleOAuthProtectedResourceMetadata(request: Request): Response {
+  const baseUrl = new URL(request.url).origin;
+  const metadata = {
+    resource: baseUrl,
+    authorization_servers: [baseUrl],
+    scopes_supported: INDIEAUTH_SCOPES_SUPPORTED,
+    // `@dwk/indieauth` always issues DPoP-bound tokens (`token_type: "DPoP"`, never plain
+    // Bearer — see its metadata.ts), so bearer_methods_supported is omitted and these two fields
+    // mirror the algorithm list the authorization-server metadata document advertises.
+    dpop_bound_access_tokens_required: true,
+    dpop_signing_alg_values_supported: ["ES256", "ES384", "RS256", "PS256"],
+  };
+  return new Response(JSON.stringify(metadata), {
+    headers: { "content-type": "application/json" },
   });
 }
 
@@ -1572,6 +1605,13 @@ export const ROUTES: readonly WorkerRoute[] = [
     match: "exact",
     methods: ["GET", "HEAD"],
     handler: (request, env, ctx) => indieAuthHandler(request, env)(request, env, ctx),
+  },
+  {
+    // RFC 9728 protected-resource metadata (#1577) — see handleOAuthProtectedResourceMetadata.
+    path: "/.well-known/oauth-protected-resource",
+    match: "exact",
+    methods: ["GET", "HEAD"],
+    handler: (request) => handleOAuthProtectedResourceMetadata(request),
   },
   {
     // GET renders/redirects the authorization request; POST redeems an authorization code for

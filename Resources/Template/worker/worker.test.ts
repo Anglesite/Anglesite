@@ -384,6 +384,35 @@ test("IndieAuth metadata advertises the authorization and token endpoints", asyn
   });
 });
 
+test("RFC 9728 protected-resource metadata points agents at this site's own authorization server (#1577)", async () => {
+  const response = await fetchWorker(new Request("https://owner.example/.well-known/oauth-protected-resource"));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("application/json");
+  await expect(response.json()).resolves.toStrictEqual({
+    resource: "https://owner.example",
+    authorization_servers: ["https://owner.example"],
+    scopes_supported: ["create", "update", "delete", "media", "follow", "channels", "read"],
+    dpop_bound_access_tokens_required: true,
+    dpop_signing_alg_values_supported: ["ES256", "ES384", "RS256", "PS256"],
+  });
+});
+
+test("routing: protected-resource metadata rejects undeclared methods and mirrors HEAD", async () => {
+  const post = await fetchWorker(
+    new Request("https://owner.example/.well-known/oauth-protected-resource", { method: "POST" }),
+  );
+  expect(post.status).toBe(405);
+  expect(post.headers.get("allow")).toBe("GET, HEAD");
+
+  const get = await fetchWorker(new Request("https://owner.example/.well-known/oauth-protected-resource"));
+  const head = await fetchWorker(
+    new Request("https://owner.example/.well-known/oauth-protected-resource", { method: "HEAD" }),
+  );
+  expect(head.status).toBe(get.status);
+  expect(head.headers.get("content-type")).toBe(get.headers.get("content-type"));
+  expect(await head.text()).toBe("");
+});
+
 test("IndieAuth owner consent completes PKCE sign-in and issues a DPoP token", async () => {
   const verifier = "anglesite-indieauth-verifier-with-more-than-forty-three-characters";
   const challenge = await pkceChallenge(verifier);
