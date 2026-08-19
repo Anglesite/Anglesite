@@ -43,6 +43,9 @@ final class ContactsModel {
     /// is the real Cloudflare push.
     private let pushAllowlist: @Sendable (URL) async -> Void
     private var configDirectory: URL?
+    /// Chains each fired push behind the previous one so pushes execute in the order they were
+    /// fired (FIFO) even though each does a real network round trip — see `firePushAllowlist()`.
+    private var pushTask: Task<Void, Never>?
 
     init(
         contactsProvider: ContactsProviding = SystemContactsProvider(),
@@ -175,13 +178,23 @@ final class ContactsModel {
         "\(suggestion.candidateURL.absoluteString)|\(suggestion.systemContactName)"
     }
 
-    /// Fires the allowlist push as a detached `Task` so `add`/`update`/`remove` return as soon as
-    /// the local write (and reload) finish — the push is best-effort and must never block a UI
-    /// action on a network round trip (#1567 design §3/§4). A failed local write still fires this:
-    /// `knownMeURLs()` is re-read fresh inside the push, so it always reflects whatever's actually
-    /// on disk regardless of whether this particular call succeeded.
+    /// Fires the allowlist push as an unstructured `Task` so `add`/`update`/`remove` return as
+    /// soon as the local write (and reload) finish — the push is best-effort and must never block
+    /// a UI action on a network round trip (#1567 design §3/§4). A failed local write still fires
+    /// this: `knownMeURLs()` is re-read fresh inside the push, so it always reflects whatever's
+    /// actually on disk regardless of whether this particular call succeeded.
+    ///
+    /// Chained behind any push already in flight so pushes execute in the order they were fired
+    /// (FIFO): each push is a real network round trip, so two pushes fired close together (e.g.
+    /// add a contact then immediately delete it) could otherwise complete out of order and leave
+    /// the wrong final state in KV until the next mutation or deploy. The chain is never awaited
+    /// by the caller — only by the next fired push.
     private func firePushAllowlist() {
         guard let configDirectory else { return }
-        Task { await pushAllowlist(configDirectory) }
+        let previous = pushTask
+        pushTask = Task { [pushAllowlist] in
+            await previous?.value
+            await pushAllowlist(configDirectory)
+        }
     }
 }
