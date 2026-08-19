@@ -752,8 +752,8 @@ Expected: FAIL — the 4 updated tests fail (actual arrays are missing `"milesto
 In `Sources/AnglesiteCore/OperationProgress.swift`, immediately after the `deployBackfillingActivityPub` constant (after line 80's closing `)`):
 
 ```swift
-    /// Post-deploy: pushing the contact allowlist (me-URLs) to the Worker's `SOCIAL_KV` store
-    /// (#1567) — the future authenticated-read gate's data source.
+    /// Post-deploy: pushing the contact allowlist (me-URLs) to the future authenticated-read
+    /// gate's backing store (#1567).
     static let deployPushingContactsAllowlist = OperationProgress(
         kind: .deploy, phase: "contactsAllowlistPush", label: "Syncing contacts allowlist…"
     )
@@ -770,11 +770,11 @@ In `Sources/AnglesiteCore/DeployCoordinator.swift`, change the `runPostDeploySeq
         syndicate: () async -> Void,
         notifySubscribers: () async -> Void = {},
         backfillActivityPubOutbox: () async -> Void = {},
-        /// Contacts allowlist push (#1567): overwrites the Worker's `SOCIAL_KV` `contacts:allowlist`
-        /// key with the site's current known me-URLs. Ordered last — unrelated to every other
-        /// pass here, and (unlike the others) it's a reconcile that only needs to run once per
-        /// deploy, not depend on anything the earlier passes produced. Best-effort and never
-        /// throws, like every other step here. Callers without contacts configured pass a no-op.
+        /// Contacts allowlist push (#1567): pushes the site's current known me-URLs to their
+        /// remote store. Ordered last — unrelated to every other pass here, and (unlike the
+        /// others) it's a reconcile that only needs to run once per deploy, not depend on
+        /// anything the earlier passes produced. Best-effort and never throws, like every other
+        /// step here. Callers without contacts configured pass a no-op.
         pushContactsAllowlist: () async -> Void = {}
     ) async {
         onMilestone(.deployWebmentions)
