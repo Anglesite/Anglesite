@@ -91,6 +91,16 @@ public enum WorkerComposition {
         handler: "inbox-capture"
     )
 
+    /// Route claim for the read-only MCP server (#1576) — same static-let pattern as
+    /// `inboxCaptureRouteClaim` above, since `/mcp` is app-owned (not sourced from the
+    /// `@dwk/workers` catalog).
+    public static let mcpRouteClaim = WorkerRouteClaim(
+        path: "/mcp",
+        match: .exact,
+        methods: ["GET", "POST", "HEAD"],
+        handler: "mcp"
+    )
+
     private static let validNameCharacters = CharacterSet(
         charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
     )
@@ -228,7 +238,8 @@ public enum WorkerComposition {
         activityPubActorType: String? = nil,
         moderators: [String]? = nil,
         apUsername: String? = nil,
-        experiments: [DomainConfig.Experiments.Experiment] = []
+        experiments: [DomainConfig.Experiments.Experiment] = [],
+        mcpEnabled: Bool = false
     ) throws -> String {
         guard isValidSiteName(siteName) else {
             throw ConfigError.invalidSiteName(siteName)
@@ -236,6 +247,9 @@ public enum WorkerComposition {
         var effectiveClaims = routeClaims
         if inboxCaptureEnabled {
             effectiveClaims.append(inboxCaptureRouteClaim)
+        }
+        if mcpEnabled {
+            effectiveClaims.append(mcpRouteClaim)
         }
         // Full single-claim validation (not just path syntax), so a future caller that skips
         // `WorkerRouteClaims.activeClaims` still can't emit an invalid claim into TOML. Cross-
@@ -314,7 +328,7 @@ public enum WorkerComposition {
         // #1270 slice 3: a running experiment is the third enabler of Worker composition,
         // alongside an active catalog worker and inbox capture — a static-only site's first
         // running experiment gets a Worker for exactly its paths and nothing else (design §3).
-        let composesWorker = hasSocialFeatures || inboxCaptureEnabled || hasRunningExperiment
+        let composesWorker = hasSocialFeatures || inboxCaptureEnabled || hasRunningExperiment || mcpEnabled
         if composesWorker {
             lines.append("main = \"worker/worker.ts\"")
         }
