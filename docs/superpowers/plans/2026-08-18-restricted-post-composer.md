@@ -25,9 +25,11 @@ when `visibility == .contacts`.
 - Do not touch `ContentCreateResult` (`Sources/AnglesiteCore/ContentOperationsService.swift`) —
   the design deliberately avoids it (design §5.4) to keep this change from forcing edits across
   ~15 unrelated call sites.
-- Do not modify `TypedEntryEditorModel.swift` — `RestrictedPostPublisher` intentionally
-  duplicates its small `MicropubClientFactory` pattern rather than extracting a shared helper
-  from unrelated, already-working code (design §5.3, CONTRIBUTING.md's no-drive-by-refactor rule).
+- `TypedEntryEditorModel.swift`'s session-resolution behavior (its `save()` CMS-mode branch and
+  every existing test in `TypedEntryEditorModelCMSModeTests.swift`) must not change — Task 6's
+  refactor of it is a pure internal delegation to the new shared `MicropubSessionResolver`, not a
+  behavior change. If any existing test in that file needs an edit to keep passing, that's a
+  signal the refactor changed behavior — stop and reconsider, don't adjust the test to match.
 - The deployed `@dwk/micropub` Worker rejects `visibility: "contacts"` until
   [davidwkeith/workers#498](https://github.com/davidwkeith/workers/issues/498) ships — this is
   expected and out of scope to fix here; error paths already handle it as an ordinary
@@ -585,26 +587,126 @@ git commit -m "feat(#1566): add visibility picker to iOS composer"
 
 ---
 
-## Task 6: `RestrictedPostPublisher` (Mac's Micropub-only create path)
+## Task 6: `MicropubSessionResolver` (shared) + `RestrictedPostPublisher`
+
+`TypedEntryEditorModel.swift` already has a small "resolve this site's Micropub client" factory
+(its `MicropubClientFactory` typealias + `defaultMicropubClientFactory`). `RestrictedPostPublisher`
+needs the exact same resolution. Rather than duplicating it, this task extracts it into a shared
+`MicropubSessionResolver` enum that both consume — `TypedEntryEditorModel`'s own behavior does
+not change, only its internal implementation delegates.
 
 **Files:**
+- Create: `Sources/AnglesiteApp/MicropubSessionResolver.swift`
+- Modify: `Sources/AnglesiteApp/TypedEntryEditorModel.swift:16-33` (the `MicropubClientFactory`
+  typealias and `defaultMicropubClientFactory` — internal delegation only, no signature or
+  behavior change)
 - Create: `Sources/AnglesiteApp/RestrictedPostPublisher.swift`
 - Test: `Tests/AnglesiteAppTests/RestrictedPostPublisherTests.swift` (new)
+- Test: `Tests/AnglesiteAppTests/TypedEntryEditorModelCMSModeTests.swift` (unchanged — run as a
+  regression check, not edited)
 
 **Interfaces:**
 - Consumes: `MicropubClient`, `MicropubPost.entry(...)`, `MicropubError` (Task 1, `AnglesiteCore`);
   `StoredMicropubSessions` (`AnglesiteIOS`, already imported by `TypedEntryEditorModel.swift` —
   mirror that import).
 - Produces:
+  - `enum MicropubSessionResolver` with:
+    - `typealias Factory = @Sendable (_ siteID: String, _ sourceDirectory: URL) async -> MicropubClient?`
+    - `static func defaultFactory(sessions: StoredMicropubSessions = StoredMicropubSessions()) -> Factory`
   - `enum ComposerCreateOutcome { case success, siteNotFound, failed(reason: String) }`
   - `struct RestrictedPostPublisher` with:
-    - `typealias MicropubClientFactory = @Sendable (_ siteID: String, _ sourceDirectory: URL) async -> MicropubClient?`
-    - `static func defaultMicropubClientFactory(sessions: StoredMicropubSessions = StoredMicropubSessions()) -> MicropubClientFactory`
-    - `init(makeMicropubClient: @escaping MicropubClientFactory = RestrictedPostPublisher.defaultMicropubClientFactory())`
+    - `init(makeMicropubClient: @escaping MicropubSessionResolver.Factory = MicropubSessionResolver.defaultFactory())`
     - `func isAvailable(siteID: String, sourceDirectory: URL) async -> Bool`
     - `func createPost(title: String, body: String, siteID: String, sourceDirectory: URL) async -> ComposerCreateOutcome`
 
-- [ ] **Step 1: Write the failing tests**
+- [ ] **Step 1: Extract `MicropubSessionResolver`**
+
+Create `Sources/AnglesiteApp/MicropubSessionResolver.swift`:
+
+```swift
+// Sources/AnglesiteApp/MicropubSessionResolver.swift
+import Foundation
+import AnglesiteCore
+import AnglesiteIOS
+
+/// Resolves a ready-to-use `MicropubClient` for a site, or `nil` when no CMS-mode session has
+/// been onboarded yet (or the stored session was signed out). Shared by every Mac call site that
+/// needs "does this site have a working Micropub session right now" — `TypedEntryEditorModel`'s
+/// CMS-mode save branch (#800) and `RestrictedPostPublisher`'s restricted-post create path
+/// (#1566) — so there is exactly one implementation of that resolution on the Mac side.
+enum MicropubSessionResolver {
+    typealias Factory = @Sendable (_ siteID: String, _ sourceDirectory: URL) async -> MicropubClient?
+
+    /// Production factory: resolves the session via `StoredMicropubSessions` (Keychain read +
+    /// endpoint re-discovery — discovery is never persisted) and builds a client from it.
+    static func defaultFactory(
+        sessions: StoredMicropubSessions = StoredMicropubSessions()
+    ) -> Factory {
+        { siteID, sourceDirectory in
+            await sessions.session(siteID: siteID, sourceDirectory: sourceDirectory)?.makeClient()
+        }
+    }
+}
+```
+
+- [ ] **Step 2: Delegate `TypedEntryEditorModel` to the shared resolver**
+
+In `Sources/AnglesiteApp/TypedEntryEditorModel.swift`, this is the current code (lines 16–33):
+
+```swift
+    typealias MicropubClientFactory = @Sendable (_ siteID: String, _ sourceDirectory: URL) async -> MicropubClient?
+
+    /// Production factory: resolves the session via `StoredMicropubSessions` (Keychain read +
+    /// endpoint re-discovery — discovery is never persisted, see its doc comment) and builds a
+    /// client from it. `nonisolated` (rather than implicitly `@MainActor`, like every other
+    /// member of this class) because `init`'s default-argument expressions run in a nonisolated
+    /// context, not the initializer body's — this is what `init` calls to build its own default.
+    private nonisolated static func defaultMicropubClientFactory(
+        sessions: StoredMicropubSessions = StoredMicropubSessions()
+    ) -> MicropubClientFactory {
+        { siteID, sourceDirectory in
+            await sessions.session(siteID: siteID, sourceDirectory: sourceDirectory)?.makeClient()
+        }
+    }
+```
+
+Replace it with (same doc comment trimmed to reflect the delegation, same `typealias` name and
+same `defaultMicropubClientFactory` name — every other line in the file that references either
+name is untouched):
+
+```swift
+    typealias MicropubClientFactory = MicropubSessionResolver.Factory
+
+    /// Delegates to ``MicropubSessionResolver/defaultFactory(sessions:)`` — the same resolution
+    /// `RestrictedPostPublisher` (#1566) uses, kept in exactly one place. `nonisolated` (rather
+    /// than implicitly `@MainActor`, like every other member of this class) because `init`'s
+    /// default-argument expressions run in a nonisolated context, not the initializer body's —
+    /// this is what `init` calls to build its own default.
+    private nonisolated static func defaultMicropubClientFactory(
+        sessions: StoredMicropubSessions = StoredMicropubSessions()
+    ) -> MicropubClientFactory {
+        MicropubSessionResolver.defaultFactory(sessions: sessions)
+    }
+```
+
+- [ ] **Step 3: Build and run the existing CMS-mode suite to confirm no behavior change**
+
+Run: `swift build --target AnglesiteAppCore`
+Expected: SUCCESS.
+
+Run: `swift test --package-path . --filter TypedEntryEditorModelCMSModeTests`
+Expected: PASS, every test unchanged — this refactor must not require editing this test file. If
+any assertion in it needs to change to pass, stop: that means the delegation altered behavior,
+not just its implementation, and this step must not proceed until the cause is found.
+
+- [ ] **Step 4: Commit the extraction**
+
+```bash
+git add Sources/AnglesiteApp/MicropubSessionResolver.swift Sources/AnglesiteApp/TypedEntryEditorModel.swift
+git commit -m "refactor(#1566): extract MicropubSessionResolver from TypedEntryEditorModel"
+```
+
+- [ ] **Step 5: Write the failing `RestrictedPostPublisher` tests**
 
 Create `Tests/AnglesiteAppTests/RestrictedPostPublisherTests.swift`, mirroring
 `Tests/AnglesiteAppTests/TypedEntryEditorModelCMSModeTests.swift`'s faked-transport style (read
@@ -711,14 +813,14 @@ struct RestrictedPostPublisherTests {
 ```
 
 Add `Equatable` conformance requirements: for `#expect(outcome == .success)` to compile,
-`ComposerCreateOutcome` must be `Equatable`. Include that in Step 2 below.
+`ComposerCreateOutcome` must be `Equatable`. Include that in Step 7 below.
 
-- [ ] **Step 2: Run the new tests to verify they fail**
+- [ ] **Step 6: Run the new tests to verify they fail**
 
 Run: `swift test --package-path . --filter RestrictedPostPublisherTests`
 Expected: FAIL to build — `RestrictedPostPublisher`/`ComposerCreateOutcome` don't exist yet.
 
-- [ ] **Step 3: Create `RestrictedPostPublisher.swift`**
+- [ ] **Step 7: Create `RestrictedPostPublisher.swift`**
 
 Create `Sources/AnglesiteApp/RestrictedPostPublisher.swift`:
 
@@ -741,26 +843,13 @@ enum ComposerCreateOutcome: Equatable {
 
 /// Publishes a new restricted (`visibility: contacts`) post straight to the site's Micropub
 /// endpoint — the Mac composer's only Micropub-write path today (#1566); everything else on Mac
-/// still writes through `NativeContentOperations`. Mirrors `TypedEntryEditorModel`'s injectable
-/// `MicropubClientFactory` shape so both stay unit-testable without a real Keychain/network,
-/// deliberately not sharing an implementation with it (see this repo's CONTRIBUTING.md on
-/// avoiding drive-by refactors of unrelated, already-working code).
+/// still writes through `NativeContentOperations`. Uses ``MicropubSessionResolver`` (the same
+/// resolution `TypedEntryEditorModel`'s CMS-mode save path uses) so both stay unit-testable
+/// without a real Keychain/network.
 struct RestrictedPostPublisher {
-    typealias MicropubClientFactory = @Sendable (_ siteID: String, _ sourceDirectory: URL) async -> MicropubClient?
+    private let makeMicropubClient: MicropubSessionResolver.Factory
 
-    /// Production factory: resolves the session via `StoredMicropubSessions` (Keychain read +
-    /// endpoint re-discovery) and builds a client from it.
-    static func defaultMicropubClientFactory(
-        sessions: StoredMicropubSessions = StoredMicropubSessions()
-    ) -> MicropubClientFactory {
-        { siteID, sourceDirectory in
-            await sessions.session(siteID: siteID, sourceDirectory: sourceDirectory)?.makeClient()
-        }
-    }
-
-    private let makeMicropubClient: MicropubClientFactory
-
-    init(makeMicropubClient: @escaping MicropubClientFactory = RestrictedPostPublisher.defaultMicropubClientFactory()) {
+    init(makeMicropubClient: @escaping MicropubSessionResolver.Factory = MicropubSessionResolver.defaultFactory()) {
         self.makeMicropubClient = makeMicropubClient
     }
 
@@ -788,12 +877,12 @@ struct RestrictedPostPublisher {
 }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [ ] **Step 8: Run the tests to verify they pass**
 
 Run: `swift test --package-path . --filter RestrictedPostPublisherTests`
 Expected: PASS, all 6 tests.
 
-- [ ] **Step 5: Commit**
+- [ ] **Step 9: Commit**
 
 ```bash
 git add Sources/AnglesiteApp/RestrictedPostPublisher.swift \

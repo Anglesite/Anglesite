@@ -108,29 +108,31 @@ branches on `visibility`: `.public` calls the existing `SiteWindowModel.createPo
 maps its `ContentCreateResult` down to `ComposerCreateOutcome`; `.contacts` calls the new method
 below, which already returns `ComposerCreateOutcome` directly.
 
-A new small type, `RestrictedPostPublisher` (new file
-`Sources/AnglesiteApp/RestrictedPostPublisher.swift`), owns both the gating check (§5.1) and the
-create call, so there is exactly one implementation of "resolve this site's Micropub client" on
-the Mac side for restricted posts — mirroring `TypedEntryEditorModel`'s injectable
-`MicropubClientFactory` shape (same typealias/default-factory pattern) so it stays unit-testable
-without a real Keychain/network, without refactoring `TypedEntryEditorModel` itself (out of
-scope — CONTRIBUTING.md's no-drive-by-refactor guidance):
+`TypedEntryEditorModel` already has this exact resolution (its `MicropubClientFactory` typealias
++ `defaultMicropubClientFactory`) for its own CMS-mode save branch. Rather than duplicating it,
+that logic is extracted into a shared `MicropubSessionResolver` enum
+(`Sources/AnglesiteApp/MicropubSessionResolver.swift`) that both `TypedEntryEditorModel` and the
+new `RestrictedPostPublisher` (`Sources/AnglesiteApp/RestrictedPostPublisher.swift`) consume —
+`TypedEntryEditorModel`'s own behavior and tests are unchanged, only its internal implementation
+delegates:
 
 ```swift
-struct RestrictedPostPublisher {
-    typealias MicropubClientFactory = @Sendable (_ siteID: String, _ sourceDirectory: URL) async -> MicropubClient?
+enum MicropubSessionResolver {
+    typealias Factory = @Sendable (_ siteID: String, _ sourceDirectory: URL) async -> MicropubClient?
 
-    static func defaultMicropubClientFactory(
+    static func defaultFactory(
         sessions: StoredMicropubSessions = StoredMicropubSessions()
-    ) -> MicropubClientFactory {
+    ) -> Factory {
         { siteID, sourceDirectory in
             await sessions.session(siteID: siteID, sourceDirectory: sourceDirectory)?.makeClient()
         }
     }
+}
 
-    private let makeMicropubClient: MicropubClientFactory
+struct RestrictedPostPublisher {
+    private let makeMicropubClient: MicropubSessionResolver.Factory
 
-    init(makeMicropubClient: @escaping MicropubClientFactory = RestrictedPostPublisher.defaultMicropubClientFactory()) {
+    init(makeMicropubClient: @escaping MicropubSessionResolver.Factory = MicropubSessionResolver.defaultFactory()) {
         self.makeMicropubClient = makeMicropubClient
     }
 
