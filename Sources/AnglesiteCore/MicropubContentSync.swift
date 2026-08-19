@@ -1,10 +1,5 @@
 // Sources/AnglesiteCore/MicropubContentSync.swift
 import Foundation
-// URLSession/URLRequest/HTTPURLResponse live in FoundationNetworking on non-Darwin
-// platforms (swift-corelibs-foundation); this import is a no-op on macOS.
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 /// Orchestrates #912's "pull Micropub-created posts from D1 and turn each into a typed content
 /// file" step. This file holds the pure URL-parsing and mf2-to-field mapping logic; `pullAndCommit`
@@ -285,27 +280,11 @@ public enum MicropubContentSync {
         else { return 0 }
         guard let token = try? await CloudflareAPICredentials.resolve(secretStore: secretStore), !token.isEmpty
         else { return 0 }
-        guard let accountID = await Self.resolveAccountID(apiToken: token, baseURL: baseURL, transport: transport)
+        guard let accountID = await CloudflareAccountLookup.resolveAccountID(apiToken: token, baseURL: baseURL, transport: transport)
         else { return 0 }
 
         let client = MicropubPostD1Client(
             accountID: accountID, databaseID: databaseID, apiToken: token, baseURL: baseURL, transport: transport)
         return await pullAndCommit(client: client, siteDirectory: siteDirectory, configDirectory: configDirectory)
-    }
-
-    private struct CFAccount: Decodable, Sendable { let id: String }
-    private struct CFEnvelope: Decodable, Sendable { let success: Bool; let result: [CFAccount]? }
-
-    /// Resolves the token's first visible Cloudflare account id — same resolution
-    /// `ReceivedInteractionSync` uses, since a personal Anglesite deployment has exactly one
-    /// Cloudflare account per token.
-    private static func resolveAccountID(apiToken: String, baseURL: String, transport: CloudflareTransport) async -> String? {
-        guard let url = URL(string: "\(baseURL)/accounts?per_page=1") else { return nil }
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
-        guard let (data, http) = try? await transport(request), (200..<300).contains(http.statusCode),
-              let envelope = try? JSONDecoder().decode(CFEnvelope.self, from: data), envelope.success
-        else { return nil }
-        return envelope.result?.first?.id
     }
 }

@@ -170,4 +170,77 @@ final class AppliesEditEndToEndTests {
 
         await mcp.stop()
     }
+
+    @Test(
+        "insertBlock end to end resolves a manifest block and lands it in the page model",
+        .enabled(
+            if: E2EPrerequisites.prerequisitesMet,
+            "requires the sibling Anglesite plugin checkout with a complete install (ANGLESITE_PLUGIN_PATH, or ../anglesite — run `npm install` in the plugin so sharp is present) and a Node ≥22 binary"
+        )
+    )
+    func insertBlockRoundTrip() async throws {
+        let pluginRoot = try #require(E2EPrerequisites.locateSiblingPlugin())
+        let node = try #require(E2EPrerequisites.locateNode())
+        let serverPath = pluginRoot.appendingPathComponent("server/index.mjs")
+
+        // This suite's scratch site (see `init()`) is a minimal synthetic fixture with no
+        // blocks.manifest.json of its own. Give it one real, registered effect block — copied
+        // straight from the committed template — so insertBlock's `manifestBlock` lookup has a
+        // genuine entry to resolve against, matching the real template's registration shape
+        // rather than a fabricated one.
+        let manifestSource = try templateRoot().appendingPathComponent("blocks.manifest.json")
+        let componentSource = try templateRoot()
+            .appendingPathComponent("src/components/effects/ParticleField.astro")
+        let componentDestDir = tmpSite.appendingPathComponent("src/components/effects", isDirectory: true)
+        try FileManager.default.createDirectory(at: componentDestDir, withIntermediateDirectories: true)
+        try FileManager.default.copyItem(
+            at: manifestSource, to: tmpSite.appendingPathComponent("blocks.manifest.json"))
+        try FileManager.default.copyItem(
+            at: componentSource, to: componentDestDir.appendingPathComponent("ParticleField.astro"))
+
+        let supervisor = ProcessSupervisor()
+        let center = LogCenter()
+        let mcp = MCPClient(supervisor: supervisor, logCenter: center)
+        try await mcp.start(
+            executable: node,
+            arguments: [serverPath.path],
+            environment: ["ANGLESITE_PROJECT_ROOT": tmpSite.path],
+            source: "mcp:e2e-insert-block",
+            readyTimeout: 15
+        )
+        defer { Task { await mcp.stop() } }
+
+        let pageModelClient = PageModelClient(mcpClient: { mcp })
+        let model = try await pageModelClient.fetch(path: "src/pages/index.astro")
+
+        // `Self.pageContents` (see `init()`) has no <html>/<body> wrapper, so the tree is rooted
+        // at a synthetic fragment with the <h1>/<p> as direct children. Look for a real <body>
+        // first — matching how `PlacementMatcher` matches on tag — and fall back to the
+        // fragment root, which is what this fixture actually has.
+        let bodyId = model.tree.children.first(where: { $0.tag?.uppercased() == "BODY" })?.id ?? model.tree.id
+
+        let router = MCPApplyEditRouter(mcpClient: { mcp })
+        let edit = ComponentStructureEditBuilder.insertBlock(
+            id: "e2e-insert-block-1",
+            path: "src/pages/index.astro",
+            baseVersion: model.version,
+            parentId: bodyId,
+            index: model.tree.children.count,
+            manifestBlock: "Particle Field"
+        )
+        let reply = await router.apply(edit)
+        #expect(
+            reply.status == .applied,
+            "expected insertBlock to succeed; router message: \(reply.message ?? "nil")"
+        )
+
+        // Re-fetch: the model version must have moved, and the new node must show up annotated
+        // against the manifest entry we registered above (proof the block actually resolved, not
+        // just that some component tag landed).
+        let after = try await pageModelClient.fetch(path: "src/pages/index.astro")
+        #expect(after.version != model.version)
+        #expect(after.tree.children.contains { $0.block?.name == "Particle Field" })
+
+        await mcp.stop()
+    }
 }

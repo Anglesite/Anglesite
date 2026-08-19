@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Cursor Glow</title>
+<style>body{margin:0;position:relative;min-height:100vh;display:grid;place-items:center;
+font-family:-apple-system,system-ui,sans-serif;background:Canvas;color:CanvasText;color-scheme:light dark}</style>
+<style>
+  .cursor-glow-root {
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2147483646;
+    overflow: hidden;
+  }
+  .cursor-glow-dot {
+    position: fixed;
+    width: 240px;
+    height: 240px;
+    border-radius: 50%;
+    background: radial-gradient(circle, var(--cursor-glow-color, rgba(124, 58, 237, 0.35)), transparent 70%);
+    transform: translate(-50%, -50%);
+    transition: left 0.12s ease-out, top 0.12s ease-out;
+  }
+</style>
+</head><body>
+<div class="cursor-glow-root" data-color="rgba(124, 58, 237, 0.35)" data-astro-cid-jf42h2xn><div class="cursor-glow-dot" data-astro-cid-jf42h2xn></div></div>
+<script>const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const canHover = matchMedia("(hover: hover) and (pointer: fine)").matches;
+if (!reduceMotion && canHover) {
+    document.querySelectorAll(".cursor-glow-root").forEach((root) => {
+        const dot = root.querySelector(".cursor-glow-dot");
+        if (!dot)
+            return;
+        dot.style.setProperty("--cursor-glow-color", root.dataset.color ?? "rgba(124, 58, 237, 0.35)");
+        addEventListener("pointermove", (ev) => {
+            dot.style.left = `${ev.clientX}px`;
+            dot.style.top = `${ev.clientY}px`;
+        }, { passive: true });
+    });
+}
+</script>
+</body></html>

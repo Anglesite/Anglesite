@@ -169,10 +169,21 @@ public struct DomainConfig: Equatable, Sendable {
     public struct Email: Codable, Equatable, Sendable {
         public var provider: String?
         public var dmarcReportEmail: String?
+        /// The owner's email address for `/inbox` forwarding (#1570, `WorkerComposition`'s
+        /// `inboxForwardEmail`) — deliberately a separate field from `dmarcReportEmail` rather
+        /// than reusing it: a DMARC aggregate-report mailbox is often monitored differently
+        /// (automated tooling, a different person) than where the owner wants forwarded visitor
+        /// contact messages to land, and defaulting one from the other would be a silent
+        /// behavior change for any site that already had `dmarcReportEmail` set for its original
+        /// purpose. `nil` (the default) means "no forwarding configured" even when
+        /// `dmarcReportEmail` is set — `PlistEditorModel.saveInboxForwardEmail` is the only
+        /// writer, so forwarding only ever turns on when the owner explicitly opts in.
+        public var inboxForwardAddress: String?
 
-        public init(provider: String? = nil, dmarcReportEmail: String? = nil) {
+        public init(provider: String? = nil, dmarcReportEmail: String? = nil, inboxForwardAddress: String? = nil) {
             self.provider = provider
             self.dmarcReportEmail = dmarcReportEmail
+            self.inboxForwardAddress = inboxForwardAddress
         }
     }
 

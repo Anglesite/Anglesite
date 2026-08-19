@@ -8,7 +8,7 @@ import AnglesiteCore
 /// `DispatchResult` describing what to do next — the adapter's only remaining job is shuttling
 /// bytes in and out of its native webview API.
 ///
-/// Four message types ride this bridge:
+/// Five message types ride this bridge:
 ///
 /// 1. `anglesite:apply-edit` (an `EditMessage`) — routed through the injected `EditRouter`; the
 ///    adapter delivers the reply back to the page (e.g. `window.anglesite?._handleReply?.(...)`
@@ -22,6 +22,8 @@ import AnglesiteCore
 ///    `onComputedStyles` callback, posted alongside a canvas selection. No reply.
 /// 5. anglesite:pick-placement (a PlacementPickMessage) — dispatched to the optional
 ///    onPlacementPick callback. No reply.
+/// 6. anglesite:pick-goal-element (a GoalElementPickMessage) — dispatched to the optional
+///    onGoalElementPick callback. No reply.
 public enum AnglesiteMessageDispatcher {
     /// Receives the decoded elements of an `anglesite:visible-elements` report (message type 2
     /// above). Async so implementations can hop to their model's actor; no reply flows back.
@@ -32,6 +34,8 @@ public enum AnglesiteMessageDispatcher {
     public typealias ComputedStylesHandler = @Sendable (ComputedStylesReport) async -> Void
     /// Receives a decoded `anglesite:pick-placement` message (message type 5 above).
     public typealias PlacementPickHandler = @Sendable (PlacementPickMessage) async -> Void
+    /// Receives a decoded `anglesite:pick-goal-element` message (message type 6 above).
+    public typealias GoalElementPickHandler = @Sendable (GoalElementPickMessage) async -> Void
 
     /// The `WKUserContentController`/`WebKitUserContentManager`/WebView2 script-message name
     /// every platform adapter registers its handler under — the JS overlay posts messages here
@@ -60,6 +64,10 @@ public enum AnglesiteMessageDispatcher {
         case placementPickHandled
         /// `anglesite:pick-placement` arrived but no `onPlacementPick` handler is installed.
         case placementPickDropped
+        /// `anglesite:pick-goal-element` was forwarded to the optional handler.
+        case goalElementPickHandled
+        /// `anglesite:pick-goal-element` arrived but no `onGoalElementPick` handler is installed.
+        case goalElementPickDropped
         /// Body was undecodable. Log and move on.
         case rejected(RejectionReason)
 
@@ -85,6 +93,8 @@ public enum AnglesiteMessageDispatcher {
             case computedStylesDecode(ComponentCanvasDecodeError)
             /// `anglesite:pick-placement` matched but the payload failed to decode.
             case placementPickDecode(ComponentCanvasDecodeError)
+            /// `anglesite:pick-goal-element` matched but the payload failed to decode.
+            case goalElementPickDecode(ComponentCanvasDecodeError)
         }
     }
 
@@ -96,7 +106,8 @@ public enum AnglesiteMessageDispatcher {
         onVisibleElements: VisibleElementsHandler? = nil,
         onCanvasSelection: CanvasSelectionHandler? = nil,
         onComputedStyles: ComputedStylesHandler? = nil,
-        onPlacementPick: PlacementPickHandler? = nil
+        onPlacementPick: PlacementPickHandler? = nil,
+        onGoalElementPick: GoalElementPickHandler? = nil
     ) async -> DispatchResult {
         guard let dict = body as? [String: Any] else { return .rejected(.notAnObject) }
         guard let rawType = dict["type"] else { return .rejected(.missingType) }
@@ -150,6 +161,16 @@ public enum AnglesiteMessageDispatcher {
                 return .placementPickHandled
             case .failure(let error):
                 return .rejected(.placementPickDecode(error))
+            }
+
+        case GoalElementPickMessage.messageType:
+            switch GoalElementPickMessage.decode(from: body) {
+            case .success(let message):
+                guard let handler = onGoalElementPick else { return .goalElementPickDropped }
+                await handler(message)
+                return .goalElementPickHandled
+            case .failure(let error):
+                return .rejected(.goalElementPickDecode(error))
             }
 
         default:

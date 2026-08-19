@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Reveal Mask</title>
+<style>body{margin:0;position:relative;min-height:100vh;display:grid;place-items:center;
+font-family:-apple-system,system-ui,sans-serif;background:Canvas;color:CanvasText;color-scheme:light dark}</style>
+<style>
+  .reveal-mask {
+    clip-path: inset(0 100% 0 0);
+    transition: clip-path 0.6s ease-out;
+  }
+  .reveal-mask.is-revealed {
+    clip-path: inset(0 0 0 0);
+  }
+</style>
+</head><body>
+<div class="reveal-mask" data-astro-cid-dsvxmxbs>Sample content that reveals as you scroll.</div>
+<script>const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+document.querySelectorAll(".reveal-mask").forEach((el) => {
+    if (reduceMotion) {
+        el.classList.add("is-revealed");
+        return;
+    }
+    const observer = new IntersectionObserver((entries, obs) => {
+        for (const entry of entries) {
+            if (entry.isIntersecting) {
+                el.classList.add("is-revealed");
+                obs.unobserve(el);
+            }
+        }
+    }, { threshold: 0.2 });
+    observer.observe(el);
+});
+</script>
+</body></html>
