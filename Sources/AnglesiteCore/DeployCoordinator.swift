@@ -467,11 +467,11 @@ public enum DeployCoordinator {
         /// frontmatter a backfill pass might otherwise read stale. Best-effort and never throws,
         /// like every other step here. Callers without ActivityPub provisioned pass a no-op.
         backfillActivityPubOutbox: () async -> Void = {},
-        /// Contacts allowlist push (#1567): overwrites the Worker's `SOCIAL_KV` `contacts:allowlist`
-        /// key with the site's current known me-URLs. Ordered last — unrelated to every other
-        /// pass here, and (unlike the others) it's a reconcile that only needs to run once per
-        /// deploy, not depend on anything the earlier passes produced. Best-effort and never
-        /// throws, like every other step here. Callers without contacts configured pass a no-op.
+        /// Contacts allowlist push (#1567): pushes the site's current known me-URLs to their
+        /// remote store. Ordered last — unrelated to every other pass here, and (unlike the
+        /// others) it's a reconcile that only needs to run once per deploy, not depend on
+        /// anything the earlier passes produced. Best-effort and never throws, like every other
+        /// step here. Callers without contacts configured pass a no-op.
         pushContactsAllowlist: () async -> Void = {}
     ) async {
         onMilestone(.deployWebmentions)

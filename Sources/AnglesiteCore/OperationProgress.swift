@@ -78,8 +78,8 @@ public extension OperationProgress {
     static let deployBackfillingActivityPub = OperationProgress(
         kind: .deploy, phase: "activityPubBackfill", label: "Backfilling ActivityPub outbox…"
     )
-    /// Post-deploy: pushing the contact allowlist (me-URLs) to the Worker's `SOCIAL_KV` store
-    /// (#1567) — the future authenticated-read gate's data source.
+    /// Post-deploy: pushing the contact allowlist (me-URLs) to the future authenticated-read
+    /// gate's backing store (#1567).
     static let deployPushingContactsAllowlist = OperationProgress(
         kind: .deploy, phase: "contactsAllowlistPush", label: "Syncing contacts allowlist…"
     )
