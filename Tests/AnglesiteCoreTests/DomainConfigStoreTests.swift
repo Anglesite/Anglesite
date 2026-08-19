@@ -275,4 +275,22 @@ struct DomainConfigStoreTests {
         let experiments = raw?["experiments"] as? [String: Any]
         #expect(experiments?["futureField"] as? String == "x")
     }
+
+    @Test("save then load round-trips a config with experimental.mcp")
+    func saveLoadRoundTripsExperimentalMcp() throws {
+        let dir = try tempSourceDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = DomainConfigStore(sourceDirectory: dir)
+        let config = DomainConfig(experimental: .init(mcp: true))
+        try store.save(config)
+        #expect(try store.load() == config)
+    }
+
+    @Test("experimental section is nil by default")
+    func experimentalNilByDefault() throws {
+        let dir = try tempSourceDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let store = DomainConfigStore(sourceDirectory: dir)
+        #expect(try store.load().experimental == nil)
+    }
 }
