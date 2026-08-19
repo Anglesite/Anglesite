@@ -53,6 +53,14 @@ const DIST_DIR = join(process.cwd(), "dist");
 const HEADERS_FILE = join(DIST_DIR, "_headers");
 const CONFIG_FILE = join(process.cwd(), ".site-config");
 const ANGLESITE_CONFIG_FILE = join(process.cwd(), "anglesite.json");
+const SOURCE_CONTENT_DIR = join(process.cwd(), "src", "content");
+
+// The restricted-posting epic's audience tier (#963 §2.2): a `visibility: contacts` value on
+// Micropub's `visibility` mf2 property. Matches whether the value shows up YAML-style (Source/
+// frontmatter), JSON-string-style, or as a JSON mf2 property array (`"visibility":["contacts"]`,
+// the exact shape `MicropubPost.entry` stamps and `dist/` could echo back if a post-family JSON
+// export ever serialized raw properties).
+const RESTRICTED_VISIBILITY_PATTERN = /"?visibility"?\s*:\s*(\[\s*)?"?contacts"?/i;
 
 const PII_PATTERNS = [
   { name: "email", pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g },
@@ -699,6 +707,40 @@ export function checkAnglesiteConfig(raw: string | null): Issue[] {
   return [];
 }
 
+/**
+ * Defense-in-depth backstop for the composer-only restricted-posting design (#963 §2.1, #1569): a
+ * `visibility: contacts` post publishes straight into the Worker's D1 store via Micropub and must
+ * never be written to `Source/` as content-collection frontmatter. This isn't the enforcement
+ * mechanism — the composer never offers to write it there — it's a check that fires if a future
+ * regression, sync bug, or manual edit did.
+ */
+export function checkNoRestrictedContentInSource(relPath: string, content: string): Issue[] {
+  if (!RESTRICTED_VISIBILITY_PATTERN.test(content)) return [];
+  return [{
+    severity: "error",
+    category: "restricted-content-in-source",
+    message: 'Restricted (visibility: contacts) content found in Source/ — restricted posts must publish via Micropub straight to the Worker, never as Source/ content.',
+    file: relPath,
+    remediation: "Remove the restricted content from Source/; it belongs in the Worker's D1 post store, not the git-canonical site.",
+  }];
+}
+
+/**
+ * Same backstop as `checkNoRestrictedContentInSource`, for the built `dist/` output: restricted
+ * content must never reach the static build, since it's served exclusively through the Worker's
+ * IndieAuth read gate (#1568), never the CDN-served static site.
+ */
+export function checkNoRestrictedContentInDist(relPath: string, content: string): Issue[] {
+  if (!RESTRICTED_VISIBILITY_PATTERN.test(content)) return [];
+  return [{
+    severity: "error",
+    category: "restricted-content-in-dist",
+    message: 'Restricted (visibility: contacts) content found in the built dist/ output — it must be served only through the Worker\'s read gate, never the static build.',
+    file: relPath,
+    remediation: "Rebuild after removing the restricted content from Source/, and check for a regression in the composer/Micropub-to-D1 publish path.",
+  }];
+}
+
 const EXPERIMENT_ID_PATTERN = /^[A-Za-z0-9-]+$/;
 const KNOWN_GOAL_KINDS = new Set(["pageview", "route", "scroll", "visible"]);
 const CLIENT_GOAL_KINDS = new Set(["scroll", "visible"]);
@@ -1120,6 +1162,16 @@ async function scan(): Promise<Issue[]> {
   issues.push(...checkAnglesiteConfig(anglesiteConfigContent));
 
   try {
+    for await (const file of walk(SOURCE_CONTENT_DIR)) {
+      if (!/\.(md|mdx|json)$/i.test(file)) continue;
+      const content = await readFile(file, "utf-8");
+      issues.push(...checkNoRestrictedContentInSource(relative(process.cwd(), file), content));
+    }
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
+
+  try {
     await stat(DIST_DIR);
   } catch {
     issues.push({ severity: "warning", category: "missing-security-artifact", message: "No dist/ directory found — nothing to scan." });
@@ -1183,6 +1235,7 @@ async function scan(): Promise<Issue[]> {
     relPaths.push(rel);
 
     issues.push(...checkPII(content, rel));
+    issues.push(...checkNoRestrictedContentInDist(rel, content));
 
     const isHtmlOrCss = /\.(html?|css)$/i.test(file);
     if (controlDistPath !== null && rel === controlDistPath) controlHtmlContent = content;

@@ -53,7 +53,7 @@ struct PreDeployCheckTests {
         #expect(failures[0].remediation?.contains("PII_EMAIL_ALLOW") == true)
     }
 
-    @Test("Parses all nine concrete failure categories") func parsesAllNineConcreteFailureCategories() async {
+    @Test("Parses all eleven concrete failure categories") func parsesAllElevenConcreteFailureCategories() async {
         let json = """
         {
           "version": 1,
@@ -67,7 +67,9 @@ struct PreDeployCheckTests {
             {"category": "keystatic-route", "message": "m", "file": "a", "remediation": "r"},
             {"category": "csp-misconfigured", "message": "m", "file": "a", "remediation": "r"},
             {"category": "embed-media-hotlink", "message": "m", "file": "a", "remediation": "r"},
-            {"category": "anglesite-config-invalid", "message": "m", "file": "a", "remediation": "r"}
+            {"category": "anglesite-config-invalid", "message": "m", "file": "a", "remediation": "r"},
+            {"category": "restricted-content-in-source", "message": "m", "file": "a", "remediation": "r"},
+            {"category": "restricted-content-in-dist", "message": "m", "file": "a", "remediation": "r"}
           ],
           "warnings": []
         }
@@ -84,7 +86,7 @@ struct PreDeployCheckTests {
         #expect(
             Set(failures.map(\.category)) == Set([
                 .piiEmail, .piiPhone, .piiSSN, .exposedToken, .thirdPartyScript, .keystaticRoute, .cspMisconfigured,
-                .embedMediaHotlink, .anglesiteConfigInvalid,
+                .embedMediaHotlink, .anglesiteConfigInvalid, .restrictedContentInSource, .restrictedContentInDist,
             ])
         )
     }
