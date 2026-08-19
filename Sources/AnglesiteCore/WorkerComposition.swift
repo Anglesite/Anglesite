@@ -519,7 +519,12 @@ public enum WorkerComposition {
             lines.append("crons = [\(list)]")
         }
 
-        if workers.contains(where: { $0.resources.needsKV }) {
+        // #1576: a plain-blog site with only `experimental.mcp` on has no `needsKV`-flagged
+        // worker active, but `worker/mcp-server.ts`'s rate limiter still needs SOCIAL_KV bound —
+        // `SocialWorkerProvisionCommand.provision` already gates *creating* the namespace on
+        // `mcpEnabled` too (its own `needsKV || mcpEnabled` check), so this TOML-emission gate
+        // must match or the namespace gets created but never bound into the deployed Worker.
+        if workers.contains(where: { $0.resources.needsKV }) || mcpEnabled {
             lines.append("")
             lines.append("[[kv_namespaces]]")
             lines.append("binding = \"SOCIAL_KV\"")
