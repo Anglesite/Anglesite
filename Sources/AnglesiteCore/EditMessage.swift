@@ -56,6 +56,19 @@ public struct EditMessage: Sendable, Equatable {
         /// import at `{parentId, index}`, resolved server-side by owner-facing name. Carries a
         /// `component` payload with `manifestBlock` instead of `node`.
         public static let insertBlock = "insertBlock"
+        /// `"moveBlock"` — reparent/reorder an existing node (WYSIWYG editor). Carries a
+        /// `component` payload.
+        public static let moveBlock = "moveBlock"
+        /// `"deleteBlock"` — delete a node and its subtree (WYSIWYG editor). Carries a
+        /// `component` payload.
+        public static let deleteBlock = "deleteBlock"
+        /// `"editText"` — replace a text node's rich-text runs (WYSIWYG editor honest-runs
+        /// inline editing). Carries a `component` payload.
+        public static let editText = "editText"
+        /// `"setDesignToken"` — patch a CSS custom property in `global.css`'s light `:root`
+        /// block (WYSIWYG editor). Carries a `component` payload; `path` is always
+        /// `"src/styles/global.css"` — the sidecar hardcodes and validates that target.
+        public static let setDesignToken = "setDesignToken"
         /// `"move-node"` — Component Editor: reorder/reparent an existing node. Carries a
         /// `component` payload.
         public static let moveNode = "move-node"

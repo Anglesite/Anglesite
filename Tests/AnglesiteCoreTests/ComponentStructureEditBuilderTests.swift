@@ -111,3 +111,75 @@ import Testing
         #expect(component["node"] == nil)
     }
 }
+
+@Suite("ComponentStructureEditBuilder — WYSIWYG ops")
+struct ComponentStructureEditBuilderWYSIWYGTests {
+    @Test func moveBlockBuildsWireShape() {
+        let message = ComponentStructureEditBuilder.moveBlock(
+            id: "req-1", path: "src/pages/index.astro", baseVersion: "sha256:abc123def456",
+            nodeId: "n5", newParentId: "n2", newIndex: 0)
+        #expect(message.op == "moveBlock")
+        #expect(message.path == "src/pages/index.astro")
+        guard case .object(let component)? = message.component else {
+            Issue.record("expected component object"); return
+        }
+        #expect(component["nodeId"] == .string("n5"))
+        #expect(component["newParentId"] == .string("n2"))
+        #expect(component["newIndex"] == .int(0))
+        #expect(component["baseVersion"] == .string("sha256:abc123def456"))
+    }
+
+    @Test func deleteBlockBuildsWireShape() {
+        let message = ComponentStructureEditBuilder.deleteBlock(
+            id: "req-2", path: "src/pages/index.astro", baseVersion: "sha256:abc123def456", nodeId: "n5")
+        #expect(message.op == "deleteBlock")
+        guard case .object(let component)? = message.component else {
+            Issue.record("expected component object"); return
+        }
+        #expect(component["nodeId"] == .string("n5"))
+        #expect(component.count == 3) // path, baseVersion, nodeId — no extras
+    }
+
+    @Test func editTextBuildsWireShape() {
+        let runs = [RichTextRun(kind: .text, text: "Hi ", href: nil), RichTextRun(kind: .strong, text: "there", href: nil)]
+        let message = ComponentStructureEditBuilder.editText(
+            id: "req-3", path: "src/pages/index.astro", baseVersion: "sha256:abc123def456",
+            textNodeId: "n5", runs: runs)
+        #expect(message.op == "editText")
+        guard case .object(let component)? = message.component else {
+            Issue.record("expected component object"); return
+        }
+        #expect(component["textNodeId"] == .string("n5"))
+        guard case .array(let wireRuns)? = component["runs"] else {
+            Issue.record("expected runs array"); return
+        }
+        #expect(wireRuns.count == 2)
+    }
+
+    @Test func setDesignTokenBuildsWireShape() {
+        let message = ComponentStructureEditBuilder.setDesignToken(
+            id: "req-4", path: "src/styles/global.css", baseVersion: "sha256:abc123def456",
+            token: "--color-primary", tokenValue: "#111111")
+        #expect(message.op == "setDesignToken")
+        guard case .object(let component)? = message.component else {
+            Issue.record("expected component object"); return
+        }
+        #expect(component["token"] == JSONValue.string("--color-primary"))
+        #expect(component["tokenValue"] == JSONValue.string("#111111"))
+    }
+
+    @Test func insertBlockNodeBuildsWireShapeForRawMarkup() {
+        let message = ComponentStructureEditBuilder.insertBlockNode(
+            id: "req-5", path: "src/pages/index.astro", baseVersion: "sha256:abc123def456",
+            parentId: "n2", index: 1, node: .raw(markup: "<p id=\"gone\">b</p>"))
+        #expect(message.op == "insertBlock")
+        guard case .object(let component)? = message.component else {
+            Issue.record("expected component object"); return
+        }
+        guard case .object(let node)? = component["node"] else {
+            Issue.record("expected node object"); return
+        }
+        #expect(node["kind"] == JSONValue.string("raw"))
+        #expect(node["markup"] == JSONValue.string("<p id=\"gone\">b</p>"))
+    }
+}
