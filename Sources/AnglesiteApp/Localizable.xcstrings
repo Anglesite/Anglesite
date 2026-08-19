@@ -367,6 +367,12 @@
     "Add Agent…" : {
 
     },
+    "Add Contact" : {
+
+    },
+    "Add Contact…" : {
+
+    },
     "Add DNS Records" : {
 
     },
@@ -428,6 +434,9 @@
 
     },
     "Add page ${name} to ${site}" : {
+
+    },
+    "Add people you know by their website address, or scan Contacts to find people you already follow." : {
 
     },
     "Add post ${title2} to ${site}" : {
@@ -512,6 +521,9 @@
 
     },
     "Analyze ${experimentName}" : {
+
+    },
+    "Analyze Manually" : {
 
     },
     "Anglesite Debug" : {
@@ -964,6 +976,9 @@
     "Choose an image to insert into this page." : {
 
     },
+    "Choose in the preview" : {
+
+    },
     "Choose where to save the local .anglesite file." : {
 
     },
@@ -998,6 +1013,9 @@
 
     },
     "Click Recheck to run the pre-deploy scan against this site." : {
+
+    },
+    "Click the element in the preview…" : {
 
     },
     "Click to select the nearest node" : {
@@ -1150,58 +1168,10 @@
     "Contacts" : {
 
     },
-    "Contacts…" : {
-
-    },
     "Contacts access wasn't granted." : {
 
     },
-    "Couldn't read your contacts" : {
-
-    },
-    "Couldn't scan Contacts" : {
-
-    },
-    "Find in Contacts…" : {
-
-    },
-    "Add Contact" : {
-
-    },
-    "Add Contact…" : {
-
-    },
-    "Edit Contact" : {
-
-    },
-    "No contacts yet" : {
-
-    },
-    "Open System Settings" : {
-
-    },
-    "Suggestions" : {
-
-    },
-    "Website (e.g. https://example.com)" : {
-
-    },
-    "^[%lld contact](inflect: true)" : {
-
-    },
-    "Use “%@” from Contacts for %@?" : {
-
-    },
-    "“%@” matches a follower — add as a contact?" : {
-
-    },
-    "Add people you know by their website address, or scan Contacts to find people you already follow." : {
-
-    },
-    "The contacts file may be damaged. Back it up, then remove Config/contacts.json to start fresh." : {
-
-    },
-    "Couldn't save your change" : {
+    "Contacts…" : {
 
     },
     "Contains slot-fill content — double-click to edit %@" : {
@@ -1338,6 +1308,9 @@
     "Couldn't read your Cloudflare API token: %@" : {
 
     },
+    "Couldn't read your contacts" : {
+
+    },
     "Couldn't run the check" : {
 
     },
@@ -1351,6 +1324,12 @@
 
     },
     "Couldn't save this change: %@" : {
+
+    },
+    "Couldn't save your change" : {
+
+    },
+    "Couldn't scan Contacts" : {
 
     },
     "Couldn't update this file — see the debug log for details." : {
@@ -1369,6 +1348,9 @@
 
     },
     "Create one with **Add Site → Create new site…**, or use **Add Site → Import existing site…** to add an existing `.anglesite` package." : {
+
+    },
+    "Create the variant page" : {
 
     },
     "Creating…" : {
@@ -1569,6 +1551,9 @@
     "ESI Fragments" : {
 
     },
+    "Edit Contact" : {
+
+    },
     "Edit Footer" : {
 
     },
@@ -1579,6 +1564,9 @@
 
     },
     "Edit and re-analyze" : {
+
+    },
+    "Edit its content from the page editor, then choose what counts as a win below." : {
 
     },
     "Editing" : {
@@ -1633,6 +1621,9 @@
 
     },
     "Enforce" : {
+
+    },
+    "Enter a valid email address." : {
 
     },
     "Enter a valid mail domain and at least one MX host to prepare the DNS records." : {
@@ -1776,6 +1767,9 @@
     "Find a community by keyword" : {
 
     },
+    "Find in Contacts…" : {
+
+    },
     "Find on local network" : {
 
     },
@@ -1828,6 +1822,9 @@
 
     },
     "Forward to Anglesite" : {
+
+    },
+    "Forward to email" : {
 
     },
     "Free during open beta: 100 instances, 20,000 queries/month, 500 crawled pages/day. Reader queries run on Cloudflare's AI models — beyond free limits, usage is billed by Cloudflare." : {
@@ -2176,6 +2173,12 @@
     "Link Post" : {
 
     },
+    "Linked to a Fediverse follower" : {
+
+    },
+    "Linked to a followed feed" : {
+
+    },
     "List" : {
 
     },
@@ -2410,6 +2413,9 @@
     "No component usage learned yet." : {
 
     },
+    "No contacts yet" : {
+
+    },
     "No content collections found." : {
 
     },
@@ -2611,6 +2617,9 @@
     "Open Source Acknowledgments…" : {
 
     },
+    "Open System Settings" : {
+
+    },
     "Open Website Anyway" : {
 
     },
@@ -2665,7 +2674,13 @@
     "Optional" : {
 
     },
+    "Optional — also sends each submission to this address by email. Leave blank to keep captures git-only." : {
+
+    },
     "Optional: tls-reports@example.com" : {
+
+    },
+    "Or describe your own idea" : {
 
     },
     "Ordered" : {
@@ -2690,6 +2705,9 @@
 
     },
     "Page" : {
+
+    },
+    "Page (e.g. /contact/thanks/)" : {
 
     },
     "Pages" : {
@@ -3297,6 +3315,9 @@
     "Script" : {
 
     },
+    "Scroll depth" : {
+
+    },
     "Search" : {
 
     },
@@ -3633,6 +3654,18 @@
     "Start a design interview for ${site}" : {
 
     },
+    "Start with this idea" : {
+
+    },
+    "Start your test" : {
+
+    },
+    "Started" : {
+
+    },
+    "Starting your test…" : {
+
+    },
     "Starting…" : {
 
     },
@@ -3694,6 +3727,9 @@
     "Suggested fix: %@" : {
 
     },
+    "Suggestions" : {
+
+    },
     "Summarizing…" : {
 
     },
@@ -3749,6 +3785,9 @@
 
     },
     "The build produced no output." : {
+
+    },
+    "The contacts file may be damaged. Back it up, then remove Config/contacts.json to start fresh." : {
 
     },
     "The domain must be managed in Cloudflare. Your API token needs Zone DNS Edit, Zone Settings Edit, and WAF Edit permissions." : {
@@ -4001,6 +4040,9 @@
     "Upload Logo…" : {
 
     },
+    "Use %lld%% scrolled" : {
+
+    },
     "Use MX Records from DNS" : {
 
     },
@@ -4025,6 +4067,12 @@
     "Use this domain as your Bluesky handle" : {
 
     },
+    "Use this page" : {
+
+    },
+    "Use “%@” from Contacts for %@?" : {
+
+    },
     "Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write and Administration: Read and write access (Administration is needed to create a new repo when publishing) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs." : {
 
     },
@@ -4038,6 +4086,9 @@
 
     },
     "Valid" : {
+
+    },
+    "Variant page" : {
 
     },
     "Variant rate" : {
@@ -4097,6 +4148,9 @@
     "Website" : {
 
     },
+    "Website (e.g. https://example.com)" : {
+
+    },
     "Website Settings…" : {
 
     },
@@ -4115,10 +4169,19 @@
     "What are you selling?" : {
 
     },
+    "What are you testing?" : {
+
+    },
     "What are you testing? (optional)" : {
 
     },
+    "What counts as a win?" : {
+
+    },
     "What kind of website are you creating?" : {
+
+    },
+    "What should we test?" : {
 
     },
     "What this website is about, in a sentence" : {
@@ -4202,6 +4265,9 @@
     "Your site's existing search (Pagefind) keeps working for free either way — AI Search's conversational answers are an opt-in upgrade above it, not a replacement." : {
 
     },
+    "Your test is live. Visitors will see one version or the other; I'll tell you when there's a clear answer." : {
+
+    },
     "Your website was created with warnings. You can open it anyway and fix it from the website window." : {
 
     },
@@ -4215,6 +4281,9 @@
 
     },
     "Zoom Out" : {
+
+    },
+    "^[%lld contact](inflect: true)" : {
 
     },
     "claude-code-acp" : {
@@ -4344,6 +4413,12 @@
           }
         }
       }
+    },
+    "“%@” is your live test right now. Wait for it to finish before starting a new one." : {
+
+    },
+    "“%@” matches a follower — add as a contact?" : {
+
     },
     "“%@” → “%@”" : {
       "localizations" : {

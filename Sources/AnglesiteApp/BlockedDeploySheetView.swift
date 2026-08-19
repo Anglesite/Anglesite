@@ -105,6 +105,7 @@ private struct FailureCard: View {
         case .embedMediaHotlink: return "photo.badge.exclamationmark"
         case .wellKnownCollision: return "exclamationmark.lock"
         case .anglesiteConfigInvalid: return "doc.badge.gearshape"
+        case .restrictedContentInSource, .restrictedContentInDist: return "lock.trianglebadge.exclamationmark"
         case .other: return "exclamationmark.triangle"
         }
     }
@@ -121,6 +122,8 @@ private struct FailureCard: View {
         case .embedMediaHotlink: return "Hotlinked embed media"
         case .wellKnownCollision: return "/.well-known/ collision"
         case .anglesiteConfigInvalid: return "anglesite.json invalid"
+        case .restrictedContentInSource: return "Restricted content in Source/"
+        case .restrictedContentInDist: return "Restricted content in dist/"
         case .other: return "Other"
         }
     }

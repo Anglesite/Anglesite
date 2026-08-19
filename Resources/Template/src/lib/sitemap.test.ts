@@ -1,6 +1,12 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildSitemapUrls, lastmodFor, renderSitemap, routePathForPage } from "./sitemap.ts";
+import {
+  buildSitemapUrls,
+  excludeNoindexed,
+  lastmodFor,
+  renderSitemap,
+  routePathForPage,
+} from "./sitemap.ts";
 
 const SITE = "https://example.com";
 
@@ -102,4 +108,20 @@ test("lastmodFor coerces a string date", () => {
 test("lastmodFor returns undefined when there is no usable date", () => {
   assert.equal(lastmodFor({}), undefined);
   assert.equal(lastmodFor({ publishDate: "not a date" }), undefined);
+});
+
+test("excludeNoindexed drops a path with a matching noindex robots-config entry", () => {
+  const paths = ["/", "/about/", "/x/homepage-hero/b/"];
+  const result = excludeNoindexed(paths, [{ path: "/x/homepage-hero/b/" }]);
+  assert.deepEqual(result, ["/", "/about/"]);
+});
+
+test("excludeNoindexed matches a path and a noindex entry even when their trailing slash disagrees", () => {
+  assert.deepEqual(excludeNoindexed(["/about/"], [{ path: "/about" }]), []);
+  assert.deepEqual(excludeNoindexed(["/about"], [{ path: "/about/" }]), []);
+});
+
+test("excludeNoindexed keeps every path when there are no noindex entries", () => {
+  const paths = ["/", "/about/"];
+  assert.deepEqual(excludeNoindexed(paths, []), paths);
 });

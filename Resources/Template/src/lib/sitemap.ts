@@ -6,6 +6,7 @@
  * `<lastmod>` is what tells it which of those pages changed since its last visit.
  */
 import { escapeXml } from "./feeds.ts";
+import type { RobotsConfigEntry } from "./robots-config.ts";
 
 export interface SitemapUrl {
   /** Absolute URL of the page. */
@@ -36,6 +37,24 @@ export function routePathForPage(file: string): string | undefined {
   if (withoutExtension === "404") return undefined;
   const path = withoutExtension.replace(/(^|\/)index$/, "").replace(/\/$/, "");
   return path === "" ? "/" : `/${path}/`;
+}
+
+/** Adds a trailing slash when `path` lacks one, so a route and a robots-config entry compare
+ *  equal regardless of which convention each happened to be written in. */
+function withTrailingSlash(path: string): string {
+  return path.endsWith("/") ? path : `${path}/`;
+}
+
+/**
+ * `paths` with every route excluded that has a matching `noindex` entry in
+ * `src/data/robots-config.json` — the general mechanism behind #1518 slice 5's gate requirement
+ * that a scaffolded A/B-test variant page never appear in the sitemap. Nothing here is
+ * experiment-specific: a noindexed page belongs in neither search results nor the sitemap that
+ * feeds them, whatever put it there.
+ */
+export function excludeNoindexed(paths: string[], noindex: RobotsConfigEntry[]): string[] {
+  const noindexed = new Set(noindex.map((entry) => withTrailingSlash(entry.path)));
+  return paths.filter((path) => !noindexed.has(withTrailingSlash(path)));
 }
 
 /**

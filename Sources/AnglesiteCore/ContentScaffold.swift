@@ -56,8 +56,39 @@ public enum ContentScaffold {
 
     /// Where a scaffolded page lands, relative to the site root: `/about` →
     /// `src/pages/about.astro`. Expects a route already through ``normalizeRoute(_:)``.
+    ///
+    /// The argument is a *file-path* route (no trailing slash), not the served route
+    /// ``servedRoute(_:)`` produces — a trailing slash here would yield `src/pages/about/.astro`.
     public static func pageRelativePath(normalizedRoute: String) -> String {
         "src/pages" + normalizedRoute + ".astro"
+    }
+
+    /// The trailing-slash *served* form of a page route: `/about` → `/about/`, `/` → `/`.
+    ///
+    /// The template builds pages in Astro's directory format, so a page route's runtime request
+    /// path always carries a trailing slash: it is what `Astro.url.pathname` reports at render
+    /// time, what `src/lib/sitemap.ts` emits, and what `worker.ts`/`BaseLayout.astro` match a
+    /// stored path against *exactly*. `scripts/pre-deploy-check.ts` enforces the same shape on
+    /// every `experiments.active` entry's `page`, `variant.page`, and pageview-goal `path`
+    /// (`experimentPathProblem(_, { requireTrailingSlash: true })`), for draft and running entries
+    /// alike — so a slash-less route written into `anglesite.json` fails the gate and blocks every
+    /// subsequent deploy of the site, not just the experiment (#1518).
+    ///
+    /// `ContentScanner.routeFromPagePath(_:)` and ``normalizeRoute(_:)`` both produce the
+    /// slash-less file-path form, so anything crossing into a served-route position goes through
+    /// here. Idempotent.
+    public static func servedRoute(_ route: String) -> String {
+        route.hasSuffix("/") ? route : route + "/"
+    }
+
+    /// The inverse of ``servedRoute(_:)`` composed with ``pageRelativePath(normalizedRoute:)``:
+    /// where the `.astro` file behind a served page route lives. `/` → `src/pages/index.astro`,
+    /// `/pricing/` → `src/pages/pricing.astro`. Accepts either slash form.
+    public static func pageRelativePath(servedRoute: String) -> String {
+        let trimmed = servedRoute.hasSuffix("/") ? String(servedRoute.dropLast()) : servedRoute
+        return trimmed.isEmpty || trimmed == "/"
+            ? "src/pages/index.astro"
+            : pageRelativePath(normalizedRoute: trimmed)
     }
 
     /// Where a scaffolded collection entry lands, relative to the site root:

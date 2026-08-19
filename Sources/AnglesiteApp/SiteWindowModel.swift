@@ -723,7 +723,8 @@ final class SiteWindowModel {
     /// `presentCopyEdit`.
     func presentExperimentStats() {
         guard experimentStatsModel == nil, let site else { return }
-        experimentStatsModel = ExperimentStatsModel(siteID: site.id)
+        experimentStatsModel = ExperimentStatsModel(
+            siteID: site.id, sourceDirectory: site.sourceDirectory, currentRoute: preview.activeRoute ?? "/")
     }
 
     /// Presents the Repurpose Post sheet (#465), same pattern as `presentCopyEdit`/`presentSocialPlan`.

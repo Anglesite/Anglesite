@@ -36,9 +36,25 @@ final class ContactsModel {
     /// resurface on a later scan, which is fine since scans are always owner-initiated.
     private var dismissedSuggestionKeys: Set<String> = []
     private let contactsProvider: ContactsProviding
+    /// Contacts allowlist push (#1567): fire-and-forget after each successful mutation, never
+    /// awaited inline — `add`/`update`/`remove` must return as soon as the local `ContactStore`
+    /// write completes, not wait on a network round trip. Injectable so tests can observe calls
+    /// without touching the network (mirrors `contactsProvider`'s DI seam); production default
+    /// is the real Cloudflare push.
+    private let pushAllowlist: @Sendable (URL) async -> Void
+    private var configDirectory: URL?
+    /// Chains each fired push behind the previous one so pushes execute in the order they were
+    /// fired (FIFO) even though each does a real network round trip — see `firePushAllowlist()`.
+    private var pushTask: Task<Void, Never>?
 
-    init(contactsProvider: ContactsProviding = SystemContactsProvider()) {
+    init(
+        contactsProvider: ContactsProviding = SystemContactsProvider(),
+        pushAllowlist: @escaping @Sendable (URL) async -> Void = { dir in
+            await ContactsAllowlistSync.pushIfConfigured(configDirectory: dir)
+        }
+    ) {
         self.contactsProvider = contactsProvider
+        self.pushAllowlist = pushAllowlist
     }
 
     /// Records which site this pane reads. Called once per site open, like
@@ -53,6 +69,7 @@ final class ContactsModel {
     /// trigger a fresh load: `ContactsView`'s `.task` only calls `reload()` when idle.
     func configure(site: CurrentSite) {
         store = ContactStore(configDirectory: site.configDirectory)
+        configDirectory = site.configDirectory
         contacts = []
         loadState = .idle
         suggestions = []
@@ -85,6 +102,7 @@ final class ContactsModel {
             writeFailure = "\(error)"
         }
         await reload()
+        firePushAllowlist()
     }
 
     func update(_ contact: Contact) async {
@@ -96,6 +114,7 @@ final class ContactsModel {
             writeFailure = "\(error)"
         }
         await reload()
+        firePushAllowlist()
     }
 
     func remove(_ contact: Contact) async {
@@ -107,6 +126,7 @@ final class ContactsModel {
             writeFailure = "\(error)"
         }
         await reload()
+        firePushAllowlist()
     }
 
     /// Runs one on-demand Contacts.framework scan (Website ▸ Contacts… ▸ "Find in Contacts…").
@@ -156,5 +176,25 @@ final class ContactsModel {
 
     private func suggestionKey(_ suggestion: MatchSuggestion) -> String {
         "\(suggestion.candidateURL.absoluteString)|\(suggestion.systemContactName)"
+    }
+
+    /// Fires the allowlist push as an unstructured `Task` so `add`/`update`/`remove` return as
+    /// soon as the local write (and reload) finish — the push is best-effort and must never block
+    /// a UI action on a network round trip (#1567 design §3/§4). A failed local write still fires
+    /// this: `knownMeURLs()` is re-read fresh inside the push, so it always reflects whatever's
+    /// actually on disk regardless of whether this particular call succeeded.
+    ///
+    /// Chained behind any push already in flight so pushes execute in the order they were fired
+    /// (FIFO): each push is a real network round trip, so two pushes fired close together (e.g.
+    /// add a contact then immediately delete it) could otherwise complete out of order and leave
+    /// the wrong final state in KV until the next mutation or deploy. The chain is never awaited
+    /// by the caller — only by the next fired push.
+    private func firePushAllowlist() {
+        guard let configDirectory else { return }
+        let previous = pushTask
+        pushTask = Task { [pushAllowlist] in
+            await previous?.value
+            await pushAllowlist(configDirectory)
+        }
     }
 }

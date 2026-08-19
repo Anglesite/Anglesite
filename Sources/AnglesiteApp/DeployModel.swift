@@ -254,6 +254,29 @@ final class DeployModel {
             || domainConfigDriftPresented || activityPubHandleRenameConfirmationPresented
     }
 
+    /// Why calling `deploy(...)` right now would *not* run a deploy through to a terminal phase —
+    /// `nil` when it would. Each case below is one of `deploy(...)`'s own silent early returns (or,
+    /// for `awaitingUserAction`, a prompt already on screen that a second run would clobber): the
+    /// call no-ops or parks in `pendingDeploy` behind a sheet, leaving `phase` where it was.
+    ///
+    /// Most callers don't need this — Deploy is a button in the window, so parking behind the
+    /// token/license sheet *is* the flow. It exists for callers that show their own "starting…"
+    /// state keyed off `phase` and would otherwise wait forever for a transition that never comes,
+    /// and whose own sheet is what blocks the parked prompt from presenting (`ExperimentStatsModel`,
+    /// #1518). The returned text is owner-facing.
+    func deployUnavailableReason(siteDirectory: URL) -> String? {
+        if isRunning || awaitingUserAction {
+            return "Your site is already publishing. Wait for that to finish, then try again."
+        }
+        if !hasUsableToken() {
+            return "Anglesite needs your Cloudflare sign-in before it can publish. Close this and choose Publish to sign in, then start your test."
+        }
+        if !hasChosenLicense(siteDirectory: siteDirectory) {
+            return "Choose how visitors may reuse your content first. Close this and choose Publish to pick a license, then start your test."
+        }
+        return nil
+    }
+
     /// Renders the captured log lines as plain text for the "Copy log" affordance on failure.
     var logText: String {
         logLines.map(\.text).joined(separator: "\n")
@@ -951,6 +974,11 @@ final class DeployModel {
         // the very next ordinary deploy — mirrors resolveIsHostedCommunity's declared-config read
         // just above.
         let runningExperiments = DeployCoordinator.resolveRunningExperiments(sourceDirectory: siteDirectory)
+        // #1570: reuses the owner's email address from EmailSetupPlanner/EmailSetupExecutor
+        // (already "in the stack") so /inbox submissions additionally forward there, alongside
+        // the existing KV→git capture — mirrors resolveRunningExperiments's identical
+        // declared-config read just above.
+        let inboxForwardEmail = DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: siteDirectory)
         let provisionResult = await socialCommand.provision(
             siteID: siteID,
             siteDirectory: siteDirectory,
@@ -963,6 +991,7 @@ final class DeployModel {
             apUsername: apUsername,
             acknowledgesPaidPlan: acknowledgesPaidPlan,
             inboxCaptureEnabled: settings.inboxCaptureEnabled ?? false,
+            inboxForwardEmail: inboxForwardEmail,
             activityPubActorType: isHostedCommunity ? "Group" : nil,
             moderators: isHostedCommunity ? settings.moderators : nil,
             experiments: runningExperiments
@@ -1075,6 +1104,12 @@ final class DeployModel {
                         configDirectory: configDirectory,
                         siteBase: url,
                         secretStore: self.keychain
+                    )
+                },
+                pushContactsAllowlist: { [weak self] in
+                    guard let self else { return }
+                    await ContactsAllowlistSync.pushIfConfigured(
+                        configDirectory: configDirectory, secretStore: self.keychain
                     )
                 }
             )
