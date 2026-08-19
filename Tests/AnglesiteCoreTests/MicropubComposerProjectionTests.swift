@@ -95,6 +95,17 @@ struct MicropubComposerProjectionTests {
         #expect(properties["post-status"] == [.string("draft")])
     }
 
+    @Test("visibility is stamped alongside post-status, defaulting to public")
+    func visibilityStampedWithDefault() {
+        let defaulted = MicropubComposerProjection.properties(
+            for: Self.everyKind, values: Self.filledValues(), status: .published)
+        #expect(defaulted["visibility"] == [.string("public")])
+
+        let restricted = MicropubComposerProjection.properties(
+            for: Self.everyKind, values: Self.filledValues(), status: .published, visibility: .contacts)
+        #expect(restricted["visibility"] == [.string("contacts")])
+    }
+
     @Test("a non-integral number projects as a JSON double")
     func nonIntegralNumber() {
         let encoded = MicropubComposerProjection.mf2Values(for: .number(4.5), kind: .number)

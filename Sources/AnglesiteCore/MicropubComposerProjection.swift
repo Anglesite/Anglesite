@@ -28,13 +28,18 @@ public enum MicropubComposerProjection {
     ///   - descriptor: The content type whose fields are being projected.
     ///   - values: The form's per-field values.
     ///   - status: Stamped as the `post-status` property.
+    ///   - visibility: Stamped as the `visibility` property. Defaults to public.
     /// - Returns: The mf2 property map for a create body or an update's `replace` map.
     public static func properties(
         for descriptor: ContentTypeDescriptor,
         values: TypedContentEditor.Values,
-        status: MicropubPostStatus
+        status: MicropubPostStatus,
+        visibility: MicropubPostVisibility = .public
     ) -> [String: [JSONValue]] {
-        var out: [String: [JSONValue]] = ["post-status": [.string(status.rawValue)]]
+        var out: [String: [JSONValue]] = [
+            "post-status": [.string(status.rawValue)],
+            "visibility": [.string(visibility.rawValue)],
+        ]
         for field in descriptor.fields where field.name != "draft" {
             guard let property = descriptor.projections.rawMf2Property(forField: field.name),
                   let value = values[field.name],
