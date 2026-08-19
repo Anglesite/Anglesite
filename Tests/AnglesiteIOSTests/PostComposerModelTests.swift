@@ -99,6 +99,59 @@ struct PostComposerModelTests {
         #expect(url == Self.postURL)
     }
 
+    @Test("a restricted composition stamps visibility: contacts on create")
+    func saveDraftStampsContactsVisibility() async throws {
+        nonisolated(unsafe) var capturedProperties: [String: [Any]]?
+        let box = TransportBox { request in
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
+            capturedProperties = body?["properties"] as? [String: [Any]]
+            return (Data(), Self.response(201, headers: ["Location": Self.postURL.absoluteString]))
+        }
+        let model = Self.model(transport: box.transport)
+        model.values["body"] = .text("hi")
+        model.visibility = .contacts
+
+        await model.saveDraft()
+
+        let properties = try #require(capturedProperties)
+        #expect(properties["visibility"] as? [String] == ["contacts"])
+    }
+
+    @Test("opening an existing restricted post reads its visibility back")
+    func openExistingReadsVisibility() async throws {
+        let box = TransportBox { request in
+            (Self.sourceJSON(properties: ["content": ["hi"], "visibility": ["contacts"]]), Self.response(200))
+        }
+        let model = try await PostComposerModel.openExisting(
+            url: Self.postURL, descriptor: Self.noteDescriptor(), siteID: UUID(),
+            client: MicropubClient(
+                endpoint: Self.endpoint, accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+                transport: box.transport))
+        #expect(model.visibility == .contacts)
+    }
+
+    @Test("a queued restricted composition's visibility survives a persisted draft restore")
+    func draftRestoresVisibility() {
+        let store = Self.scratchStore()
+        let siteID = UUID()
+        let model = Self.model(transport: { _ in fatalError("no network expected") }, store: store, siteID: siteID)
+        model.values["body"] = .text("hi")
+        model.visibility = .contacts
+        model.persistDraft()
+
+        let restoredDraft = store.loadNewDraft(forSite: siteID, typeID: Self.noteDescriptor().id)
+        let restored = try! #require(restoredDraft)
+        #expect(restored.visibility == "contacts")
+
+        let restoredModel = PostComposerModel(
+            descriptor: Self.noteDescriptor(), siteID: siteID,
+            client: MicropubClient(
+                endpoint: Self.endpoint, accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+                transport: { _ in fatalError("no network expected") }),
+            draftStore: store, restoringDraft: restored)
+        #expect(restoredModel.visibility == .contacts)
+    }
+
     @Test("publish lands publishedRebuilding — the bake-in-flight state, no faked live URL")
     func publishShowsRebuilding() async {
         let box = TransportBox { request in

@@ -51,6 +51,9 @@ public final class PostComposerModel {
     public let siteID: UUID
     /// The form's field values — the single source the bindings below read and write.
     public var values: TypedContentEditor.Values
+    /// The composition's audience tier (#1566) — `public` by default. Stamped into every
+    /// create/update alongside `post-status`; read back from an opened post's stored properties.
+    public var visibility: MicropubPostVisibility = .public
     /// The composition's phase — see ``Phase``.
     public private(set) var phase: Phase = .editing
     /// The post's canonical URL: `nil` until a create succeeds, then stable across updates.
@@ -94,6 +97,7 @@ public final class PostComposerModel {
         var restoredURL: URL?
         var restoredStatus: MicropubPostStatus?
         var restoredBaseline: MicropubPost?
+        var restoredVisibility: MicropubPostVisibility?
         if let restoringDraft, restoringDraft.typeID == descriptor.id {
             let restored = restoringDraft.editorValues
             for field in descriptor.fields {
@@ -103,11 +107,13 @@ public final class PostComposerModel {
             restoredBaseline = restoringDraft.baseline
             restoredStatus = restoringDraft.queuedStatus
                 .flatMap(MicropubPostStatus.init(rawValue:))
+            restoredVisibility = restoringDraft.visibility.flatMap(MicropubPostVisibility.init(rawValue:))
         }
         self.values = values
         self.postURL = restoredURL
         self.baseline = restoredBaseline
         self.queuedStatus = restoredStatus
+        if let restoredVisibility { self.visibility = restoredVisibility }
         if restoredStatus != nil { self.phase = .waitingForNetwork }
     }
 
@@ -161,6 +167,7 @@ public final class PostComposerModel {
                 ?? TypedContentEditor.defaultValue(for: field.kind)
         }
         self.values = values
+        self.visibility = post.visibility
         self.numberDrafts = [:]
         self.postURL = url
         self.baseline = post
@@ -277,7 +284,7 @@ public final class PostComposerModel {
 
     private func create(status: MicropubPostStatus) async throws -> URL {
         var properties = MicropubComposerProjection.properties(
-            for: descriptor, values: values, status: status)
+            for: descriptor, values: values, status: status, visibility: visibility)
         // `mp-slug` is create-only: derive it from the title field the same way the Mac's
         // file-based create does, so both paths land the same slug for the same title.
         let title = descriptor.titleField.flatMap { field -> String? in
@@ -299,7 +306,7 @@ public final class PostComposerModel {
 
     private func update(url: URL, status: MicropubPostStatus) async throws {
         let replace = MicropubComposerProjection.properties(
-            for: descriptor, values: values, status: status)
+            for: descriptor, values: values, status: status, visibility: visibility)
         // A mapped property present on the baseline but absent from this send was cleared in
         // the form — delete it server-side. Unmapped properties (another client's vocabulary)
         // are never touched.
@@ -364,6 +371,7 @@ public final class PostComposerModel {
             siteID: siteID, typeID: descriptor.id, postURL: postURL,
             editorValues: values, fieldNames: descriptor.fields.map(\.name),
             queuedStatus: status?.rawValue,
+            visibility: visibility.rawValue,
             // The CAS baseline persists with a queued update so restoring the draft restores
             // the conflict guard too, not just the values (#1370 review).
             baseline: postURL != nil ? baseline : nil)
