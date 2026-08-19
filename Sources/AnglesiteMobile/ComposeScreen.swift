@@ -215,6 +215,12 @@ struct MicropubEntryForm: View {
 
     var body: some View {
         Form {
+            Section {
+                Picker("Visibility", selection: $model.visibility) {
+                    Text("Public").tag(MicropubPostVisibility.public)
+                    Text("Restricted to Contacts").tag(MicropubPostVisibility.contacts)
+                }
+            }
             ForEach(scalarFields, id: \.name) { field in
                 control(for: field)
             }
