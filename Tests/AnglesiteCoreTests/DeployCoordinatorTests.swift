@@ -188,11 +188,11 @@ struct DeployCoordinatorTests {
 
     // MARK: - resolveInboxForwardEmail (#1570)
 
-    @Test("resolveInboxForwardEmail reads email.dmarcReportEmail from anglesite.json")
-    func resolveInboxForwardEmailReadsDmarcReportEmail() throws {
+    @Test("resolveInboxForwardEmail reads email.inboxForwardAddress from anglesite.json")
+    func resolveInboxForwardEmailReadsInboxForwardAddress() throws {
         let dir = try temporaryDirectory()
         let store = DomainConfigStore(sourceDirectory: dir)
-        try store.save(DomainConfig(email: .init(provider: "fastmail", dmarcReportEmail: "owner@example.com")))
+        try store.save(DomainConfig(email: .init(provider: "fastmail", inboxForwardAddress: "owner@example.com")))
         #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == "owner@example.com")
     }
 
@@ -202,11 +202,19 @@ struct DeployCoordinatorTests {
         #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == nil)
     }
 
-    @Test("resolveInboxForwardEmail is nil when email setup was run but no report address was set")
-    func resolveInboxForwardEmailNilWithoutReportAddress() throws {
+    @Test("resolveInboxForwardEmail is nil when a dmarcReportEmail is set but no inboxForwardAddress was — reusing one for the other would be a silent behavior change")
+    func resolveInboxForwardEmailIgnoresDmarcReportEmail() throws {
         let dir = try temporaryDirectory()
         let store = DomainConfigStore(sourceDirectory: dir)
-        try store.save(DomainConfig(email: .init(provider: "fastmail", dmarcReportEmail: nil)))
+        try store.save(DomainConfig(email: .init(provider: "fastmail", dmarcReportEmail: "dmarc@example.com")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == nil)
+    }
+
+    @Test("resolveInboxForwardEmail is nil when email setup was run but no forward address was set")
+    func resolveInboxForwardEmailNilWithoutForwardAddress() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(provider: "fastmail", inboxForwardAddress: nil)))
         #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == nil)
     }
 
@@ -214,11 +222,11 @@ struct DeployCoordinatorTests {
     func resolveInboxForwardEmailTrimsWhitespace() throws {
         let dir = try temporaryDirectory()
         let store = DomainConfigStore(sourceDirectory: dir)
-        try store.save(DomainConfig(email: .init(dmarcReportEmail: "  owner@example.com  ")))
+        try store.save(DomainConfig(email: .init(inboxForwardAddress: "  owner@example.com  ")))
         #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == "owner@example.com")
 
         let dir2 = try temporaryDirectory()
-        try DomainConfigStore(sourceDirectory: dir2).save(DomainConfig(email: .init(dmarcReportEmail: "   ")))
+        try DomainConfigStore(sourceDirectory: dir2).save(DomainConfig(email: .init(inboxForwardAddress: "   ")))
         #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir2) == nil)
     }
 

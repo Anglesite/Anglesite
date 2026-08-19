@@ -260,16 +260,16 @@ public enum DeployCoordinator {
     }
 
     /// The owner's email address (#1570) for `WorkerComposition`'s `inboxForwardEmail` —
-    /// `Source/anglesite.json`'s `email.dmarcReportEmail`, the same address `EmailSetupPlanner`/
-    /// `EmailSetupExecutor` already persisted there when the owner ran email setup (reconciling
-    /// #587 with the email-as-DM decision: reusing what's "already in the stack" rather than
-    /// inventing a second owner-email field). `nil` when email setup was never run, mirroring
-    /// `resolveRunningExperiments`'s "read the declared config, default to the inert case on any
-    /// failure" shape — `WorkerComposition.generateWranglerToml` then omits the `[[send_email]]`
-    /// binding entirely and `/inbox` capture stays KV/git-only.
+    /// `Source/anglesite.json`'s `email.inboxForwardAddress`, a dedicated field
+    /// `PlistEditorModel.saveInboxForwardEmail` writes from the Workers tab's Inbox Capture
+    /// section, deliberately distinct from `email.dmarcReportEmail` (see that field's doc
+    /// comment for why reusing it would be a silent behavior change). `nil` until the owner
+    /// explicitly opts in, mirroring `resolveRunningExperiments`'s "read the declared config,
+    /// default to the inert case on any failure" shape — `WorkerComposition.generateWranglerToml`
+    /// then omits the `[[send_email]]` binding entirely and `/inbox` capture stays KV/git-only.
     public static func resolveInboxForwardEmail(sourceDirectory: URL) -> String? {
         let domainConfig = (try? DomainConfigStore(sourceDirectory: sourceDirectory).load()) ?? DomainConfig()
-        let email = domainConfig.email?.dmarcReportEmail?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let email = domainConfig.email?.inboxForwardAddress?.trimmingCharacters(in: .whitespacesAndNewlines)
         return (email?.isEmpty ?? true) ? nil : email
     }
 

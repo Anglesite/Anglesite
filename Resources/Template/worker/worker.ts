@@ -1532,14 +1532,35 @@ async function parseRequestFields(request: Request): Promise<Record<string, stri
   return null;
 }
 
-/** RFC 2047 "B" (base64) encoded-word. Every byte of `value` round-trips through the base64
- *  alphabet only, so an anonymous submitter's raw subject can never inject a CR/LF — or anything
- *  else — into the header it's placed in, regardless of content (#1570). */
+/** Max payload bytes per RFC 2047 "B" encoded-word: the spec caps a whole encoded-word
+ *  (`=?UTF-8?B?...?=`) at 75 characters. `"=?UTF-8?B?"` (10) + `"?="` (2) leaves 63 for the
+ *  base64 portion; 60 of those (a multiple of 4, so no padding) decode to exactly 45 bytes —
+ *  keeping each word at 72 characters, under the cap with room to spare. */
+const MAX_ENCODED_WORD_PAYLOAD_BYTES = 45;
+
+/** RFC 2047 "B" (base64) encoded-word(s), folded per RFC 2047 §2's 75-char-per-word cap (a
+ *  near-`MAX_SUBJECT_LENGTH` subject would otherwise produce one oversized word some strict
+ *  MTAs reject or mangle) — consecutive words separated only by folding whitespace (`\r\n `),
+ *  which RFC 2047 defines as insignificant between adjacent encoded-words, so decoders
+ *  reconstruct the original value across the fold. Every byte of `value` round-trips through
+ *  the base64 alphabet only, so an anonymous submitter's raw subject can never inject a CR/LF —
+ *  or anything else — into the header it's placed in, regardless of content (#1570). Each word's
+ *  payload ends on a UTF-8 character boundary so no chunk decodes to invalid UTF-8. */
 function encodeMimeHeaderValue(value: string): string {
   const bytes = new TextEncoder().encode(value);
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return `=?UTF-8?B?${btoa(binary)}?=`;
+  const words: string[] = [];
+  let start = 0;
+  do {
+    let end = Math.min(start + MAX_ENCODED_WORD_PAYLOAD_BYTES, bytes.length);
+    // Back off while the next byte is a UTF-8 continuation byte (10xxxxxx) so a multi-byte
+    // character never splits across two encoded-words.
+    while (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
+    let binary = "";
+    for (const byte of bytes.slice(start, end)) binary += String.fromCharCode(byte);
+    words.push(`=?UTF-8?B?${btoa(binary)}?=`);
+    start = end;
+  } while (start < bytes.length);
+  return words.join("\r\n ");
 }
 
 /** Builds the raw RFC 5322 message `forwardInboxSubmissionByEmail` hands to `EmailMessage`.

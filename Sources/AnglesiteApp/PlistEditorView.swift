@@ -44,6 +44,7 @@ struct PlistEditorView: View {
     @FocusState private var titleFocused: Bool
     @FocusState private var languageFocused: Bool
     @FocusState private var activityPubUsernameFocused: Bool
+    @FocusState private var inboxForwardEmailFocused: Bool
 
     var body: some View {
         VStack(spacing: 0) {
@@ -1031,6 +1032,32 @@ struct PlistEditorView: View {
                 Label(inboxCaptureError, systemImage: "exclamationmark.triangle.fill")
                     .foregroundStyle(.orange)
                     .font(.callout)
+            }
+            if model.inboxCaptureEnabled {
+                Divider()
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("Forward to email")
+                        .font(.callout)
+                    TextField("owner@example.com", text: $model.inboxForwardEmail)
+                        .textFieldStyle(.roundedBorder)
+                        .focused($inboxForwardEmailFocused)
+                        .onSubmit { model.saveInboxForwardEmail(model.inboxForwardEmail) }
+                        .onChange(of: inboxForwardEmailFocused) { wasFocused, isFocused in
+                            if wasFocused, !isFocused {
+                                model.saveInboxForwardEmail(model.inboxForwardEmail)
+                            }
+                        }
+                        .frame(minWidth: 240)
+                    if let inboxForwardEmailError = model.inboxForwardEmailError {
+                        Text(inboxForwardEmailError)
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                    Text("Optional — also sends each submission to this address by email. Leave blank to keep captures git-only.")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
