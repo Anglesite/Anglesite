@@ -835,16 +835,21 @@ function handleSolidPodGcScheduled(
   return gc(controller, env as unknown as SolidPodGcEnv, ctx);
 }
 
+/**
+ * Micropub's scopes ("create"/"update"/"delete"/"media") plus Microsub's ("follow"/"channels"/
+ * "read", V-4.3 #365) — @dwk/indieauth's constrainScopes drops any requested scope absent from
+ * this list, so a client authorizing for Microsub without "follow"/"channels" listed here would
+ * silently be granted an empty scope and then fail every Microsub action with
+ * `insufficient_scope`. Shared with the RFC 9728 protected-resource metadata (#1577) below so the
+ * two documents can't silently drift.
+ */
+const INDIEAUTH_SCOPES_SUPPORTED = ["create", "update", "delete", "media", "follow", "channels", "read"] as const;
+
 function indieAuthHandler(request: Request, env: WorkerEnv) {
   const baseUrl = new URL(request.url).origin;
   return createIndieAuth({
     baseUrl,
-    // Micropub's scopes ("create"/"update"/"delete"/"media") plus Microsub's ("follow"/
-    // "channels"/"read", V-4.3 #365) — @dwk/indieauth's constrainScopes drops any requested
-    // scope absent from this list, so a client authorizing for Microsub without "follow"/
-    // "channels" listed here would silently be granted an empty scope and then fail every
-    // Microsub action with `insufficient_scope`.
-    scopesSupported: ["create", "update", "delete", "media", "follow", "channels", "read"],
+    scopesSupported: INDIEAUTH_SCOPES_SUPPORTED,
     resourceIndicatorPolicy(resource) {
       try {
         return new URL(resource).origin === baseUrl;
@@ -882,9 +887,7 @@ function handleOAuthProtectedResourceMetadata(request: Request): Response {
   const metadata = {
     resource: baseUrl,
     authorization_servers: [baseUrl],
-    // Mirrors indieAuthHandler's scopesSupported — see its comment for why Micropub's and
-    // Microsub's scopes are both listed.
-    scopes_supported: ["create", "update", "delete", "media", "follow", "channels", "read"],
+    scopes_supported: INDIEAUTH_SCOPES_SUPPORTED,
     // `@dwk/indieauth` always issues DPoP-bound tokens (`token_type: "DPoP"`, never plain
     // Bearer — see its metadata.ts), so bearer_methods_supported is omitted and these two fields
     // mirror the algorithm list the authorization-server metadata document advertises.
