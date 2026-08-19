@@ -50,7 +50,7 @@ export async function deriveKey(secret: string, purpose: string): Promise<Crypto
 }
 
 /** Sign `payload` (already-serialized JSON bytes) with the purpose-derived key. */
-export async function signPayload(payload: Uint8Array, signingKey: string, purpose: string): Promise<string> {
+export async function signPayload(payload: Uint8Array<ArrayBuffer>, signingKey: string, purpose: string): Promise<string> {
   const signature = await crypto.subtle.sign("HMAC", await deriveKey(signingKey, purpose), payload);
   return `${base64url(payload)}.${base64url(new Uint8Array(signature))}`;
 }
