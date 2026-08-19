@@ -85,6 +85,12 @@ struct ViewMenuCommands: Commands {
                 .disabled(inspectorPanel?.isAvailable != true)
             }
 
+            Button(inspectorPanel?.isWebsiteShown == true ? "Hide Website Inspector" : "Show Website Inspector") {
+                inspectorPanel?.toggleWebsite()
+            }
+            .keyboardShortcut("j", modifiers: [.command, .option])
+            .disabled(inspectorPanel == nil)
+
             Divider()
         }
     }
