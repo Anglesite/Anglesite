@@ -1,9 +1,4 @@
 import Foundation
-// URLSession/URLRequest/HTTPURLResponse live in FoundationNetworking on non-Darwin
-// platforms (swift-corelibs-foundation); this import is a no-op on macOS.
-#if canImport(FoundationNetworking)
-import FoundationNetworking
-#endif
 
 /// Orchestrates #362's "pull the Worker's verified webmention inbox and snapshot it into the
 /// site's git working copy" step: query D1 (`WebmentionInboxD1Client`), reconcile + commit
