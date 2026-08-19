@@ -1222,7 +1222,7 @@ struct SiteWindow: View {
                     await model.effectPlacementController.handlePick(message)
                 },
                 onGoalElementPick: { message in
-                    model.experimentStatsModel?.goalPickController.handlePick(message)
+                    await model.experimentStatsModel?.goalPickController.handlePick(message)
                 },
                 // A finished navigation means the page's injected JS — including the overlay's
                 // placement-pick listener — was just thrown away and came back inactive. Cancel
