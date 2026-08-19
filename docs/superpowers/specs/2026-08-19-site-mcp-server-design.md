@@ -197,7 +197,8 @@ Delivered as a **generated static file**, not a dynamic route — its content (s
 transport endpoint, capability flags) is fully determined at build time from `anglesite.json` +
 `SITE_URL`, same "generated" delivery class `security.txt` already uses per the `.well-known` claim
 seam design. Registered through `scripts/well-known.ts`'s claim/generation machinery (owner id
-`"mcp"`, `delivery: "generated"`), with its own content marker so regeneration/ownership rules match
+`generator:mcp-server-card` — matching the `generator:*` convention every sibling generator uses,
+`delivery: "generated"`), with its own content marker so regeneration/ownership rules match
 `security.txt`'s (refuse to overwrite an unmarked hand-authored file; delete only marker-owned
 output when the flag turns off).
 
