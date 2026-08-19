@@ -64,6 +64,9 @@
   "overrides": {
     "@astroanimate/core": {
       "astro": "$astro"
+    },
+    "agents": {
+      "react": "$react"
     }
   }
 }
