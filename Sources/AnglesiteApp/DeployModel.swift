@@ -1082,6 +1082,12 @@ final class DeployModel {
                         siteBase: url,
                         secretStore: self.keychain
                     )
+                },
+                pushContactsAllowlist: { [weak self] in
+                    guard let self else { return }
+                    await ContactsAllowlistSync.pushIfConfigured(
+                        configDirectory: configDirectory, secretStore: self.keychain
+                    )
                 }
             )
             currentMilestone = nil
