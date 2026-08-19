@@ -24,8 +24,12 @@
 
 - **Create** `Sources/AnglesiteCore/ContactsAllowlistKVClient.swift` — the KV HTTP client (one method: `putAllowlist(_:)`).
 - **Create** `Tests/AnglesiteCoreTests/ContactsAllowlistKVClientTests.swift`
+- **Create** `Sources/AnglesiteCore/CloudflareAccountLookup.swift` — shared "resolve the token's first visible account id" helper, consolidating the three near-identical private copies this task would otherwise create a fourth of.
+- **Create** `Tests/AnglesiteCoreTests/CloudflareAccountLookupTests.swift`
 - **Create** `Sources/AnglesiteCore/ContactsAllowlistSync.swift` — the orchestrator (`push`, `pushIfConfigured`).
 - **Create** `Tests/AnglesiteCoreTests/ContactsAllowlistSyncTests.swift`
+- **Modify** `Sources/AnglesiteCore/MicropubContentSync.swift` — delegate to the shared `CloudflareAccountLookup` instead of its own private `resolveAccountID`.
+- **Modify** `Sources/AnglesiteCore/ReceivedInteractionSync.swift` — same delegation.
 - **Modify** `Sources/AnglesiteCore/OperationProgress.swift` — add the `deployPushingContactsAllowlist` milestone constant.
 - **Modify** `Sources/AnglesiteCore/DeployCoordinator.swift` — add a `pushContactsAllowlist` step to `runPostDeploySequencing`.
 - **Modify** `Tests/AnglesiteCoreTests/DeployCoordinatorTests.swift` — update 4 existing expectations, add 1 new test.
@@ -206,17 +210,87 @@ git commit -m "feat(#1567): add ContactsAllowlistKVClient for SOCIAL_KV writes"
 
 ---
 
-### Task 2: `ContactsAllowlistSync`
+### Task 2: Shared `CloudflareAccountLookup` + `ContactsAllowlistSync`
+
+`ContactsAllowlistSync.pushIfConfigured` needs the same "resolve the token's
+first visible Cloudflare account id" lookup that `MicropubContentSync` and
+`ReceivedInteractionSync` each already implement as a byte-for-byte-identical
+private copy (`private struct CFAccount`/`CFEnvelope` +
+`private static func resolveAccountID(apiToken:baseURL:transport:)`). Adding
+a fourth private copy would triplicate — extract it once as
+`CloudflareAccountLookup` and have all three (plus the new one) delegate to
+it, deleting the two existing private copies in the same task.
 
 **Files:**
+- Create: `Sources/AnglesiteCore/CloudflareAccountLookup.swift`
+- Test: `Tests/AnglesiteCoreTests/CloudflareAccountLookupTests.swift`
 - Create: `Sources/AnglesiteCore/ContactsAllowlistSync.swift`
 - Test: `Tests/AnglesiteCoreTests/ContactsAllowlistSyncTests.swift`
+- Modify: `Sources/AnglesiteCore/MicropubContentSync.swift:288` (call site), `:296-310` (delete private duplicate)
+- Modify: `Sources/AnglesiteCore/ReceivedInteractionSync.swift:91` (call site), `:54-71` (delete private duplicate)
 
 **Interfaces:**
-- Consumes: `ContactStore` (`Sources/AnglesiteCore/ContactStore.swift:8`, `init(configDirectory:)`, `func knownMeURLs() throws -> Set<String>`); `ContactsAllowlistKVClient` from Task 1; `SiteConfigStore.read(from:fileManager:)` (`Sources/AnglesiteCore/SiteConfigStore.swift:211`); `SiteSettings.provisionedWorkerResources?.kvNamespaceID` (`Sources/AnglesiteCore/WorkerComposition.swift:108`); `CloudflareAPICredentials.resolve(secretStore:)` (`Sources/AnglesiteCore/CloudflareAPICredentials.swift:40`); `SecretStore`, `PlatformSecretStore.make()`; `LogCenter.shared.append(source:stream:text:)`.
-- Produces: `public enum ContactsAllowlistSync { static func push(store: ContactStore, client: ContactsAllowlistKVClient) async; static func pushIfConfigured(configDirectory: URL, secretStore: any SecretStore = PlatformSecretStore.make(), baseURL: String = ..., transport: @escaping CloudflareTransport = ...) async }` — consumed by Tasks 4 and 5.
+- Consumes: `ContactStore` (`Sources/AnglesiteCore/ContactStore.swift:8`, `init(configDirectory:)`, `func knownMeURLs() throws -> Set<String>`); `ContactsAllowlistKVClient` from Task 1; `SiteConfigStore.read(from:fileManager:)` (`Sources/AnglesiteCore/SiteConfigStore.swift:211`); `SiteSettings.provisionedWorkerResources?.kvNamespaceID` (`Sources/AnglesiteCore/WorkerComposition.swift:108`); `CloudflareAPICredentials.resolve(secretStore:)` (`Sources/AnglesiteCore/CloudflareAPICredentials.swift:40`); `SecretStore`, `PlatformSecretStore.make()`; `LogCenter.shared.append(source:stream:text:)`; `CloudflareTransport` (`Sources/AnglesiteCore/CloudflareReading.swift:78`).
+- Produces:
+  - `enum CloudflareAccountLookup { static func resolveAccountID(apiToken: String, baseURL: String, transport: CloudflareTransport) async -> String? }` (module-internal, no `public`) — consumed by `MicropubContentSync`, `ReceivedInteractionSync`, `ContactsAllowlistSync`, and by Task 5 only indirectly (through `ContactsAllowlistSync`).
+  - `public enum ContactsAllowlistSync { static func push(store: ContactStore, client: ContactsAllowlistKVClient) async; static func pushIfConfigured(configDirectory: URL, secretStore: any SecretStore = PlatformSecretStore.make(), baseURL: String = ..., transport: @escaping CloudflareTransport = ...) async }` — consumed by Tasks 4 and 5.
 
 - [ ] **Step 1: Write the failing tests**
+
+```swift
+// Tests/AnglesiteCoreTests/CloudflareAccountLookupTests.swift
+import Testing
+import Foundation
+@testable import AnglesiteCore
+
+struct CloudflareAccountLookupTests {
+    private static func response(_ status: Int) -> HTTPURLResponse {
+        HTTPURLResponse(url: URL(string: "https://api.cloudflare.com/")!, statusCode: status,
+                         httpVersion: nil, headerFields: nil)!
+    }
+
+    @Test("resolves the first account id from a successful envelope")
+    func resolvesFirstAccountID() async {
+        let body = Data("""
+        {"success": true, "result": [{"id": "acct1"}, {"id": "acct2"}]}
+        """.utf8)
+        let accountID = await CloudflareAccountLookup.resolveAccountID(
+            apiToken: "token", baseURL: "https://api.cloudflare.com/client/v4",
+            transport: { _ in (body, Self.response(200)) })
+        #expect(accountID == "acct1")
+    }
+
+    @Test("returns nil on a non-2xx response")
+    func returnsNilOnHTTPError() async {
+        let accountID = await CloudflareAccountLookup.resolveAccountID(
+            apiToken: "token", baseURL: "https://api.cloudflare.com/client/v4",
+            transport: { _ in (Data(), Self.response(403)) })
+        #expect(accountID == nil)
+    }
+
+    @Test("returns nil when the envelope reports success: false")
+    func returnsNilOnUnsuccessfulEnvelope() async {
+        let body = Data("""
+        {"success": false, "result": null}
+        """.utf8)
+        let accountID = await CloudflareAccountLookup.resolveAccountID(
+            apiToken: "token", baseURL: "https://api.cloudflare.com/client/v4",
+            transport: { _ in (body, Self.response(200)) })
+        #expect(accountID == nil)
+    }
+
+    @Test("returns nil when the result list is empty")
+    func returnsNilOnEmptyResult() async {
+        let body = Data("""
+        {"success": true, "result": []}
+        """.utf8)
+        let accountID = await CloudflareAccountLookup.resolveAccountID(
+            apiToken: "token", baseURL: "https://api.cloudflare.com/client/v4",
+            transport: { _ in (body, Self.response(200)) })
+        #expect(accountID == nil)
+    }
+}
+```
 
 ```swift
 // Tests/AnglesiteCoreTests/ContactsAllowlistSyncTests.swift
@@ -367,10 +441,82 @@ private actor SeenHeader {
 
 - [ ] **Step 2: Run tests to verify they fail**
 
-Run: `swift test --package-path . --filter ContactsAllowlistSyncTests`
-Expected: FAIL to compile — `ContactsAllowlistSync` does not exist yet.
+Run: `swift test --package-path . --filter "CloudflareAccountLookupTests|ContactsAllowlistSyncTests"`
+Expected: FAIL to compile — neither `CloudflareAccountLookup` nor `ContactsAllowlistSync` exist yet.
 
 - [ ] **Step 3: Write the implementation**
+
+First, the shared helper:
+
+```swift
+// Sources/AnglesiteCore/CloudflareAccountLookup.swift
+import Foundation
+// URLSession/URLRequest/HTTPURLResponse live in FoundationNetworking on non-Darwin
+// platforms (swift-corelibs-foundation); this import is a no-op on macOS.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
+
+/// Shared "resolve the token's first visible Cloudflare account id" lookup (#1567 review) — used
+/// by every `*Sync`/`*IfConfigured` orchestrator that needs an account id but has no
+/// separately-stored one to key off (unlike #587's `ProvisionedResources.inboxAccountID`). A
+/// personal Anglesite deployment has exactly one Cloudflare account per token, so "just take the
+/// first account" is always correct. Previously duplicated privately, byte-for-byte, in both
+/// `MicropubContentSync` and `ReceivedInteractionSync` — consolidated here so `ContactsAllowlistSync`
+/// doesn't add a third copy.
+enum CloudflareAccountLookup {
+    private struct CFAccount: Decodable, Sendable { let id: String }
+    private struct CFEnvelope: Decodable, Sendable { let success: Bool; let result: [CFAccount]? }
+
+    static func resolveAccountID(apiToken: String, baseURL: String, transport: CloudflareTransport) async -> String? {
+        guard let url = URL(string: "\(baseURL)/accounts?per_page=1") else { return nil }
+        var request = URLRequest(url: url)
+        request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
+        guard let (data, http) = try? await transport(request), (200..<300).contains(http.statusCode),
+              let envelope = try? JSONDecoder().decode(CFEnvelope.self, from: data), envelope.success
+        else { return nil }
+        return envelope.result?.first?.id
+    }
+}
+```
+
+Then update the two existing call sites to delegate to it instead of their own private copy.
+
+In `Sources/AnglesiteCore/MicropubContentSync.swift`, change line 288 from:
+
+```swift
+        guard let accountID = await Self.resolveAccountID(apiToken: token, baseURL: baseURL, transport: transport)
+```
+
+to:
+
+```swift
+        guard let accountID = await CloudflareAccountLookup.resolveAccountID(apiToken: token, baseURL: baseURL, transport: transport)
+```
+
+and delete lines 296-310 (the private `CFAccount`/`CFEnvelope` structs and `resolveAccountID` — everything between the end of `pullAndCommitIfConfigured` and the enum's closing `}`), so the file ends with:
+
+```swift
+        let client = MicropubPostD1Client(
+            accountID: accountID, databaseID: databaseID, apiToken: token, baseURL: baseURL, transport: transport)
+        return await pullAndCommit(client: client, siteDirectory: siteDirectory, configDirectory: configDirectory)
+    }
+}
+```
+
+In `Sources/AnglesiteCore/ReceivedInteractionSync.swift`, delete lines 54-71 (the private `CFAccount`/`CFEnvelope` structs and the doc-commented `resolveAccountID`, right after `pullAndCommit`'s closing `}` and before the `pullAndCommitIfConfigured` doc comment), and change what is currently line 91 from:
+
+```swift
+        guard let accountID = await Self.resolveAccountID(apiToken: token, baseURL: baseURL, transport: transport)
+```
+
+to:
+
+```swift
+        guard let accountID = await CloudflareAccountLookup.resolveAccountID(apiToken: token, baseURL: baseURL, transport: transport)
+```
+
+Then the new orchestrator:
 
 ```swift
 // Sources/AnglesiteCore/ContactsAllowlistSync.swift
@@ -413,7 +559,7 @@ public enum ContactsAllowlistSync {
         else { return }
         guard let token = try? await CloudflareAPICredentials.resolve(secretStore: secretStore), !token.isEmpty
         else { return }
-        guard let accountID = await Self.resolveAccountID(apiToken: token, baseURL: baseURL, transport: transport)
+        guard let accountID = await CloudflareAccountLookup.resolveAccountID(apiToken: token, baseURL: baseURL, transport: transport)
         else { return }
 
         let store = ContactStore(configDirectory: configDirectory)
@@ -421,35 +567,25 @@ public enum ContactsAllowlistSync {
             accountID: accountID, namespaceID: namespaceID, apiToken: token, baseURL: baseURL, transport: transport)
         await push(store: store, client: client)
     }
-
-    private struct CFAccount: Decodable, Sendable { let id: String }
-    private struct CFEnvelope: Decodable, Sendable { let success: Bool; let result: [CFAccount]? }
-
-    /// Resolves the token's first visible Cloudflare account id — same resolution
-    /// `MicropubContentSync`/`ReceivedInteractionSync` use, since a personal Anglesite deployment
-    /// has exactly one Cloudflare account per token.
-    private static func resolveAccountID(apiToken: String, baseURL: String, transport: CloudflareTransport) async -> String? {
-        guard let url = URL(string: "\(baseURL)/accounts?per_page=1") else { return nil }
-        var request = URLRequest(url: url)
-        request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
-        guard let (data, http) = try? await transport(request), (200..<300).contains(http.statusCode),
-              let envelope = try? JSONDecoder().decode(CFEnvelope.self, from: data), envelope.success
-        else { return nil }
-        return envelope.result?.first?.id
-    }
 }
 ```
 
 - [ ] **Step 4: Run tests to verify they pass**
 
-Run: `swift test --package-path . --filter ContactsAllowlistSyncTests`
-Expected: PASS (5 tests)
+Run: `swift test --package-path . --filter "CloudflareAccountLookupTests|ContactsAllowlistSyncTests|MicropubContentSyncTests|ReceivedInteractionSyncTests"`
+Expected: PASS — the 4 new `CloudflareAccountLookupTests`, the 5 `ContactsAllowlistSyncTests`, and (unchanged behavior after the refactor) the existing `MicropubContentSyncTests`/`ReceivedInteractionSyncTests` suites all still pass.
 
 - [ ] **Step 5: Commit**
 
 ```bash
-git add Sources/AnglesiteCore/ContactsAllowlistSync.swift Tests/AnglesiteCoreTests/ContactsAllowlistSyncTests.swift
-git commit -m "feat(#1567): add ContactsAllowlistSync push orchestrator"
+git add Sources/AnglesiteCore/CloudflareAccountLookup.swift Tests/AnglesiteCoreTests/CloudflareAccountLookupTests.swift \
+        Sources/AnglesiteCore/ContactsAllowlistSync.swift Tests/AnglesiteCoreTests/ContactsAllowlistSyncTests.swift \
+        Sources/AnglesiteCore/MicropubContentSync.swift Sources/AnglesiteCore/ReceivedInteractionSync.swift
+git commit -m "feat(#1567): add ContactsAllowlistSync push orchestrator
+
+Extracts the account-id lookup MicropubContentSync/ReceivedInteractionSync
+each duplicated privately into a shared CloudflareAccountLookup, rather than
+adding a third copy for the new contacts allowlist push."
 ```
 
 ---
