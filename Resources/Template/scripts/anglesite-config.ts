@@ -54,6 +54,7 @@ export interface AnglesiteWorkersConfig {
 
 export interface AnglesiteExperimentalConfig {
   webmcp?: boolean;
+  mcp?: boolean;
 }
 
 export type AnglesiteExperimentGoalKind = "pageview" | "route" | "scroll" | "visible";
