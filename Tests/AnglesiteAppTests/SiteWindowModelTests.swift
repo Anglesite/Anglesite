@@ -860,8 +860,12 @@ extension SiteWindowModelTests {
 
         let navModel = SiteNavigatorModel(graph: graph)
         navModel.start(site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL))
-        while navModel.nodes.count < 2 { await Task.yield() }
         let directoryID = "dir:/notes/"
+        // Poll for the tree actually resolving this row's target, not a node count — the pinned
+        // website row that used to guarantee >= 2 top-level nodes is gone (#714 v2 slice 1), so a
+        // count-based wait can spin forever on a fixture (like this one) whose only top-level row
+        // is the directory itself.
+        while navModel.target(for: directoryID) == nil { await Task.yield() }
         #expect(navModel.target(for: directoryID) == .directory(collection: "notes", route: "/notes/"))
         model.navigator = navModel
 
@@ -968,8 +972,10 @@ extension SiteWindowModelTests {
         let navModel = SiteNavigatorModel(graph: graph)
         navModel.start(
             site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL))
-        while navModel.nodes.count < 2 { await Task.yield() }
         let directoryID = "dir:/notes/"
+        // Poll for the tree actually resolving this row's target, not a node count — see the
+        // matching comment in `applyNavigatorSelectionDirectoryNavigatesPreview` above.
+        while navModel.target(for: directoryID) == nil { await Task.yield() }
         #expect(navModel.target(for: directoryID) == .directory(collection: "notes", route: "/notes/"))
         model.navigator = navModel
 
@@ -1021,9 +1027,13 @@ extension SiteWindowModelTests {
         let navModel = SiteNavigatorModel(graph: graph)
         navModel.start(
             site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL))
-        while navModel.nodes.count < 2 { await Task.yield() }
         let routeID = "site-a:page:/about"
         let directoryID = "dir:/notes/"
+        // Poll for the tree actually resolving both rows' targets, not a node count — see the
+        // matching comment in `applyNavigatorSelectionDirectoryNavigatesPreview` above.
+        while navModel.target(for: routeID) == nil || navModel.target(for: directoryID) == nil {
+            await Task.yield()
+        }
         #expect(navModel.target(for: routeID) == .route("/about"))
         #expect(navModel.target(for: directoryID) == .directory(collection: "notes", route: "/notes/"))
         model.navigator = navModel
