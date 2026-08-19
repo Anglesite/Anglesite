@@ -202,67 +202,129 @@ public enum ComponentStructureEditBuilder {
     /// `newIndex`. Wire-identical to `moveNode`'s payload — a distinct name because the WYSIWYG
     /// engine and the Component Editor are separate protocol-facing callers of the same resolver.
     public static func moveBlock(
-        id: String, path: String, baseVersion: String,
-        nodeId: String, newParentId: String, newIndex: Int
+        id: String,
+        path: String,
+        baseVersion: String,
+        nodeId: String,
+        newParentId: String,
+        newIndex: Int
     ) -> EditMessage {
         EditMessage(
-            id: id, path: path, selector: nil, op: EditMessage.Op.moveBlock,
+            id: id,
+            path: path,
+            selector: nil,
+            op: EditMessage.Op.moveBlock,
             component: .object([
-                "path": .string(path), "baseVersion": .string(baseVersion),
-                "nodeId": .string(nodeId), "newParentId": .string(newParentId), "newIndex": .int(newIndex),
+                "path": .string(path),
+                "baseVersion": .string(baseVersion),
+                "nodeId": .string(nodeId),
+                "newParentId": .string(newParentId),
+                "newIndex": .int(newIndex),
             ]),
-            value: nil)
+            value: nil
+        )
     }
 
     /// Builds the `deleteBlock` message: delete `nodeId` and its whole subtree. Wire-identical to
     /// `removeNode`'s payload.
-    public static func deleteBlock(id: String, path: String, baseVersion: String, nodeId: String) -> EditMessage {
+    public static func deleteBlock(
+        id: String,
+        path: String,
+        baseVersion: String,
+        nodeId: String
+    ) -> EditMessage {
         EditMessage(
-            id: id, path: path, selector: nil, op: EditMessage.Op.deleteBlock,
-            component: .object(["path": .string(path), "baseVersion": .string(baseVersion), "nodeId": .string(nodeId)]),
-            value: nil)
+            id: id,
+            path: path,
+            selector: nil,
+            op: EditMessage.Op.deleteBlock,
+            component: .object([
+                "path": .string(path),
+                "baseVersion": .string(baseVersion),
+                "nodeId": .string(nodeId),
+            ]),
+            value: nil
+        )
     }
 
     /// Builds the `editText` message: replace `textNodeId`'s rich-text runs. `runs` encodes as
     /// `RichTextRun`'s own `Codable` conformance via `JSONValue.from` — kind/text/href/children.
-    public static func editText(id: String, path: String, baseVersion: String, textNodeId: String, runs: [RichTextRun]) -> EditMessage {
+    public static func editText(
+        id: String,
+        path: String,
+        baseVersion: String,
+        textNodeId: String,
+        runs: [RichTextRun]
+    ) -> EditMessage {
         let encoder = JSONEncoder()
         let runsData = (try? encoder.encode(runs)) ?? Data()
         let runsValue = (try? JSONSerialization.jsonObject(with: runsData)).flatMap(JSONValue.from) ?? .array([])
         return EditMessage(
-            id: id, path: path, selector: nil, op: EditMessage.Op.editText,
+            id: id,
+            path: path,
+            selector: nil,
+            op: EditMessage.Op.editText,
             component: .object([
-                "path": .string(path), "baseVersion": .string(baseVersion),
-                "textNodeId": .string(textNodeId), "runs": runsValue,
+                "path": .string(path),
+                "baseVersion": .string(baseVersion),
+                "textNodeId": .string(textNodeId),
+                "runs": runsValue,
             ]),
-            value: nil)
+            value: nil
+        )
     }
 
     /// Builds the `setDesignToken` message: patch `token`'s value in `global.css`'s light
     /// `:root` block. `path` must be `"src/styles/global.css"` — the sidecar hardcodes and
     /// validates this exact target, so callers always pass that literal, not the edited page's
     /// path.
-    public static func setDesignToken(id: String, path: String, baseVersion: String, token: String, tokenValue: String) -> EditMessage {
+    public static func setDesignToken(
+        id: String,
+        path: String,
+        baseVersion: String,
+        token: String,
+        tokenValue: String
+    ) -> EditMessage {
         EditMessage(
-            id: id, path: path, selector: nil, op: EditMessage.Op.setDesignToken,
+            id: id,
+            path: path,
+            selector: nil,
+            op: EditMessage.Op.setDesignToken,
             component: .object([
-                "path": .string(path), "baseVersion": .string(baseVersion),
-                "token": .string(token), "tokenValue": .string(tokenValue),
+                "path": .string(path),
+                "baseVersion": .string(baseVersion),
+                "token": .string(token),
+                "tokenValue": .string(tokenValue),
             ]),
-            value: nil)
+            value: nil
+        )
     }
 
     /// Builds an `insertBlock` message from an explicit `NodeSpec` rather than a manifest name —
     /// the sibling of `insertBlock(id:path:baseVersion:parentId:index:manifestBlock:)` above, for
     /// callers that already have concrete node content (e.g. reinstating raw markup on undo, or
     /// inserting a plain element/slot the manifest doesn't know about).
-    public static func insertBlockNode(id: String, path: String, baseVersion: String, parentId: String, index: Int, node: NodeSpec) -> EditMessage {
+    public static func insertBlockNode(
+        id: String,
+        path: String,
+        baseVersion: String,
+        parentId: String,
+        index: Int,
+        node: NodeSpec
+    ) -> EditMessage {
         EditMessage(
-            id: id, path: path, selector: nil, op: EditMessage.Op.insertBlock,
+            id: id,
+            path: path,
+            selector: nil,
+            op: EditMessage.Op.insertBlock,
             component: .object([
-                "path": .string(path), "baseVersion": .string(baseVersion),
-                "parentId": .string(parentId), "index": .int(index), "node": node.jsonValue,
+                "path": .string(path),
+                "baseVersion": .string(baseVersion),
+                "parentId": .string(parentId),
+                "index": .int(index),
+                "node": node.jsonValue,
             ]),
-            value: nil)
+            value: nil
+        )
     }
 }
