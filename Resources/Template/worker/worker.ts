@@ -66,6 +66,8 @@ import { tagFediverseUrl } from "./utm-codes.ts";
 import { GOAL_ENDPOINT_PATH } from "../scripts/experiments-paths.ts";
 import { base64url, decodeBase64url, deriveKey } from "./token-signing.ts";
 import { escapeHTML, extractMf2ContentString, extractMf2Photos, type ExtractedPhoto } from "./render-utils.ts";
+import { handleReaderCallback, handleReaderSignin } from "./reader-auth.ts";
+import { handleGatedFallback, handlePrivateFeed } from "./gated-content.ts";
 
 /**
  * Per-site Cloudflare Worker entry point.
@@ -1745,6 +1747,31 @@ export const ROUTES: readonly WorkerRoute[] = [
     methods: ["GET", "HEAD"],
     handler: (request, env, ctx) => handleWebFinger(request, env, ctx),
   },
+  {
+    // IndieAuth relying-party sign-in for a visitor proving their own site's identity (#1568):
+    // no `me` renders the form, `me` present discovers that site's authorization_endpoint and
+    // redirects there. See gated-content.ts's design doc for the full flow.
+    path: "/contacts/signin",
+    match: "exact",
+    methods: ["GET"],
+    handler: (request, env) => handleReaderSignin(request, env),
+  },
+  {
+    // OAuth redirect target for the sign-in above: redeems the code, verifies identity, checks
+    // the pushed allowlist, and starts a reader session (#1568).
+    path: "/contacts/callback",
+    match: "exact",
+    methods: ["GET"],
+    handler: (request, env) => handleReaderCallback(request, env),
+  },
+  {
+    // Private h-feed of restricted (`visibility: contacts`) posts, gated the same way as a
+    // restricted permalink (#1568).
+    path: "/contacts/feed",
+    match: "exact",
+    methods: ["GET", "HEAD"],
+    handler: (request, env) => handlePrivateFeed(request, env),
+  },
 ];
 
 export function matchRoute(pathname: string, routes: readonly WorkerRoute[] = ROUTES): WorkerRoute | null {
@@ -1839,6 +1866,13 @@ export default {
         return new Response("No assets binding configured", { status: 500 });
       }
       response = await assets.fetch(request);
+      // A restricted (`visibility: contacts`) post is never in the static build (#1568), so its
+      // permalink always misses here — give the read gate a chance to serve it (or a uniform 403
+      // for an unauthenticated/unauthorized visitor) before falling back to the plain asset 404.
+      if (response.status === 404) {
+        const gated = await handleGatedFallback(request, env, pathname);
+        if (gated !== null) response = gated;
+      }
     }
 
     // Goal-signal conversion counting (#1270 slice 1): applied to whatever response the branches
