@@ -64,6 +64,7 @@ import experimentsArtifact from "./experiments.json";
 import utmCodesArtifact from "../utm-codes.json";
 import { tagFediverseUrl } from "./utm-codes.ts";
 import { GOAL_ENDPOINT_PATH } from "../scripts/experiments-paths.ts";
+import { base64url, decodeBase64url, deriveKey } from "./token-signing.ts";
 
 /**
  * Per-site Cloudflare Worker entry point.
@@ -242,49 +243,6 @@ interface ConsentGrant {
   codeChallenge: string;
   scope: string;
   resources: string[];
-}
-
-function base64url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function decodeBase64url(value: string): Uint8Array<ArrayBuffer> | null {
-  try {
-    const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
-    const binary = atob(padded);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Derives a purpose-specific HMAC key from `secret` via HKDF, so that `TOKEN_SIGNING_KEY` — the
- * one secret provisioned for both consent-token signing and owner-password comparison — yields
- * independent subkeys per purpose. A weakness or misuse in one purpose's key can't cross over
- * into the other's.
- */
-async function deriveKey(secret: string, purpose: string): Promise<CryptoKey> {
-  const baseKey = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    "HKDF",
-    false,
-    ["deriveKey"],
-  );
-  return crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: new TextEncoder().encode(purpose) },
-    baseKey,
-    { name: "HMAC", hash: "SHA-256", length: 256 },
-    false,
-    ["sign", "verify"],
-  );
 }
 
 function grantFor(request: AuthorizationRequest, expiresAt: number): ConsentGrant {
