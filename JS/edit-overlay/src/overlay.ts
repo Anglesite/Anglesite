@@ -124,7 +124,14 @@ export interface PlacementPickControls {
 /** Placement-pick mode: while active, a click on ANY element (not just EDITABLE_TAG) reports its
  *  ElementInfo via `anglesite:pick-placement` instead of the normal click-to-edit path. Entered
  *  only via an explicit native call (`window.anglesite._enterPlacementMode()`), never ambient —
- *  outside this mode, ordinary click-to-edit behavior (`attachClickToEdit`) is unaffected. */
+ *  outside this mode, ordinary click-to-edit behavior (`attachClickToEdit`) is unaffected.
+ *
+ *  `active` is closure-local and resets to `false` whenever this script re-runs, which any real
+ *  navigation (HMR reload, route change, ⌘R) causes. The native side can't see that happen, so it
+ *  watches its own `WKNavigationDelegate` instead: `PreviewView.onPreviewNavigated` cancels an
+ *  in-flight pick rather than leaving a HUD armed over a listener that no longer exists
+ *  (#768 final review, Finding 8). Nothing here re-arms itself on load — arming is always an
+ *  explicit native call. */
 export function installPlacementPickMode(win: Window & typeof globalThis = window): PlacementPickControls {
   let active = false;
 
