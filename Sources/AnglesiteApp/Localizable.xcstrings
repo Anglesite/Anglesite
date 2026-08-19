@@ -364,6 +364,12 @@
     "Add Agent…" : {
 
     },
+    "Add Contact" : {
+
+    },
+    "Add Contact…" : {
+
+    },
     "Add DNS Records" : {
 
     },
@@ -425,6 +431,9 @@
 
     },
     "Add page ${name} to ${site}" : {
+
+    },
+    "Add people you know by their website address, or scan Contacts to find people you already follow." : {
 
     },
     "Add post ${title2} to ${site}" : {
@@ -1141,58 +1150,10 @@
     "Contacts" : {
 
     },
-    "Contacts…" : {
-
-    },
     "Contacts access wasn't granted." : {
 
     },
-    "Couldn't read your contacts" : {
-
-    },
-    "Couldn't scan Contacts" : {
-
-    },
-    "Find in Contacts…" : {
-
-    },
-    "Add Contact" : {
-
-    },
-    "Add Contact…" : {
-
-    },
-    "Edit Contact" : {
-
-    },
-    "No contacts yet" : {
-
-    },
-    "Open System Settings" : {
-
-    },
-    "Suggestions" : {
-
-    },
-    "Website (e.g. https://example.com)" : {
-
-    },
-    "^[%lld contact](inflect: true)" : {
-
-    },
-    "Use “%@” from Contacts for %@?" : {
-
-    },
-    "“%@” matches a follower — add as a contact?" : {
-
-    },
-    "Add people you know by their website address, or scan Contacts to find people you already follow." : {
-
-    },
-    "The contacts file may be damaged. Back it up, then remove Config/contacts.json to start fresh." : {
-
-    },
-    "Couldn't save your change" : {
+    "Contacts…" : {
 
     },
     "Contains slot-fill content — double-click to edit %@" : {
@@ -1329,6 +1290,9 @@
     "Couldn't read your Cloudflare API token: %@" : {
 
     },
+    "Couldn't read your contacts" : {
+
+    },
     "Couldn't run the check" : {
 
     },
@@ -1342,6 +1306,12 @@
 
     },
     "Couldn't save this change: %@" : {
+
+    },
+    "Couldn't save your change" : {
+
+    },
+    "Couldn't scan Contacts" : {
 
     },
     "Couldn't update this file — see the debug log for details." : {
@@ -1560,6 +1530,9 @@
     "ESI Fragments" : {
 
     },
+    "Edit Contact" : {
+
+    },
     "Edit Footer" : {
 
     },
@@ -1765,6 +1738,9 @@
 
     },
     "Find a community by keyword" : {
+
+    },
+    "Find in Contacts…" : {
 
     },
     "Find on local network" : {
@@ -2167,6 +2143,12 @@
     "Link Post" : {
 
     },
+    "Linked to a Fediverse follower" : {
+
+    },
+    "Linked to a followed feed" : {
+
+    },
     "List" : {
 
     },
@@ -2401,6 +2383,9 @@
     "No component usage learned yet." : {
 
     },
+    "No contacts yet" : {
+
+    },
     "No content collections found." : {
 
     },
@@ -2600,6 +2585,9 @@
 
     },
     "Open Source Acknowledgments…" : {
+
+    },
+    "Open System Settings" : {
 
     },
     "Open Website Anyway" : {
@@ -2840,6 +2828,9 @@
 
     },
     "Provision Cloudflare AI Search for this site" : {
+
+    },
+    "Public" : {
 
     },
     "Publish" : {
@@ -3132,6 +3123,9 @@
 
     },
     "Restarting (attempt %lld)" : {
+
+    },
+    "Restricted to Contacts" : {
 
     },
     "Result" : {
@@ -3679,6 +3673,9 @@
     "Suggested fix: %@" : {
 
     },
+    "Suggestions" : {
+
+    },
     "Summarizing…" : {
 
     },
@@ -3734,6 +3731,9 @@
 
     },
     "The build produced no output." : {
+
+    },
+    "The contacts file may be damaged. Back it up, then remove Config/contacts.json to start fresh." : {
 
     },
     "The domain must be managed in Cloudflare. Your API token needs Zone DNS Edit, Zone Settings Edit, and WAF Edit permissions." : {
@@ -4010,6 +4010,9 @@
     "Use this domain as your Bluesky handle" : {
 
     },
+    "Use “%@” from Contacts for %@?" : {
+
+    },
     "Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write and Administration: Read and write access (Administration is needed to create a new repo when publishing) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs." : {
 
     },
@@ -4052,6 +4055,9 @@
     "View on GitHub" : {
 
     },
+    "Visibility" : {
+
+    },
     "Visitors" : {
 
     },
@@ -4080,6 +4086,9 @@
 
     },
     "Website" : {
+
+    },
+    "Website (e.g. https://example.com)" : {
 
     },
     "Website Settings…" : {
@@ -4200,6 +4209,9 @@
 
     },
     "Zoom Out" : {
+
+    },
+    "^[%lld contact](inflect: true)" : {
 
     },
     "claude-code-acp" : {
@@ -4329,6 +4341,9 @@
           }
         }
       }
+    },
+    "“%@” matches a follower — add as a contact?" : {
+
     },
     "“%@” → “%@”" : {
       "localizations" : {
