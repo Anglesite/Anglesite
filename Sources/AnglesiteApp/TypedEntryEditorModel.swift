@@ -17,19 +17,17 @@ final class TypedEntryEditorModel: InspectorEditorModel {
     /// CMS-mode session has been onboarded for this site yet (Task A2's connect sheet never ran,
     /// or the stored session was signed out). Injectable so `save()`'s CMS-mode branch is
     /// unit-testable without touching the real Keychain or network.
-    typealias MicropubClientFactory = @Sendable (_ siteID: String, _ sourceDirectory: URL) async -> MicropubClient?
+    typealias MicropubClientFactory = MicropubSessionResolver.Factory
 
-    /// Production factory: resolves the session via `StoredMicropubSessions` (Keychain read +
-    /// endpoint re-discovery — discovery is never persisted, see its doc comment) and builds a
-    /// client from it. `nonisolated` (rather than implicitly `@MainActor`, like every other
-    /// member of this class) because `init`'s default-argument expressions run in a nonisolated
-    /// context, not the initializer body's — this is what `init` calls to build its own default.
+    /// Delegates to ``MicropubSessionResolver/defaultFactory(sessions:)`` — the same resolution
+    /// `RestrictedPostPublisher` (#1566) uses, kept in exactly one place. `nonisolated` (rather
+    /// than implicitly `@MainActor`, like every other member of this class) because `init`'s
+    /// default-argument expressions run in a nonisolated context, not the initializer body's —
+    /// this is what `init` calls to build its own default.
     private nonisolated static func defaultMicropubClientFactory(
         sessions: StoredMicropubSessions = StoredMicropubSessions()
     ) -> MicropubClientFactory {
-        { siteID, sourceDirectory in
-            await sessions.session(siteID: siteID, sourceDirectory: sourceDirectory)?.makeClient()
-        }
+        MicropubSessionResolver.defaultFactory(sessions: sessions)
     }
 
     let file: FileRef
