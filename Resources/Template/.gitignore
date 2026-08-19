@@ -21,3 +21,8 @@ reports/
 # experiment (#1270 slice 1); regenerated before `npm run test:worker` too (see
 # "pretest:worker" in package.json) so the file worker.ts statically imports always exists.
 worker/experiments.json
+
+# Generated at prebuild by scripts/mcp-artifact.ts from anglesite.json's experimental.mcp flag
+# (#1576); regenerated before `npm run test:worker` too (see "pretest:worker" in package.json)
+# so the file worker/mcp-server.ts statically imports always exists.
+worker/mcp-config.json
