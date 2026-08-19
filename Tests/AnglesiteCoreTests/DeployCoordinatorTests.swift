@@ -651,6 +651,7 @@ struct DeployCoordinatorTests {
             "milestone:syndicating", "syndicate",
             "milestone:websubPing", "notify",
             "milestone:activityPubBackfill",
+            "milestone:contactsAllowlistPush",
         ])
     }
 
@@ -684,6 +685,7 @@ struct DeployCoordinatorTests {
             "milestone:syndicating", "syndicate",
             "milestone:websubPing", "notify",
             "milestone:activityPubBackfill",
+            "milestone:contactsAllowlistPush",
         ])
     }
 
@@ -702,6 +704,7 @@ struct DeployCoordinatorTests {
             "milestone:syndicating", "syndicate",
             "milestone:websubPing",
             "milestone:activityPubBackfill",
+            "milestone:contactsAllowlistPush",
         ])
     }
 
@@ -724,11 +727,47 @@ struct DeployCoordinatorTests {
             "milestone:syndicating", "syndicate",
             "milestone:websubPing", "notify",
             "milestone:activityPubBackfill", "backfill",
+            "milestone:contactsAllowlistPush",
         ])
     }
 
     @Test("backfillActivityPubOutbox defaults to a no-op, so existing call sites without it still compile and run")
     func postDeploySequencingDefaultsBackfillToNoOp() async {
+        let recorder = CallRecorder()
+        await DeployCoordinator.runPostDeploySequencing(
+            onMilestone: { _ in },
+            sendWebmentions: { recorder.record("send") },
+            syndicate: { recorder.record("syndicate") }
+        )
+        #expect(recorder.calls == ["send", "syndicate"])
+    }
+
+    @Test("pushContactsAllowlist runs last, after backfillActivityPubOutbox, with a milestone immediately before it")
+    func postDeploySequencingRunsContactsAllowlistPushLast() async {
+        let recorder = CallRecorder()
+        await DeployCoordinator.runPostDeploySequencing(
+            onMilestone: { progress in recorder.record("milestone:\(progress.phase)") },
+            sendWebmentions: { recorder.record("send") },
+            publishStandardSite: { recorder.record("standardsite") },
+            publishStandardSiteGraph: { recorder.record("standardsitegraph") },
+            syndicate: { recorder.record("syndicate") },
+            notifySubscribers: { recorder.record("notify") },
+            backfillActivityPubOutbox: { recorder.record("backfill") },
+            pushContactsAllowlist: { recorder.record("allowlist") }
+        )
+        #expect(recorder.calls == [
+            "milestone:webmentions", "send",
+            "milestone:standardSitePublishing", "standardsite",
+            "milestone:standardSiteGraphPublishing", "standardsitegraph",
+            "milestone:syndicating", "syndicate",
+            "milestone:websubPing", "notify",
+            "milestone:activityPubBackfill", "backfill",
+            "milestone:contactsAllowlistPush", "allowlist",
+        ])
+    }
+
+    @Test("pushContactsAllowlist defaults to a no-op, so existing call sites without it still compile and run")
+    func postDeploySequencingDefaultsContactsAllowlistPushToNoOp() async {
         let recorder = CallRecorder()
         await DeployCoordinator.runPostDeploySequencing(
             onMilestone: { _ in },
