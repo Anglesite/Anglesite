@@ -121,3 +121,127 @@ test("activeSkillNames: each optional skill turns on independently", () => {
   assert.equal(contactAndBooking.has("book-a-time"), true);
   assert.equal(contactAndBooking.has("send-webmention"), false);
 });
+
+test("AGENT_SKILLS bodies: usable HTTPS siteUrl renders absolute URLs", () => {
+  const httpsCtx: AgentSkillsContext = {
+    siteUrl: "https://example.com",
+    webmentionEnabled: true,
+    contactPageExists: true,
+    bookingPageExists: true,
+  };
+
+  const subscribeFeed = AGENT_SKILLS.find((s) => s.name === "subscribe-feed")!;
+  const feedBody = subscribeFeed.body(httpsCtx);
+  assert.match(feedBody, /https:\/\/example\.com\/rss\.xml/);
+  assert.match(feedBody, /https:\/\/example\.com\/atom\.xml/);
+  assert.match(feedBody, /https:\/\/example\.com\/feed\.json/);
+
+  const sendWebmention = AGENT_SKILLS.find((s) => s.name === "send-webmention")!;
+  const webmentionBody = sendWebmention.body(httpsCtx);
+  assert.match(webmentionBody, /POST https:\/\/example\.com\/webmention/);
+
+  const contactOwner = AGENT_SKILLS.find((s) => s.name === "contact-site-owner")!;
+  const contactBody = contactOwner.body(httpsCtx);
+  assert.match(contactBody, /https:\/\/example\.com\/contact/);
+
+  const bookTime = AGENT_SKILLS.find((s) => s.name === "book-a-time")!;
+  const bookBody = bookTime.body(httpsCtx);
+  assert.match(bookBody, /https:\/\/example\.com\/book/);
+});
+
+test("AGENT_SKILLS bodies: undefined siteUrl renders root-relative paths", () => {
+  const noUrlCtx: AgentSkillsContext = {
+    siteUrl: undefined,
+    webmentionEnabled: true,
+    contactPageExists: true,
+    bookingPageExists: true,
+  };
+
+  const subscribeFeed = AGENT_SKILLS.find((s) => s.name === "subscribe-feed")!;
+  const feedBody = subscribeFeed.body(noUrlCtx);
+  assert.match(feedBody, /\/rss\.xml/);
+  assert.match(feedBody, /\/atom\.xml/);
+  assert.match(feedBody, /\/feed\.json/);
+  assert.doesNotMatch(feedBody, /https?:\/\//);
+
+  const sendWebmention = AGENT_SKILLS.find((s) => s.name === "send-webmention")!;
+  const webmentionBody = sendWebmention.body(noUrlCtx);
+  assert.match(webmentionBody, /POST \/webmention/);
+  assert.doesNotMatch(webmentionBody, /https?:\/\//);
+
+  const contactOwner = AGENT_SKILLS.find((s) => s.name === "contact-site-owner")!;
+  const contactBody = contactOwner.body(noUrlCtx);
+  assert.match(contactBody, /\/contact/);
+  assert.doesNotMatch(contactBody, /https?:\/\//);
+
+  const bookTime = AGENT_SKILLS.find((s) => s.name === "book-a-time")!;
+  const bookBody = bookTime.body(noUrlCtx);
+  assert.match(bookBody, /\/book/);
+  assert.doesNotMatch(bookBody, /https?:\/\//);
+});
+
+test("AGENT_SKILLS bodies: non-HTTPS siteUrl falls back to relative paths", () => {
+  const httpCtx: AgentSkillsContext = {
+    siteUrl: "http://example.com",
+    webmentionEnabled: true,
+    contactPageExists: true,
+    bookingPageExists: true,
+  };
+
+  const subscribeFeed = AGENT_SKILLS.find((s) => s.name === "subscribe-feed")!;
+  const feedBody = subscribeFeed.body(httpCtx);
+  assert.match(feedBody, /\/rss\.xml/);
+  assert.doesNotMatch(feedBody, /http:\/\/example\.com/);
+
+  const sendWebmention = AGENT_SKILLS.find((s) => s.name === "send-webmention")!;
+  const webmentionBody = sendWebmention.body(httpCtx);
+  assert.match(webmentionBody, /POST \/webmention/);
+  assert.doesNotMatch(webmentionBody, /http:\/\/example\.com/);
+
+  const contactOwner = AGENT_SKILLS.find((s) => s.name === "contact-site-owner")!;
+  const contactBody = contactOwner.body(httpCtx);
+  assert.match(contactBody, /\/contact/);
+  assert.doesNotMatch(contactBody, /http:\/\/example\.com/);
+
+  const bookTime = AGENT_SKILLS.find((s) => s.name === "book-a-time")!;
+  const bookBody = bookTime.body(httpCtx);
+  assert.match(bookBody, /\/book/);
+  assert.doesNotMatch(bookBody, /http:\/\/example\.com/);
+});
+
+test("AGENT_SKILLS bodies: invalid siteUrl falls back gracefully to relative paths", () => {
+  const invalidCtx: AgentSkillsContext = {
+    siteUrl: "not a url",
+    webmentionEnabled: true,
+    contactPageExists: true,
+    bookingPageExists: true,
+  };
+
+  const subscribeFeed = AGENT_SKILLS.find((s) => s.name === "subscribe-feed")!;
+  assert.doesNotThrow(() => {
+    const feedBody = subscribeFeed.body(invalidCtx);
+    assert.match(feedBody, /\/rss\.xml/);
+    assert.doesNotMatch(feedBody, /not a url/);
+  });
+
+  const sendWebmention = AGENT_SKILLS.find((s) => s.name === "send-webmention")!;
+  assert.doesNotThrow(() => {
+    const webmentionBody = sendWebmention.body(invalidCtx);
+    assert.match(webmentionBody, /POST \/webmention/);
+    assert.doesNotMatch(webmentionBody, /not a url/);
+  });
+
+  const contactOwner = AGENT_SKILLS.find((s) => s.name === "contact-site-owner")!;
+  assert.doesNotThrow(() => {
+    const contactBody = contactOwner.body(invalidCtx);
+    assert.match(contactBody, /\/contact/);
+    assert.doesNotMatch(contactBody, /not a url/);
+  });
+
+  const bookTime = AGENT_SKILLS.find((s) => s.name === "book-a-time")!;
+  assert.doesNotThrow(() => {
+    const bookBody = bookTime.body(invalidCtx);
+    assert.match(bookBody, /\/book/);
+    assert.doesNotMatch(bookBody, /not a url/);
+  });
+});
