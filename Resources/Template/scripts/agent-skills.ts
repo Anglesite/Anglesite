@@ -14,6 +14,8 @@
  *   RFC's "clients MUST ignore unrecognized fields" rule.
  */
 import { createHash } from "node:crypto";
+import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
 
 /** Mirrors `GeneratedEndpoints.agentSkillsDocMarker` in `WellKnownInventory.swift`. */
 export const AGENT_SKILLS_MARKER =
@@ -236,4 +238,29 @@ export function planAgentSkills(
 
   toWrite.push({ path: "agent-skills/index.json", content: buildIndexJson(indexEntries) });
   return { toWrite, toDelete };
+}
+
+/** Carries out `planAgentSkills`' decision: reads each known skill's current on-disk content,
+ * plans, then writes/removes accordingly. Impure — the fs boundary `main()` calls into, mirroring
+ * `applySecurityTxtPlan`/`applyAtprotoDidPlan` in `edge-artifacts.ts`. */
+export function applyAgentSkillsPlan(publicDir: string, ctx: AgentSkillsContext): void {
+  const wellKnownDir = resolve(publicDir, ".well-known");
+  const existingSkillMdByName: Record<string, string | null> = {};
+  for (const skill of AGENT_SKILLS) {
+    const filePath = resolve(wellKnownDir, "agent-skills", skill.name, "SKILL.md");
+    existingSkillMdByName[skill.name] = existsSync(filePath) ? readFileSync(filePath, "utf-8") : null;
+  }
+
+  const plan = planAgentSkills(ctx, existingSkillMdByName);
+
+  for (const path of plan.toDelete) {
+    rmSync(dirname(resolve(wellKnownDir, path)), { recursive: true, force: true });
+    console.log(`Removed stale .well-known/${path}`);
+  }
+  for (const entry of plan.toWrite) {
+    const filePath = resolve(wellKnownDir, entry.path);
+    mkdirSync(dirname(filePath), { recursive: true });
+    writeFileSync(filePath, entry.content, "utf-8");
+    console.log(`Wrote public/.well-known/${entry.path}`);
+  }
 }
