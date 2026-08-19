@@ -159,7 +159,14 @@ public enum AgentReadinessCatalog {
             displayName: "Sign-in discovery for agents",
             passHint: "AI agents can find how to sign in on your visitors' behalf.",
             failHint: "AI agents can't find how to sign in on your visitors' behalf (OAuth/OIDC discovery).",
-            anglesiteProvides: false),
+            // #1580: worker.ts already serves a real, working RFC 8414 authorization-server
+            // metadata document at /.well-known/oauth-authorization-server (issuer,
+            // authorization_endpoint, token_endpoint, revocation_endpoint, grant/response/
+            // code-challenge-method lists) backed by a functioning IndieAuth PKCE+DPoP flow —
+            // not a stub. Cloudflare's check probes for exactly that (a non-404, well-formed
+            // metadata document backed by a real authorization server), regardless of whether
+            // the server's purpose is IndieAuth sign-in vs. a bespoke "agent" OAuth server.
+            anglesiteProvides: true),
         "oauthProtectedResource": .init(
             displayName: "Protected resource discovery",
             passHint: "AI agents can find how to access your site's protected resources.",
