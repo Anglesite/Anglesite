@@ -26,6 +26,8 @@ import { tagFediverseUrl } from "./utm-codes.ts";
 import { createMicropubStore } from "@dwk/micropub";
 import { READER_SESSION_COOKIE, createReaderSessionToken } from "./reader-session.ts";
 import { normalizeReaderIdentity } from "./reader-identity.ts";
+import { createHandleMcp, isMcpRateLimited, mcpRateLimitKey } from "./mcp-server.ts";
+import type { McpConfigArtifact } from "./mcp-config.ts";
 
 const testEnv = env as unknown as WorkerEnv;
 
@@ -44,6 +46,20 @@ function makeFakeKV(initial: Record<string, string> = {}): InboxKV & { store: Ma
       store.set(key, value);
     },
   };
+}
+
+/** A minimal `Fetcher`-shaped stub for `env.ASSETS`: maps exact request URLs (pathname only) to
+ *  canned responses, everything else 404s. Cast through `unknown`, matching `assetsAlways404`
+ *  below — the real `Fetcher` type also requires a `connect()` method this stub doesn't need. */
+function makeFakeAssets(responses: Record<string, { status: number; body?: string }>): WorkerEnv["ASSETS"] {
+  return {
+    async fetch(request: Request) {
+      const pathname = new URL(request.url).pathname;
+      const canned = responses[pathname];
+      if (!canned) return new Response(null, { status: 404 });
+      return new Response(canned.body ?? null, { status: canned.status });
+    },
+  } as unknown as WorkerEnv["ASSETS"];
 }
 
 test("validateInboxFields: trims and accepts complete fields", () => {
@@ -2209,4 +2225,80 @@ test("gated permalink fallback: unrelated 404s are untouched, plausible post URL
   );
   expect(rendered.status).toBe(200);
   expect(await rendered.text()).toContain("Gate Permalink Restricted");
+});
+
+// --- MCP server endpoint (#1576) ----------------------------------------------------------
+
+test("handleMcp: 404 when experimental.mcp is disabled", async () => {
+  const handleMcp = createHandleMcp({ enabled: false, feedPaths: [] });
+  const kv = makeFakeKV();
+  const request = new Request("https://example.com/mcp", { method: "POST" });
+  const response = await handleMcp(request, { ...testEnv, SOCIAL_KV: kv }, createExecutionContext());
+  expect(response.status).toBe(404);
+});
+
+test("handleMcp: 429 when the rate limit is exceeded", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const kv = makeFakeKV();
+  const env = { ...testEnv, SOCIAL_KV: kv, ASSETS: makeFakeAssets({}) };
+  const ip = "203.0.113.7";
+  for (let i = 0; i < 60; i++) {
+    const response = await handleMcp(
+      new Request("https://example.com/mcp", { method: "POST", headers: { "CF-Connecting-IP": ip } }),
+      env,
+      createExecutionContext(),
+    );
+    expect(response.status).not.toBe(429);
+  }
+  const limited = await handleMcp(
+    new Request("https://example.com/mcp", { method: "POST", headers: { "CF-Connecting-IP": ip } }),
+    env,
+    createExecutionContext(),
+  );
+  expect(limited.status).toBe(429);
+});
+
+test("isMcpRateLimited: fails closed (rate-limited) when SOCIAL_KV is unbound", async () => {
+  const request = new Request("https://example.com/mcp");
+  const limited = await isMcpRateLimited(request, { ...testEnv, SOCIAL_KV: undefined });
+  expect(limited).toBe(true);
+});
+
+test("mcpRateLimitKey: distinct IPs produce distinct keys with the mcp-tool-call: prefix", async () => {
+  const a = await mcpRateLimitKey(new Request("https://example.com/mcp", { headers: { "CF-Connecting-IP": "1.1.1.1" } }));
+  const b = await mcpRateLimitKey(new Request("https://example.com/mcp", { headers: { "CF-Connecting-IP": "2.2.2.2" } }));
+  expect(a).not.toBe(b);
+  expect(a.startsWith("mcp-tool-call:")).toBe(true);
+});
+
+/**
+ * The installed `@modelcontextprotocol/server@2.0.0` only answers a bare JSON-RPC POST (no
+ * `_meta` protocol-envelope claim — every real MCP client in the field today, since the 2026-era
+ * envelope isn't yet emitted by any client) over its "legacy" 2025-era code path, which always
+ * frames the body as SSE (`event: message\ndata: {...}`) regardless of the handler's
+ * `responseMode` option — that option only affects the modern per-request-envelope path. Verified
+ * directly against the installed package (see task-9-report.md); this parses that one `data:`
+ * line rather than assuming a plain JSON body.
+ */
+function parseSseJsonRpcResult(body: string): { result?: { tools?: Array<{ name: string }> } } {
+  const dataLine = body.split("\n").find((line) => line.startsWith("data: "));
+  if (!dataLine) throw new Error(`Expected an SSE "data:" line in MCP response body, got: ${body}`);
+  return JSON.parse(dataLine.slice("data: ".length));
+}
+
+test("handleMcp: enabled with a bound ASSETS responds to a tools/list JSON-RPC request", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml", "/atom.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const env = { ...testEnv, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const request = new Request("https://example.com/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  });
+  const response = await handleMcp(request, env, createExecutionContext());
+  expect(response.status).toBe(200);
+  const body = parseSseJsonRpcResult(await response.text());
+  const names = (body.result?.tools ?? []).map((t) => t.name);
+  expect(names).toEqual(expect.arrayContaining(["search_posts", "fetch_page_content", "list_feeds"]));
 });
