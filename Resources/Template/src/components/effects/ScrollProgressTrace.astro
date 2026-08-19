@@ -1,0 +1,88 @@
+---
+/**
+ * Effects gallery — Scroll-Driven (#768). A `position: fixed` canvas line along the viewport's
+ * right edge that draws proportionally to page scroll percentage — a decorative reading-progress
+ * squiggle. Like `CursorGlow`, its DOM insertion point doesn't affect its visual position, so
+ * `inline` placement here just means "add one instance somewhere in the page". Under
+ * `prefers-reduced-motion`, the trace draws once at the current scroll position and then stays
+ * static (no `scroll`/`resize` listeners attached). Otherwise, the `scroll` listener is only
+ * attached while an `IntersectionObserver` reports the trace's root element as visible.
+ */
+interface Props {
+  color?: string;
+}
+const { color = "currentColor" } = Astro.props;
+---
+<div class="scroll-progress-trace" data-color={color}>
+  <canvas></canvas>
+</div>
+
+<script>
+  class ScrollProgressTrace {
+    constructor(root: HTMLElement) {
+      const canvas = root.querySelector("canvas") as HTMLCanvasElement;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const color = root.dataset.color ?? "currentColor";
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+      function resize() {
+        canvas.width = root.clientWidth;
+        canvas.height = root.clientHeight;
+      }
+
+      function draw() {
+        if (!ctx) return;
+        const doc = document.documentElement;
+        const max = doc.scrollHeight - doc.clientHeight;
+        const progress = max > 0 ? Math.min(1, scrollY / max) : 0;
+        ctx.clearRect(0, 0, canvas.width, canvas.height);
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 3;
+        ctx.beginPath();
+        ctx.moveTo(canvas.width / 2, 0);
+        ctx.lineTo(canvas.width / 2, canvas.height * progress);
+        ctx.stroke();
+      }
+
+      resize();
+      draw();
+      if (!reduceMotion) {
+        addEventListener("resize", () => { resize(); draw(); }, { passive: true });
+        let listening = false;
+        const observer = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting && !listening) {
+              listening = true;
+              addEventListener("scroll", draw, { passive: true });
+              draw();
+            } else if (!entry.isIntersecting && listening) {
+              listening = false;
+              removeEventListener("scroll", draw);
+            }
+          }
+        });
+        observer.observe(root);
+      }
+    }
+  }
+
+  document.querySelectorAll<HTMLElement>(".scroll-progress-trace").forEach((el) => new ScrollProgressTrace(el));
+</script>
+
+<style>
+  .scroll-progress-trace {
+    position: fixed;
+    right: 12px;
+    top: 0;
+    width: 6px;
+    height: 100vh;
+    pointer-events: none;
+    z-index: 2147483646;
+  }
+  .scroll-progress-trace canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+</style>

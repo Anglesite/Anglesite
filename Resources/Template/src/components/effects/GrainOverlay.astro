@@ -1,0 +1,93 @@
+---
+/**
+ * Effects gallery — Canvas Backgrounds (#768). Subtle animated film-grain texture. Full-bleed
+ * background layer: place inside a `position: relative` ancestor.
+ */
+interface Props {
+  opacity?: number;
+}
+const { opacity = 0.05 } = Astro.props;
+---
+<div class="grain-overlay-root" data-opacity={opacity}>
+  <canvas></canvas>
+</div>
+
+<script>
+  class GrainOverlay {
+    constructor(root: HTMLElement) {
+      const canvas = root.querySelector("canvas") as HTMLCanvasElement;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) return;
+      const opacity = Number(root.dataset.opacity ?? 0.05);
+      const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+      let raf = 0;
+      let running = false;
+      let lastFrame = 0;
+
+      function resize() {
+        canvas.width = root.clientWidth;
+        canvas.height = root.clientHeight;
+      }
+
+      function paintNoise() {
+        if (!ctx) return;
+        const imageData = ctx.createImageData(canvas.width, canvas.height);
+        const buffer = imageData.data;
+        for (let i = 0; i < buffer.length; i += 4) {
+          const shade = Math.random() * 255;
+          buffer[i] = buffer[i + 1] = buffer[i + 2] = shade;
+          buffer[i + 3] = opacity * 255;
+        }
+        ctx.putImageData(imageData, 0, 0);
+      }
+
+      function tick(time: number) {
+        if (!running) return;
+        // Throttle to ~12fps — grain reads as motion even at a low frame rate, and this keeps
+        // CPU cost far below a full 60fps canvas redraw.
+        if (time - lastFrame > 83) {
+          lastFrame = time;
+          paintNoise();
+        }
+        raf = requestAnimationFrame(tick);
+      }
+
+      resize();
+      if (reduceMotion) {
+        paintNoise();
+      } else {
+        const observer = new IntersectionObserver((entries) => {
+          for (const entry of entries) {
+            if (entry.isIntersecting && !running) {
+              running = true;
+              raf = requestAnimationFrame(tick);
+            } else if (!entry.isIntersecting && running) {
+              running = false;
+              cancelAnimationFrame(raf);
+            }
+          }
+        });
+        observer.observe(root);
+        addEventListener("resize", resize, { passive: true });
+      }
+    }
+  }
+
+  document.querySelectorAll<HTMLElement>(".grain-overlay-root").forEach((el) => new GrainOverlay(el));
+</script>
+
+<style>
+  .grain-overlay-root {
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    overflow: hidden;
+    pointer-events: none;
+    mix-blend-mode: overlay;
+  }
+  .grain-overlay-root canvas {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+</style>
