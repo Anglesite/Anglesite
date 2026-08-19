@@ -373,14 +373,20 @@ test("routing: with no running experiment configured, existing routes are unaffe
   expect(await assetResponse.text()).toBe("No assets binding configured");
 });
 
-test("IndieAuth metadata advertises the authorization and token endpoints", async () => {
+test("IndieAuth metadata advertises a full RFC 8414 authorization-server document (#1580)", async () => {
   const response = await fetchWorker(new Request("https://owner.example/.well-known/oauth-authorization-server"));
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toMatchObject({
     issuer: "https://owner.example",
     authorization_endpoint: "https://owner.example/authorize",
     token_endpoint: "https://owner.example/token",
+    revocation_endpoint: "https://owner.example/revocation",
+    revocation_endpoint_auth_methods_supported: ["none"],
+    grant_types_supported: ["authorization_code"],
+    response_types_supported: ["code"],
     code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["none"],
+    scopes_supported: ["create", "update", "delete", "media", "follow", "channels", "read"],
   });
 });
 
