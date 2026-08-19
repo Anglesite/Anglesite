@@ -132,6 +132,11 @@ struct AgentReadinessScanningTests {
         #expect(AgentReadinessCatalog.checkInfo(for: "linkHeaders").anglesiteProvides == true)
     }
 
+    @Test("catalog marks agentSkills as provided by the template (#1579 well-known agent-skills manifest)")
+    func agentSkillsMarkedProvided() {
+        #expect(AgentReadinessCatalog.checkInfo(for: "agentSkills").anglesiteProvides == true)
+    }
+
     @Test("catalog marks oauthDiscovery as provided by the template (#1580 RFC 8414 IndieAuth metadata)")
     func oauthDiscoveryMarkedProvided() {
         #expect(AgentReadinessCatalog.checkInfo(for: "oauthDiscovery").anglesiteProvides == true)

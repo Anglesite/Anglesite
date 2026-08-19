@@ -18,6 +18,7 @@ import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node
 import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { readConfig } from "./config";
+import { applyAgentSkillsPlan } from "./agent-skills";
 import { isStandardSitePublicationURI, standardSitePublicationURI } from "./standard-site.ts";
 import {
   mayBlockAICrawlers,
@@ -736,6 +737,13 @@ function main(): void {
   applyMTAStsPlan(publicDir);
   applyAtprotoDidPlan(publicDir);
   applyStandardSitePublicationPlan(publicDir);
+
+  applyAgentSkillsPlan(publicDir, {
+    siteUrl,
+    webmentionEnabled: readConfig("WEBMENTION_RECEIVE_ENABLED") === "true",
+    contactPageExists: existsSync(resolve(process.cwd(), "src/pages/contact.astro")),
+    bookingPageExists: existsSync(resolve(process.cwd(), "src/pages/book.astro")),
+  });
 }
 
 // Run only when invoked directly (e.g. `npx tsx scripts/edge-artifacts.ts`), never on import.

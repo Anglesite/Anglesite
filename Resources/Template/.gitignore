@@ -12,6 +12,7 @@ dist/
 public/.well-known/security.txt
 public/.well-known/mta-sts.txt
 public/.well-known/atproto-did
+public/.well-known/agent-skills/
 
 # Written by scripts/a11y-audit.ts's default --report path; a run-to-run
 # artifact, not source.

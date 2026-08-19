@@ -144,7 +144,7 @@ public enum AgentReadinessCatalog {
             displayName: "Agent Skills manifest",
             passHint: "Your site publishes a manifest of tasks AI agents can perform for visitors.",
             failHint: "Your site doesn't publish a manifest of tasks AI agents can perform for visitors.",
-            anglesiteProvides: false),
+            anglesiteProvides: true),
         "apiCatalog": .init(
             displayName: "API catalog",
             passHint: "Your site publishes a catalog of its APIs for AI agents to use.",
