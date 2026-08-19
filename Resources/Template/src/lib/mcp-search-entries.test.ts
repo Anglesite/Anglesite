@@ -1,6 +1,49 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { buildSearchEntry, buildSearchIndex, searchEntries, type SearchableEntry } from "./mcp-search-entries.ts";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { ENTRY_COLLECTIONS } from "./collections.ts";
+import {
+  SEARCH_INDEX_COLLECTIONS,
+  buildSearchEntry,
+  buildSearchIndex,
+  searchEntries,
+  type SearchableEntry,
+} from "./mcp-search-entries.ts";
+
+test("SEARCH_INDEX_COLLECTIONS covers blog as well as every ENTRY_COLLECTIONS member", () => {
+  // ENTRY_COLLECTIONS is HENTRY_COLLECTIONS + events/reviews — it excludes `blog` by
+  // construction, which is what made search_posts blind to the template's default content type.
+  assert.equal(ENTRY_COLLECTIONS.includes("blog" as never), false);
+  assert.ok(SEARCH_INDEX_COLLECTIONS.includes("blog"));
+  for (const collection of ENTRY_COLLECTIONS) {
+    assert.ok(SEARCH_INDEX_COLLECTIONS.includes(collection), `missing ${collection}`);
+  }
+});
+
+test("every SEARCH_INDEX_COLLECTIONS member has a usable search field mapping", () => {
+  for (const collection of SEARCH_INDEX_COLLECTIONS) {
+    const entry: SearchableEntry = {
+      collection,
+      id: "probe",
+      // Every mapped date field the table uses, so one probe satisfies all collections.
+      data: { pubDate: "2026-01-01T00:00:00.000Z", publishDate: "2026-01-01T00:00:00.000Z", start: "2026-01-01T00:00:00.000Z" },
+      body: "probe body",
+    };
+    assert.ok(buildSearchEntry(entry), `${collection} has no SEARCH_FIELDS mapping`);
+  }
+});
+
+test("the search-index endpoint iterates SEARCH_INDEX_COLLECTIONS, not bare ENTRY_COLLECTIONS", () => {
+  // Drift guard for the actual wiring: a unit test of buildSearchEntry("blog") passes even when
+  // the endpoint never hands blog entries in (which is exactly how #1576's bug shipped).
+  const endpoint = readFileSync(
+    join(dirname(fileURLToPath(import.meta.url)), "..", "pages", "mcp-search-index.json.ts"),
+    "utf8",
+  );
+  assert.match(endpoint, /for \(const collection of SEARCH_INDEX_COLLECTIONS\)/);
+});
 
 test("buildSearchEntry: blog entry uses title and pubDate, url is /blog/<id>", () => {
   const entry: SearchableEntry = {

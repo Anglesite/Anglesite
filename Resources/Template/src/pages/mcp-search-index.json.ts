@@ -1,8 +1,11 @@
 import type { APIContext } from "astro";
 import { getCollection } from "astro:content";
 import { readAnglesiteConfig } from "../../scripts/anglesite-config.ts";
-import { ENTRY_COLLECTIONS } from "../lib/collections.ts";
-import { buildSearchIndex, type SearchableEntry } from "../lib/mcp-search-entries.ts";
+import {
+  SEARCH_INDEX_COLLECTIONS,
+  buildSearchIndex,
+  type SearchableEntry,
+} from "../lib/mcp-search-entries.ts";
 
 /**
  * Build-time JSON search index for the MCP `search_posts` tool (#1576) — same shape/precedent as
@@ -17,7 +20,7 @@ export async function GET(_context: APIContext) {
   }
 
   const entries: SearchableEntry[] = [];
-  for (const collection of ENTRY_COLLECTIONS) {
+  for (const collection of SEARCH_INDEX_COLLECTIONS) {
     const posts = await getCollection(collection, ({ data }) =>
       import.meta.env.PROD ? !(data as { draft?: boolean }).draft : true,
     );

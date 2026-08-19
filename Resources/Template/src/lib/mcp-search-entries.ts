@@ -6,6 +6,19 @@
  * as plain `SearchableEntry` objects.
  */
 
+import { ENTRY_COLLECTIONS, type EntryCollection } from "./collections.ts";
+
+/**
+ * Every collection the `search_posts` index covers. `ENTRY_COLLECTIONS` by construction excludes
+ * `blog` (it's `HENTRY_COLLECTIONS` plus `events`/`reviews`), so indexing it alone made the
+ * template's flagship content type invisible to `search_posts` while `list_feeds` still advertised
+ * `/blog/rss.xml`. Same `[...ENTRY_COLLECTIONS, "blog"]` idiom as `licensing.ts`'s
+ * `LICENSABLE_COLLECTIONS`; the endpoint (`src/pages/mcp-search-index.json.ts`) iterates this
+ * rather than re-deriving the list, so the two can't drift.
+ */
+export const SEARCH_INDEX_COLLECTIONS: readonly SearchIndexCollection[] = [...ENTRY_COLLECTIONS, "blog"];
+export type SearchIndexCollection = EntryCollection | "blog";
+
 export interface McpSearchEntry {
   title: string;
   url: string;
