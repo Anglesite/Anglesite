@@ -68,6 +68,7 @@ import { base64url, decodeBase64url, deriveKey } from "./token-signing.ts";
 import { escapeHTML, extractMf2ContentString, extractMf2Photos, type ExtractedPhoto } from "./render-utils.ts";
 import { handleReaderCallback, handleReaderSignin } from "./reader-auth.ts";
 import { handleGatedFallback, handlePrivateFeed } from "./gated-content.ts";
+import { EmailMessage } from "cloudflare:email";
 
 /**
  * Per-site Cloudflare Worker entry point.
@@ -104,6 +105,18 @@ export interface WorkerEnv extends IndieAuthEnv {
   ASSETS?: Fetcher;
   INBOX_KV?: InboxKV;
   SOCIAL_KV?: InboxKV;
+  /**
+   * Owner-email forwarding for `/inbox` submissions (#1570, reconciling #587 with the
+   * email-as-DM decision) — additive to the `INBOX_KV` capture above, which stays the
+   * structured record. Both optional: a site whose owner hasn't run email setup
+   * (`EmailSetupPlanner`/`EmailSetupExecutor`) has neither bound, and `handleInbox` degrades to
+   * KV-only capture rather than throwing. `SEND_EMAIL`'s `destination_address` (see
+   * `WorkerComposition.generateWranglerToml`, Swift) restricts the binding to `INBOX_FORWARD_EMAIL`
+   * specifically — the Worker can't be made to send anywhere else even if this env were
+   * otherwise compromised.
+   */
+  SEND_EMAIL?: SendEmail;
+  INBOX_FORWARD_EMAIL?: string;
   INDIEAUTH_OWNER_PASSWORD: string;
   /**
    * Inbound-Webmention bindings (V-3.1, #359). All optional: a site that hasn't provisioned
@@ -1552,9 +1565,87 @@ async function parseRequestFields(request: Request): Promise<Record<string, stri
   return null;
 }
 
+/** Max payload bytes per RFC 2047 "B" encoded-word: the spec caps a whole encoded-word
+ *  (`=?UTF-8?B?...?=`) at 75 characters. `"=?UTF-8?B?"` (10) + `"?="` (2) leaves 63 for the
+ *  base64 portion; 60 of those (a multiple of 4, so no padding) decode to exactly 45 bytes —
+ *  keeping each word at 72 characters, under the cap with room to spare. */
+const MAX_ENCODED_WORD_PAYLOAD_BYTES = 45;
+
+/** RFC 2047 "B" (base64) encoded-word(s), folded per RFC 2047 §2's 75-char-per-word cap (a
+ *  near-`MAX_SUBJECT_LENGTH` subject would otherwise produce one oversized word some strict
+ *  MTAs reject or mangle) — consecutive words separated only by folding whitespace (`\r\n `),
+ *  which RFC 2047 defines as insignificant between adjacent encoded-words, so decoders
+ *  reconstruct the original value across the fold. Every byte of `value` round-trips through
+ *  the base64 alphabet only, so an anonymous submitter's raw subject can never inject a CR/LF —
+ *  or anything else — into the header it's placed in, regardless of content (#1570). Each word's
+ *  payload ends on a UTF-8 character boundary so no chunk decodes to invalid UTF-8. */
+function encodeMimeHeaderValue(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  const words: string[] = [];
+  let start = 0;
+  do {
+    let end = Math.min(start + MAX_ENCODED_WORD_PAYLOAD_BYTES, bytes.length);
+    // Back off while the next byte is a UTF-8 continuation byte (10xxxxxx) so a multi-byte
+    // character never splits across two encoded-words.
+    while (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
+    let binary = "";
+    for (const byte of bytes.slice(start, end)) binary += String.fromCharCode(byte);
+    words.push(`=?UTF-8?B?${btoa(binary)}?=`);
+    start = end;
+  } while (start < bytes.length);
+  return words.join("\r\n ");
+}
+
+/** Builds the raw RFC 5322 message `forwardInboxSubmissionByEmail` hands to `EmailMessage`.
+ *  `submission.from`/`.message` are anonymous, unvalidated user input — they appear only in the
+ *  body (after the blank line separating headers from body), never in a header, so unlike
+ *  `.subject` they need no encoding: there's no header-injection surface for body content
+ *  regardless of what it contains. Exported for direct unit testing of that injection-safety
+ *  property. */
+export function buildInboxForwardRaw(
+  fromAddress: string,
+  toAddress: string,
+  submission: InboxFields & { id: string; receivedAt: string },
+): string {
+  const headers = [
+    `From: "Site Inbox" <${fromAddress}>`,
+    `To: <${toAddress}>`,
+    `Subject: ${encodeMimeHeaderValue(`[Inbox] ${submission.subject}`)}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="utf-8"',
+    "Content-Transfer-Encoding: 8bit",
+  ];
+  const body = [
+    "New /inbox submission — replies go directly to the sender, this address doesn't relay them.",
+    "",
+    `From: ${submission.from}`,
+    `Subject: ${submission.subject}`,
+    "",
+    submission.message,
+    "",
+    "—",
+    `Submission ID: ${submission.id}`,
+    `Received: ${submission.receivedAt}`,
+  ];
+  return `${headers.join("\r\n")}\r\n\r\n${body.join("\r\n")}\r\n`;
+}
+
+/** Best-effort — callers must swallow rejections; see `handleInbox`'s comment on why an email
+ *  failure must never affect the KV/git capture path. */
+async function forwardInboxSubmissionByEmail(
+  sendEmail: SendEmail,
+  toAddress: string,
+  siteHostname: string,
+  submission: InboxFields & { id: string; receivedAt: string },
+): Promise<void> {
+  const fromAddress = `inbox@${siteHostname}`;
+  const raw = buildInboxForwardRaw(fromAddress, toAddress, submission);
+  await sendEmail.send(new EmailMessage(fromAddress, toAddress, raw));
+}
+
 export async function handleInbox(
   request: Request,
-  env: Pick<WorkerEnv, "INBOX_KV">,
+  env: Pick<WorkerEnv, "INBOX_KV" | "SEND_EMAIL" | "INBOX_FORWARD_EMAIL">,
 ): Promise<Response> {
   if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
   if (!env.INBOX_KV) return new Response("Inbox capture not configured", { status: 500 });
@@ -1581,6 +1672,21 @@ export async function handleInbox(
   const id = crypto.randomUUID();
   const submission = { id, ...validated, receivedAt: new Date().toISOString() };
   await env.INBOX_KV.put(`inbox:${id}`, JSON.stringify(submission));
+
+  // #1570: additionally forwards to the owner's email, reconciling #587 with the email-as-DM
+  // decision — KV above (→ git commit-back via `InboxSubmissionSync`) stays the structured
+  // record regardless of whether this succeeds. Best-effort only: a bounced/misconfigured
+  // destination address or an Email Routing binding that isn't fully verified yet must never
+  // roll back the KV write or turn a successfully captured submission into an error response.
+  if (env.SEND_EMAIL && env.INBOX_FORWARD_EMAIL) {
+    try {
+      await forwardInboxSubmissionByEmail(
+        env.SEND_EMAIL, env.INBOX_FORWARD_EMAIL, new URL(request.url).hostname, submission,
+      );
+    } catch (error) {
+      console.error("inbox: failed to forward submission by email", error);
+    }
+  }
 
   return new Response(null, { status: 202 });
 }

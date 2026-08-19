@@ -951,6 +951,11 @@ final class DeployModel {
         // the very next ordinary deploy — mirrors resolveIsHostedCommunity's declared-config read
         // just above.
         let runningExperiments = DeployCoordinator.resolveRunningExperiments(sourceDirectory: siteDirectory)
+        // #1570: reuses the owner's email address from EmailSetupPlanner/EmailSetupExecutor
+        // (already "in the stack") so /inbox submissions additionally forward there, alongside
+        // the existing KV→git capture — mirrors resolveRunningExperiments's identical
+        // declared-config read just above.
+        let inboxForwardEmail = DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: siteDirectory)
         let provisionResult = await socialCommand.provision(
             siteID: siteID,
             siteDirectory: siteDirectory,
@@ -963,6 +968,7 @@ final class DeployModel {
             apUsername: apUsername,
             acknowledgesPaidPlan: acknowledgesPaidPlan,
             inboxCaptureEnabled: settings.inboxCaptureEnabled ?? false,
+            inboxForwardEmail: inboxForwardEmail,
             activityPubActorType: isHostedCommunity ? "Group" : nil,
             moderators: isHostedCommunity ? settings.moderators : nil,
             experiments: runningExperiments

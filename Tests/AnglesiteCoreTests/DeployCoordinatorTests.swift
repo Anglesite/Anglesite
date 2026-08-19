@@ -186,6 +186,50 @@ struct DeployCoordinatorTests {
         #expect(DeployCoordinator.resolveRunningExperiments(sourceDirectory: dir).isEmpty)
     }
 
+    // MARK: - resolveInboxForwardEmail (#1570)
+
+    @Test("resolveInboxForwardEmail reads email.inboxForwardAddress from anglesite.json")
+    func resolveInboxForwardEmailReadsInboxForwardAddress() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(provider: "fastmail", inboxForwardAddress: "owner@example.com")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == "owner@example.com")
+    }
+
+    @Test("resolveInboxForwardEmail is nil with no anglesite.json at all")
+    func resolveInboxForwardEmailNilByDefault() throws {
+        let dir = try temporaryDirectory()
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == nil)
+    }
+
+    @Test("resolveInboxForwardEmail is nil when a dmarcReportEmail is set but no inboxForwardAddress was — reusing one for the other would be a silent behavior change")
+    func resolveInboxForwardEmailIgnoresDmarcReportEmail() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(provider: "fastmail", dmarcReportEmail: "dmarc@example.com")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == nil)
+    }
+
+    @Test("resolveInboxForwardEmail is nil when email setup was run but no forward address was set")
+    func resolveInboxForwardEmailNilWithoutForwardAddress() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(provider: "fastmail", inboxForwardAddress: nil)))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == nil)
+    }
+
+    @Test("resolveInboxForwardEmail trims whitespace and treats an all-whitespace value as nil")
+    func resolveInboxForwardEmailTrimsWhitespace() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(inboxForwardAddress: "  owner@example.com  ")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == "owner@example.com")
+
+        let dir2 = try temporaryDirectory()
+        try DomainConfigStore(sourceDirectory: dir2).save(DomainConfig(email: .init(inboxForwardAddress: "   ")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir2) == nil)
+    }
+
     // MARK: - deployLogSources
 
     @Test("deployLogSources includes worker-provision:<siteID> so SocialWorkerProvisionCommand's wrangler output reaches the drawer")

@@ -7,6 +7,7 @@ import {
   validateInboxFields,
   isRateLimited,
   handleInbox,
+  buildInboxForwardRaw,
   handleIndieAuthConsent,
   createConsentToken,
   verifyConsentToken,
@@ -145,6 +146,148 @@ test("handleInbox: 500s when INBOX_KV isn't bound", async () => {
   });
   const response = await handleInbox(request, {});
   expect(response.status).toBe(500);
+});
+
+function makeFakeSendEmail(): { send: (message: unknown) => Promise<void>; calls: unknown[] } {
+  const calls: unknown[] = [];
+  return {
+    calls,
+    async send(message: unknown) {
+      calls.push(message);
+    },
+  };
+}
+
+test("handleInbox: forwards to SEND_EMAIL when both it and INBOX_FORWARD_EMAIL are bound", async () => {
+  const kv = makeFakeKV();
+  const sendEmail = makeFakeSendEmail();
+  const request = new Request("https://my-site.example/inbox", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subject: "Hello", from: "a@example.com", message: "Hi there" }),
+  });
+  const response = await handleInbox(request, {
+    INBOX_KV: kv,
+    SEND_EMAIL: sendEmail as never,
+    INBOX_FORWARD_EMAIL: "owner@example.com",
+  });
+  expect(response.status).toBe(202);
+  expect(sendEmail.calls.length).toBe(1);
+});
+
+test("handleInbox: still stages the submission and returns 202 when SEND_EMAIL.send rejects", async () => {
+  const kv = makeFakeKV();
+  const sendEmail = {
+    async send() {
+      throw new Error("destination address not verified");
+    },
+  };
+  const request = new Request("https://my-site.example/inbox", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subject: "Hello", from: "a@example.com", message: "Hi there" }),
+  });
+  const response = await handleInbox(request, {
+    INBOX_KV: kv,
+    SEND_EMAIL: sendEmail as never,
+    INBOX_FORWARD_EMAIL: "owner@example.com",
+  });
+  expect(response.status).toBe(202);
+  const [, stagedRaw] = [...kv.store.entries()].find(([key]) => key.startsWith("inbox:"))!;
+  expect(JSON.parse(stagedRaw).subject).toBe("Hello");
+});
+
+test("handleInbox: does not call SEND_EMAIL.send when INBOX_FORWARD_EMAIL is unset", async () => {
+  const kv = makeFakeKV();
+  const sendEmail = makeFakeSendEmail();
+  const request = new Request("https://my-site.example/inbox", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subject: "Hello", from: "a@example.com", message: "Hi there" }),
+  });
+  const response = await handleInbox(request, { INBOX_KV: kv, SEND_EMAIL: sendEmail as never });
+  expect(response.status).toBe(202);
+  expect(sendEmail.calls.length).toBe(0);
+});
+
+test("buildInboxForwardRaw: base64-encodes the subject header, so embedded CRLF can't inject a header", () => {
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: "Hi\r\nBcc: attacker@evil.example",
+    from: "a@example.com",
+    message: "hello",
+  });
+  // The header/body boundary is the *first* blank line — split only there, not on every blank
+  // line the body itself may contain (the injected value's own CRLF creates one further down).
+  const headerEnd = raw.indexOf("\r\n\r\n");
+  const headerBlock = raw.slice(0, headerEnd);
+  const bodyBlock = raw.slice(headerEnd + 4);
+  expect(headerBlock).not.toContain("Bcc:");
+  expect(headerBlock).toMatch(/^Subject: =\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/m);
+  // The raw, unencoded content only ever appears in the body, after the header/body separator.
+  expect(bodyBlock).toContain("Hi\r\nBcc: attacker@evil.example");
+});
+
+test("buildInboxForwardRaw: puts from/message in the body untouched and the recipient in To", () => {
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: "Hello",
+    from: "a@example.com",
+    message: "Hi there",
+  });
+  expect(raw).toContain("To: <owner@example.com>");
+  expect(raw).toContain('From: "Site Inbox" <inbox@my-site.example>');
+  expect(raw).toContain("From: a@example.com");
+  expect(raw).toContain("Hi there");
+  expect(raw).toContain("Submission ID: abc-123");
+});
+
+function decodeRfc2047(headerValue: string): string {
+  const words = [...headerValue.matchAll(/=\?UTF-8\?B\?([A-Za-z0-9+/=]+)\?=/g)].map((m) => m[1]!);
+  const bytes = words.flatMap((w) => [...atob(w)].map((c) => c.charCodeAt(0)));
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+test("buildInboxForwardRaw: folds a near-MAX_SUBJECT_LENGTH subject into multiple RFC 2047 encoded-words, each within the 75-char cap", () => {
+  const longSubject = "x".repeat(200); // MAX_SUBJECT_LENGTH
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: longSubject,
+    from: "a@example.com",
+    message: "hi",
+  });
+  const headerEnd = raw.indexOf("\r\n\r\n");
+  const headerBlock = raw.slice(0, headerEnd);
+  const subjectMatch = headerBlock.match(/Subject: ([\s\S]*?)\r\nMIME-Version:/);
+  expect(subjectMatch).not.toBeNull();
+  const subjectHeader = subjectMatch![1]!;
+  const lines = subjectHeader.split("\r\n ");
+  expect(lines.length).toBeGreaterThan(1);
+  for (const line of lines) {
+    expect(line.length).toBeLessThanOrEqual(75);
+    expect(line).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
+  }
+  expect(decodeRfc2047(subjectHeader)).toBe(`[Inbox] ${longSubject}`);
+});
+
+test("buildInboxForwardRaw: a multi-byte-character subject decodes correctly across an encoded-word fold boundary", () => {
+  // A run of 3-byte UTF-8 characters (each "🙂"-adjacent BMP emoji-free code point) long enough
+  // to straddle the 45-byte-per-word boundary, verifying the UTF-8 boundary backoff doesn't
+  // corrupt a character split across two words.
+  const longSubject = "café ".repeat(40); // each "é" is 2 bytes — forces non-ASCII byte splits
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: longSubject,
+    from: "a@example.com",
+    message: "hi",
+  });
+  const headerEnd = raw.indexOf("\r\n\r\n");
+  const subjectMatch = raw.slice(0, headerEnd).match(/Subject: ([\s\S]*?)\r\nMIME-Version:/);
+  expect(decodeRfc2047(subjectMatch![1]!)).toBe(`[Inbox] ${longSubject}`);
 });
 
 function base64url(bytes: Uint8Array): string {
