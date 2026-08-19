@@ -971,7 +971,7 @@ struct NativeContentOperationsDuplicateAsVariantTests {
             return
         }
         #expect(filePath == "src/pages/x/homepage-hero/b.astro")
-        #expect(identifier == "/x/homepage-hero/b")
+        #expect(identifier == "/x/homepage-hero/b/")
     }
 
     @Test("duplicatePageAsVariant injects canonicalPath pointing at the control route")
@@ -990,7 +990,7 @@ struct NativeContentOperationsDuplicateAsVariantTests {
 
         let written = try String(
             contentsOf: root.appendingPathComponent("src/pages/x/homepage-hero/b.astro"), encoding: .utf8)
-        #expect(written.contains("<BaseLayout canonicalPath=\"/pricing\" title=\"Pricing\">"))
+        #expect(written.contains("<BaseLayout canonicalPath=\"/pricing/\" title=\"Pricing\">"))
     }
 
     @Test("duplicatePageAsVariant writes a noindex robots-config entry")
@@ -1041,6 +1041,43 @@ struct NativeContentOperationsDuplicateAsVariantTests {
         // claimed as committed.
         let config = RobotsConfigFile.read(under: root)
         #expect(config.noindex.contains { $0.path == "/x/homepage-hero/b/" })
+    }
+
+    // Encodes `Resources/Template/scripts/pre-deploy-check.ts`'s
+    // `experimentPathProblem(path, { requireTrailingSlash: true })` — the contract every
+    // `experiments.active[]` entry's `page`/`variant.page` must satisfy, for *draft* entries as
+    // much as running ones. `identifier` here is written straight into `variant.page`, so a
+    // slash-less value fails the gate and blocks every subsequent deploy of the whole site (#1518).
+    private func experimentPathProblem(_ path: String) -> String? {
+        if path.isEmpty { return "must be a non-empty string" }
+        if !path.hasPrefix("/") { return #"must start with "/""# }
+        if path.contains("..") { return #"must not contain "..""# }
+        if path.contains("%") { return "must not contain percent-encoding" }
+        if !path.hasSuffix("/") { return #"must end with "/""# }
+        return nil
+    }
+
+    @Test("duplicatePageAsVariant's identifier satisfies the pre-deploy gate's path contract")
+    func identifierSatisfiesThePreDeployPathContract() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controlRelPath = "src/pages/pricing.astro"
+        let abs = root.appendingPathComponent(controlRelPath)
+        try FileManager.default.createDirectory(at: abs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try controlContents.write(to: abs, atomically: true, encoding: .utf8)
+
+        let ops = NativeContentOperations(siteDirectory: { _ in root }, gitCommit: { _, _, _ in "deadbeef" })
+
+        let result = await ops.duplicatePageAsVariant(
+            siteID: "s1", relativePath: controlRelPath, experimentID: "homepage-hero", variantID: "b")
+
+        guard case .created(let filePath, let identifier) = result else {
+            Issue.record("expected .created, got \(result)")
+            return
+        }
+        #expect(experimentPathProblem(identifier) == nil)
+        // …while the file path stays the slash-less form: it's a filesystem location, not a URL.
+        #expect(filePath == "src/pages/x/homepage-hero/b.astro")
     }
 
     @Test("duplicatePageAsVariant fails on route collision")
