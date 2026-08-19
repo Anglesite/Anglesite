@@ -69,6 +69,7 @@ import { escapeHTML, extractMf2ContentString, extractMf2Photos, type ExtractedPh
 import { handleReaderCallback, handleReaderSignin } from "./reader-auth.ts";
 import { handleGatedFallback, handlePrivateFeed } from "./gated-content.ts";
 import { handleMcp } from "./mcp-server.ts";
+import { EmailMessage } from "cloudflare:email";
 
 /**
  * Per-site Cloudflare Worker entry point.
@@ -106,6 +107,18 @@ export interface WorkerEnv extends IndieAuthEnv {
   ASSETS?: Fetcher;
   INBOX_KV?: InboxKV;
   SOCIAL_KV?: InboxKV;
+  /**
+   * Owner-email forwarding for `/inbox` submissions (#1570, reconciling #587 with the
+   * email-as-DM decision) — additive to the `INBOX_KV` capture above, which stays the
+   * structured record. Both optional: a site whose owner hasn't run email setup
+   * (`EmailSetupPlanner`/`EmailSetupExecutor`) has neither bound, and `handleInbox` degrades to
+   * KV-only capture rather than throwing. `SEND_EMAIL`'s `destination_address` (see
+   * `WorkerComposition.generateWranglerToml`, Swift) restricts the binding to `INBOX_FORWARD_EMAIL`
+   * specifically — the Worker can't be made to send anywhere else even if this env were
+   * otherwise compromised.
+   */
+  SEND_EMAIL?: SendEmail;
+  INBOX_FORWARD_EMAIL?: string;
   INDIEAUTH_OWNER_PASSWORD: string;
   /**
    * Inbound-Webmention bindings (V-3.1, #359). All optional: a site that hasn't provisioned
@@ -837,16 +850,21 @@ function handleSolidPodGcScheduled(
   return gc(controller, env as unknown as SolidPodGcEnv, ctx);
 }
 
+/**
+ * Micropub's scopes ("create"/"update"/"delete"/"media") plus Microsub's ("follow"/"channels"/
+ * "read", V-4.3 #365) — @dwk/indieauth's constrainScopes drops any requested scope absent from
+ * this list, so a client authorizing for Microsub without "follow"/"channels" listed here would
+ * silently be granted an empty scope and then fail every Microsub action with
+ * `insufficient_scope`. Shared with the RFC 9728 protected-resource metadata (#1577) below so the
+ * two documents can't silently drift.
+ */
+const INDIEAUTH_SCOPES_SUPPORTED = ["create", "update", "delete", "media", "follow", "channels", "read"] as const;
+
 function indieAuthHandler(request: Request, env: WorkerEnv) {
   const baseUrl = new URL(request.url).origin;
   return createIndieAuth({
     baseUrl,
-    // Micropub's scopes ("create"/"update"/"delete"/"media") plus Microsub's ("follow"/
-    // "channels"/"read", V-4.3 #365) — @dwk/indieauth's constrainScopes drops any requested
-    // scope absent from this list, so a client authorizing for Microsub without "follow"/
-    // "channels" listed here would silently be granted an empty scope and then fail every
-    // Microsub action with `insufficient_scope`.
-    scopesSupported: ["create", "update", "delete", "media", "follow", "channels", "read"],
+    scopesSupported: INDIEAUTH_SCOPES_SUPPORTED,
     resourceIndicatorPolicy(resource) {
       try {
         return new URL(resource).origin === baseUrl;
@@ -865,6 +883,34 @@ function indieAuthHandler(request: Request, env: WorkerEnv) {
       }
       return consentPage(authorization);
     },
+  });
+}
+
+/**
+ * RFC 9728 OAuth 2.0 Protected Resource Metadata (#1577, slice 2 of the #1326 Agent Readiness
+ * ladder) — the resource-side counterpart to the RFC 8414 `/.well-known/oauth-authorization-server`
+ * document `indieAuthHandler` already serves. Points an agent at this site's own IndieAuth
+ * authorization server before it calls the IndieAuth-gated endpoints (Micropub, Microsub, the
+ * media endpoint).
+ *
+ * IndieAuth's endpoints are always live for every site (`AUTH_DB`/`TOKEN_SIGNING_KEY` are
+ * required, not optional, on `WorkerEnv`), so — like that document — this one is unconditional and
+ * needs no binding checks.
+ */
+function handleOAuthProtectedResourceMetadata(request: Request): Response {
+  const baseUrl = new URL(request.url).origin;
+  const metadata = {
+    resource: baseUrl,
+    authorization_servers: [baseUrl],
+    scopes_supported: INDIEAUTH_SCOPES_SUPPORTED,
+    // `@dwk/indieauth` always issues DPoP-bound tokens (`token_type: "DPoP"`, never plain
+    // Bearer — see its metadata.ts), so bearer_methods_supported is omitted and these two fields
+    // mirror the algorithm list the authorization-server metadata document advertises.
+    dpop_bound_access_tokens_required: true,
+    dpop_signing_alg_values_supported: ["ES256", "ES384", "RS256", "PS256"],
+  };
+  return new Response(JSON.stringify(metadata), {
+    headers: { "content-type": "application/json" },
   });
 }
 
@@ -1521,9 +1567,87 @@ async function parseRequestFields(request: Request): Promise<Record<string, stri
   return null;
 }
 
+/** Max payload bytes per RFC 2047 "B" encoded-word: the spec caps a whole encoded-word
+ *  (`=?UTF-8?B?...?=`) at 75 characters. `"=?UTF-8?B?"` (10) + `"?="` (2) leaves 63 for the
+ *  base64 portion; 60 of those (a multiple of 4, so no padding) decode to exactly 45 bytes —
+ *  keeping each word at 72 characters, under the cap with room to spare. */
+const MAX_ENCODED_WORD_PAYLOAD_BYTES = 45;
+
+/** RFC 2047 "B" (base64) encoded-word(s), folded per RFC 2047 §2's 75-char-per-word cap (a
+ *  near-`MAX_SUBJECT_LENGTH` subject would otherwise produce one oversized word some strict
+ *  MTAs reject or mangle) — consecutive words separated only by folding whitespace (`\r\n `),
+ *  which RFC 2047 defines as insignificant between adjacent encoded-words, so decoders
+ *  reconstruct the original value across the fold. Every byte of `value` round-trips through
+ *  the base64 alphabet only, so an anonymous submitter's raw subject can never inject a CR/LF —
+ *  or anything else — into the header it's placed in, regardless of content (#1570). Each word's
+ *  payload ends on a UTF-8 character boundary so no chunk decodes to invalid UTF-8. */
+function encodeMimeHeaderValue(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  const words: string[] = [];
+  let start = 0;
+  do {
+    let end = Math.min(start + MAX_ENCODED_WORD_PAYLOAD_BYTES, bytes.length);
+    // Back off while the next byte is a UTF-8 continuation byte (10xxxxxx) so a multi-byte
+    // character never splits across two encoded-words.
+    while (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
+    let binary = "";
+    for (const byte of bytes.slice(start, end)) binary += String.fromCharCode(byte);
+    words.push(`=?UTF-8?B?${btoa(binary)}?=`);
+    start = end;
+  } while (start < bytes.length);
+  return words.join("\r\n ");
+}
+
+/** Builds the raw RFC 5322 message `forwardInboxSubmissionByEmail` hands to `EmailMessage`.
+ *  `submission.from`/`.message` are anonymous, unvalidated user input — they appear only in the
+ *  body (after the blank line separating headers from body), never in a header, so unlike
+ *  `.subject` they need no encoding: there's no header-injection surface for body content
+ *  regardless of what it contains. Exported for direct unit testing of that injection-safety
+ *  property. */
+export function buildInboxForwardRaw(
+  fromAddress: string,
+  toAddress: string,
+  submission: InboxFields & { id: string; receivedAt: string },
+): string {
+  const headers = [
+    `From: "Site Inbox" <${fromAddress}>`,
+    `To: <${toAddress}>`,
+    `Subject: ${encodeMimeHeaderValue(`[Inbox] ${submission.subject}`)}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="utf-8"',
+    "Content-Transfer-Encoding: 8bit",
+  ];
+  const body = [
+    "New /inbox submission — replies go directly to the sender, this address doesn't relay them.",
+    "",
+    `From: ${submission.from}`,
+    `Subject: ${submission.subject}`,
+    "",
+    submission.message,
+    "",
+    "—",
+    `Submission ID: ${submission.id}`,
+    `Received: ${submission.receivedAt}`,
+  ];
+  return `${headers.join("\r\n")}\r\n\r\n${body.join("\r\n")}\r\n`;
+}
+
+/** Best-effort — callers must swallow rejections; see `handleInbox`'s comment on why an email
+ *  failure must never affect the KV/git capture path. */
+async function forwardInboxSubmissionByEmail(
+  sendEmail: SendEmail,
+  toAddress: string,
+  siteHostname: string,
+  submission: InboxFields & { id: string; receivedAt: string },
+): Promise<void> {
+  const fromAddress = `inbox@${siteHostname}`;
+  const raw = buildInboxForwardRaw(fromAddress, toAddress, submission);
+  await sendEmail.send(new EmailMessage(fromAddress, toAddress, raw));
+}
+
 export async function handleInbox(
   request: Request,
-  env: Pick<WorkerEnv, "INBOX_KV">,
+  env: Pick<WorkerEnv, "INBOX_KV" | "SEND_EMAIL" | "INBOX_FORWARD_EMAIL">,
 ): Promise<Response> {
   if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
   if (!env.INBOX_KV) return new Response("Inbox capture not configured", { status: 500 });
@@ -1551,6 +1675,21 @@ export async function handleInbox(
   const submission = { id, ...validated, receivedAt: new Date().toISOString() };
   await env.INBOX_KV.put(`inbox:${id}`, JSON.stringify(submission));
 
+  // #1570: additionally forwards to the owner's email, reconciling #587 with the email-as-DM
+  // decision — KV above (→ git commit-back via `InboxSubmissionSync`) stays the structured
+  // record regardless of whether this succeeds. Best-effort only: a bounced/misconfigured
+  // destination address or an Email Routing binding that isn't fully verified yet must never
+  // roll back the KV write or turn a successfully captured submission into an error response.
+  if (env.SEND_EMAIL && env.INBOX_FORWARD_EMAIL) {
+    try {
+      await forwardInboxSubmissionByEmail(
+        env.SEND_EMAIL, env.INBOX_FORWARD_EMAIL, new URL(request.url).hostname, submission,
+      );
+    } catch (error) {
+      console.error("inbox: failed to forward submission by email", error);
+    }
+  }
+
   return new Response(null, { status: 202 });
 }
 
@@ -1574,6 +1713,13 @@ export const ROUTES: readonly WorkerRoute[] = [
     match: "exact",
     methods: ["GET", "HEAD"],
     handler: (request, env, ctx) => indieAuthHandler(request, env)(request, env, ctx),
+  },
+  {
+    // RFC 9728 protected-resource metadata (#1577) — see handleOAuthProtectedResourceMetadata.
+    path: "/.well-known/oauth-protected-resource",
+    match: "exact",
+    methods: ["GET", "HEAD"],
+    handler: (request) => handleOAuthProtectedResourceMetadata(request),
   },
   {
     // GET renders/redirects the authorization request; POST redeems an authorization code for

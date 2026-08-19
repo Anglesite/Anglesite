@@ -39,6 +39,13 @@ interface Props {
   image?: string;
   /** The `og:type` this page advertises. Defaults to "website"; BlogPost overrides "article". */
   ogType?: string;
+  /**
+   * Overrides the canonical URL this page advertises, as a root-relative path (e.g. `/pricing`).
+   * Omit for ordinary pages, which canonicalize to their own URL. Set by a scaffolded A/B-test
+   * variant page (#1270 slice 5) to point back at the control page it was duplicated from — a
+   * variant must never rank in search as a distinct page from its control.
+   */
+  canonicalPath?: string;
 }
 
 const { title, description, lang, documentPath, image, ogType = "website" } = Astro.props;
@@ -97,7 +104,10 @@ const beaconExperiment =
 // Same computation BlogPost.astro/Hentry.astro use for their own JSON-LD `url` — duplicated
 // rather than threaded as a prop because every page (including ones with no per-collection
 // layout) needs a canonical link, and Astro.url/Astro.site are already in scope here.
-const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url).href;
+const { canonicalPath } = Astro.props;
+const canonical = canonicalPath
+  ? new URL(canonicalPath, Astro.site ?? Astro.url).href
+  : new URL(Astro.url.pathname, Astro.site ?? Astro.url).href;
 const ogImage = image ? new URL(image, Astro.site ?? Astro.url).href : undefined;
 // PWA_THEME_COLOR is only written to .site-config by the PWA integration (derived from the
 // site's own --color-primary) — a site without it simply renders no theme-color meta.

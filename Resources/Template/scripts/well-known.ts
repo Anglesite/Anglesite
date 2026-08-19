@@ -47,6 +47,7 @@ import {
   isMTAStsMarkerOwned,
   isSecurityTxtMarkerOwned,
 } from "./edge-artifacts";
+import { isAgentSkillsDocOwned, isAgentSkillsIndexOwned } from "./agent-skills";
 
 /** Mirrors `WellKnownClaimManifest.environmentVariableName`. */
 export const MANIFEST_ENV_VAR = "ANGLESITE_WELLKNOWN_CLAIM_MANIFEST";
@@ -358,7 +359,9 @@ function isGeneratedArtifact(fullPath: string): boolean {
     isSecurityTxtMarkerOwned(content) ||
     isMTAStsMarkerOwned(content) ||
     isAtprotoDidOwned(content) ||
-    isMcpServerCardMarkerOwned(content)
+    isMcpServerCardMarkerOwned(content) ||
+    isAgentSkillsIndexOwned(content) ||
+    isAgentSkillsDocOwned(content)
   );
 }
 

@@ -53,6 +53,14 @@ const DIST_DIR = join(process.cwd(), "dist");
 const HEADERS_FILE = join(DIST_DIR, "_headers");
 const CONFIG_FILE = join(process.cwd(), ".site-config");
 const ANGLESITE_CONFIG_FILE = join(process.cwd(), "anglesite.json");
+const SOURCE_CONTENT_DIR = join(process.cwd(), "src", "content");
+
+// The restricted-posting epic's audience tier (#963 §2.2): a `visibility: contacts` value on
+// Micropub's `visibility` mf2 property. Matches whether the value shows up YAML-style (Source/
+// frontmatter), JSON-string-style, or as a JSON mf2 property array (`"visibility":["contacts"]`,
+// the exact shape `MicropubPost.entry` stamps and `dist/` could echo back if a post-family JSON
+// export ever serialized raw properties).
+const RESTRICTED_VISIBILITY_PATTERN = /"?visibility"?\s*:\s*(\[\s*)?"?contacts"?/i;
 
 const PII_PATTERNS = [
   { name: "email", pattern: /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g },
@@ -747,6 +755,40 @@ export function checkExperimentalSection(raw: string | null): Issue[] {
   return [];
 }
 
+/**
+ * Defense-in-depth backstop for the composer-only restricted-posting design (#963 §2.1, #1569): a
+ * `visibility: contacts` post publishes straight into the Worker's D1 store via Micropub and must
+ * never be written to `Source/` as content-collection frontmatter. This isn't the enforcement
+ * mechanism — the composer never offers to write it there — it's a check that fires if a future
+ * regression, sync bug, or manual edit did.
+ */
+export function checkNoRestrictedContentInSource(relPath: string, content: string): Issue[] {
+  if (!RESTRICTED_VISIBILITY_PATTERN.test(content)) return [];
+  return [{
+    severity: "error",
+    category: "restricted-content-in-source",
+    message: 'Restricted (visibility: contacts) content found in Source/ — restricted posts must publish via Micropub straight to the Worker, never as Source/ content.',
+    file: relPath,
+    remediation: "Remove the restricted content from Source/; it belongs in the Worker's D1 post store, not the git-canonical site.",
+  }];
+}
+
+/**
+ * Same backstop as `checkNoRestrictedContentInSource`, for the built `dist/` output: restricted
+ * content must never reach the static build, since it's served exclusively through the Worker's
+ * IndieAuth read gate (#1568), never the CDN-served static site.
+ */
+export function checkNoRestrictedContentInDist(relPath: string, content: string): Issue[] {
+  if (!RESTRICTED_VISIBILITY_PATTERN.test(content)) return [];
+  return [{
+    severity: "error",
+    category: "restricted-content-in-dist",
+    message: 'Restricted (visibility: contacts) content found in the built dist/ output — it must be served only through the Worker\'s read gate, never the static build.',
+    file: relPath,
+    remediation: "Rebuild after removing the restricted content from Source/, and check for a regression in the composer/Micropub-to-D1 publish path.",
+  }];
+}
+
 const EXPERIMENT_ID_PATTERN = /^[A-Za-z0-9-]+$/;
 const KNOWN_GOAL_KINDS = new Set(["pageview", "route", "scroll", "visible"]);
 const CLIENT_GOAL_KINDS = new Set(["scroll", "visible"]);
@@ -819,6 +861,59 @@ function hasNoindexRobotsMeta(html: string): boolean {
     if (!/\bname\s*=\s*["']robots["']/i.test(tag)) continue;
     const contentMatch = tag.match(/\bcontent\s*=\s*["']([^"']*)["']/i);
     if (contentMatch && /\bnoindex\b/i.test(contentMatch[1])) return true;
+  }
+  return false;
+}
+
+// Leaf (last, target) simple-selector shapes GoalSelectorBuilder's Swift-side picker can produce.
+// A trailing `:nth-child(n)` structural pseudo-class carries no attribute/content signal a regex
+// can verify, so it's stripped before matching and falls through to the bare-tag check below.
+const LEAF_PSEUDO_SUFFIX_PATTERN = /:nth-child\(\d+\)$/;
+const LEAF_ATTR_PATTERN = /^\[([\w-]+)="([^"]*)"\]$/;
+const LEAF_ID_PATTERN = /^#([\w-]+)$/;
+const LEAF_ROLE_ARIA_PATTERN = /^\[role="([^"]*)"\]\[aria-label="([^"]*)"\]$/;
+const LEAF_TAG_CLASSES_PATTERN = /^([a-z0-9]+)((?:\.[\w-]+)*)$/;
+
+/**
+ * Best-effort check that `selector`'s LAST (leaf) simple-selector component resolves against
+ * `html` — same regex-tag-isolation idiom as `findCanonicalHref`/`hasNoindexRobotsMeta` above,
+ * deliberately not a full CSS selector engine (no new dependency; see CONTRIBUTING.md's
+ * no-new-dependencies rule). This only verifies the target element's own attributes/id/classes/tag
+ * name appear somewhere in the built HTML — it does not verify the combinator chain's ancestor
+ * relationships (e.g. a "ul > li.item" selector only confirms an `li.item` exists *somewhere*, not
+ * that it's a child of a `ul`). That's an intentional, documented simplification: the beacon's
+ * `document.querySelector` needs the leaf element to exist at all for the goal to ever have a
+ * chance of firing, which is the failure class this check guards against.
+ */
+function selectorLikelyMatchesHtml(html: string, selector: string): boolean {
+  const leaf = (selector.split(" > ").pop() ?? selector).replace(LEAF_PSEUDO_SUFFIX_PATTERN, "");
+  const tagPattern = /<[a-zA-Z][^>]*>/g;
+  let m: RegExpExecArray | null;
+
+  const attrMatch = leaf.match(LEAF_ATTR_PATTERN);
+  const idMatch = leaf.match(LEAF_ID_PATTERN);
+  const roleAriaMatch = leaf.match(LEAF_ROLE_ARIA_PATTERN);
+  const tagClassesMatch = leaf.match(LEAF_TAG_CLASSES_PATTERN);
+
+  while ((m = tagPattern.exec(html)) !== null) {
+    const tag = m[0];
+    if (attrMatch && new RegExp(`\\b${attrMatch[1]}\\s*=\\s*["']${escapeRegExp(attrMatch[2])}["']`).test(tag)) return true;
+    if (idMatch && new RegExp(`\\bid\\s*=\\s*["']${escapeRegExp(idMatch[1])}["']`).test(tag)) return true;
+    if (
+      roleAriaMatch &&
+      new RegExp(`\\brole\\s*=\\s*["']${escapeRegExp(roleAriaMatch[1])}["']`).test(tag) &&
+      new RegExp(`\\baria-label\\s*=\\s*["']${escapeRegExp(roleAriaMatch[2])}["']`).test(tag)
+    )
+      return true;
+    if (tagClassesMatch) {
+      const [, tagName, dotClasses] = tagClassesMatch;
+      const classes = dotClasses.split(".").filter(Boolean);
+      const tagMatches = new RegExp(`^<${tagName}\\b`, "i").test(tag);
+      const classMatch = tag.match(/\bclass\s*=\s*["']([^"']*)["']/i);
+      const tagClasses = classMatch ? classMatch[1].split(/\s+/) : [];
+      if (tagMatches && classes.every((c) => tagClasses.includes(c))) return true;
+      if (tagMatches && classes.length === 0) return true; // bare tag / tag:nth-child(n) fallback
+    }
   }
   return false;
 }
@@ -1154,6 +1249,29 @@ export function checkExperiments(
     }
   }
 
+  // A "visible" goal's selector must actually resolve against BOTH built pages — the owner picks
+  // it against the dev-server preview (Anglesite app, #1270 slice 5), which is not guaranteed to
+  // match the production build's DOM 1:1 (Astro's dev-time scoped-class hashes, in particular). A
+  // selector that only ever matched the preview is a goal that silently never fires — the same
+  // failure class the beacon-tag check above guards against.
+  if (goal.kind === "visible" && typeof goal.selector === "string") {
+    const selector = goal.selector;
+    for (const [html, roleLabel, distPath] of [
+      [controlHtmlContent, "control page", distPathFor(page)],
+      [variantHtmlContent, "variant page", distPathFor(variantPage)],
+    ] as const) {
+      if (html !== null && !selectorLikelyMatchesHtml(html, selector)) {
+        issues.push({
+          severity: "error",
+          category: "experiments-goal-beacon",
+          message: `Running experiment's "visible" goal selector (${JSON.stringify(selector)}) doesn't match anything in the built ${roleLabel} ("${roleLabel === "control page" ? page : variantPage}") — this goal can never fire.`,
+          file: distPath,
+          remediation: "Re-pick the element in the app, or hand-edit the selector to match markup that exists in the built page.",
+        });
+      }
+    }
+  }
+
   return issues;
 }
 
@@ -1167,6 +1285,16 @@ async function scan(): Promise<Issue[]> {
   );
   issues.push(...checkAnglesiteConfig(anglesiteConfigContent));
   issues.push(...checkExperimentalSection(anglesiteConfigContent));
+
+  try {
+    for await (const file of walk(SOURCE_CONTENT_DIR)) {
+      if (!/\.(md|mdx|json)$/i.test(file)) continue;
+      const content = await readFile(file, "utf-8");
+      issues.push(...checkNoRestrictedContentInSource(relative(process.cwd(), file), content));
+    }
+  } catch (e) {
+    if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
+  }
 
   try {
     await stat(DIST_DIR);
@@ -1232,6 +1360,7 @@ async function scan(): Promise<Issue[]> {
     relPaths.push(rel);
 
     issues.push(...checkPII(content, rel));
+    issues.push(...checkNoRestrictedContentInDist(rel, content));
 
     const isHtmlOrCss = /\.(html?|css)$/i.test(file);
     if (controlDistPath !== null && rel === controlDistPath) controlHtmlContent = content;

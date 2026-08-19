@@ -15,6 +15,7 @@ public/.well-known/atproto-did
 # Fully derived from experimental.mcp + SITE_URL (#1576): toggling the flag off deletes it and
 # changing SITE_URL rewrites it, so committing it would hand the owner a git diff to adjudicate.
 public/.well-known/mcp/server-card.json
+public/.well-known/agent-skills/
 
 # Written by scripts/a11y-audit.ts's default --report path; a run-to-run
 # artifact, not source.

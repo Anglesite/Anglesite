@@ -9,6 +9,7 @@ import {
   installReplyHandler,
   nextEditID,
   postEdit,
+  postGoalElementPick,
   postPlacementPick,
   type EditMessage,
   type EditReply,
@@ -17,6 +18,7 @@ import { showToast } from "./toast.js";
 import { installVisibleElementsReporter } from "./visible-elements.js";
 
 export const HOVER_CLASS = "anglesite-hover";
+export const GOAL_PICK_HOVER_CLASS = "anglesite-goal-pick-hover";
 export const EDITABLE_CLASS = "anglesite-editing";
 export const IMAGE_DROP_TARGET_CLASS = "anglesite-image-drop-target";
 export const IMAGE_DROP_ACTIVE_CLASS = "anglesite-image-drop-active";
@@ -40,6 +42,10 @@ function installStyles(): void {
   style.textContent = [
     `.${HOVER_CLASS} { outline: 2px solid rgba(0, 122, 255, 0.8); outline-offset: 2px; cursor: text; }`,
     `.${EDITABLE_CLASS} { outline: 2px solid rgba(0, 122, 255, 1); outline-offset: 2px; background: rgba(0, 122, 255, 0.05); }`,
+    // Distinct color from HOVER_CLASS (blue) on purpose: goal-element pick mode can hover any
+    // element, including ones that also qualify for ordinary click-to-edit hover, and the two
+    // modes' feedback must stay visually distinguishable.
+    `.${GOAL_PICK_HOVER_CLASS} { outline: 2px dashed rgba(255, 149, 0, 0.9); outline-offset: 2px; cursor: pointer; }`,
     // !important here (unlike HOVER_CLASS/EDITABLE_CLASS above): site stylesheets commonly reset
     // `img { outline: none }`, and the drop-target ring needs to survive that.
     `.${IMAGE_DROP_TARGET_CLASS} { outline: 3px dashed rgba(0, 122, 255, 0.9) !important; outline-offset: 4px !important; filter: brightness(0.9) !important; }`,
@@ -161,6 +167,70 @@ export function installPlacementPickMode(win: Window & typeof globalThis = windo
   };
   anglesiteWin.anglesite._enterPlacementMode = controls.enter;
   anglesiteWin.anglesite._exitPlacementMode = controls.exit;
+  return controls;
+}
+
+export interface GoalPickControls {
+  enter(): void;
+  exit(): void;
+}
+
+/** Goal-element-pick mode (#1270 slice 5): while active, hovering any element outlines it and a
+ *  click reports its `ElementInfo` via `anglesite:pick-goal-element` instead of the normal
+ *  click-to-edit path — same exclusivity contract as `installPlacementPickMode`, entered only via
+ *  an explicit native call. Adds hover feedback placement-pick mode doesn't have, since "point at
+ *  the reviews section" is materially harder to do accurately with no visual confirmation of the
+ *  candidate element before clicking. */
+export function installGoalPickMode(win: Window & typeof globalThis = window): GoalPickControls {
+  let active = false;
+  let hovered: Element | null = null;
+
+  const clearHover = () => {
+    hovered?.classList.remove(GOAL_PICK_HOVER_CLASS);
+    hovered = null;
+  };
+
+  document.addEventListener("mouseover", (ev) => {
+    if (!active) return;
+    const target = ev.target as Element | null;
+    if (!target || target.nodeType !== 1) return;
+    if (hovered && hovered !== target) hovered.classList.remove(GOAL_PICK_HOVER_CLASS);
+    target.classList.add(GOAL_PICK_HOVER_CLASS);
+    hovered = target;
+  });
+  document.addEventListener("mouseout", (ev) => {
+    if (!active) return;
+    const target = ev.target as Element | null;
+    if (target === hovered) clearHover();
+  });
+
+  const clickHandler = (ev: MouseEvent) => {
+    if (!active) return;
+    const target = ev.target as Element | null;
+    if (!target || target.nodeType !== 1) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    clearHover();
+    postGoalElementPick(
+      {
+        id: nextEditID(),
+        type: "anglesite:pick-goal-element",
+        path: location.pathname,
+        selector: elementInfoFor(target),
+      },
+      win as unknown as Parameters<typeof postGoalElementPick>[1],
+    );
+  };
+  document.addEventListener("click", clickHandler, { capture: true });
+
+  const anglesiteGoalWin = win as unknown as { anglesite?: { _enterGoalPickMode?: () => void; _exitGoalPickMode?: () => void } };
+  anglesiteGoalWin.anglesite = anglesiteGoalWin.anglesite ?? {};
+  const controls: GoalPickControls = {
+    enter: () => { active = true; },
+    exit: () => { active = false; clearHover(); },
+  };
+  anglesiteGoalWin.anglesite._enterGoalPickMode = controls.enter;
+  anglesiteGoalWin.anglesite._exitGoalPickMode = controls.exit;
   return controls;
 }
 
@@ -446,4 +516,5 @@ export function install(): void {
   attachImageDrop(awaitReply);
   installVisibleElementsReporter();
   installPlacementPickMode(window);
+  installGoalPickMode(window);
 }

@@ -87,6 +87,52 @@ struct WellKnownInventoryTests {
         #expect(rows[0].authorityBinding)
     }
 
+    @Test("a file whose content carries the agent-skills generator marker is classified generated")
+    func agentSkillsIndexMarkerClassifiesAsGenerated() throws {
+        let wellKnown = try makeWellKnownDirectory()
+        defer { try? FileManager.default.removeItem(at: wellKnown.deletingLastPathComponent()) }
+        let agentSkillsDir = wellKnown.appendingPathComponent("agent-skills")
+        try FileManager.default.createDirectory(at: agentSkillsDir, withIntermediateDirectories: true)
+        let content = #"{"$schema":"https://schemas.agentskills.io/discovery/0.2.0/schema.json","generator":"anglesite","skills":[]}"#
+        try content.write(to: agentSkillsDir.appendingPathComponent("index.json"), atomically: true, encoding: .utf8)
+
+        let (rows, _) = WellKnownInventory.scanUserStatic(wellKnownDirectory: wellKnown)
+        #expect(rows.count == 1)
+        #expect(rows[0].suffix == "agent-skills/index.json")
+        #expect(rows[0].delivery == .generated)
+        #expect(rows[0].owner == "generator:agent-skills")
+    }
+
+    @Test("a hand-authored file at agent-skills/index.json is preserved as user-static")
+    func agentSkillsIndexHandAuthoredIsUserStatic() throws {
+        let wellKnown = try makeWellKnownDirectory()
+        defer { try? FileManager.default.removeItem(at: wellKnown.deletingLastPathComponent()) }
+        let agentSkillsDir = wellKnown.appendingPathComponent("agent-skills")
+        try FileManager.default.createDirectory(at: agentSkillsDir, withIntermediateDirectories: true)
+        try #"{"schema":"other","skills":[]}"#.write(
+            to: agentSkillsDir.appendingPathComponent("index.json"), atomically: true, encoding: .utf8)
+
+        let (rows, _) = WellKnownInventory.scanUserStatic(wellKnownDirectory: wellKnown)
+        #expect(rows.count == 1)
+        #expect(rows[0].delivery == .userStatic)
+    }
+
+    @Test("a file whose content carries the agent-skills doc marker is classified generated")
+    func agentSkillsDocMarkerClassifiesAsGenerated() throws {
+        let wellKnown = try makeWellKnownDirectory()
+        defer { try? FileManager.default.removeItem(at: wellKnown.deletingLastPathComponent()) }
+        let skillDir = wellKnown.appendingPathComponent("agent-skills/subscribe-feed")
+        try FileManager.default.createDirectory(at: skillDir, withIntermediateDirectories: true)
+        let content = "---\nname: subscribe-feed\ndescription: x\n---\n\(GeneratedEndpoints.agentSkillsDocMarker)\n\nBody.\n"
+        try content.write(to: skillDir.appendingPathComponent("SKILL.md"), atomically: true, encoding: .utf8)
+
+        let (rows, _) = WellKnownInventory.scanUserStatic(wellKnownDirectory: wellKnown)
+        #expect(rows.count == 1)
+        #expect(rows[0].suffix == "agent-skills/subscribe-feed/SKILL.md")
+        #expect(rows[0].delivery == .generated)
+        #expect(rows[0].owner == "generator:agent-skills")
+    }
+
     @Test("non-DID content at atproto-did is preserved as hand-authored")
     func nonDIDContentAtAtprotoDidStaysUserStatic() throws {
         let wellKnown = try makeWellKnownDirectory()
@@ -527,6 +573,21 @@ struct WellKnownInventoryTests {
         #expect(source.contains(GeneratedEndpoints.mcpServerCardMarker))
         // The TypeScript side must keep reading the marker out of the same JSON field this does.
         #expect(source.contains("parsed.__marker === MCP_SERVER_CARD_MARKER"))
+    }
+
+    /// Same drift guard, for `agent-skills.ts`'s two ownership markers (#1579): the literal
+    /// `AGENT_SKILLS_MARKER` string, and the `"generator": "anglesite"` field name/value pair
+    /// `isAgentSkillsIndexOwned` on both sides checks for.
+    @Test("GeneratedEndpoints' agent-skills markers match the real agent-skills.ts source")
+    func agentSkillsMarkersMatchTemplateSource() throws {
+        let scriptURL = URL(fileURLWithPath: #filePath)
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .deletingLastPathComponent()
+            .appendingPathComponent("Resources/Template/scripts/agent-skills.ts", isDirectory: false)
+        let source = try String(contentsOf: scriptURL, encoding: .utf8)
+        #expect(source.contains(GeneratedEndpoints.agentSkillsDocMarker))
+        #expect(source.contains("generator: \"anglesite\""))
     }
 
     /// `GeneratedEndpoints.isValidAtprotoDid` has no literal marker string to compare against a

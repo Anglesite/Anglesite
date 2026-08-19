@@ -350,6 +350,34 @@ struct SocialWorkerProvisionCommandTests {
         #expect(toml.contains("id = \"inbox-kv-id\""))
     }
 
+    @Test("inboxCaptureEnabled + inboxForwardEmail writes a send_email binding into wrangler.toml")
+    func provisionsInboxCaptureWithForwardEmail() async throws {
+        let site = try temporaryDirectory()
+        let recorder = WranglerRecorder([
+            ["kv", "namespace", "create", "my-site-inbox", "--json"]: .init(stdout: #"{"result":{"id":"inbox-kv-id"}}"#, stderr: "", exitCode: 0),
+        ])
+        let command = SocialWorkerProvisionCommand(
+            tokenSource: { "token" },
+            runner: recorder.runner,
+            deployer: DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1)).deployer,
+            accountIDSource: { _ in "acct-1" }
+        )
+
+        let result = await command.provision(
+            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [],
+            inboxCaptureEnabled: true, inboxForwardEmail: "owner@example.com"
+        )
+
+        guard case .succeeded = result else {
+            Issue.record("expected success, got \(result)")
+            return
+        }
+        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        #expect(toml.contains("[[send_email]]"))
+        #expect(toml.contains("destination_address = \"owner@example.com\""))
+        #expect(toml.contains("INBOX_FORWARD_EMAIL = \"owner@example.com\""))
+    }
+
     @Test("inboxCaptureEnabled false never invokes wrangler kv namespace create")
     func inboxCaptureDisabledNeverCreatesNamespace() async throws {
         let site = try temporaryDirectory()

@@ -165,6 +165,51 @@ struct WorkerCompositionTests {
         #expect(!toml.contains("main ="))
     }
 
+    // MARK: - inbox forwarding (#1570)
+
+    @Test("inboxCaptureEnabled + a plausible inboxForwardEmail emits a send_email binding and var")
+    func inboxForwardingEmitsSendEmailBinding() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [], inboxCaptureEnabled: true, inboxForwardEmail: "owner@example.com")
+        #expect(toml.contains("[[send_email]]"))
+        #expect(toml.contains("name = \"SEND_EMAIL\""))
+        #expect(toml.contains("destination_address = \"owner@example.com\""))
+        #expect(toml.contains("INBOX_FORWARD_EMAIL = \"owner@example.com\""))
+    }
+
+    @Test("inboxForwardEmail nil omits the send_email binding and var")
+    func inboxForwardingOmittedWithoutEmail() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [], inboxCaptureEnabled: true)
+        #expect(!toml.contains("send_email"))
+        #expect(!toml.contains("INBOX_FORWARD_EMAIL"))
+    }
+
+    @Test("inboxForwardEmail is ignored when inboxCaptureEnabled is false")
+    func inboxForwardingIgnoredWhenCaptureDisabled() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [], inboxForwardEmail: "owner@example.com")
+        #expect(!toml.contains("send_email"))
+        #expect(!toml.contains("INBOX_FORWARD_EMAIL"))
+    }
+
+    @Test("an implausible inboxForwardEmail (no @) omits the send_email binding and var")
+    func inboxForwardingOmittedForImplausibleEmail() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [], inboxCaptureEnabled: true, inboxForwardEmail: "not-an-email")
+        #expect(!toml.contains("send_email"))
+        #expect(!toml.contains("INBOX_FORWARD_EMAIL"))
+    }
+
+    @Test("a TOML-unsafe inboxForwardEmail (embedded quote) omits the send_email binding and var")
+    func inboxForwardingOmittedForUnsafeEmail() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [], inboxCaptureEnabled: true,
+            inboxForwardEmail: "owner\"@example.com")
+        #expect(!toml.contains("send_email"))
+        #expect(!toml.contains("INBOX_FORWARD_EMAIL"))
+    }
+
     @Test("route claims emit deterministic, sorted, deduplicated run_worker_first entries")
     func selectiveRunWorkerFirst() throws {
         let claims = [

@@ -57,6 +57,7 @@ final class SiteWindowModel {
     private let conventionsEngine: ProjectConventionsEngine
     private let contentIndexerStore: ContentIndexerStore
     private let integrationOps = IntegrationOperations.live()
+    private let restrictedPostPublisher = RestrictedPostPublisher()
     private let contentCreation: ContentCreationWorkflow
     /// Owns the invisible-publish (#357) queue/watcher/connectivity-monitor lifecycle — see
     /// `InvisiblePublishCoordinator`'s own doc comment (one of #822's four extracted subsystems).
@@ -723,7 +724,8 @@ final class SiteWindowModel {
     /// `presentCopyEdit`.
     func presentExperimentStats() {
         guard experimentStatsModel == nil, let site else { return }
-        experimentStatsModel = ExperimentStatsModel(siteID: site.id)
+        experimentStatsModel = ExperimentStatsModel(
+            siteID: site.id, sourceDirectory: site.sourceDirectory, currentRoute: preview.activeRoute ?? "/")
     }
 
     /// Presents the Repurpose Post sheet (#465), same pattern as `presentCopyEdit`/`presentSocialPlan`.
@@ -1850,6 +1852,23 @@ final class SiteWindowModel {
                 relativePath: filePath, before: nil, after: createdContents(at: filePath))
         }
         return result
+    }
+
+    /// Whether this site can publish restricted (`visibility: contacts`) posts right now — a
+    /// resolvable Micropub session must exist (#1566 design §5.1). Gates the New Post sheet's
+    /// visibility picker.
+    func canPublishRestrictedPosts() async -> Bool {
+        guard let site else { return false }
+        return await restrictedPostPublisher.isAvailable(siteID: site.id, sourceDirectory: site.sourceDirectory)
+    }
+
+    /// Creates a restricted post directly via Micropub — never touches `Source/`, so unlike
+    /// `createPost(title:)` this never calls `refreshAfterContentMutation()` or
+    /// `registerContentUndo(...)`, both of which assume a `Source/`-relative file path.
+    func createRestrictedPost(title: String, body: String) async -> ComposerCreateOutcome {
+        guard let site else { return .siteNotFound }
+        return await restrictedPostPublisher.createPost(
+            title: title, body: body, siteID: site.id, sourceDirectory: site.sourceDirectory)
     }
 
     /// Components aren't tracked in `SiteContentGraph` at all, so there's no change-stream event to

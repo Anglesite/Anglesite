@@ -99,6 +99,113 @@ struct PostComposerModelTests {
         #expect(url == Self.postURL)
     }
 
+    @Test("a restricted composition stamps visibility: contacts on create")
+    func saveDraftStampsContactsVisibility() async throws {
+        nonisolated(unsafe) var capturedProperties: [String: [Any]]?
+        let box = TransportBox { request in
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data()) as? [String: Any]
+            capturedProperties = body?["properties"] as? [String: [Any]]
+            return (Data(), Self.response(201, headers: ["Location": Self.postURL.absoluteString]))
+        }
+        let model = Self.model(transport: box.transport)
+        model.values["body"] = .text("hi")
+        model.visibility = .contacts
+
+        await model.saveDraft()
+
+        let properties = try #require(capturedProperties)
+        #expect(properties["visibility"] as? [String] == ["contacts"])
+    }
+
+    @Test("opening an existing restricted post reads its visibility back")
+    func openExistingReadsVisibility() async throws {
+        let box = TransportBox { request in
+            (Self.sourceJSON(properties: ["content": ["hi"], "visibility": ["contacts"]]), Self.response(200))
+        }
+        let model = try await PostComposerModel.openExisting(
+            url: Self.postURL, descriptor: Self.noteDescriptor(), siteID: UUID(),
+            client: MicropubClient(
+                endpoint: Self.endpoint, accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+                transport: box.transport))
+        #expect(model.visibility == .contacts)
+    }
+
+    @Test("an untouched visibility picker sends no visibility at all on update")
+    func updateOmitsUntouchedVisibility() async throws {
+        // The stored tier is one this client's enum doesn't model (the Worker's vocabulary is
+        // wider), so `MicropubPost.visibility` reads it back as `.public`. Re-stamping that lossy
+        // read would republish a restricted post to the world — the update must omit the property.
+        let stored: [String: Any] = ["content": ["original"], "visibility": ["unlisted"]]
+        nonisolated(unsafe) var updateBody: [String: Any]?
+        let box = TransportBox { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: stored), Self.response(200))
+            }
+            updateBody = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+                as? [String: Any]
+            return (Data(), Self.response(204))
+        }
+        let model = try await Self.existingModel(box: box)
+        #expect(model.visibility == .public)  // the lossy read this fix must not act on
+        model.values["body"] = .text("an edit that has nothing to do with audience")
+
+        await model.saveDraft()
+
+        let phase = model.phase
+        #expect(phase == .savedDraft(Self.postURL))
+        let replace = try #require(updateBody?["replace"] as? [String: [Any]])
+        #expect(replace["visibility"] == nil)
+        #expect(replace["content"] as? [String] == ["an edit that has nothing to do with audience"])
+        // Nor may it be deleted — `visibility` isn't a descriptor-mapped property, so the
+        // cleared-property pass must leave it alone too; the server's `unlisted` survives intact.
+        let deleted = updateBody?["delete"] as? [String] ?? []
+        #expect(!deleted.contains("visibility"))
+    }
+
+    @Test("deliberately changing the picker on an existing post does send the new value")
+    func updateSendsChangedVisibility() async throws {
+        let stored: [String: Any] = ["content": ["original"], "visibility": ["public"]]
+        nonisolated(unsafe) var capturedReplace: [String: [Any]]?
+        let box = TransportBox { request in
+            if Self.isSourceFetch(request) {
+                return (Self.sourceJSON(properties: stored), Self.response(200))
+            }
+            let body = try JSONSerialization.jsonObject(with: request.httpBody ?? Data())
+                as? [String: Any]
+            capturedReplace = body?["replace"] as? [String: [Any]]
+            return (Data(), Self.response(204))
+        }
+        let model = try await Self.existingModel(box: box)
+        model.visibility = .contacts
+
+        await model.saveDraft()
+
+        let replace = try #require(capturedReplace)
+        #expect(replace["visibility"] as? [String] == ["contacts"])
+    }
+
+    @Test("a queued restricted composition's visibility survives a persisted draft restore")
+    func draftRestoresVisibility() {
+        let store = Self.scratchStore()
+        let siteID = UUID()
+        let model = Self.model(transport: { _ in fatalError("no network expected") }, store: store, siteID: siteID)
+        model.values["body"] = .text("hi")
+        model.visibility = .contacts
+        model.persistDraft()
+
+        let restoredDraft = store.loadNewDraft(forSite: siteID, typeID: Self.noteDescriptor().id)
+        let restored = try! #require(restoredDraft)
+        #expect(restored.visibility == "contacts")
+
+        let restoredModel = PostComposerModel(
+            descriptor: Self.noteDescriptor(), siteID: siteID,
+            client: MicropubClient(
+                endpoint: Self.endpoint, accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+                transport: { _ in fatalError("no network expected") }),
+            draftStore: store, restoringDraft: restored)
+        #expect(restoredModel.visibility == .contacts)
+    }
+
     @Test("publish lands publishedRebuilding — the bake-in-flight state, no faked live URL")
     func publishShowsRebuilding() async {
         let box = TransportBox { request in
