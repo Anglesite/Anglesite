@@ -304,6 +304,13 @@ final class SiteWindowModel {
     /// change, window close, or the open component being deleted out from under it.
     private(set) var componentEditor: ComponentEditorModel?
 
+    /// The hoisted Website inspector model (#714 v2 slice 1) — created/loaded on first use by
+    /// `ensureWebsiteInspectorLoaded()`, keyed to the open site's `packageURL`. Persists across
+    /// selection changes (unlike `inspectorSelection`'s targets): the website inspector is a
+    /// second, mutually-exclusive trailing panel, not a per-selection context. Torn down on site
+    /// change / window close alongside `componentEditor`.
+    private(set) var websiteInspector: WebsiteInspectorModel?
+
     /// What the window inspector is inspecting, in precedence order. Component and collection are
     /// gated on the pane mode they belong to, so a stale value from an earlier selection can never
     /// shadow the current one after a pane toggle.
@@ -784,6 +791,7 @@ final class SiteWindowModel {
         inspectorContext = nil
         collectionInspection = nil
         componentEditor = nil
+        websiteInspector = nil
         mainPaneMode = .preview
     }
 
@@ -831,6 +839,7 @@ final class SiteWindowModel {
         inspectorContext = nil
         collectionInspection = nil
         componentEditor = nil
+        websiteInspector = nil
         let closeTerminationLease = suddenTerminationLease
             ?? ((editorSaveTask != nil || inspectorWasDirty) ? SuddenTerminationController.shared.acquire() : nil)
         #if ANGLESITE_MAS
@@ -1683,6 +1692,22 @@ final class SiteWindowModel {
         let editor = ComponentEditorModel(file: file, context: makeComponentEditorContext(site: site))
         componentEditor = editor
         await editor.load()
+    }
+
+    /// Creates the hoisted Website inspector for the open site the first time it's needed, then
+    /// returns it as-is on every later call — the website inspector isn't rebuilt on repeat
+    /// activation the way the component editor is; `handleSiteChanged()`/`close(...)` tear it down
+    /// instead when a rebuild is actually warranted (a different site). Loading is kicked off in a
+    /// detached `Task` rather than awaited here so this stays a synchronous MainActor call: callers
+    /// (the `.inspector` content's `.task(id:)`, the toolbar/menu toggles) need a same-transaction
+    /// read-then-write for the #968/#969 presentation-gate discipline, which an `async` signature
+    /// would break.
+    @MainActor
+    func ensureWebsiteInspectorLoaded() {
+        guard websiteInspector == nil, let site else { return }
+        let inspector = WebsiteInspectorModel(packageURL: site.packageURL)
+        websiteInspector = inspector
+        Task { await inspector.load() }
     }
 
     private func isFrontmatterPage(_ relPath: String) -> Bool {

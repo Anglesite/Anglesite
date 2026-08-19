@@ -24,6 +24,10 @@ struct SiteWindow: View {
     /// Inspector visibility, persisted per window. Defaults to shown (auto-open); the toolbar toggle
     /// flips it and the choice persists across selections.
     @SceneStorage("siteInspector.shown") private var inspectorShown = true
+    /// Which inspector occupies the trailing panel while `inspectorShown` is true (#714 v2 slice
+    /// 1): the existing per-selection inspector, or the new Website inspector. Mutually exclusive
+    /// — switching one on switches the other off. Persisted per window like `inspectorShown`.
+    @SceneStorage("siteInspector.active") private var activeInspector: ActiveSiteInspector = .selection
     /// The title shown in the content-delete confirmation dialog. Held separately from
     /// `model.deleteConfirmation` so the title stays stable through the dismiss animation —
     /// mirrors `SiteNavigatorView`'s `candidateToDeleteTitle` for the same reason.
@@ -178,10 +182,40 @@ struct SiteWindow: View {
             // Inspector reaches it through its own focused value rather than the window model
             // (#512).
             .focusedSceneValue(\.inspectorPanel, InspectorPanelActions(
-                isShown: inspectorShown && model.inspectorSelection != nil,
+                isShown: inspectorShown && activeInspector == .selection && model.inspectorSelection != nil,
                 isAvailable: model.inspectorSelection != nil,
-                toggle: { inspectorShown.toggle() }
+                toggle: { toggleSelectionInspector() },
+                isWebsiteShown: inspectorShown && activeInspector == .website,
+                toggleWebsite: { toggleWebsiteInspector() }
             ))
+    }
+
+    /// Shows the selection inspector, switching away from the website inspector if that's active;
+    /// hides it if it's already the active, shown inspector. Shared by the toolbar item, the View
+    /// menu's Show/Hide Inspector command, and (mirrored below) the website inspector's own
+    /// toggle, so all three agree on one mutually-exclusive-activation policy (#714 v2 slice 1).
+    /// A synchronous MainActor mutation with no `await` between reading `activeInspector` and
+    /// writing `inspectorShown` — required by the #968/#969 presentation-gate discipline.
+    @MainActor
+    private func toggleSelectionInspector() {
+        if activeInspector == .selection {
+            inspectorShown.toggle()
+        } else {
+            activeInspector = .selection
+            inspectorShown = true
+        }
+    }
+
+    /// The website inspector's mirror of `toggleSelectionInspector()` — see that function's doc
+    /// comment for the shared policy and the #968/#969 synchronous-mutation requirement.
+    @MainActor
+    private func toggleWebsiteInspector() {
+        if activeInspector == .website {
+            inspectorShown.toggle()
+        } else {
+            activeInspector = .website
+            inspectorShown = true
+        }
     }
 
     @ViewBuilder
@@ -194,12 +228,16 @@ struct SiteWindow: View {
         // needs the same presented-state read the `.inspector(isPresented:)` modifier itself
         // uses, not a copy that could drift out of sync.
         let inspectorPresented = Binding(
-            get: { inspectorShown && model.inspectorSelection != nil },
+            get: {
+                inspectorShown && (activeInspector == .website || model.inspectorSelection != nil)
+            },
             set: { newValue in
-                // Only persist an explicit show/hide while there is something to inspect.
-                // When the selection is nil the panel is auto-hidden; ignore that write so
-                // it doesn't clobber the remembered preference (the bug: inspector never returns).
-                if model.inspectorSelection != nil { inspectorShown = newValue }
+                // Website inspector always has content, so its show/hide is always an explicit
+                // user choice. Selection keeps the #968 guard: never persist an auto-hide
+                // caused by a transient-nil selection.
+                if activeInspector == .website || model.inspectorSelection != nil {
+                    inspectorShown = newValue
+                }
             }
         )
 
@@ -296,14 +334,8 @@ struct SiteWindow: View {
         .animation(.easeInOut(duration: 0.18), value: model.deploy.drawerPresented)
         .animation(.easeInOut(duration: 0.18), value: model.backup.drawerPresented)
         .inspector(isPresented: inspectorPresented) {
-            if let selection = model.inspectorSelection {
-                SiteInspectorView(
-                    selection: selection,
-                    canvasWebView: componentCanvasWebView,
-                    previewBaseURL: model.preview.readyURL
-                )
+            inspectorContent
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
-            }
         }
         .navigationTitle(site.name)
         .navigationSubtitle(model.preview.readyURL?.absoluteString ?? "")
@@ -631,7 +663,7 @@ struct SiteWindow: View {
             // Far trailing, adjacent to the inspector panel it controls (Pages/Freeform convention).
             ToolbarItem(id: SiteToolbarItemID.inspector.rawValue, placement: .primaryAction) {
                 Button {
-                    inspectorShown.toggle()
+                    toggleSelectionInspector()
                 } label: {
                     Label("Inspector", systemImage: "sidebar.right")
                 }
@@ -1091,6 +1123,37 @@ struct SiteWindow: View {
             MicropubSiteConnectSheet(site: site)
         }
         .annotatedAsSite(site)
+    }
+
+    /// The window's trailing inspector panel content (#714 v2 slice 1) — the existing per-selection
+    /// inspector, or the new Website inspector, chosen by `activeInspector`. Factored out of
+    /// `siteUI(for:)`'s `.inspector` modifier as its own computed var rather than inlined, per the
+    /// same type-checking-budget discipline as `mainPane(for:)`/`mainPaneContent(for:)` below.
+    @ViewBuilder
+    private var inspectorContent: some View {
+        switch activeInspector {
+        case .selection:
+            if let selection = model.inspectorSelection {
+                SiteInspectorView(
+                    selection: selection,
+                    canvasWebView: componentCanvasWebView,
+                    previewBaseURL: model.preview.readyURL
+                )
+            }
+        case .website:
+            Group {
+                if let websiteModel = model.websiteInspector {
+                    WebsiteInspectorView(
+                        model: websiteModel,
+                        openStylesheet: { model.openFile($0) },
+                        openMoreSettings: { model.openWebsiteSettings() }
+                    )
+                }
+            }
+            .task(id: model.site?.id) {
+                model.ensureWebsiteInspectorLoaded()
+            }
+        }
     }
 
     @ViewBuilder

@@ -1424,4 +1424,25 @@ extension SiteWindowModelTests {
         #expect(model.componentEditor != nil)
         #expect(model.inspectorSelection == nil)
     }
+
+    @Test("ensureWebsiteInspectorLoaded creates the website inspector once and clears it on site change (#714 v2 slice 1)")
+    func websiteInspectorLifecycle() async throws {
+        let (root, packageURL, _) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+
+        model.ensureWebsiteInspectorLoaded()
+        let first = try #require(model.websiteInspector)
+        #expect(first.packageURL == packageURL)
+
+        model.ensureWebsiteInspectorLoaded()
+        #expect(model.websiteInspector === first)
+
+        model.handleSiteChanged()
+        #expect(model.websiteInspector == nil)
+    }
 }

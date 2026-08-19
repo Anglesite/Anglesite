@@ -7,6 +7,11 @@ struct InspectorPanelActions {
     let isShown: Bool
     let isAvailable: Bool
     let toggle: @MainActor () -> Void
+    /// Website inspector visibility (#714 v2 slice 1) — mutually exclusive with `isShown`'s
+    /// selection inspector. Always available: the website inspector has content whenever a site
+    /// is open, unlike the selection inspector which gates on `isAvailable`.
+    let isWebsiteShown: Bool
+    let toggleWebsite: @MainActor () -> Void
 }
 
 private struct FocusedInspectorPanelKey: FocusedValueKey { typealias Value = InspectorPanelActions }

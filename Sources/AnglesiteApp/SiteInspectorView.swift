@@ -7,6 +7,10 @@ enum SiteInspectorTab: String {
     case metadata, style
 }
 
+/// Which inspector occupies the window's trailing panel (Pages: Format vs Document). `String` raw
+/// value for `@SceneStorage` persistence.
+enum ActiveSiteInspector: String { case selection, website }
+
 /// The window's one inspector (#714 slice 3): a Pages-style Metadata | Style tab pair over the
 /// current selection — the routed page, the open component, or the selected collection. Content
 /// per (selection, tab) follows the spec §4 table; the tab choice persists per window.
