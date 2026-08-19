@@ -1028,7 +1028,10 @@ final class PlistEditorModel {
         try await CloudflareAPICredentials.resolve(secretStore: keychain, diagnosticSource: "analytics")
     }
 
-    private static func isWebsiteTitleEntry(_ entry: PlistDocumentIO.PlistEntry) -> Bool {
+    /// Which plist entry is the website title. Internal (not `private`) because
+    /// `WebsiteInspectorModel` (#714) is a second consumer — this stays the single owner of
+    /// "which plist entry is the title" rather than duplicating the key list there.
+    static func isWebsiteTitleEntry(_ entry: PlistDocumentIO.PlistEntry) -> Bool {
         entry.key == "AnglesiteDisplayName" || entry.key == "displayName"
     }
 
