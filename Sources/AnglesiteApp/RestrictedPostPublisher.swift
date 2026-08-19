@@ -43,8 +43,40 @@ struct RestrictedPostPublisher {
             return .success
         } catch let error as MicropubError where error.requiresReauthorization {
             return .failed(reason: "Sign in again to publish restricted posts on this site.")
+        } catch let error as MicropubError {
+            return .failed(reason: "Publish failed: \(Self.describe(error))")
         } catch {
-            return .failed(reason: "Publish failed: \(error.localizedDescription)")
+            return .failed(reason: "Publish failed. Please try again.")
+        }
+    }
+
+    /// A site owner-facing sentence for each `MicropubError` case. `MicropubError` is a plain
+    /// `Error` with no `LocalizedError` conformance, so `localizedDescription` renders the raw
+    /// Swift type dump ("The operation couldn't be completed. (AnglesiteCore.MicropubError error
+    /// 3.)") — never a string to show someone publishing a post.
+    ///
+    /// Deliberately a local mirror of `PostComposerModel`'s own private `describe(_:)` rather than
+    /// a new exported helper in `AnglesiteCore`: this feature keeps its sharing *within* a module
+    /// (that's what `MicropubSessionResolver` does for the Mac's session resolution) and accepts a
+    /// handful of duplicated lines across the Mac/iOS boundary, so each surface stays free to word
+    /// its copy for its own context.
+    private static func describe(_ error: MicropubError) -> String {
+        switch error {
+        case .requestFailed(let status, _):
+            return "The site declined the request (HTTP \(status))."
+        case .decodingFailed:
+            return "The site's response wasn't understood."
+        case .mediaEndpointNotConfigured:
+            return "This site has no media endpoint configured."
+        case .dpopUnavailable:
+            return "Secure signing is unavailable on this device."
+        case .serverError(let status, _):
+            return "The site's server had trouble (HTTP \(status)). Try again in a moment."
+        case .unreachable:
+            return "The site couldn't be reached. Check your connection and try again."
+        case .unauthorized:
+            // Routed to the re-auth arm above before reaching here; text kept for completeness.
+            return "The request wasn't authorized."
         }
     }
 }

@@ -89,9 +89,44 @@ struct RestrictedPostPublisherTests {
         })
         let outcome = await publisher.createPost(
             title: "Hello", body: "Body", siteID: "site-1", sourceDirectory: URL(filePath: "/tmp/site"))
-        guard case .failed = outcome else {
+        guard case .failed(let reason) = outcome else {
             Issue.record("expected .failed, got \(outcome)")
             return
         }
+        // The exact sentence, not just "some failure": a 400 is the most likely outcome of this
+        // feature today (the deployed Worker rejects `visibility: contacts` until
+        // davidwkeith/workers#498 ships), so this is the message a site owner actually reads.
+        #expect(reason == "Publish failed: The site declined the request (HTTP 400).")
+        // `MicropubError` has no `LocalizedError` conformance — a raw `localizedDescription`
+        // would leak "AnglesiteCore.MicropubError error 3." into the composer's error text.
+        #expect(!reason.contains("MicropubError"))
+        #expect(!reason.contains("The operation couldn't be completed"))
+    }
+
+    @Test("createPost's message stays clean for a 5xx and for an unreachable site")
+    func createPostTransportFailureMessages() async {
+        let serverError = RestrictedPostPublisher(makeMicropubClient: { _, _ in
+            MicropubClient(endpoint: Self.endpoint, accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+                transport: { _ in (Data(), Self.response(503)) })
+        })
+        let serverOutcome = await serverError.createPost(
+            title: "Hello", body: "Body", siteID: "site-1", sourceDirectory: URL(filePath: "/tmp/site"))
+        guard case .failed(let serverReason) = serverOutcome else {
+            Issue.record("expected .failed, got \(serverOutcome)")
+            return
+        }
+        #expect(serverReason == "Publish failed: The site's server had trouble (HTTP 503). Try again in a moment.")
+
+        let offline = RestrictedPostPublisher(makeMicropubClient: { _, _ in
+            MicropubClient(endpoint: Self.endpoint, accessToken: "tok", dpopKeyPair: DPoPKeyPair(),
+                transport: { _ in throw URLError(.notConnectedToInternet) })
+        })
+        let offlineOutcome = await offline.createPost(
+            title: "Hello", body: "Body", siteID: "site-1", sourceDirectory: URL(filePath: "/tmp/site"))
+        guard case .failed(let offlineReason) = offlineOutcome else {
+            Issue.record("expected .failed, got \(offlineOutcome)")
+            return
+        }
+        #expect(offlineReason == "Publish failed: The site couldn't be reached. Check your connection and try again.")
     }
 }
