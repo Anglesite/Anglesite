@@ -37,6 +37,12 @@ struct PreviewView: NSViewRepresentable {
     /// doc comment. Defaults to a no-op for callers (e.g. tests) that don't need it.
     var onPlacementPick: AnglesiteScriptHandler.PlacementPickHandler = { _ in }
 
+    /// Called with a decoded `anglesite:pick-goal-element` message when the owner clicks an
+    /// element in the live preview while the experiment configure step's goal picker is armed
+    /// (#1518). Forwarded straight into `AnglesiteScriptHandler`'s own `onGoalElementPick` — see
+    /// that type's doc comment. Defaults to a no-op for callers (e.g. tests) that don't need it.
+    var onGoalElementPick: AnglesiteScriptHandler.GoalElementPickHandler = { _ in }
+
     /// Called every time a navigation finishes in the preview — an HMR reload, a route change, ⌘R.
     /// The overlay's placement-pick mode is closure-local JS state that a real navigation wipes
     /// (the `WKUserScript` re-runs and comes back inactive), so anything holding "we're waiting for
@@ -73,7 +79,9 @@ struct PreviewView: NSViewRepresentable {
             // WKWebView is torn down, releasing the strong reference.
             { @Sendable elements in await provider.update(elements) }
         }
-        let handler = AnglesiteScriptHandler(router: router, onVisibleElements: onVisibleElements, onPlacementPick: onPlacementPick)
+        let handler = AnglesiteScriptHandler(
+            router: router, onVisibleElements: onVisibleElements,
+            onPlacementPick: onPlacementPick, onGoalElementPick: onGoalElementPick)
         // `wysiwygTransport` is always a `WYSIWYGCanvasController` in production
         // (`PreviewModel.wysiwygCanvas`'s concrete type); casting once here — rather than inside
         // the handler closure on every message — is what lets `updateNSView` below compare "is

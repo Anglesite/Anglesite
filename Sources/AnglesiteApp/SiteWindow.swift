@@ -934,7 +934,17 @@ struct SiteWindow: View {
             EmailSetupSheetView(model: setupModel, onDone: { model.emailSetupModel = nil })
         }
         .sheet(item: $bindableModel.experimentStatsModel) { statsModel in
-            ExperimentStatsSheetView(model: statsModel, onDone: { model.experimentStatsModel = nil })
+            ExperimentStatsSheetView(
+                model: statsModel,
+                deployModel: model.deploy,
+                onDone: { model.experimentStatsModel = nil },
+                enterGoalPickMode: {
+                    model.preview.webView?.evaluateJavaScript("window.anglesite?._enterGoalPickMode?.()")
+                },
+                exitGoalPickMode: {
+                    model.preview.webView?.evaluateJavaScript("window.anglesite?._exitGoalPickMode?.()")
+                }
+            )
         }
         .sheet(item: $bindableModel.designInterviewModel) { interviewModel in
             NavigationStack {
@@ -1199,6 +1209,9 @@ struct SiteWindow: View {
                 wysiwygTransport: model.preview.wysiwygCanvas,
                 onPlacementPick: { message in
                     await model.effectPlacementController.handlePick(message)
+                },
+                onGoalElementPick: { message in
+                    model.experimentStatsModel?.goalPickController.handlePick(message)
                 },
                 // A finished navigation means the page's injected JS — including the overlay's
                 // placement-pick listener — was just thrown away and came back inactive. Cancel

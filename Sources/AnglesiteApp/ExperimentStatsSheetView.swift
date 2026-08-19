@@ -22,7 +22,9 @@ struct ExperimentStatsSheetView: View {
                 case .propose:
                     ExperimentProposeView(model: model)
                 case .configure:
-                    ExperimentConfigureView(model: model, enterGoalPickMode: enterGoalPickMode, exitGoalPickMode: exitGoalPickMode)
+                    ExperimentConfigureView(
+                        model: model, deployModel: deployModel,
+                        enterGoalPickMode: enterGoalPickMode, exitGoalPickMode: exitGoalPickMode)
                 case .starting:
                     ProgressView("Starting your test…")
                 case .running(let experiment):

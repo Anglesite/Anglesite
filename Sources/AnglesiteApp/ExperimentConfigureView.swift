@@ -6,6 +6,7 @@ import AnglesiteCore
 /// `model.step`'s associated `Draft` is the single source of truth for what's already set.
 struct ExperimentConfigureView: View {
     @Bindable var model: ExperimentStatsModel
+    var deployModel: DeployModel
     var enterGoalPickMode: () -> Void
     var exitGoalPickMode: () -> Void
 
@@ -61,7 +62,11 @@ struct ExperimentConfigureView: View {
                 }
                 Section {
                     Button("Start your test") {
-                        model.start(deploy: { _, _, _, _ in }) // Task 15 supplies the real deploy call
+                        model.start(deploy: { siteID, siteDirectory, configDirectory, routes in
+                            deployModel.deploy(
+                                siteID: siteID, siteDirectory: siteDirectory,
+                                configDirectory: configDirectory, currentRoutes: routes)
+                        })
                     }
                     .disabled(!model.canStart)
                 }
