@@ -28,6 +28,10 @@ import {
   isAtprotoDidOwned,
   planAtprotoDid,
   planStandardSitePublication,
+  planMcpServerCard,
+  buildMcpServerCard,
+  isMcpServerCardMarkerOwned,
+  MCP_SERVER_CARD_MARKER,
 } from "./edge-artifacts";
 import { standardSitePublicationURI } from "./standard-site.ts";
 import { NO_USAGE, type AIUsage, type LicensingPolicy } from "../src/lib/licensing.ts";
@@ -822,4 +826,57 @@ test("planAtprotoDid: refuses to overwrite hand-authored content that isn't a va
   const plan = planAtprotoDid({ did: PLC_DID, existingContent: "hand-authored, not a DID" });
   assert.deepEqual(plan.action, { kind: "none" });
   assert.match(plan.note ?? "", /refusing to overwrite it/);
+});
+
+test("buildMcpServerCard: emits the SEP-1649/2127 shape with the /mcp transport endpoint", () => {
+  const card = JSON.parse(buildMcpServerCard("https://example.com"));
+  assert.equal(card.__marker, MCP_SERVER_CARD_MARKER);
+  assert.equal(card.serverInfo.name, "example.com");
+  assert.equal(card.transport.type, "streamable-http");
+  assert.equal(card.transport.endpoint, "https://example.com/mcp");
+  assert.deepEqual(card.capabilities, { tools: true, resources: false, prompts: false });
+});
+
+test("buildMcpServerCard: falls back to a generic name with no siteUrl", () => {
+  const card = JSON.parse(buildMcpServerCard(undefined));
+  assert.equal(card.serverInfo.name, "Anglesite site");
+  assert.equal(card.transport.endpoint, "/mcp");
+});
+
+test("isMcpServerCardMarkerOwned: true for its own generated output, false otherwise", () => {
+  assert.equal(isMcpServerCardMarkerOwned(buildMcpServerCard("https://example.com")), true);
+  assert.equal(isMcpServerCardMarkerOwned('{"hand":"authored"}'), false);
+  assert.equal(isMcpServerCardMarkerOwned(null), false);
+});
+
+test("planMcpServerCard: writes when enabled and nothing exists yet", () => {
+  const plan = planMcpServerCard({ enabled: true, siteUrl: "https://example.com", existingContent: null });
+  assert.equal(plan.action.kind, "write");
+});
+
+test("planMcpServerCard: no-ops when disabled and nothing exists", () => {
+  const plan = planMcpServerCard({ enabled: false, siteUrl: undefined, existingContent: null });
+  assert.deepEqual(plan.action, { kind: "none" });
+});
+
+test("planMcpServerCard: deletes stale marker-owned output when turned off", () => {
+  const existing = buildMcpServerCard(undefined);
+  const plan = planMcpServerCard({ enabled: false, siteUrl: undefined, existingContent: existing });
+  assert.equal(plan.action.kind, "delete-stale");
+});
+
+test("planMcpServerCard: refuses to overwrite an unmarked hand-authored file", () => {
+  const plan = planMcpServerCard({
+    enabled: true,
+    siteUrl: "https://example.com",
+    existingContent: '{"hand":"authored"}',
+  });
+  assert.deepEqual(plan.action, { kind: "none" });
+  assert.match(plan.note ?? "", /refusing to overwrite/);
+});
+
+test("planMcpServerCard: regenerating over its own prior marker-owned output writes again", () => {
+  const previous = buildMcpServerCard("https://old.example.com");
+  const plan = planMcpServerCard({ enabled: true, siteUrl: "https://new.example.com", existingContent: previous });
+  assert.equal(plan.action.kind, "write");
 });
