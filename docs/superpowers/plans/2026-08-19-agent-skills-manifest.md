@@ -1031,7 +1031,7 @@ to:
             return agentSkillsIndex
         }
         if suffix.hasPrefix("agent-skills/"), suffix.hasSuffix("/SKILL.md"),
-           content.contains(agentSkillsDocMarker) {
+           content.split(separator: "\n").contains(where: { $0 == agentSkillsDocMarker[...] }) {
             return agentSkillsDoc
         }
         return nil
