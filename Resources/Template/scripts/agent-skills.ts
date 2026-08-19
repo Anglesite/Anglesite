@@ -183,3 +183,57 @@ export function activeSkillNames(ctx: AgentSkillsContext): Set<string> {
   if (ctx.bookingPageExists) names.add("book-a-time");
   return names;
 }
+
+export interface AgentSkillsWriteEntry {
+  /** Relative to `.well-known/` — e.g. `"agent-skills/subscribe-feed/SKILL.md"`. */
+  path: string;
+  content: string;
+}
+
+export interface AgentSkillsPlan {
+  toWrite: AgentSkillsWriteEntry[];
+  /** `.well-known/`-relative `SKILL.md` paths whose skill turned off since the last build and
+   * whose on-disk content is still this generator's own — safe to remove. */
+  toDelete: string[];
+}
+
+/**
+ * Decides what `/.well-known/agent-skills/` should look like for one build. Pure — no filesystem
+ * access — so the activation matrix, digesting, and stale-removal rules are unit-testable without
+ * touching disk, mirroring `planSecurityTxt`/`planAtprotoDid` in `edge-artifacts.ts`.
+ *
+ * `existingSkillMdByName` is each of the four known skills' current `agent-skills/<name>/SKILL.md`
+ * content (or `null` if absent) — the caller reads this off disk. A skill that's active this build
+ * is always (re)written regardless of what's already there (the same "always regenerate" rule
+ * every other config-derived generator in this template follows); the map only matters for the
+ * inactive-but-still-present case, to decide whether removal is safe (only this generator's own
+ * prior output).
+ */
+export function planAgentSkills(
+  ctx: AgentSkillsContext,
+  existingSkillMdByName: Record<string, string | null>,
+): AgentSkillsPlan {
+  const active = activeSkillNames(ctx);
+  const toWrite: AgentSkillsWriteEntry[] = [];
+  const toDelete: string[] = [];
+  const indexEntries: AgentSkillsIndexEntry[] = [];
+
+  for (const skill of AGENT_SKILLS) {
+    const path = `agent-skills/${skill.name}/SKILL.md`;
+    if (active.has(skill.name)) {
+      const content = buildSkillMarkdown(skill, ctx);
+      toWrite.push({ path, content });
+      indexEntries.push({
+        name: skill.name,
+        description: skill.description,
+        url: `/.well-known/${path}`,
+        digest: sha256Digest(content),
+      });
+    } else if (isAgentSkillsDocOwned(existingSkillMdByName[skill.name] ?? null)) {
+      toDelete.push(path);
+    }
+  }
+
+  toWrite.push({ path: "agent-skills/index.json", content: buildIndexJson(indexEntries) });
+  return { toWrite, toDelete };
+}

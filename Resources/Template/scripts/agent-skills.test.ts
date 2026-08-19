@@ -10,6 +10,7 @@ import {
   isAgentSkillsIndexOwned,
   isValidSkillName,
   sha256Digest,
+  planAgentSkills,
   type AgentSkillDefinition,
   type AgentSkillsContext,
 } from "./agent-skills";
@@ -244,4 +245,72 @@ test("AGENT_SKILLS bodies: invalid siteUrl falls back gracefully to relative pat
     assert.match(bookBody, /\/book/);
     assert.doesNotMatch(bookBody, /not a url/);
   });
+});
+
+const NOTHING_EXISTING: Record<string, string | null> = {
+  "subscribe-feed": null,
+  "send-webmention": null,
+  "contact-site-owner": null,
+  "book-a-time": null,
+};
+
+test("planAgentSkills: only-subscribe-feed context writes exactly index.json + one SKILL.md", () => {
+  const plan = planAgentSkills(
+    { siteUrl: undefined, webmentionEnabled: false, contactPageExists: false, bookingPageExists: false },
+    NOTHING_EXISTING,
+  );
+  assert.deepEqual(
+    plan.toWrite.map((e) => e.path).sort(),
+    ["agent-skills/index.json", "agent-skills/subscribe-feed/SKILL.md"],
+  );
+  assert.deepEqual(plan.toDelete, []);
+  const index = JSON.parse(plan.toWrite.find((e) => e.path === "agent-skills/index.json")!.content);
+  assert.deepEqual(index.skills.map((s: { name: string }) => s.name), ["subscribe-feed"]);
+});
+
+test("planAgentSkills: full activation writes all four SKILL.md files plus the index, digests matching content", () => {
+  const plan = planAgentSkills(
+    { siteUrl: "https://example.com", webmentionEnabled: true, contactPageExists: true, bookingPageExists: true },
+    NOTHING_EXISTING,
+  );
+  const docPaths = plan.toWrite.filter((e) => e.path.endsWith("SKILL.md")).map((e) => e.path);
+  assert.deepEqual(docPaths.sort(), [
+    "agent-skills/book-a-time/SKILL.md",
+    "agent-skills/contact-site-owner/SKILL.md",
+    "agent-skills/send-webmention/SKILL.md",
+    "agent-skills/subscribe-feed/SKILL.md",
+  ]);
+  const index = JSON.parse(plan.toWrite.find((e) => e.path === "agent-skills/index.json")!.content);
+  assert.equal(index.skills.length, 4);
+  for (const entry of index.skills) {
+    const doc = plan.toWrite.find((e) => e.path === `agent-skills/${entry.name}/SKILL.md`)!;
+    assert.equal(entry.digest, sha256Digest(doc.content), `${entry.name}'s digest matches its own content`);
+    assert.equal(entry.url, `/.well-known/agent-skills/${entry.name}/SKILL.md`);
+  }
+});
+
+test("planAgentSkills: a skill that turns off deletes its marker-owned prior SKILL.md, leaves hand-authored content alone", () => {
+  const priorOwned = buildSkillMarkdown(
+    { name: "send-webmention", description: "old", body: () => "old body\n" },
+    { siteUrl: undefined, webmentionEnabled: true, contactPageExists: false, bookingPageExists: false },
+  );
+  const turnedOff = planAgentSkills(
+    { siteUrl: undefined, webmentionEnabled: false, contactPageExists: false, bookingPageExists: false },
+    { ...NOTHING_EXISTING, "send-webmention": priorOwned },
+  );
+  assert.deepEqual(turnedOff.toDelete, ["agent-skills/send-webmention/SKILL.md"]);
+
+  const handAuthored = planAgentSkills(
+    { siteUrl: undefined, webmentionEnabled: false, contactPageExists: false, bookingPageExists: false },
+    { ...NOTHING_EXISTING, "send-webmention": "hand-authored, not ours\n" },
+  );
+  assert.deepEqual(handAuthored.toDelete, []);
+});
+
+test("planAgentSkills: index.json is always the last toWrite entry", () => {
+  const plan = planAgentSkills(
+    { siteUrl: undefined, webmentionEnabled: false, contactPageExists: false, bookingPageExists: false },
+    NOTHING_EXISTING,
+  );
+  assert.equal(plan.toWrite[plan.toWrite.length - 1].path, "agent-skills/index.json");
 });
