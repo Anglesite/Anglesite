@@ -13,6 +13,8 @@ import {
   checkAnglesiteConfig,
   checkExperiments,
   checkRSL,
+  checkNoRestrictedContentInSource,
+  checkNoRestrictedContentInDist,
   runningExperimentControlDistPath,
   runningExperimentVariantDistPath,
 } from "./pre-deploy-check";
@@ -102,6 +104,62 @@ test("checkPII: flags an SSN with the pii-ssn category", () => {
   const issues = checkPII("<p>SSN: 123-45-6789</p>", "dist/contact.html");
   assert.equal(issues.length, 1);
   assert.equal(issues[0].category, "pii-ssn");
+});
+
+test("checkNoRestrictedContentInSource: flags YAML frontmatter visibility: contacts", () => {
+  const file = "src/content/notes/leaked.md";
+  const content = "---\npublishDate: 2026-08-18\nvisibility: contacts\n---\nBody text.\n";
+  const issues = checkNoRestrictedContentInSource(file, content);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].severity, "error");
+  assert.equal(issues[0].category, "restricted-content-in-source");
+  assert.equal(issues[0].file, file);
+});
+
+test("checkNoRestrictedContentInSource: flags a quoted visibility value too", () => {
+  const content = '---\nvisibility: "contacts"\n---\nBody.\n';
+  const issues = checkNoRestrictedContentInSource("src/content/notes/leaked.md", content);
+  assert.equal(issues.length, 1);
+});
+
+test("checkNoRestrictedContentInSource: does not flag ordinary content with no visibility field", () => {
+  const content = "---\npublishDate: 2026-08-18\ntags: [\"hello\"]\n---\nThis is your first note.\n";
+  const issues = checkNoRestrictedContentInSource("src/content/notes/hello-note.md", content);
+  assert.deepEqual(issues, []);
+});
+
+test("checkNoRestrictedContentInSource: does not flag public visibility", () => {
+  const content = "---\nvisibility: public\n---\nBody.\n";
+  const issues = checkNoRestrictedContentInSource("src/content/notes/hello-note.md", content);
+  assert.deepEqual(issues, []);
+});
+
+test("checkNoRestrictedContentInDist: flags a leaked mf2 JSON property array in built output", () => {
+  const file = "dist/notes/leaked/index.html";
+  const content = '<script type="application/json">{"properties":{"visibility":["contacts"]}}</script>';
+  const issues = checkNoRestrictedContentInDist(file, content);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].severity, "error");
+  assert.equal(issues[0].category, "restricted-content-in-dist");
+  assert.equal(issues[0].file, file);
+});
+
+test("checkNoRestrictedContentInDist: flags a JSON string form", () => {
+  const content = '{"visibility":"contacts"}';
+  const issues = checkNoRestrictedContentInDist("dist/api/posts.json", content);
+  assert.equal(issues.length, 1);
+});
+
+test("checkNoRestrictedContentInDist: does not flag ordinary built HTML", () => {
+  const content = "<html><body><p>Hello world.</p></body></html>";
+  const issues = checkNoRestrictedContentInDist("dist/index.html", content);
+  assert.deepEqual(issues, []);
+});
+
+test("checkNoRestrictedContentInDist: does not flag public visibility", () => {
+  const content = '{"visibility":"public"}';
+  const issues = checkNoRestrictedContentInDist("dist/api/posts.json", content);
+  assert.deepEqual(issues, []);
 });
 
 // Pagefind's UI bundle embeds its translators' contact addresses as `thanks_to` credits. Those
