@@ -194,6 +194,36 @@ struct AnglesiteMessageDispatcherTests {
             return
         }
     }
+
+    @Test("Dispatch routes pick-goal-element to its handler") func routesGoalElementPickToHandler() async {
+        let router = RecordingRouter(reply: EditReply(id: "-", status: .failed, message: "unused"))
+        let received = LockIsolated<GoalElementPickMessage?>(nil)
+        let body: [String: Any] = [
+            "type": "anglesite:pick-goal-element", "path": "/about/",
+            "selector": ["tag": "SECTION", "nthChild": 1, "ancestors": [] as [[String: Any]]],
+        ]
+        let result = await AnglesiteMessageDispatcher.dispatch(
+            body: body, via: router,
+            onGoalElementPick: { msg in received.setValue(msg) })
+        guard case .goalElementPickHandled = result else {
+            Issue.record("expected .goalElementPickHandled, got \(result)")
+            return
+        }
+        #expect(received.value?.path == "/about/")
+    }
+
+    @Test("Pick-goal-element messages without a handler are dropped, not rejected") func goalElementPickDroppedWithoutHandler() async {
+        let router = RecordingRouter(reply: EditReply(id: "-", status: .failed, message: "unused"))
+        let body: [String: Any] = [
+            "type": "anglesite:pick-goal-element", "path": "/",
+            "selector": ["tag": "DIV", "nthChild": 1, "ancestors": [] as [[String: Any]]],
+        ]
+        let result = await AnglesiteMessageDispatcher.dispatch(body: body, via: router)
+        guard case .goalElementPickDropped = result else {
+            Issue.record("expected .goalElementPickDropped, got \(result)")
+            return
+        }
+    }
 }
 
 private actor RecordingRouter: EditRouter {

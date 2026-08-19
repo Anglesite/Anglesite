@@ -1,7 +1,9 @@
 import { getCollection } from "astro:content";
 import { ENTRY_COLLECTIONS } from "./collections.ts";
+import { readRobotsConfig } from "./robots-config.ts";
 import {
   buildSitemapUrls,
+  excludeNoindexed,
   routePathForPage,
   type SitemapEntry,
   type SitemapUrl,
@@ -14,11 +16,14 @@ import {
  */
 const PAGE_FILES = import.meta.glob("../pages/**/*.{astro,md,mdx}");
 
-/** Routes for the pages that exist in this site, dynamic routes and 404 excluded. */
+/** Routes for the pages that exist in this site, dynamic routes and 404 excluded, and any route
+ *  the site has marked noindex (#1518 slice 5: this is what keeps a scaffolded A/B-test variant
+ *  page out of the sitemap, without any experiment-specific logic here). */
 function staticPaths(): string[] {
-  return Object.keys(PAGE_FILES)
+  const paths = Object.keys(PAGE_FILES)
     .map(routePathForPage)
     .filter((path): path is string => path !== undefined);
+  return excludeNoindexed(paths, readRobotsConfig(process.cwd()).noindex);
 }
 
 /**

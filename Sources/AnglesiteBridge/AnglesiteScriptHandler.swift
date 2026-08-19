@@ -10,8 +10,8 @@ import AnglesiteBridgeCore
 /// `.webView`, and evaluate the reply script back into the page.
 ///
 /// **API change vs prior versions:** the primary entry point is now
-/// `dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:)` (forwarding to
-/// `AnglesiteMessageDispatcher.dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:)`).
+/// `dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:onGoalElementPick:)` (forwarding to
+/// `AnglesiteMessageDispatcher.dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:onGoalElementPick:)`).
 /// All current callers are internal to this repo (the `WKScriptMessageHandler` impl below, the
 /// unit tests — now in `AnglesiteBridgeCoreTests`, testing `AnglesiteMessageDispatcher` directly
 /// — and `PreviewView`'s production init) and use `dispatch` directly. The old `handle(body:via:)`
@@ -33,6 +33,8 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
     public typealias ComputedStylesHandler = AnglesiteMessageDispatcher.ComputedStylesHandler
     /// Callback for `anglesite:pick-placement` messages (see `AnglesiteMessageDispatcher`).
     public typealias PlacementPickHandler = AnglesiteMessageDispatcher.PlacementPickHandler
+    /// Callback for `anglesite:pick-goal-element` messages (see `AnglesiteMessageDispatcher`).
+    public typealias GoalElementPickHandler = AnglesiteMessageDispatcher.GoalElementPickHandler
     /// Outcome of dispatching one message body (see `AnglesiteMessageDispatcher.DispatchResult`).
     public typealias DispatchResult = AnglesiteMessageDispatcher.DispatchResult
 
@@ -41,6 +43,7 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
     private let onCanvasSelection: CanvasSelectionHandler?
     private let onComputedStyles: ComputedStylesHandler?
     private let onPlacementPick: PlacementPickHandler?
+    private let onGoalElementPick: GoalElementPickHandler?
     private let logCenter: LogCenter
 
     /// - Parameters:
@@ -51,6 +54,7 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
     ///   - onCanvasSelection: Optional callback for `anglesite:canvas-selection` messages.
     ///   - onComputedStyles: Optional callback for `anglesite:computed-styles` reports.
     ///   - onPlacementPick: Optional callback for `anglesite:pick-placement` messages.
+    ///   - onGoalElementPick: Optional callback for `anglesite:pick-goal-element` messages.
     ///   - logCenter: Destination for rejection/drop diagnostics — injectable for tests.
     public init(
         router: EditRouter,
@@ -58,6 +62,7 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         onCanvasSelection: CanvasSelectionHandler? = nil,
         onComputedStyles: ComputedStylesHandler? = nil,
         onPlacementPick: PlacementPickHandler? = nil,
+        onGoalElementPick: GoalElementPickHandler? = nil,
         logCenter: LogCenter = .shared
     ) {
         self.router = router
@@ -65,11 +70,12 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         self.onCanvasSelection = onCanvasSelection
         self.onComputedStyles = onComputedStyles
         self.onPlacementPick = onPlacementPick
+        self.onGoalElementPick = onGoalElementPick
         self.logCenter = logCenter
         super.init()
     }
 
-    /// Forwards to `AnglesiteMessageDispatcher.dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:)`
+    /// Forwards to `AnglesiteMessageDispatcher.dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:onGoalElementPick:)`
     /// — kept here so existing call sites (this class's own `userContentController`, and any
     /// code written against the pre-split API) don't need to change.
     public static func dispatch(
@@ -78,7 +84,8 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         onVisibleElements: VisibleElementsHandler? = nil,
         onCanvasSelection: CanvasSelectionHandler? = nil,
         onComputedStyles: ComputedStylesHandler? = nil,
-        onPlacementPick: PlacementPickHandler? = nil
+        onPlacementPick: PlacementPickHandler? = nil,
+        onGoalElementPick: GoalElementPickHandler? = nil
     ) async -> DispatchResult {
         await AnglesiteMessageDispatcher.dispatch(
             body: body,
@@ -86,7 +93,8 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
             onVisibleElements: onVisibleElements,
             onCanvasSelection: onCanvasSelection,
             onComputedStyles: onComputedStyles,
-            onPlacementPick: onPlacementPick
+            onPlacementPick: onPlacementPick,
+            onGoalElementPick: onGoalElementPick
         )
     }
 
@@ -95,8 +103,8 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
     /// `onVisibleElements`, matching the prior behavior (apply-edit only). Returns the same
     /// `Result<EditReply, EditMessage.DecodeError>` shape callers were already matching on —
     /// rejection reasons map back into the legacy decode-error type.
-    @available(*, deprecated, renamed: "dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:)",
-               message: "handle() is apply-edit only and returns a less expressive shape. Use dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:) — it covers visible-elements/canvas-selection/computed-styles/pick-placement routing too and exposes the richer DispatchResult.")
+    @available(*, deprecated, renamed: "dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:onGoalElementPick:)",
+               message: "handle() is apply-edit only and returns a less expressive shape. Use dispatch(body:via:onVisibleElements:onCanvasSelection:onComputedStyles:onPlacementPick:onGoalElementPick:) — it covers visible-elements/canvas-selection/computed-styles/pick-placement/pick-goal-element routing too and exposes the richer DispatchResult.")
     public static func handle(body: Any, via router: EditRouter) async -> Result<EditReply, EditMessage.DecodeError> {
         switch await dispatch(body: body, via: router, onVisibleElements: nil) {
         case .editReply(let reply):
@@ -124,6 +132,9 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         case .rejected(.placementPickDecode):
             // Unreachable under `handle`'s contract (apply-edit only). Same fallthrough.
             return .failure(.unknownType(PlacementPickMessage.messageType))
+        case .rejected(.goalElementPickDecode):
+            // Unreachable under `handle`'s contract (apply-edit only). Same fallthrough.
+            return .failure(.unknownType(GoalElementPickMessage.messageType))
         case .visibleElementsHandled, .visibleElementsDropped:
             // Unreachable: handler is nil. Same fallthrough as above.
             return .failure(.unknownType(VisibleElementReport.messageType))
@@ -136,6 +147,9 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         case .placementPickHandled, .placementPickDropped:
             // Unreachable: handler is nil. Same fallthrough as above.
             return .failure(.unknownType(PlacementPickMessage.messageType))
+        case .goalElementPickHandled, .goalElementPickDropped:
+            // Unreachable: handler is nil. Same fallthrough as above.
+            return .failure(.unknownType(GoalElementPickMessage.messageType))
         }
     }
 
@@ -152,6 +166,7 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
         let onCanvasSelection = self.onCanvasSelection
         let onComputedStyles = self.onComputedStyles
         let onPlacementPick = self.onPlacementPick
+        let onGoalElementPick = self.onGoalElementPick
         let logCenter = self.logCenter
         Task {
             switch await Self.dispatch(
@@ -160,7 +175,8 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
                 onVisibleElements: onVisibleElements,
                 onCanvasSelection: onCanvasSelection,
                 onComputedStyles: onComputedStyles,
-                onPlacementPick: onPlacementPick
+                onPlacementPick: onPlacementPick,
+                onGoalElementPick: onGoalElementPick
             ) {
             case .editReply(let reply):
                 guard let webView else { return }
@@ -209,6 +225,14 @@ public final class AnglesiteScriptHandler: NSObject, WKScriptMessageHandler {
                     source: "bridge",
                     stream: .stderr,
                     text: "pick-placement message dropped: no handler installed"
+                )
+            case .goalElementPickHandled:
+                return
+            case .goalElementPickDropped:
+                await logCenter.append(
+                    source: "bridge",
+                    stream: .stderr,
+                    text: "pick-goal-element message dropped: no handler installed"
                 )
             case .rejected(let reason):
                 await logCenter.append(

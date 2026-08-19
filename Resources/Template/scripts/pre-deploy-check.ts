@@ -817,6 +817,59 @@ function hasNoindexRobotsMeta(html: string): boolean {
   return false;
 }
 
+// Leaf (last, target) simple-selector shapes GoalSelectorBuilder's Swift-side picker can produce.
+// A trailing `:nth-child(n)` structural pseudo-class carries no attribute/content signal a regex
+// can verify, so it's stripped before matching and falls through to the bare-tag check below.
+const LEAF_PSEUDO_SUFFIX_PATTERN = /:nth-child\(\d+\)$/;
+const LEAF_ATTR_PATTERN = /^\[([\w-]+)="([^"]*)"\]$/;
+const LEAF_ID_PATTERN = /^#([\w-]+)$/;
+const LEAF_ROLE_ARIA_PATTERN = /^\[role="([^"]*)"\]\[aria-label="([^"]*)"\]$/;
+const LEAF_TAG_CLASSES_PATTERN = /^([a-z0-9]+)((?:\.[\w-]+)*)$/;
+
+/**
+ * Best-effort check that `selector`'s LAST (leaf) simple-selector component resolves against
+ * `html` — same regex-tag-isolation idiom as `findCanonicalHref`/`hasNoindexRobotsMeta` above,
+ * deliberately not a full CSS selector engine (no new dependency; see CONTRIBUTING.md's
+ * no-new-dependencies rule). This only verifies the target element's own attributes/id/classes/tag
+ * name appear somewhere in the built HTML — it does not verify the combinator chain's ancestor
+ * relationships (e.g. a "ul > li.item" selector only confirms an `li.item` exists *somewhere*, not
+ * that it's a child of a `ul`). That's an intentional, documented simplification: the beacon's
+ * `document.querySelector` needs the leaf element to exist at all for the goal to ever have a
+ * chance of firing, which is the failure class this check guards against.
+ */
+function selectorLikelyMatchesHtml(html: string, selector: string): boolean {
+  const leaf = (selector.split(" > ").pop() ?? selector).replace(LEAF_PSEUDO_SUFFIX_PATTERN, "");
+  const tagPattern = /<[a-zA-Z][^>]*>/g;
+  let m: RegExpExecArray | null;
+
+  const attrMatch = leaf.match(LEAF_ATTR_PATTERN);
+  const idMatch = leaf.match(LEAF_ID_PATTERN);
+  const roleAriaMatch = leaf.match(LEAF_ROLE_ARIA_PATTERN);
+  const tagClassesMatch = leaf.match(LEAF_TAG_CLASSES_PATTERN);
+
+  while ((m = tagPattern.exec(html)) !== null) {
+    const tag = m[0];
+    if (attrMatch && new RegExp(`\\b${attrMatch[1]}\\s*=\\s*["']${escapeRegExp(attrMatch[2])}["']`).test(tag)) return true;
+    if (idMatch && new RegExp(`\\bid\\s*=\\s*["']${escapeRegExp(idMatch[1])}["']`).test(tag)) return true;
+    if (
+      roleAriaMatch &&
+      new RegExp(`\\brole\\s*=\\s*["']${escapeRegExp(roleAriaMatch[1])}["']`).test(tag) &&
+      new RegExp(`\\baria-label\\s*=\\s*["']${escapeRegExp(roleAriaMatch[2])}["']`).test(tag)
+    )
+      return true;
+    if (tagClassesMatch) {
+      const [, tagName, dotClasses] = tagClassesMatch;
+      const classes = dotClasses.split(".").filter(Boolean);
+      const tagMatches = new RegExp(`^<${tagName}\\b`, "i").test(tag);
+      const classMatch = tag.match(/\bclass\s*=\s*["']([^"']*)["']/i);
+      const tagClasses = classMatch ? classMatch[1].split(/\s+/) : [];
+      if (tagMatches && classes.every((c) => tagClasses.includes(c))) return true;
+      if (tagMatches && classes.length === 0) return true; // bare tag / tag:nth-child(n) fallback
+    }
+  }
+  return false;
+}
+
 /**
  * Parses just enough of `anglesiteConfigRaw` to find the one well-formed running experiment's
  * `page`/`variant.page` pair, or `null` on ANY problem (missing, malformed JSON, no experiments,
@@ -1143,6 +1196,29 @@ export function checkExperiments(
           message: `Running experiment's ${roleLabel} ("${roleLabel === "control page" ? page : variantPage}") must include the goal beacon <script src="${GOAL_BEACON_SCRIPT_PATH}"> tag — its "${goal.kind}" goal can never fire without it.`,
           file: distPath,
           remediation: "Confirm the page renders through BaseLayout, so the beacon is injected for a running client-side-goal experiment.",
+        });
+      }
+    }
+  }
+
+  // A "visible" goal's selector must actually resolve against BOTH built pages — the owner picks
+  // it against the dev-server preview (Anglesite app, #1270 slice 5), which is not guaranteed to
+  // match the production build's DOM 1:1 (Astro's dev-time scoped-class hashes, in particular). A
+  // selector that only ever matched the preview is a goal that silently never fires — the same
+  // failure class the beacon-tag check above guards against.
+  if (goal.kind === "visible" && typeof goal.selector === "string") {
+    const selector = goal.selector;
+    for (const [html, roleLabel, distPath] of [
+      [controlHtmlContent, "control page", distPathFor(page)],
+      [variantHtmlContent, "variant page", distPathFor(variantPage)],
+    ] as const) {
+      if (html !== null && !selectorLikelyMatchesHtml(html, selector)) {
+        issues.push({
+          severity: "error",
+          category: "experiments-goal-beacon",
+          message: `Running experiment's "visible" goal selector (${JSON.stringify(selector)}) doesn't match anything in the built ${roleLabel} ("${roleLabel === "control page" ? page : variantPage}") — this goal can never fire.`,
+          file: distPath,
+          remediation: "Re-pick the element in the app, or hand-edit the selector to match markup that exists in the built page.",
         });
       }
     }

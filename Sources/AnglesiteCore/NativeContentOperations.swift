@@ -449,6 +449,77 @@ public struct NativeContentOperations: ContentOperationsService {
         return .created(filePath: relPath, identifier: route)
     }
 
+    /// Scaffolds an A/B-test variant page from an existing control page (#1270 slice 5): reads the
+    /// control's contents, writes them to the deterministic route `/x/<experimentID>/<variantID>`
+    /// (never the collision-bumping "Copy 2" naming `duplicatePage` uses — an experiment's variant
+    /// route is part of its identity, not a display name), injects a `canonicalPath` prop into the
+    /// `<BaseLayout` invocation pointing back at the control route, and marks the new route noindex
+    /// via `RobotsConfigFile` — the same mechanism the app's page inspector uses (#1093), so the
+    /// variant is invisible to search from the moment it's written, with no separate "remember to
+    /// noindex it" step. Fails rather than overwriting if the target route is already taken.
+    ///
+    /// - Returns: on success, `identifier` is the variant's **served** route —
+    ///   `/x/<experimentID>/<variantID>/`, with the trailing slash — because it is written straight
+    ///   into `anglesite.json`'s `experiments.active[].variant.page`, which
+    ///   `scripts/pre-deploy-check.ts` rejects without one. See ``ContentScaffold/servedRoute(_:)``.
+    public func duplicatePageAsVariant(
+        siteID: String, relativePath: String, experimentID: String, variantID: String
+    ) async -> ContentCreateResult {
+        guard let root = await siteDirectory(siteID) else { return .siteNotFound }
+        let sourceAbs = root.appendingPathComponent(relativePath)
+        guard fileManager.fileExists(atPath: sourceAbs.path) else {
+            return .failed(reason: "No page exists at \(relativePath)")
+        }
+        let contents: String
+        do { contents = try FileDocumentIO.load(sourceAbs, fileManager: fileManager).contents }
+        catch { return .failed(reason: "\(error)") }
+
+        // Two shapes of the same route, deliberately: `route` is the file-path form that decides
+        // where the `.astro` lands, `servedRoute` the trailing-slash runtime form that goes into
+        // `anglesite.json` and the canonical link. Mixing them up is what #1518's review caught —
+        // see `ContentScaffold.servedRoute(_:)` for why the gate rejects the slash-less form.
+        let route = ContentScaffold.normalizeRoute("/x/\(experimentID)/\(variantID)")
+        let servedRoute = ContentScaffold.servedRoute(route)
+        let relPath = ContentScaffold.pageRelativePath(normalizedRoute: route)
+        guard !fileManager.fileExists(atPath: root.appendingPathComponent(relPath).path) else {
+            return .failed(reason: "A variant page already exists at \(relPath)")
+        }
+
+        // `pre-deploy-check.ts` compares the built variant's `rel="canonical"` pathname against the
+        // experiment's `page` with `!==`, and `page` is the served (trailing-slash) control route —
+        // so the injected canonical has to carry the slash too or the SEO check fails the deploy.
+        let controlRoute = ContentScaffold.servedRoute(ContentScanner.routeFromPagePath(relativePath))
+        guard let injected = Self.injectingCanonicalPath(controlRoute, into: contents) else {
+            return .failed(reason: "Couldn't find a <BaseLayout> invocation to attach the variant's canonical link to")
+        }
+
+        do { try write(injected, to: root.appendingPathComponent(relPath)) }
+        catch { return .failed(reason: "\(error)") }
+
+        let robotsChanged: Bool
+        do {
+            robotsChanged = try RobotsConfigFile.apply(
+                source: .page(file: relPath), noindex: true, disallowCrawl: false, path: servedRoute, under: root)
+        } catch { return .failed(reason: "\(error)") }
+
+        _ = await gitCommit(root, relPath, "anglesite: scaffold experiment variant \(servedRoute)")
+        if robotsChanged {
+            _ = await gitCommit(root, RobotsConfigFile.relativePath, "anglesite: update robots-config.json")
+        }
+        return .created(filePath: relPath, identifier: servedRoute)
+    }
+
+    /// Inserts `canonicalPath="<controlRoute>"` as the first attribute of the first `<BaseLayout`
+    /// opening tag found, or `nil` if the source has no `<BaseLayout` invocation to attach to (an
+    /// `.astro` page not using the standard layout — out of scope for a v1 variant scaffold, matching
+    /// `PageTitleEditor.RewriteError.noEditableLocation`'s "never invent a location" stance).
+    static func injectingCanonicalPath(_ controlRoute: String, into contents: String) -> String? {
+        guard let range = contents.range(of: "<BaseLayout") else { return nil }
+        let escaped = controlRoute.replacingOccurrences(of: "\"", with: "&quot;")
+        return contents.replacingCharacters(
+            in: range, with: "<BaseLayout canonicalPath=\"\(escaped)\"")
+    }
+
     /// Duplicate an existing post within the same `collection`. Same retitle/collision/commit
     /// shape as `duplicatePage`, but derives a slug (not a route) and writes via
     /// `ContentScaffold.postRelativePath`.

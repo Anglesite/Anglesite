@@ -975,6 +975,34 @@ test("checkExperiments: skips the beacon-tag check when control HTML wasn't capt
   assert.ok(!issues.some((i) => i.message.includes("control page")));
 });
 
+const VISIBLE_GOAL_ACTIVE = [{ ...VALID_ACTIVE[0], goal: { kind: "visible", selector: "#reviews" } }];
+
+test("checkExperiments: flags a visible-goal selector that matches neither built page", () => {
+  const controlHtml = `<html><head>${BEACON_SCRIPT_TAG}</head><body><h1>Home</h1></body></html>`;
+  const variantHtml = `<html><head><link rel="canonical" href="https://example.com/"><meta name="robots" content="noindex">${BEACON_SCRIPT_TAG}</head><body><h1>Home (variant)</h1></body></html>`;
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VISIBLE_GOAL_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/x/goal-beacon.js"]),
+    variantHtml,
+    "<urlset></urlset>",
+    controlHtml,
+  );
+  assert.ok(issues.some((i) => i.category === "experiments-goal-beacon" && i.message.includes("#reviews")));
+});
+
+test("checkExperiments: passes a visible-goal selector present in both built pages", () => {
+  const controlHtml = `<html><head>${BEACON_SCRIPT_TAG}</head><body><section id="reviews">Great</section></body></html>`;
+  const variantHtml = `<html><head><link rel="canonical" href="https://example.com/"><meta name="robots" content="noindex">${BEACON_SCRIPT_TAG}</head><body><section id="reviews">Great</section></body></html>`;
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VISIBLE_GOAL_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/x/goal-beacon.js"]),
+    variantHtml,
+    "<urlset></urlset>",
+    controlHtml,
+  );
+  assert.deepEqual(issues, []);
+});
+
 test("runningExperimentControlDistPath: a well-formed running experiment resolves its own dist path", () => {
   assert.equal(
     runningExperimentControlDistPath(JSON.stringify({ version: 1, experiments: { active: VALID_ACTIVE } })),

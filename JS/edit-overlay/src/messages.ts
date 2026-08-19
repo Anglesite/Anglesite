@@ -84,6 +84,25 @@ export function postPlacementPick(
   return true;
 }
 
+export interface GoalElementPickMessage {
+  id: string;
+  type: "anglesite:pick-goal-element";
+  path: string;
+  selector: ElementInfo;
+}
+
+/** Posts a goal-element-pick report to native — same "no reply" contract as
+ *  `postPlacementPick`; the app resolves the pick into a CSS selector and updates its own UI. */
+export function postGoalElementPick(
+  message: GoalElementPickMessage,
+  win: WebKitWindow = window as unknown as WebKitWindow,
+): boolean {
+  const handler = win.webkit?.messageHandlers?.anglesite;
+  if (!handler) return false;
+  handler.postMessage(message);
+  return true;
+}
+
 /** Install `window.anglesite._handleReply` so native can deliver replies, and return an
  *  `awaitReply` registrar bound to a closure-private map — each install gets its own. */
 export function installReplyHandler(
