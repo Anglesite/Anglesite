@@ -1030,8 +1030,10 @@ final class PlistEditorModel {
 
     /// Which plist entry is the website title. Internal (not `private`) because
     /// `WebsiteInspectorModel` (#714) is a second consumer — this stays the single owner of
-    /// "which plist entry is the title" rather than duplicating the key list there.
-    static func isWebsiteTitleEntry(_ entry: PlistDocumentIO.PlistEntry) -> Bool {
+    /// "which plist entry is the title" rather than duplicating the key list there. Pure and
+    /// stateless, so `nonisolated` even though this type is `@MainActor`: that second consumer
+    /// calls it from inside a `Task.detached` block, off the main actor.
+    nonisolated static func isWebsiteTitleEntry(_ entry: PlistDocumentIO.PlistEntry) -> Bool {
         entry.key == "AnglesiteDisplayName" || entry.key == "displayName"
     }
 

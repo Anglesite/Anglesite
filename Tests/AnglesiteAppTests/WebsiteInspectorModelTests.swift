@@ -90,4 +90,36 @@ struct WebsiteInspectorModelTests {
         await model.load()
         #expect(model.domain == nil)
     }
+
+    /// A double-fire of `saveTitle()` (e.g. a field commit racing a window close) must not
+    /// launch two concurrent read-modify-writes on `Info.plist`. Both calls are started before
+    /// either is awaited; the actor serializes their synchronous prefixes, so the second sees
+    /// `isSavingTitle` already `true` and returns `false` without touching disk — proven here by
+    /// exactly one of the two results being `true`, with no artificial delay or polling needed.
+    @Test func saveTitleGuardsReentrancy() async throws {
+        let pkg = try makeFixturePackage(title: "My Site", domain: nil, lang: "en")
+        let model = WebsiteInspectorModel(packageURL: pkg)
+        await model.load()
+        model.title = "Renamed"
+        async let first = model.saveTitle()
+        async let second = model.saveTitle()
+        let results = await [first, second]
+        #expect(results.filter { $0 }.count == 1)
+        #expect(!model.isDirty)
+        #expect(model.title == "Renamed")
+    }
+
+    /// Same reentrancy guard, for `saveLang()`'s `.site-config` write.
+    @Test func saveLangGuardsReentrancy() async throws {
+        let pkg = try makeFixturePackage(title: "My Site", domain: nil, lang: "en")
+        let model = WebsiteInspectorModel(packageURL: pkg)
+        await model.load()
+        model.lang = "fr-CA"
+        async let first = model.saveLang()
+        async let second = model.saveLang()
+        let results = await [first, second]
+        #expect(results.filter { $0 }.count == 1)
+        #expect(!model.isDirty)
+        #expect(model.lang == "fr-CA")
+    }
 }

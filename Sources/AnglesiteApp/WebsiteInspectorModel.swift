@@ -26,6 +26,12 @@ final class WebsiteInspectorModel {
     /// `SiteFileTree.scan`'s `.styles` group for this site, or empty if none.
     private(set) var stylesheets: [FileRef] = []
     private(set) var saveError: String?
+    /// True while `saveTitle()`'s off-main read-modify-write is in flight — guards against a
+    /// double-fire (e.g. a field commit racing a window close) launching two concurrent writes
+    /// to the same `Info.plist`. Mirrors `PlistEditorModel.isSavingLang`'s role for its sibling.
+    private(set) var isSavingTitle = false
+    /// Same guard as `isSavingTitle`, for `saveLang()`'s `.site-config` write.
+    private(set) var isSavingLang = false
 
     /// True while either bindable field has an edit not yet saved.
     var isDirty: Bool { isTitleDirty || isLangDirty }
@@ -99,7 +105,10 @@ final class WebsiteInspectorModel {
     @discardableResult
     func saveTitle() async -> Bool {
         guard isTitleDirty else { return true }
+        guard !isSavingTitle else { return false }
+        isSavingTitle = true
         saveError = nil
+        defer { isSavingTitle = false }
         guard let infoPlistURL = SiteFileTree.layout(for: packageURL).infoPlist else {
             saveError = "This site's Info.plist couldn't be found."
             return false
@@ -125,7 +134,10 @@ final class WebsiteInspectorModel {
     @discardableResult
     func saveLang() async -> Bool {
         guard isLangDirty else { return true }
+        guard !isSavingLang else { return false }
+        isSavingLang = true
         saveError = nil
+        defer { isSavingLang = false }
         let sourceDir = SiteFileTree.layout(for: packageURL).sourceDir
         let settings = SiteLanguageAsset.Settings(lang: lang)
         do {
