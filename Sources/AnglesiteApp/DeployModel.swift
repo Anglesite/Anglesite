@@ -951,6 +951,7 @@ final class DeployModel {
         // the very next ordinary deploy — mirrors resolveIsHostedCommunity's declared-config read
         // just above.
         let runningExperiments = DeployCoordinator.resolveRunningExperiments(sourceDirectory: siteDirectory)
+        let mcpEnabled = DeployCoordinator.resolveMCPEnabled(sourceDirectory: siteDirectory)
         let provisionResult = await socialCommand.provision(
             siteID: siteID,
             siteDirectory: siteDirectory,
@@ -965,7 +966,8 @@ final class DeployModel {
             inboxCaptureEnabled: settings.inboxCaptureEnabled ?? false,
             activityPubActorType: isHostedCommunity ? "Group" : nil,
             moderators: isHostedCommunity ? settings.moderators : nil,
-            experiments: runningExperiments
+            experiments: runningExperiments,
+            mcpEnabled: mcpEnabled
         )
 
         if case .webmentionPaidPlanConfirmationNeeded = provisionResult {
