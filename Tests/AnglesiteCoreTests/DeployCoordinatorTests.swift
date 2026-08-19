@@ -186,6 +186,23 @@ struct DeployCoordinatorTests {
         #expect(DeployCoordinator.resolveRunningExperiments(sourceDirectory: dir).isEmpty)
     }
 
+    // MARK: - resolveMCPEnabled (#1576)
+
+    @Test("resolveMCPEnabled is true only when anglesite.json declares experimental.mcp: true")
+    func resolveMCPEnabledReadsFlag() throws {
+        let dir = try temporaryDirectory()
+        #expect(!DeployCoordinator.resolveMCPEnabled(sourceDirectory: dir))
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(experimental: .init(mcp: true)))
+        #expect(DeployCoordinator.resolveMCPEnabled(sourceDirectory: dir))
+    }
+
+    @Test("resolveMCPEnabled is false with no anglesite.json at all")
+    func resolveMCPEnabledEmptyByDefault() throws {
+        let dir = try temporaryDirectory()
+        #expect(!DeployCoordinator.resolveMCPEnabled(sourceDirectory: dir))
+    }
+
     // MARK: - deployLogSources
 
     @Test("deployLogSources includes worker-provision:<siteID> so SocialWorkerProvisionCommand's wrangler output reaches the drawer")

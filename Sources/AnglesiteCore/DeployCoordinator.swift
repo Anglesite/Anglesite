@@ -259,6 +259,16 @@ public enum DeployCoordinator {
         return (domainConfig.experiments?.active ?? []).filter { $0.status == "running" }
     }
 
+    /// Whether `Source/anglesite.json` declares `experimental.mcp: true` (#1576) — a fourth,
+    /// independent enabler of Worker composition alongside an active catalog worker, inbox
+    /// capture, and a running experiment (see `WorkerComposition.generateWranglerToml`'s
+    /// `composesWorker`). Mirrors `resolveRunningExperiments`'s "read the declared config,
+    /// default to the inert case on any failure" shape.
+    public static func resolveMCPEnabled(sourceDirectory: URL) -> Bool {
+        let domainConfig = (try? DomainConfigStore(sourceDirectory: sourceDirectory).load()) ?? DomainConfig()
+        return domainConfig.experimental?.mcp ?? false
+    }
+
     /// The site's best-known public URL for `WorkerComposition`'s `SITE_URL` var (#359) — the
     /// address the composed Worker uses for its own outbound requests, e.g. `CommunityMembershipClient`'s
     /// ActivityPub actor ID and outbox (#1085). The workers.dev host `DeployCommand.persistSiteURL`
