@@ -125,3 +125,7 @@ disk, wired into the same `main()`.
   `.well-known/agent-skills/` namespace — no such feature exists in this template today.
 - Any change to how static assets get their `Content-Type` (`.json`/`.md` MIME inference is already
   handled by the default static-asset serving every other generated `.well-known` file relies on).
+- A site owner hand-authoring a custom skill under `public/.well-known/agent-skills/<name>/` — the
+  whole subdirectory is gitignored (not tracked per-file like the other generated entries) and
+  `index.json` only ever lists the four known catalog skills, so a hand-authored addition wouldn't
+  survive a fresh clone or appear in the index.

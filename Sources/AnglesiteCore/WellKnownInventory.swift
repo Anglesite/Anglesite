@@ -493,12 +493,14 @@ public enum GeneratedEndpoints {
 
     /// The generator whose marker appears on `content`'s first line (`security.txt`), anywhere in
     /// `content` (`mta-sts.txt`, matching `isMTAStsMarkerOwned`'s own scan), whose entire
-    /// (trimmed) content is a valid DID at the `atproto-did` suffix, or whose output shape
-    /// `content` matches in full (`site.standard.publication` — see
-    /// `isStandardSitePublicationURI`'s doc comment for why this one can't use a marker line), or
-    /// `nil` when `content` is `nil` or matches none of the above. `suffix` scopes the DID-shape
-    /// check to its own path — a DID-shaped file elsewhere under `.well-known/` is not this
-    /// generator's concern.
+    /// (trimmed) content is a valid DID at the `atproto-did` suffix, whose output shape `content`
+    /// matches in full (`site.standard.publication` — see `isStandardSitePublicationURI`'s doc
+    /// comment for why this one can't use a marker line), whose top-level JSON `generator` field
+    /// is `"anglesite"` at the `agent-skills/index.json` suffix (`isAgentSkillsIndexOwned`), or
+    /// whose marker line appears anywhere in `content` at an `agent-skills/*/SKILL.md` suffix, or
+    /// `nil` when `content` is `nil` or matches none of the above. `suffix` scopes the DID-shape,
+    /// index, and SKILL.md checks to their own paths — a matching-shaped file elsewhere under
+    /// `.well-known/` is not this generator's concern.
     static func matching(content: String?, suffix: String) -> Descriptor? {
         guard let content else { return nil }
         if content.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first == securityTxtMarker[...] {

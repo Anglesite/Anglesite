@@ -1,4 +1,3 @@
-#!/usr/bin/env npx tsx
 /**
  * Agent Skills manifest primitives (#1579, slice 4 of the #1326 Agent Readiness ladder).
  *
@@ -195,7 +194,9 @@ export interface AgentSkillsWriteEntry {
 export interface AgentSkillsPlan {
   toWrite: AgentSkillsWriteEntry[];
   /** `.well-known/`-relative `SKILL.md` paths whose skill turned off since the last build and
-   * whose on-disk content is still this generator's own — safe to remove. */
+   * whose on-disk content is still this generator's own — safe to remove. The apply step removes
+   * the skill's entire parent directory (not just this file) — a skill-md entry may have other
+   * bundled resources colocated with it. */
   toDelete: string[];
 }
 
@@ -255,7 +256,7 @@ export function applyAgentSkillsPlan(publicDir: string, ctx: AgentSkillsContext)
 
   for (const path of plan.toDelete) {
     rmSync(dirname(resolve(wellKnownDir, path)), { recursive: true, force: true });
-    console.log(`Removed stale .well-known/${path}`);
+    console.log(`Removed stale .well-known/${path.replace(/\/SKILL\.md$/, "/")}`);
   }
   for (const entry of plan.toWrite) {
     const filePath = resolve(wellKnownDir, entry.path);
