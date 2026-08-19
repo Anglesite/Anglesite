@@ -115,9 +115,30 @@ final class ExperimentStatsModel: Identifiable {
             goalDepth: active.goal.depth, goalSelector: active.goal.selector))
     }
 
-    /// Advances from `.manual` to the suggestion-browsing step. A no-op from any other step.
+    /// Whether `anglesite.json` currently declares a `"running"` experiment, read fresh from disk
+    /// rather than derived from `step`. `step` alone can't answer this: `returnToManual()` (I6)
+    /// reaches `.manual` without touching the persisted config, so a running experiment can still
+    /// be live on disk while `step == .manual`. Gates `openPropose()` below — starting a new draft
+    /// from there would eventually reach `persistDraft`, which always replaces the *entire*
+    /// `experiments.active` array, silently ending the live test (losing its `"running"` status
+    /// and `startedAt`) with no warning. That violates both this schema's "only one active
+    /// experiment at a time" invariant (`DomainConfig.Experiments.active`'s doc comment) and this
+    /// codebase's "the app advises, it never surprises the owner" principle (#1518 review,
+    /// escape-hatch fix).
+    var runningExperiment: DomainConfig.Experiments.Experiment? {
+        guard let config = try? DomainConfigStore(sourceDirectory: sourceDirectory).load(),
+              let active = config.experiments?.active?.first, active.status == "running" else {
+            return nil
+        }
+        return active
+    }
+
+    /// Advances from `.manual` to the suggestion-browsing step. A no-op from any other step, and
+    /// also a no-op while a running experiment is declared on disk — reachable via
+    /// `returnToManual()` while one is live (see `runningExperiment`). The manual-entry form
+    /// itself stays reachable either way; only starting a *new* draft is refused.
     func openPropose() {
-        guard case .manual = step else { return }
+        guard case .manual = step, runningExperiment == nil else { return }
         step = .propose
     }
 

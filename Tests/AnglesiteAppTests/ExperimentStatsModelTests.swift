@@ -421,6 +421,59 @@ import Foundation
         #expect(model.step == .manual)
     }
 
+    // MARK: - #1518 escape-hatch fix: returnToManual() must not open a door to overwriting a
+    // running experiment's config.
+
+    @Test func openProposeRefusesWhileAnExperimentIsRunning() async throws {
+        let tmp = try tempDirectory()
+        let running = DomainConfig.Experiments.Experiment(
+            id: "homepage-hero", name: "Hero headline", page: "/",
+            variant: .init(id: "b", name: "B", page: "/x/homepage-hero/b/"),
+            split: 0.5, goal: .init(kind: "pageview", path: "/contact/thanks/"),
+            status: "running", startedAt: "2026-08-01")
+        DomainConfigStore.update(sourceDirectory: tmp) { $0.experiments = .init(active: [running]) }
+
+        // Reached via returnToManual(), the only way to land on `.manual` while a running
+        // experiment still exists on disk (the model would otherwise start in `.running`).
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        guard case .running = model.step else { Issue.record("expected .running, got \(model.step)"); return }
+        model.returnToManual()
+        #expect(model.step == .manual)
+        #expect(model.runningExperiment?.id == "homepage-hero")
+
+        // The bug: tapping a "Test ideas" suggestion from here used to enter .propose, then
+        // .configure, and once scaffolded/goal-set would silently overwrite the running
+        // experiment's config entry with a brand-new draft, losing its "running" status and
+        // startedAt with no warning. `openPropose()` is the sole reachable entry point into
+        // .propose (ExperimentProposeView's buttons, which call propose(from:)/proposeCustom, are
+        // only ever shown once .propose is reached), so refusing it here closes the whole path.
+        model.openPropose()
+        #expect(model.step == .manual) // refused, not .propose
+
+        // The running experiment's config entry is untouched.
+        let saved = try DomainConfigStore(sourceDirectory: tmp).load()
+        #expect(saved.experiments?.active?.first?.id == "homepage-hero")
+        #expect(saved.experiments?.active?.first?.status == "running")
+    }
+
+    @Test func testIdeasStayReachableFromManualWhenNothingIsRunning() throws {
+        let tmp = try tempDirectory()
+        let draft = DomainConfig.Experiments.Experiment(
+            id: "homepage-hero", name: "Hero headline", page: "/",
+            variant: .init(id: "b", name: "B", page: "/x/homepage-hero/b/"),
+            split: 0.5, goal: .init(kind: "pageview", path: "/contact/thanks/"), status: "draft")
+        DomainConfigStore.update(sourceDirectory: tmp) { $0.experiments = .init(active: [draft]) }
+
+        // A draft (not running) config starts in .configure; return to manual and confirm
+        // openPropose() is NOT blocked, since nothing is actually running.
+        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        model.returnToManual()
+        #expect(model.step == .manual)
+        #expect(model.runningExperiment == nil)
+        model.openPropose()
+        #expect(model.step == .propose)
+    }
+
     private func tempDirectory() throws -> URL {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)

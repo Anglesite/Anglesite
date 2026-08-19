@@ -126,16 +126,25 @@ struct ExperimentStatsSheetView: View {
             }
 
             Section("Test ideas") {
-                ForEach(model.suggestions, id: \.title) { suggestion in
-                    Button {
-                        model.openPropose()
-                    } label: {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(suggestion.title).font(.callout.weight(.medium))
-                            Text(suggestion.rationale).font(.caption).foregroundStyle(.secondary)
+                if let running = model.runningExperiment {
+                    // `openPropose()` refuses while a running experiment is declared (it would
+                    // otherwise be reachable here via `returnToManual()`), so this row explains
+                    // why in terms of the owner's live test rather than leaving the buttons a
+                    // silent no-op.
+                    Text("“\(running.name)” is your live test right now. Wait for it to finish before starting a new one.")
+                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    ForEach(model.suggestions, id: \.title) { suggestion in
+                        Button {
+                            model.openPropose()
+                        } label: {
+                            VStack(alignment: .leading, spacing: 2) {
+                                Text(suggestion.title).font(.callout.weight(.medium))
+                                Text(suggestion.rationale).font(.caption).foregroundStyle(.secondary)
+                            }
                         }
+                        .buttonStyle(.plain)
                     }
-                    .buttonStyle(.plain)
                 }
             }
         }
