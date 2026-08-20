@@ -36,7 +36,8 @@ public enum WYSIWYGRichTextPasteMapper {
         attributed.enumerateAttributes(in: NSRange(location: 0, length: attributed.length)) { attributes, range, _ in
             let text = (attributed.string as NSString).substring(with: range)
             guard !text.isEmpty else { return }
-            if let link = attributes[.link] as? URL {
+            // Handle both URL and NSString-valued link attributes (HTML paste from Safari/Pages)
+            if let link = (attributes[.link] as? URL) ?? (attributes[.link] as? NSString).flatMap({ URL(string: $0 as String) }) {
                 result.append(RichTextRun(kind: .link, text: text, href: link.absoluteString))
                 return
             }

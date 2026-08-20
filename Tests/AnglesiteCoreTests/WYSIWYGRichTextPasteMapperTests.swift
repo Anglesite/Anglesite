@@ -33,6 +33,16 @@ struct WYSIWYGRichTextPasteMapperTests {
         #expect(paragraphs[0].first?.href == "https://example.com")
     }
 
+    @Test("maps a string-valued link attribute to a link run (Safari/HTML paste)")
+    func mapsStringValuedLinkRun() {
+        let attributed = NSMutableAttributedString(string: "click here")
+        // Safari/HTML paste sources often provide link as NSString rather than NSURL
+        attributed.addAttribute(.link, value: "https://example.com" as NSString, range: NSRange(location: 0, length: 10))
+        let paragraphs = WYSIWYGRichTextPasteMapper.map(attributed)
+        #expect(paragraphs[0].first?.kind == .link)
+        #expect(paragraphs[0].first?.href == "https://example.com")
+    }
+
     @Test("plainTextOnly collapses every run to plain text runs (Paste and Match Style)")
     func plainTextOnlyCollapsesFormatting() {
         let attributed = NSMutableAttributedString(string: "bold")
