@@ -78,8 +78,17 @@ public enum WYSIWYGOpTranslator {
         switch block.kind {
         case .astro, .customElement:
             return .component(tag: block.componentName, componentPath: block.componentName)
+        case .element:
+            return .element(tag: block.componentName)
         case .text:
             return .element(tag: "span") // no dedicated text-node insert on the wire; a follow-up
+        case .fragment:
+            // A fragment is the page's synthetic tree root (or a nested fragment) —
+            // PageModelBlockAdapter only ever produces this kind for nodes already in the tree,
+            // never for a freshly-authored insertBlock payload, so this arm is unreachable in
+            // practice. Exhaustiveness requires it; degrade to a plain wrapper rather than crash
+            // if it's ever hit.
+            return .element(tag: "div")
         }
     }
 }
