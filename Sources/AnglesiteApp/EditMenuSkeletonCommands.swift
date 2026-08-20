@@ -6,9 +6,11 @@ import SwiftUI
 /// or plain text (which also covers the Component Editor's Source-mode `TextEditor`, #517
 /// follow-up) — and Search Site… against the focused window's toolbar search field (#520); the
 /// rest are editor/subsystem-gated PlannedItems. NavigatorEditCommands owns the live
-/// Delete/Duplicate next to them. The WYSIWYG canvas (`.wysiwygCanvas`, #1225 Task 10) has no
-/// find UI of its own yet, so it's grouped with `.plainText` below wherever Find behavior
-/// branches on the registry's active case.
+/// Delete/Duplicate next to them. The WYSIWYG canvas (`.wysiwygCanvas`) now has its own native
+/// find UI too (#1588 Task 19: `WYSIWYGFindBar` over `WKWebView.find`) — `performFind()` presents
+/// it, but it owns repeat-find itself, so it's still grouped with `.plainText` below wherever
+/// Find Next/Previous/Replace branch on the registry's active case (`supportsNextPrevious`,
+/// `performFindNext`/`performFindPrevious`/`performFindReplace`).
 struct EditMenuSkeletonCommands: Commands {
     private let registry = EditorFocusRegistry.shared
     @FocusedValue(\.siteSearchActions) private var searchActions
@@ -64,12 +66,12 @@ struct EditMenuSkeletonCommands: Commands {
         }
     }
 
-    /// Whether the currently-focused editor has any Find UI at all — `.wysiwygCanvas` doesn't yet
-    /// (#1225 Task 10), unlike `.markdown`/`.plainText`.
+    /// Whether the currently-focused editor has any Find UI at all — `.wysiwygCanvas` now does too
+    /// (#1588 Task 19: `WYSIWYGFindBar` over `WKWebView.find`), alongside `.markdown`/`.plainText`.
     private var supportsFind: Bool {
         switch registry.active {
-        case .markdown, .plainText: true
-        case .wysiwygCanvas, nil: false
+        case .markdown, .plainText, .wysiwygCanvas: true
+        case nil: false
         }
     }
 
@@ -77,7 +79,8 @@ struct EditMenuSkeletonCommands: Commands {
         switch registry.active {
         case .markdown(let box): box.value?.showFind()
         case .plainText(let isPresented): isPresented.wrappedValue = true
-        case .wysiwygCanvas, nil: break
+        case .wysiwygCanvas(let box): box.value?.isFindBarPresented = true
+        case nil: break
         }
     }
 

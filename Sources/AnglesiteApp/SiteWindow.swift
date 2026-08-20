@@ -1326,6 +1326,14 @@ struct SiteWindow: View {
                 model.preview.wysiwygCanvas?.copySelectedBlock()
                 return []
             }
+            // #1588 Task 19: Edit ▸ Find… over the WYSIWYG canvas. `WYSIWYGFindBar` itself checks
+            // `isFindBarPresented`, so this overlay is inert (renders nothing) outside edit mode
+            // and while the bar isn't showing.
+            .overlay(alignment: .top) {
+                if let canvas = model.preview.wysiwygCanvas {
+                    WYSIWYGFindBar(controller: canvas)
+                }
+            }
         case .starting, .ready:
             // `.ready` reaches here only while `isShowingCompletionHold` is true (see the guarded
             // case above) — a brief window so the fully-filled phase progress strip is actually

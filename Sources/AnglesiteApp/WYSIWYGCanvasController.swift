@@ -26,6 +26,21 @@ final class WYSIWYGCanvasController {
     /// Duplicate is one focus-scoped command").
     var hasKeyboardFocus = false
 
+    /// Whether the WYSIWYG find bar is showing (#1588 Task 19) — `EditMenuSkeletonCommands`'s
+    /// Edit ▸ Find dispatch flips this on; `WYSIWYGFindBar` flips it off.
+    var isFindBarPresented = false
+
+    /// Performs a native in-page find via `WKWebView.find` — no custom highlighting/DOM
+    /// manipulation needed, WebKit handles scroll-to-match and highlight itself.
+    func find(_ query: String, backwards: Bool = false) {
+        guard let webView, !query.isEmpty else { return }
+        let configuration = WKFindConfiguration()
+        configuration.backwards = backwards
+        configuration.caseSensitive = false
+        configuration.wraps = true
+        webView.find(query, configuration: configuration) { _ in }
+    }
+
     /// Bridges this canvas's applied ops into the window's `UndoManager` for real ⌘Z/⇧⌘Z (#1225,
     /// Task 9). Wired via `addOpAppliedListener` below at `init` time, so callers (`PreviewModel`)
     /// don't need to know about undo at all — they only set `undoCoordinator.undoManager`. `lazy`,
