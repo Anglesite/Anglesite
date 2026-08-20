@@ -1,30 +1,70 @@
 # Vouch protocol for webmention spam mitigation (#1597)
 
-Status: **known bug found in PR review, fix in progress** — see "Known issue" below
+Status: sidecar Tasks 1–5 shipped and merged
+([davidwkeith/workers#505](https://github.com/davidwkeith/workers/pull/505)) with an inverted,
+forgeable verification bug found in PR review; the fix design below (source-domain match + a
+real trust list) is approved and awaiting a follow-up sidecar commit before app-side work
+(Task 6+) starts.
 Repos touched: `davidwkeith/workers` (`@dwk/webmention`), `Anglesite/Anglesite` (this repo)
 
-## Known issue (found in review of Anglesite/Anglesite#1604, 2026-08-20)
+## Bug found in review, and its fix (found in review of Anglesite/Anglesite#1604, 2026-08-20)
 
-The `verifyVouch` design below (and the shipped implementation in
-[davidwkeith/workers#505](https://github.com/davidwkeith/workers/pull/505), already merged)
-checks that the vouch page links to the **target's** domain. Per
-[indieweb.org/Vouch](https://indieweb.org/Vouch) and this issue's own "Gap" wording ("a URL
-that the target already links to"), the receiver should instead check that the vouch page
-links to the **source's** domain, *and* that the vouch domain is one the receiver already
-trusts (a list, not an open-ended link check) — the trust chain is "someone I already trust
-vouches for this stranger." As designed and shipped, the check is backwards and has no trust
-list, so `vouch=<the source URL itself>` verifies unconditionally once `verifySource` has
-already proven that link exists — a spammer gets a "Vouched" badge for free. The rest of this
-document (and the implementation plan) is being corrected; sections below marked with the
-original (buggy) semantics are being updated in place, not left as historical record, since
-that would leave a live design doc describing a real vulnerability as intended behavior.
+The originally-shipped `verifyVouch` checked that the vouch page links to the **target's**
+domain, with no trust list at all. Per [indieweb.org/Vouch](https://indieweb.org/Vouch) and
+this issue's own "Gap" wording ("a URL that the target already links to"), the receiver should
+instead check that the vouch page links to the **source's** domain, *and* that the vouch
+domain is one the receiver already trusts — the trust chain is "someone I already trust
+vouches for this stranger." As shipped, the check was backwards and had no trust list, so
+`vouch=<the source URL itself>` verified unconditionally once `verifySource` had already
+proven that link exists — a spammer got a "Vouched" badge for free. **Every section below
+describes the corrected design**, not the originally-shipped one; the corrected algorithm and
+the trust-list source are covered in their own sections right after "Where the logic belongs."
+
+### The trust list: reuse the existing blogroll
+
+The template already has a blogroll content collection (`src/content/blogroll/*.md`, OPML
+export at `/blogroll.opml`) — exactly what Vouch means by "domains the target already links
+to." No new content type or UI: the owner already maintains this list for an unrelated reason
+(their public reading list), and it happens to be precisely the right trust source.
+
+Reaching the Worker mirrors the pattern `#1567` already built for the contacts allowlist
+(`ContactsAllowlistSync` → `ContactsAllowlistKVClient` → `SOCIAL_KV` key `contacts:allowlist`
+→ `reader-identity.ts`'s `isAllowedReader`) — same `SOCIAL_KV` namespace, a new key:
+
+- **New Swift pair**, `BlogrollTrustSync`/`BlogrollTrustKVClient`, structurally identical to
+  `ContactsAllowlistSync`/`ContactsAllowlistKVClient`: reads every `src/content/blogroll/*.md`
+  entry's `url` frontmatter field, extracts `new URL(url).hostname` for each, and `PUT`s the
+  sorted, deduplicated set as a JSON array to `SOCIAL_KV` under key `vouch:trusted-domains` —
+  same whole-set-replace, self-healing, never-throws design as the contacts sync (frontmatter
+  parsing already exists broadly in `AnglesiteCore` — no new capability needed there).
+- **Trigger:** deploy-time only, mirroring `DeployModel`'s post-deploy `ContactsAllowlistSync`
+  call. The trust list doesn't need real-time freshness the way reader-auth's allowlist does,
+  and this avoids hunting down every blogroll-editing code path for an immediate-push trigger.
+- **Read side:** a new `worker/vouch-trust.ts`, structurally identical to
+  `reader-identity.ts`'s `readAllowlist`/`isAllowedReader` — missing `SOCIAL_KV`, missing key,
+  or malformed JSON all degrade to an empty set ("nothing trusted yet"), never a hard failure.
+  A site with an empty or unprovisioned blogroll has no trust list, which correctly means every
+  vouch is unverified — not that everything is trusted.
+
+### The corrected algorithm
+
+1. **Check the trust list first, before any fetch:** `hostname(vouchUrl)` must be in the
+   trusted-domains set. Untrusted → `verified: false`, **no outbound fetch happens at all** —
+   this also closes a fetch-amplification concern raised in review (every verified mention
+   would otherwise trigger a second outbound fetch to an attacker-named URL).
+2. Only if the vouch domain is trusted, fetch the vouch URL (same SSRF-safe `safeFetch` as
+   `verifySource`) and check whether it links anywhere under the **source's** hostname — not
+   the target's, and not an exact-URL match, matching the spec's "contains a hyperlink to the
+   domain used in source" wording.
+3. `verified: true` only when both hold.
 
 ## Problem
 
 Anglesite receives and verifies inbound Webmentions (`Resources/Template/worker/worker.ts`
 → `@dwk/webmention`), but link-verification (source really links to target) is the only
 trust signal. There's no [Vouch](https://indieweb.org/Vouch) support: an optional sender-supplied
-URL that, when it also links to the target's domain, raises confidence the mention isn't spam.
+URL — from a domain the site owner already trusts — that also links to the *source's* domain,
+raising confidence the mention isn't spam.
 
 ## Where the logic belongs
 
@@ -74,33 +114,47 @@ export interface VouchResult {
 
 export async function verifyVouch(
   vouchUrl: string,
-  target: string,
+  source: string,
+  isTrustedDomain: (hostname: string) => boolean | Promise<boolean>,
   options?: VerifyOptions,
 ): Promise<VouchResult>
 ```
 
-Fetches `vouchUrl` through the same `safeFetch` wrapper `verifySource` uses (SSRF-safe host
-checks, capped redirects, timeout). Extracts links the same way `extractLinks`/`sourceLinksTo`
-already do, but the match is **hostname equality** against `new URL(target).hostname`, not
-full-URL equality — i.e. any link on the vouch page pointing anywhere under the target's host
-counts ("links to the domain of the target," per the Vouch spec). Any fetch failure, non-2xx
+`isTrustedDomain` is required (not optional) at this function's level — a caller with no trust
+list should pass `() => false` explicitly, making "nothing is trusted" a decision the caller
+states rather than a default this function silently falls back to. Checks
+`isTrustedDomain(new URL(vouchUrl).hostname.toLowerCase())` **first, before any network
+access** — an untrusted vouch domain returns `{ verified: false }` immediately, no fetch. Only
+for a trusted domain does it fetch `vouchUrl` through the same `safeFetch` wrapper
+`verifySource` uses (SSRF-safe host checks, capped redirects, timeout) and check — via
+`extractLinks`, hostname equality against `new URL(source).hostname`, not full-URL equality —
+whether the fetched page links anywhere under the **source's** host. Any fetch failure, non-2xx
 status, or oversized/unreadable body yields `{ verified: false }`; the function never throws.
+
+### `WebmentionConfig` (`index.ts`)
+
+Add `isTrustedVouchDomain?: (hostname: string) => boolean | Promise<boolean>`. Omitted →
+`createWebmentionQueueConsumer` passes `() => false` into `verifyVouch` (see above) — no
+config, no trust, matching "an empty or unprovisioned trust list means nothing is trusted
+yet," not "everything is."
 
 ### Queue consumer (`index.ts` — `createWebmentionQueueConsumer`)
 
 Vouch verification only runs when the *primary* `verifySource` check already succeeded — vouch
 never overrides or substitutes for the source→target link check, which remains the hard gate.
-When `job.vouch` is present and the mention verifies, call `verifyVouch(job.vouch, target, …)`
-and store the outcome as `vouch: { url: job.vouch, verified }` on the mention passed to
-`inbox.store()`.
+When `job.vouch` is present and the mention verifies, call
+`verifyVouch(job.vouch, source, config.isTrustedVouchDomain ?? (() => false), …)` and store the
+outcome as `vouch: { url: job.vouch, verified }` on the mention passed to `inbox.store()`.
 
 Three resulting states on a stored mention:
 
 - `vouch` absent — no signal sent (today's behavior, unchanged).
-- `vouch.verified === true` — vouched: the vouch URL really does link to the target's domain.
-- `vouch.verified === false` — vouch attempted but didn't check out (unreachable, or doesn't
-  link to the domain). Arguably a *stronger* spam signal than no vouch at all — a forged vouch
-  attempt — so it's tracked distinctly rather than collapsed into "absent."
+- `vouch.verified === true` — vouched: the vouch domain is trusted, and the vouch page really
+  does link to the source's domain.
+- `vouch.verified === false` — vouch attempted but didn't check out (untrusted domain,
+  unreachable, or doesn't link to the source). Arguably a *stronger* spam signal than no vouch
+  at all — a forged vouch attempt — so it's tracked distinctly rather than collapsed into
+  "absent."
 
 ### `VerifiedMention` / `inbox.ts`
 
@@ -124,17 +178,48 @@ Add `VouchVerified` to `WebmentionLogEvent`, logged/counted the same way
 ### Testing (sidecar)
 
 - `verify.test.ts`: `verifyVouch` — verified true/false cases, unreachable URL, non-HTML body,
-  hostname-vs-exact-URL matching (subdomain/path variations under the target host all count).
+  hostname-vs-exact-URL matching against the **source** (subdomain/path variations under the
+  source host all count); an untrusted vouch domain returns `verified: false` **without any
+  fetch call** (assert the fetch mock is never invoked); a trusted domain whose page doesn't
+  link back to the source still returns `verified: false`.
 - `inbox.test.ts`: additive migration creates the two columns on a pre-existing table; round-trip
   of `vouch` through `store()`/`list()`; absence of `vouch` on `store()` leaves both columns null.
 - `index.test.ts`: queue consumer only calls `verifyVouch` when `verifySource` succeeded; a
   vouch-verification failure does not affect whether the mention itself is stored/removed;
-  malformed `vouch` form field is dropped, not rejected (still enqueues without `vouch`).
+  malformed `vouch` form field is dropped, not rejected (still enqueues without `vouch`);
+  `config.isTrustedVouchDomain` is threaded through to `verifyVouch`, and its absence defaults
+  to always-untrusted (not always-trusted).
 
 Release via the existing `.changeset/` flow (`pnpm changeset` → later, a dedicated `pnpm
-changeset version` release run) — see the version note above.
+changeset version` release run) — see the version note above. This trust-list fix is a
+**follow-up commit on top of the already-merged [#505](https://github.com/davidwkeith/workers/pull/505)**,
+not a further edit to that PR — its own changeset, its own review.
 
 ## App side (Anglesite)
+
+### `BlogrollTrustSync.swift` / `BlogrollTrustKVClient.swift` (new)
+
+Structurally identical to `ContactsAllowlistSync.swift`/`ContactsAllowlistKVClient.swift`
+(#1567): `BlogrollTrustSync.push(entries:client:)` reads every `blogroll` content-collection
+entry's `url`, extracts `URL(string: url)!.host` for each, and calls
+`BlogrollTrustKVClient.putTrustedDomains(_:)` — a whole-set-replace `PUT` of the sorted array
+to `SOCIAL_KV` under key `vouch:trusted-domains`, same namespace `#1567` already provisions.
+`BlogrollTrustSync.pushIfConfigured(...)` mirrors `ContactsAllowlistSync.pushIfConfigured`'s
+no-op-unless-provisioned guard. Called once, from `DeployModel`, alongside the existing
+`ContactsAllowlistSync.pushIfConfigured` call — deploy-time only, self-healing on every deploy
+like its precedent, no immediate-on-edit trigger needed for a list this loosely time-sensitive.
+
+### `worker/vouch-trust.ts` (new)
+
+Structurally identical to `reader-identity.ts`'s `readAllowlist`/`isAllowedReader`: reads
+`SOCIAL_KV` key `vouch:trusted-domains` (JSON array of hostnames), returns an empty
+`ReadonlySet<string>` for a missing binding, missing key, or malformed JSON — never throws.
+Exports `isTrustedVouchDomain(env, hostname): Promise<boolean>`. `worker.ts`'s
+`handleWebmentionQueue` passes `(hostname) => isTrustedVouchDomain(env, hostname)` as
+`WebmentionConfig.isTrustedVouchDomain` when building the queue consumer — `env` is already in
+scope there (unlike `createWebmentionQueueConsumer`'s module-level call sites elsewhere, this
+one is built per-invocation inside the handler function, so the real per-request `SOCIAL_KV`
+binding is available to close over).
 
 ### `WebmentionInboxD1Client.swift`
 
@@ -204,18 +289,27 @@ deleting the snapshot file, same as any other unwanted interaction today.
   rejects a non-http(s) `vouch.url` (same `httpUrl` guard as `source`/`target`).
 - Swift: extend `ReceivedInteractionSync` test coverage (wherever `makeInteraction(from:)` is
   currently exercised) with vouched / unverified-vouch / no-vouch D1 rows.
-- Manual: build the template locally, confirm the badge renders correctly for all three states
-  and that existing snapshots (no `vouch` key) still render unchanged.
+- Swift: `BlogrollTrustSyncTests`/`BlogrollTrustKVClientTests` mirroring the existing
+  `ContactsAllowlistSync`/`ContactsAllowlistKVClient` test suites — empty blogroll pushes an
+  empty array (not a no-op skip), duplicate hostnames across entries dedupe, an unprovisioned
+  `SOCIAL_KV` no-ops without a network call.
+- `worker/vouch-trust.test.ts` mirroring `reader-identity.ts`'s existing allowlist tests:
+  missing binding, missing key, malformed JSON all return `false`/empty set, never throw.
+- Manual: build the template locally, confirm the badge renders correctly for a
+  trust-list-verified vouch and that existing snapshots (no `vouch` key) still render unchanged.
 
 ## Sequencing
 
 1. Sidecar PR in `davidwkeith/workers`: `verifyVouch`, `WebmentionJob.vouch`, queue-consumer
    wiring, `inbox.ts` columns, tests. **Done:**
-   [davidwkeith/workers#505](https://github.com/davidwkeith/workers/pull/505), merged. A
-   correctness follow-up is pending — see "Known issue" above — before step 2 starts.
-2. Anglesite PR: bump `@dwk/webmention` to whatever version the sidecar's release run actually
-   publishes in `Resources/Template/package.json`, then the five app-side changes above (D1
-   client, Swift model, sync, Zod schema, Astro render) with their tests. `Closes #1597`.
+   [davidwkeith/workers#505](https://github.com/davidwkeith/workers/pull/505), merged.
+2. Sidecar follow-up PR: the trust-list fix above (`isTrustedDomain` parameter, source-domain
+   match, `WebmentionConfig.isTrustedVouchDomain`) — a new commit/PR on top of #505, not a
+   further edit to it. Must merge and publish before step 3.
+3. Anglesite PR: bump `@dwk/webmention` to whatever version the sidecar's release run actually
+   publishes in `Resources/Template/package.json`, then the seven app-side changes above (D1
+   client, Swift model, sync, Zod schema, Astro render, `BlogrollTrustSync`/`KVClient`,
+   `worker/vouch-trust.ts`) with their tests. `Closes #1597`.
 
 ## Non-goals
 
@@ -224,3 +318,6 @@ deleting the snapshot file, same as any other unwanted interaction today.
 - No interaction with #963's audience-limited posting — that controls who can *see* restricted
   posts; Vouch is about trust-scoring *inbound* mentions on otherwise-public content (per the
   issue's own "Not in scope" note).
+- No dedicated vouch-trust UI or separate curated list — reuses the blogroll as-is. An owner who
+  wants a different trust set than their public reading list can't get one without also changing
+  their blogroll; revisit only if that turns out to matter in practice.
