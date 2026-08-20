@@ -45,6 +45,23 @@ public struct EditReply: Sendable, Equatable, Encodable {
     /// routine refusal) should switch on this instead of substring-matching `message`, which is
     /// free-form prose the plugin is free to reword.
     public let reason: String?
+    /// Decoded from the apply_edit reply's `inverse.component.nodeId` — used ONLY to learn a
+    /// newly-inserted node's real (server-assigned) id, so a same-op attribute follow-up can
+    /// address it (see `SidecarWYSIWYGHostTransport.sendOp`, which issues `setAttr` calls for an
+    /// `insertBlock` op's dropped `props` because the sidecar's `insertBlock`/`insert-node` wire
+    /// schema has no attributes field at all). This is a narrow, explicitly-scoped exception, NOT
+    /// an adoption of the sidecar's general inverse-for-undo mechanism — that remains explicitly
+    /// out of scope (see
+    /// `docs/superpowers/plans/2026-08-19-wysiwyg-sidecar-backed-transport.md`'s "Design
+    /// decisions" section, decision 1). `nil` when the reply carries no `inverse` (most ops), or
+    /// its `component` sub-object has no `nodeId` (non-insert ops).
+    public let inverseNodeId: String?
+    /// Decoded from the apply_edit reply's `inverse.component.baseVersion` — the fresh
+    /// post-write content hash, present so a same-op attribute follow-up (see ``inverseNodeId``)
+    /// can chain a valid `baseVersion` into its own request without a second round-trip to
+    /// re-fetch the model. Same narrow-exception scope as ``inverseNodeId`` — not part of
+    /// general inverse-for-undo. `nil` under the same conditions as ``inverseNodeId``.
+    public let postWriteVersion: String?
 
     /// `replace-image-src` metadata: the final asset URLs the plugin wrote, which the overlay
     /// swaps into the live `<img>` so the page reflects the edit without a full reload.
@@ -91,7 +108,9 @@ public struct EditReply: Sendable, Equatable, Encodable {
         op: String? = nil,
         model: ComponentModel? = nil,
         reason: String? = nil,
-        newFile: String? = nil
+        newFile: String? = nil,
+        inverseNodeId: String? = nil,
+        postWriteVersion: String? = nil
     ) {
         self.id = id
         self.status = status
@@ -105,6 +124,8 @@ public struct EditReply: Sendable, Equatable, Encodable {
         self.model = model
         self.reason = reason
         self.newFile = newFile
+        self.inverseNodeId = inverseNodeId
+        self.postWriteVersion = postWriteVersion
     }
 }
 

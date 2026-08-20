@@ -89,7 +89,11 @@ public enum WYSIWYGOpTranslator {
     /// into a string rather than dropping to `nil`: lossy (the wire has no structured-value
     /// slot for this op family) but non-destructive, and round-trippable by re-parsing the JSON
     /// text back out on read.
-    private static func stringValue(_ value: PropValue) -> String? {
+    ///
+    /// Package-visible (not `private`) so `SidecarWYSIWYGHostTransport` can reuse the same
+    /// `PropValue` → wire-string mapping for its `insertBlock`-props `setAttr` follow-up calls
+    /// (see that type's `sendOp`) instead of duplicating this logic.
+    static func stringValue(_ value: PropValue) -> String? {
         switch value {
         case .string(let s): return s
         case .number(let n):
