@@ -30,6 +30,11 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
         let reply = await editRouter.apply(message)
         switch reply.status {
         case .applied:
+            if case .insertBlock(_, _, _, _, let block) = envelope.op, !block.props.isEmpty {
+                if let rejection = await applyPropsFollowUp(block.props, insertReply: reply, requestId: envelope.id) {
+                    return rejection
+                }
+            }
             do {
                 let fresh = try await pageModelClient.fetch(path: path)
                 rootId = fresh.tree.id
@@ -53,6 +58,84 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
             // path). Treat defensively as a host error rather than force-unwrapping an assumption.
             return .rejected(reason: .hostError, message: "unexpected reply status: \(reply.status)", freshModel: nil)
         }
+    }
+
+    /// The sidecar's `insertBlock`/`insert-node` wire schema has NO attributes field at all
+    /// (`apply-edit-schema.mjs`'s `componentEditSchema`, confirmed against
+    /// `server/component-structure-edit.mjs`'s `applyInsertNode`) — so a `.insertBlock` op whose
+    /// `block.props` is non-empty can't carry those attributes in the insert call itself. This
+    /// issues one `setAttr` follow-up per prop instead, addressed at the newly-inserted node's
+    /// REAL (server-assigned) id — learned from `insertReply.inverseNodeId`, a narrow,
+    /// explicitly-scoped decode of the insert reply's `inverse.component.nodeId` (see
+    /// `EditReply`'s doc comments — this is NOT an adoption of the sidecar's general
+    /// inverse-for-undo mechanism, which stays out of scope per the plan doc's design decision
+    /// 1). `baseVersion` chains forward from each successive reply's own `postWriteVersion`
+    /// (`inverse.component.baseVersion`, stamped by the sidecar's dispatcher with the file's
+    /// POST-write hash) so each follow-up targets the file's actual current version rather than
+    /// the now-stale version the insert itself was sent with.
+    ///
+    /// Returns a `.rejected` result — honest about exactly what did and didn't land — the moment
+    /// anything about the follow-up can't proceed: the insert reply didn't carry enough
+    /// information to address the new node, or a `setAttr` call itself failed. Returns `nil` when
+    /// every prop's `setAttr` landed, so the caller proceeds to its normal re-fetch+adapt path.
+    ///
+    /// `props` is a `[String: PropValue]` dictionary — iteration order isn't guaranteed, but each
+    /// `setAttr` call targets a distinct attribute name independently, so that's harmless here.
+    ///
+    /// `.null`-valued props (`PropValue.null` — `PageModelBlockAdapter` maps every valueless HTML
+    /// attribute, e.g. `disabled`/`required`/`open`/`checked`, to this case) are skipped entirely
+    /// rather than sent as a `setAttr`: `WYSIWYGOpTranslator.stringValue(.null)` is `nil`, and
+    /// `setAttr`'s `value: nil` means "remove this attribute" (its own doc comment) — but the
+    /// node was JUST inserted with no attributes at all, so the sidecar refuses that as
+    /// `no-match` (nothing to remove), which would otherwise fail the whole insert. There is no
+    /// wire-level way to *add* a valueless/boolean attribute through `insertBlock` or `setAttr`
+    /// (`setAttr`'s `value: nil` only ever means "remove," never "add present-with-no-value"), so
+    /// this is the same lossy-but-non-destructive tradeoff `stringValue`'s own doc comment already
+    /// applies to `.object`/`.array` — the attribute is silently dropped for this op family, not
+    /// destructively mishandled. (`stringValue` itself must keep mapping `.null` → `nil` — it's
+    /// shared with `WYSIWYGOpTranslator.translate`'s `setProp` case, where `.null` legitimately
+    /// means "remove this EXISTING attribute" and has to keep working; the skip belongs here, at
+    /// the insert-follow-up call site, not inside `stringValue`.)
+    private func applyPropsFollowUp(_ props: [String: PropValue], insertReply: EditReply, requestId: String) async -> OpResult? {
+        // Drop `.null` props BEFORE the nodeId/version guard below — a block whose props are all
+        // `.null` (e.g. duplicating `<button disabled>`, which carries only the one boolean
+        // attribute) needs no follow-up `setAttr` calls at all, so it must not fail just because
+        // the insert reply happened not to carry an `inverseNodeId`/`postWriteVersion` that
+        // nothing here would actually use.
+        let attributeProps = props.filter { _, value in
+            if case .null = value { return false }
+            return true
+        }
+        guard !attributeProps.isEmpty else { return nil }
+        guard let nodeId = insertReply.inverseNodeId, let initialVersion = insertReply.postWriteVersion else {
+            return .rejected(
+                reason: .hostError,
+                message: "The block was inserted, but its attributes could not be set — the "
+                    + "preview server's reply didn't include enough information to address the "
+                    + "new block.",
+                freshModel: nil
+            )
+        }
+        var baseVersion = initialVersion
+        for (index, (name, value)) in attributeProps.enumerated() {
+            let setMessage = ComponentStructureEditBuilder.setAttr(
+                id: "\(requestId)-attr-\(index)", path: path, baseVersion: baseVersion,
+                nodeId: nodeId, name: name, value: WYSIWYGOpTranslator.stringValue(value))
+            let setReply = await editRouter.apply(setMessage)
+            guard setReply.status == .applied else {
+                return .rejected(
+                    reason: .hostError,
+                    message: "The block was inserted, but setting its \"\(name)\" attribute "
+                        + "failed: \(setReply.message ?? "unknown error"). The block now exists "
+                        + "with only the attributes applied before this failure.",
+                    freshModel: nil
+                )
+            }
+            if let nextVersion = setReply.postWriteVersion {
+                baseVersion = nextVersion
+            }
+        }
+        return nil
     }
 
     public func onModelUpdate(_ listener: @escaping @Sendable (BlockModel) -> Void) async -> () -> Void {
