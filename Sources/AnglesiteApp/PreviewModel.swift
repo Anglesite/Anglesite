@@ -136,16 +136,22 @@ final class PreviewModel {
         // rather than a value pinned at construction, so it keeps working across a dev-server
         // restart that swaps out `runtime`'s underlying MCP connection.
         let pageModelClient = PageModelClient(mcpClient: { [weak self] in await self?.runtime.mcpClient })
-        let transport = SidecarWYSIWYGHostTransport(path: path, pageModelClient: pageModelClient, editRouter: editRouter)
-        let seedModel: BlockModel
+        let pageModel: PageModel
         do {
-            seedModel = PageModelBlockAdapter.adapt(try await pageModelClient.fetch(path: path))
+            pageModel = try await pageModelClient.fetch(path: path)
         } catch {
             await LogCenter.shared.append(
                 source: "wysiwyg", stream: .stderr,
                 text: "enterEditMode: get_page_model failed for \(path): \(error)")
             return // canvas stays nil — the Edit Page toggle simply doesn't turn on (see plan's design decision 4)
         }
+        let seedModel = PageModelBlockAdapter.adapt(pageModel)
+        // `pageModel.tree.id` is the model's real root-fragment id (e.g. "n0") — the transport
+        // needs it up front to substitute for the app-side `rootParentID` sentinel on any
+        // root-level insert/move (final-review Finding 1); see
+        // `WYSIWYGOpTranslator.translate`'s `rootId` doc comment.
+        let transport = SidecarWYSIWYGHostTransport(
+            path: path, pageModelClient: pageModelClient, editRouter: editRouter, rootId: pageModel.tree.id)
         let canvas = WYSIWYGCanvasController(initialModel: seedModel, transport: transport)
         canvas.undoCoordinator.undoManager = undoManager
         if let openSiteDirectory {

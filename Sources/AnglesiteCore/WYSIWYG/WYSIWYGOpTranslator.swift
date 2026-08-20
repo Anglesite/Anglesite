@@ -5,12 +5,20 @@ import Foundation
 /// see `docs/superpowers/plans/2026-08-19-wysiwyg-sidecar-backed-transport.md`'s "Design
 /// decisions" section for why `slot` names are dropped and `setDesignToken` retargets its path.
 public enum WYSIWYGOpTranslator {
-    public static func translate(_ op: Op, requestId: String, path: String, baseVersion: String) -> EditMessage {
+    /// - Parameter rootId: the CURRENT model's real root-fragment id (`PageModel.tree.id`, e.g.
+    ///   `"n0"`) — substituted for the app-side ``rootParentID`` sentinel (`"__root__"`) wherever
+    ///   a `ParentRef` reaches the wire. The sidecar has no concept of that sentinel: its root
+    ///   fragment has a real id assigned by `server/component-node-index.mjs`'s
+    ///   `buildTemplateNodeIndex`, and a wire request literally carrying `parentId: "__root__"`
+    ///   is refused with `no-match` (`byId.get(parentId)` returns `undefined`). Callers must pass
+    ///   the id of the model the op was actually computed against — see
+    ///   `SidecarWYSIWYGHostTransport`, which tracks it from the `PageModel` it last fetched.
+    public static func translate(_ op: Op, requestId: String, path: String, baseVersion: String, rootId: BlockId) -> EditMessage {
         switch op {
         case .insertBlock(let parentId, _, let index, _, let block):
             return ComponentStructureEditBuilder.insertBlockNode(
                 id: requestId, path: path, baseVersion: baseVersion,
-                parentId: parentId, index: index, node: nodeSpec(for: block))
+                parentId: resolveParent(parentId, rootId: rootId), index: index, node: nodeSpec(for: block))
 
         case .deleteBlock(let parentId, _, _, let blockId, _):
             _ = parentId // the wire op addresses purely by nodeId; parentId is app-side bookkeeping only
@@ -20,7 +28,7 @@ public enum WYSIWYGOpTranslator {
         case .moveBlock(let blockId, _, _, _, let toParentId, _, let toIndex):
             return ComponentStructureEditBuilder.moveBlock(
                 id: requestId, path: path, baseVersion: baseVersion,
-                nodeId: blockId, newParentId: toParentId, newIndex: toIndex)
+                nodeId: blockId, newParentId: resolveParent(toParentId, rootId: rootId), newIndex: toIndex)
 
         case .setProp(let blockId, let propName, let value, _):
             return ComponentStructureEditBuilder.setAttr(
@@ -34,10 +42,31 @@ public enum WYSIWYGOpTranslator {
         case .setDesignToken(let tokenName, let value, _):
             // The sidecar hardcodes and validates src/styles/global.css as setDesignToken's only
             // valid target (design-token-edit.mjs) — always retarget, ignore the page `path` arg.
+            //
+            // KNOWN GAP (final-review Finding 3, unresolved — tracked for follow-up, not silently
+            // guessed at): `baseVersion` below is still the PAGE's content hash (the model this
+            // op was computed against), not global.css's own. design-token-edit.mjs's
+            // resolveDesignToken reads global.css fresh and refuses with "stale" unless the
+            // request's baseVersion matches THAT file's hash — so every setDesignToken currently
+            // gets refused. Fixing this needs a real way for the app to learn global.css's
+            // CURRENT content hash before sending the op. As of this writing the sidecar exposes
+            // no such capability: get_component_model/get_page_model both require a `.astro`
+            // path (component-model.mjs/page-model.mjs's validPath checks), there is no generic
+            // "get file version" tool, and design-token-edit.mjs's "stale" refusal carries only
+            // `{reason, detail}` — no fresh hash to retry with (apply-edit-schema.mjs's
+            // createEditFailedContent never attaches one). This is a sidecar-side gap, not
+            // something the app can close on its own; see the final-review fix report for the
+            // BLOCKED writeup.
             return ComponentStructureEditBuilder.setDesignToken(
                 id: requestId, path: "src/styles/global.css", baseVersion: baseVersion,
                 token: tokenName, tokenValue: value)
         }
+    }
+
+    /// Substitutes the CURRENT model's real root-fragment id for the app-side ``rootParentID``
+    /// sentinel; passes any other `ParentRef` through unchanged (it's already a real node id).
+    private static func resolveParent(_ ref: ParentRef, rootId: BlockId) -> BlockId {
+        ref == rootParentID ? rootId : ref
     }
 
     /// `setProp`'s wire `value` is a plain optional string (`set-attr`'s existing contract) —
@@ -81,7 +110,11 @@ public enum WYSIWYGOpTranslator {
         case .element:
             return .element(tag: block.componentName)
         case .text:
-            return .element(tag: "span") // no dedicated text-node insert on the wire; a follow-up
+            // `componentName` IS the real tag name for a `.text`-kind block (see
+            // JS/wysiwyg-engine/src/types.ts's `BlockNode.componentName` doc comment) — the
+            // shipped palette entries are `.text` blocks named "p"/"h2". Hardcoding "span" here
+            // discarded that and silently inserted an empty <span> for every palette entry.
+            return .element(tag: block.componentName)
         case .fragment:
             // A fragment is the page's synthetic tree root (or a nested fragment) —
             // PageModelBlockAdapter only ever produces this kind for nodes already in the tree,

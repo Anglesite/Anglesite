@@ -247,8 +247,12 @@ public enum ComponentStructureEditBuilder {
         )
     }
 
-    /// Builds the `editText` message: replace `textNodeId`'s rich-text runs. `runs` encodes as
-    /// `RichTextRun`'s own `Codable` conformance via `JSONValue.from` — kind/text/href/children.
+    /// Builds the `editText` message: replace `textNodeId`'s rich-text runs. `runs` encodes to
+    /// the sidecar's ACTUAL wire shape — `{text, marks: ("strong"|"em"|"code")[], href?}`
+    /// (`apply-edit-schema.mjs`'s `runs` field, consumed by `text-run-edit.mjs`'s
+    /// `serializeRuns`) — NOT `RichTextRun`'s own Codable shape (`{kind, text, href, children}`).
+    /// That own-Codable encoding doesn't exist on the wire at all: Zod silently strips the
+    /// unrecognized `kind` key, so every `editText` op used to lose its formatting.
     public static func editText(
         id: String,
         path: String,
@@ -256,10 +260,7 @@ public enum ComponentStructureEditBuilder {
         textNodeId: String,
         runs: [RichTextRun]
     ) -> EditMessage {
-        let encoder = JSONEncoder()
-        let runsData = (try? encoder.encode(runs)) ?? Data()
-        let runsValue = (try? JSONSerialization.jsonObject(with: runsData)).flatMap(JSONValue.from) ?? .array([])
-        return EditMessage(
+        EditMessage(
             id: id,
             path: path,
             selector: nil,
@@ -268,10 +269,37 @@ public enum ComponentStructureEditBuilder {
                 "path": .string(path),
                 "baseVersion": .string(baseVersion),
                 "textNodeId": .string(textNodeId),
-                "runs": runsValue,
+                "runs": .array(runs.map(wireRun)),
             ]),
             value: nil
         )
+    }
+
+    /// Maps one `RichTextRun` to the sidecar's flat `{text, marks, href?}` wire shape.
+    /// `.link` carries no mark of its own on the wire — the sidecar's `serializeRuns` wraps in
+    /// `<a href="...">` purely from `href`'s presence — so `.link` contributes `href` and an
+    /// empty `marks` array. `.children` (nested runs) has NO wire equivalent (the sidecar's
+    /// schema/serializer is a flat list, one level, no nesting) — deliberately dropped here
+    /// rather than mis-encoded; a run with non-empty `children` loses that nested content on the
+    /// wire, which is an honest, documented gap, not silent corruption.
+    private static func wireRun(_ run: RichTextRun) -> JSONValue {
+        var obj: [String: JSONValue] = ["text": .string(run.text)]
+        switch run.kind {
+        case .text:
+            obj["marks"] = .array([])
+        case .strong:
+            obj["marks"] = .array([.string("strong")])
+        case .em:
+            obj["marks"] = .array([.string("em")])
+        case .code:
+            obj["marks"] = .array([.string("code")])
+        case .link:
+            obj["marks"] = .array([])
+            if let href = run.href {
+                obj["href"] = .string(href)
+            }
+        }
+        return .object(obj)
     }
 
     /// Builds the `setDesignToken` message: patch `token`'s value in `global.css`'s light

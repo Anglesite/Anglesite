@@ -9,20 +9,30 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
     private let pageModelClient: PageModelClient
     private let editRouter: any EditRouter
     private var listeners: [UUID: @Sendable (BlockModel) -> Void] = [:]
+    /// The current model's real root-fragment id (`PageModel.tree.id`, e.g. `"n0"`) —
+    /// substituted for the app-side `rootParentID` sentinel when translating an `Op` (final-review
+    /// Finding 1). Seeded at construction from whatever `get_page_model` fetch produced the
+    /// caller's initial `BlockModel`, and refreshed every time this transport re-fetches the
+    /// model itself (`sendOp`'s `.applied`/stale-refresh paths) so it never goes stale even
+    /// though the sidecar's root id is, in practice, deterministically stable.
+    private var rootId: BlockId
 
-    public init(path: String, pageModelClient: PageModelClient, editRouter: any EditRouter) {
+    public init(path: String, pageModelClient: PageModelClient, editRouter: any EditRouter, rootId: BlockId) {
         self.path = path
         self.pageModelClient = pageModelClient
         self.editRouter = editRouter
+        self.rootId = rootId
     }
 
     public func sendOp(_ envelope: OpEnvelope) async -> OpResult {
-        let message = WYSIWYGOpTranslator.translate(envelope.op, requestId: envelope.id, path: path, baseVersion: envelope.targetVersion)
+        let message = WYSIWYGOpTranslator.translate(
+            envelope.op, requestId: envelope.id, path: path, baseVersion: envelope.targetVersion, rootId: rootId)
         let reply = await editRouter.apply(message)
         switch reply.status {
         case .applied:
             do {
                 let fresh = try await pageModelClient.fetch(path: path)
+                rootId = fresh.tree.id
                 return .applied(model: PageModelBlockAdapter.adapt(fresh))
             } catch {
                 // The write landed but the re-fetch failed — surface as a host error with no
@@ -33,6 +43,7 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
             let reason: OpRejectionReason = (reply.reason == "stale") ? .versionMismatch : .hostError
             var freshModel: BlockModel?
             if reason == .versionMismatch, let fresh = try? await pageModelClient.fetch(path: path) {
+                rootId = fresh.tree.id
                 freshModel = PageModelBlockAdapter.adapt(fresh)
             }
             return .rejected(reason: reason, message: reply.message, freshModel: freshModel)

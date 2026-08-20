@@ -14,7 +14,7 @@ struct WYSIWYGOpTranslatorTests {
         let content = BlockNodeContent(
             kind: .astro, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0], richText: nil)
         let op = Op.insertBlock(parentId: "n2", slot: "default", index: 1, newId: "n7", block: content)
-        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-1", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-1", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
         #expect(message.op == "insertBlock")
         guard case .object(let component)? = message.component, case .object(let node)? = component["node"] else {
             Issue.record("expected component.node object"); return
@@ -26,7 +26,7 @@ struct WYSIWYGOpTranslatorTests {
 
     @Test func translatesMoveBlockDroppingSlotNames() {
         let op = Op.moveBlock(blockId: "n5", fromParentId: "n2", fromSlot: "default", fromIndex: 0, toParentId: "n3", toSlot: "default", toIndex: 2)
-        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-2", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-2", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
         #expect(message.op == "moveBlock")
         guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
         #expect(component["nodeId"] == .string("n5"))
@@ -37,7 +37,7 @@ struct WYSIWYGOpTranslatorTests {
 
     @Test func translatesDeleteBlock() {
         let op = Op.deleteBlock(parentId: "n2", slot: "default", index: 0, blockId: "n5", block: BlockNode(id: "n5", kind: .astro, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0]))
-        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-3", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-3", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
         #expect(message.op == "deleteBlock")
         guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
         #expect(component["nodeId"] == .string("n5"))
@@ -45,7 +45,7 @@ struct WYSIWYGOpTranslatorTests {
 
     @Test func translatesSetProp() {
         let op = Op.setProp(blockId: "n5", propName: "title", value: .string("New"), previousValue: .string("Old"))
-        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-4", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-4", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
         #expect(message.op == "set-attr") // reuses the existing Component Editor resolver
         guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
         #expect(component["name"] == .string("title"))
@@ -54,14 +54,55 @@ struct WYSIWYGOpTranslatorTests {
 
     @Test func translatesEditText() {
         let op = Op.editText(blockId: "n5", runs: [RichTextRun(kind: .text, text: "hi")], previousRuns: [])
-        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-5", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-5", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
         #expect(message.op == "editText")
     }
 
     @Test func translatesSetDesignTokenAlwaysTargetsGlobalCSS() {
         let op = Op.setDesignToken(tokenName: "--color-primary", value: "#111", previousValue: "#000")
-        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-6", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-6", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
         #expect(message.path == "src/styles/global.css") // NOT the page path passed in
+    }
+
+    // Finding 1 (Critical): the app-side `__root__` sentinel has no meaning on the wire — the
+    // sidecar's root fragment has a real id (component-node-index.mjs's buildTemplateNodeIndex
+    // always assigns it first, e.g. "n0"). `translate` must substitute the caller-supplied real
+    // root id for the sentinel wherever a `ParentRef` reaches the wire, or every root-level
+    // insert/move gets refused with "no-match" by component-structure-edit.mjs.
+    @Test func translatesInsertBlockSubstitutesRealRootIdForSentinel() {
+        let content = BlockNodeContent(
+            kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0], richText: nil)
+        let op = Op.insertBlock(parentId: rootParentID, slot: "default", index: 0, newId: "n9", block: content)
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-11", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
+        guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
+        #expect(component["parentId"] == .string("n0"))
+        #expect(component["parentId"] != .string(rootParentID))
+    }
+
+    @Test func translatesMoveBlockSubstitutesRealRootIdForSentinelDestination() {
+        let op = Op.moveBlock(
+            blockId: "n5", fromParentId: "n2", fromSlot: "default", fromIndex: 0,
+            toParentId: rootParentID, toSlot: "default", toIndex: 0)
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-12", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
+        guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
+        #expect(component["newParentId"] == .string("n0"))
+        #expect(component["newParentId"] != .string(rootParentID))
+    }
+
+    // Finding 5 (Important): a `.text`-kind block's `componentName` IS the real tag name (the
+    // shipped palette entries are "p"/"h2" text blocks) — hardcoding "span" here silently
+    // discarded it, so inserting "Paragraph"/"Heading" from the palette always inserted an empty
+    // <span>.
+    @Test func translatesTextBlockInsertUsingItsOwnComponentNameAsTag() {
+        let content = BlockNodeContent(
+            kind: .text, componentName: "h2", props: [:], slots: [:], sourceSpan: [0, 0], richText: nil)
+        let op = Op.insertBlock(parentId: "n2", slot: "default", index: 0, newId: "n9", block: content)
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-13", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
+        guard case .object(let component)? = message.component, case .object(let node)? = component["node"] else {
+            Issue.record("expected component.node object"); return
+        }
+        #expect(node["kind"] == .string("element"))
+        #expect(node["tag"] == .string("h2"))
     }
 
     // `setAttr`'s wire contract treats `value: nil` as "remove the attribute" — an object/array
@@ -69,7 +110,7 @@ struct WYSIWYGOpTranslatorTests {
     // silently delete the attribute instead of merely failing to translate it richly.
     @Test func translatesSetPropWithObjectValueWithoutDeletingTheAttribute() {
         let op = Op.setProp(blockId: "n5", propName: "config", value: .object(["a": .number(1)]), previousValue: .null)
-        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-7", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-7", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
         guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
         #expect(component["value"] != .null) // must not take the "remove attribute" path
         guard case .string(let json)? = component["value"] else { Issue.record("expected value to encode as a string"); return }
@@ -78,7 +119,7 @@ struct WYSIWYGOpTranslatorTests {
 
     @Test func translatesSetPropWithArrayValueWithoutDeletingTheAttribute() {
         let op = Op.setProp(blockId: "n5", propName: "tags", value: .array([.string("x")]), previousValue: .null)
-        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-8", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-8", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
         guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
         #expect(component["value"] != .null) // must not take the "remove attribute" path
         guard case .string(let json)? = component["value"] else { Issue.record("expected value to encode as a string"); return }
@@ -87,14 +128,14 @@ struct WYSIWYGOpTranslatorTests {
 
     @Test func translatesSetPropWithWholeNumberValueDroppingTrailingZero() {
         let op = Op.setProp(blockId: "n5", propName: "count", value: .number(5), previousValue: .null)
-        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-9", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-9", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
         guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
         #expect(component["value"] == .string("5")) // not "5.0"
     }
 
     @Test func translatesSetPropWithFractionalNumberValue() {
         let op = Op.setProp(blockId: "n5", propName: "opacity", value: .number(5.5), previousValue: .null)
-        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-10", path: "src/pages/index.astro", baseVersion: "sha256:abc")
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-10", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
         guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
         #expect(component["value"] == .string("5.5"))
     }
