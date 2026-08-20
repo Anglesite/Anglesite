@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="robots" content="anchor">
+	<meta name="description" content="How Anglesite's Agent Readiness check scores how well your published site works with AI crawlers and agents.">
+	<title>Agent readiness — Anglesite Help</title>
+	<link rel="stylesheet" href="../shrd/help.css">
+</head>
+<body>
+	<h1>Agent readiness</h1>
+	<p class="lead">Agent Readiness checks how well your published site works with AI crawlers and agents — separate from the deploy-readiness dot, which checks whether your site is safe to publish.</p>
+
+	<h2>Running a check</h2>
+	<p>Choose <strong>Website ▸ Agent Readiness…</strong>. Your site needs to already be published, since the check scans the live, deployed site rather than your local files.</p>
+
+	<figure>
+		<!-- alt: The Agent Readiness sheet showing a scan result -->
+		<div class="screenshot-placeholder">Screenshot: The Agent Readiness sheet.</div>
+		<figcaption>The Agent Readiness sheet.</figcaption>
+	</figure>
+
+	<h2>What it checks</h2>
+	<p>The scan groups its checks into four categories — Discoverability, Content, Bot Access Control, and Capabilities — covering things like whether you have a <code>robots.txt</code> and sitemap, whether your pages offer content in forms AI agents can read, and whether you allow or block AI crawlers on purpose rather than by accident. It reports an overall tier (for example, "Bot-Aware") alongside how many checks passed.</p>
+	<p>Some checks describe capabilities Anglesite doesn't offer yet; those show as failing with an explanation rather than being hidden, so you know what's not available versus what's misconfigured.</p>
+
+	<h2>Requirements</h2>
+	<p>Running a scan calls a Cloudflare API, so it needs a Cloudflare account connected — see <a href="accounts.html">Accounts and setup</a>.</p>
+
+	<p class="related">
+		<strong>See also:</strong>
+		<a href="health-and-readiness.html">Health and deploy readiness</a>
+		<a href="deploying.html">Deploying your site</a>
+		<a href="accounts.html">Accounts and setup</a>
+		<a href="../index.html">Help home</a>
+	</p>
+</body>
+</html>
