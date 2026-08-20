@@ -4,17 +4,20 @@
 > (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use
 > checkbox (`- [ ]`) syntax for tracking.
 >
-> **Environment note:** Tasks 1–2 live in `Sources/AnglesiteCore` (SwiftPM, portable — buildable
-> and testable with plain `swift test --package-path .`, including on Linux). Everything from
-> Task 3 onward lives in `Sources/AnglesiteApp`, which `Package.swift` gates
-> `#if compiler(>=6.4) && canImport(Darwin)` — invisible to `swift build`/`swift test` on a non-Darwin
-> host. An implementer without local Xcode/macOS access can write and land Tasks 1–2 with real
-> local verification, but must push Task 3+ and drive them to green through CI's macOS lane
-> (`docs/testing-macos-app.md`) rather than a local build. This plan was authored without local
-> Xcode access — API names/signatures cited below (SwiftUI `.draggable`/`.dropDestination`,
-> `NSItemProvider`, `NSPasteboard` types) are believed correct for macOS 27 but **must be checked
-> against local Xcode documentation/autocomplete before implementing**, not assumed correct from
-       this doc alone.
+> **Environment note:** Tasks 1–2 both live in `Sources/AnglesiteCore` (SwiftPM, portable — no
+> `canImport(Darwin)` gate). Only Task 1 is actually testable with plain
+> `swift test --package-path .` on Linux, though — Task 2 depends on an `NSAttributedString`
+> HTML-import API that `swift-corelibs-foundation` doesn't implement (confirmed against a live
+> Swift 6.3.3 toolchain during this plan's own review), so it needs CI's macOS `swift test` lane
+> even though its code lives in the portable target. Everything from Task 3 onward lives in
+> `Sources/AnglesiteApp`, which `Package.swift` gates `#if compiler(>=6.4) && canImport(Darwin)` —
+> invisible to `swift build`/`swift test` on a non-Darwin host at all. An implementer without local
+> Xcode/macOS access can write and locally verify Task 1 only; everything else (Task 2 onward) must
+> be pushed and driven to green through CI's macOS lane (`docs/testing-macos-app.md`) rather than a
+> local build. This plan was authored without local Xcode access — API names/signatures cited below
+> (SwiftUI `.draggable`/`.dropDestination`, `NSItemProvider`, `NSPasteboard` types) are believed
+> correct for macOS 27 but **must be checked against local Xcode documentation/autocomplete before
+> implementing**, not assumed correct from this doc alone.
 
 **Goal:** Ship the native chrome the design doc's PR2 scope calls for (§4 of
 `docs/superpowers/specs/2026-08-10-wysiwyg-mac-host-chrome-design.md`): a native inspector for
@@ -95,7 +98,7 @@ documented as interim — see the header-comment note above about the missing ma
 
 ---
 
-### Task 2: `WYSIWYGRichTextImporter` — rich text → `RichTextRun[]` (portable, testable on Linux)
+### Task 2: `WYSIWYGRichTextImporter` — rich text → `RichTextRun[]` (portable SwiftPM target, macOS-only)
 
 **Files:**
 - Create: `Sources/AnglesiteCore/WYSIWYG/WYSIWYGRichTextImporter.swift`
@@ -112,30 +115,45 @@ inline vocabulary `RichTextRun.Kind` already models (`strong`/`b`, `em`/`i`, `a[
 plain text) and flatten everything else (headings, lists, `<div>`, images, styles) to their text
 content, dropping structure the block model doesn't represent yet. This is not a general HTML
 parser — use `Foundation`'s `NSAttributedString(data:options:documentAttributes:)` with
-`.documentType: .html` (Foundation, available cross-platform since it's not an AppKit type) to get
-a structured attributed string, then walk its runs and map `NSFontDescriptor` bold/italic traits
-and `.link` attributes onto `RichTextRun.Kind`, matching the exact same "honest runs" contract
-`JS/wysiwyg-engine/src/rich-text.ts` already established for the engine side (don't invent a
-second inline vocabulary — every case here must round-trip through the existing `RichTextRun`
-type unchanged).
+`.documentType: .html` to get a structured attributed string, then walk its runs and map
+`NSFontDescriptor` bold/italic traits and `.link` attributes onto `RichTextRun.Kind`, matching the
+exact same "honest runs" contract `JS/wysiwyg-engine/src/rich-text.ts` already established for the
+engine side (don't invent a second inline vocabulary — every case here must round-trip through the
+existing `RichTextRun` type unchanged).
 
-- [ ] **Step 1: Write the failing tests** — `<p><strong>Bold</strong> and <em>italic</em> and
+**Confirmed against a live Swift 6.3.3 toolchain (PR #1612 review):** unlike Task 1, this task is
+**not** runnable on Linux — `swift-corelibs-foundation`'s `NSAttributedString` doesn't carry
+`NSAttributedString.DocumentType`/HTML-import support at all (`no exact matches in call to
+initializer`); it's historically an Apple-platforms-only capability (implemented via WebKit
+internals under plain `import Foundation` on macOS, no `import AppKit` needed there, but absent on
+Linux and not reliable on iOS). It still belongs in the portable `AnglesiteCore` target and still
+gets real `swift test` coverage — just from CI's **macOS** `swift test` lane
+(`AnglesiteCoreTests`), not from a Linux host or from this plan's own local verification. An
+implementer without macOS/Xcode access can write this task's code and tests, but can't execute them
+locally the way Task 1's are executable; treat it like every `Sources/AnglesiteApp` task below —
+push and let CI confirm it.
+
+- [ ] **Step 1: Confirm the initializer's actual availability first**, before writing any test
+      against it — check whether `NSAttributedString.DocumentType.html` is reachable from
+      `AnglesiteCore` (no `import AppKit`) on the target macOS SDK via local Xcode docs/autocomplete
+      (or, if only Linux is available, at minimum confirm CI's macOS lane is what will validate
+      this, per the note above). If it turns out to require `AppKit`/`Cocoa` after all, move this
+      file into `AnglesiteAppCore` instead (`Sources/AnglesiteApp`, Task 3's target) before writing
+      Step 2's tests — deciding the target after the tests are written risks a wasted round-trip if
+      the module turns out wrong.
+- [ ] **Step 2: Write the failing tests** — `<p><strong>Bold</strong> and <em>italic</em> and
       <a href="https://x">link</a></p>` → three/four runs with the right kinds and `href`; a
       `<h1>`/`<ul><li>` gets flattened to plain-text runs (structure dropped, text kept); nested
       `<strong><em>` produces a run whose `children` carries the inner kind (matches
       `RichTextRun.children`'s existing shape from Task 1 of the plumbing plan); plain-text import
       wraps the whole string in one `.text` run verbatim (no trimming/collapsing — Paste and Match
       Style should be a faithful plain-text drop, not a lossy one).
-- [ ] **Step 2: Run `swift test --filter WYSIWYGRichTextImporterTests`, confirm failure.**
-- [ ] **Step 3: Implement** using `NSAttributedString(data:options:documentAttributes:)`. Note:
-      `NSAttributedString`'s HTML importer is available via `Foundation`/`AppKit` on macOS; verify
-      it's reachable from a portable `AnglesiteCore` target (no `import AppKit`) — if the HTML
-      importer initializer turns out to require `AppKit`/`Cocoa` on this SDK, move this specific
-      file into `AnglesiteAppCore` instead (`Sources/AnglesiteApp`, Task 3's target) and drop the
-      "testable on Linux" claim for this task only; check this before writing the implementation,
-      not after.
-- [ ] **Step 4: Run tests, confirm pass.**
-- [ ] **Step 5: Commit.**
+- [ ] **Step 3: Run `swift test --filter WYSIWYGRichTextImporterTests` on macOS (CI or local Xcode),
+      confirm failure.**
+- [ ] **Step 4: Implement** using `NSAttributedString(data:options:documentAttributes:)` per Step 1's
+      confirmed target.
+- [ ] **Step 5: Run tests on macOS, confirm pass.**
+- [ ] **Step 6: Commit.**
 
 ---
 
@@ -473,9 +491,11 @@ currently lives).
 
 ## Testing summary
 
-- **Swift, portable (`AnglesiteCore`, runs on Linux too):** Tasks 1, 2 (unless Task 2's HTML
-  importer turns out to need AppKit — see that task's Step 3 caveat), 7's serializer, 8's asset
-  ingestor. These can be implemented and fully verified without Xcode.
+- **Swift, portable (`AnglesiteCore`), fully verifiable on Linux:** Task 1, 7's serializer, 8's
+  asset ingestor. These can be implemented and fully verified without Xcode.
+- **Swift, portable (`AnglesiteCore`), but macOS-only at test time:** Task 2 — its code has no
+  `canImport(Darwin)` gate, but its `NSAttributedString` HTML-import dependency doesn't exist in
+  `swift-corelibs-foundation`, so its tests only run on CI's macOS lane (or local Xcode).
 - **Swift, App-target (`Sources/AnglesiteApp`, macOS/Xcode-only):** Tasks 3, 4, 5's Swift half, 7's
   pasteboard-write half, 9, 10, 11. Model/view-model logic within these should still be unit-tested
   (per each task's Step 1) even though the test *run* needs a Darwin host — write the tests as part
@@ -491,7 +511,8 @@ currently lives).
 ## Sequencing note
 
 Tasks 1–2 have no dependency on anything else and are the safest starting point for an implementer
-without local macOS access — they're fully testable now. Tasks 3–4 depend on 1 (and 4 doesn't
+without local macOS access, though only Task 1 is actually locally verifiable there — Task 2's code
+can be written the same way but its tests need CI's macOS lane. Tasks 3–4 depend on 1 (and 4 doesn't
 depend on 3, so they can run in parallel). Tasks 5–6 are tightly coupled (see Task 5's note) and
 should land together or in immediate succession. Task 7 depends only on already-merged PR1 types.
 Task 8 depends on Task 6's routing existing, and carries this plan's highest execution-risk item
