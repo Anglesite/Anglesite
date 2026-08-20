@@ -8,13 +8,11 @@ import { getCollection } from "astro:content";
 import { readConfig } from "../../scripts/config.ts";
 import { readRobotsConfig, isNoindexed } from "./robots-config.ts";
 import { FEED_COLLECTIONS } from "./feeds.ts";
+import { profileExists } from "./profile.ts";
 import type { IndieMarkInputs } from "./indiemark.ts";
 
 export async function gatherIndieMarkInputs(): Promise<IndieMarkInputs> {
-  const profileMods = import.meta.glob<{ default: Record<string, unknown> }>("../data/profile.json", {
-    eager: true,
-  });
-  const hasProfile = Object.values(profileMods)[0]?.default !== undefined;
+  const hasProfile = profileExists();
 
   const postTypeCounts: Record<string, number> = {};
   let hasSyndicatedPosts = false;

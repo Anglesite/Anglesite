@@ -2,8 +2,8 @@
 // Site representative h-card (#388). Optional: renders only when src/data/profile.json exists.
 // The glob returns {} when the file is absent, so an unconfigured site shows no footer identity.
 // microformats2 only — the Person vs LocalBusiness schema.org @type is V-1.8.
-const mods = import.meta.glob<{ default: Record<string, any> }>("../data/profile.json", { eager: true });
-const profile = Object.values(mods)[0]?.default;
+import { siteProfile, profileExists } from "../lib/profile.ts";
+const profile = profileExists() ? (siteProfile() as Record<string, any>) : undefined;
 const hasAddress = profile && (profile.streetAddress || profile.locality || profile.region || profile.postalCode);
 const hours: string[] = Array.isArray(profile?.hours) ? profile.hours : [];
 
