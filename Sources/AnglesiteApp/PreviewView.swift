@@ -124,18 +124,24 @@ struct PreviewView: NSViewRepresentable {
     /// registration) and `updateNSView` (registration on an edit-mode-off → on transition, #1225
     /// final-review fix wave, Finding 6) so the two don't drift.
     private func makeWYSIWYGHandler(for controller: WYSIWYGCanvasController, coordinator: Coordinator) -> WYSIWYGScriptHandler {
-        WYSIWYGScriptHandler(transport: controller) { [weak coordinator] blockId, point in
-            Task { @MainActor in
-                guard let webView = coordinator?.webView else { return }
-                let menu = WYSIWYGBlockContextMenu.build(for: blockId, controller: controller)
-                // `point` is the DOM `contextmenu` event's `clientX`/`clientY` (top-left origin);
-                // `WKWebView` is a non-flipped AppKit view (bottom-left origin), so popping the
-                // menu up at the raw DOM point mirrors it vertically — near the top of the page it
-                // appeared near the bottom of the view (#1225 final-review fix wave, Finding 3).
-                let converted = Self.convertContextMenuPoint(point, viewHeight: webView.bounds.height)
-                menu.popUp(positioning: nil, at: converted, in: webView)
+        WYSIWYGScriptHandler(
+            transport: controller,
+            onContextMenu: { [weak coordinator] blockId, point in
+                Task { @MainActor in
+                    guard let webView = coordinator?.webView else { return }
+                    let menu = WYSIWYGBlockContextMenu.build(for: blockId, controller: controller)
+                    // `point` is the DOM `contextmenu` event's `clientX`/`clientY` (top-left origin);
+                    // `WKWebView` is a non-flipped AppKit view (bottom-left origin), so popping the
+                    // menu up at the raw DOM point mirrors it vertically — near the top of the page it
+                    // appeared near the bottom of the view (#1225 final-review fix wave, Finding 3).
+                    let converted = Self.convertContextMenuPoint(point, viewHeight: webView.bounds.height)
+                    menu.popUp(positioning: nil, at: converted, in: webView)
+                }
+            },
+            onSelectionChanged: { [weak controller] blockId in
+                Task { @MainActor in controller?.selectedBlockId = blockId }
             }
-        }
+        )
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {

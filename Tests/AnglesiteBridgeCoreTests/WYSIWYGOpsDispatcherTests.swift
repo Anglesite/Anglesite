@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import AnglesiteBridgeCore
 @testable import AnglesiteCore
@@ -77,5 +78,27 @@ struct WYSIWYGOpsDispatcherTests {
             Issue.record("expected .rejected(.envelopeDecode), got \(result)")
             return
         }
+    }
+
+    @Test("dispatch decodes a selection-changed message with a block id")
+    func decodesSelectionChangedWithBlock() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "selection-changed", "blockId": "b1"], via: transport)
+        guard case .selectionChanged(let blockId) = result else {
+            Issue.record("expected .selectionChanged, got \(result)")
+            return
+        }
+        #expect(blockId == "b1")
+    }
+
+    @Test("dispatch decodes a selection-changed message clearing the selection")
+    func decodesSelectionChangedCleared() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "selection-changed", "blockId": NSNull()], via: transport)
+        guard case .selectionChanged(let blockId) = result else {
+            Issue.record("expected .selectionChanged, got \(result)")
+            return
+        }
+        #expect(blockId == nil)
     }
 }

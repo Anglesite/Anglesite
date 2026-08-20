@@ -16,10 +16,11 @@ public struct WYSIWYGPoint: Sendable, Equatable {
 
 /// Webview-agnostic message schema + routing for the `wysiwyg` script-message namespace —
 /// deliberately separate from `AnglesiteMessageDispatcher` (the older edit-overlay protocol).
-/// Two message types: `submit-op`, an `OpEnvelope` the engine sends when the owner performs a
-/// gesture (the reply is the resulting `OpResult`); and `context-menu`, the engine's hit-test
-/// result on a native `contextmenu` DOM event (spec §8.1 — the host builds a real `NSMenu`, no
-/// reply expected).
+/// Three message types: `submit-op`, an `OpEnvelope` the engine sends when the owner performs a
+/// gesture (the reply is the resulting `OpResult`); `context-menu`, the engine's hit-test result
+/// on a native `contextmenu` DOM event (spec §8.1 — the host builds a real `NSMenu`, no reply
+/// expected); and `selection-changed`, the engine's own selection state changing (no reply
+/// expected).
 public enum WYSIWYGOpsDispatcher {
     public static let scriptMessageNamespace = "wysiwyg"
 
@@ -30,6 +31,10 @@ public enum WYSIWYGOpsDispatcher {
         /// `context-menu` reported the block under the right-clicked point; the adapter should
         /// present a host-native menu there. No reply is sent back to the page.
         case contextMenu(blockId: BlockId, point: WYSIWYGPoint)
+        /// `selection-changed` reported the engine's own selection state changing (a click, or any
+        /// other engine-internal cause) — `blockId` is `nil` when the selection was cleared. No reply
+        /// is sent back to the page, same as `contextMenu`.
+        case selectionChanged(blockId: BlockId?)
         case rejected(RejectionReason)
 
         public enum RejectionReason: Sendable, Equatable {
@@ -64,6 +69,10 @@ public enum WYSIWYGOpsDispatcher {
                 return .rejected(.envelopeDecode("could not decode context-menu fields"))
             }
             return .contextMenu(blockId: blockId, point: WYSIWYGPoint(x: x, y: y))
+        case "selection-changed":
+            // `blockId` is legitimately absent/null (selection cleared) — unlike context-menu's
+            // required blockId, this isn't a decode failure.
+            return .selectionChanged(blockId: dict["blockId"] as? String)
         default:
             return .rejected(.unknownType(typeStr))
         }
