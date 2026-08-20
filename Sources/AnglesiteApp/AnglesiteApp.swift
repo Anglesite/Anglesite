@@ -224,6 +224,8 @@ struct AnglesiteApp: App {
             NavigatorEditCommands()
             // Edit-menu skeleton: selection walkers, annotations, Find ▸ (menu-bar spec §2.3).
             EditMenuSkeletonCommands()
+            // Edit ▸ Paste and Match Style ⇧⌥⌘V for the WYSIWYG canvas (#1588 Task 15).
+            WYSIWYGPasteCommands()
             // Both groups anchor `before: .importExport`; later declarations insert ABOVE earlier
             // ones, so FileItemCommands is declared first to land BELOW SaveCommands, giving the
             // order Save · Duplicate · Rename… · Move To… · Revert To ▸ · Reveal in Finder · Share…
