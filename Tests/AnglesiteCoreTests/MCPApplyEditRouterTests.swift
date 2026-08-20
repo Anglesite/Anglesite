@@ -126,6 +126,43 @@ struct MCPApplyEditRouterTests {
         #expect(reply.result == nil)
     }
 
+    @Test("Structured reply with inverse exposes inverseNodeId and postWriteVersion")
+    func structuredReplyWithInverseExposesInverseFields() async {
+        // insertBlock's reply carries a computed `inverse: {op: "deleteBlock", component: {path,
+        // nodeId, baseVersion}}` — `baseVersion` here is the POST-write hash the dispatcher
+        // stamps in (see server/apply-edit-dispatcher.mjs). The router must decode just
+        // `nodeId`/`baseVersion` out of it, narrowly, without adopting the rest of `inverse` as a
+        // general mechanism (see EditRouter.swift's EditReply doc comments).
+        let body = #"{"type":"anglesite:edit-applied","id":"e-1","file":"src/pages/about.astro","range":{"start":12,"end":25},"commit":"abc1234567890abcdef1234567890abcdef12345","inverse":{"op":"deleteBlock","component":{"path":"src/pages/about.astro","nodeId":"n42","baseVersion":"sha256:postwrite111"}}}"#
+        let recorder = ToolCallRecorder(result: .success(MCPClient.ToolCallResult(
+            content: [.init(type: "text", text: body)],
+            isError: false
+        )))
+        let router = MCPApplyEditRouter(toolCaller: { try await recorder.call(name: $0, arguments: $1) })
+        let reply = await router.apply(sampleMessage)
+        #expect(reply.status == .applied)
+        #expect(reply.inverseNodeId == "n42")
+        #expect(reply.postWriteVersion == "sha256:postwrite111")
+    }
+
+    @Test("Structured reply with no inverse key decodes nil inverseNodeId/postWriteVersion")
+    func structuredReplyWithNoInverseDecodesNilInverseFields() async {
+        // Most ops' replies (and this one, a plain edit-applied body) carry no `inverse` key at
+        // all — the decode must not throw or misbehave, and the reply's other structured fields
+        // (`commit` here) must still decode normally alongside the nil inverse fields.
+        let body = #"{"type":"anglesite:edit-applied","id":"e-1","file":"src/pages/about.astro","range":{"start":12,"end":25},"commit":"abc1234567890abcdef1234567890abcdef12345"}"#
+        let recorder = ToolCallRecorder(result: .success(MCPClient.ToolCallResult(
+            content: [.init(type: "text", text: body)],
+            isError: false
+        )))
+        let router = MCPApplyEditRouter(toolCaller: { try await recorder.call(name: $0, arguments: $1) })
+        let reply = await router.apply(sampleMessage)
+        #expect(reply.status == .applied)
+        #expect(reply.commit == "abc1234567890abcdef1234567890abcdef12345")
+        #expect(reply.inverseNodeId == nil)
+        #expect(reply.postWriteVersion == nil)
+    }
+
     @Test("Malformed reply text falls back to message string") func malformedReplyTextFallsBackToMessageString() async {
         let recorder = ToolCallRecorder(result: .success(MCPClient.ToolCallResult(
             content: [.init(type: "text", text: "not valid json {")],
