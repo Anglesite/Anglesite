@@ -19,6 +19,8 @@
 
 **Deviation from the approved spec, discovered during file-structure research:** the spec classified POSSE/syndication as "manual, not detectable." While mapping `src/content.config.ts`, `socialFields` (`src/lib/content-schemas.ts`) turned out to include a `syndication: z.array(z.string().url()).optional()` field that Anglesite writes back onto a post's frontmatter once a POSSE copy actually publishes. That means POSSE *is* detectable per-site: "has at least one post with a non-empty `syndication` array." This plan promotes that axis from `manual` to `detected` accordingly (Task 1, axis 7). Flagged here for visibility since it changes the spec's classification table by one row; everything else matches the approved spec.
 
+**Deviation found during final review:** Task 2's implementation iterated `FEED_COLLECTIONS` (`src/lib/feeds.ts`) as the canonical post-type collection list for the Posts axis. That turned out to be the wrong list — it only has the 8 collections with a feed, missing `announcements`/`events`/`reviews`, which under-counted the Posts axis on the default scaffold. `ENTRY_COLLECTIONS` (`src/lib/collections.ts`) plus `"blog"` — the same `[...ENTRY_COLLECTIONS, "blog"]` idiom already used by `licensing.ts`/`mcp-search-entries.ts`/`sitemap-data.ts` — is the correct "every routed post-type collection" list, and `indiemark-astro.ts` was fixed to use it.
+
 ---
 
 ## Task 1: Pure assessment logic — `src/lib/indiemark.ts`
@@ -499,16 +501,21 @@ const results = assessIndieMark(await gatherIndieMarkInputs());
 
 - [ ] **Step 2: Run the template's full check suite**
 
-Run: `cd Resources/Template && npm run lint && npm run typecheck && npm test`
-Expected: All PASS. `npm test` re-runs Task 1's `indiemark.test.ts` alongside the rest of the suite.
+Run: `cd Resources/Template && npx astro check && npm test`
+Expected: All PASS. `npm test` re-runs Task 1's `indiemark.test.ts` alongside the rest of the suite. (This
+template's `package.json` has no `lint`/`typecheck` scripts — `npx astro check` plus `npm test` is
+what actually exists and was used, confirmed during implementation.)
 
 - [ ] **Step 3: Build the site and verify the page renders**
 
 Run: `cd Resources/Template && npm run build`
 Expected: Build succeeds; `dist/indiemark/index.html` exists.
 
-Run: `grep -c "<h2>" Resources/Template/dist/indiemark/index.html`
-Expected: `13` (one `<h2>` per axis).
+Run: `grep -o "<h2>" Resources/Template/dist/indiemark/index.html | wc -l`
+Expected: `13` (one `<h2>` per axis). Note: `grep -c` counts matching *lines*, not
+occurrences — Astro's build output is minified to essentially one line, so `grep -c` here
+returns `1` regardless of how many `<h2>` tags are actually present; `grep -o | wc -l` counts
+occurrences and is the correct check.
 
 - [ ] **Step 4: Manually preview the page**
 
