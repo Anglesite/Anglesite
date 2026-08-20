@@ -1602,23 +1602,18 @@ extension SiteWindowModelTests {
         #expect(onDiskAfter.entries == onDiskBefore.entries)
     }
 
-    /// Documents the ordering contract `SiteWindow.toggleWebsiteInspector()` depends on (fix
-    /// round 3, #714 v2 slice 1): a live-app-only bug found the Website inspector panel presenting
-    /// (space reserved, toggle state correct) with permanently blank content, because the
-    /// `.inspector(isPresented:)` content closure's `if let websiteModel = model.websiteInspector`
-    /// did not reliably re-render when `websiteInspector` was populated *after* that closure's
-    /// first build, on a fire-and-forget `.task`. The fix moved population to *before* the
-    /// closure is ever first built — a synchronous call to `ensureWebsiteInspectorLoaded()` in the
-    /// same transaction that flips `activeInspector` to `.website`, ahead of the SwiftUI
-    /// `View`-layer code this SwiftPM target's tests can't exercise directly (`SiteWindow` is a
-    /// View, not testable through this harness — same limitation as the round-1 suppress-flag
-    /// finding). What *is* testable and load-bearing: `ensureWebsiteInspectorLoaded()` must leave
-    /// `websiteInspector` non-nil synchronously, with no suspension point the caller could
-    /// observe in between — otherwise moving the call earlier wouldn't fix anything. This asserts
-    /// exactly that, with zero `await`/`Task.yield()` between the call and the check (unlike
-    /// `websiteInspectorLifecycle`, which allows itself that latitude for its own, different
-    /// purpose).
-    @Test("ensureWebsiteInspectorLoaded populates websiteInspector with no suspension point between call and return — the ordering toggleWebsiteInspector()'s eager call depends on (fix round 3)")
+    /// One half of the ordering contract every caller of `ensureWebsiteInspectorLoaded()` depends
+    /// on: the model is non-nil the instant the call returns, with no suspension point in
+    /// between, so a caller can flip `activeInspector`/`inspectorShown` in the very next statement
+    /// and have the panel build from a populated model.
+    ///
+    /// Scope note (fix round 4, Minor 4 — this comment used to overstate what the test proves):
+    /// all it catches is the assignment moving back inside the fire-and-forget `Task`. That the
+    /// call actually *happens*, and happens before the activation flips, is pinned elsewhere —
+    /// `InspectorActivationPolicyTests` for the toggle path, and
+    /// `handleSiteChangedRebuildsPresentedWebsiteInspector`/`...WhenSiteArrivesLater` below for
+    /// the paths no toggle press covers.
+    @Test("ensureWebsiteInspectorLoaded populates websiteInspector with no suspension point between call and return (fix round 3)")
     func ensureWebsiteInspectorLoadedIsSynchronous() throws {
         let (root, packageURL, _) = try makeSitePackage()
         defer { try? FileManager.default.removeItem(at: root) }
@@ -1635,5 +1630,88 @@ extension SiteWindowModelTests {
         // (or read `model.websiteInspector` for any other reason) in the very next statement.
         #expect(model.websiteInspector != nil)
         #expect(model.websiteInspector?.packageURL == packageURL)
+    }
+
+    /// Fix round 4, Critical 2: swapping the site while the website inspector is presented used to
+    /// tear the model down with nothing synchronously rebuilding it, leaving the panel presented
+    /// over a nil model — permanently blank, and (if any staleness survived in the view binding)
+    /// a route for an edit to land in the PREVIOUS site's `Info.plist`. The rebuild has to happen
+    /// inside `handleSiteChanged()` itself, synchronously, because the panel's content is built
+    /// from whatever the model holds at that moment.
+    @Test("handleSiteChanged rebuilds a presented website inspector against the new site (fix round 4)")
+    func handleSiteChangedRebuildsPresentedWebsiteInspector() throws {
+        let (rootA, packageA, _) = try makeSitePackage(named: "A")
+        let (rootB, packageB, _) = try makeSitePackage(named: "B")
+        defer {
+            try? FileManager.default.removeItem(at: rootA)
+            try? FileManager.default.removeItem(at: rootB)
+        }
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "A", packageURL: packageA,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.websiteInspectorPresented = true
+        model.ensureWebsiteInspectorLoaded()
+        let first = try #require(model.websiteInspector)
+
+        // The swap the window model sees: `SiteWindow`'s `.onChange(of: model.site?.id)` fires
+        // after `site` already holds the new value.
+        model.site = SiteStore.Site(
+            id: "site-b", name: "B", packageURL: packageB,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.handleSiteChanged()
+
+        let rebuilt = try #require(model.websiteInspector, "presented panel left with a nil model")
+        #expect(rebuilt !== first)
+        #expect(rebuilt.packageURL == packageB)
+    }
+
+    /// Fix round 4, Critical 1: the two activations that never involve a toggle press with a site
+    /// already in hand — scene restoration onto a persisted `.website` activation, and ⌥⌘J pressed
+    /// while the window still shows "Loading site…" (the menu item is enabled then). Both arrive
+    /// here as "presented, but `site` only became non-nil now", and both used to leave the model
+    /// nil forever: the panel's own `.task` was attached to a subtree that renders nothing while
+    /// the model is nil, so it could never fire to create it.
+    @Test("handleSiteChanged creates the website inspector when it was already presented before the site loaded (fix round 4)")
+    func handleSiteChangedCreatesWebsiteInspectorWhenSiteArrivesLater() throws {
+        let (root, packageURL, _) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+
+        // Presented before any site resolves — `SiteWindow` mirrors this from its `initial: true`
+        // scene-state handlers, ahead of the load.
+        model.websiteInspectorPresented = true
+        model.ensureWebsiteInspectorLoaded()
+        #expect(model.websiteInspector == nil, "nothing to build against with no site open")
+
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.handleSiteChanged()
+
+        let inspector = try #require(model.websiteInspector, "presented panel left with a nil model")
+        #expect(inspector.packageURL == packageURL)
+    }
+
+    /// The other side of the two tests above: a site change with the panel *not* presented must
+    /// still tear the model down (and not eagerly rebuild one nothing is showing).
+    @Test("handleSiteChanged leaves the website inspector nil when the panel is not presented (fix round 4)")
+    func handleSiteChangedDoesNotRebuildHiddenWebsiteInspector() throws {
+        let (root, packageURL, _) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.ensureWebsiteInspectorLoaded()
+        #expect(model.websiteInspector != nil)
+
+        #expect(!model.websiteInspectorPresented)
+        model.handleSiteChanged()
+        #expect(model.websiteInspector == nil)
     }
 }

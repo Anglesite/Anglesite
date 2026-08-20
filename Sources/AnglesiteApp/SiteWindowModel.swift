@@ -309,7 +309,9 @@ final class SiteWindowModel {
     /// `ensureWebsiteInspectorLoaded()`, keyed to the open site's `packageURL`. Persists across
     /// selection changes (unlike `inspectorSelection`'s targets): the website inspector is a
     /// second, mutually-exclusive trailing panel, not a per-selection context. Torn down on site
-    /// change / window close alongside `componentEditor`.
+    /// change / window close alongside `componentEditor` — and, on a site change with the panel
+    /// still presented, rebuilt against the new package in the same transaction, so the panel is
+    /// never left presented over a nil model.
     private(set) var websiteInspector: WebsiteInspectorModel?
 
     /// Mirrors whether the website inspector panel is actually presented right now (#714 v2
@@ -812,6 +814,21 @@ final class SiteWindowModel {
         componentEditor = nil
         websiteInspector = nil
         mainPaneMode = .preview
+        // Re-create immediately, in this same synchronous transaction, whenever the website
+        // inspector is presented right now (fix round 4, Criticals 1 and 2). This handler runs on
+        // `SiteWindow`'s `.onChange(of: model.site?.id)`, which covers BOTH the initial nil →
+        // loaded transition and a later site swap, and `websiteInspectorPresented` is already
+        // mirrored by `SiteWindow`'s `initial: true` handlers before the site resolves. So this is
+        // the guaranteed creation path for every activation that no toggle press covers:
+        //   - scene restoration with `activeInspector` persisted as `.website` (the panel is the
+        //     first thing built for the restored window; no toggle ever fires),
+        //   - ⌥⌘J pressed while the window still shows "Loading site…" (the toggle's own
+        //     `ensureWebsiteInspectorLoaded()` no-ops with no site, but the activation still
+        //     flips),
+        //   - a site swap while the panel is up (the teardown three lines above would otherwise
+        //     leave it presented with nothing to render).
+        // Leaving it nil in any of those cases rendered the panel permanently blank.
+        if websiteInspectorPresented { ensureWebsiteInspectorLoaded() }
     }
 
     func close(suddenTerminationLease: SuddenTerminationController.Lease? = nil) {
@@ -1778,22 +1795,24 @@ final class SiteWindowModel {
     /// need a same-transaction read-then-write for the #968/#969 presentation-gate discipline,
     /// which an `async` signature would break.
     ///
-    /// **Called from two places, deliberately** (#714 v2 slice 1 fix round 3): primarily,
-    /// synchronously, from `SiteWindow.toggleWebsiteInspector()` in the same transaction that
-    /// flips `activeInspector`/`inspectorShown` — this guarantees `websiteInspector` is already
-    /// non-nil the very first time SwiftUI ever constructs the `.inspector` content closure's
-    /// `.website` branch. That ordering matters: on macOS 26/27 beta, a `.inspector(isPresented:)`
-    /// content closure's `if let websiteModel = model.websiteInspector { … }` did not reliably
-    /// re-evaluate when `websiteInspector` transitioned nil → non-nil *after* that closure's first
-    /// build — the same class of "content closure doesn't observe a later `@Observable` mutation"
-    /// gap this codebase has already hit for `.sheet`/`.inspector` elsewhere (#1126/#1139/#968/
-    /// #969) — so the panel that had reserved space and toggled correctly rendered permanently
-    /// blank (confirmed live: GUI smoke test, `task-5-report.md`). Calling this *before* the
-    /// content closure is ever built the first time sidesteps needing that later re-evaluation to
-    /// ever happen. The `.task(id: model.site?.id)` on the content closure remains as a secondary
-    /// fallback for scene restoration (`activeInspector` persisted as `.website` from a previous
-    /// launch, so no toggle ever fires) — safe to call from both places since this guard is
-    /// idempotent.
+    /// **The invariant every caller upholds** (#714 v2 slice 1, fix rounds 3–4): whenever the
+    /// website inspector becomes presented, this has already run — synchronously, before the
+    /// activation state the panel renders from is written. A GUI smoke found the panel reserving
+    /// space and toggling correctly while its content stayed permanently blank, because the only
+    /// thing that created the model was a `.task` attached to the panel's own `if let websiteModel
+    /// = model.websiteInspector { … }` subtree: with the model nil that subtree renders nothing,
+    /// SwiftUI doesn't run `.task` for a subtree that renders nothing, and so the task that would
+    /// have created the model could never run. Hence the three callers, in order of how reliably
+    /// each fires:
+    ///
+    /// - `SiteWindow.activateInspector(_:)` — every toggle press, before `activeInspector` flips.
+    /// - `handleSiteChanged()` — every site load or swap while the panel is presented, covering
+    ///   scene restoration onto a persisted `.website` activation and ⌥⌘J pressed before the site
+    ///   finished loading, neither of which involves a toggle press with a site in hand.
+    /// - The `.task(id:)` on the panel's content — now backed by a non-empty placeholder branch so
+    ///   it can actually fire, but kept as belt-and-braces rather than a guarantee.
+    ///
+    /// The guard below makes calling it from all three idempotent.
     @MainActor
     func ensureWebsiteInspectorLoaded() {
         guard websiteInspector == nil, let site else { return }

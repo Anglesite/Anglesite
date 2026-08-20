@@ -212,43 +212,43 @@ struct SiteWindow: View {
     }
 
     /// Shows the selection inspector, switching away from the website inspector if that's active;
-    /// hides it if it's already the active, shown inspector. Shared by the toolbar item, the View
-    /// menu's Show/Hide Inspector command, and (mirrored below) the website inspector's own
-    /// toggle, so all three agree on one mutually-exclusive-activation policy (#714 v2 slice 1).
-    /// A synchronous MainActor mutation with no `await` between reading `activeInspector` and
-    /// writing `inspectorShown` — required by the #968/#969 presentation-gate discipline.
+    /// hides it if it's already the active, shown inspector. Shared by the toolbar item and the
+    /// View menu's Show/Hide Inspector command.
     @MainActor
-    private func toggleSelectionInspector() {
-        if activeInspector == .selection {
-            inspectorShown.toggle()
-        } else {
-            armSuppressNextInspectorWriteBack()
-            activeInspector = .selection
-            inspectorShown = true
-        }
-        syncWebsiteInspectorPresented()
-    }
+    private func toggleSelectionInspector() { activateInspector(.selection) }
 
-    /// The website inspector's mirror of `toggleSelectionInspector()` — see that function's doc
-    /// comment for the shared policy and the #968/#969 synchronous-mutation requirement.
-    ///
-    /// Also where `model.websiteInspector` gets created (fix round 3, #714 v2 slice 1): calling
-    /// `ensureWebsiteInspectorLoaded()` here, synchronously, BEFORE `activeInspector` flips to
-    /// `.website`, guarantees the model already exists the very first time SwiftUI builds the
-    /// `.inspector` content closure's `.website` branch — see `ensureWebsiteInspectorLoaded()`'s
-    /// doc comment for why relying on that closure to observe a *later* mutation doesn't reliably
-    /// work on this platform (the live-app root cause: the panel presented and toggled correctly
-    /// but its content rendered permanently blank).
+    /// The website inspector's mirror of `toggleSelectionInspector()`, behind the View menu's
+    /// Show/Hide Website Inspector (⌥⌘J).
     @MainActor
-    private func toggleWebsiteInspector() {
-        if activeInspector == .website {
-            inspectorShown.toggle()
-        } else {
-            armSuppressNextInspectorWriteBack()
-            model.ensureWebsiteInspectorLoaded()
-            activeInspector = .website
-            inspectorShown = true
-        }
+    private func toggleWebsiteInspector() { activateInspector(.website) }
+
+    /// Applies one inspector-toggle request. The decision itself lives in
+    /// `InspectorActivationPolicy` — a pure function, so the toolbar item, both menu commands, and
+    /// the unit tests all agree on one mutually-exclusive-activation policy (#714 v2 slice 1).
+    ///
+    /// Applied as a single synchronous MainActor transaction with no `await` anywhere between
+    /// reading the current activation and writing the new one, per the #968/#969 presentation-gate
+    /// discipline. Field order matters:
+    ///
+    /// 1. `armSuppress` before the flip, so a write-back queued under the outgoing activation is
+    ///    already being swallowed by the time it lands.
+    /// 2. `needsWebsiteModel` before the flip, so `model.websiteInspector` is non-nil the very
+    ///    first time SwiftUI builds `inspectorContent`'s `.website` branch for this activation —
+    ///    the panel renders from whatever the model holds at build time (fix round 3/4, #714 v2
+    ///    slice 1; see `SiteWindowModel.ensureWebsiteInspectorLoaded()` for the other paths that
+    ///    have to guarantee the same thing).
+    /// 3. The activation flip, then the presented-state mirror the #1126 settle predicate reads.
+    @MainActor
+    private func activateInspector(_ target: ActiveSiteInspector) {
+        let outcome = InspectorActivationPolicy.apply(
+            current: activeInspector,
+            shown: inspectorShown,
+            target: target
+        )
+        if outcome.armSuppress { armSuppressNextInspectorWriteBack() }
+        if outcome.needsWebsiteModel { model.ensureWebsiteInspectorLoaded() }
+        activeInspector = outcome.active
+        inspectorShown = outcome.shown
         syncWebsiteInspectorPresented()
     }
 
@@ -1244,13 +1244,28 @@ struct SiteWindow: View {
                         openStylesheet: { model.openFile($0) },
                         openMoreSettings: { model.openWebsiteSettings() }
                     )
+                    // A site swap replaces the model instance (`handleSiteChanged()` tears the old
+                    // one down and rebuilds against the new package). Keying on the package URL
+                    // gives the panel a fresh view identity per site, so no view-local state
+                    // (@FocusState, in-flight field editing) can carry across and write an edit
+                    // into the previous site's Info.plist/.site-config (fix round 4, Critical 2).
+                    .id(websiteModel.packageURL)
+                } else {
+                    // Deliberately NOT an empty branch: SwiftUI does not run `.task` for a subtree
+                    // that renders nothing, so with `if let` alone the fallback below could never
+                    // fire while the model was nil — exactly the state it exists to repair (fix
+                    // round 4, Important 3). A spinner also replaces the blank column that used to
+                    // flash while the site loaded.
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             }
-            // Fallback only — the primary creation path is `toggleWebsiteInspector()`'s eager,
-            // synchronous call, which runs *before* this branch is ever built for the first time
-            // (see `ensureWebsiteInspectorLoaded()`'s doc comment for why that ordering matters).
-            // This `.task` only still matters for scene restoration landing directly on
-            // `activeInspector == .website` with no toggle ever firing.
+            // Belt-and-braces, not the guarantee. `SiteWindowModel.ensureWebsiteInspectorLoaded()`
+            // is called from the paths that *are* guaranteed to run — `activateInspector(.website)`
+            // for a toggle, `handleSiteChanged()` for a site load/swap under a persisted or
+            // pressed-while-loading `.website` activation. This re-fires it on the site's identity
+            // for anything neither path anticipated; the guard inside makes it idempotent.
             .task(id: model.site?.id) {
                 model.ensureWebsiteInspectorLoaded()
             }
