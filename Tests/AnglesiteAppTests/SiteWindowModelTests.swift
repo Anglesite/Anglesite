@@ -1602,6 +1602,49 @@ extension SiteWindowModelTests {
         #expect(onDiskAfter.entries == onDiskBefore.entries)
     }
 
+    /// The model half of File ▸ Save / Revert To ▸ Revert to Saved *enablement*, which the two
+    /// command structs spell as `hasUnsavedEdits != true || editCommandInFlight == true`
+    /// (`SaveCommands.swift`, `FileItemCommands.swift`). The sibling tests above cover what the
+    /// commands *do* once invoked; this pins that they are reachable at all when the website
+    /// inspector is the only dirty surface — including `requestRevertToSaved()`'s own guard, which
+    /// re-checks the same pair and would silently swallow the click if they disagreed.
+    ///
+    /// A GUI smoke reported this menu item as permanently disabled for a dirty inspector Title.
+    /// Re-running it live disproved that: the failing observation was made with no key window (in
+    /// the same screenshot, File ▸ Close, Save, Rename…, and Reveal in Finder were all disabled
+    /// too), so `@FocusedValue(\.siteWindowModel)` was nil and *every* window-scoped File item was
+    /// off — nothing to do with dirtiness. Kept as a regression pin for the enablement inputs,
+    /// which no test covered before.
+    @Test("File ▸ Save / Revert to Saved are enabled and reachable for a website-inspector-only dirty field")
+    func editCommandGateOpensForDirtyWebsiteInspector() async throws {
+        let (root, packageURL, _) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.ensureWebsiteInspectorLoaded()
+        let inspector = try #require(model.websiteInspector)
+        await waitForWebsiteInspectorLoad(inspector)
+
+        // Clean: both items disabled, and the action is inert if a stale menu item fires anyway.
+        #expect(!model.hasUnsavedEdits)
+        model.requestRevertToSaved()
+        #expect(!model.revertConfirmationPresented)
+
+        // Dirty, with no main-pane editor and no selection inspector — the exact state the smoke
+        // exercised: the website inspector alone must open the gate.
+        inspector.title = "Dirty title, nothing else open"
+        #expect(model.activeEditor == nil)
+        #expect(model.inspectorContext == nil)
+        #expect(model.hasUnsavedEdits)
+        #expect(!model.editCommandInFlight)
+
+        model.requestRevertToSaved()
+        #expect(model.revertConfirmationPresented, "Revert to Saved must reach its confirmation")
+    }
+
     /// One half of the ordering contract every caller of `ensureWebsiteInspectorLoaded()` depends
     /// on: the model is non-nil the instant the call returns, with no suspension point in
     /// between, so a caller can flip `activeInspector`/`inspectorShown` in the very next statement
@@ -1713,5 +1756,48 @@ extension SiteWindowModelTests {
         #expect(!model.websiteInspectorPresented)
         model.handleSiteChanged()
         #expect(model.websiteInspector == nil)
+    }
+
+    /// Fix round 5, Critical: the #1126 settle in `clearInspectorThenSwitchPane` only buys a
+    /// separate SwiftUI transaction for a dismissal that has actually *started*. The website
+    /// inspector's presentation lives in `SiteWindow`'s scene storage, so nothing this model did
+    /// began one — the pane swapped under a presented panel and AppKit aborted in
+    /// `_postWindowNeedsUpdateConstraints`. This pins the ordering the fix restores: dismiss,
+    /// then settle, then swap.
+    @Test("a main-pane switch dismisses a presented website inspector before swapping the pane (fix round 5)")
+    func paneSwitchDismissesPresentedWebsiteInspectorFirst() async {
+        let model = makeModel()
+        model.websiteInspectorPresented = true
+
+        var dismissals = 0
+        var paneModeWhenDismissed: MainPaneMode?
+        model.dismissWebsiteInspector = { [unowned model] in
+            dismissals += 1
+            paneModeWhenDismissed = model.mainPaneMode
+            // What `SiteWindow.hideWebsiteInspectorForPaneSwitch()` mirrors back synchronously.
+            model.websiteInspectorPresented = false
+        }
+
+        #expect(await model.showGraph())
+
+        #expect(dismissals == 1)
+        #expect(paneModeWhenDismissed == .preview, "dismissal must precede the pane swap")
+        #expect(model.mainPaneMode == .graph)
+        #expect(!model.websiteInspectorPresented)
+    }
+
+    /// The complement: with the website panel hidden there is nothing to dismiss, so the seam
+    /// must stay untouched (calling it would *show* the panel — `activateInspector(.website)` on a
+    /// hidden panel is a show, which is why `SiteWindow`'s implementation guards too).
+    @Test("a main-pane switch leaves the website-inspector dismissal seam alone when it isn't presented (fix round 5)")
+    func paneSwitchSkipsDismissalWhenWebsiteInspectorHidden() async {
+        let model = makeModel()
+        var dismissals = 0
+        model.dismissWebsiteInspector = { dismissals += 1 }
+
+        #expect(await model.showGraph())
+
+        #expect(dismissals == 0)
+        #expect(model.mainPaneMode == .graph)
     }
 }

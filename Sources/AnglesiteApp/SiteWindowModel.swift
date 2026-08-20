@@ -323,6 +323,24 @@ final class SiteWindowModel {
     /// main-pane swap, not just the selection one `inspectorSelection` already covers.
     var websiteInspectorPresented = false
 
+    /// Hides the website inspector panel, wired by `SiteWindow` to its own activation machinery.
+    ///
+    /// Mirrors the existing `dismissSiteWindow` closure seam: presentation of the *website*
+    /// inspector lives entirely in `SiteWindow`'s `@SceneStorage` (`inspectorShown` +
+    /// `activeInspector`), which this model cannot reach — `websiteInspectorPresented` above is a
+    /// read-only mirror, so before this seam existed the model could observe that panel but never
+    /// dismiss it. `clearInspectorThenSwitchPane` needs exactly that: its #1126 settle only helps
+    /// if a dismissal has actually been started before it waits, and for the website panel there
+    /// was none, so the main pane swapped underneath a still-presented inspector and re-entered
+    /// AppKit's update-constraints pass (`_postWindowNeedsUpdateConstraints` abort, #714 v2 slice
+    /// 1 fix round 5).
+    ///
+    /// `SiteWindow` routes it through `InspectorActivationPolicy` (the same path as a second ⌥⌘J
+    /// press) so `websiteInspectorPresented` and the stale-write-back suppression flag stay
+    /// consistent with every other activation change.
+    @ObservationIgnored
+    var dismissWebsiteInspector: (() -> Void)?
+
     /// What the window inspector is inspecting, in precedence order. Component and collection are
     /// gated on the pane mode they belong to, so a stale value from an earlier selection can never
     /// shadow the current one after a pane toggle.
@@ -567,6 +585,21 @@ final class SiteWindowModel {
         // `websiteInspectorPresented` so this predicate still matches actual presentation
         // (fix round 1, Important 3).
         let wasInspecting = inspectorSelection != nil || websiteInspectorPresented
+        // Clearing `inspectorContext`/`collectionInspection` starts the *selection* inspector's
+        // dismissal; the website inspector's presentation is scene state this model doesn't own,
+        // so it needs an explicit dismissal through `SiteWindow`'s seam — otherwise `settle()`
+        // below waited out a dismissal that never began and the pane swapped under a genuinely
+        // presented panel, which is the actual `_postWindowNeedsUpdateConstraints` abort (#1126
+        // class) the smoke test hit via ⌥⌘J → ⌘3/⌘1 and via Metadata ▸ More Settings… (whose
+        // `openFile` on `Info.plist` routes here too, rebuilding the whole detail view as the
+        // heavyweight `.plist` settings editor). Both clears run before the single `settle()`, so
+        // the two dismissals share one SwiftUI transaction rather than stacking two waits.
+        //
+        // Not yet the whole story: with the panel presented *over* the `.plist` settings editor,
+        // ⌘3 still aborts in the same class (crash reports `Anglesite-2026-08-20-132733.ips`,
+        // `-133259.ips`). The same switches with no website inspector presented survive, so the
+        // remaining trigger is on this panel's side, not a general pane-switch defect.
+        if websiteInspectorPresented { dismissWebsiteInspector?() }
         inspectorContext = nil
         collectionInspection = nil
         if wasInspecting {

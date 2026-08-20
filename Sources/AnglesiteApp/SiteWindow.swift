@@ -94,8 +94,18 @@ struct SiteWindow: View {
                 // alone would leave Dock ▸ New Site a silent no-op on such launches (#522 review).
                 let openWindow = openWindow
                 WindowRouter.shared.openSitesWindow = { openWindow(id: "sites") }
+                // The model's seam back into this view's presentation state — see
+                // `SiteWindowModel.dismissWebsiteInspector`. Stored once, like the router closure
+                // above: `@State`/`@SceneStorage` read and write through storage that outlives any
+                // single `body` evaluation, so a closure captured here stays bound to this
+                // window's live state for its whole lifetime.
+                model.dismissWebsiteInspector = { hideWebsiteInspectorForPaneSwitch() }
             }
             .onDisappear {
+                // Break the seam before teardown: the closure captures this view value, which
+                // holds `_model`'s storage, so leaving it installed would keep the whole
+                // `SiteWindowModel` (and its preview/runtime graph) alive past window close.
+                model.dismissWebsiteInspector = nil
                 let terminationLease = unsavedEditsTerminationLease
                 unsavedEditsTerminationLease = nil
                 model.close(suddenTerminationLease: terminationLease)
@@ -250,6 +260,27 @@ struct SiteWindow: View {
         activeInspector = outcome.active
         inspectorShown = outcome.shown
         syncWebsiteInspectorPresented()
+    }
+
+    /// Hides the website inspector ahead of a main-pane swap — the implementation behind
+    /// `SiteWindowModel.dismissWebsiteInspector` (#714 v2 slice 1 fix round 5).
+    ///
+    /// Goes through `activateInspector` rather than writing `inspectorShown` directly, so this
+    /// dismissal is indistinguishable from a second ⌥⌘J press: `InspectorActivationPolicy`
+    /// resolves target == current + shown to a plain hide, `syncWebsiteInspectorPresented()` runs
+    /// in the same transaction, and the panel comes straight back on the next ⌥⌘J because
+    /// `activeInspector` stays `.website`.
+    ///
+    /// Deliberately does *not* arm `suppressNextInspectorWriteBack`: that flag exists to swallow a
+    /// write-back queued under an activation the user has since switched *away* from, and this is
+    /// not a kind switch. The write-back SwiftUI posts for this collapse re-reads
+    /// `activeInspector == .website` — still true — and writes `inspectorShown = false`, which is
+    /// the value this method just wrote. Suppressing it would change nothing; arming the flag for
+    /// an idempotent write-back would only risk swallowing a genuine one.
+    @MainActor
+    private func hideWebsiteInspectorForPaneSwitch() {
+        guard inspectorShown, activeInspector == .website else { return }
+        activateInspector(.website)
     }
 
     /// Sets `suppressNextInspectorWriteBack` for one run-loop turn — see its doc comment. Called
@@ -1238,7 +1269,30 @@ struct SiteWindow: View {
             }
         case .website:
             Group {
-                if let websiteModel = model.websiteInspector {
+                if !inspectorShown {
+                    // Render nothing while the panel is hidden or collapsing — a leaf, not an empty
+                    // branch, so the `.task(id:)` below still attaches (fix round 4, Important 3).
+                    //
+                    // The selection branch above gets this for free: its content is
+                    // `inspectorContext`, which the dismissal path clears synchronously, so its
+                    // column always animates closed over an empty subtree. The website panel's
+                    // model deliberately outlives its presentation (it holds unsaved edits), so
+                    // without this gate the whole `Form` stays mounted inside a column animating to
+                    // zero width — and a `Form` on macOS is bridged through an
+                    // `AppKitPlatformViewHost`, which invalidates layout from inside the display
+                    // cycle's commit phase. `-[NSWindow _postWindowNeedsUpdateConstraints]` then
+                    // raises, and the rethrown ObjC exception aborts the process (#1126 class).
+                    //
+                    // Verified live, both directions (#714 v2 slice 1 fix round 5): with the
+                    // dismissal seam below but *without* this gate, six ⌘3/⌘1 pane switches
+                    // survived but Metadata ▸ More Settings… still aborted — the heavier `.plist`
+                    // editor rebuild lands while the collapse is still animating past the 300 ms
+                    // settle (crash report Anglesite-2026-08-20-131656.ips, faulting frames
+                    // `AppKitPlatformViewHost.invalidateLayout()` →
+                    // `-[NSView setNeedsUpdateConstraints:]` → `_postWindowNeedsUpdateConstraints`).
+                    // With the gate, the same sequence is clean.
+                    Color.clear.frame(width: 0, height: 0)
+                } else if let websiteModel = model.websiteInspector {
                     WebsiteInspectorView(
                         model: websiteModel,
                         openStylesheet: { model.openFile($0) },

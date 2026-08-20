@@ -80,4 +80,20 @@ struct InspectorActivationPolicyTests {
         #expect(!InspectorActivationPolicy.apply(
             current: .website, shown: false, target: .website).armSuppress)
     }
+
+    /// `SiteWindow.hideWebsiteInspectorForPaneSwitch()` (fix round 5) reuses this policy to dismiss
+    /// the website panel before a main-pane swap, so the pre-swap dismissal is exactly a
+    /// second-press hide. Pinned here because three things about that outcome are load-bearing:
+    /// it must hide (not switch kind), it must leave `active == .website` so the next ⌥⌘J brings
+    /// the same panel straight back, and it must not request a model for a panel that is going
+    /// away.
+    @Test("dismissing the presented website panel is a plain hide that keeps it the active kind")
+    func websiteDismissalIsAPlainHide() {
+        let outcome = InspectorActivationPolicy.apply(
+            current: .website, shown: true, target: .website)
+        #expect(outcome.shown == false)
+        #expect(outcome.active == .website)
+        #expect(!outcome.armSuppress)
+        #expect(!outcome.needsWebsiteModel)
+    }
 }
