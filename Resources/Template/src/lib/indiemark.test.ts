@@ -1,6 +1,7 @@
 import test from "node:test";
 import assert from "node:assert/strict";
-import { assessIndieMark, type IndieMarkInputs } from "./indiemark.ts";
+import { assessIndieMark, POST_TYPE_LABELS, type IndieMarkInputs } from "./indiemark.ts";
+import { ENTRY_COLLECTIONS } from "./collections.ts";
 
 const baseInputs: IndieMarkInputs = {
   hasProfile: false,
@@ -33,6 +34,17 @@ test("assessIndieMark: returns exactly 13 axes in a fixed order", () => {
       "Microformats2 markup",
     ],
   );
+});
+
+test("POST_TYPE_LABELS covers blog as well as every ENTRY_COLLECTIONS member", () => {
+  // Mirrors mcp-search-entries.test.ts's "SEARCH_INDEX_COLLECTIONS covers blog as well as every
+  // ENTRY_COLLECTIONS member" test — this is the regression guard for the Posts axis under-count
+  // (indiemark-astro.ts iterating FEED_COLLECTIONS, which is missing announcements/events/reviews).
+  assert.equal(ENTRY_COLLECTIONS.includes("blog" as never), false);
+  assert.ok("blog" in POST_TYPE_LABELS);
+  for (const collection of ENTRY_COLLECTIONS) {
+    assert.ok(collection in POST_TYPE_LABELS, `missing label for ${collection}`);
+  }
 });
 
 test("assessIndieMark: identity — no profile.json", () => {

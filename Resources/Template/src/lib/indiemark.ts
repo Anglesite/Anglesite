@@ -17,6 +17,8 @@ export type AxisBasis = "detected" | "supported";
 export interface AxisResult {
   axis: string;
   basis: AxisBasis;
+  /** Set only when basis === "detected": whether this site's build actually has the
+   * feature active right now. */
   present?: boolean;
   label: string;
   detail: string;
@@ -32,7 +34,12 @@ export interface IndieMarkInputs {
   hasSyndicatedPosts: boolean;
 }
 
-const POST_TYPE_LABELS: Record<string, string> = {
+/**
+ * Human-readable label per routed post-type collection. Must cover every member of
+ * `ENTRY_COLLECTIONS` (`./collections.ts`) plus `"blog"` — see
+ * `indiemark.test.ts`'s coverage test, which guards this against drifting out of sync.
+ */
+export const POST_TYPE_LABELS: Record<string, string> = {
   blog: "blog posts",
   notes: "notes",
   articles: "articles",
@@ -41,6 +48,9 @@ const POST_TYPE_LABELS: Record<string, string> = {
   bookmarks: "bookmarks",
   replies: "replies",
   likes: "likes",
+  announcements: "announcements",
+  events: "events",
+  reviews: "reviews",
 };
 
 function detected(axis: string, present: boolean, detail: string): AxisResult {
@@ -52,15 +62,18 @@ function supported(axis: string, detail: string): AxisResult {
 }
 
 function postsAxis(postTypeCounts: Record<string, number>): AxisResult {
+  const known = Object.keys(postTypeCounts).map((key) => POST_TYPE_LABELS[key] ?? key);
   const active = Object.entries(postTypeCounts)
     .filter(([, count]) => count > 0)
     .map(([key]) => POST_TYPE_LABELS[key] ?? key);
   if (active.length === 0) {
-    return detected(
-      "Posts",
-      false,
-      "No posts yet in any post-type collection (notes, articles, photos, albums, bookmarks, replies, likes, blog).",
-    );
+    // `known` can be empty in unit tests that pass an unpopulated postTypeCounts ({}) — fall back
+    // to a plain "No posts yet." rather than an empty/malformed parenthetical in that case.
+    const detail =
+      known.length === 0
+        ? "No posts yet."
+        : `No posts yet in any post-type collection (${known.join(", ")}).`;
+    return detected("Posts", false, detail);
   }
   const noun = active.length === 1 ? "post type" : "post types";
   return detected("Posts", true, `Publishing ${active.length} ${noun}: ${active.join(", ")}.`);
