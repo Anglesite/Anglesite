@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import AppKit
 import WebKit
 import AnglesiteCore
 
@@ -171,6 +172,18 @@ final class WYSIWYGCanvasController {
         guard let id = selectedBlockId, let node = model.blocks[id], let location = locate(id) else { return }
         await submit(.deleteBlock(parentId: location.parentId, slot: location.slot, index: location.index, blockId: id, block: node))
         selectedBlockId = nil
+    }
+
+    /// The Edit ▸ Copy target for the canvas's block selection (#1588 Task 16) — writes real HTML
+    /// + plain text via `WYSIWYGBlockClipboardWriter`, not just a debug string.
+    func copySelectedBlock(pasteboard: NSPasteboard = .general) {
+        guard let id = selectedBlockId, let node = model.blocks[id] else { return }
+        let (html, plain) = WYSIWYGBlockClipboardWriter.render(node)
+        pasteboard.clearContents()
+        pasteboard.setString(plain, forType: .string)
+        if let htmlData = html.data(using: .utf8) {
+            pasteboard.setData(htmlData, forType: .html)
+        }
     }
 
     /// The Insert menu's Component submenu (#1225 Task 12) — appends a brand-new block built
