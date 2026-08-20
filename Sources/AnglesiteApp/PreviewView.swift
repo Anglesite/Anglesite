@@ -247,6 +247,29 @@ struct PreviewView: NSViewRepresentable {
     }
 }
 
+/// Structural insertion target for a palette drop, decoded from the mounted engine's
+/// `window.__anglesiteWysiwygMount.dropTargetAt` (Task 10) — matches its JS return shape.
+struct WYSIWYGDropTargetPayload: Decodable {
+    let parentId: String
+    let slot: String
+    let index: Int
+}
+
+/// Resolves a palette drop's screen location to a structural insertion target via the mounted
+/// engine's `dropTargetAt` (Task 10), then submits the resulting `insertBlock` — the WYSIWYG
+/// analog of `ComponentEditorCanvasPane.performCanvasDrop`.
+@MainActor
+func performWYSIWYGPaletteDrop(payload: WYSIWYGPaletteDragPayload, location: CGPoint, webView: WKWebView, controller: WYSIWYGCanvasController) async {
+    let script = "JSON.stringify(window.__anglesiteWysiwygMount?.dropTargetAt?.(\(location.x), \(location.y)) ?? null)"
+    guard let json = try? await webView.evaluateJavaScript(script) as? String,
+          let data = json.data(using: .utf8),
+          let target = try? JSONDecoder().decode(WYSIWYGDropTargetPayload.self, from: data)
+    else { return }
+    let newId = UUID().uuidString
+    let content = BlockNodeContent(kind: payload.kind, componentName: payload.componentName, props: [:], slots: [:], sourceSpan: [0, 0])
+    await controller.submit(.insertBlock(parentId: target.parentId, slot: target.slot, index: target.index, newId: newId, block: content))
+}
+
 /// Watches whether the WYSIWYG canvas (#1225) holds real AppKit keyboard focus, so
 /// `WYSIWYGCanvasController.hasKeyboardFocus` (Task 11) and `EditorFocusRegistry`'s
 /// `.wysiwygCanvas` case (added inert in Task 10 — `FormatCommands`/`EditMenuSkeletonCommands`

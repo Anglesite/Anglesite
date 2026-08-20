@@ -1264,6 +1264,16 @@ struct SiteWindow: View {
                 onWebViewDismantled: { [preview = model.preview] webView in preview.detachWebView(webView) }
             )
             .wysiwygCanvasFocusTracking(model.preview.wysiwygCanvas)
+            // #1588 Task 11: a palette row dragged onto the canvas. Guarding on `wysiwygCanvas`
+            // (nil except while Site ▸ Edit Page is on, per `PreviewModel.isEditModeEnabled`'s doc
+            // comment) is what keeps this inert outside edit mode — no separate `active:` gate
+            // needed the way `.onDeleteCommand` below requires one, since returning `false` here
+            // both declines the drop and leaves nothing else attached that could conflict with it.
+            .dropDestination(for: WYSIWYGPaletteDragPayload.self) { payloads, location in
+                guard let payload = payloads.first, let canvas = model.preview.wysiwygCanvas, let webView = model.preview.webView else { return false }
+                Task { await performWYSIWYGPaletteDrop(payload: payload, location: location, webView: webView, controller: canvas) }
+                return true
+            }
             // #1225 Task 11 / #1423: the canvas's own Delete target — attached only while the
             // sentinel above reports real keyboard focus on the canvas (menu-bar IA spec's "one
             // focus-scoped command" rule; no second Commands-level Delete button). The `active:`
