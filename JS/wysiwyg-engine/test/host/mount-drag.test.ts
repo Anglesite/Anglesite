@@ -3,6 +3,7 @@ import { describe, it, expect, beforeEach, vi } from "vitest";
 import { WysiwygEngine } from "../../src/engine.js";
 import type { BlockModel, HostTransport, OpResult } from "../../src/types.js";
 import { __testables } from "../../src/host/mount.js";
+import { DragReorderController } from "../../src/drag-drop.js";
 
 function stubTransport(): HostTransport {
   return { sendOp: async (): Promise<OpResult> => ({ status: "applied", model: emptyModel() }), onModelUpdate: () => () => {} };
@@ -48,5 +49,16 @@ describe("mount.ts drag chrome", () => {
     const dispose = __testables.renderSelectionHandle(engine, dragReorder);
     dispose();
     expect(document.getElementById("__anglesite-wysiwyg-drag-handle")).toBeNull();
+  });
+
+  it("unmount disposes the DragReorderController built by mount, not just the selection/handle wiring", () => {
+    const disposeSpy = vi.spyOn(DragReorderController.prototype, "dispose");
+    try {
+      window.__anglesiteWysiwygMount!.mount(emptyModel());
+      window.__anglesiteWysiwygMount!.unmount();
+      expect(disposeSpy).toHaveBeenCalledTimes(1);
+    } finally {
+      disposeSpy.mockRestore();
+    }
   });
 });

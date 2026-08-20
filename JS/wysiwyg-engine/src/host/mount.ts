@@ -108,6 +108,7 @@ export const __testables = { wireSelection, renderSelectionHandle };
 
 let disposeSelection: (() => void) | null = null;
 let disposeHandle: (() => void) | null = null;
+let dragReorder: DragReorderController | null = null;
 
 // Disposes whatever is currently mounted (if anything) and clears the globals — the shared body
 // of `unmount()` below, factored out so `mount()` can call it too (#1225 final-review round 2,
@@ -118,6 +119,12 @@ function disposeMounted(): void {
   disposeSelection = null;
   disposeHandle?.();
   disposeHandle = null;
+  // Tears down `dragReorder`'s own `pointermove`/`pointerup` document listeners (drag-drop.ts).
+  // Without this, a drag in progress when the host unmounts/remounts (e.g. Edit Page toggled off
+  // mid-drag) leaves those listeners attached and closing over the engine being disposed below —
+  // a later `pointerup` would then call `submit()` on an already-disposed engine.
+  dragReorder?.dispose();
+  dragReorder = null;
   window.__anglesiteWysiwygRichTextEditor?.dispose();
   window.__anglesiteWysiwygQualityGates?.dispose();
   window.__anglesiteWysiwygEngine?.dispose();
@@ -143,7 +150,7 @@ window.__anglesiteWysiwygMount = {
     // `window.__anglesiteWysiwygHost` bridge.
     window.__anglesiteWysiwygQualityGates = new QualityGateChips(engine, transport);
     disposeSelection = wireSelection(engine);
-    const dragReorder = new DragReorderController(engine, () => {}, document);
+    dragReorder = new DragReorderController(engine, () => {}, document);
     disposeHandle = renderSelectionHandle(engine, dragReorder);
     return engine;
   },
