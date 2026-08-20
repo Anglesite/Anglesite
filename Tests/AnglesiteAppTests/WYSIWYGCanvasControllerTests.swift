@@ -238,6 +238,25 @@ struct WYSIWYGCanvasControllerTests {
         let decoded = try JSONDecoder().decode([Finding].self, from: Data(json.utf8))
         #expect(decoded == [finding])
     }
+
+    @Test("stubBlockPalette's Callout entry exposes text, color, and boolean prop descriptors")
+    func stubPaletteCalloutHasTypedProps() {
+        let callout = WYSIWYGCanvasController.stubBlockPalette.first { $0.componentName == "Callout" }
+        guard let callout else {
+            Issue.record("Callout entry not found in palette")
+            return
+        }
+        let kinds = callout.props.map(\.kind).sorted(by: { $0.rawValue < $1.rawValue })
+        let expected: [WYSIWYGPropEditorKind] = [.boolean, .color, .text].sorted(by: { $0.rawValue < $1.rawValue })
+        #expect(kinds == expected)
+    }
+
+    @Test("stubBlockPalette's Heading entry exposes an enum level prop")
+    func stubPaletteHeadingHasEnumLevel() {
+        let heading = WYSIWYGCanvasController.stubBlockPalette.first { $0.componentName == "h2" }
+        #expect(heading?.props.first?.kind == .enumeration)
+        #expect(heading?.props.first?.enumOptions == ["1", "2", "3", "4"])
+    }
 }
 
 private extension OpResult {

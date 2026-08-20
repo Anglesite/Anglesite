@@ -330,15 +330,39 @@ struct WYSIWYGBlockPaletteEntry: Identifiable, Sendable {
     let displayName: String
     let kind: BlockKind
     let componentName: String
+    let props: [WYSIWYGPropDescriptor]
+
+    init(id: UUID, displayName: String, kind: BlockKind, componentName: String, props: [WYSIWYGPropDescriptor] = []) {
+        self.id = id
+        self.displayName = displayName
+        self.kind = kind
+        self.componentName = componentName
+        self.props = props
+    }
 }
 
 extension WYSIWYGCanvasController {
-    /// Static interim palette until #1222's sidecar model service supplies a real
-    /// CEM-aligned theme manifest. Kept intentionally small — enough to exercise the Insert
-    /// menu's data-driven wiring, not a stand-in for real theme block coverage.
+    /// Static interim palette until #1222's sidecar model service supplies a real CEM-aligned
+    /// theme manifest — now with `props` (#1588 Task 5) so the native inspector (Task 6-8) has
+    /// real per-kind schemas to render, covering every `WYSIWYGPropEditorKind`.
     static let stubBlockPalette: [WYSIWYGBlockPaletteEntry] = [
         WYSIWYGBlockPaletteEntry(id: UUID(), displayName: "Paragraph", kind: .text, componentName: "p"),
-        WYSIWYGBlockPaletteEntry(id: UUID(), displayName: "Heading", kind: .text, componentName: "h2"),
+        WYSIWYGBlockPaletteEntry(
+            id: UUID(), displayName: "Heading", kind: .text, componentName: "h2",
+            props: [WYSIWYGPropDescriptor(name: "level", label: "Level", kind: .enumeration, enumOptions: ["1", "2", "3", "4"])]),
+        WYSIWYGBlockPaletteEntry(
+            id: UUID(), displayName: "Callout", kind: .astro, componentName: "Callout",
+            props: [
+                WYSIWYGPropDescriptor(name: "title", label: "Title", kind: .text),
+                WYSIWYGPropDescriptor(name: "accentColor", label: "Accent Color", kind: .color),
+                WYSIWYGPropDescriptor(name: "emphasis", label: "Emphasis", kind: .boolean),
+            ]),
+        WYSIWYGBlockPaletteEntry(
+            id: UUID(), displayName: "Image", kind: .astro, componentName: "img",
+            props: [
+                WYSIWYGPropDescriptor(name: "src", label: "Source", kind: .text),
+                WYSIWYGPropDescriptor(name: "alt", label: "Alt Text", kind: .text),
+            ]),
     ]
 }
 
