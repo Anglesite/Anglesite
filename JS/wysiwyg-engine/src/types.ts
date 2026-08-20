@@ -14,7 +14,17 @@ export interface RichTextRun {
   children?: RichTextRun[];
 }
 
-export type BlockKind = "astro" | "custom-element" | "text";
+export type BlockKind =
+  | "astro"
+  | "custom-element"
+  | "text"
+  /** A plain HTML element with no block-manifest registration — a wrapper/container node that's
+   *  still a valid insertBlock/moveBlock target even though it's not itself a theme-authored
+   *  block. Mirrors Swift's `BlockKind.element` (WYSIWYGOps.swift, added for #1222). */
+  | "element"
+  /** The page's synthetic fragment root, or any nested fragment. Never itself editable, but
+   *  still addressable as a `parentId`. Mirrors Swift's `BlockKind.fragment`. */
+  | "fragment";
 
 export interface BlockNode {
   id: BlockId;

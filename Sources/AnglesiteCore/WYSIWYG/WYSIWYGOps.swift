@@ -60,6 +60,15 @@ public enum BlockKind: String, Codable, Sendable {
     case astro
     case customElement = "custom-element"
     case text
+    /// A plain HTML element with no block-manifest registration — a wrapper/container node
+    /// that's still a valid `insertBlock`/`moveBlock` target even though it's not itself a
+    /// theme-authored block. Added for the sidecar-backed transport (#1222); the JS engine side
+    /// (`JS/wysiwyg-engine/src/types.ts`) needs the matching case added in lockstep — check it
+    /// compiles against the wire string `"element"` before assuming parity.
+    case element
+    /// The page's synthetic fragment root, or any nested fragment. Never itself editable, but
+    /// still addressable as a `parentId`.
+    case fragment
 }
 
 /// Full block node, including its `id` — matches TS `BlockNode`.

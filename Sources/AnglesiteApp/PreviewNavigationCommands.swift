@@ -76,7 +76,7 @@ struct PreviewNavigationCommands: Commands {
 
             // Site ▸ Edit Page (#1225): the WYSIWYG canvas toggle — mounts/tears down
             // `WYSIWYGCanvasController` against the existing preview pane (`PreviewModel
-            // .enterEditMode(seedModel:)`/`.exitEditMode()`). `Toggle` (not `Button`) so the menu
+            // .enterEditMode(path:)`/`.exitEditMode()`). `Toggle` (not `Button`) so the menu
             // shows a checkmark while edit mode is on, same convention `ViewMenuCommands`'s pane
             // switcher uses. Gated on `hasWebView` (not `canDeploy`/`state`) since edit mode reuses
             // the live preview web view directly and has no requirements beyond it existing.
@@ -85,11 +85,14 @@ struct PreviewNavigationCommands: Commands {
         }
     }
 
-    /// Drives `PreviewModel.enterEditMode(seedModel:undoManager:)`/`.exitEditMode()` from the
-    /// Toggle above. `seedModel` is a placeholder empty page — #1222's sidecar `get_page_model`
-    /// fetch is still blocked, so there is no real page model to seed the canvas with yet; this
-    /// exists purely to exercise the vertical slice (mount → context menu → ops → undo) until
-    /// that lands.
+    /// Drives `PreviewModel.enterEditMode(path:undoManager:)`/`.exitEditMode()` from the Toggle
+    /// above. `path` comes from `focusedSiteWindowModel.activePageSourcePath` — the resolved
+    /// project-relative `.astro` source for the preview's current route (#1222), computed the
+    /// same way `SiteWindowModel.effectPlacementController` resolves its own target path. Falls
+    /// back to `PageSourcePath.resolve(route:pages:)` with an empty scanned-pages list on the
+    /// (practically unreachable, since the toggle is disabled until `hasWebView`) case where no
+    /// `SiteWindowModel` is focused — the same naming-convention fallback `PageSourcePath` itself
+    /// uses when the site's scanned-pages graph hasn't populated yet.
     ///
     /// Passes `focusedSiteWindowModel?.windowUndoManager` — read fresh at the moment the toggle
     /// flips on — so the newly-built `wysiwygCanvas`'s `undoCoordinator` gets a real `UndoManager`
@@ -103,10 +106,10 @@ struct PreviewNavigationCommands: Commands {
             set: { isOn in
                 guard let focusedPreview else { return }
                 if isOn {
-                    let seed = BlockModel(
-                        path: focusedPreview.activeRoute ?? "/", version: "v0", rootIds: [], blocks: [:])
+                    let path = focusedSiteWindowModel?.activePageSourcePath
+                        ?? PageSourcePath.resolve(route: focusedPreview.activeRoute, pages: [])
                     let undoManager = focusedSiteWindowModel?.windowUndoManager
-                    Task { await focusedPreview.enterEditMode(seedModel: seed, undoManager: undoManager) }
+                    Task { await focusedPreview.enterEditMode(path: path, undoManager: undoManager) }
                 } else {
                     focusedPreview.exitEditMode()
                 }
