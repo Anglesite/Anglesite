@@ -97,6 +97,25 @@ final class PreviewModel {
     /// exposed separately so callers don't have to spell out the nil check.
     var isEditModeEnabled: Bool { wysiwygCanvas != nil }
 
+    /// The `Source/`-relative page file currently mounted in the WYSIWYG canvas, resolved against
+    /// `openSiteDirectory` — `nil` outside edit mode, or before a site directory is known.
+    /// `.navigationDocument` uses this (Task 18) so the window's proxy icon points at the specific
+    /// page being edited rather than the whole package.
+    var editingPageSourceURL: URL? {
+        guard let canvas = wysiwygCanvas, let openSiteDirectory else { return nil }
+        return openSiteDirectory.appendingPathComponent(canvas.model.path)
+    }
+
+    /// The edited page's own title while WYSIWYG edit mode is active — the last path component of
+    /// `editingPageSourceURL` with its extension stripped, as a readable stand-in until a real
+    /// page-title field exists on `BlockModel` (out of scope here; `BlockModel.path` is the only
+    /// per-page identifier PR1 gave the model). `nil` outside edit mode, so `SiteWindow` falls
+    /// back to the site's own name.
+    var editingPageTitle: String? {
+        guard let url = editingPageSourceURL else { return nil }
+        return url.deletingPathExtension().lastPathComponent
+    }
+
     /// Site ▸ Edit Page toggle (#1225). `seedModel` stands in for a real `get_page_model` fetch
     /// (#1222) until the sidecar backend exists.
     ///

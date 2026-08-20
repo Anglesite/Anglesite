@@ -305,11 +305,13 @@ struct SiteWindow: View {
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
             }
         }
-        .navigationTitle(site.name)
+        .navigationTitle(model.preview.editingPageTitle ?? site.name)
         .navigationSubtitle(model.preview.readyURL?.absoluteString ?? "")
         // Titlebar proxy icon (#521): ⌘-click shows the package's path, and the icon drags as the
         // `.anglesite` package itself. The window's security-scoped grant already covers the URL.
-        .navigationDocument(site.packageURL)
+        // While WYSIWYG edit mode is active (#1588 Task 18), both title and proxy icon instead
+        // point at the specific page being edited inside `Source/`.
+        .navigationDocument(model.preview.editingPageSourceURL ?? site.packageURL)
         // Titlebar edited-dot (#1588 Task 17): reflects uncommitted in-memory WYSIWYG ops against
         // the stub backend, not a real git-dirty state — see `WindowEditedStateBridge`'s doc comment.
         .background(WindowEditedStateBridge(isEdited: model.preview.wysiwygCanvas?.hasUncommittedOps ?? false))
