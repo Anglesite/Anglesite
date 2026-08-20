@@ -1,0 +1,51 @@
+---
+/**
+ * Effects gallery — Cursor-Reactive (#768). A button/link that eases toward the pointer within a
+ * small radius, resetting on pointerleave. Renders as `<a>` when `href` is set, `<button>`
+ * otherwise. Inline placement: drop it anywhere text or a CTA would normally go.
+ */
+interface Props {
+  text?: string;
+  href?: string;
+}
+const { text = "Get in touch", href } = Astro.props;
+const Tag = href ? "a" : "button";
+---
+<Tag class="magnetic-button" href={href}>{text}</Tag>
+
+<script>
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  const canHover = matchMedia("(hover: hover) and (pointer: fine)").matches;
+  if (!reduceMotion && canHover) {
+    document.querySelectorAll<HTMLElement>(".magnetic-button").forEach((el) => {
+      const radius = 60;
+      el.addEventListener("pointermove", (ev) => {
+        const rect = el.getBoundingClientRect();
+        const dx = ev.clientX - (rect.left + rect.width / 2);
+        const dy = ev.clientY - (rect.top + rect.height / 2);
+        const distance = Math.hypot(dx, dy);
+        if (distance < radius) {
+          el.style.transform = `translate(${dx * 0.3}px, ${dy * 0.3}px)`;
+        }
+      });
+      el.addEventListener("pointerleave", () => {
+        el.style.transform = "translate(0, 0)";
+      });
+    });
+  }
+</script>
+
+<style>
+  .magnetic-button {
+    display: inline-block;
+    padding: 0.75em 1.5em;
+    border-radius: 999px;
+    background: color-mix(in srgb, currentColor 10%, transparent);
+    border: 1px solid currentColor;
+    font: inherit;
+    cursor: pointer;
+    transition: transform 0.15s ease-out;
+    text-decoration: none;
+    color: inherit;
+  }
+</style>

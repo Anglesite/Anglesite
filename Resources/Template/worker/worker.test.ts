@@ -7,6 +7,7 @@ import {
   validateInboxFields,
   isRateLimited,
   handleInbox,
+  buildInboxForwardRaw,
   handleIndieAuthConsent,
   createConsentToken,
   verifyConsentToken,
@@ -23,6 +24,9 @@ import {
 } from "./worker";
 import worker from "./worker";
 import { tagFediverseUrl } from "./utm-codes.ts";
+import { createMicropubStore } from "@dwk/micropub";
+import { READER_SESSION_COOKIE, createReaderSessionToken } from "./reader-session.ts";
+import { normalizeReaderIdentity } from "./reader-identity.ts";
 
 const testEnv = env as unknown as WorkerEnv;
 
@@ -142,6 +146,148 @@ test("handleInbox: 500s when INBOX_KV isn't bound", async () => {
   });
   const response = await handleInbox(request, {});
   expect(response.status).toBe(500);
+});
+
+function makeFakeSendEmail(): { send: (message: unknown) => Promise<void>; calls: unknown[] } {
+  const calls: unknown[] = [];
+  return {
+    calls,
+    async send(message: unknown) {
+      calls.push(message);
+    },
+  };
+}
+
+test("handleInbox: forwards to SEND_EMAIL when both it and INBOX_FORWARD_EMAIL are bound", async () => {
+  const kv = makeFakeKV();
+  const sendEmail = makeFakeSendEmail();
+  const request = new Request("https://my-site.example/inbox", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subject: "Hello", from: "a@example.com", message: "Hi there" }),
+  });
+  const response = await handleInbox(request, {
+    INBOX_KV: kv,
+    SEND_EMAIL: sendEmail as never,
+    INBOX_FORWARD_EMAIL: "owner@example.com",
+  });
+  expect(response.status).toBe(202);
+  expect(sendEmail.calls.length).toBe(1);
+});
+
+test("handleInbox: still stages the submission and returns 202 when SEND_EMAIL.send rejects", async () => {
+  const kv = makeFakeKV();
+  const sendEmail = {
+    async send() {
+      throw new Error("destination address not verified");
+    },
+  };
+  const request = new Request("https://my-site.example/inbox", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subject: "Hello", from: "a@example.com", message: "Hi there" }),
+  });
+  const response = await handleInbox(request, {
+    INBOX_KV: kv,
+    SEND_EMAIL: sendEmail as never,
+    INBOX_FORWARD_EMAIL: "owner@example.com",
+  });
+  expect(response.status).toBe(202);
+  const [, stagedRaw] = [...kv.store.entries()].find(([key]) => key.startsWith("inbox:"))!;
+  expect(JSON.parse(stagedRaw).subject).toBe("Hello");
+});
+
+test("handleInbox: does not call SEND_EMAIL.send when INBOX_FORWARD_EMAIL is unset", async () => {
+  const kv = makeFakeKV();
+  const sendEmail = makeFakeSendEmail();
+  const request = new Request("https://my-site.example/inbox", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subject: "Hello", from: "a@example.com", message: "Hi there" }),
+  });
+  const response = await handleInbox(request, { INBOX_KV: kv, SEND_EMAIL: sendEmail as never });
+  expect(response.status).toBe(202);
+  expect(sendEmail.calls.length).toBe(0);
+});
+
+test("buildInboxForwardRaw: base64-encodes the subject header, so embedded CRLF can't inject a header", () => {
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: "Hi\r\nBcc: attacker@evil.example",
+    from: "a@example.com",
+    message: "hello",
+  });
+  // The header/body boundary is the *first* blank line — split only there, not on every blank
+  // line the body itself may contain (the injected value's own CRLF creates one further down).
+  const headerEnd = raw.indexOf("\r\n\r\n");
+  const headerBlock = raw.slice(0, headerEnd);
+  const bodyBlock = raw.slice(headerEnd + 4);
+  expect(headerBlock).not.toContain("Bcc:");
+  expect(headerBlock).toMatch(/^Subject: =\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/m);
+  // The raw, unencoded content only ever appears in the body, after the header/body separator.
+  expect(bodyBlock).toContain("Hi\r\nBcc: attacker@evil.example");
+});
+
+test("buildInboxForwardRaw: puts from/message in the body untouched and the recipient in To", () => {
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: "Hello",
+    from: "a@example.com",
+    message: "Hi there",
+  });
+  expect(raw).toContain("To: <owner@example.com>");
+  expect(raw).toContain('From: "Site Inbox" <inbox@my-site.example>');
+  expect(raw).toContain("From: a@example.com");
+  expect(raw).toContain("Hi there");
+  expect(raw).toContain("Submission ID: abc-123");
+});
+
+function decodeRfc2047(headerValue: string): string {
+  const words = [...headerValue.matchAll(/=\?UTF-8\?B\?([A-Za-z0-9+/=]+)\?=/g)].map((m) => m[1]!);
+  const bytes = words.flatMap((w) => [...atob(w)].map((c) => c.charCodeAt(0)));
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+test("buildInboxForwardRaw: folds a near-MAX_SUBJECT_LENGTH subject into multiple RFC 2047 encoded-words, each within the 75-char cap", () => {
+  const longSubject = "x".repeat(200); // MAX_SUBJECT_LENGTH
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: longSubject,
+    from: "a@example.com",
+    message: "hi",
+  });
+  const headerEnd = raw.indexOf("\r\n\r\n");
+  const headerBlock = raw.slice(0, headerEnd);
+  const subjectMatch = headerBlock.match(/Subject: ([\s\S]*?)\r\nMIME-Version:/);
+  expect(subjectMatch).not.toBeNull();
+  const subjectHeader = subjectMatch![1]!;
+  const lines = subjectHeader.split("\r\n ");
+  expect(lines.length).toBeGreaterThan(1);
+  for (const line of lines) {
+    expect(line.length).toBeLessThanOrEqual(75);
+    expect(line).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
+  }
+  expect(decodeRfc2047(subjectHeader)).toBe(`[Inbox] ${longSubject}`);
+});
+
+test("buildInboxForwardRaw: a multi-byte-character subject decodes correctly across an encoded-word fold boundary", () => {
+  // A run of 3-byte UTF-8 characters (each "🙂"-adjacent BMP emoji-free code point) long enough
+  // to straddle the 45-byte-per-word boundary, verifying the UTF-8 boundary backoff doesn't
+  // corrupt a character split across two words.
+  const longSubject = "café ".repeat(40); // each "é" is 2 bytes — forces non-ASCII byte splits
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: longSubject,
+    from: "a@example.com",
+    message: "hi",
+  });
+  const headerEnd = raw.indexOf("\r\n\r\n");
+  const subjectMatch = raw.slice(0, headerEnd).match(/Subject: ([\s\S]*?)\r\nMIME-Version:/);
+  expect(decodeRfc2047(subjectMatch![1]!)).toBe(`[Inbox] ${longSubject}`);
 });
 
 function base64url(bytes: Uint8Array): string {
@@ -370,15 +516,50 @@ test("routing: with no running experiment configured, existing routes are unaffe
   expect(await assetResponse.text()).toBe("No assets binding configured");
 });
 
-test("IndieAuth metadata advertises the authorization and token endpoints", async () => {
+test("IndieAuth metadata advertises a full RFC 8414 authorization-server document (#1580)", async () => {
   const response = await fetchWorker(new Request("https://owner.example/.well-known/oauth-authorization-server"));
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toMatchObject({
     issuer: "https://owner.example",
     authorization_endpoint: "https://owner.example/authorize",
     token_endpoint: "https://owner.example/token",
+    revocation_endpoint: "https://owner.example/revocation",
+    revocation_endpoint_auth_methods_supported: ["none"],
+    grant_types_supported: ["authorization_code"],
+    response_types_supported: ["code"],
     code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["none"],
+    scopes_supported: ["create", "update", "delete", "media", "follow", "channels", "read"],
   });
+});
+
+test("RFC 9728 protected-resource metadata points agents at this site's own authorization server (#1577)", async () => {
+  const response = await fetchWorker(new Request("https://owner.example/.well-known/oauth-protected-resource"));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("application/json");
+  await expect(response.json()).resolves.toStrictEqual({
+    resource: "https://owner.example",
+    authorization_servers: ["https://owner.example"],
+    scopes_supported: ["create", "update", "delete", "media", "follow", "channels", "read"],
+    dpop_bound_access_tokens_required: true,
+    dpop_signing_alg_values_supported: ["ES256", "ES384", "RS256", "PS256"],
+  });
+});
+
+test("routing: protected-resource metadata rejects undeclared methods and mirrors HEAD", async () => {
+  const post = await fetchWorker(
+    new Request("https://owner.example/.well-known/oauth-protected-resource", { method: "POST" }),
+  );
+  expect(post.status).toBe(405);
+  expect(post.headers.get("allow")).toBe("GET, HEAD");
+
+  const get = await fetchWorker(new Request("https://owner.example/.well-known/oauth-protected-resource"));
+  const head = await fetchWorker(
+    new Request("https://owner.example/.well-known/oauth-protected-resource", { method: "HEAD" }),
+  );
+  expect(head.status).toBe(get.status);
+  expect(head.headers.get("content-type")).toBe(get.headers.get("content-type"));
+  expect(await head.text()).toBe("");
 });
 
 test("IndieAuth owner consent completes PKCE sign-in and issues a DPoP token", async () => {
@@ -2076,4 +2257,134 @@ test("activityPubConfig: AP_MODERATORS is ignored (undefined) for a Person actor
     makeActivityPubEnv({ AP_MODERATORS: "https://mod1.example/actor" }),
   );
   expect(config?.moderators).toBeUndefined();
+});
+
+// --- Worker read gate (#1568) ------------------------------------------------------------
+
+async function sessionCookieFor(me: string): Promise<string> {
+  const token = await createReaderSessionToken(normalizeReaderIdentity(me), testEnv.TOKEN_SIGNING_KEY);
+  return `${READER_SESSION_COOKIE}=${token}`;
+}
+
+/** Minimal stub satisfying `Fetcher`, since the vitest miniflare env has no real ASSETS binding. */
+function assetsAlways404(): WorkerEnv["ASSETS"] {
+  return { fetch: async () => new Response("Not Found", { status: 404 }) } as unknown as WorkerEnv["ASSETS"];
+}
+
+test("contacts/signin: renders the sign-in form with no me", async () => {
+  const response = await fetchWorker(new Request("https://owner.example/contacts/signin"));
+  expect(response.status).toBe(200);
+  expect(await response.text()).toContain('name="me"');
+});
+
+test("contacts/signin: discovers the endpoint and redirects with a signed state", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      '<html><head><link rel="authorization_endpoint" href="https://alice.example/auth"></head></html>',
+      { headers: { "content-type": "text/html" } },
+    )) as unknown as typeof fetch;
+  try {
+    const response = await fetchWorker(
+      new Request("https://owner.example/contacts/signin?me=https://alice.example/"),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toContain("https://alice.example/auth");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("contacts/callback: verifies identity, checks the allowlist, and starts a session", async () => {
+  const { createSigninState } = await import("./reader-session.ts");
+  const state = await createSigninState(
+    {
+      me: "https://alice.example/",
+      redirectTo: "/notes/hello",
+      authorizationEndpoint: "https://alice.example/auth",
+      verifier: "v",
+    },
+    testEnv.TOKEN_SIGNING_KEY,
+  );
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ me: "https://alice.example/" }), {
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+  try {
+    await testEnv.SOCIAL_KV!.put("contacts:allowlist", JSON.stringify(["alice.example"]));
+    const response = await fetchWorker(
+      new Request(`https://owner.example/contacts/callback?code=abc&state=${encodeURIComponent(state)}`),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/notes/hello");
+    expect(response.headers.get("set-cookie")).toContain(READER_SESSION_COOKIE);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("contacts/feed: 403 without a session, 200 listing only contacts-visibility posts with one", async () => {
+  const unauthorized = await fetchWorker(new Request("https://owner.example/contacts/feed"));
+  expect(unauthorized.status).toBe(403);
+
+  const store = createMicropubStore({ MICROPUB_DB: testEnv.MICROPUB_DB! });
+  await store.insertPost({
+    url: "https://owner.example/notes/gate-feed-restricted",
+    type: "h-entry",
+    properties: { name: ["Gate Feed Restricted"], visibility: ["contacts"] },
+    now: 1_000,
+  });
+  const cookie = await sessionCookieFor("https://alice.example/");
+  const authorized = await fetchWorker(
+    new Request("https://owner.example/contacts/feed", { headers: { Cookie: cookie } }),
+  );
+  expect(authorized.status).toBe(200);
+  expect(await authorized.text()).toContain("Gate Feed Restricted");
+});
+
+test("gated permalink fallback: unrelated 404s are untouched, plausible post URLs are gated", async () => {
+  const assetsEnv = { ...testEnv, ASSETS: assetsAlways404() };
+
+  // Not shaped like a post permalink — the gate never engages, plain 404 exactly as before #1568.
+  const unrelated = await worker.fetch(
+    new Request("https://owner.example/styles.css"),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(unrelated.status).toBe(404);
+
+  // Plausible post URL, no session — uniform 403, not a leak-revealing 404.
+  const noSession = await worker.fetch(
+    new Request("https://owner.example/notes/some-slug"),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(noSession.status).toBe(403);
+
+  // Authorized session, but no such post — falls back to the plain 404 (safe: only a verified,
+  // allowlisted contact ever reaches this branch).
+  const cookie = await sessionCookieFor("https://alice.example/");
+  const authorizedNoPost = await worker.fetch(
+    new Request("https://owner.example/notes/does-not-exist-either", { headers: { Cookie: cookie } }),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(authorizedNoPost.status).toBe(404);
+
+  // Authorized session, real restricted post — renders it.
+  const store = createMicropubStore({ MICROPUB_DB: testEnv.MICROPUB_DB! });
+  await store.insertPost({
+    url: "https://owner.example/notes/gate-permalink-restricted",
+    type: "h-entry",
+    properties: { name: ["Gate Permalink Restricted"], visibility: ["contacts"] },
+    now: 1_000,
+  });
+  const rendered = await worker.fetch(
+    new Request("https://owner.example/notes/gate-permalink-restricted", { headers: { Cookie: cookie } }),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(rendered.status).toBe(200);
+  expect(await rendered.text()).toContain("Gate Permalink Restricted");
 });

@@ -42,6 +42,7 @@ import {
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { isAtprotoDidOwned, isMTAStsMarkerOwned, isSecurityTxtMarkerOwned } from "./edge-artifacts";
+import { isAgentSkillsDocOwned, isAgentSkillsIndexOwned } from "./agent-skills";
 
 /** Mirrors `WellKnownClaimManifest.environmentVariableName`. */
 export const MANIFEST_ENV_VAR = "ANGLESITE_WELLKNOWN_CLAIM_MANIFEST";
@@ -349,7 +350,13 @@ function isGeneratedArtifact(fullPath: string): boolean {
   } catch {
     return false;
   }
-  return isSecurityTxtMarkerOwned(content) || isMTAStsMarkerOwned(content) || isAtprotoDidOwned(content);
+  return (
+    isSecurityTxtMarkerOwned(content) ||
+    isMTAStsMarkerOwned(content) ||
+    isAtprotoDidOwned(content) ||
+    isAgentSkillsIndexOwned(content) ||
+    isAgentSkillsDocOwned(content)
+  );
 }
 
 function main(argv: string[]): void {

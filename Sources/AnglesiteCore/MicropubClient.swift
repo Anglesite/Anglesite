@@ -17,6 +17,17 @@ public enum MicropubPostStatus: String, Sendable, Equatable, CaseIterable {
     case published
 }
 
+/// The restricted-posting epic's audience tier (#963 §2.2, #1566): `public` is the default,
+/// `contacts` restricts the post to the site's `ContactStore` allowlist (enforced by a later
+/// slice — this client only stamps and reads the value). A string enum, not a boolean, so finer
+/// tiers can layer on later without breaking already-stored posts.
+public enum MicropubPostVisibility: String, Sendable, Equatable, Hashable, CaseIterable {
+    /// Visible to anyone — the default when the property is absent.
+    case `public`
+    /// Visible only to the site's known contacts, once a later slice enforces membership.
+    case contacts
+}
+
 /// An mf2 post as the Micropub endpoint reads or writes it: the JSON
 /// `{ "type": [...], "properties": {...} }` shape shared by create bodies, `q=source` single-post
 /// responses, and `q=source` list items. Property values stay ``JSONValue`` (not typed fields)
@@ -59,6 +70,13 @@ public struct MicropubPost: Sendable, Equatable {
         firstString("post-status").flatMap(MicropubPostStatus.init(rawValue:)) ?? .published
     }
 
+    /// The post's visibility, defaulting to ``MicropubPostVisibility/public`` when absent —
+    /// same absent-defaults-to-known-value shape as ``status``. An unrecognized value also reads
+    /// as public: the server validates the enum on write.
+    public var visibility: MicropubPostVisibility {
+        firstString("visibility").flatMap(MicropubPostVisibility.init(rawValue:)) ?? .public
+    }
+
     /// Builds an `h-entry` create body from the composer's primitive parts, deriving `mp-slug`
     /// via ``MicropubClient/deriveSlug(title:explicitSlug:)`` (so a Micropub-created post lands
     /// at the same slug `NativeContentOperations.createPost` would have chosen for the same
@@ -73,6 +91,7 @@ public struct MicropubPost: Sendable, Equatable {
     ///     parent spec's publish model (Part B), publish is an explicit later flip.
     ///   - slug: Explicit slug request, taking precedence over the title-derived one — the same
     ///     `slug ?? title` precedence `NativeContentOperations.createPost` applies.
+    ///   - visibility: Stamped as `visibility`. Defaults to public.
     ///   - extraProperties: Additional mf2 properties (categories, photo URLs, …) merged in
     ///     verbatim. Keys here win over the generated ones, so a caller with pre-built
     ///     `name`/`content` values isn't silently overridden.
@@ -82,11 +101,13 @@ public struct MicropubPost: Sendable, Equatable {
         content: String,
         status: MicropubPostStatus = .draft,
         slug: String? = nil,
+        visibility: MicropubPostVisibility = .public,
         extraProperties: [String: [JSONValue]] = [:]
     ) -> MicropubPost {
         var properties: [String: [JSONValue]] = [
             "content": [.string(content)],
             "post-status": [.string(status.rawValue)],
+            "visibility": [.string(visibility.rawValue)],
         ]
         let cleanTitle = title?.trimmingCharacters(in: .whitespacesAndNewlines)
         if let cleanTitle, !cleanTitle.isEmpty {
@@ -251,7 +272,7 @@ public struct MicropubClient: Sendable {
 
     /// Creates a post and returns its canonical URL (the `201 Created` response's `Location`).
     ///
-    /// - Parameter post: The mf2 create body — see ``MicropubPost/entry(title:content:status:slug:extraProperties:)``
+    /// - Parameter post: The mf2 create body — see ``MicropubPost/entry(title:content:status:slug:visibility:extraProperties:)``
     ///   for the common composer shape.
     /// - Returns: The created post's canonical URL.
     /// - Throws: ``MicropubError`` — ``MicropubError/decodingFailed(_:)`` when a 2xx response

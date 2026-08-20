@@ -88,6 +88,19 @@ public enum AnglesiteIntents {
             themeCatalog = ThemeCatalog(themes: [])
         }
         AppDependencyManager.shared.add { () -> ThemeCatalog in themeCatalog }
+        // `AddEffectIntent` (EffectIntents.swift, #768) resolves `@Dependency private var catalog:
+        // EffectCatalog` against whatever is registered here — same shape and same
+        // load-once/fall-back-to-empty handling as `ThemeCatalog` just above, and it shares
+        // `themeResolution` since both read the same bundled template. `perform()` already has an
+        // "I don't recognize that effect" reply path for an empty/mismatched catalog.
+        let effectCatalog: EffectCatalog
+        if let templateURL = themeResolution.url, let loaded = try? EffectCatalog.load(templateDirectory: templateURL) {
+            effectCatalog = loaded
+        } else {
+            log.error("EffectCatalog load failed at bootstrap; AddEffectIntent will report no effects available")
+            effectCatalog = EffectCatalog(entries: [])
+        }
+        AppDependencyManager.shared.add { () -> EffectCatalog in effectCatalog }
         // `EditContentIntent` (B.5 / #149) routes natural-language edits through
         // `IntentEditBridge`, which asks `EditRouterRegistry.shared` for the live edit router of
         // the requested site. The registry is populated by `PreviewModel.open()` and cleared by

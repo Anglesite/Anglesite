@@ -77,6 +77,40 @@ import AnglesiteCore
         #expect(controller.state == .idle)
     }
 
+    /// The placement HUD's before/after toggle has to actually reach `PlacementMatcher`
+    /// (#768 final review, Finding 6) — `resolve` hardcoded "after" before this.
+    @Test func inlinePositionReachesTheResolvedInsertionIndex() async {
+        let inlineEntry = EffectCatalogEntry(
+            component: "MagneticButton", title: "Magnetic Button", ownerDescription: "d",
+            category: .cursorReactive, keyProps: [:], snippet: "s",
+            placement: .init(kind: .inline, allowedParents: nil))
+        let click = PlacementPickMessage(
+            path: "/", element: .init(tag: "SECTION", id: nil, classes: ["hero"], nthChild: 1, ancestors: [], dataAnglesiteId: nil, dataTestId: nil, role: nil, ariaLabel: nil, textContent: nil))
+
+        func indexApplied(for position: PlacementMatcher.InlinePosition) async -> Int? {
+            var applied: Int?
+            let controller = EffectPlacementController(
+                path: "src/pages/index.astro",
+                pageModelClient: PageModelClient { _, _ in
+                    MCPClient.ToolCallResult(content: [.init(type: "text", text: Self.modelJSON)], isError: false)
+                },
+                editRouter: TestEditRouter { message in
+                    if case .object(let component)? = message.component, case .int(let index)? = component["index"] {
+                        applied = index
+                    }
+                    return EditReply(id: message.id, status: .applied, message: nil)
+                })
+            controller.inlinePosition = position
+            controller.startPlacement(for: inlineEntry, enterOverlayMode: {}, exitOverlayMode: {})
+            await controller.handlePick(click)
+            return applied
+        }
+
+        // The clicked SECTION is `<body>`'s only child (index 0 in the fixture tree).
+        #expect(await indexApplied(for: .after) == 1)
+        #expect(await indexApplied(for: .before) == 0)
+    }
+
     // MARK: - acknowledge()
 
     @Test func acknowledgeReturnsToIdleFromSucceeded() async {

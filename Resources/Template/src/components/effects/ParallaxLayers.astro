@@ -1,0 +1,64 @@
+---
+/**
+ * Effects gallery — Scroll-Driven (#768). A two-layer decorative block; the back layer moves
+ * slower than the page scroll (a `translateY()` parallax offset), gated by an
+ * `IntersectionObserver` so the `scroll` listener is only attached while the element is
+ * actually visible. Under `prefers-reduced-motion`, the parallax is skipped entirely and both
+ * layers render static. Inline placement: drop it anywhere a decorative section divider fits.
+ */
+interface Props {
+  height?: string;
+}
+const { height = "40vh" } = Astro.props;
+---
+<div class="parallax-layers" style={`--parallax-height: ${height}`}>
+  <div class="parallax-layer parallax-layer--back"></div>
+  <div class="parallax-layer parallax-layer--front"></div>
+</div>
+
+<script>
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  if (!reduceMotion) {
+    document.querySelectorAll<HTMLElement>(".parallax-layers").forEach((root) => {
+      const back = root.querySelector<HTMLElement>(".parallax-layer--back");
+      if (!back) return;
+      let listening = false;
+      function onScroll() {
+        const rect = root.getBoundingClientRect();
+        back!.style.transform = `translateY(${rect.top * 0.15}px)`;
+      }
+      const observer = new IntersectionObserver((entries) => {
+        for (const entry of entries) {
+          if (entry.isIntersecting && !listening) {
+            listening = true;
+            addEventListener("scroll", onScroll, { passive: true });
+            onScroll();
+          } else if (!entry.isIntersecting && listening) {
+            listening = false;
+            removeEventListener("scroll", onScroll);
+          }
+        }
+      });
+      observer.observe(root);
+    });
+  }
+</script>
+
+<style>
+  .parallax-layers {
+    position: relative;
+    height: var(--parallax-height, 40vh);
+    overflow: hidden;
+    border-radius: 12px;
+  }
+  .parallax-layer {
+    position: absolute;
+    inset: -10% 0;
+  }
+  .parallax-layer--back {
+    background: linear-gradient(180deg, color-mix(in srgb, currentColor 20%, transparent), transparent);
+  }
+  .parallax-layer--front {
+    background: linear-gradient(0deg, color-mix(in srgb, currentColor 10%, transparent), transparent 60%);
+  }
+</style>

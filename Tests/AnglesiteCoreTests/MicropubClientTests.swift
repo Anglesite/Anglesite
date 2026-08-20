@@ -60,6 +60,7 @@ struct MicropubClientTests {
         #expect(post.properties["name"] == [.string("Hello World")])
         #expect(post.properties["post-status"] == [.string("published")])
         #expect(post.properties["mp-slug"] == [.string("hello-world")])
+        #expect(post.properties["visibility"] == [.string("public")])
     }
 
     @Test("entry defaults to draft and omits name/mp-slug for an untitled note")

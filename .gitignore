@@ -30,7 +30,6 @@ xcuserdata/
 # Swift Package Manager
 .build/
 .swiftpm/
-Package.resolved
 
 # CocoaPods (in case)
 Pods/

@@ -57,6 +57,7 @@ final class SiteWindowModel {
     private let conventionsEngine: ProjectConventionsEngine
     private let contentIndexerStore: ContentIndexerStore
     private let integrationOps = IntegrationOperations.live()
+    private let restrictedPostPublisher = RestrictedPostPublisher()
     private let contentCreation: ContentCreationWorkflow
     /// Owns the invisible-publish (#357) queue/watcher/connectivity-monitor lifecycle — see
     /// `InvisiblePublishCoordinator`'s own doc comment (one of #822's four extracted subsystems).
@@ -743,7 +744,8 @@ final class SiteWindowModel {
     /// `presentCopyEdit`.
     func presentExperimentStats() {
         guard experimentStatsModel == nil, let site else { return }
-        experimentStatsModel = ExperimentStatsModel(siteID: site.id)
+        experimentStatsModel = ExperimentStatsModel(
+            siteID: site.id, sourceDirectory: site.sourceDirectory, currentRoute: preview.activeRoute ?? "/")
     }
 
     /// Presents the Repurpose Post sheet (#465), same pattern as `presentCopyEdit`/`presentSocialPlan`.
@@ -1649,8 +1651,22 @@ final class SiteWindowModel {
     }
 
     /// Backing cache for `effectPlacementController` below — see that property's doc comment for
-    /// the route-staleness fix this pair implements.
+    /// the route-staleness fix this pair implements. `@ObservationIgnored` because
+    /// `effectPlacementController` is read from a view body (`SiteWindow`'s placement-HUD overlay)
+    /// and writes this cache as a side effect — an observation-tracked write during a view update
+    /// is exactly the invalidate-while-rendering shape SwiftUI warns about. Nothing observes the
+    /// cache itself: the HUD tracks the returned controller's own `@Observable` state, and a route
+    /// change re-evaluates the reading body anyway (via `preview.activeRoute`).
+    @ObservationIgnored
     private var cachedEffectPlacementController: (path: String, controller: EffectPlacementController)?
+
+    /// Main-actor snapshot of this site's scanned pages, refreshed alongside every
+    /// `SiteContentGraph` rescan. `SiteContentGraph` is an actor, so a synchronous computed
+    /// property (`effectPlacementController`) can't read it — but it needs the route → source-file
+    /// mapping to hand `PageModelClient`/`insertBlock` a real `.astro` path rather than a route
+    /// (#768 final review, Finding 1). Empty until the first rescan lands, which
+    /// ``PageSourcePath/resolve(route:pages:)`` covers with its naming-convention fallback.
+    private var scannedPages: [SiteContentGraph.Page] = []
 
     /// The click-to-place controller for the Effects gallery sheet (Website ▸ Effects…, #768).
     /// `EffectPlacementController` captures its target `path` once at construction (`path` is a
@@ -1667,7 +1683,7 @@ final class SiteWindowModel {
     /// under itself — only an idle cached controller is eligible for a route-triggered rebuild, so
     /// an in-progress pick always resolves against the path it actually started against.
     var effectPlacementController: EffectPlacementController {
-        let path = preview.activeRoute ?? "/"
+        let path = PageSourcePath.resolve(route: preview.activeRoute, pages: scannedPages)
         if let cached = cachedEffectPlacementController,
            cached.path == path || cached.controller.state != .idle {
             return cached.controller
@@ -1688,14 +1704,41 @@ final class SiteWindowModel {
         )
     }
 
-    /// Ensures the site's `blocks.manifest.json` has entries for every shipped placeable effect.
-    /// Fire-and-forget-safe (idempotent, cheap JSON merge) — called once per site attach, not on
-    /// every gallery open.
-    private func syncBlockManifest(site: SiteStore.Site) {
-        guard let templateDirectory = TemplateRuntime.resolve().url else { return }
+    /// Ensures the site's `blocks.manifest.json` has entries for every shipped placeable effect —
+    /// and that the component files those entries point at actually exist in the site. Idempotent
+    /// and cheap (a JSON merge plus, on a pre-feature site, a handful of file copies), so it runs
+    /// once per site attach rather than on every gallery open.
+    ///
+    /// Failures are logged, not swallowed: `BlockManifestSync.sync` throws `.corruptSiteManifest`
+    /// instead of overwriting a manifest it can't parse *specifically* so the failure is visible,
+    /// which a bare `try?` at the only call site quietly undid (#768 final review, Finding 9).
+    private func syncBlockManifest(site: SiteStore.Site) async {
+        guard let templateDirectory = TemplateRuntime.resolve().url else {
+            await LogCenter.shared.append(
+                source: "effects", stream: .stderr,
+                text: "Skipped placeable-effect sync: the website template isn't available.")
+            return
+        }
         let templateManifest = templateDirectory.appendingPathComponent("blocks.manifest.json")
         let siteManifest = site.sourceDirectory.appendingPathComponent("blocks.manifest.json")
-        try? BlockManifestSync.sync(templateBlocksManifest: templateManifest, siteBlocksManifest: siteManifest)
+        do {
+            let outcome = try BlockManifestSync.sync(
+                templateBlocksManifest: templateManifest, siteBlocksManifest: siteManifest)
+            if !outcome.addedPaths.isEmpty || !outcome.copiedComponentPaths.isEmpty {
+                await LogCenter.shared.append(
+                    source: "effects", stream: .stdout,
+                    text: "Registered \(outcome.addedPaths.count) placeable effect(s); copied \(outcome.copiedComponentPaths.count) component file(s) into the site.")
+            }
+            if !outcome.skippedMissingComponentPaths.isEmpty {
+                await LogCenter.shared.append(
+                    source: "effects", stream: .stderr,
+                    text: "Left \(outcome.skippedMissingComponentPaths.count) effect(s) unregistered — their component files are missing from the template: \(outcome.skippedMissingComponentPaths.joined(separator: ", "))")
+            }
+        } catch {
+            await LogCenter.shared.append(
+                source: "effects", stream: .stderr,
+                text: "Couldn't sync placeable effects into blocks.manifest.json: \(error)")
+        }
     }
 
     /// (Re)builds the hoisted component editor for the active editor file when it is an `.astro`
@@ -1865,6 +1908,23 @@ final class SiteWindowModel {
                 relativePath: filePath, before: nil, after: createdContents(at: filePath))
         }
         return result
+    }
+
+    /// Whether this site can publish restricted (`visibility: contacts`) posts right now — a
+    /// resolvable Micropub session must exist (#1566 design §5.1). Gates the New Post sheet's
+    /// visibility picker.
+    func canPublishRestrictedPosts() async -> Bool {
+        guard let site else { return false }
+        return await restrictedPostPublisher.isAvailable(siteID: site.id, sourceDirectory: site.sourceDirectory)
+    }
+
+    /// Creates a restricted post directly via Micropub — never touches `Source/`, so unlike
+    /// `createPost(title:)` this never calls `refreshAfterContentMutation()` or
+    /// `registerContentUndo(...)`, both of which assume a `Source/`-relative file path.
+    func createRestrictedPost(title: String, body: String) async -> ComposerCreateOutcome {
+        guard let site else { return .siteNotFound }
+        return await restrictedPostPublisher.createPost(
+            title: title, body: body, siteID: site.id, sourceDirectory: site.sourceDirectory)
     }
 
     /// Components aren't tracked in `SiteContentGraph` at all, so there's no change-stream event to
@@ -2191,6 +2251,9 @@ final class SiteWindowModel {
     /// after the first content create/delete (#660).
     func refreshContentGraph(siteID: String, sourceDirectory: URL) async {
         await contentGraph.rescan(siteID: siteID, projectRoot: sourceDirectory)
+        // Mirror the freshly-scanned pages into `scannedPages` so the synchronous
+        // `effectPlacementController` can resolve a route to its real source file.
+        scannedPages = await contentGraph.pages(for: siteID)
     }
 
     func loadAndStart(siteID: String?, openSitesWindow: () -> Void, dismissSiteWindow: @escaping () -> Void) async {
@@ -2223,9 +2286,12 @@ final class SiteWindowModel {
         // the previous site's route would be exactly the kind of staleness
         // `effectPlacementController`'s cache is meant to avoid.
         cachedEffectPlacementController = nil
+        // Same reasoning for the page snapshot the controller's path is resolved from: it belongs
+        // to whichever site was attached before, and `refreshContentGraph` below repopulates it.
+        scannedPages = []
         // Idempotent per-site setup (#768): merges the template's placeable-effect entries into
         // this site's `blocks.manifest.json` once per attach, not on every Effects gallery open.
-        syncBlockManifest(site: resolved)
+        await syncBlockManifest(site: resolved)
         // Constructed once and threaded into every child model below instead of each one
         // separately re-deriving `id`/`sourceDirectory`/`packageURL`/`configDirectory` from
         // `resolved` at its own call site (#822) — see `CurrentSite`'s own doc comment.

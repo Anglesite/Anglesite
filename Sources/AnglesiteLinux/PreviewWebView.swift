@@ -106,9 +106,9 @@ struct PreviewWebView: AdwaitaWidget {
                             .assumingMemoryBound(to: WebKitWebView.self)
                         webkit_web_view_evaluate_javascript(webView, script, -1, nil, nil, nil, nil, nil)
                     }
-                case .visibleElementsHandled, .canvasSelectionHandled, .computedStylesHandled, .placementPickHandled:
+                case .visibleElementsHandled, .canvasSelectionHandled, .computedStylesHandled, .placementPickHandled, .goalElementPickHandled:
                     return
-                case .visibleElementsDropped, .canvasSelectionDropped, .computedStylesDropped, .placementPickDropped:
+                case .visibleElementsDropped, .canvasSelectionDropped, .computedStylesDropped, .placementPickDropped, .goalElementPickDropped:
                     // Expected in the MVP shell: no annotation/canvas/placement consumers are
                     // wired yet (they arrive with the component editor / Effects gallery), so
                     // these land silently — unlike the macOS adapter, where a drop means broken

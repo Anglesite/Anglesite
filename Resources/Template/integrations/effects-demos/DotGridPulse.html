@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Dot Grid Pulse</title>
+<style>body{margin:0;position:relative;min-height:100vh;display:grid;place-items:center;
+font-family:-apple-system,system-ui,sans-serif;background:Canvas;color:CanvasText;color-scheme:light dark}</style>
+<style>
+  .dot-grid-pulse {
+    display: grid;
+    grid-template-columns: repeat(var(--dgp-columns, 8), 1fr);
+    gap: 1em;
+    padding: 1em;
+  }
+  .dot-grid-pulse-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--dgp-color, currentColor);
+    animation: dot-grid-pulse-fade 2.4s ease-in-out infinite;
+    animation-delay: var(--dgp-delay, 0s);
+  }
+  @keyframes dot-grid-pulse-fade {
+    0%, 100% { opacity: 0.15; }
+    50% { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dot-grid-pulse-dot { animation: none; opacity: 0.6; }
+  }
+</style>
+</head><body>
+<div class="dot-grid-pulse" style="--dgp-columns: 8; --dgp-color: currentColor" data-astro-cid-ccc3d5r3><span class="dot-grid-pulse-dot" style="--dgp-delay: 0s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.1s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.2s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.30000000000000004s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.4s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.5s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.6000000000000001s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.7000000000000001s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.1s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.2s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.30000000000000004s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.4s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.5s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.6s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.7000000000000001s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.8s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.2s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.30000000000000004s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.4s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.5s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.6000000000000001s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.7s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.8s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.9000000000000001s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.30000000000000004s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.4s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.5s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.6000000000000001s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.7000000000000001s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.8s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 0.9000000000000001s" data-astro-cid-ccc3d5r3></span><span class="dot-grid-pulse-dot" style="--dgp-delay: 1s" data-astro-cid-ccc3d5r3></span></div>
+
+</body></html>

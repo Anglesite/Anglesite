@@ -361,6 +361,9 @@
     "Add" : {
 
     },
+    "Add ${effect} to ${site}" : {
+
+    },
     "Add Agent…" : {
 
     },
@@ -463,6 +466,9 @@
     "Advanced" : {
 
     },
+    "After" : {
+
+    },
     "Agent Readiness" : {
 
     },
@@ -515,6 +521,9 @@
 
     },
     "Analyze ${experimentName}" : {
+
+    },
+    "Analyze Manually" : {
 
     },
     "Anglesite Debug" : {
@@ -720,6 +729,9 @@
 
     },
     "Base styles" : {
+
+    },
+    "Before" : {
 
     },
     "Before your first publish, pick what license covers your content. \"All rights reserved\" is a valid choice — Anglesite just never picks it for you silently." : {
@@ -964,6 +976,9 @@
     "Choose an image to insert into this page." : {
 
     },
+    "Choose in the preview" : {
+
+    },
     "Choose where to save the local .anglesite file." : {
 
     },
@@ -998,6 +1013,9 @@
 
     },
     "Click Recheck to run the pre-deploy scan against this site." : {
+
+    },
+    "Click the element in the preview…" : {
 
     },
     "Click to select the nearest node" : {
@@ -1332,6 +1350,9 @@
     "Create one with **Add Site → Create new site…**, or use **Add Site → Import existing site…** to add an existing `.anglesite` package." : {
 
     },
+    "Create the variant page" : {
+
+    },
     "Creating…" : {
 
     },
@@ -1545,6 +1566,9 @@
     "Edit and re-analyze" : {
 
     },
+    "Edit its content from the page editor, then choose what counts as a win below." : {
+
+    },
     "Editing" : {
 
     },
@@ -1567,6 +1591,9 @@
 
     },
     "Embed" : {
+
+    },
+    "Embed a license in this file" : {
 
     },
     "Emphasis" : {
@@ -1594,6 +1621,9 @@
 
     },
     "Enforce" : {
+
+    },
+    "Enter a valid email address." : {
 
     },
     "Enter a valid mail domain and at least one MX host to prepare the DNS records." : {
@@ -1792,6 +1822,9 @@
 
     },
     "Forward to Anglesite" : {
+
+    },
+    "Forward to email" : {
 
     },
     "Free during open beta: 100 instances, 20,000 queries/month, 500 crawled pages/day. Reader queries run on Cloudflare's AI models — beyond free limits, usage is billed by Cloudflare." : {
@@ -2141,6 +2174,12 @@
 
     },
     "Link Post" : {
+
+    },
+    "Linked to a Fediverse follower" : {
+
+    },
+    "Linked to a followed feed" : {
 
     },
     "List" : {
@@ -2644,7 +2683,13 @@
     "Optional" : {
 
     },
+    "Optional — also sends each submission to this address by email. Leave blank to keep captures git-only." : {
+
+    },
     "Optional: tls-reports@example.com" : {
+
+    },
+    "Or describe your own idea" : {
 
     },
     "Ordered" : {
@@ -2669,6 +2714,9 @@
 
     },
     "Page" : {
+
+    },
+    "Page (e.g. /contact/thanks/)" : {
 
     },
     "Pages" : {
@@ -2735,6 +2783,12 @@
 
     },
     "Pick a color scheme" : {
+
+    },
+    "Place" : {
+
+    },
+    "Place the effect before or after the element you click" : {
 
     },
     "Plan social media for ${site}" : {
@@ -2828,6 +2882,9 @@
 
     },
     "Provision Cloudflare AI Search for this site" : {
+
+    },
+    "Public" : {
 
     },
     "Publish" : {
@@ -3122,6 +3179,12 @@
     "Restarting (attempt %lld)" : {
 
     },
+    "Restricted posts are stored on your site's server, not in git. Contact-only access turns on once your site's read gate ships." : {
+
+    },
+    "Restricted to Contacts" : {
+
+    },
     "Result" : {
 
     },
@@ -3268,6 +3331,9 @@
 
     },
     "Script" : {
+
+    },
+    "Scroll depth" : {
 
     },
     "Search" : {
@@ -3607,6 +3673,18 @@
 
     },
     "Start a design interview for ${site}" : {
+
+    },
+    "Start with this idea" : {
+
+    },
+    "Start your test" : {
+
+    },
+    "Started" : {
+
+    },
+    "Starting your test…" : {
 
     },
     "Starting…" : {
@@ -3983,6 +4061,9 @@
     "Upload Logo…" : {
 
     },
+    "Use %lld%% scrolled" : {
+
+    },
     "Use MX Records from DNS" : {
 
     },
@@ -4007,6 +4088,9 @@
     "Use this domain as your Bluesky handle" : {
 
     },
+    "Use this page" : {
+
+    },
     "Use “%@” from Contacts for %@?" : {
 
     },
@@ -4023,6 +4107,9 @@
 
     },
     "Valid" : {
+
+    },
+    "Variant page" : {
 
     },
     "Variant rate" : {
@@ -4050,6 +4137,9 @@
 
     },
     "View on GitHub" : {
+
+    },
+    "Visibility" : {
 
     },
     "Visitors" : {
@@ -4103,10 +4193,19 @@
     "What are you selling?" : {
 
     },
+    "What are you testing?" : {
+
+    },
     "What are you testing? (optional)" : {
 
     },
+    "What counts as a win?" : {
+
+    },
     "What kind of website are you creating?" : {
+
+    },
+    "What should we test?" : {
 
     },
     "What this website is about, in a sentence" : {
@@ -4188,6 +4287,9 @@
 
     },
     "Your site's existing search (Pagefind) keeps working for free either way — AI Search's conversational answers are an opt-in upgrade above it, not a replacement." : {
+
+    },
+    "Your test is live. Visitors will see one version or the other; I'll tell you when there's a clear answer." : {
 
     },
     "Your website was created with warnings. You can open it anyway and fix it from the website window." : {
@@ -4336,6 +4438,9 @@
         }
       }
     },
+    "“%@” is your live test right now. Wait for it to finish before starting a new one." : {
+
+    },
     "“%@” matches a follower — add as a contact?" : {
 
     },
@@ -4356,6 +4461,9 @@
 
     },
     "👥" : {
+
+    },
+    "🚫 Prohibits" : {
 
     }
   },

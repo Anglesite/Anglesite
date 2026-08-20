@@ -1,0 +1,41 @@
+---
+/**
+ * Effects gallery — Scroll-Driven (#768). A `<slot />`-wrapping content block that reveals via a
+ * `clip-path` transition when scrolled into view. One-shot: the `IntersectionObserver` unobserves
+ * itself after the first reveal, so the content never re-hides on scroll back up. Under
+ * `prefers-reduced-motion`, the content renders fully visible immediately, with no observer and
+ * no transition. Inline placement: wrap any content block that should reveal on scroll.
+ */
+---
+<div class="reveal-mask">
+  <slot>Sample content that reveals as you scroll.</slot>
+</div>
+
+<script>
+  const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+  document.querySelectorAll<HTMLElement>(".reveal-mask").forEach((el) => {
+    if (reduceMotion) {
+      el.classList.add("is-revealed");
+      return;
+    }
+    const observer = new IntersectionObserver((entries, obs) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) {
+          el.classList.add("is-revealed");
+          obs.unobserve(el);
+        }
+      }
+    }, { threshold: 0.2 });
+    observer.observe(el);
+  });
+</script>
+
+<style>
+  .reveal-mask {
+    clip-path: inset(0 100% 0 0);
+    transition: clip-path 0.6s ease-out;
+  }
+  .reveal-mask.is-revealed {
+    clip-path: inset(0 0 0 0);
+  }
+</style>
