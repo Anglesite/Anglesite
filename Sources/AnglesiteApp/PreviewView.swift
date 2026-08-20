@@ -255,16 +255,25 @@ struct WYSIWYGDropTargetPayload: Decodable {
     let index: Int
 }
 
+/// Resolves a screen location to a structural insertion target via the mounted engine's
+/// `dropTargetAt` (Task 10) — shared by every drop mechanism that lands on the canvas
+/// (`performWYSIWYGPaletteDrop`'s palette-row drag, and Task 13's Finder/Photos `.onDrop`) so the
+/// JS-evaluate-and-decode step isn't duplicated per call site.
+@MainActor
+func resolveWYSIWYGDropTarget(at location: CGPoint, webView: WKWebView) async -> WYSIWYGDropTargetPayload? {
+    let script = "JSON.stringify(window.__anglesiteWysiwygMount?.dropTargetAt?.(\(location.x), \(location.y)) ?? null)"
+    guard let json = try? await webView.evaluateJavaScript(script) as? String,
+          let data = json.data(using: .utf8)
+    else { return nil }
+    return try? JSONDecoder().decode(WYSIWYGDropTargetPayload.self, from: data)
+}
+
 /// Resolves a palette drop's screen location to a structural insertion target via the mounted
 /// engine's `dropTargetAt` (Task 10), then submits the resulting `insertBlock` — the WYSIWYG
 /// analog of `ComponentEditorCanvasPane.performCanvasDrop`.
 @MainActor
 func performWYSIWYGPaletteDrop(payload: WYSIWYGPaletteDragPayload, location: CGPoint, webView: WKWebView, controller: WYSIWYGCanvasController) async {
-    let script = "JSON.stringify(window.__anglesiteWysiwygMount?.dropTargetAt?.(\(location.x), \(location.y)) ?? null)"
-    guard let json = try? await webView.evaluateJavaScript(script) as? String,
-          let data = json.data(using: .utf8),
-          let target = try? JSONDecoder().decode(WYSIWYGDropTargetPayload.self, from: data)
-    else { return }
+    guard let target = await resolveWYSIWYGDropTarget(at: location, webView: webView) else { return }
     let newId = UUID().uuidString
     let content = BlockNodeContent(kind: payload.kind, componentName: payload.componentName, props: [:], slots: [:], sourceSpan: [0, 0])
     await controller.submit(.insertBlock(parentId: target.parentId, slot: target.slot, index: target.index, newId: newId, block: content))

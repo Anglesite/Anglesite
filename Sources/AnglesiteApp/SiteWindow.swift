@@ -1274,6 +1274,31 @@ struct SiteWindow: View {
                 Task { await performWYSIWYGPaletteDrop(payload: payload, location: location, webView: webView, controller: canvas) }
                 return true
             }
+            // #1588 Task 13: a real Finder/Photos drag, stacked alongside Task 11's
+            // `.dropDestination` above (a `Transferable`-based palette-row drag) rather than
+            // replacing it — the two mechanisms serve different drag sources and SwiftUI allows
+            // both attached to the same view. Same `wysiwygCanvas`-nil guard keeps this inert
+            // outside edit mode. Reuses `resolveWYSIWYGDropTarget` (`PreviewView.swift`) for the
+            // drop-target JS evaluate-and-decode step instead of duplicating it here.
+            .onDrop(of: [UTType.image.identifier, UTType.fileURL.identifier], isTargeted: nil) { providers, location in
+                guard let canvas = model.preview.wysiwygCanvas, let webView = model.preview.webView,
+                      let siteDirectory = model.preview.openSiteDirectory
+                else { return false }
+                Task {
+                    guard let bytes = await WYSIWYGImageDropHandler.loadImageBytes(from: providers),
+                          let assetPath = try? WYSIWYGImageAssetIngestor.ingest(bytes: bytes, siteDirectory: siteDirectory)
+                    else { return }
+                    guard let target = await resolveWYSIWYGDropTarget(at: location, webView: webView) else { return }
+                    let newId = UUID().uuidString
+                    // Alt-text proposal is stubbed empty — the real proposal is on-device AI
+                    // (#1227, out of scope here per the design doc).
+                    let content = BlockNodeContent(
+                        kind: .astro, componentName: "img", props: ["src": .string(assetPath), "alt": .string("")],
+                        slots: [:], sourceSpan: [0, 0])
+                    await canvas.submit(.insertBlock(parentId: target.parentId, slot: target.slot, index: target.index, newId: newId, block: content))
+                }
+                return true
+            }
             // #1225 Task 11 / #1423: the canvas's own Delete target — attached only while the
             // sentinel above reports real keyboard focus on the canvas (menu-bar IA spec's "one
             // focus-scoped command" rule; no second Commands-level Delete button). The `active:`
