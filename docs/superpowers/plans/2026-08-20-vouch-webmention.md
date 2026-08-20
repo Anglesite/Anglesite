@@ -10,6 +10,13 @@
 
 Full design: [`docs/superpowers/specs/2026-08-20-vouch-webmention-design.md`](../specs/2026-08-20-vouch-webmention-design.md).
 
+**Status (2026-08-20): Tasks 1–5 (the sidecar half) are done and merged —
+[davidwkeith/workers#505](https://github.com/davidwkeith/workers/pull/505).** Do not re-run
+Task 1's worktree-creation step or re-open a PR for that work. **However, PR review on the
+Anglesite side (#1604) found the shipped `verifyVouch` semantics are inverted from the actual
+protocol — see the design spec's "Known issue" section before touching Task 6 or later.** A
+correctness fix to the already-merged sidecar code is pending a decision on trust-list scope.
+
 ## Global Constraints
 
 - Sidecar repo (`davidwkeith/workers`): Node.js >= 22, pnpm 10 (`corepack enable`). Before any PR: `pnpm lint && pnpm format:check && pnpm typecheck && pnpm build && pnpm test` must pass (CONTRIBUTING.md ▸ "Development workflow").
@@ -30,17 +37,17 @@ Do this work in a worktree off `origin/main` (the local `main` branch is behind 
 ### Task 1: `WebmentionJob.vouch` + receive-handler parsing
 
 **Files:**
-- Create worktree: `/Users/dwk/Developer/github.com/davidwkeith/workers/.claude/worktrees/vouch-1597/` on a new branch `feat/vouch-webmention` based on `origin/main`
+- Create worktree: `<davidwkeith/workers checkout>/.claude/worktrees/vouch-1597/` on a new branch `feat/vouch-webmention` based on `origin/main` — `davidwkeith/workers` isn't one of the two repos `AGENTS.md`'s `ANGLESITE_SIDECAR_SRC` convention covers, so there's no established env var for it; substitute wherever it's actually cloned (e.g. a sibling of this repo under the same `github.com/` root).
 - Modify: `packages/webmention/src/index.ts` (`WebmentionJob` interface, `createWebmention`)
 - Test: `packages/webmention/src/index.test.ts`
 
 **Interfaces:**
 - Produces: `WebmentionJob.vouch?: string` (raw form value, already validated as a syntactically valid `http(s)` URL — or absent).
 
-- [ ] **Step 1: Create the worktree**
+- [x] **Step 1: Create the worktree**
 
 ```bash
-cd /Users/dwk/Developer/github.com/davidwkeith/workers
+cd <davidwkeith/workers checkout>
 git fetch origin main
 git worktree add .claude/worktrees/vouch-1597 -b feat/vouch-webmention origin/main
 cd .claude/worktrees/vouch-1597
@@ -48,7 +55,7 @@ pnpm install
 pnpm build
 ```
 
-- [ ] **Step 2: Write the failing tests**
+- [x] **Step 2: Write the failing tests**
 
 In `packages/webmention/src/index.test.ts`, change the `formPost` helper to accept an optional third argument, and add two new `it` blocks inside `describe("createWebmention", ...)`:
 
@@ -111,12 +118,12 @@ function formPost(source?: string, target?: string, vouch?: string): Request {
   });
 ```
 
-- [ ] **Step 3: Run the tests to verify they fail**
+- [x] **Step 3: Run the tests to verify they fail**
 
 Run: `pnpm test --project @dwk/webmention -- -t "vouch"`
 Expected: FAIL — `sent[0]` has no `vouch` key yet (the job is still just `{ source, target }`).
 
-- [ ] **Step 4: Implement**
+- [x] **Step 4: Implement**
 
 In `packages/webmention/src/index.ts`, add `vouch` to `WebmentionJob`:
 
@@ -172,12 +179,12 @@ Then in `createWebmention`, read it and thread it into the enqueue call:
     });
 ```
 
-- [ ] **Step 5: Run the tests to verify they pass**
+- [x] **Step 5: Run the tests to verify they pass**
 
 Run: `pnpm test --project @dwk/webmention -- -t "vouch"`
 Expected: PASS
 
-- [ ] **Step 6: Run the full package gate and commit**
+- [x] **Step 6: Run the full package gate and commit**
 
 ```bash
 pnpm --filter @dwk/webmention typecheck
@@ -199,7 +206,7 @@ git commit -m "feat(webmention): accept an optional vouch URL on receive"
 - Consumes: nothing from Task 1.
 - Produces: `VerifiedMention.vouch?: { readonly url: string; readonly verified: boolean }`; `InboxStore.store()`/`list()` round-trip it via new `vouch_url TEXT` / `vouch_verified INTEGER` columns.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `packages/webmention/src/inbox.test.ts` (inside `describe("createD1Inbox", ...)`):
 
@@ -288,12 +295,12 @@ Add to `packages/webmention/src/inbox.test.ts` (inside `describe("createD1Inbox"
   });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm test --project @dwk/webmention -- -t "vouch"`
 Expected: FAIL — `vouch` is not a recognized field on `VerifiedMention`/not persisted.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `packages/webmention/src/inbox.ts`:
 
@@ -377,6 +384,17 @@ In `store()`, extend the `INSERT`:
     },
 ```
 
+**Note (raised in review):** `ON CONFLICT DO UPDATE` unconditionally overwrites `vouch_url`/
+`vouch_verified` with `excluded.*` — a re-sent webmention for the same `(source, target)` that
+arrives *without* a vouch will wipe a previously-verified one, and the badge silently
+disappears on a resend. This matches how the existing `rsvp`/enrichment columns already behave
+(same unconditional overwrite), so it's consistent with precedent, not a new gap — but it means
+`vouch` (like `rsvp`, `interactionType`, `author`, `content`) is a property of the *latest
+delivery*, not a permanent property of the mention. Documented here rather than changed:
+switching to `COALESCE(excluded.vouch_url, ${table}.vouch_url)` (sticky-until-explicitly-
+cleared) would be a real behavior change affecting every existing column this way, not just
+vouch, and is out of scope for this plan.
+
 In `list()`, extend the selected columns and the row mapping:
 
 ```ts
@@ -411,12 +429,12 @@ In `list()`, extend the selected columns and the row mapping:
         };
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm test --project @dwk/webmention -- -t "vouch"`
 Expected: PASS
 
-- [ ] **Step 5: Run the full package gate and commit**
+- [x] **Step 5: Run the full package gate and commit**
 
 ```bash
 pnpm --filter @dwk/webmention typecheck
@@ -440,7 +458,7 @@ git commit -m "feat(webmention): store vouch outcome on the inbox record"
 - Consumes: `safeFetch`, `readBodyCapped`, `FetchLike` (`@dwk/safe-fetch`); `isHtmlContentType` (`./html.js`); `extractLinks` (already local to `verify.ts`); `hostFromUrl`, `noopLogger`, `noopMetrics` (`@dwk/log`).
 - Produces: `verifyVouch(vouchUrl: string, target: string, options?: VerifyOptions): Promise<VouchResult>` where `VouchResult = { readonly verified: boolean }`. Never throws.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `packages/webmention/src/verify.test.ts` (new top-level `describe`, after the existing `describe("verifySource", ...)` block):
 
@@ -520,17 +538,17 @@ And update the import line at the top of the file:
 import { extractLinks, sourceLinksTo, verifySource, verifyVouch } from "./verify.js";
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm test --project @dwk/webmention -- -t "verifyVouch"`
 Expected: FAIL — `verifyVouch` is not exported.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `packages/webmention/src/log.ts`, add a new event (after `VerifyFetchFailed`):
 
 ```ts
-  /** Vouch verification finished. Fields: `verified`. */
+  /** Vouch verification finished (every exit path, not just the success path). Fields: `verified`, `reason`. */
   VouchVerified: "webmention.vouch.verified",
 ```
 
@@ -559,6 +577,22 @@ export interface VouchResult {
  * non-2xx status, non-HTML response, or oversized/unreadable body yields
  * `{ verified: false }`; this function never throws.
  */
+```
+
+> **This function's target-matching semantics are under revision — see the design spec's
+> "Known issue" section.** The code below still shows the original (buggy) hostname-matching
+> logic pending that decision; the logging fix (emitting `VouchVerified` on every exit path,
+> not just the one that reaches the link check) applies regardless of which URL ends up being
+> matched, so it's written correctly below. Do not implement this task from the plan text alone
+> until the design spec's "Known issue" section shows a resolved status.
+
+Every early return below previously skipped the `VouchVerified` log/metric entirely — so the
+counter only ever fired for "page fetched fine, checked its links," and every other failure
+mode (SSRF block, fetch throw, non-2xx, wrong content type, oversized body) was invisible,
+making it impossible to tell "vouches are failing" from "nobody sends vouches" from the logs.
+Fix: a single exit point that always emits `VouchVerified` with a `reason` field:
+
+```typescript
 export async function verifyVouch(
   vouchUrl: string,
   target: string,
@@ -569,11 +603,32 @@ export async function verifyVouch(
   const logger = options?.logger ?? noopLogger;
   const metrics = options?.metrics ?? noopMetrics;
 
+  const record = (
+    verified: boolean,
+    reason:
+      | "ok"
+      | "invalid-target"
+      | "fetch-failed"
+      | "not-ok"
+      | "not-html"
+      | "body-unreadable",
+  ): VouchResult => {
+    const fields = {
+      vouchHost: hostFromUrl(vouchUrl),
+      targetHost: hostFromUrl(target),
+      verified,
+      reason,
+    };
+    logger.info(WebmentionLogEvent.VouchVerified, fields);
+    metrics.count(WebmentionLogEvent.VouchVerified, fields);
+    return { verified };
+  };
+
   let targetHost: string;
   try {
     targetHost = new URL(target).hostname.toLowerCase();
   } catch {
-    return { verified: false };
+    return record(false, "invalid-target");
   }
 
   let response: Response;
@@ -593,21 +648,21 @@ export async function verifyVouch(
     response = result.response;
     base = result.url;
   } catch {
-    return { verified: false };
+    return record(false, "fetch-failed");
   }
 
   if (!response.ok) {
-    return { verified: false };
+    return record(false, "not-ok");
   }
 
   const contentType = response.headers.get("content-type") ?? "";
   if (!isHtmlContentType(contentType)) {
-    return { verified: false };
+    return record(false, "not-html");
   }
 
   const body = await readBodyCapped(response);
   if (body === null) {
-    return { verified: false };
+    return record(false, "body-unreadable");
   }
 
   const links = await extractLinks(body, base);
@@ -619,14 +674,7 @@ export async function verifyVouch(
     }
   });
 
-  const fields = {
-    vouchHost: hostFromUrl(vouchUrl),
-    targetHost: hostFromUrl(target),
-    verified,
-  };
-  logger.info(WebmentionLogEvent.VouchVerified, fields);
-  metrics.count(WebmentionLogEvent.VouchVerified, fields);
-  return { verified };
+  return record(verified, "ok");
 }
 ```
 
@@ -644,12 +692,12 @@ export {
 } from "./verify.js";
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm test --project @dwk/webmention -- -t "verifyVouch"`
 Expected: PASS
 
-- [ ] **Step 5: Run the full package gate and commit**
+- [x] **Step 5: Run the full package gate and commit**
 
 ```bash
 pnpm --filter @dwk/webmention typecheck
@@ -672,7 +720,7 @@ git commit -m "feat(webmention): verify vouch URLs against the target's domain"
 - Consumes: `WebmentionJob.vouch` (Task 1), `verifyVouch` (Task 3), `VerifiedMention.vouch` (Task 2).
 - Produces: a stored mention carries `vouch` exactly when `message.body.vouch` was present and the mention itself verified (`result.links === true`).
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add to `packages/webmention/src/index.test.ts` (inside `describe("createWebmentionQueueConsumer", ...)`):
 
@@ -799,12 +847,12 @@ Add to `packages/webmention/src/index.test.ts` (inside `describe("createWebmenti
   });
 ```
 
-- [ ] **Step 2: Run the tests to verify they fail**
+- [x] **Step 2: Run the tests to verify they fail**
 
 Run: `pnpm test --project @dwk/webmention -- -t "vouch"`
 Expected: FAIL — the consumer never calls `verifyVouch` yet, so `stored?.vouch` is always `undefined` and the "never fetches" test's premise doesn't yet distinguish behavior.
 
-- [ ] **Step 3: Implement**
+- [x] **Step 3: Implement**
 
 In `packages/webmention/src/index.ts`, inside `createWebmentionQueueConsumer`'s loop, change:
 
@@ -862,12 +910,12 @@ and change the `if (result.links) { ... }` block to:
         }
 ```
 
-- [ ] **Step 4: Run the tests to verify they pass**
+- [x] **Step 4: Run the tests to verify they pass**
 
 Run: `pnpm test --project @dwk/webmention -- -t "vouch"`
 Expected: PASS
 
-- [ ] **Step 5: Run the full package gate and commit**
+- [x] **Step 5: Run the full package gate and commit**
 
 ```bash
 pnpm --filter @dwk/webmention typecheck
@@ -885,7 +933,7 @@ git commit -m "feat(webmention): verify vouch URLs during queue consumption"
 - Create: `.changeset/webmention-vouch.md`
 - Modify: `packages/webmention/package.json` (version)
 
-- [ ] **Step 1: Add the changeset**
+- [x] **Step 1: Add the changeset**
 
 ```bash
 cat > .changeset/webmention-vouch.md <<'EOF'
@@ -907,11 +955,11 @@ Anglesite/Anglesite#1597.
 EOF
 ```
 
-- [ ] **Step 2: Bump the package version**
+- [x] **Step 2: Bump the package version**
 
 Edit `packages/webmention/package.json`, changing `"version": "1.0.0-beta.1"` to `"version": "1.0.0-beta.2"`.
 
-- [ ] **Step 3: Run the full repo gate**
+- [x] **Step 3: Run the full repo gate**
 
 ```bash
 pnpm lint && pnpm format:check && pnpm typecheck && pnpm build && pnpm test
@@ -919,7 +967,7 @@ pnpm lint && pnpm format:check && pnpm typecheck && pnpm build && pnpm test
 
 Expected: all green. Fix any failure before proceeding — do not skip a failing check.
 
-- [ ] **Step 4: Commit, push, open the PR**
+- [x] **Step 4: Commit, push, open the PR**
 
 ```bash
 git add .changeset/webmention-vouch.md packages/webmention/package.json
@@ -929,7 +977,20 @@ git push -u origin feat/vouch-webmention
 
 Confirm with the user before running `gh pr create` (pushing/opening a PR needs explicit confirmation per the standing safety rules — do not skip this even though the design was pre-approved). Once confirmed, open the PR against `davidwkeith/workers` main with a summary of the vouch feature and `part of Anglesite/Anglesite#1597` in the body (no closing keyword — see Global Constraints).
 
-**Do not proceed to Task 6 until this PR has merged and a tagged `1.0.0-beta.2` (or later) release of `@dwk/webmention` is published to npm** — Task 6 bumps Anglesite's dependency on that exact published version. Check with `npm view @dwk/webmention versions --json`.
+**Status: done.** [davidwkeith/workers#505](https://github.com/davidwkeith/workers/pull/505)
+was opened, reviewed, and merged. One review finding required a follow-up commit: the manual
+`package.json` version bump in Step 2 above conflicts with `RELEASING.md`'s documented flow
+(version bumps come only from a dedicated `pnpm changeset version` run) — it was reverted back
+to `1.0.0-beta.1`, keeping the changeset file for that step to consume normally. **This means
+the actual next `@dwk/webmention` version is whatever the sidecar's real release run produces —
+not `1.0.0-beta.2`** as Step 2 above still literally says; treat that version number as
+illustrative, not exact.
+
+**Do not proceed to Task 6 until a tagged `@dwk/webmention` release containing this PR's commits
+is published to npm** — Task 6 bumps Anglesite's dependency on that exact published version.
+Check with `npm view @dwk/webmention versions --json` and cross-reference against
+[davidwkeith/workers#505](https://github.com/davidwkeith/workers/pull/505)'s merge commit to
+confirm the vouch commits are actually included in whatever version comes back.
 
 ---
 
@@ -943,7 +1004,7 @@ Confirm with the user before running `gh pr create` (pushing/opening a PR needs 
 - Test: `Tests/AnglesiteCoreTests/WebmentionInboxD1ClientTests.swift`
 
 **Interfaces:**
-- Produces: `WebmentionInboxD1Client.Mention.vouchURL: String? = nil`, `.vouchVerified: Bool? = nil` (defaulted so all 13 existing call sites keep compiling unchanged).
+- Produces: `WebmentionInboxD1Client.Mention.vouchURL: String?`, `.vouchVerified: Bool?`, via a new explicit `init` (defaulting both to `nil`) — see Step 4 for why a stored-property default alone doesn't work here. All 13 existing call sites keep compiling unchanged.
 
 - [ ] **Step 1: Bump the template's pinned version**
 
@@ -997,7 +1058,56 @@ Add to `Tests/AnglesiteCoreTests/WebmentionInboxD1ClientTests.swift`, after `lis
         #expect(mention.vouchVerified == false)
     }
 
+    @Test("falls back to the legacy column set when the site's worker hasn't migrated the vouch columns yet")
+    func fallsBackWhenVouchColumnsAreMissing() async throws {
+        let missingColumnBody = Data("""
+        {"success": false, "errors": [{"code": 7500, "message": "D1_ERROR: no such column: vouch_url: SQLITE_ERROR"}]}
+        """.utf8)
+        let legacyBody = Data("""
+        {"success": true, "result": [{"success": true, "results": [
+            {"id": "wm-abc123", "source": "https://alice.example/post", "target": "https://me.example/blog/hi",
+             "verified_at": 1753300000000, "interaction_type": "reply", "author_name": "Alice",
+             "author_url": "https://alice.example", "author_photo": "https://alice.example/photo.jpg",
+             "content": "Great post!", "published_at": 1753299000000}
+        ]}]}
+        """.utf8)
+
+        let attempts = ActorBox<Int>(0)
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token",
+            transport: { _ in
+                let n = await attempts.get()
+                await attempts.set(n + 1)
+                return n == 0 ? (missingColumnBody, Self.response(200)) : (legacyBody, Self.response(200))
+            })
+
+        let mentions = try await client.listVerifiedMentions()
+        let mention = try #require(mentions.first)
+        #expect(mention.id == "wm-abc123")
+        #expect(mention.vouchURL == nil)
+        #expect(mention.vouchVerified == nil)
+        #expect(await attempts.get() == 2)
+    }
+
+    @Test("still throws when the D1 failure is unrelated to a missing column")
+    func doesNotFallBackOnUnrelatedError() async throws {
+        let body = Data("""
+        {"success": false, "errors": [{"code": 7500, "message": "D1_ERROR: database is locked"}]}
+        """.utf8)
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token",
+            transport: { _ in (body, Self.response(200)) })
+
+        await #expect(throws: CloudflareError.api(message: "D1_ERROR: database is locked")) {
+            _ = try await client.listVerifiedMentions()
+        }
+    }
+
 ```
+
+`fallsBackWhenVouchColumnsAreMissing` reuses the `ActorBox` helper already defined at the
+bottom of this test file (used by `WebmentionInboxD1ClientTests`'s
+`sendsPostToD1QueryEndpoint` test) as a simple mutable counter — no new helper needed.
 
 Do not add a third "no vouch columns present" test — the existing
 `decodesLegacyRowsWithNullEnrichmentColumns` test already covers it unmodified:
@@ -1013,22 +1123,57 @@ Expected: FAIL to compile — `Mention` has no `vouchURL`/`vouchVerified` member
 
 - [ ] **Step 4: Implement**
 
-In `Sources/AnglesiteCore/WebmentionInboxD1Client.swift`, extend `Mention`:
+In `Sources/AnglesiteCore/WebmentionInboxD1Client.swift`, extend `Mention`.
+
+**Important:** a `let` stored property *with* a default value (`= nil`) is excluded from
+Swift's synthesized memberwise initializer — it's already considered initialized and the
+compiler drops it from the generated `init` entirely. Giving the two new properties `= nil`
+at their declaration would silently make them permanently `nil`: `Mention`'s memberwise init
+would gain no `vouchURL:`/`vouchVerified:` parameters at all, so the mapping code below
+wouldn't compile (extra-argument error), and if it were adjusted to compile some other way,
+`mention.vouchURL` would never be anything but `nil`. The fix is an **explicit `init`** with
+the two new parameters defaulted — the same pattern `ReceivedInteraction.Author` (Task 7's
+`ReceivedInteraction.swift`) already uses for its own optional fields:
 
 ```swift
-        /// Source page's declared publication date in epoch milliseconds, when enrichment ran.
         public let publishedAt: Int?
         /// The sender's Vouch URL (indieweb.org/Vouch), when supplied and the mention verified.
         /// `nil` when no vouch was sent, or the row predates vouch support upstream.
-        public let vouchURL: String? = nil
+        public let vouchURL: String?
         /// Whether `vouchURL` was confirmed to link to this mention's target domain. `nil` exactly
         /// when `vouchURL` is `nil`; otherwise `true`/`false` — a failed vouch attempt is still
         /// recorded (not collapsed into "no vouch"), since it's a stronger spam signal than silence.
-        public let vouchVerified: Bool? = nil
+        public let vouchVerified: Bool?
+
+        /// Creates a mention row. `vouchURL`/`vouchVerified` default to `nil` so every existing
+        /// call site (production and test) that predates vouch support keeps compiling unchanged.
+        init(
+            id: String, source: String, target: String, verifiedAt: Int,
+            interactionType: String?, authorName: String?, authorURL: String?, authorPhoto: String?,
+            content: String?, publishedAt: Int?,
+            vouchURL: String? = nil, vouchVerified: Bool? = nil
+        ) {
+            self.id = id
+            self.source = source
+            self.target = target
+            self.verifiedAt = verifiedAt
+            self.interactionType = interactionType
+            self.authorName = authorName
+            self.authorURL = authorURL
+            self.authorPhoto = authorPhoto
+            self.content = content
+            self.publishedAt = publishedAt
+            self.vouchURL = vouchURL
+            self.vouchVerified = vouchVerified
+        }
     }
 ```
 
-(The `= nil` defaults on `Mention`'s new stored properties keep its synthesized memberwise initializer backward-compatible — all 13 existing call sites across the codebase keep compiling with no vouch arguments.)
+This gives `Mention` an explicit `init` for the first time — it previously relied on the
+synthesized memberwise one. All 13 existing call sites across the codebase (production and
+tests) omit `vouchURL`/`vouchVerified` and keep compiling unchanged via the new init's
+defaults, exactly as intended — verify this by running the full `WebmentionInboxD1ClientTests`
+and `ReceivedInteractionSyncTests` suites in Step 5, not just the new vouch-specific tests.
 
 Extend `Row`:
 
@@ -1049,30 +1194,105 @@ Extend `Row`:
     }
 ```
 
-Extend `listVerifiedSQL`:
+Add a second, legacy SQL constant, and extend `Envelope` to decode D1's error detail so a
+"missing column" failure can be recognized (rather than only ever throwing a generic
+`.malformedResponse`):
 
 ```swift
     private static let listVerifiedSQL = """
     SELECT id, source, target, verified_at, interaction_type, author_name, author_url, \
     author_photo, content, published_at, vouch_url, vouch_verified FROM webmentions ORDER BY verified_at DESC
     """
+
+    /// Column set from before vouch support existed. Used as a fallback when a site's D1
+    /// database hasn't been migrated yet — see `listVerifiedMentions()`'s deploy-ordering
+    /// handling below.
+    private static let listVerifiedSQLLegacy = """
+    SELECT id, source, target, verified_at, interaction_type, author_name, author_url, \
+    author_photo, content, published_at FROM webmentions ORDER BY verified_at DESC
+    """
 ```
 
-Extend the mapping in `listVerifiedMentions()`:
+```swift
+    private struct D1ErrorDetail: Decodable {
+        let message: String
+    }
+
+    private struct Envelope: Decodable {
+        let success: Bool
+        let result: [QueryResult]?
+        let errors: [D1ErrorDetail]?
+    }
+```
+
+**Deploy-ordering hazard this closes:** `Resources/Template/package.json`'s `@dwk/webmention`
+version bump (Step 1) only affects newly scaffolded or rebuilt sites — it does nothing to a
+worker already running in someone's Cloudflare account. Until that site's owner redeploys, its
+D1 database's `webmentions` table has no `vouch_url`/`vouch_verified` columns at all, and
+`SELECT`ing them is a hard SQLite error (`no such column`), not a `NULL` — unlike the existing
+"tolerates enrichment columns being entirely `NULL`" case, which only covers *values*, not
+*missing columns*. Left unhandled, `listVerifiedMentions()` would throw on every call for an
+un-redeployed site, and `ReceivedInteractionSync.pullAndCommit` already treats any thrown error
+as "sync did nothing this time" (`guard let mentions = try? await client.listVerifiedMentions()
+else { return 0 }`) — so **all** interaction syncing for that site would silently stop, not
+just vouch data, until the owner happens to redeploy.
+
+Fix: catch specifically a "no such column" failure and retry once with the legacy column set,
+so an un-redeployed site keeps syncing everything except vouch data (degrading gracefully,
+matching the intent of the existing NULL-tolerance note) rather than syncing nothing. Split the
+existing request/decode logic out of `listVerifiedMentions()` into a private `queryMentions`
+helper parameterized on which SQL/column set to use, and make `listVerifiedMentions()` itself
+the two-attempt wrapper:
 
 ```swift
+    public func listVerifiedMentions() async throws -> [Mention] {
+        do {
+            return try await queryMentions(sql: Self.listVerifiedSQL, includeVouch: true)
+        } catch CloudflareError.api(let message)
+        where message.localizedCaseInsensitiveContains("no such column") {
+            return try await queryMentions(sql: Self.listVerifiedSQLLegacy, includeVouch: false)
+        }
+    }
+
+    private func queryMentions(sql: String, includeVouch: Bool) async throws -> [Mention] {
+        let url = URL(string: "\(baseURL)/accounts/\(accountID)/d1/database/\(databaseID)/query")
+        guard let url else { throw CloudflareError.malformedResponse }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(QueryBody(sql: sql))
+
+        let (data, http) = try await transport(request)
+        if http.statusCode == 401 || http.statusCode == 403 { throw CloudflareError.unauthorized }
+        guard (200..<300).contains(http.statusCode) else { throw CloudflareError.http(status: http.statusCode) }
+        guard let envelope = try? JSONDecoder().decode(Envelope.self, from: data) else {
+            throw CloudflareError.malformedResponse
+        }
+        guard envelope.success, let rows = envelope.result?.first?.results else {
+            throw CloudflareError.api(message: envelope.errors?.first?.message ?? "unknown D1 error")
+        }
+
         return rows.compactMap { row in
             guard let id = row.id else { return nil }
             return Mention(
                 id: id, source: row.source, target: row.target, verifiedAt: row.verified_at,
                 interactionType: row.interaction_type, authorName: row.author_name,
                 authorURL: row.author_url, authorPhoto: row.author_photo, content: row.content,
-                publishedAt: row.published_at, vouchURL: row.vouch_url,
-                vouchVerified: row.vouch_verified.map { $0 != 0 })
+                publishedAt: row.published_at,
+                vouchURL: includeVouch ? row.vouch_url : nil,
+                vouchVerified: includeVouch ? row.vouch_verified.map { $0 != 0 } : nil)
         }
+    }
 ```
 
-Also update the class-level doc comment's "tolerates the enrichment columns... being entirely `NULL`" note to mention `vouch_url`/`vouch_verified` alongside the existing list, since the same tolerance now applies to them too.
+(`CloudflareError.api(message:)` already exists in `CloudflareReading.swift` — this reuses it
+rather than adding a new error case.)
+
+Also update the class-level doc comment's "tolerates the enrichment columns... being entirely
+`NULL`" note to mention `vouch_url`/`vouch_verified` alongside the existing list, and add a
+sentence noting that a *missing* vouch column (not just a null value) is handled separately by
+the fallback above.
 
 - [ ] **Step 5: Run the tests to verify they pass**
 
@@ -1388,10 +1608,22 @@ test("rejects a non-http(s) vouch.url", () => {
 });
 ```
 
+`warnings.length === 1` for a single rejected file matches this same test file's existing
+convention — not a new assumption: the "skips malformed files with a warning instead of
+throwing" test asserts `warnings.length === 3` for 3 bad files among 4 inputs, and "rejects
+non-http(s) URL schemes on source/target/author fields" asserts `warnings.length === 4` for 4
+bad inputs — both confirm `parseInteractions` logs exactly one warning per rejected file, never
+more, in this codebase today.
+
 - [ ] **Step 2: Run the tests to verify they fail**
 
 Run: `cd Resources/Template && npx tsx --test src/lib/interactions.test.ts`
-Expected: FAIL — `vouch` is an unrecognized key that Zod silently strips (so `all[0].vouch` is `undefined` even in the "present" case) or, depending on the exact zod version's default object mode, is stripped without error either way the assertion on the round-tripped value fails.
+Expected: FAIL — `interactionSchema` is a plain `z.object()` (Zod's default mode strips unknown
+keys rather than rejecting them), so `vouch` is silently dropped: the "round-trips when present"
+test's `assert.deepEqual(all[0].vouch, {...})` fails because `all[0].vouch` is `undefined`, and
+the "rejects a non-http(s) vouch.url" test fails because the malformed `vouch.url` never reaches
+validation at all (it's stripped, so the file parses as "valid" with `all.length === 1`, not
+`0`).
 
 - [ ] **Step 3: Implement**
 
@@ -1439,6 +1671,24 @@ git commit -m "feat(#1597): add vouch to the received-interaction schema"
 **Interfaces:**
 - Consumes: `ReceivedInteraction.vouch` (Task 9's Zod type).
 
+**Two fixes from review, applied below:**
+1. `--color-success-surface`/`--color-success-text`/`--color-warning-surface`/`--color-warning-text`
+   don't exist anywhere in `Resources/Template/` — every one of them silently fell through to
+   its hardcoded hex fallback. Those hexes are light-mode pastels, and the template *does*
+   theme (`src/styles/global.css` has a `prefers-color-scheme: dark` block redefining
+   `--color-surface`/`--color-text-muted`/etc.), so a dark-themed site would have rendered a
+   bright mint/amber chip against a slate page. Fixed below by building the badge entirely out
+   of tokens that already exist (`--color-primary`, `--color-surface`, `--color-text-muted`) —
+   no `global.css` change needed.
+2. An `Unverified vouch` badge is only reachable when a sender *bothered to send* a vouch that
+   then failed — a spammer who omits the field entirely renders clean, so this badge would only
+   ever land on an honest sender whose vouch page moved or errored, punishing exactly the wrong
+   party. Fixed below by rendering a badge only for `verified === true`; a failed vouch is still
+   stored (Task 2) for the owner to see in the raw data, just not rendered as a claim on the
+   page. This is independent of the open Vouch-semantics question in the design spec (which
+   affects what `verified: true` *means*, not whether a false one should be shown) — revisit
+   once that's resolved.
+
 - [ ] **Step 1: Add the badge to comments**
 
 In `Resources/Template/src/components/Interactions.astro`, inside the comments `<li>` template, add the badge right after the author byline and before the `dt-published` link:
@@ -1453,10 +1703,8 @@ In `Resources/Template/src/components/Interactions.astro`, inside the comments `
                     ) : (
                       <span class="u-author h-card">{c.author?.name ?? new URL(c.source).hostname}</span>
                     )}
-                    {c.vouch && (
-                      <span class={`trust-badge ${c.vouch.verified ? "trust-vouched" : "trust-unverified"}`}>
-                        {c.vouch.verified ? "Vouched" : "Unverified vouch"}
-                      </span>
+                    {c.vouch?.verified && (
+                      <span class="trust-badge" title="This sender named a page that links back to this post">Vouched</span>
                     )}
                     <a class="u-url" href={c.source} rel="nofollow ugc">
                       <time class="dt-published" datetime={c.published}>
@@ -1481,10 +1729,8 @@ Change the mentions block to:
               <a class="h-cite" href={m.source} rel="nofollow ugc">
                 {m.author?.name ?? new URL(m.source).hostname}
               </a>
-              {m.vouch && (
-                <span class={`trust-badge ${m.vouch.verified ? "trust-vouched" : "trust-unverified"}`}>
-                  {m.vouch.verified ? "Vouched" : "Unverified vouch"}
-                </span>
+              {m.vouch?.verified && (
+                <span class="trust-badge" title="This sender named a page that links back to this post">Vouched</span>
               )}
               {index < g.mentions.length - 1 ? ", " : ""}
             </>
@@ -1506,16 +1752,15 @@ In the `<style>` block, after `.mentions`:
     font-size: 0.75rem;
     font-weight: 600;
     vertical-align: middle;
-  }
-  .trust-vouched {
-    background: var(--color-success-surface, #dcfce7);
-    color: var(--color-success-text, #166534);
-  }
-  .trust-unverified {
-    background: var(--color-warning-surface, #fef3c7);
-    color: var(--color-warning-text, #92400e);
+    background: var(--color-surface, #f8fafc);
+    color: var(--color-primary, #2563eb);
+    border: 1px solid var(--color-primary, #2563eb);
   }
 ```
+
+Every token here (`--color-surface`, `--color-primary`) is already defined under both `:root`
+and the `prefers-color-scheme: dark` block in `src/styles/global.css`, so this badge follows
+the site's theme automatically with no new tokens to add.
 
 - [ ] **Step 4: Manually verify the render in a browser**
 
@@ -1526,7 +1771,7 @@ Astro components using `import.meta.glob` aren't unit-testable directly (per the
    - one with `vouch: { url: "https://untrusted.example/", verified: false }`,
    - one with no `vouch` key at all.
 2. Run `npm run dev` from `Resources/Template/` (or the equivalent scaffolded site) and open the page whose canonical URL matches those fixtures' `target`.
-3. Confirm: the vouched one shows a green "Vouched" badge, the failed one shows an amber "Unverified vouch" badge, the plain one shows no badge, and existing (no-vouch) interaction rendering is visually unchanged.
+3. Confirm: the vouched one shows the "Vouched" badge (using the site's `--color-primary`, so check it also looks right in dark mode — resize or toggle `prefers-color-scheme`), the failed one shows **no** badge (per Step 3's fix: a failed vouch is stored but not rendered as a claim), and the plain one is visually identical to interaction rendering before this task.
 4. Remove any fixture files you added that aren't meant to be committed.
 
 - [ ] **Step 5: Run `astro check` and the full test suites**
