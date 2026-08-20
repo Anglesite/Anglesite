@@ -88,17 +88,25 @@ final class PreviewModel {
     /// Reuses the existing `.preview` `WKWebView` rather than a dedicated pane: `PreviewView`
     /// registers `WYSIWYGScriptHandler` against this controller (it forwards to
     /// `WYSIWYGHostTransport` itself, see the `WYSIWYGCanvasController` conformance) whenever it's
-    /// non-nil. Constructed against a `StubWYSIWYGHostTransport` seeded with `enterEditMode`'s
-    /// `seedModel` — the real sidecar-backed transport is a follow-up once #1222 lands (design
-    /// doc §1).
+    /// non-nil. Constructed against a `SidecarWYSIWYGHostTransport` (#1222) seeded from a real
+    /// `get_page_model` fetch in `enterEditMode`.
     private(set) var wysiwygCanvas: WYSIWYGCanvasController?
 
     /// Whether the Site ▸ Edit Page toggle is currently on. Equivalent to `wysiwygCanvas != nil`,
     /// exposed separately so callers don't have to spell out the nil check.
     var isEditModeEnabled: Bool { wysiwygCanvas != nil }
 
-    /// Site ▸ Edit Page toggle (#1225). `seedModel` stands in for a real `get_page_model` fetch
-    /// (#1222) until the sidecar backend exists.
+    /// Site ▸ Edit Page toggle (#1225). Fetches the real page model from the sidecar's
+    /// `get_page_model` tool and adapts it into the seed `BlockModel` (#1222) — the caller
+    /// resolves `path` via `PageSourcePath.resolve(route:pages:)` since this model has no access
+    /// to the site's scanned-pages graph (mirrors `SiteWindowModel.makeEffectPlacementController
+    /// (path:)`'s identical resolution).
+    ///
+    /// A fetch failure (site not running, sidecar error, decode mismatch) is logged to
+    /// `LogCenter` and the method returns without mounting a canvas — `wysiwygCanvas` stays `nil`
+    /// and the Edit Page toggle simply doesn't turn on. No dedicated failure UI: this is the
+    /// design's deliberate choice (plan's design decision 4) to keep the failure path visible only
+    /// in the debug log, not a new user-facing affordance.
     ///
     /// Also mounts the JS engine (`WYSIWYGCanvasController.mountEngine()`) if this model's own
     /// `webView` is already live — the ordering where the user toggles edit mode against an
@@ -121,8 +129,23 @@ final class PreviewModel {
     /// (`PreviewNavigationCommands`'s Edit Page toggle) reads the current `SiteWindowModel
     /// .windowUndoManager` at the moment it flips the toggle on, so a later off→on cycle picks up
     /// whatever manager is current then too — not just the first entry.
-    func enterEditMode(seedModel: BlockModel, undoManager: UndoManager?) async {
-        let transport = StubWYSIWYGHostTransport(model: seedModel)
+    ///
+    /// `path` is the project-relative `.astro` page path (e.g. `src/pages/index.astro`).
+    func enterEditMode(path: String, undoManager: UndoManager?) async {
+        // Mirrors `open(site:)`'s own `pageModelClient` construction: a fresh lookup per call
+        // rather than a value pinned at construction, so it keeps working across a dev-server
+        // restart that swaps out `runtime`'s underlying MCP connection.
+        let pageModelClient = PageModelClient(mcpClient: { [weak self] in await self?.runtime.mcpClient })
+        let transport = SidecarWYSIWYGHostTransport(path: path, pageModelClient: pageModelClient, editRouter: editRouter)
+        let seedModel: BlockModel
+        do {
+            seedModel = PageModelBlockAdapter.adapt(try await pageModelClient.fetch(path: path))
+        } catch {
+            await LogCenter.shared.append(
+                source: "wysiwyg", stream: .stderr,
+                text: "enterEditMode: get_page_model failed for \(path): \(error)")
+            return // canvas stays nil — the Edit Page toggle simply doesn't turn on (see plan's design decision 4)
+        }
         let canvas = WYSIWYGCanvasController(initialModel: seedModel, transport: transport)
         canvas.undoCoordinator.undoManager = undoManager
         if let openSiteDirectory {

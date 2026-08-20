@@ -1625,6 +1625,16 @@ final class SiteWindowModel {
     /// ``PageSourcePath/resolve(route:pages:)`` covers with its naming-convention fallback.
     private var scannedPages: [SiteContentGraph.Page] = []
 
+    /// Resolves the live preview's current route to its project-relative `.astro` source path,
+    /// via the same `PageSourcePath.resolve(route:pages:)` call `effectPlacementController` makes
+    /// below. Exposed (rather than `scannedPages` itself) so `PreviewNavigationCommands`'s Edit
+    /// Page toggle — a separate `Commands`/`FocusedValue`-reading type with no access to this
+    /// model's private state — can resolve the real path `PreviewModel.enterEditMode(path:)`
+    /// needs (#1222) without duplicating the resolution logic or the scanned-pages cache.
+    var activePageSourcePath: String {
+        PageSourcePath.resolve(route: preview.activeRoute, pages: scannedPages)
+    }
+
     /// The click-to-place controller for the Effects gallery sheet (Website ▸ Effects…, #768).
     /// `EffectPlacementController` captures its target `path` once at construction (`path` is a
     /// `private let` on that type), so a controller built once per site-open and never refreshed
@@ -1640,7 +1650,7 @@ final class SiteWindowModel {
     /// under itself — only an idle cached controller is eligible for a route-triggered rebuild, so
     /// an in-progress pick always resolves against the path it actually started against.
     var effectPlacementController: EffectPlacementController {
-        let path = PageSourcePath.resolve(route: preview.activeRoute, pages: scannedPages)
+        let path = activePageSourcePath
         if let cached = cachedEffectPlacementController,
            cached.path == path || cached.controller.state != .idle {
             return cached.controller
