@@ -1775,9 +1775,25 @@ final class SiteWindowModel {
     /// activation the way the component editor is; `handleSiteChanged()`/`close(...)` tear it down
     /// instead when a rebuild is actually warranted (a different site). Loading is kicked off in a
     /// detached `Task` rather than awaited here so this stays a synchronous MainActor call: callers
-    /// (the `.inspector` content's `.task(id:)`, the toolbar/menu toggles) need a same-transaction
-    /// read-then-write for the #968/#969 presentation-gate discipline, which an `async` signature
-    /// would break.
+    /// need a same-transaction read-then-write for the #968/#969 presentation-gate discipline,
+    /// which an `async` signature would break.
+    ///
+    /// **Called from two places, deliberately** (#714 v2 slice 1 fix round 3): primarily,
+    /// synchronously, from `SiteWindow.toggleWebsiteInspector()` in the same transaction that
+    /// flips `activeInspector`/`inspectorShown` — this guarantees `websiteInspector` is already
+    /// non-nil the very first time SwiftUI ever constructs the `.inspector` content closure's
+    /// `.website` branch. That ordering matters: on macOS 26/27 beta, a `.inspector(isPresented:)`
+    /// content closure's `if let websiteModel = model.websiteInspector { … }` did not reliably
+    /// re-evaluate when `websiteInspector` transitioned nil → non-nil *after* that closure's first
+    /// build — the same class of "content closure doesn't observe a later `@Observable` mutation"
+    /// gap this codebase has already hit for `.sheet`/`.inspector` elsewhere (#1126/#1139/#968/
+    /// #969) — so the panel that had reserved space and toggled correctly rendered permanently
+    /// blank (confirmed live: GUI smoke test, `task-5-report.md`). Calling this *before* the
+    /// content closure is ever built the first time sidesteps needing that later re-evaluation to
+    /// ever happen. The `.task(id: model.site?.id)` on the content closure remains as a secondary
+    /// fallback for scene restoration (`activeInspector` persisted as `.website` from a previous
+    /// launch, so no toggle ever fires) — safe to call from both places since this guard is
+    /// idempotent.
     @MainActor
     func ensureWebsiteInspectorLoaded() {
         guard websiteInspector == nil, let site else { return }

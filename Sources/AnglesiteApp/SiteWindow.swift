@@ -231,12 +231,21 @@ struct SiteWindow: View {
 
     /// The website inspector's mirror of `toggleSelectionInspector()` — see that function's doc
     /// comment for the shared policy and the #968/#969 synchronous-mutation requirement.
+    ///
+    /// Also where `model.websiteInspector` gets created (fix round 3, #714 v2 slice 1): calling
+    /// `ensureWebsiteInspectorLoaded()` here, synchronously, BEFORE `activeInspector` flips to
+    /// `.website`, guarantees the model already exists the very first time SwiftUI builds the
+    /// `.inspector` content closure's `.website` branch — see `ensureWebsiteInspectorLoaded()`'s
+    /// doc comment for why relying on that closure to observe a *later* mutation doesn't reliably
+    /// work on this platform (the live-app root cause: the panel presented and toggled correctly
+    /// but its content rendered permanently blank).
     @MainActor
     private func toggleWebsiteInspector() {
         if activeInspector == .website {
             inspectorShown.toggle()
         } else {
             armSuppressNextInspectorWriteBack()
+            model.ensureWebsiteInspectorLoaded()
             activeInspector = .website
             inspectorShown = true
         }
@@ -1237,6 +1246,11 @@ struct SiteWindow: View {
                     )
                 }
             }
+            // Fallback only — the primary creation path is `toggleWebsiteInspector()`'s eager,
+            // synchronous call, which runs *before* this branch is ever built for the first time
+            // (see `ensureWebsiteInspectorLoaded()`'s doc comment for why that ordering matters).
+            // This `.task` only still matters for scene restoration landing directly on
+            // `activeInspector == .website` with no toggle ever firing.
             .task(id: model.site?.id) {
                 model.ensureWebsiteInspectorLoaded()
             }

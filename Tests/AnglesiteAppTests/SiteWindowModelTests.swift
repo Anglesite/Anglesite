@@ -1601,4 +1601,39 @@ extension SiteWindowModelTests {
         let onDiskAfter = try PlistDocumentIO.load(package.infoPlistURL)
         #expect(onDiskAfter.entries == onDiskBefore.entries)
     }
+
+    /// Documents the ordering contract `SiteWindow.toggleWebsiteInspector()` depends on (fix
+    /// round 3, #714 v2 slice 1): a live-app-only bug found the Website inspector panel presenting
+    /// (space reserved, toggle state correct) with permanently blank content, because the
+    /// `.inspector(isPresented:)` content closure's `if let websiteModel = model.websiteInspector`
+    /// did not reliably re-render when `websiteInspector` was populated *after* that closure's
+    /// first build, on a fire-and-forget `.task`. The fix moved population to *before* the
+    /// closure is ever first built — a synchronous call to `ensureWebsiteInspectorLoaded()` in the
+    /// same transaction that flips `activeInspector` to `.website`, ahead of the SwiftUI
+    /// `View`-layer code this SwiftPM target's tests can't exercise directly (`SiteWindow` is a
+    /// View, not testable through this harness — same limitation as the round-1 suppress-flag
+    /// finding). What *is* testable and load-bearing: `ensureWebsiteInspectorLoaded()` must leave
+    /// `websiteInspector` non-nil synchronously, with no suspension point the caller could
+    /// observe in between — otherwise moving the call earlier wouldn't fix anything. This asserts
+    /// exactly that, with zero `await`/`Task.yield()` between the call and the check (unlike
+    /// `websiteInspectorLifecycle`, which allows itself that latitude for its own, different
+    /// purpose).
+    @Test("ensureWebsiteInspectorLoaded populates websiteInspector with no suspension point between call and return — the ordering toggleWebsiteInspector()'s eager call depends on (fix round 3)")
+    func ensureWebsiteInspectorLoadedIsSynchronous() throws {
+        let (root, packageURL, _) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+
+        #expect(model.websiteInspector == nil)
+        model.ensureWebsiteInspectorLoaded()
+        // No `await` above this line and none needed below it — the assertion holds the instant
+        // the call returns, proving a caller can safely flip `activeInspector`/`inspectorShown`
+        // (or read `model.websiteInspector` for any other reason) in the very next statement.
+        #expect(model.websiteInspector != nil)
+        #expect(model.websiteInspector?.packageURL == packageURL)
+    }
 }
