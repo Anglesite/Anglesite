@@ -1932,6 +1932,9 @@
     "Hide Related Pages" : {
 
     },
+    "Hide Website Inspector" : {
+
+    },
     "Hide chat panel" : {
 
     },
@@ -2281,6 +2284,9 @@
     "Moderators" : {
 
     },
+    "More Settings…" : {
+
+    },
     "Move To…" : {
 
     },
@@ -2474,6 +2480,9 @@
 
     },
     "No scoped styles" : {
+
+    },
+    "No stylesheets" : {
 
     },
     "No themes in this category yet" : {
@@ -3490,6 +3499,9 @@
 
     },
     "Show Related Pages" : {
+
+    },
+    "Show Website Inspector" : {
 
     },
     "Show chat panel" : {

@@ -24,6 +24,23 @@ struct SiteWindow: View {
     /// Inspector visibility, persisted per window. Defaults to shown (auto-open); the toolbar toggle
     /// flips it and the choice persists across selections.
     @SceneStorage("siteInspector.shown") private var inspectorShown = true
+    /// Which inspector occupies the trailing panel while `inspectorShown` is true (#714 v2 slice
+    /// 1): the existing per-selection inspector, or the new Website inspector. Mutually exclusive
+    /// — switching one on switches the other off. Persisted per window like `inspectorShown`.
+    @SceneStorage("siteInspector.active") private var activeInspector: ActiveSiteInspector = .selection
+    /// Suppresses exactly one stale `inspectorPresented` write-back scheduled under the inspector
+    /// kind active BEFORE a switch (#714 v2 slice 1 fix round 1, Important 1 — reopens #968/#969
+    /// through the new activation seam). SwiftUI's automatic `isPresented = false` collapse
+    /// write-back on a transient-nil selection is asynchronous (see the #968/#969 comment at
+    /// `SiteWindowModel.applyNavigatorSelection`): if the user switches `activeInspector` between
+    /// the moment that write-back is queued and the moment it lands, the binding setter's guard
+    /// would re-read under the NEW activation and wrongly persist `inspectorShown = false` on the
+    /// panel the user just opened. `toggleSelectionInspector()`/`toggleWebsiteInspector()` set
+    /// this synchronously in the same transaction that switches `activeInspector`, and clear it
+    /// one run-loop turn later — same "defer a turn" idiom as `MarkdownFindBar`'s focus
+    /// workaround — long enough for an already-queued stale write-back to land and be swallowed,
+    /// short enough that a later, genuine write-back for the NEW activation isn't suppressed too.
+    @State private var suppressNextInspectorWriteBack = false
     /// The title shown in the content-delete confirmation dialog. Held separately from
     /// `model.deleteConfirmation` so the title stays stable through the dismiss animation —
     /// mirrors `SiteNavigatorView`'s `candidateToDeleteTitle` for the same reason.
@@ -120,6 +137,14 @@ struct SiteWindow: View {
         .onChange(of: undoManager, initial: true) { _, newValue in
             model.windowUndoManager = newValue
         }
+        // Catch-all sync of `model.websiteInspectorPresented` (#714 v2 slice 1 fix round 1,
+        // Important 3) — the toggle funcs already sync it in their own transaction, but other
+        // paths can flip `inspectorShown`/`activeInspector` outside them (e.g.
+        // `SiteSearchFieldModifier`'s programmatic dismiss, scene restoration on first appearance),
+        // so this scene-level pair of `onChange`s covers those too. `initial: true` handles scene
+        // restoration landing `activeInspector == .website` before either toggle func ever runs.
+        .onChange(of: inspectorShown, initial: true) { _, _ in syncWebsiteInspectorPresented() }
+        .onChange(of: activeInspector, initial: true) { _, _ in syncWebsiteInspectorPresented() }
         .onChange(of: model.preview.state) { _, newState in
             model.previewStateChanged(newState)
         }
@@ -178,10 +203,72 @@ struct SiteWindow: View {
             // Inspector reaches it through its own focused value rather than the window model
             // (#512).
             .focusedSceneValue(\.inspectorPanel, InspectorPanelActions(
-                isShown: inspectorShown && model.inspectorSelection != nil,
+                isShown: inspectorShown && activeInspector == .selection && model.inspectorSelection != nil,
                 isAvailable: model.inspectorSelection != nil,
-                toggle: { inspectorShown.toggle() }
+                toggle: { toggleSelectionInspector() },
+                isWebsiteShown: inspectorShown && activeInspector == .website,
+                toggleWebsite: { toggleWebsiteInspector() }
             ))
+    }
+
+    /// Shows the selection inspector, switching away from the website inspector if that's active;
+    /// hides it if it's already the active, shown inspector. Shared by the toolbar item and the
+    /// View menu's Show/Hide Inspector command.
+    @MainActor
+    private func toggleSelectionInspector() { activateInspector(.selection) }
+
+    /// The website inspector's mirror of `toggleSelectionInspector()`, behind the View menu's
+    /// Show/Hide Website Inspector (⌥⌘J).
+    @MainActor
+    private func toggleWebsiteInspector() { activateInspector(.website) }
+
+    /// Applies one inspector-toggle request. The decision itself lives in
+    /// `InspectorActivationPolicy` — a pure function, so the toolbar item, both menu commands, and
+    /// the unit tests all agree on one mutually-exclusive-activation policy (#714 v2 slice 1).
+    ///
+    /// Applied as a single synchronous MainActor transaction with no `await` anywhere between
+    /// reading the current activation and writing the new one, per the #968/#969 presentation-gate
+    /// discipline. Field order matters:
+    ///
+    /// 1. `armSuppress` before the flip, so a write-back queued under the outgoing activation is
+    ///    already being swallowed by the time it lands.
+    /// 2. `needsWebsiteModel` before the flip, so `model.websiteInspector` is non-nil the very
+    ///    first time SwiftUI builds `inspectorContent`'s `.website` branch for this activation —
+    ///    the panel renders from whatever the model holds at build time (fix round 3/4, #714 v2
+    ///    slice 1; see `SiteWindowModel.ensureWebsiteInspectorLoaded()` for the other paths that
+    ///    have to guarantee the same thing).
+    /// 3. The activation flip, then the presented-state mirror the #1126 settle predicate reads.
+    @MainActor
+    private func activateInspector(_ target: ActiveSiteInspector) {
+        let outcome = InspectorActivationPolicy.apply(
+            current: activeInspector,
+            shown: inspectorShown,
+            target: target
+        )
+        if outcome.armSuppress { armSuppressNextInspectorWriteBack() }
+        if outcome.needsWebsiteModel { model.ensureWebsiteInspectorLoaded() }
+        activeInspector = outcome.active
+        inspectorShown = outcome.shown
+        syncWebsiteInspectorPresented()
+    }
+
+    /// Sets `suppressNextInspectorWriteBack` for one run-loop turn — see its doc comment. Called
+    /// synchronously, in the same transaction as the `activeInspector` switch, by both toggle
+    /// funcs above.
+    @MainActor
+    private func armSuppressNextInspectorWriteBack() {
+        suppressNextInspectorWriteBack = true
+        DispatchQueue.main.async { suppressNextInspectorWriteBack = false }
+    }
+
+    /// Mirrors the website inspector's actual presented state onto the model — see
+    /// `SiteWindowModel.websiteInspectorPresented`'s doc comment. Called synchronously by both
+    /// toggle funcs above and by `coreBody`'s `.onChange` (for the other paths that can flip
+    /// `inspectorShown`/`activeInspector`: `SiteSearchFieldModifier`'s programmatic dismiss,
+    /// scene restoration).
+    @MainActor
+    private func syncWebsiteInspectorPresented() {
+        model.websiteInspectorPresented = inspectorShown && activeInspector == .website
     }
 
     @ViewBuilder
@@ -194,12 +281,20 @@ struct SiteWindow: View {
         // needs the same presented-state read the `.inspector(isPresented:)` modifier itself
         // uses, not a copy that could drift out of sync.
         let inspectorPresented = Binding(
-            get: { inspectorShown && model.inspectorSelection != nil },
+            get: {
+                inspectorShown && (activeInspector == .website || model.inspectorSelection != nil)
+            },
             set: { newValue in
-                // Only persist an explicit show/hide while there is something to inspect.
-                // When the selection is nil the panel is auto-hidden; ignore that write so
-                // it doesn't clobber the remembered preference (the bug: inspector never returns).
-                if model.inspectorSelection != nil { inspectorShown = newValue }
+                // Swallow a write-back scheduled under an activation that's since been switched
+                // away from — see `suppressNextInspectorWriteBack`'s doc comment (#714 v2 slice 1
+                // fix round 1, Important 1).
+                guard !suppressNextInspectorWriteBack else { return }
+                // Website inspector always has content, so its show/hide is always an explicit
+                // user choice. Selection keeps the #968 guard: never persist an auto-hide
+                // caused by a transient-nil selection.
+                if activeInspector == .website || model.inspectorSelection != nil {
+                    inspectorShown = newValue
+                }
             }
         )
 
@@ -296,14 +391,8 @@ struct SiteWindow: View {
         .animation(.easeInOut(duration: 0.18), value: model.deploy.drawerPresented)
         .animation(.easeInOut(duration: 0.18), value: model.backup.drawerPresented)
         .inspector(isPresented: inspectorPresented) {
-            if let selection = model.inspectorSelection {
-                SiteInspectorView(
-                    selection: selection,
-                    canvasWebView: componentCanvasWebView,
-                    previewBaseURL: model.preview.readyURL
-                )
+            inspectorContent
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
-            }
         }
         .navigationTitle(site.name)
         .navigationSubtitle(model.preview.readyURL?.absoluteString ?? "")
@@ -631,7 +720,7 @@ struct SiteWindow: View {
             // Far trailing, adjacent to the inspector panel it controls (Pages/Freeform convention).
             ToolbarItem(id: SiteToolbarItemID.inspector.rawValue, placement: .primaryAction) {
                 Button {
-                    inspectorShown.toggle()
+                    toggleSelectionInspector()
                 } label: {
                     Label("Inspector", systemImage: "sidebar.right")
                 }
@@ -1130,6 +1219,57 @@ struct SiteWindow: View {
             MicropubSiteConnectSheet(site: site)
         }
         .annotatedAsSite(site)
+    }
+
+    /// The window's trailing inspector panel content (#714 v2 slice 1) — the existing per-selection
+    /// inspector, or the new Website inspector, chosen by `activeInspector`. Factored out of
+    /// `siteUI(for:)`'s `.inspector` modifier as its own computed var rather than inlined, per the
+    /// same type-checking-budget discipline as `mainPane(for:)`/`mainPaneContent(for:)` below.
+    @ViewBuilder
+    private var inspectorContent: some View {
+        switch activeInspector {
+        case .selection:
+            if let selection = model.inspectorSelection {
+                SiteInspectorView(
+                    selection: selection,
+                    canvasWebView: componentCanvasWebView,
+                    previewBaseURL: model.preview.readyURL
+                )
+            }
+        case .website:
+            Group {
+                if let websiteModel = model.websiteInspector {
+                    WebsiteInspectorView(
+                        model: websiteModel,
+                        openStylesheet: { model.openFile($0) },
+                        openMoreSettings: { model.openWebsiteSettings() }
+                    )
+                    // A site swap replaces the model instance (`handleSiteChanged()` tears the old
+                    // one down and rebuilds against the new package). Keying on the package URL
+                    // gives the panel a fresh view identity per site, so no view-local state
+                    // (@FocusState, in-flight field editing) can carry across and write an edit
+                    // into the previous site's Info.plist/.site-config (fix round 4, Critical 2).
+                    .id(websiteModel.packageURL)
+                } else {
+                    // Deliberately NOT an empty branch: SwiftUI does not run `.task` for a subtree
+                    // that renders nothing, so with `if let` alone the fallback below could never
+                    // fire while the model was nil — exactly the state it exists to repair (fix
+                    // round 4, Important 3). A spinner also replaces the blank column that used to
+                    // flash while the site loaded.
+                    ProgressView()
+                        .controlSize(.small)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                }
+            }
+            // Belt-and-braces, not the guarantee. `SiteWindowModel.ensureWebsiteInspectorLoaded()`
+            // is called from the paths that *are* guaranteed to run — `activateInspector(.website)`
+            // for a toggle, `handleSiteChanged()` for a site load/swap under a persisted or
+            // pressed-while-loading `.website` activation. This re-fires it on the site's identity
+            // for anything neither path anticipated; the guard inside makes it idempotent.
+            .task(id: model.site?.id) {
+                model.ensureWebsiteInspectorLoaded()
+            }
+        }
     }
 
     @ViewBuilder

@@ -305,6 +305,24 @@ final class SiteWindowModel {
     /// change, window close, or the open component being deleted out from under it.
     private(set) var componentEditor: ComponentEditorModel?
 
+    /// The hoisted Website inspector model (#714 v2 slice 1) — created/loaded on first use by
+    /// `ensureWebsiteInspectorLoaded()`, keyed to the open site's `packageURL`. Persists across
+    /// selection changes (unlike `inspectorSelection`'s targets): the website inspector is a
+    /// second, mutually-exclusive trailing panel, not a per-selection context. Torn down on site
+    /// change / window close alongside `componentEditor` — and, on a site change with the panel
+    /// still presented, rebuilt against the new package in the same transaction, so the panel is
+    /// never left presented over a nil model.
+    private(set) var websiteInspector: WebsiteInspectorModel?
+
+    /// Mirrors whether the website inspector panel is actually presented right now (#714 v2
+    /// slice 1 fix round 1, Important 3). The model has no visibility into `SiteWindow`'s
+    /// `@SceneStorage activeInspector`/`inspectorShown`, so `SiteWindow`'s toggle funcs and a
+    /// scene-level `.onChange` keep this in sync, synchronously, on every path that can flip
+    /// which inspector is active or shown. Exists solely so `clearInspectorThenSwitchPane`'s
+    /// #1126 settle predicate can tell whether *any* inspector panel is visible before a
+    /// main-pane swap, not just the selection one `inspectorSelection` already covers.
+    var websiteInspectorPresented = false
+
     /// What the window inspector is inspecting, in precedence order. Component and collection are
     /// gated on the pane mode they belong to, so a stale value from an earlier selection can never
     /// shadow the current one after a pane toggle.
@@ -544,7 +562,11 @@ final class SiteWindowModel {
     /// that gap.
     @MainActor
     private func clearInspectorThenSwitchPane(to mode: MainPaneMode) async {
-        let wasInspecting = inspectorSelection != nil
+        // `inspectorSelection != nil` alone used to equal "an inspector panel is presented", but
+        // the website inspector (#714 v2 slice 1) presents without any selection — OR in
+        // `websiteInspectorPresented` so this predicate still matches actual presentation
+        // (fix round 1, Important 3).
+        let wasInspecting = inspectorSelection != nil || websiteInspectorPresented
         inspectorContext = nil
         collectionInspection = nil
         if wasInspecting {
@@ -783,10 +805,30 @@ final class SiteWindowModel {
         // alert can be shown on a closing window, so a conflict-gated flush would silently drop
         // the edits. Last-writer-wins, matching the .text/.plist teardown above.
         if let model = inspectorContext?.model { Task { await model.save() } }
+        // Mirrors the `inspectorContext` flush above — `saveAll()` no-ops per-field when clean, so
+        // this is safe to fire unconditionally (fix round 1, Important 2: this used to drop a
+        // dirty title/lang edit silently on a site swap).
+        if let websiteInspector { Task { await websiteInspector.saveAll() } }
         inspectorContext = nil
         collectionInspection = nil
         componentEditor = nil
+        websiteInspector = nil
         mainPaneMode = .preview
+        // Re-create immediately, in this same synchronous transaction, whenever the website
+        // inspector is presented right now (fix round 4, Criticals 1 and 2). This handler runs on
+        // `SiteWindow`'s `.onChange(of: model.site?.id)`, which covers BOTH the initial nil →
+        // loaded transition and a later site swap, and `websiteInspectorPresented` is already
+        // mirrored by `SiteWindow`'s `initial: true` handlers before the site resolves. So this is
+        // the guaranteed creation path for every activation that no toggle press covers:
+        //   - scene restoration with `activeInspector` persisted as `.website` (the panel is the
+        //     first thing built for the restored window; no toggle ever fires),
+        //   - ⌥⌘J pressed while the window still shows "Loading site…" (the toggle's own
+        //     `ensureWebsiteInspectorLoaded()` no-ops with no site, but the activation still
+        //     flips),
+        //   - a site swap while the panel is up (the teardown three lines above would otherwise
+        //     leave it presented with nothing to render).
+        // Leaving it nil in any of those cases rendered the panel permanently blank.
+        if websiteInspectorPresented { ensureWebsiteInspectorLoaded() }
     }
 
     func close(suddenTerminationLease: SuddenTerminationController.Lease? = nil) {
@@ -830,17 +872,27 @@ final class SiteWindowModel {
         let inspectorSaveTask = (inspectorContext?.model).map { model in
             Task { await model.save() }
         }
+        // Mirrors the `inspectorContext` flush immediately above — fix round 1, Important 2: this
+        // used to drop a dirty website-inspector title/lang edit silently on window close, three
+        // lines below the sibling teardown that already flushed `inspectorContext`.
+        let websiteInspectorWasDirty = websiteInspector?.isDirty == true
+        let websiteInspectorSaveTask = websiteInspector.map { inspector in
+            Task { await inspector.saveAll() }
+        }
         inspectorContext = nil
         collectionInspection = nil
         componentEditor = nil
+        websiteInspector = nil
         let closeTerminationLease = suddenTerminationLease
-            ?? ((editorSaveTask != nil || inspectorWasDirty) ? SuddenTerminationController.shared.acquire() : nil)
+            ?? ((editorSaveTask != nil || inspectorWasDirty || websiteInspectorWasDirty)
+                ? SuddenTerminationController.shared.acquire() : nil)
         #if ANGLESITE_MAS
         let closingScopedURL = grantController.release()
         #endif
         Task { @MainActor in
             await editorSaveTask?.value
             _ = await inspectorSaveTask?.value
+            _ = await websiteInspectorSaveTask?.value
             #if ANGLESITE_MAS
             closingScopedURL?.stopAccessingSecurityScopedResource()
             #endif
@@ -1051,7 +1103,7 @@ final class SiteWindowModel {
         case .plist(let model): model.hasAnyUnsavedEdits
         case nil: false
         }
-        return editorDirty || (inspectorContext?.model.isDirty ?? false)
+        return editorDirty || (inspectorContext?.model.isDirty ?? false) || (websiteInspector?.isDirty ?? false)
     }
 
     /// True while any save/revert IO is in flight on either editing surface. File ▸ Save / Revert
@@ -1064,7 +1116,8 @@ final class SiteWindowModel {
         case .plist(let model): if model.isAnySaving { return true }
         case nil: break
         }
-        return inspectorContext?.model.isSaving ?? false
+        if inspectorContext?.model.isSaving == true { return true }
+        return (websiteInspector?.isSavingTitle ?? false) || (websiteInspector?.isSavingLang ?? false)
     }
 
     /// Serializes File ▸ Save / Revert themselves (the per-model `isSaving` flags only cover each
@@ -1086,6 +1139,9 @@ final class SiteWindowModel {
         case nil: break
         }
         if let model = inspectorContext?.model { await model.save() }
+        // The website inspector (#714 v2 slice 1) is a third dirty-able editing surface `hasUnsavedEdits`
+        // already counts — `saveAll()` no-ops per-field when clean, matching the other two above.
+        if let websiteInspector { await websiteInspector.saveAll() }
     }
 
     /// File ▸ Revert to Saved: present the confirmation alert (no-op when nothing is dirty, so a
@@ -1108,6 +1164,9 @@ final class SiteWindowModel {
         default: break
         }
         if let model = inspectorContext?.model, model.isDirty { await model.load() }
+        // Mirrors the two branches above: reverting the website inspector means re-reading its
+        // fields from disk, discarding the in-memory title/lang edit.
+        if let websiteInspector, websiteInspector.isDirty { await websiteInspector.load() }
     }
 
     func leaveCurrentEditor() async -> Bool {
@@ -1171,7 +1230,6 @@ final class SiteWindowModel {
             }
             if entry.name != site?.name {
                 site?.name = entry.name
-                navigator?.updateWebsiteTitle(entry.name)
             }
         }
     }
@@ -1739,6 +1797,40 @@ final class SiteWindowModel {
         await editor.load()
     }
 
+    /// Creates the hoisted Website inspector for the open site the first time it's needed, then
+    /// returns it as-is on every later call — the website inspector isn't rebuilt on repeat
+    /// activation the way the component editor is; `handleSiteChanged()`/`close(...)` tear it down
+    /// instead when a rebuild is actually warranted (a different site). Loading is kicked off in a
+    /// detached `Task` rather than awaited here so this stays a synchronous MainActor call: callers
+    /// need a same-transaction read-then-write for the #968/#969 presentation-gate discipline,
+    /// which an `async` signature would break.
+    ///
+    /// **The invariant every caller upholds** (#714 v2 slice 1, fix rounds 3–4): whenever the
+    /// website inspector becomes presented, this has already run — synchronously, before the
+    /// activation state the panel renders from is written. A GUI smoke found the panel reserving
+    /// space and toggling correctly while its content stayed permanently blank, because the only
+    /// thing that created the model was a `.task` attached to the panel's own `if let websiteModel
+    /// = model.websiteInspector { … }` subtree: with the model nil that subtree renders nothing,
+    /// SwiftUI doesn't run `.task` for a subtree that renders nothing, and so the task that would
+    /// have created the model could never run. Hence the three callers, in order of how reliably
+    /// each fires:
+    ///
+    /// - `SiteWindow.activateInspector(_:)` — every toggle press, before `activeInspector` flips.
+    /// - `handleSiteChanged()` — every site load or swap while the panel is presented, covering
+    ///   scene restoration onto a persisted `.website` activation and ⌥⌘J pressed before the site
+    ///   finished loading, neither of which involves a toggle press with a site in hand.
+    /// - The `.task(id:)` on the panel's content — now backed by a non-empty placeholder branch so
+    ///   it can actually fire, but kept as belt-and-braces rather than a guarantee.
+    ///
+    /// The guard below makes calling it from all three idempotent.
+    @MainActor
+    func ensureWebsiteInspectorLoaded() {
+        guard websiteInspector == nil, let site else { return }
+        let inspector = WebsiteInspectorModel(packageURL: site.packageURL)
+        websiteInspector = inspector
+        Task { await inspector.load() }
+    }
+
     private func isFrontmatterPage(_ relPath: String) -> Bool {
         let ext = (relPath as NSString).pathExtension.lowercased()
         return ext == "md" || ext == "mdx" || ext == "markdown"
@@ -1752,7 +1844,6 @@ final class SiteWindowModel {
         do {
             guard let updated = try await SiteStore.shared.setDisplayName(title, for: id) else { return }
             site = updated
-            navigator?.updateWebsiteTitle(updated.name)
         } catch {
             await LogCenter.shared.append(
                 source: "editor", stream: .stderr,
@@ -2508,7 +2599,7 @@ final class SiteWindowModel {
         navModel.registerUndo = { [weak self] mutation in
             self?.contentUndoCoordinator.register(mutation)
         }
-        navModel.start(site: currentSite, websiteTitle: currentSite.name)
+        navModel.start(site: currentSite)
         navigator = navModel
         graphExplorer.start(site: currentSite)
         cleanup.configure(site: currentSite)
