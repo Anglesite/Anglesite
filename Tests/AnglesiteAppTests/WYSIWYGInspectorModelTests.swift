@@ -34,7 +34,12 @@ struct WYSIWYGInspectorModelTests {
         let model = WYSIWYGInspectorModel(controller: controller, blockId: blockId)
 
         model.setString("new", for: "title")
-        try? await Task.sleep(nanoseconds: 10_000_000) // let the fire-and-forget Task run
+
+        var attempts = 0
+        while model.stringValue(for: "title") != "new", attempts < 50 {
+            try? await Task.sleep(nanoseconds: 5_000_000) // poll for the fire-and-forget Task's commit
+            attempts += 1
+        }
 
         #expect(model.stringValue(for: "title") == "new")
     }
