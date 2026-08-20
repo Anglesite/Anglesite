@@ -1310,6 +1310,17 @@ struct SiteWindow: View {
                 guard let canvas = model.preview.wysiwygCanvas else { return }
                 Task { await canvas.deleteSelectedBlock() }
             }
+            // #1588 Task 16 (reviewed): the canvas's own Copy target, same `active:`-gated shape
+            // as `.onDeleteCommand` immediately above and for the same reason — a Commands-level
+            // "Copy" button would duplicate AppKit's default Edit ▸ Copy item. `copySelectedBlock()`
+            // writes HTML + plain text directly onto `NSPasteboard.general` itself (see its doc
+            // comment, `WYSIWYGCanvasController.swift`), so this closure returns `[]`: SwiftUI's
+            // `onCopyCommand(perform:)` requires a non-optional `[NSItemProvider]` back, but there's
+            // nothing left for its own pasteboard-placement plumbing to add on top of that.
+            .onCopyCommand(active: model.preview.wysiwygCanvas?.hasKeyboardFocus == true) {
+                model.preview.wysiwygCanvas?.copySelectedBlock()
+                return []
+            }
         case .starting, .ready:
             // `.ready` reaches here only while `isShowingCompletionHold` is true (see the guarded
             // case above) — a brief window so the fully-filled phase progress strip is actually

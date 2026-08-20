@@ -175,7 +175,12 @@ final class WYSIWYGCanvasController {
     }
 
     /// The Edit ▸ Copy target for the canvas's block selection (#1588 Task 16) — writes real HTML
-    /// + plain text via `WYSIWYGBlockClipboardWriter`, not just a debug string.
+    /// + plain text via `WYSIWYGBlockClipboardWriter`, not just a debug string. Wired via
+    /// `.onCopyCommand(active:perform:)` on `previewPane(for:)` (`SiteWindow.swift`), gated on
+    /// `hasKeyboardFocus` the same way `deleteSelectedBlock()` is wired via `.onDeleteCommand` —
+    /// **not** a `Commands`-level menu button, which would duplicate the system's default Edit ▸
+    /// Copy item (#989/#1423's already-solved shape). Self-guards on `selectedBlockId` like
+    /// `deleteSelectedBlock()` does, so callers don't need to check first.
     func copySelectedBlock(pasteboard: NSPasteboard = .general) {
         guard let id = selectedBlockId, let node = model.blocks[id] else { return }
         let (html, plain) = WYSIWYGBlockClipboardWriter.render(node)

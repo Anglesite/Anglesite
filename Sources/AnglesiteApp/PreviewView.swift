@@ -353,3 +353,19 @@ extension View {
         }
     }
 }
+
+/// Attaches `.onCopyCommand` only while `isActive` (#1588 Task 16, reviewed) — same shape as
+/// `onDeleteCommand(active:perform:)` above and for the same reason (#989/#1423): the canvas's
+/// block-copy target is gated on `WYSIWYGCanvasController.hasKeyboardFocus` rather than added as a
+/// second `Commands`-level menu item, so it never contends with AppKit's own default Edit ▸ Copy
+/// menu-bridging for whatever else might respond to `copy:` elsewhere in the window.
+extension View {
+    @ViewBuilder
+    func onCopyCommand(active isActive: Bool, perform action: @escaping () -> [NSItemProvider]) -> some View {
+        if isActive {
+            onCopyCommand(perform: action)
+        } else {
+            self
+        }
+    }
+}
