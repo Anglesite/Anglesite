@@ -231,6 +231,12 @@ public enum WorkerComposition {
     ///     `routeClaims`/the inbox-capture claim. A running experiment also emits its own
     ///     `[[d1_databases]]` block bound to `EXPERIMENTS_DB` on the same shared
     ///     `"\(siteName)-social"` database. Defaults to `[]` (no experiments).
+    ///   - mcpEnabled: The site's declared `experimental.mcp` flag (#1576) — Worker composition's
+    ///     fourth enabler, alongside `hasSocialFeatures`, `inboxCaptureEnabled`, and a running
+    ///     experiment: on its own (no active `workers`, no inbox capture, no experiment) it still
+    ///     composes a Worker, claims `/mcp` in `[assets].run_worker_first` via `mcpRouteClaim`, and
+    ///     emits the `SOCIAL_KV` `[[kv_namespaces]]` binding the site's MCP rate limiter needs.
+    ///     Defaults to `false` (inert).
     /// - Returns: A complete wrangler.toml string.
     /// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` contains
     ///   characters outside `[A-Za-z0-9_-]`, or ``ConfigError/invalidRouteClaim(path:reason:)``
