@@ -5,14 +5,22 @@ import Foundation
 /// see `docs/superpowers/plans/2026-08-19-wysiwyg-sidecar-backed-transport.md`'s "Design
 /// decisions" section for why `slot` names are dropped and `setDesignToken` retargets its path.
 public enum WYSIWYGOpTranslator {
-    /// - Parameter rootId: the CURRENT model's real root-fragment id (`PageModel.tree.id`, e.g.
-    ///   `"n0"`) — substituted for the app-side ``rootParentID`` sentinel (`"__root__"`) wherever
-    ///   a `ParentRef` reaches the wire. The sidecar has no concept of that sentinel: its root
-    ///   fragment has a real id assigned by `server/component-node-index.mjs`'s
-    ///   `buildTemplateNodeIndex`, and a wire request literally carrying `parentId: "__root__"`
-    ///   is refused with `no-match` (`byId.get(parentId)` returns `undefined`). Callers must pass
-    ///   the id of the model the op was actually computed against — see
-    ///   `SidecarWYSIWYGHostTransport`, which tracks it from the `PageModel` it last fetched.
+    /// - Parameters:
+    ///   - op: the engine-originated semantic op to translate into the sidecar's wire format.
+    ///   - requestId: correlation id echoed back on the `apply_edit` reply — the same id the
+    ///     caller stamped on the originating `OpEnvelope`.
+    ///   - path: project-relative path of the file the op targets (a page for most ops;
+    ///     `setDesignToken` ignores this and always retargets to `src/styles/global.css`).
+    ///   - baseVersion: the content-hash version the op was computed against — the sidecar
+    ///     refuses the write if the file has changed since.
+    ///   - rootId: the CURRENT model's real root-fragment id (`PageModel.tree.id`, e.g.
+    ///     `"n0"`) — substituted for the app-side ``rootParentID`` sentinel (`"__root__"`) wherever
+    ///     a `ParentRef` reaches the wire. The sidecar has no concept of that sentinel: its root
+    ///     fragment has a real id assigned by `server/component-node-index.mjs`'s
+    ///     `buildTemplateNodeIndex`, and a wire request literally carrying `parentId: "__root__"`
+    ///     is refused with `no-match` (`byId.get(parentId)` returns `undefined`). Callers must pass
+    ///     the id of the model the op was actually computed against — see
+    ///     `SidecarWYSIWYGHostTransport`, which tracks it from the `PageModel` it last fetched.
     public static func translate(_ op: Op, requestId: String, path: String, baseVersion: String, rootId: BlockId) -> EditMessage {
         switch op {
         case .insertBlock(let parentId, _, let index, _, let block):
