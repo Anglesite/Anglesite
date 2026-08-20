@@ -68,6 +68,7 @@ import { base64url, decodeBase64url, deriveKey } from "./token-signing.ts";
 import { escapeHTML, extractMf2ContentString, extractMf2Photos, type ExtractedPhoto } from "./render-utils.ts";
 import { handleReaderCallback, handleReaderSignin } from "./reader-auth.ts";
 import { handleGatedFallback, handlePrivateFeed } from "./gated-content.ts";
+import { handleMcp } from "./mcp-server.ts";
 import { EmailMessage } from "cloudflare:email";
 
 /**
@@ -81,9 +82,10 @@ import { EmailMessage } from "cloudflare:email";
  * app to pull and commit into the site's git working copy the next time it opens
  * (Sources/AnglesiteCore/InboxSubmissionSync.swift).
  *
- * Static assets are served by the [assets] binding in wrangler.toml; this Worker handles only
- * the social + inbox endpoint paths. When neither is enabled, this file is not referenced
- * (wrangler.toml has no `main` entry and deploys static-only).
+ * Static assets are served by the [assets] binding in wrangler.toml; this Worker handles the
+ * social + inbox endpoint paths, a running A/B experiment's routes, and (#1576) the read-only
+ * MCP server. When none of those are enabled, this file is not referenced (wrangler.toml has no
+ * `main` entry and deploys static-only).
  *
  * Routing (#746): `ROUTES` below is a declarative table mirroring the generic HTTP route claims
  * the app's Worker catalog declares for the active workers; Anglesite generates matching
@@ -1917,6 +1919,14 @@ export const ROUTES: readonly WorkerRoute[] = [
     match: "exact",
     methods: ["GET", "HEAD"],
     handler: (request, env) => handlePrivateFeed(request, env),
+  },
+  {
+    // Read-only MCP server (#1576): gated behind experimental.mcp, degrades to a plain 404
+    // when off — see worker/mcp-server.ts.
+    path: "/mcp",
+    match: "exact",
+    methods: ["GET", "POST", "HEAD"],
+    handler: (request, env, ctx) => handleMcp(request, env, ctx),
   },
 ];
 

@@ -708,6 +708,54 @@ export function checkAnglesiteConfig(raw: string | null): Issue[] {
 }
 
 /**
+ * Validates `anglesite.json`'s `experimental.mcp` field when present (#1576): the flag gates a
+ * real unauthenticated request-handling surface (the site's MCP server), so a malformed value
+ * should fail loudly rather than the tolerant reader silently treating it as falsy. Mirrors
+ * `checkAnglesiteConfig`'s shallow-validation shape; only runs meaningfully once that check has
+ * already confirmed the document is well-formed JSON.
+ */
+export function checkExperimentalSection(raw: string | null): Issue[] {
+  if (raw === null) return [];
+
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch {
+    return []; // checkAnglesiteConfig already reports invalid JSON.
+  }
+  if (typeof parsed !== "object" || parsed === null || Array.isArray(parsed)) return [];
+
+  const experimental = (parsed as Record<string, unknown>).experimental;
+  if (experimental === undefined) return [];
+  if (typeof experimental !== "object" || experimental === null || Array.isArray(experimental)) {
+    return [
+      {
+        severity: "error",
+        category: "experimental-invalid",
+        message: 'anglesite.json\'s "experimental" must be an object.',
+        file: "anglesite.json",
+        remediation: 'Wrap experimental flags in an object, e.g. "experimental": { "mcp": true }.',
+      },
+    ];
+  }
+
+  const mcp = (experimental as Record<string, unknown>).mcp;
+  if (mcp !== undefined && typeof mcp !== "boolean") {
+    return [
+      {
+        severity: "error",
+        category: "experimental-invalid",
+        message: `anglesite.json's "experimental.mcp" must be a boolean (found ${typeof mcp}).`,
+        file: "anglesite.json",
+        remediation: 'Set "experimental.mcp" to true or false, or remove it to leave the feature off.',
+      },
+    ];
+  }
+
+  return [];
+}
+
+/**
  * Defense-in-depth backstop for the composer-only restricted-posting design (#963 §2.1, #1569): a
  * `visibility: contacts` post publishes straight into the Worker's D1 store via Micropub and must
  * never be written to `Source/` as content-collection frontmatter. This isn't the enforcement
@@ -1236,6 +1284,7 @@ async function scan(): Promise<Issue[]> {
     (e: NodeJS.ErrnoException) => (e.code === "ENOENT" ? null : Promise.reject(e)),
   );
   issues.push(...checkAnglesiteConfig(anglesiteConfigContent));
+  issues.push(...checkExperimentalSection(anglesiteConfigContent));
 
   try {
     for await (const file of walk(SOURCE_CONTENT_DIR)) {

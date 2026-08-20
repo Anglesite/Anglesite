@@ -126,6 +126,34 @@ test("readAnglesiteConfig: experimental section absent by default", () => {
   }
 });
 
+test("readAnglesiteConfig: passes through experimental.mcp", () => {
+  const siteRoot = makeTempSiteRoot();
+  writeFileSync(
+    join(siteRoot, "anglesite.json"),
+    JSON.stringify({ version: 1, experimental: { mcp: true } }),
+  );
+  try {
+    const result = readAnglesiteConfig(siteRoot);
+    assert.deepEqual(result.experimental, { mcp: true });
+  } finally {
+    rmSync(siteRoot, { recursive: true, force: true });
+  }
+});
+
+test("readAnglesiteConfig: passes through both experimental flags together", () => {
+  const siteRoot = makeTempSiteRoot();
+  writeFileSync(
+    join(siteRoot, "anglesite.json"),
+    JSON.stringify({ version: 1, experimental: { webmcp: true, mcp: false } }),
+  );
+  try {
+    const result = readAnglesiteConfig(siteRoot);
+    assert.deepEqual(result.experimental, { webmcp: true, mcp: false });
+  } finally {
+    rmSync(siteRoot, { recursive: true, force: true });
+  }
+});
+
 test("readAnglesiteConfig: passes through a declared experiments section as-is", () => {
   const siteRoot = makeTempSiteRoot();
   const raw = JSON.stringify({

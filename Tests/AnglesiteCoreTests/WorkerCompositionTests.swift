@@ -52,6 +52,25 @@ struct WorkerCompositionTests {
         #expect(!toml.contains("[[d1_databases]]"))
     }
 
+    @Test("mcpEnabled alone composes a Worker on an otherwise static-only site and claims /mcp")
+    func mcpEnabledComposesWorker() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site",
+            workers: [],
+            mcpEnabled: true
+        )
+        #expect(toml.contains("main = \"worker/worker.ts\""))
+        #expect(toml.contains("binding = \"ASSETS\""))
+        #expect(toml.contains("run_worker_first = [\"/mcp\"]"))
+    }
+
+    @Test("mcpEnabled false on an otherwise static-only site composes no Worker")
+    func mcpDisabledStaysStatic() throws {
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [])
+        #expect(!toml.contains("main = \"worker/worker.ts\""))
+        #expect(!toml.contains("run_worker_first"))
+    }
+
     @Test("generates wrangler.toml with webmention + indieauth (D1 + KV yes, R2 no)")
     func withSocialFeatures() throws {
         let toml = try WorkerComposition.generateWranglerToml(

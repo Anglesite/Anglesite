@@ -259,6 +259,16 @@ public enum DeployCoordinator {
         return (domainConfig.experiments?.active ?? []).filter { $0.status == "running" }
     }
 
+    /// Whether `Source/anglesite.json` declares `experimental.mcp: true` (#1576) — a fourth,
+    /// independent enabler of Worker composition alongside an active catalog worker, inbox
+    /// capture, and a running experiment (see `WorkerComposition.generateWranglerToml`'s
+    /// `composesWorker`). Mirrors `resolveRunningExperiments`'s "read the declared config,
+    /// default to the inert case on any failure" shape.
+    public static func resolveMCPEnabled(sourceDirectory: URL) -> Bool {
+        let domainConfig = (try? DomainConfigStore(sourceDirectory: sourceDirectory).load()) ?? DomainConfig()
+        return domainConfig.experimental?.mcp ?? false
+    }
+
     /// The owner's email address (#1570) for `WorkerComposition`'s `inboxForwardEmail` —
     /// `Source/anglesite.json`'s `email.inboxForwardAddress`, a dedicated field
     /// `PlistEditorModel.saveInboxForwardEmail` writes from the Workers tab's Inbox Capture

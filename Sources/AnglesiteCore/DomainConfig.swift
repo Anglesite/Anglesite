@@ -33,6 +33,7 @@ public struct DomainConfig: Equatable, Sendable {
     /// choosing GitHub Pages never forces the site's source history public. `nil` until a
     /// GitHub Pages deploy target has created (or been pointed at) one.
     public var githubPages: GitHubPages?
+    public var experimental: Experimental?
 
     public init(
         version: Int = 1,
@@ -43,7 +44,8 @@ public struct DomainConfig: Equatable, Sendable {
         workers: Workers? = nil,
         experiments: Experiments? = nil,
         deployTarget: String? = nil,
-        githubPages: GitHubPages? = nil
+        githubPages: GitHubPages? = nil,
+        experimental: Experimental? = nil
     ) {
         self.version = version
         self.domain = domain
@@ -54,6 +56,7 @@ public struct DomainConfig: Equatable, Sendable {
         self.experiments = experiments
         self.deployTarget = deployTarget
         self.githubPages = githubPages
+        self.experimental = experimental
     }
 
     /// The owner's declared hostname and attachment intent — replaces the `DOMAIN`/`DOMAIN_CHOICE`
@@ -210,6 +213,18 @@ public struct DomainConfig: Equatable, Sendable {
         }
     }
 
+    /// Template-level opt-in feature flags read from `anglesite.json`'s `experimental` section
+    /// (#1576) — mirrors the TypeScript `AnglesiteExperimentalConfig`
+    /// (`Resources/Template/scripts/anglesite-config.ts`) field-for-field. `mcp` gates the
+    /// site's read-only MCP server (`worker/mcp-server.ts`) and its generated server card.
+    public struct Experimental: Codable, Equatable, Sendable {
+        public var mcp: Bool?
+
+        public init(mcp: Bool? = nil) {
+            self.mcp = mcp
+        }
+    }
+
     /// The site's A/B experiments (#1270 design doc §2) — git-canonical *declared intent*: what
     /// the deployed site serves. Live tallies and concluded-experiment outcomes are never
     /// declared here (they live in D1 and `Config/experiment-history.json` respectively); see the
@@ -296,7 +311,7 @@ public struct DomainConfig: Equatable, Sendable {
 
 extension DomainConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case version, domain, dns, edge, email, workers, experiments, deployTarget, githubPages
+        case version, domain, dns, edge, email, workers, experiments, deployTarget, githubPages, experimental
     }
 
     public init(from decoder: Decoder) throws {
@@ -310,6 +325,7 @@ extension DomainConfig: Codable {
         experiments = try container.decodeIfPresent(Experiments.self, forKey: .experiments)
         deployTarget = try container.decodeIfPresent(String.self, forKey: .deployTarget)
         githubPages = try container.decodeIfPresent(GitHubPages.self, forKey: .githubPages)
+        experimental = try container.decodeIfPresent(Experimental.self, forKey: .experimental)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -323,5 +339,6 @@ extension DomainConfig: Codable {
         try container.encodeIfPresent(experiments, forKey: .experiments)
         try container.encodeIfPresent(deployTarget, forKey: .deployTarget)
         try container.encodeIfPresent(githubPages, forKey: .githubPages)
+        try container.encodeIfPresent(experimental, forKey: .experimental)
     }
 }

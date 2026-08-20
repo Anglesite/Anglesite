@@ -11,6 +11,7 @@ import {
   checkSecurityTxt,
   checkEmbedMedia,
   checkAnglesiteConfig,
+  checkExperimentalSection,
   checkExperiments,
   checkRSL,
   checkNoRestrictedContentInSource,
@@ -640,6 +641,36 @@ test("checkAnglesiteConfig: an unrecognized version number is an error naming th
 
 test("checkAnglesiteConfig: unknown top-level keys are tolerated (hand-edit rule)", () => {
   assert.deepEqual(checkAnglesiteConfig(JSON.stringify({ version: 1, somethingFromANewerApp: true })), []);
+});
+
+test("checkExperimentalSection: no issues when anglesite.json is absent", () => {
+  assert.deepEqual(checkExperimentalSection(null), []);
+});
+
+test("checkExperimentalSection: no issues when experimental is absent", () => {
+  assert.deepEqual(checkExperimentalSection(JSON.stringify({ version: 1 })), []);
+});
+
+test("checkExperimentalSection: no issues when experimental.mcp is a boolean", () => {
+  assert.deepEqual(checkExperimentalSection(JSON.stringify({ version: 1, experimental: { mcp: true } })), []);
+  assert.deepEqual(checkExperimentalSection(JSON.stringify({ version: 1, experimental: { mcp: false } })), []);
+});
+
+test("checkExperimentalSection: reports experimental.mcp not a boolean", () => {
+  const issues = checkExperimentalSection(JSON.stringify({ version: 1, experimental: { mcp: "yes" } }));
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].severity, "error");
+  assert.match(issues[0].message, /"experimental\.mcp" must be a boolean/);
+});
+
+test("checkExperimentalSection: reports experimental not an object", () => {
+  const issues = checkExperimentalSection(JSON.stringify({ version: 1, experimental: "nope" }));
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /"experimental" must be an object/);
+});
+
+test("checkExperimentalSection: malformed JSON yields no issues (checkAnglesiteConfig's job)", () => {
+  assert.deepEqual(checkExperimentalSection("not json {"), []);
 });
 
 const VALID_ACTIVE = [

@@ -974,6 +974,7 @@ final class DeployModel {
         // the very next ordinary deploy — mirrors resolveIsHostedCommunity's declared-config read
         // just above.
         let runningExperiments = DeployCoordinator.resolveRunningExperiments(sourceDirectory: siteDirectory)
+        let mcpEnabled = DeployCoordinator.resolveMCPEnabled(sourceDirectory: siteDirectory)
         // #1570: reuses the owner's email address from EmailSetupPlanner/EmailSetupExecutor
         // (already "in the stack") so /inbox submissions additionally forward there, alongside
         // the existing KV→git capture — mirrors resolveRunningExperiments's identical
@@ -994,7 +995,8 @@ final class DeployModel {
             inboxForwardEmail: inboxForwardEmail,
             activityPubActorType: isHostedCommunity ? "Group" : nil,
             moderators: isHostedCommunity ? settings.moderators : nil,
-            experiments: runningExperiments
+            experiments: runningExperiments,
+            mcpEnabled: mcpEnabled
         )
 
         if case .webmentionPaidPlanConfirmationNeeded = provisionResult {

@@ -12,6 +12,9 @@ dist/
 public/.well-known/security.txt
 public/.well-known/mta-sts.txt
 public/.well-known/atproto-did
+# Fully derived from experimental.mcp + SITE_URL (#1576): toggling the flag off deletes it and
+# changing SITE_URL rewrites it, so committing it would hand the owner a git diff to adjudicate.
+public/.well-known/mcp/server-card.json
 public/.well-known/agent-skills/
 
 # Written by scripts/a11y-audit.ts's default --report path; a run-to-run
@@ -22,3 +25,8 @@ reports/
 # experiment (#1270 slice 1); regenerated before `npm run test:worker` too (see
 # "pretest:worker" in package.json) so the file worker.ts statically imports always exists.
 worker/experiments.json
+
+# Generated at prebuild by scripts/mcp-artifact.ts from anglesite.json's experimental.mcp flag
+# (#1576); regenerated before `npm run test:worker` too (see "pretest:worker" in package.json)
+# so the file worker/mcp-server.ts statically imports always exists.
+worker/mcp-config.json

@@ -404,6 +404,26 @@ public enum GeneratedEndpoints {
     /// Mirrors `MTA_STS_MARKER` in `Resources/Template/scripts/edge-artifacts.ts`.
     public static let mtaStsMarker = "x-anglesite: generated"
 
+    /// Mirrors `MCP_SERVER_CARD_MARKER` in `Resources/Template/scripts/edge-artifacts.ts` (#1576).
+    /// The MCP Server Card is JSON, not a line-oriented text format, so the marker lives in a
+    /// `__marker` field rather than a comment line — see `isMcpServerCardMarkerOwned` below.
+    /// `WellKnownInventoryFixtureTests` guards against the two drifting apart.
+    public static let mcpServerCardMarker = "__anglesite_generated_mcp_server_card__"
+
+    /// True when `content` parses as a JSON object carrying `__marker` equal to
+    /// `mcpServerCardMarker` — the Swift mirror of `isMcpServerCardMarkerOwned` in
+    /// `Resources/Template/scripts/edge-artifacts.ts`, which `scripts/well-known.ts`'s
+    /// `isGeneratedArtifact` already consults on the TypeScript side. Without this, a card
+    /// already present in a site's working copy scanned as `owner: "user-static"` —  the app
+    /// treating its own generated file as an unreviewed, owner-authored one.
+    static func isMcpServerCardMarkerOwned(_ content: String) -> Bool {
+        guard let data = content.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let marker = object["__marker"] as? String
+        else { return false }
+        return marker == mcpServerCardMarker
+    }
+
     /// Mirrors `ATPROTO_DID_PATTERN` in `Resources/Template/scripts/edge-artifacts.ts`
     /// (`isValidAtprotoDid`) — a syntactically valid DID per the
     /// [W3C DID Core syntax](https://www.w3.org/TR/did-core/#did-syntax).
@@ -476,6 +496,13 @@ public enum GeneratedEndpoints {
         owner: "generator:atproto-did", validatorID: "atproto-did",
         specificationURL: URL(string: "https://atproto.com/specs/handle#https-method")!,
         registration: .custom("vendor-defined"), authorityBinding: true)
+    /// The MCP Server Card at `mcp/server-card.json` (#1576). Not an IANA-registered well-known
+    /// URI and not yet in the core MCP specification — it's the draft SEP-1649/SEP-2127 proposal,
+    /// so there's no conformance suite for `validatorID` to name either.
+    private static let mcpServerCard = Descriptor(
+        owner: "generator:mcp-server-card", validatorID: nil,
+        specificationURL: URL(string: "https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1649")!,
+        registration: .custom("draft"))
     private static let standardSitePublication = Descriptor(
         owner: "generator:standard-site-publication", validatorID: nil,
         specificationURL: URL(string: "https://standard.site/docs/lexicons/publication")!,
@@ -493,14 +520,15 @@ public enum GeneratedEndpoints {
 
     /// The generator whose marker appears on `content`'s first line (`security.txt`), anywhere in
     /// `content` (`mta-sts.txt`, matching `isMTAStsMarkerOwned`'s own scan), whose entire
-    /// (trimmed) content is a valid DID at the `atproto-did` suffix, whose output shape `content`
-    /// matches in full (`site.standard.publication` — see `isStandardSitePublicationURI`'s doc
-    /// comment for why this one can't use a marker line), whose top-level JSON `generator` field
-    /// is `"anglesite"` at the `agent-skills/index.json` suffix (`isAgentSkillsIndexOwned`), or
-    /// whose marker line appears anywhere in `content` at an `agent-skills/*/SKILL.md` suffix, or
-    /// `nil` when `content` is `nil` or matches none of the above. `suffix` scopes the DID-shape,
-    /// index, and SKILL.md checks to their own paths — a matching-shaped file elsewhere under
-    /// `.well-known/` is not this generator's concern.
+    /// (trimmed) content is a valid DID at the `atproto-did` suffix, whose JSON body carries the
+    /// `__marker` field (`mcp/server-card.json`, matching `isMcpServerCardMarkerOwned`), whose
+    /// output shape `content` matches in full (`site.standard.publication` — see
+    /// `isStandardSitePublicationURI`'s doc comment for why this one can't use a marker line),
+    /// whose top-level JSON `generator` field is `"anglesite"` at the `agent-skills/index.json`
+    /// suffix (`isAgentSkillsIndexOwned`), whose marker line appears anywhere in `content` at an
+    /// `agent-skills/*/SKILL.md` suffix, or `nil` when `content` is `nil` or matches none of the
+    /// above. `suffix` scopes the DID-shape, index, and SKILL.md checks to their own paths — a
+    /// matching-shaped file elsewhere under `.well-known/` is not that generator's concern.
     static func matching(content: String?, suffix: String) -> Descriptor? {
         guard let content else { return nil }
         if content.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first == securityTxtMarker[...] {
@@ -511,6 +539,12 @@ public enum GeneratedEndpoints {
         }
         if suffix == "atproto-did", isValidAtprotoDid(content) {
             return atprotoDid
+        }
+        // Deliberately not scoped to its own suffix, matching `well-known.ts`'s
+        // `isGeneratedArtifact`: `__marker`'s value is unambiguous on its own, unlike the
+        // DID-shape check above.
+        if isMcpServerCardMarkerOwned(content) {
+            return mcpServerCard
         }
         if isStandardSitePublicationURI(content) {
             return standardSitePublication

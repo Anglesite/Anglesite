@@ -91,6 +91,16 @@ public enum WorkerComposition {
         handler: "inbox-capture"
     )
 
+    /// Route claim for the read-only MCP server (#1576) — same static-let pattern as
+    /// `inboxCaptureRouteClaim` above, since `/mcp` is app-owned (not sourced from the
+    /// `@dwk/workers` catalog).
+    public static let mcpRouteClaim = WorkerRouteClaim(
+        path: "/mcp",
+        match: .exact,
+        methods: ["GET", "POST", "HEAD"],
+        handler: "mcp"
+    )
+
     private static let validNameCharacters = CharacterSet(
         charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
     )
@@ -221,6 +231,12 @@ public enum WorkerComposition {
     ///     `routeClaims`/the inbox-capture claim. A running experiment also emits its own
     ///     `[[d1_databases]]` block bound to `EXPERIMENTS_DB` on the same shared
     ///     `"\(siteName)-social"` database. Defaults to `[]` (no experiments).
+    ///   - mcpEnabled: The site's declared `experimental.mcp` flag (#1576) — Worker composition's
+    ///     fourth enabler, alongside `hasSocialFeatures`, `inboxCaptureEnabled`, and a running
+    ///     experiment: on its own (no active `workers`, no inbox capture, no experiment) it still
+    ///     composes a Worker, claims `/mcp` in `[assets].run_worker_first` via `mcpRouteClaim`, and
+    ///     emits the `SOCIAL_KV` `[[kv_namespaces]]` binding the site's MCP rate limiter needs.
+    ///     Defaults to `false` (inert).
     /// - Returns: A complete wrangler.toml string.
     /// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` contains
     ///   characters outside `[A-Za-z0-9_-]`, or ``ConfigError/invalidRouteClaim(path:reason:)``
@@ -238,7 +254,8 @@ public enum WorkerComposition {
         activityPubActorType: String? = nil,
         moderators: [String]? = nil,
         apUsername: String? = nil,
-        experiments: [DomainConfig.Experiments.Experiment] = []
+        experiments: [DomainConfig.Experiments.Experiment] = [],
+        mcpEnabled: Bool = false
     ) throws -> String {
         guard isValidSiteName(siteName) else {
             throw ConfigError.invalidSiteName(siteName)
@@ -246,6 +263,9 @@ public enum WorkerComposition {
         var effectiveClaims = routeClaims
         if inboxCaptureEnabled {
             effectiveClaims.append(inboxCaptureRouteClaim)
+        }
+        if mcpEnabled {
+            effectiveClaims.append(mcpRouteClaim)
         }
         // Full single-claim validation (not just path syntax), so a future caller that skips
         // `WorkerRouteClaims.activeClaims` still can't emit an invalid claim into TOML. Cross-
@@ -324,7 +344,7 @@ public enum WorkerComposition {
         // #1270 slice 3: a running experiment is the third enabler of Worker composition,
         // alongside an active catalog worker and inbox capture — a static-only site's first
         // running experiment gets a Worker for exactly its paths and nothing else (design §3).
-        let composesWorker = hasSocialFeatures || inboxCaptureEnabled || hasRunningExperiment
+        let composesWorker = hasSocialFeatures || inboxCaptureEnabled || hasRunningExperiment || mcpEnabled
         if composesWorker {
             lines.append("main = \"worker/worker.ts\"")
         }
@@ -515,7 +535,12 @@ public enum WorkerComposition {
             lines.append("crons = [\(list)]")
         }
 
-        if workers.contains(where: { $0.resources.needsKV }) {
+        // #1576: a plain-blog site with only `experimental.mcp` on has no `needsKV`-flagged
+        // worker active, but `worker/mcp-server.ts`'s rate limiter still needs SOCIAL_KV bound —
+        // `SocialWorkerProvisionCommand.provision` already gates *creating* the namespace on
+        // `mcpEnabled` too (its own `needsKV || mcpEnabled` check), so this TOML-emission gate
+        // must match or the namespace gets created but never bound into the deployed Worker.
+        if workers.contains(where: { $0.resources.needsKV }) || mcpEnabled {
             lines.append("")
             lines.append("[[kv_namespaces]]")
             lines.append("binding = \"SOCIAL_KV\"")

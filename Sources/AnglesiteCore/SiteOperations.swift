@@ -158,6 +158,7 @@ public struct SiteOperations: Sendable {
         // this headless path (App Intents/Shortcuts/Siri) provisions a running experiment's D1
         // database identically regardless of trigger.
         let runningExperiments = DeployCoordinator.resolveRunningExperiments(sourceDirectory: siteDirectory)
+        let mcpEnabled = DeployCoordinator.resolveMCPEnabled(sourceDirectory: siteDirectory)
         let provisionResult = await factory.socialWorkerProvision().provision(
             siteID: site.id,
             siteDirectory: siteDirectory,
@@ -172,7 +173,8 @@ public struct SiteOperations: Sendable {
             wellKnownDynamicClaims: WorkerRouteClaims.wellKnownClaims(routeClaims),
             activityPubActorType: isHostedCommunity ? "Group" : nil,
             moderators: isHostedCommunity ? settings.moderators : nil,
-            experiments: runningExperiments
+            experiments: runningExperiments,
+            mcpEnabled: mcpEnabled
         )
         onProgress?(.deployFinalizing)
 
