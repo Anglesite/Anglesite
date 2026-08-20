@@ -210,6 +210,60 @@ struct SidecarWYSIWYGHostTransportTests {
         #expect(editRouter.messages.count == 2)
     }
 
+    // Review finding (Important): PageModelBlockAdapter maps every valueless HTML attribute
+    // (disabled/required/open/checked/...) to PropValue.null, and duplicateSelectedBlock — the
+    // motivating caller for this whole fix — copies props verbatim. Sending a setAttr for a
+    // .null prop would ask to REMOVE an attribute that was never on the just-inserted node,
+    // which the sidecar refuses as no-match — wrongly failing the whole insert. .null props must
+    // be skipped, not sent, while non-null props in the same insert still go through normally.
+    @Test func insertBlockSkipsNullValuedPropsButSendsOthers() async {
+        let pageModelClient = PageModelClient(toolCaller: { _, _ in
+            let data = try! JSONEncoder().encode(emptyPageModel(version: "sha256:fresh333333"))
+            return MCPClient.ToolCallResult(content: [.init(type: "text", text: String(data: data, encoding: .utf8))], isError: false)
+        })
+        let insertReply = EditReply(id: "req-9", status: .applied, message: nil, inverseNodeId: "n42", postWriteVersion: "sha256:postwrite1")
+        let classReply = EditReply(id: "req-9-attr-0", status: .applied, message: nil, postWriteVersion: "sha256:postwrite2")
+        let editRouter = SequencedEditRouter(replies: [insertReply, classReply])
+        let transport = SidecarWYSIWYGHostTransport(path: "src/pages/index.astro", pageModelClient: pageModelClient, editRouter: editRouter, rootId: "n0")
+
+        // A duplicated `<button class="cta" disabled>` — `disabled` decodes as PropValue.null.
+        let content = BlockNodeContent(
+            kind: .element, componentName: "button", props: ["class": .string("cta"), "disabled": .null],
+            slots: [:], sourceSpan: [0, 0], richText: nil)
+        let op = Op.insertBlock(parentId: rootParentID, slot: "default", index: 0, newId: "n9", block: content)
+        let result = await transport.sendOp(OpEnvelope(id: "req-9", targetVersion: "sha256:stale000000", op: op))
+
+        guard case .applied(let model) = result else { Issue.record("expected .applied, got \(result)"); return }
+        #expect(model.version == "sha256:fresh333333")
+        // Insert + exactly ONE follow-up (for "class") — "disabled" must never generate a setAttr.
+        #expect(editRouter.messages.count == 2)
+        let followUp = editRouter.messages[1]
+        #expect(followUp.op == EditMessage.Op.setAttr)
+        #expect(attrValue(followUp, "name") == .string("class"))
+    }
+
+    // A block whose props are ALL .null (e.g. duplicating an element with only boolean
+    // attributes, like `<hr hidden>`) needs no setAttr follow-up at all — it must succeed even
+    // though the insert reply below carries no inverseNodeId/postWriteVersion, proving the
+    // nodeId/version guard is only enforced when a follow-up would actually be sent.
+    @Test func insertBlockWithOnlyNullPropsIssuesNoFollowUpAndSucceeds() async {
+        let pageModelClient = PageModelClient(toolCaller: { _, _ in
+            let data = try! JSONEncoder().encode(emptyPageModel(version: "sha256:fresh444444"))
+            return MCPClient.ToolCallResult(content: [.init(type: "text", text: String(data: data, encoding: .utf8))], isError: false)
+        })
+        let insertReply = EditReply(id: "req-10", status: .applied, message: nil) // no inverseNodeId/postWriteVersion
+        let editRouter = SequencedEditRouter(replies: [insertReply])
+        let transport = SidecarWYSIWYGHostTransport(path: "src/pages/index.astro", pageModelClient: pageModelClient, editRouter: editRouter, rootId: "n0")
+
+        let content = BlockNodeContent(kind: .element, componentName: "hr", props: ["hidden": .null], slots: [:], sourceSpan: [0, 0], richText: nil)
+        let op = Op.insertBlock(parentId: rootParentID, slot: "default", index: 0, newId: "n9", block: content)
+        let result = await transport.sendOp(OpEnvelope(id: "req-10", targetVersion: "sha256:stale000000", op: op))
+
+        guard case .applied(let model) = result else { Issue.record("expected .applied, got \(result)"); return }
+        #expect(model.version == "sha256:fresh444444")
+        #expect(editRouter.messages.count == 1)
+    }
+
     // Regression guard: an insertBlock with EMPTY props must behave exactly as before this fix —
     // a single insert call, no setAttr follow-ups, straight through to the re-fetch.
     @Test func insertBlockWithEmptyPropsIssuesNoFollowUp() async {
