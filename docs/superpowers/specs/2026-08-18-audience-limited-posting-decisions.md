@@ -33,7 +33,7 @@ issue):
   > this restricted tier covers the same goal as that wiki draft — content
   > visible only to specific people — but doesn't implement it. Private
   > Webmention has essentially no interoperable ecosystem to conform to; the
-  > `contacts`-tier + `bto` design here (§2.4) achieves the same outcome
+  > `contacts`-tier + `bto` design here (§2.2, §2.4) achieves the same outcome
   > through mechanisms Anglesite already has real interop with (IndieAuth,
   > ActivityPub federation), which is why it was built this way instead of
   > against that spec.
