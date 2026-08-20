@@ -81,7 +81,32 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
     ///
     /// `props` is a `[String: PropValue]` dictionary — iteration order isn't guaranteed, but each
     /// `setAttr` call targets a distinct attribute name independently, so that's harmless here.
+    ///
+    /// `.null`-valued props (`PropValue.null` — `PageModelBlockAdapter` maps every valueless HTML
+    /// attribute, e.g. `disabled`/`required`/`open`/`checked`, to this case) are skipped entirely
+    /// rather than sent as a `setAttr`: `WYSIWYGOpTranslator.stringValue(.null)` is `nil`, and
+    /// `setAttr`'s `value: nil` means "remove this attribute" (its own doc comment) — but the
+    /// node was JUST inserted with no attributes at all, so the sidecar refuses that as
+    /// `no-match` (nothing to remove), which would otherwise fail the whole insert. There is no
+    /// wire-level way to *add* a valueless/boolean attribute through `insertBlock` or `setAttr`
+    /// (`setAttr`'s `value: nil` only ever means "remove," never "add present-with-no-value"), so
+    /// this is the same lossy-but-non-destructive tradeoff `stringValue`'s own doc comment already
+    /// applies to `.object`/`.array` — the attribute is silently dropped for this op family, not
+    /// destructively mishandled. (`stringValue` itself must keep mapping `.null` → `nil` — it's
+    /// shared with `WYSIWYGOpTranslator.translate`'s `setProp` case, where `.null` legitimately
+    /// means "remove this EXISTING attribute" and has to keep working; the skip belongs here, at
+    /// the insert-follow-up call site, not inside `stringValue`.)
     private func applyPropsFollowUp(_ props: [String: PropValue], insertReply: EditReply, requestId: String) async -> OpResult? {
+        // Drop `.null` props BEFORE the nodeId/version guard below — a block whose props are all
+        // `.null` (e.g. duplicating `<button disabled>`, which carries only the one boolean
+        // attribute) needs no follow-up `setAttr` calls at all, so it must not fail just because
+        // the insert reply happened not to carry an `inverseNodeId`/`postWriteVersion` that
+        // nothing here would actually use.
+        let attributeProps = props.filter { _, value in
+            if case .null = value { return false }
+            return true
+        }
+        guard !attributeProps.isEmpty else { return nil }
         guard let nodeId = insertReply.inverseNodeId, let initialVersion = insertReply.postWriteVersion else {
             return .rejected(
                 reason: .hostError,
@@ -92,7 +117,7 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
             )
         }
         var baseVersion = initialVersion
-        for (index, (name, value)) in props.enumerated() {
+        for (index, (name, value)) in attributeProps.enumerated() {
             let setMessage = ComponentStructureEditBuilder.setAttr(
                 id: "\(requestId)-attr-\(index)", path: path, baseVersion: baseVersion,
                 nodeId: nodeId, name: name, value: WYSIWYGOpTranslator.stringValue(value))
