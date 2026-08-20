@@ -1457,4 +1457,105 @@ extension SiteWindowModelTests {
         #expect(model.componentEditor != nil)
         #expect(model.inspectorSelection == nil)
     }
+
+    @Test("applyNavigatorSelection's .route branch clears a stale WYSIWYG block selection, so it can't shadow the new page context (#1588 Task 8 follow-up)")
+    func applyNavigatorSelectionRouteClearsStaleWYSIWYGSelection() async throws {
+        let (root, packageURL, package) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let graph = SiteContentGraph()
+        await graph.load(
+            siteID: "site-a",
+            pages: [SiteContentGraph.Page(
+                id: "site-a:page:/about", siteID: "site-a", route: "/about",
+                filePath: "src/pages/about.md", title: "About", lastModified: Date()
+            )],
+            posts: [], images: []
+        )
+        let model = makeModel(contentGraph: graph)
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+
+        // Turn on edit mode and select a block — mirrors the owner clicking a block in the
+        // canvas before navigating elsewhere in the sidebar. Edit mode is a toggle independent of
+        // `mainPaneMode`/navigator selection, so nothing about the navigation below touches it on
+        // its own; `applyNavigatorSelection` must clear `selectedBlockId` explicitly.
+        let seedModel = BlockModel(path: "src/pages/about.md", version: "v0", rootIds: [], blocks: [:])
+        await model.preview.enterEditMode(seedModel: seedModel, undoManager: nil)
+        model.preview.wysiwygCanvas?.selectedBlockId = "b1"
+        guard case .wysiwygBlock = model.inspectorSelection else {
+            Issue.record("expected .wysiwygBlock while a block is selected in edit mode")
+            return
+        }
+
+        let navModel = SiteNavigatorModel(graph: graph)
+        navModel.start(
+            site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL),
+            websiteTitle: "Test")
+        while navModel.nodes.isEmpty { await Task.yield() }
+        let routeID = "site-a:page:/about"
+        #expect(navModel.target(for: routeID) == .route("/about"))
+        model.navigator = navModel
+
+        navModel.selection = routeID
+        model.applyNavigatorSelection(routeID)
+
+        // `.route`'s body runs inside its own `Task { ... }` — poll for the final state rather
+        // than asserting inline, same technique as the other `applyNavigatorSelection` tests above.
+        while model.inspectorContext == nil { await Task.yield() }
+        #expect(model.preview.wysiwygCanvas?.selectedBlockId == nil)
+        guard case .page = model.inspectorSelection else {
+            Issue.record("expected the stale .wysiwygBlock selection to no longer shadow the new .page context")
+            return
+        }
+    }
+
+    @Test("applyNavigatorSelection's .directory branch clears a stale WYSIWYG block selection, so it can't shadow the new collection context (#1588 Task 8 follow-up)")
+    func applyNavigatorSelectionDirectoryClearsStaleWYSIWYGSelection() async throws {
+        let (root, packageURL, package) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let graph = SiteContentGraph()
+        await graph.load(
+            siteID: "site-a", pages: [],
+            posts: [SiteContentGraph.Post(
+                id: "site-a:post:hello", siteID: "site-a", collection: "notes", slug: "hello",
+                title: "Hello", draft: false, publishDate: nil, tags: [],
+                filePath: "src/content/notes/hello.md", lastModified: Date()
+            )],
+            images: []
+        )
+        let model = makeModel(contentGraph: graph)
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+
+        let seedModel = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        await model.preview.enterEditMode(seedModel: seedModel, undoManager: nil)
+        model.preview.wysiwygCanvas?.selectedBlockId = "b1"
+        guard case .wysiwygBlock = model.inspectorSelection else {
+            Issue.record("expected .wysiwygBlock while a block is selected in edit mode")
+            return
+        }
+
+        let navModel = SiteNavigatorModel(graph: graph)
+        navModel.start(site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL), websiteTitle: "Test")
+        while navModel.nodes.count < 2 { await Task.yield() }
+        let directoryID = "dir:/notes/"
+        #expect(navModel.target(for: directoryID) == .directory(collection: "notes", route: "/notes/"))
+        model.navigator = navModel
+
+        navModel.selection = directoryID
+        model.applyNavigatorSelection(directoryID)
+
+        while model.collectionInspection == nil { await Task.yield() }
+        #expect(model.preview.wysiwygCanvas?.selectedBlockId == nil)
+        guard case .collection = model.inspectorSelection else {
+            Issue.record("expected the stale .wysiwygBlock selection to no longer shadow the new .collection context")
+            return
+        }
+    }
 }

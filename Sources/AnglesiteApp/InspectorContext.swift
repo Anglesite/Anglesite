@@ -45,8 +45,9 @@ enum InspectorContext: Identifiable {
 }
 
 /// The unified inspector's current subject (#714 slice 3): the page selected in the navigator,
-/// the component open in the main pane, or the collection (directory) row selected in the
-/// sidebar. Derived on `SiteWindowModel` (`inspectorSelection`) from the three stored sources.
+/// the component open in the main pane, the collection (directory) row selected in the sidebar,
+/// or the WYSIWYG block selected in the canvas (#1588 Task 8). Derived on `SiteWindowModel`
+/// (`inspectorSelection`) from the four stored sources.
 @MainActor
 enum InspectorSelection {
     case page(InspectorContext)

@@ -1247,6 +1247,11 @@ final class SiteWindowModel {
                 if route.isEmpty || route == "/" { preview.clearRoute() } else { preview.navigate(toRoute: route) }
                 inspectorContext = context
                 collectionInspection = nil
+                // Clears the third `inspectorSelection` sibling alongside `collectionInspection`
+                // above — otherwise a block selected before this navigation would keep shadowing
+                // the new `.page` context, since edit mode (`wysiwygCanvas`) is a separate toggle
+                // this pane switch doesn't touch (#1588 Task 8 follow-up).
+                preview.wysiwygCanvas?.selectedBlockId = nil
                 // Load related-page suggestions for the newly selected page.
                 if let siteID = site?.id {
                     let filePath: String?
@@ -1306,6 +1311,11 @@ final class SiteWindowModel {
                 mainPaneMode = .preview
                 preview.navigate(toRoute: route)
                 collectionInspection = inspection
+                // Clears the third `inspectorSelection` sibling alongside `inspectorContext`
+                // above — otherwise a block selected before this navigation would keep shadowing
+                // the new `.collection` context, since edit mode (`wysiwygCanvas`) is a separate
+                // toggle this pane switch doesn't touch (#1588 Task 8 follow-up).
+                preview.wysiwygCanvas?.selectedBlockId = nil
             }
         }
     }
