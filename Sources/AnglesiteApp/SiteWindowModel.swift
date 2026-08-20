@@ -323,23 +323,48 @@ final class SiteWindowModel {
     /// main-pane swap, not just the selection one `inspectorSelection` already covers.
     var websiteInspectorPresented = false
 
-    /// Hides the website inspector panel, wired by `SiteWindow` to its own activation machinery.
+    /// Withholds the website inspector panel (`true`) and puts it back (`false`), wired by
+    /// `SiteWindow` to its own presentation state.
     ///
     /// Mirrors the existing `dismissSiteWindow` closure seam: presentation of the *website*
     /// inspector lives entirely in `SiteWindow`'s `@SceneStorage` (`inspectorShown` +
     /// `activeInspector`), which this model cannot reach — `websiteInspectorPresented` above is a
     /// read-only mirror, so before this seam existed the model could observe that panel but never
-    /// dismiss it. `clearInspectorThenSwitchPane` needs exactly that: its #1126 settle only helps
+    /// take it down. `clearInspectorThenSwitchPane` needs exactly that: its #1126 settle only helps
     /// if a dismissal has actually been started before it waits, and for the website panel there
     /// was none, so the main pane swapped underneath a still-presented inspector and re-entered
     /// AppKit's update-constraints pass (`_postWindowNeedsUpdateConstraints` abort, #714 v2 slice
     /// 1 fix round 5).
     ///
-    /// `SiteWindow` routes it through `InspectorActivationPolicy` (the same path as a second ⌥⌘J
-    /// press) so `websiteInspectorPresented` and the stale-write-back suppression flag stay
-    /// consistent with every other activation change.
+    /// Two-edged rather than one-shot (fix round 6). Round 5 hid the panel by routing through
+    /// `InspectorActivationPolicy`, which wrote the user's persisted `inspectorShown` preference to
+    /// false — so an in-panel button like Metadata ▸ More Settings… closed the panel for good,
+    /// across relaunches. The panel is now *suspended*: `SiteWindow` withholds it without touching
+    /// the preference, and this model — the only place that knows when the swap finished — resumes
+    /// it. Both edges therefore belong to one call site, `clearInspectorThenSwitchPane`.
+    ///
+    /// **Known residual, not introduced here.** Opening this panel's column while the *Graph* pane
+    /// is showing sends AppKit into the same runaway update-constraints cycle (100% CPU, then an
+    /// `__NSWindowGetDisplayCycleObserverForUpdateConstraints_block_invoke` →
+    /// `objc_exception_rethrow` abort — crash report `Anglesite-2026-08-20-152412.ips`). A/B
+    /// confirmed against this branch's parent commit, where a plain ⌥⌘J on the Graph pane aborts
+    /// identically, so it is the same #1126-class residual the round-5 notes already record for
+    /// the panel over the `.plist` settings editor, not a consequence of the suspension. It is
+    /// *reachable* through the restore above, though: round 5 hid the panel by writing the
+    /// preference off, which left nothing to reopen, and this round correctly puts it back. Six
+    /// ⌥⌘J toggles over the Preview pane never raise the CPU at all, so the trigger is the weight
+    /// of the main pane being relaid out beside the opening column. Fixing that belongs with the
+    /// Graph pane's own layout, not here.
+    ///
+    /// Only that method drives this seam. Other `mainPaneMode` writes (`applyNavigatorSelection`'s
+    /// `.route`/`.directory` returns to Preview, `openFile`'s "already the active editor" fast
+    /// path, `deleteCleanupCandidate`) swap the pane without it, so a presented website panel rides
+    /// those transitions live. They are left alone deliberately: they are synchronous, non-`async`
+    /// paths that would each need their own dismiss/settle/swap/resume sequence, which is a larger
+    /// change than this fix round takes on. If the #1126 class resurfaces on one of them, route it
+    /// through `clearInspectorThenSwitchPane` rather than growing a second seam.
     @ObservationIgnored
-    var dismissWebsiteInspector: (() -> Void)?
+    var setWebsiteInspectorSuspended: ((Bool) -> Void)?
 
     /// What the window inspector is inspecting, in precedence order. Component and collection are
     /// gated on the pane mode they belong to, so a stale value from an earlier selection can never
@@ -585,9 +610,27 @@ final class SiteWindowModel {
         // `websiteInspectorPresented` so this predicate still matches actual presentation
         // (fix round 1, Important 3).
         let wasInspecting = inspectorSelection != nil || websiteInspectorPresented
+        let suspendingWebsitePanel = websiteInspectorPresented
+        // Commit the website inspector's in-flight edit before its panel leaves the view tree.
+        // Its `TextField`s save on focus loss, and suspension unmounts them without ever
+        // delivering one, so a Title/Language typed-but-not-committed edit would be silently
+        // dropped by the pane switch (#714 v2 slice 1 fix round 6, Important 3). This is the same
+        // flush-before-leaving contract `leaveCurrentEditor()`/`leaveCurrentInspector()` give the
+        // other two dirty-able surfaces — done here rather than in `leaveCurrentInspector()`
+        // because the trigger is the *unmount*, which happens only on this path (the navigator's
+        // direct `mainPaneMode` writes leave the panel presented, so its fields keep their focus
+        // and their normal commit-on-blur).
+        //
+        // The result is deliberately ignored, unlike `leaveCurrentInspector()`'s: this model has
+        // no conflict-resolution flow (that belongs to `PlistEditorModel`, the deep editor), so a
+        // failed write surfaces as `saveError` inside the panel instead of vetoing a pane switch
+        // the user asked for — matching how `close()`/`handleSiteChanged()` already treat it.
+        if suspendingWebsitePanel, let websiteInspector, websiteInspector.isDirty {
+            await websiteInspector.saveAll()
+        }
         // Clearing `inspectorContext`/`collectionInspection` starts the *selection* inspector's
         // dismissal; the website inspector's presentation is scene state this model doesn't own,
-        // so it needs an explicit dismissal through `SiteWindow`'s seam — otherwise `settle()`
+        // so it needs an explicit suspension through `SiteWindow`'s seam — otherwise `settle()`
         // below waited out a dismissal that never began and the pane swapped under a genuinely
         // presented panel, which is the actual `_postWindowNeedsUpdateConstraints` abort (#1126
         // class) the smoke test hit via ⌥⌘J → ⌘3/⌘1 and via Metadata ▸ More Settings… (whose
@@ -599,13 +642,29 @@ final class SiteWindowModel {
         // ⌘3 still aborts in the same class (crash reports `Anglesite-2026-08-20-132733.ips`,
         // `-133259.ips`). The same switches with no website inspector presented survive, so the
         // remaining trigger is on this panel's side, not a general pane-switch defect.
-        if websiteInspectorPresented { dismissWebsiteInspector?() }
+        if suspendingWebsitePanel { setWebsiteInspectorSuspended?(true) }
         inspectorContext = nil
         collectionInspection = nil
         if wasInspecting {
             await AppKitConstraintStormMitigation.settle()
         }
         mainPaneMode = mode
+        // Put the panel back. The suspension is a temporary withholding, not a dismissal — the
+        // user's activation preference was never touched — so leaving it withheld would be the
+        // very regression this round fixes, only transient instead of persisted.
+        //
+        // Behind a second settle, and awaited rather than fired-and-forgotten: resuming remounts
+        // the panel's `Form` (`SiteWindow.inspectorContent`'s gate renders a zero-size leaf while
+        // suspended), and a fresh inspector subtree mounting into an expanding column *is* #1139's
+        // crash shape. Coalescing that remount with the pane rebuild above is the mirror image of
+        // the dismissal case this whole method exists for, and gets the same treatment `openFile`
+        // gives the Component Editor's inspector presentation: its own transaction, one settle
+        // later. Callers are already in a `Task`, so the extra 300 ms delays nothing on screen —
+        // the new pane is up and interactive throughout.
+        if suspendingWebsitePanel {
+            await AppKitConstraintStormMitigation.settle()
+            setWebsiteInspectorSuspended?(false)
+        }
     }
 
     /// Resolves a chat citation's file path to a Site Graph Explorer node and reveals it there
@@ -1448,6 +1507,12 @@ final class SiteWindowModel {
     @MainActor
     func openFile(_ file: FileRef) {
         if activeEditorFile?.id == file.id {
+            // Bypasses `clearInspectorThenSwitchPane`, so a presented website inspector is neither
+            // flushed nor suspended across this swap (see `setWebsiteInspectorSuspended`'s doc
+            // comment for the full list of such paths and why they're left as-is). Reachable via
+            // More Settings… when `Info.plist` is already the active editor but the pane has since
+            // returned to Preview. Left synchronous deliberately: routing it through the async
+            // sequence would also have to join `inFlightOpenFile`'s bookkeeping.
             mainPaneMode = .editor(file)
             return
         }

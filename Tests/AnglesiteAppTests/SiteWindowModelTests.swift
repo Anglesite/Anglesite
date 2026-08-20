@@ -1762,42 +1762,86 @@ extension SiteWindowModelTests {
     /// separate SwiftUI transaction for a dismissal that has actually *started*. The website
     /// inspector's presentation lives in `SiteWindow`'s scene storage, so nothing this model did
     /// began one — the pane swapped under a presented panel and AppKit aborted in
-    /// `_postWindowNeedsUpdateConstraints`. This pins the ordering the fix restores: dismiss,
-    /// then settle, then swap.
-    @Test("a main-pane switch dismisses a presented website inspector before swapping the pane (fix round 5)")
-    func paneSwitchDismissesPresentedWebsiteInspectorFirst() async {
+    /// `_postWindowNeedsUpdateConstraints`. This pins the ordering the fix restores: suspend,
+    /// then settle, then swap — and (fix round 6) resume once the swap is done, so the panel the
+    /// user opened comes back on its own.
+    @Test("a main-pane switch suspends a presented website inspector, then restores it after the swap (fix round 6)")
+    func paneSwitchSuspendsPresentedWebsiteInspectorThenRestoresIt() async {
         let model = makeModel()
         model.websiteInspectorPresented = true
 
-        var dismissals = 0
-        var paneModeWhenDismissed: MainPaneMode?
-        model.dismissWebsiteInspector = { [unowned model] in
-            dismissals += 1
-            paneModeWhenDismissed = model.mainPaneMode
-            // What `SiteWindow.hideWebsiteInspectorForPaneSwitch()` mirrors back synchronously.
-            model.websiteInspectorPresented = false
+        var edges: [Bool] = []
+        var paneModeAtEdge: [MainPaneMode] = []
+        model.setWebsiteInspectorSuspended = { [unowned model] suspended in
+            edges.append(suspended)
+            paneModeAtEdge.append(model.mainPaneMode)
+            // What `SiteWindow.suspendWebsiteInspector(_:)` mirrors back synchronously.
+            model.websiteInspectorPresented = !suspended
         }
 
         #expect(await model.showGraph())
 
-        #expect(dismissals == 1)
-        #expect(paneModeWhenDismissed == .preview, "dismissal must precede the pane swap")
+        #expect(edges == [true, false], "the panel must be suspended and then put back")
+        #expect(paneModeAtEdge.first == .preview, "suspension must precede the pane swap")
+        #expect(paneModeAtEdge.last == .graph, "the restore must follow it")
         #expect(model.mainPaneMode == .graph)
-        #expect(!model.websiteInspectorPresented)
+        #expect(model.websiteInspectorPresented, "the user's panel must not be left withheld")
     }
 
-    /// The complement: with the website panel hidden there is nothing to dismiss, so the seam
-    /// must stay untouched (calling it would *show* the panel — `activateInspector(.website)` on a
-    /// hidden panel is a show, which is why `SiteWindow`'s implementation guards too).
-    @Test("a main-pane switch leaves the website-inspector dismissal seam alone when it isn't presented (fix round 5)")
-    func paneSwitchSkipsDismissalWhenWebsiteInspectorHidden() async {
+    /// The complement: with the website panel hidden there is nothing to withhold, so the seam
+    /// must stay untouched — including its restoring edge, which would otherwise clear a
+    /// suspension this switch never armed.
+    @Test("a main-pane switch leaves the website-inspector suspension seam alone when it isn't presented (fix round 5)")
+    func paneSwitchSkipsSuspensionWhenWebsiteInspectorHidden() async {
         let model = makeModel()
-        var dismissals = 0
-        model.dismissWebsiteInspector = { dismissals += 1 }
+        var edges: [Bool] = []
+        model.setWebsiteInspectorSuspended = { edges.append($0) }
 
         #expect(await model.showGraph())
 
-        #expect(dismissals == 0)
+        #expect(edges.isEmpty)
         #expect(model.mainPaneMode == .graph)
+    }
+
+    /// Fix round 6, Important 3: suspending the panel unmounts its `Form`, and a `TextField`
+    /// that never loses focus never commits — so a Title typed but not tabbed out of was silently
+    /// dropped by the pane switch. The flush has to land *before* the suspension, which the
+    /// `isDirty` reading taken inside the seam pins; the on-disk assertion (a second model loaded
+    /// from the same package) proves the flush was a real write, not just a state reset.
+    @Test("a main-pane switch flushes a dirty website inspector to disk before suspending it (fix round 6)")
+    func paneSwitchFlushesDirtyWebsiteInspector() async throws {
+        let (root, packageURL, _) = try makeSitePackage(named: "Flush")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Flush", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.websiteInspectorPresented = true
+        model.ensureWebsiteInspectorLoaded()
+        let inspector = try #require(model.websiteInspector)
+        // `ensureWebsiteInspectorLoaded()` is synchronous by design and kicks its load off in a
+        // detached task; typing into the fields before that lands would just be overwritten.
+        while inspector.title != "Flush" { await Task.yield() }
+
+        // The unflushed edit: the field's binding is updated, its commit-on-blur never runs.
+        inspector.title = "Flushed By Pane Switch"
+        #expect(inspector.isDirty)
+
+        var dirtyWhenSuspended: Bool?
+        model.setWebsiteInspectorSuspended = { [unowned model] suspended in
+            if suspended, dirtyWhenSuspended == nil { dirtyWhenSuspended = inspector.isDirty }
+            model.websiteInspectorPresented = !suspended
+        }
+
+        #expect(await model.showGraph())
+
+        #expect(dirtyWhenSuspended == false, "the flush must precede the panel's unmount")
+        #expect(!inspector.isDirty)
+
+        let reloaded = WebsiteInspectorModel(packageURL: packageURL)
+        await reloaded.load()
+        #expect(reloaded.title == "Flushed By Pane Switch", "the edit never reached Info.plist")
     }
 }
