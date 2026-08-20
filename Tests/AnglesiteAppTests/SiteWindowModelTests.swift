@@ -1602,6 +1602,49 @@ extension SiteWindowModelTests {
         #expect(onDiskAfter.entries == onDiskBefore.entries)
     }
 
+    /// The model half of File ▸ Save / Revert To ▸ Revert to Saved *enablement*, which the two
+    /// command structs spell as `hasUnsavedEdits != true || editCommandInFlight == true`
+    /// (`SaveCommands.swift`, `FileItemCommands.swift`). The sibling tests above cover what the
+    /// commands *do* once invoked; this pins that they are reachable at all when the website
+    /// inspector is the only dirty surface — including `requestRevertToSaved()`'s own guard, which
+    /// re-checks the same pair and would silently swallow the click if they disagreed.
+    ///
+    /// A GUI smoke reported this menu item as permanently disabled for a dirty inspector Title.
+    /// Re-running it live disproved that: the failing observation was made with no key window (in
+    /// the same screenshot, File ▸ Close, Save, Rename…, and Reveal in Finder were all disabled
+    /// too), so `@FocusedValue(\.siteWindowModel)` was nil and *every* window-scoped File item was
+    /// off — nothing to do with dirtiness. Kept as a regression pin for the enablement inputs,
+    /// which no test covered before.
+    @Test("File ▸ Save / Revert to Saved are enabled and reachable for a website-inspector-only dirty field")
+    func editCommandGateOpensForDirtyWebsiteInspector() async throws {
+        let (root, packageURL, _) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.ensureWebsiteInspectorLoaded()
+        let inspector = try #require(model.websiteInspector)
+        await waitForWebsiteInspectorLoad(inspector)
+
+        // Clean: both items disabled, and the action is inert if a stale menu item fires anyway.
+        #expect(!model.hasUnsavedEdits)
+        model.requestRevertToSaved()
+        #expect(!model.revertConfirmationPresented)
+
+        // Dirty, with no main-pane editor and no selection inspector — the exact state the smoke
+        // exercised: the website inspector alone must open the gate.
+        inspector.title = "Dirty title, nothing else open"
+        #expect(model.activeEditor == nil)
+        #expect(model.inspectorContext == nil)
+        #expect(model.hasUnsavedEdits)
+        #expect(!model.editCommandInFlight)
+
+        model.requestRevertToSaved()
+        #expect(model.revertConfirmationPresented, "Revert to Saved must reach its confirmation")
+    }
+
     /// One half of the ordering contract every caller of `ensureWebsiteInspectorLoaded()` depends
     /// on: the model is non-nil the instant the call returns, with no suspension point in
     /// between, so a caller can flip `activeInspector`/`inspectorShown` in the very next statement
@@ -1713,5 +1756,92 @@ extension SiteWindowModelTests {
         #expect(!model.websiteInspectorPresented)
         model.handleSiteChanged()
         #expect(model.websiteInspector == nil)
+    }
+
+    /// Fix round 5, Critical: the #1126 settle in `clearInspectorThenSwitchPane` only buys a
+    /// separate SwiftUI transaction for a dismissal that has actually *started*. The website
+    /// inspector's presentation lives in `SiteWindow`'s scene storage, so nothing this model did
+    /// began one — the pane swapped under a presented panel and AppKit aborted in
+    /// `_postWindowNeedsUpdateConstraints`. This pins the ordering the fix restores: suspend,
+    /// then settle, then swap — and (fix round 6) resume once the swap is done, so the panel the
+    /// user opened comes back on its own.
+    @Test("a main-pane switch suspends a presented website inspector, then restores it after the swap (fix round 6)")
+    func paneSwitchSuspendsPresentedWebsiteInspectorThenRestoresIt() async {
+        let model = makeModel()
+        model.websiteInspectorPresented = true
+
+        var edges: [Bool] = []
+        var paneModeAtEdge: [MainPaneMode] = []
+        model.setWebsiteInspectorSuspended = { [unowned model] suspended in
+            edges.append(suspended)
+            paneModeAtEdge.append(model.mainPaneMode)
+            // What `SiteWindow.suspendWebsiteInspector(_:)` mirrors back synchronously.
+            model.websiteInspectorPresented = !suspended
+        }
+
+        #expect(await model.showGraph())
+
+        #expect(edges == [true, false], "the panel must be suspended and then put back")
+        #expect(paneModeAtEdge.first == .preview, "suspension must precede the pane swap")
+        #expect(paneModeAtEdge.last == .graph, "the restore must follow it")
+        #expect(model.mainPaneMode == .graph)
+        #expect(model.websiteInspectorPresented, "the user's panel must not be left withheld")
+    }
+
+    /// The complement: with the website panel hidden there is nothing to withhold, so the seam
+    /// must stay untouched — including its restoring edge, which would otherwise clear a
+    /// suspension this switch never armed.
+    @Test("a main-pane switch leaves the website-inspector suspension seam alone when it isn't presented (fix round 5)")
+    func paneSwitchSkipsSuspensionWhenWebsiteInspectorHidden() async {
+        let model = makeModel()
+        var edges: [Bool] = []
+        model.setWebsiteInspectorSuspended = { edges.append($0) }
+
+        #expect(await model.showGraph())
+
+        #expect(edges.isEmpty)
+        #expect(model.mainPaneMode == .graph)
+    }
+
+    /// Fix round 6, Important 3: suspending the panel unmounts its `Form`, and a `TextField`
+    /// that never loses focus never commits — so a Title typed but not tabbed out of was silently
+    /// dropped by the pane switch. The flush has to land *before* the suspension, which the
+    /// `isDirty` reading taken inside the seam pins; the on-disk assertion (a second model loaded
+    /// from the same package) proves the flush was a real write, not just a state reset.
+    @Test("a main-pane switch flushes a dirty website inspector to disk before suspending it (fix round 6)")
+    func paneSwitchFlushesDirtyWebsiteInspector() async throws {
+        let (root, packageURL, _) = try makeSitePackage(named: "Flush")
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let model = makeModel()
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Flush", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+        model.websiteInspectorPresented = true
+        model.ensureWebsiteInspectorLoaded()
+        let inspector = try #require(model.websiteInspector)
+        // `ensureWebsiteInspectorLoaded()` is synchronous by design and kicks its load off in a
+        // detached task; typing into the fields before that lands would just be overwritten.
+        while inspector.title != "Flush" { await Task.yield() }
+
+        // The unflushed edit: the field's binding is updated, its commit-on-blur never runs.
+        inspector.title = "Flushed By Pane Switch"
+        #expect(inspector.isDirty)
+
+        var dirtyWhenSuspended: Bool?
+        model.setWebsiteInspectorSuspended = { [unowned model] suspended in
+            if suspended, dirtyWhenSuspended == nil { dirtyWhenSuspended = inspector.isDirty }
+            model.websiteInspectorPresented = !suspended
+        }
+
+        #expect(await model.showGraph())
+
+        #expect(dirtyWhenSuspended == false, "the flush must precede the panel's unmount")
+        #expect(!inspector.isDirty)
+
+        let reloaded = WebsiteInspectorModel(packageURL: packageURL)
+        await reloaded.load()
+        #expect(reloaded.title == "Flushed By Pane Switch", "the edit never reached Info.plist")
     }
 }
