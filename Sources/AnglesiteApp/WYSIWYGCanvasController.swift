@@ -151,44 +151,25 @@ final class WYSIWYGCanvasController {
         return result
     }
 
-    /// The Edit-menu Duplicate button's canvas-focused target (#1225 Task 11) — extends
-    /// `NavigatorEditCommands.Duplicate` (⌘D) rather than adding a second menu item, per the
-    /// menu-bar IA spec's "one focus-scoped command" rule (`SiteWindow.navigatorSelectionActions(for:)`
-    /// picks this over the Navigator's own duplicate when `hasKeyboardFocus` is true).
-    ///
-    /// PR1 duplicates at the page root only — locating the block's real parent/slot to insert the
-    /// copy adjacent to it needs a parent-lookup helper the model doesn't expose yet; kept out of
-    /// scope here and flagged for a PR2 follow-up once the native palette (Task 13) needs the same
-    /// lookup for drop-target computation. `rootIds.contains(id)` is load-bearing, not defensive
-    /// filler: without it, a `selectedBlockId` pointing at a nested block (inside a slot/container
-    /// — not reachable today, but will be once Task 12/13 wire up real block selection) would
-    /// still pass the `model.blocks[id]` lookup and get "duplicated" as a brand-new *root-level*
-    /// block built from the nested block's content — silently detaching it from its real
-    /// structural context instead of no-op'ing, same failure mode `deleteSelectedBlock()` below
-    /// already guards against with `rootIds.firstIndex(of:)`.
+    /// The Edit-menu Duplicate button's canvas-focused target (#1225 Task 11, generalized #1588
+    /// Task 3). Duplicates into the block's real parent/slot, immediately after it — `locate(_:)`
+    /// is what makes that possible; PR1 could only insert at the page root because this lookup
+    /// didn't exist yet.
     func duplicateSelectedBlock() async {
-        guard let id = selectedBlockId, let node = model.blocks[id], model.rootIds.contains(id) else { return }
+        guard let id = selectedBlockId, let node = model.blocks[id], let location = locate(id) else { return }
         let newId = UUID().uuidString
         let content = BlockNodeContent(
             kind: node.kind, componentName: node.componentName, props: node.props,
             slots: node.slots, sourceSpan: node.sourceSpan, richText: node.richText)
-        await submit(.insertBlock(parentId: rootParentID, slot: "main", index: model.rootIds.count, newId: newId, block: content))
+        await submit(.insertBlock(parentId: location.parentId, slot: location.slot, index: location.index + 1, newId: newId, block: content))
     }
 
-    /// The canvas's own `.onDeleteCommand` target (#1225 Task 11) — reachable only when the canvas
-    /// holds real keyboard focus (`hasKeyboardFocus`). `SiteWindow.previewPane(for:)` and
-    /// `SiteNavigatorView` both gate their `.onDeleteCommand` attachment on this flag directly
-    /// (#1423) rather than leaving both permanently attached for AppKit's responder chain to
-    /// arbitrate — that arbitration turned out unreliable for the shared Edit ▸ Delete menu item
-    /// once two `.onDeleteCommand`s coexisted, even though it correctly scopes menu-bar IA's "one
-    /// focus-scoped command" rule for physical keypresses (matching `duplicateSelectedBlock()`
-    /// above, unaffected since Duplicate has no auto-generated menu item to conflict over). PR1
-    /// only supports root-level blocks (see
-    /// `duplicateSelectedBlock()`'s doc comment) — `rootIds.firstIndex(of:)` returning `nil` for a
-    /// nested block just no-ops, same as `guard let node` above.
+    /// The canvas's own `.onDeleteCommand` target (#1225 Task 11, generalized #1588 Task 3) —
+    /// reachable only when the canvas holds real keyboard focus (`hasKeyboardFocus`). Now handles
+    /// nested blocks via `locate(_:)`, same reasoning as `duplicateSelectedBlock()` above.
     func deleteSelectedBlock() async {
-        guard let id = selectedBlockId, let node = model.blocks[id], let index = model.rootIds.firstIndex(of: id) else { return }
-        await submit(.deleteBlock(parentId: rootParentID, slot: "main", index: index, blockId: id, block: node))
+        guard let id = selectedBlockId, let node = model.blocks[id], let location = locate(id) else { return }
+        await submit(.deleteBlock(parentId: location.parentId, slot: location.slot, index: location.index, blockId: id, block: node))
         selectedBlockId = nil
     }
 
@@ -317,6 +298,28 @@ final class WYSIWYGCanvasController {
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
         return "\"\(escaped)\""
+    }
+}
+
+extension WYSIWYGCanvasController {
+    /// Finds `id`'s structural position in `model` — its parent (`rootParentID` for a page-root
+    /// block), containing slot, and index within that slot — by walking every block's `slots`
+    /// dictionary. `nil` means `id` isn't reachable from `model.rootIds` or any block's slots at
+    /// all (already deleted, or a stale selection). This is the lookup PR1's duplicate/delete
+    /// deliberately deferred (see those methods' own doc comments) rather than root-only guard
+    /// clauses re-derived ad hoc at each call site.
+    func locate(_ id: BlockId) -> (parentId: ParentRef, slot: String, index: Int)? {
+        if let index = model.rootIds.firstIndex(of: id) {
+            return (rootParentID, "main", index)
+        }
+        for (parentId, node) in model.blocks {
+            for (slot, children) in node.slots {
+                if let index = children.firstIndex(of: id) {
+                    return (parentId, slot, index)
+                }
+            }
+        }
+        return nil
     }
 }
 
