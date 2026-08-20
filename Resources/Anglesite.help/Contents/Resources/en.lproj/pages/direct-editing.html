@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<meta name="viewport" content="width=device-width, initial-scale=1">
+	<meta name="robots" content="anchor">
+	<meta name="description" content="How to browse and edit your site directly using the Navigator, the Format and Page menus, and the Inspector.">
+	<title>Editing pages directly — Anglesite Help</title>
+	<link rel="stylesheet" href="../shrd/help.css">
+</head>
+<body>
+	<h1>Editing pages directly</h1>
+	<p class="lead">Alongside asking the assistant, you can browse and change your site's structure and content by hand using the Navigator sidebar, the Format and Page menus, and the Inspector.</p>
+
+	<h2>The Navigator</h2>
+	<p>Every site window has a Navigator sidebar listing your site's pages, posts, and folders. Click an item to jump to it:</p>
+	<ul>
+		<li><strong>Pages and posts</strong> render — selecting one shows the finished page in the live preview, not raw markup.</li>
+		<li><strong>The Website row</strong> opens <a href="website-settings.html">Website settings</a>.</li>
+	</ul>
+	<p>Components, stylesheets, and other supporting files aren't listed in the Navigator directly today — reach them from a <strong>Search Site…</strong> result (<kbd>⇧⌘F</kbd>) or from the <a href="#graph">Graph pane</a> instead.</p>
+
+	<figure>
+		<!-- alt: The Navigator sidebar listing a site's pages and posts, with the live preview showing the selected page -->
+		<div class="screenshot-placeholder">Screenshot: The Navigator sidebar next to the live preview.</div>
+		<figcaption>The Navigator sidebar next to the live preview.</figcaption>
+	</figure>
+
+	<h2>Preview, Editor, and Graph panes</h2>
+	<p>A site window has three main panes, switched with <strong>View ▸ Preview</strong> (<kbd>⌘1</kbd>), <strong>Editor</strong> (<kbd>⌘2</kbd>), and <strong>Graph</strong> (<kbd>⌘3</kbd>). Opening a file that isn't rendered as a page — a component, a stylesheet, or a plain text file — switches to the Editor pane automatically, using a plain text editor, a markdown editor, or the component editor (outline plus canvas) depending on the file.</p>
+
+	<h2 id="graph">The Graph pane</h2>
+	<p>The Graph pane visualizes your Astro project's structure: pages, layouts, components, content collections and their entries, images and other assets, and stylesheets, connected by import, "uses layout," "references asset," and "contains" relationships. It's useful for finding a component or style file to open in the Editor, or for understanding what depends on what before you change something shared.</p>
+
+	<h2>The Format and Page menus</h2>
+	<p>With a markdown or visual editor focused, <strong>Format ▸ Font</strong> applies <strong>Strong</strong> (<kbd>⌘B</kbd>), <strong>Emphasis</strong> (<kbd>⌘I</kbd>), Strikethrough, and inline Code; <strong>Format ▸ Heading</strong> sets Heading 1–6 (<kbd>⌥⌘1</kbd>–<kbd>⌥⌘6</kbd>); and <strong>Format ▸ Add Link…</strong> (<kbd>⌘K</kbd>) links the selection. These commands are disabled when a plain text file or the site preview itself has focus — they only act on an editor that understands rich formatting.</p>
+	<p>The <strong>Page</strong> menu creates new content: <strong>New Page…</strong> (<kbd>⌘N</kbd>) opens a sheet where you give it a title, adjust its URL if you want something other than the auto-generated slug, and pick a template. <strong>New Post…</strong> and <strong>New Link Post…</strong> (<kbd>⇧⌘L</kbd>, also in the File menu) create posts. <strong>Page ▸ Collections ▸ New Collection…</strong> sets up a new content collection.</p>
+
+	<figure>
+		<!-- alt: The New Page sheet with Title, URL, and Template fields -->
+		<div class="screenshot-placeholder">Screenshot: The New Page sheet.</div>
+		<figcaption>The New Page sheet.</figcaption>
+	</figure>
+
+	<h2>The Inspector</h2>
+	<p>Toggle the Inspector with <strong>View ▸ Inspector ▸ Show Inspector</strong> (<kbd>⌥⌘I</kbd>). Its Metadata tab shows details for whatever's selected — a page's title and description, a component's metadata, or a collection's type and entries. Its Style tab needs an element selected on the canvas first.</p>
+
+	<h2>Duplicate, Publish, and Unpublish</h2>
+	<p>With something selected in the Navigator, <strong>Edit ▸ Duplicate</strong> (<kbd>⌘D</kbd>) copies it. <strong>Edit ▸ Publish</strong> and <strong>Unpublish</strong> toggle whether the selected page or post is published — this is separate from deploying your whole site; see <a href="deploying.html">Deploying your site</a>.</p>
+
+	<p class="related">
+		<strong>See also:</strong>
+		<a href="editing-with-assistant.html">Editing with the assistant</a>
+		<a href="live-preview.html">Live preview</a>
+		<a href="website-settings.html">Website settings</a>
+		<a href="../index.html">Help home</a>
+	</p>
+</body>
+</html>

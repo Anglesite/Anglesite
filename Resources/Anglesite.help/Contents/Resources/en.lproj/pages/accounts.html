@@ -13,11 +13,12 @@
 	<p class="lead">Connect your GitHub and Cloudflare accounts so Anglesite can back up and publish your site.</p>
 
 	<h2>GitHub</h2>
-	<p>Your site's <code>Source</code> folder is an ordinary Git repository, so you can add a GitHub remote with the <code>gh</code> command-line tool or <code>git remote</code> in Terminal. Once the repository has an origin configured, Anglesite uses it to back up and publish your site.</p>
-	<p>To let Anglesite push to GitHub, add a GitHub personal access token in <strong>Settings ▸ Advanced</strong>. Create a fine-grained token with <em>Contents: Read and write</em> access for your site's repository at <code>github.com/settings/tokens</code>.</p>
+	<p>Your site's <code>Source</code> folder is an ordinary Git repository. Anglesite pushes to GitHub itself using a personal access token — add one in <strong>Settings ▸ Advanced ▸ Credentials</strong>, or when a publish or backup prompts you for one.</p>
+	<p>Create a fine-grained token at <code>github.com/settings/tokens</code> scoped to <strong>All repositories</strong> with: <em>Contents: Read and write</em>, <em>Administration: Read and write</em> (needed to create a new repository the first time you publish), <em>Repository security advisories: Read</em>, and <em>Dependabot alerts: Read</em> (the last two let Anglesite show a site's open security reports).</p>
 
 	<h2>Cloudflare</h2>
-	<p>When Anglesite needs to deploy to Cloudflare, it will prompt you to provide a Cloudflare API token. You can create one in your Cloudflare dashboard.</p>
+	<p>The easiest way to connect Cloudflare is to sign in from a Deploy sheet — Anglesite stores the credential and refreshes it automatically, and every Cloudflare-backed feature (deploy, domains, analytics, and more) uses it first.</p>
+	<p>If you'd rather not sign in, you can instead paste a Cloudflare API token in <strong>Settings ▸ Advanced ▸ Credentials</strong>; it's only used when no sign-in is connected.</p>
 
 	<h2>Stored securely</h2>
 	<p>Your credentials are stored in the macOS Keychain — not in any file inside your site folder.</p>
@@ -25,6 +26,7 @@
 	<p class="related">
 		<strong>See also:</strong>
 		<a href="deploying.html">Deploying your site</a>
+		<a href="agent-readiness.html">Agent readiness</a>
 		<a href="settings.html">Settings</a>
 		<a href="../index.html">Help home</a>
 	</p>
