@@ -74,6 +74,13 @@ final class WYSIWYGCanvasController {
     /// force a version-mismatch rejection without needing two controllers racing a real one.
     var forceTargetVersion: String?
 
+    /// Whether any op has applied since this canvas mounted — the interim "uncommitted ops"
+    /// signal `WindowEditedStateBridge` (#1588 Task 17) drives the titlebar edited-dot from.
+    /// Explicitly *not* a real git-dirty flag: against `StubWYSIWYGHostTransport` every applied op
+    /// is only ever in-memory, so this stays true for the rest of the editing session once set —
+    /// the design doc flags this as a stand-in until #1222's real backend lands.
+    private(set) var hasUncommittedOps = false
+
     /// Set by `PreviewView`'s `onWebView` callback (`SiteWindow.previewPane(for:)`) once the
     /// underlying `WKWebView` exists, so `applyFormat(_:href:)` (#1225 Task 10) has something to
     /// call into. Weak: the view owns the web view's lifetime, matching `PreviewModel.webView`'s
@@ -107,6 +114,7 @@ final class WYSIWYGCanvasController {
     func submit(_ op: Op) async -> OpResult {
         let result = await apply(op)
         if case .applied(let newModel) = result {
+            hasUncommittedOps = true
             fireOpApplied(op, WYSIWYGOpInverter.invert(op), newModel)
         }
         return result

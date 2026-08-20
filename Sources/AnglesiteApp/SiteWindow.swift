@@ -310,6 +310,9 @@ struct SiteWindow: View {
         // Titlebar proxy icon (#521): ⌘-click shows the package's path, and the icon drags as the
         // `.anglesite` package itself. The window's security-scoped grant already covers the URL.
         .navigationDocument(site.packageURL)
+        // Titlebar edited-dot (#1588 Task 17): reflects uncommitted in-memory WYSIWYG ops against
+        // the stub backend, not a real git-dirty state — see `WindowEditedStateBridge`'s doc comment.
+        .background(WindowEditedStateBridge(isEdited: model.preview.wysiwygCanvas?.hasUncommittedOps ?? false))
         // Leading title, free center — the document-style layout (Pages/Freeform) that makes room
         // for the .principal pane switcher.
         .toolbarRole(.editor)

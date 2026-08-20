@@ -42,6 +42,28 @@ struct WYSIWYGCanvasControllerTests {
         #expect(applied == false)
     }
 
+    @Test("hasUncommittedOps flips true after a successful submit")
+    func hasUncommittedOpsFlipsAfterSubmit() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+        #expect(controller.hasUncommittedOps == false)
+
+        _ = await controller.submit(.setDesignToken(tokenName: "t", value: "a", previousValue: "b"))
+
+        #expect(controller.hasUncommittedOps == true)
+    }
+
+    @Test("hasUncommittedOps stays false when a submit is rejected")
+    func hasUncommittedOpsStaysFalseOnRejection() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+        controller.forceTargetVersion = "stale"
+
+        _ = await controller.submit(.setDesignToken(tokenName: "t", value: "a", previousValue: "b"))
+
+        #expect(controller.hasUncommittedOps == false)
+    }
+
     @Test("duplicateSelectedBlock submits an insertBlock op for a copy of the selected block")
     func duplicateSelectedBlockSubmitsInsert() async {
         let existing = BlockNode(id: "b1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0])
