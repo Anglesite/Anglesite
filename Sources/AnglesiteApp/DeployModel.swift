@@ -1113,6 +1113,12 @@ final class DeployModel {
                     await ContactsAllowlistSync.pushIfConfigured(
                         configDirectory: configDirectory, secretStore: self.keychain
                     )
+                },
+                pushVouchTrustList: { [weak self] in
+                    guard let self else { return }
+                    await BlogrollTrustSync.pushIfConfigured(
+                        siteDirectory: siteDirectory, configDirectory: configDirectory, secretStore: self.keychain
+                    )
                 }
             )
             currentMilestone = nil
