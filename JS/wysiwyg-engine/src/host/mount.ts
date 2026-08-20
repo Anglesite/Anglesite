@@ -13,11 +13,49 @@ declare global {
   }
 }
 
+/**
+ * Click-to-select (spec §8.1's engine hit-testing, this time driving native block selection
+ * instead of a context menu) plus the engine → native half of the selection round-trip: whenever
+ * `engine.selection` changes — from this click listener, or from any other future engine-internal
+ * cause — post it to native so `WYSIWYGCanvasController.selectedBlockId` (the source the native
+ * inspector/palette read) stays in sync. A `document`-level click listener, not scoped to the
+ * mounted canvas root, matches the existing `contextmenu` listener below for the same reason:
+ * `hitTest`'s `elementFromPoint` walks up from whatever's under the cursor to the nearest
+ * block-id-bearing ancestor regardless of where the click started.
+ */
+function wireSelection(engine: WysiwygEngine): () => void {
+  const onClick = (event: MouseEvent) => {
+    const blockId = engine.hitTest({ x: event.clientX, y: event.clientY });
+    engine.selection.select(blockId);
+  };
+  document.addEventListener("click", onClick);
+
+  const unsubscribe = engine.onEvent((event) => {
+    if (event.type !== "selection-changed") return;
+    window.webkit?.messageHandlers?.wysiwyg?.postMessage({ type: "selection-changed", blockId: event.blockId });
+  });
+
+  return () => {
+    document.removeEventListener("click", onClick);
+    unsubscribe();
+  };
+}
+
+// Test-only escape hatch (vitest imports this module directly rather than going through the
+// window globals mount() sets) — mirrors no existing precedent in this file because mount.ts had
+// no internal functions worth unit-testing before this task; kept to the one function that needs
+// it rather than exporting everything.
+export const __testables = { wireSelection };
+
+let disposeSelection: (() => void) | null = null;
+
 // Disposes whatever is currently mounted (if anything) and clears the globals — the shared body
 // of `unmount()` below, factored out so `mount()` can call it too (#1225 final-review round 2,
 // Finding B) rather than only being reachable from the native `unmountEngine()` call. Safe to call
 // when nothing is mounted: all three globals are `undefined` and the optional-chained calls no-op.
 function disposeMounted(): void {
+  disposeSelection?.();
+  disposeSelection = null;
   window.__anglesiteWysiwygRichTextEditor?.dispose();
   window.__anglesiteWysiwygQualityGates?.dispose();
   window.__anglesiteWysiwygEngine?.dispose();
@@ -42,6 +80,7 @@ window.__anglesiteWysiwygMount = {
     // `HostTransport` and `QualityGateTransport` (#1226 Task 12), so one object owns the whole
     // `window.__anglesiteWysiwygHost` bridge.
     window.__anglesiteWysiwygQualityGates = new QualityGateChips(engine, transport);
+    disposeSelection = wireSelection(engine);
     return engine;
   },
   // The counterpart to `mount` — called by `WYSIWYGCanvasController.unmountEngine()` (#1225
