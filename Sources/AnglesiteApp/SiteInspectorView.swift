@@ -41,11 +41,14 @@ struct SiteInspectorView: View {
             ComponentMetadataInspectorPane(model: model)
         case (.component(let model), .style):
             ComponentStyleInspectorPane(model: model, webView: canvasWebView)
+        case (.wysiwygBlock(let model), .metadata):
+            WYSIWYGInspectorView(model: model)
         case (.collection(let inspection), .metadata):
             CollectionInspectorForm(inspection: inspection, previewBaseURL: previewBaseURL)
-        case (.page, .style), (.collection, .style):
+        case (.page, .style), (.collection, .style), (.wysiwygBlock, .style):
             // Element-level styling needs an element selection, which only the component canvas
-            // provides today; preview-page element selection is the next-phase design (spec §4).
+            // provides today; preview-page/WYSIWYG element-level styling is a future-phase design
+            // (spec §4) — same reasoning that already applies to .page/.collection here.
             ContentUnavailableView(
                 "Select something on the page", systemImage: "cursorarrow.rays")
         }

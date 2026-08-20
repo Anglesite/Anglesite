@@ -313,6 +313,9 @@ final class SiteWindowModel {
            componentEditor.file.id == file.id {
             return .component(componentEditor)
         }
+        if case .preview = mainPaneMode, let canvas = preview.wysiwygCanvas, let selectedBlockId = canvas.selectedBlockId {
+            return .wysiwygBlock(WYSIWYGInspectorModel(controller: canvas, blockId: selectedBlockId))
+        }
         if case .preview = mainPaneMode, let collectionInspection {
             return .collection(collectionInspection)
         }

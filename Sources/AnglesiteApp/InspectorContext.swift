@@ -52,4 +52,7 @@ enum InspectorSelection {
     case page(InspectorContext)
     case component(ComponentEditorModel)
     case collection(CollectionInspection)
+    /// A selected WYSIWYG block (#1588 Task 8) — surfaces only while the preview pane shows the
+    /// canvas in edit mode and a block is selected; see `SiteWindowModel.inspectorSelection`.
+    case wysiwygBlock(WYSIWYGInspectorModel)
 }
