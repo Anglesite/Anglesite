@@ -105,6 +105,18 @@ public actor WorkersConformanceFetcher {
         string: "https://raw.githubusercontent.com/davidwkeith/workers/main/conformance/status.json"
     )!
 
+    /// A fetcher pointed at ``productionStatusURL``, with a request timeout bounded well under
+    /// `URLSession.shared`'s ~60s default — so an unreachable `raw.githubusercontent.com`
+    /// (offline use, corporate firewall) can't add meaningful latency to a caller before this
+    /// degrades to cache/empty. Every advisory-only production call site should go through this
+    /// rather than hand-rolling the same `URLSessionConfiguration` (previously duplicated between
+    /// `DeployModel` and `MicropubOnboardingModel` — #800 review feedback).
+    public static func productionBounded(timeout: TimeInterval = 5) -> WorkersConformanceFetcher {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = timeout
+        return WorkersConformanceFetcher(statusURL: productionStatusURL, session: URLSession(configuration: config))
+    }
+
     /// `~/Library/Application Support/Anglesite/worker-conformance-cache.json` — mirrors
     /// `WorkerCatalogFetcher.defaultCacheURL`'s convention.
     public static func defaultCacheURL(fileManager: FileManager = .default) -> URL {

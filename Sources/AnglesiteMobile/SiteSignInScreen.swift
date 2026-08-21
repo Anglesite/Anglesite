@@ -47,6 +47,7 @@ struct SiteSignInScreen: View {
                 self.model = model
                 await model.configure(site: site)
                 notifyIfSignedIn()
+                await model.refreshConformanceAdvisory()
             }
     }
 
@@ -113,6 +114,7 @@ struct SiteSignInScreen: View {
             }
             .buttonStyle(.borderedProminent)
             .padding(.top, 8)
+            ConformanceAdvisoryLabel(advisory: model?.conformanceAdvisory)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -133,6 +135,7 @@ struct SiteSignInScreen: View {
             }
             .buttonStyle(.bordered)
             .padding(.top, 8)
+            ConformanceAdvisoryLabel(advisory: model?.conformanceAdvisory)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
