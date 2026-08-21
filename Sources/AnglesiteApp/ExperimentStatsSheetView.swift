@@ -106,6 +106,10 @@ struct ExperimentStatsSheetView: View {
         Form {
             Section("Experiment") {
                 TextField("What are you testing? (optional)", text: $model.experimentName)
+                if model.isLive {
+                    Label("Live counts from your site", systemImage: "bolt.fill")
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
             variantSection(
                 title: "Original (control)", name: $model.controlName,

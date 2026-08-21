@@ -6,20 +6,24 @@ import AnglesiteCore
 /// leads up to it: propose a suggestion, configure its variant/goal, start it running, and only
 /// then fall back to manual-entry analysis. The retired Claude Code plugin's edge A/B machinery
 /// (cookie-based variant assignment, an analytics pipeline reporting impressions/conversions back
-/// to the app) was never rebuilt after #466 — see `ExperimentStats`' doc comment and the
-/// follow-up (#1270) — so `.manual` still takes the two variants' counts as owner-typed input
-/// (read off whatever analytics the owner already has) rather than reading them from a stored
-/// experiment config. Fresh-per-open, same lifecycle as `CopyEditReportModel`.
+/// to the app) was never rebuilt after #466 — see `ExperimentStats`' doc comment — so `.manual`
+/// took the two variants' counts as owner-typed input (read off whatever analytics the owner
+/// already has) rather than reading them from a stored experiment config, until live prefill
+/// (#1270 §4/§10 slice 4) wired the manual form up to `ExperimentResultsSync`: when the site has
+/// a running experiment, a provisioned D1 database, and a Cloudflare token, `loadLivePrefillIfAvailable()`
+/// fills the manual form's fields from live counts instead of leaving them for the owner to type.
+/// Fresh-per-open, same lifecycle as `CopyEditReportModel`.
 @Observable @MainActor
 final class ExperimentStatsModel: Identifiable {
     let id = UUID()
     let siteID: String
     let sourceDirectory: URL
+    private let configDirectory: URL
     let currentRoute: String
 
     /// The sheet's current lifecycle position, resolved from `anglesite.json`'s declared
     /// experiment (if any) at construction time and advanced by `propose(from:)`/`proposeCustom`
-    /// (this task) and the configure/start actions (Task 12).
+    /// and the configure/start actions.
     enum Step: Equatable {
         case manual
         case propose
@@ -29,8 +33,8 @@ final class ExperimentStatsModel: Identifiable {
     }
 
     /// A not-yet-declared experiment being assembled through the configure step: an id/name/page
-    /// seeded by `propose(from:)`, then filled in by Task 12's variant-scaffolding and
-    /// goal-picking actions.
+    /// seeded by `propose(from:)`, then filled in by the variant-scaffolding and goal-picking
+    /// actions.
     struct Draft: Equatable {
         var id: String
         var name: String
@@ -44,8 +48,7 @@ final class ExperimentStatsModel: Identifiable {
         var goalSelector: String?
 
         /// A `draft`-status `DomainConfig.Experiments.Experiment` once the variant is scaffolded
-        /// and a goal is picked — `nil` while either is still missing, matching `canStart`'s gate
-        /// in Task 13.
+        /// and a goal is picked — `nil` while either is still missing, matching `canStart`'s gate.
         ///
         /// The single choke point through which anything reaches `anglesite.json`, so it is also
         /// where the served-route shape `scripts/pre-deploy-check.ts` demands is enforced: `page`,
@@ -75,28 +78,79 @@ final class ExperimentStatsModel: Identifiable {
     /// rather than widening `NativeContentOperations`' general-purpose multi-site resolver.
     private let contentOps: NativeContentOperations
 
-    // #769 manual-entry fields — unchanged from before this task.
-    var experimentName: String = ""
-    var controlName: String = "Original"
-    var controlImpressions: Int = 0
-    var controlConversions: Int = 0
-    var treatmentName: String = "Variant"
-    var treatmentImpressions: Int = 0
-    var treatmentConversions: Int = 0
+    // #769 manual-entry fields.
+    var experimentName: String = "" { didSet { markUserEditedIfNeeded() } }
+    var controlName: String = "Original" { didSet { markUserEditedIfNeeded() } }
+    var controlImpressions: Int = 0 { didSet { markUserEditedIfNeeded() } }
+    var controlConversions: Int = 0 { didSet { markUserEditedIfNeeded() } }
+    var treatmentName: String = "Variant" { didSet { markUserEditedIfNeeded() } }
+    var treatmentImpressions: Int = 0 { didSet { markUserEditedIfNeeded() } }
+    var treatmentConversions: Int = 0 { didSet { markUserEditedIfNeeded() } }
+
+    /// Set once the owner has typed into any field, so an in-flight `loadLivePrefillIfAvailable()`
+    /// fetch that resolves afterward knows not to clobber it (the sheet's fields are editable from
+    /// the moment it opens, and the fetch is fire-and-forget).
+    private(set) var hasUserEdits = false
+    /// Suppresses `hasUserEdits` tracking while the model itself is writing prefill values.
+    private var isApplyingLivePrefill = false
+
+    private func markUserEditedIfNeeded() {
+        guard !isApplyingLivePrefill else { return }
+        hasUserEdits = true
+    }
 
     private(set) var result: ExperimentStats.Result?
     private(set) var hasSufficientData = false
     private(set) var sampleRatioMismatch = false
 
+    /// Set once `loadLivePrefillIfAvailable()` has filled the fields from live D1 counts, so the
+    /// sheet can tell the owner these numbers came from their site rather than typed in by hand.
+    private(set) var isLive = false
+
     let suggestions = ExperimentStats.suggestionPlaybook
 
-    init(siteID: String, sourceDirectory: URL, currentRoute: String) {
+    init(siteID: String, sourceDirectory: URL, configDirectory: URL, currentRoute: String) {
         self.siteID = siteID
         self.sourceDirectory = sourceDirectory
+        self.configDirectory = configDirectory
         self.currentRoute = currentRoute
         self.step = Self.resolveInitialStep(sourceDirectory: sourceDirectory)
         self.contentOps = NativeContentOperations(
             siteDirectory: { queriedSiteID in queriedSiteID == siteID ? sourceDirectory : nil })
+    }
+
+    /// Fetches live counts for the site's running experiment and prefills the manual form, if
+    /// available. A no-op (fields stay owner-editable, empty/zeroed as usual) when there's no
+    /// running experiment, no provisioned D1 database, or no Cloudflare token — the manual-entry
+    /// path is unaffected either way. Called once, right after presentation (see `SiteWindowModel
+    /// .presentExperimentStats()`), same fire-and-forget shape as other async-prefill models — it
+    /// runs regardless of which `step` the sheet opens in, so the manual form already has live
+    /// counts by the time `returnToManual()` reaches it from `.running`.
+    /// Also a no-op if the owner has already typed into any field by the time the fetch resolves
+    /// (`hasUserEdits`) — the sheet's fields are editable the moment it opens, so without this
+    /// guard a slow fetch could silently overwrite counts the owner already entered by hand.
+    /// `secretStore`/`baseURL`/`transport` are injectable, matching `ExperimentResultsSync.prefill`
+    /// itself, so tests can stub the Cloudflare API instead of hitting the network.
+    func loadLivePrefillIfAvailable(
+        secretStore: any SecretStore = PlatformSecretStore.make(),
+        baseURL: String = "https://api.cloudflare.com/client/v4",
+        transport: @escaping CloudflareTransport = HTTPCloudflareClient.defaultTransport
+    ) async {
+        guard let prefill = await ExperimentResultsSync.prefill(
+            sourceDirectory: sourceDirectory, configDirectory: configDirectory,
+            secretStore: secretStore, baseURL: baseURL, transport: transport)
+        else { return }
+        guard !hasUserEdits else { return }
+        isApplyingLivePrefill = true
+        defer { isApplyingLivePrefill = false }
+        experimentName = prefill.experiment.name
+        controlName = "Original"
+        controlImpressions = prefill.counts.controlVisitors
+        controlConversions = prefill.counts.controlConversions
+        treatmentName = prefill.experiment.variant.name
+        treatmentImpressions = prefill.counts.variantVisitors
+        treatmentConversions = prefill.counts.variantConversions
+        isLive = true
     }
 
     /// Reads `anglesite.json`'s declared experiment (if any) to decide where the sheet opens:
@@ -240,7 +294,7 @@ final class ExperimentStatsModel: Identifiable {
     }
 
     /// Call after `goalPickController.state` reaches `.succeeded(selector:)` — the sheet view's
-    /// `.onChange(of: goalPickController.state)` is the caller (Task 14).
+    /// `.onChange(of: goalPickController.state)` is the caller.
     func applyPickedVisibleGoal() {
         guard case .succeeded(let selector) = goalPickController.state else { return }
         updateDraftGoal { $0.goalKind = "visible"; $0.goalSelector = selector; $0.goalPath = nil; $0.goalDepth = nil }
@@ -261,7 +315,7 @@ final class ExperimentStatsModel: Identifiable {
         DomainConfigStore.update(sourceDirectory: sourceDirectory) { $0.experiments = .init(active: [experiment]) }
     }
 
-    /// Gates Task 13's start action: both the variant page and a goal must be set.
+    /// Gates the start action: both the variant page and a goal must be set.
     var canStart: Bool {
         guard case .configure(let draft) = step else { return false }
         return draft.asExperiment != nil
@@ -300,11 +354,9 @@ final class ExperimentStatsModel: Identifiable {
         deploy()
     }
 
-    /// Whether the "Analyze manually" escape hatch applies (#1518 review, I6). Live per-variant
-    /// counts aren't wired up yet (#1270), so the manual-entry form is the only working analysis
-    /// surface — an owner mid-configure or with a running test needs a way back to it. Excluded
-    /// from `.starting`: a deploy is in flight there and `observeDeployPhase(_:)` still needs the
-    /// step to come back to it.
+    /// Whether the "Analyze manually" escape hatch applies (#1518 review, I6). Excluded from
+    /// `.starting`: a deploy is in flight there and `observeDeployPhase(_:)` still needs the step
+    /// to come back to it.
     var canReturnToManual: Bool {
         switch step {
         case .manual, .starting: return false
