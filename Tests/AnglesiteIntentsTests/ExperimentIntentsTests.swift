@@ -92,6 +92,15 @@ extension AppIntentsTests {
             let dialog = await intent.performForTesting()
             #expect(dialog.contains("Hero headline"))
         }
+
+        @Test("AnalyzeExperimentIntent asks for both counts when only one variant's visitors is supplied")
+        func partiallyFilledCallAsksForBothCounts() async {
+            var intent = AnalyzeExperimentIntent()
+            intent.controlImpressions = 1000
+            // treatmentImpressions left nil.
+            let dialog = await intent.performForTesting()
+            #expect(dialog.contains("both variants' visitor counts"))
+        }
     }
 }
 

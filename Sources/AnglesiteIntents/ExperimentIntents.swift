@@ -6,7 +6,7 @@ import Foundation
 /// slice 4) — "How is my test going?". Two paths, same underlying analysis: give it counts and
 /// it compares them (the original #769 shape, still exactly as before); give it nothing and it
 /// resolves the one site (of everything the app knows about) with a running experiment and
-/// analyzes its live D1 counts via ``ExperimentResultsService``, falling back to "no running
+/// analyzes its live D1 counts via `ExperimentResultsService`, falling back to "no running
 /// experiment" rather than prompting for parameters Siri has no way to fill in for you. Like the
 /// Experiment Results sheet (`ExperimentStatsSheetView`/`ExperimentStatsModel`), the manual path
 /// remains available for a non-Cloudflare deploy or a site with no token configured.
@@ -60,7 +60,8 @@ public struct AnalyzeExperimentIntent: AppIntent {
         let name: String
         let control: ExperimentStats.Variant
         let treatment: ExperimentStats.Variant
-        if controlImpressions == nil, treatmentImpressions == nil {
+        switch (controlImpressions, treatmentImpressions) {
+        case (nil, nil):
             guard let prefill = await service.prefillForRunningExperiment() else {
                 return "I don't see a running experiment on any of your sites right now — "
                     + "start one, or tell me the counts yourself."
@@ -72,14 +73,21 @@ public struct AnalyzeExperimentIntent: AppIntent {
             treatment = ExperimentStats.Variant(
                 name: prefill.experiment.variant.name, impressions: prefill.counts.variantVisitors,
                 conversions: prefill.counts.variantConversions)
-        } else {
+        case let (.some(controlVisitors), .some(treatmentVisitors)):
             name = experimentName.isEmpty ? "This experiment" : experimentName
             control = ExperimentStats.Variant(
                 name: controlName.isEmpty ? "Original" : controlName,
-                impressions: controlImpressions ?? 0, conversions: controlConversions ?? 0)
+                impressions: controlVisitors, conversions: controlConversions ?? 0)
             treatment = ExperimentStats.Variant(
                 name: treatmentName.isEmpty ? "Variant" : treatmentName,
-                impressions: treatmentImpressions ?? 0, conversions: treatmentConversions ?? 0)
+                impressions: treatmentVisitors, conversions: treatmentConversions ?? 0)
+        default:
+            // Exactly one side's visitor count was supplied — too little for a manual comparison
+            // (silently treating the missing side as zero would produce a meaningless result) and
+            // too much to say nothing was provided, so this doesn't qualify for the zero-argument
+            // live-lookup path either. Ask for the rest rather than guessing.
+            return "I need both variants' visitor counts to compare them — tell me the original's "
+                + "and the variant's visitors, or leave both blank and I'll check your running test."
         }
 
         let result = ExperimentStats.analyze(control: control, treatment: treatment)

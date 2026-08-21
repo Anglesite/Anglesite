@@ -15,13 +15,25 @@ final class ExperimentStatsModel: Identifiable {
     private let sourceDirectory: URL
     private let configDirectory: URL
 
-    var experimentName: String = ""
-    var controlName: String = "Original"
-    var controlImpressions: Int = 0
-    var controlConversions: Int = 0
-    var treatmentName: String = "Variant"
-    var treatmentImpressions: Int = 0
-    var treatmentConversions: Int = 0
+    var experimentName: String = "" { didSet { markUserEditedIfNeeded() } }
+    var controlName: String = "Original" { didSet { markUserEditedIfNeeded() } }
+    var controlImpressions: Int = 0 { didSet { markUserEditedIfNeeded() } }
+    var controlConversions: Int = 0 { didSet { markUserEditedIfNeeded() } }
+    var treatmentName: String = "Variant" { didSet { markUserEditedIfNeeded() } }
+    var treatmentImpressions: Int = 0 { didSet { markUserEditedIfNeeded() } }
+    var treatmentConversions: Int = 0 { didSet { markUserEditedIfNeeded() } }
+
+    /// Set once the owner has typed into any field, so an in-flight `loadLivePrefillIfAvailable()`
+    /// fetch that resolves afterward knows not to clobber it (the sheet's fields are editable from
+    /// the moment it opens, and the fetch is fire-and-forget).
+    private(set) var hasUserEdits = false
+    /// Suppresses `hasUserEdits` tracking while the model itself is writing prefill values.
+    private var isApplyingLivePrefill = false
+
+    private func markUserEditedIfNeeded() {
+        guard !isApplyingLivePrefill else { return }
+        hasUserEdits = true
+    }
 
     private(set) var result: ExperimentStats.Result?
     private(set) var hasSufficientData = false
@@ -44,6 +56,9 @@ final class ExperimentStatsModel: Identifiable {
     /// experiment, no provisioned D1 database, or no Cloudflare token — the manual-entry path is
     /// unaffected either way. Called once, right after presentation (see `SiteWindowModel
     /// .presentExperimentStats()`), same fire-and-forget shape as other async-prefill models.
+    /// Also a no-op if the owner has already typed into any field by the time the fetch resolves
+    /// (`hasUserEdits`) — the sheet's fields are editable the moment it opens, so without this
+    /// guard a slow fetch could silently overwrite counts the owner already entered by hand.
     /// `secretStore`/`baseURL`/`transport` are injectable, matching `ExperimentResultsSync.prefill`
     /// itself, so tests can stub the Cloudflare API instead of hitting the network.
     func loadLivePrefillIfAvailable(
@@ -55,6 +70,9 @@ final class ExperimentStatsModel: Identifiable {
             sourceDirectory: sourceDirectory, configDirectory: configDirectory,
             secretStore: secretStore, baseURL: baseURL, transport: transport)
         else { return }
+        guard !hasUserEdits else { return }
+        isApplyingLivePrefill = true
+        defer { isApplyingLivePrefill = false }
         experimentName = prefill.experiment.name
         controlName = "Original"
         controlImpressions = prefill.counts.controlVisitors
