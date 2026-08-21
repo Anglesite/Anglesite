@@ -5,9 +5,14 @@ import { findBlockElement } from "./selection.js";
 /**
  * Keeps VoiceOver-relevant attributes on each block's rendered element in sync with the model and
  * selection (design doc §8.6: "VoiceOver navigates blocks by their owner-facing manifest names —
- * the block model doubles as the accessibility model"). Never renders DOM itself — only annotates
- * elements the host's already-rendered page produced with the block-id attribute, the same
- * contract `findBlockElement` relies on elsewhere (e.g. `RichTextEditor.enter()`).
+ * the block model doubles as the accessibility model"). Manages `aria-label`, `aria-current`, and
+ * roving `tabindex` only. Uses `aria-current` rather than `aria-selected` because it's a valid
+ * state on any role, whereas `aria-selected` is only supported on `option`/`row`/`tab`/`gridcell`/
+ * `treeitem`/`columnheader`/`rowheader` roles. Deliberately leaves each block's own native role
+ * (heading, paragraph, etc.) untouched rather than overwriting it — so VoiceOver's rotor and
+ * heading navigation keep working inside the canvas while edit mode is on. Never renders DOM
+ * itself — only annotates elements the host's already-rendered page produced with the block-id
+ * attribute, the same contract `findBlockElement` relies on elsewhere (e.g. `RichTextEditor.enter()`).
  */
 export class AccessibilityAnnotator {
   #engine: WysiwygEngine;
@@ -50,7 +55,7 @@ export class AccessibilityAnnotator {
       const el = findBlockElement(id, this.#root) as HTMLElement | null;
       if (!el) continue;
       const isSelected = id === selected;
-      el.setAttribute("aria-selected", String(isSelected));
+      el.setAttribute("aria-current", String(isSelected));
       el.tabIndex = isSelected ? 0 : -1;
     }
     if (selected) (findBlockElement(selected, this.#root) as HTMLElement | null)?.focus();
@@ -63,10 +68,9 @@ export class AccessibilityAnnotator {
       const node = model.blocks[id];
       const el = findBlockElement(id, this.#root) as HTMLElement | null;
       if (!node || !el) continue;
-      el.setAttribute("role", "group");
       el.setAttribute("aria-label", this.displayName(node.componentName));
       const isSelected = id === selected;
-      el.setAttribute("aria-selected", String(isSelected));
+      el.setAttribute("aria-current", String(isSelected));
       el.tabIndex = isSelected ? 0 : -1;
     }
   }

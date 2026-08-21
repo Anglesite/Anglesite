@@ -1,6 +1,7 @@
 import type { BlockId } from "./types.js";
 import type { WysiwygEngine } from "./engine.js";
 import type { RichTextEditor } from "./rich-text.js";
+import { findBlockElement } from "./selection.js";
 
 /**
  * Keyboard-only editing grammar (design doc §8.6): arrows move block selection, Return enters text
@@ -15,8 +16,8 @@ import type { RichTextEditor } from "./rich-text.js";
  * `mount.ts`'s own `contextmenu` listener: whichever element already has focus (a block, or
  * nothing) is where these keys should apply, and re-deriving that per-block would just reduce to
  * `document.activeElement` anyway. `target` is overridable for tests and for a future breakpoint
- * frame's own `Document` (matching `hitTest`/`findBlockElement`'s existing `root` parameter
- * convention elsewhere in this package).
+ * frame's own `Document` (matching `findBlockElement`'s existing `root` parameter convention
+ * elsewhere in this package — `hitTest` itself names its own equivalent parameter `doc`).
  */
 export class KeyboardNavigation {
   #engine: WysiwygEngine;
@@ -38,6 +39,10 @@ export class KeyboardNavigation {
   #handleKeydown(event: KeyboardEvent): void {
     // A live text-editing session owns arrows/Return/Escape for caret movement and text input.
     if (this.#richText.activeBlockId !== null) return;
+
+    // Never hijack a modified keystroke: VoiceOver's own navigation is Control+Option+arrow, and
+    // Cmd/Option-arrow are standard macOS caret/list motions this handler must not repurpose.
+    if (event.metaKey || event.ctrlKey || event.altKey) return;
 
     switch (event.key) {
       case "ArrowDown":
@@ -80,6 +85,7 @@ export class KeyboardNavigation {
     if (selected === null) return false;
     const node = this.#engine.modelSync.current.blocks[selected];
     if (!node || node.kind !== "text") return false;
+    if (!findBlockElement(selected)) return false;
     this.#richText.enter(selected);
     return true;
   }

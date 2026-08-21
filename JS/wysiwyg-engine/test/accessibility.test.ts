@@ -29,11 +29,11 @@ describe("AccessibilityAnnotator (#1589)", () => {
     const b1 = document.querySelector('[data-anglesite-block-id="b1"]')!;
     const b2 = document.querySelector('[data-anglesite-block-id="b2"]')!;
     expect(b1.getAttribute("aria-label")).toBe("Heading");
-    expect(b1.getAttribute("role")).toBe("group");
+    expect(b1.tagName).toBe("H2"); // native role/tag is left untouched
     expect(b2.getAttribute("aria-label")).toBe("Testimonial"); // no palette entry — falls back to componentName
   });
 
-  it("sets aria-selected and roving tabindex, and moves focus, when selection changes", () => {
+  it("sets aria-current and roving tabindex, and moves focus, when selection changes", () => {
     document.body.innerHTML = `<h2 data-anglesite-block-id="b1"></h2><div data-anglesite-block-id="b2"></div>`;
     const engine = new WysiwygEngine(fixtureModel(), fixtureTransport());
     new AccessibilityAnnotator(engine, {});
@@ -42,9 +42,9 @@ describe("AccessibilityAnnotator (#1589)", () => {
 
     const b1 = document.querySelector('[data-anglesite-block-id="b1"]') as HTMLElement;
     const b2 = document.querySelector('[data-anglesite-block-id="b2"]') as HTMLElement;
-    expect(b1.getAttribute("aria-selected")).toBe("true");
+    expect(b1.getAttribute("aria-current")).toBe("true");
     expect(b1.tabIndex).toBe(0);
-    expect(b2.getAttribute("aria-selected")).toBe("false");
+    expect(b2.getAttribute("aria-current")).toBe("false");
     expect(b2.tabIndex).toBe(-1);
     expect(document.activeElement).toBe(b1);
   });

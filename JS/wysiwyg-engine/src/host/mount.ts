@@ -17,6 +17,8 @@ declare global {
   }
 }
 
+let unsubscribeSelectionPost: (() => void) | null = null;
+
 // Disposes whatever is currently mounted (if anything) and clears the globals — the shared body
 // of `unmount()` below, factored out so `mount()` can call it too (#1225 final-review round 2,
 // Finding B) rather than only being reachable from the native `unmountEngine()` call. Safe to call
@@ -26,6 +28,8 @@ function disposeMounted(): void {
   window.__anglesiteWysiwygQualityGates?.dispose();
   window.__anglesiteWysiwygKeyboardNav?.dispose();
   window.__anglesiteWysiwygAccessibility?.dispose();
+  unsubscribeSelectionPost?.();
+  unsubscribeSelectionPost = null;
   window.__anglesiteWysiwygEngine?.dispose();
   window.__anglesiteWysiwygRichTextEditor = undefined;
   window.__anglesiteWysiwygQualityGates = undefined;
@@ -55,7 +59,7 @@ window.__anglesiteWysiwygMount = {
     // Keyboard-driven (and, later, any other JS-originated) selection changes need to reach
     // `WYSIWYGCanvasController.selectedBlockId` so native Duplicate/Delete keep acting on the right
     // block (#1589) — mirrors the `contextmenu` listener below's posting convention exactly.
-    engine.selection.onChange((blockId) => {
+    unsubscribeSelectionPost = engine.selection.onChange((blockId) => {
       window.webkit?.messageHandlers?.wysiwyg?.postMessage({ type: "selection-changed", blockId });
     });
     return engine;
@@ -82,5 +86,10 @@ document.addEventListener("contextmenu", (event) => {
   const blockId = engine.hitTest({ x: event.clientX, y: event.clientY });
   if (!blockId) return;
   event.preventDefault();
+  // Keep the engine's own selection in sync with the right-clicked block (#1589 final review):
+  // without this, right-click acted on a block that keyboard navigation and AccessibilityAnnotator
+  // never learned was selected, so a subsequent arrow press could silently relocate the user's
+  // selection instead of moving from the block they just right-clicked.
+  engine.selection.select(blockId);
   window.webkit?.messageHandlers?.wysiwyg?.postMessage({ type: "context-menu", blockId, x: event.clientX, y: event.clientY });
 });

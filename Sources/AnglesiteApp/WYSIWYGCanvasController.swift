@@ -272,7 +272,7 @@ final class WYSIWYGCanvasController {
         Dictionary(blockPalette.map { ($0.componentName, $0.displayName) }, uniquingKeysWith: { first, _ in first })
     }
 
-    /// The `unmount()` counterpart to `mountScript(for:)` — no model to encode, so this is just the
+    /// The `unmount()` counterpart to `mountScript(for:displayNames:)` — no model to encode, so this is just the
     /// literal call string, kept as a `static let` for the same test-without-`WKWebView` reason.
     static let unmountScript = "window.__anglesiteWysiwygMount?.unmount?.()"
 
