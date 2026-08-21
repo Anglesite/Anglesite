@@ -21,6 +21,8 @@ describe("wysiwyg engine host mount entry point (#1225)", () => {
     delete (window as any).__anglesiteWysiwygEngine;
     delete (window as any).__anglesiteWysiwygRichTextEditor;
     delete (window as any).__anglesiteWysiwygQualityGates;
+    delete (window as any).__anglesiteWysiwygKeyboardNav;
+    delete (window as any).__anglesiteWysiwygAccessibility;
     delete (window as any).__anglesiteWysiwygHost;
   });
 
@@ -88,5 +90,33 @@ describe("wysiwyg engine host mount entry point (#1225)", () => {
 
     expect(disposeSpy).toHaveBeenCalledOnce();
     expect(window.__anglesiteWysiwygQualityGates).toBeUndefined();
+  });
+
+  it("mount() constructs KeyboardNavigation and AccessibilityAnnotator", () => {
+    window.__anglesiteWysiwygMount!.mount(model, {});
+    expect(window.__anglesiteWysiwygKeyboardNav).toBeDefined();
+    expect(window.__anglesiteWysiwygAccessibility).toBeDefined();
+  });
+
+  it("unmount() disposes and clears the keyboard-nav and accessibility globals too", () => {
+    window.__anglesiteWysiwygMount!.mount(model, {});
+    window.__anglesiteWysiwygMount!.unmount();
+    expect(window.__anglesiteWysiwygKeyboardNav).toBeUndefined();
+    expect(window.__anglesiteWysiwygAccessibility).toBeUndefined();
+  });
+
+  it("mount() posts a selection-changed message when the engine's selection changes", () => {
+    const postMessage = vi.fn();
+    window.webkit = { messageHandlers: { wysiwyg: { postMessage } } };
+
+    const engine = window.__anglesiteWysiwygMount!.mount(model, {});
+    engine.selection.select(null); // no-op (already null) — proves the listener doesn't fire spuriously
+    expect(postMessage).not.toHaveBeenCalled();
+
+    document.body.innerHTML = `<p data-anglesite-block-id="b1"></p>`;
+    engine.selection.select("b1");
+    expect(postMessage).toHaveBeenCalledWith({ type: "selection-changed", blockId: "b1" });
+
+    delete (window as any).webkit;
   });
 });
