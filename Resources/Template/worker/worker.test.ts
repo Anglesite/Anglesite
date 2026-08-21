@@ -7,6 +7,7 @@ import {
   validateInboxFields,
   isRateLimited,
   handleInbox,
+  buildInboxForwardRaw,
   handleIndieAuthConsent,
   createConsentToken,
   verifyConsentToken,
@@ -23,6 +24,11 @@ import {
 } from "./worker";
 import worker from "./worker";
 import { tagFediverseUrl } from "./utm-codes.ts";
+import { createMicropubStore } from "@dwk/micropub";
+import { READER_SESSION_COOKIE, createReaderSessionToken } from "./reader-session.ts";
+import { normalizeReaderIdentity } from "./reader-identity.ts";
+import { createHandleMcp, isMcpRateLimited, isMcpToolCallRequest, mcpRateLimitKey } from "./mcp-server.ts";
+import type { McpConfigArtifact } from "./mcp-config.ts";
 
 const testEnv = env as unknown as WorkerEnv;
 
@@ -41,6 +47,20 @@ function makeFakeKV(initial: Record<string, string> = {}): InboxKV & { store: Ma
       store.set(key, value);
     },
   };
+}
+
+/** A minimal `Fetcher`-shaped stub for `env.ASSETS`: maps exact request URLs (pathname only) to
+ *  canned responses, everything else 404s. Cast through `unknown`, matching `assetsAlways404`
+ *  below — the real `Fetcher` type also requires a `connect()` method this stub doesn't need. */
+function makeFakeAssets(responses: Record<string, { status: number; body?: string }>): WorkerEnv["ASSETS"] {
+  return {
+    async fetch(request: Request) {
+      const pathname = new URL(request.url).pathname;
+      const canned = responses[pathname];
+      if (!canned) return new Response(null, { status: 404 });
+      return new Response(canned.body ?? null, { status: canned.status });
+    },
+  } as unknown as WorkerEnv["ASSETS"];
 }
 
 test("validateInboxFields: trims and accepts complete fields", () => {
@@ -142,6 +162,148 @@ test("handleInbox: 500s when INBOX_KV isn't bound", async () => {
   });
   const response = await handleInbox(request, {});
   expect(response.status).toBe(500);
+});
+
+function makeFakeSendEmail(): { send: (message: unknown) => Promise<void>; calls: unknown[] } {
+  const calls: unknown[] = [];
+  return {
+    calls,
+    async send(message: unknown) {
+      calls.push(message);
+    },
+  };
+}
+
+test("handleInbox: forwards to SEND_EMAIL when both it and INBOX_FORWARD_EMAIL are bound", async () => {
+  const kv = makeFakeKV();
+  const sendEmail = makeFakeSendEmail();
+  const request = new Request("https://my-site.example/inbox", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subject: "Hello", from: "a@example.com", message: "Hi there" }),
+  });
+  const response = await handleInbox(request, {
+    INBOX_KV: kv,
+    SEND_EMAIL: sendEmail as never,
+    INBOX_FORWARD_EMAIL: "owner@example.com",
+  });
+  expect(response.status).toBe(202);
+  expect(sendEmail.calls.length).toBe(1);
+});
+
+test("handleInbox: still stages the submission and returns 202 when SEND_EMAIL.send rejects", async () => {
+  const kv = makeFakeKV();
+  const sendEmail = {
+    async send() {
+      throw new Error("destination address not verified");
+    },
+  };
+  const request = new Request("https://my-site.example/inbox", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subject: "Hello", from: "a@example.com", message: "Hi there" }),
+  });
+  const response = await handleInbox(request, {
+    INBOX_KV: kv,
+    SEND_EMAIL: sendEmail as never,
+    INBOX_FORWARD_EMAIL: "owner@example.com",
+  });
+  expect(response.status).toBe(202);
+  const [, stagedRaw] = [...kv.store.entries()].find(([key]) => key.startsWith("inbox:"))!;
+  expect(JSON.parse(stagedRaw).subject).toBe("Hello");
+});
+
+test("handleInbox: does not call SEND_EMAIL.send when INBOX_FORWARD_EMAIL is unset", async () => {
+  const kv = makeFakeKV();
+  const sendEmail = makeFakeSendEmail();
+  const request = new Request("https://my-site.example/inbox", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ subject: "Hello", from: "a@example.com", message: "Hi there" }),
+  });
+  const response = await handleInbox(request, { INBOX_KV: kv, SEND_EMAIL: sendEmail as never });
+  expect(response.status).toBe(202);
+  expect(sendEmail.calls.length).toBe(0);
+});
+
+test("buildInboxForwardRaw: base64-encodes the subject header, so embedded CRLF can't inject a header", () => {
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: "Hi\r\nBcc: attacker@evil.example",
+    from: "a@example.com",
+    message: "hello",
+  });
+  // The header/body boundary is the *first* blank line — split only there, not on every blank
+  // line the body itself may contain (the injected value's own CRLF creates one further down).
+  const headerEnd = raw.indexOf("\r\n\r\n");
+  const headerBlock = raw.slice(0, headerEnd);
+  const bodyBlock = raw.slice(headerEnd + 4);
+  expect(headerBlock).not.toContain("Bcc:");
+  expect(headerBlock).toMatch(/^Subject: =\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/m);
+  // The raw, unencoded content only ever appears in the body, after the header/body separator.
+  expect(bodyBlock).toContain("Hi\r\nBcc: attacker@evil.example");
+});
+
+test("buildInboxForwardRaw: puts from/message in the body untouched and the recipient in To", () => {
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: "Hello",
+    from: "a@example.com",
+    message: "Hi there",
+  });
+  expect(raw).toContain("To: <owner@example.com>");
+  expect(raw).toContain('From: "Site Inbox" <inbox@my-site.example>');
+  expect(raw).toContain("From: a@example.com");
+  expect(raw).toContain("Hi there");
+  expect(raw).toContain("Submission ID: abc-123");
+});
+
+function decodeRfc2047(headerValue: string): string {
+  const words = [...headerValue.matchAll(/=\?UTF-8\?B\?([A-Za-z0-9+/=]+)\?=/g)].map((m) => m[1]!);
+  const bytes = words.flatMap((w) => [...atob(w)].map((c) => c.charCodeAt(0)));
+  return new TextDecoder().decode(new Uint8Array(bytes));
+}
+
+test("buildInboxForwardRaw: folds a near-MAX_SUBJECT_LENGTH subject into multiple RFC 2047 encoded-words, each within the 75-char cap", () => {
+  const longSubject = "x".repeat(200); // MAX_SUBJECT_LENGTH
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: longSubject,
+    from: "a@example.com",
+    message: "hi",
+  });
+  const headerEnd = raw.indexOf("\r\n\r\n");
+  const headerBlock = raw.slice(0, headerEnd);
+  const subjectMatch = headerBlock.match(/Subject: ([\s\S]*?)\r\nMIME-Version:/);
+  expect(subjectMatch).not.toBeNull();
+  const subjectHeader = subjectMatch![1]!;
+  const lines = subjectHeader.split("\r\n ");
+  expect(lines.length).toBeGreaterThan(1);
+  for (const line of lines) {
+    expect(line.length).toBeLessThanOrEqual(75);
+    expect(line).toMatch(/^=\?UTF-8\?B\?[A-Za-z0-9+/=]+\?=$/);
+  }
+  expect(decodeRfc2047(subjectHeader)).toBe(`[Inbox] ${longSubject}`);
+});
+
+test("buildInboxForwardRaw: a multi-byte-character subject decodes correctly across an encoded-word fold boundary", () => {
+  // A run of 3-byte UTF-8 characters (each "🙂"-adjacent BMP emoji-free code point) long enough
+  // to straddle the 45-byte-per-word boundary, verifying the UTF-8 boundary backoff doesn't
+  // corrupt a character split across two words.
+  const longSubject = "café ".repeat(40); // each "é" is 2 bytes — forces non-ASCII byte splits
+  const raw = buildInboxForwardRaw("inbox@my-site.example", "owner@example.com", {
+    id: "abc-123",
+    receivedAt: "2026-08-18T00:00:00.000Z",
+    subject: longSubject,
+    from: "a@example.com",
+    message: "hi",
+  });
+  const headerEnd = raw.indexOf("\r\n\r\n");
+  const subjectMatch = raw.slice(0, headerEnd).match(/Subject: ([\s\S]*?)\r\nMIME-Version:/);
+  expect(decodeRfc2047(subjectMatch![1]!)).toBe(`[Inbox] ${longSubject}`);
 });
 
 function base64url(bytes: Uint8Array): string {
@@ -370,15 +532,50 @@ test("routing: with no running experiment configured, existing routes are unaffe
   expect(await assetResponse.text()).toBe("No assets binding configured");
 });
 
-test("IndieAuth metadata advertises the authorization and token endpoints", async () => {
+test("IndieAuth metadata advertises a full RFC 8414 authorization-server document (#1580)", async () => {
   const response = await fetchWorker(new Request("https://owner.example/.well-known/oauth-authorization-server"));
   expect(response.status).toBe(200);
   await expect(response.json()).resolves.toMatchObject({
     issuer: "https://owner.example",
     authorization_endpoint: "https://owner.example/authorize",
     token_endpoint: "https://owner.example/token",
+    revocation_endpoint: "https://owner.example/revocation",
+    revocation_endpoint_auth_methods_supported: ["none"],
+    grant_types_supported: ["authorization_code"],
+    response_types_supported: ["code"],
     code_challenge_methods_supported: ["S256"],
+    token_endpoint_auth_methods_supported: ["none"],
+    scopes_supported: ["create", "update", "delete", "media", "follow", "channels", "read"],
   });
+});
+
+test("RFC 9728 protected-resource metadata points agents at this site's own authorization server (#1577)", async () => {
+  const response = await fetchWorker(new Request("https://owner.example/.well-known/oauth-protected-resource"));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("application/json");
+  await expect(response.json()).resolves.toStrictEqual({
+    resource: "https://owner.example",
+    authorization_servers: ["https://owner.example"],
+    scopes_supported: ["create", "update", "delete", "media", "follow", "channels", "read"],
+    dpop_bound_access_tokens_required: true,
+    dpop_signing_alg_values_supported: ["ES256", "ES384", "RS256", "PS256"],
+  });
+});
+
+test("routing: protected-resource metadata rejects undeclared methods and mirrors HEAD", async () => {
+  const post = await fetchWorker(
+    new Request("https://owner.example/.well-known/oauth-protected-resource", { method: "POST" }),
+  );
+  expect(post.status).toBe(405);
+  expect(post.headers.get("allow")).toBe("GET, HEAD");
+
+  const get = await fetchWorker(new Request("https://owner.example/.well-known/oauth-protected-resource"));
+  const head = await fetchWorker(
+    new Request("https://owner.example/.well-known/oauth-protected-resource", { method: "HEAD" }),
+  );
+  expect(head.status).toBe(get.status);
+  expect(head.headers.get("content-type")).toBe(get.headers.get("content-type"));
+  expect(await head.text()).toBe("");
 });
 
 test("IndieAuth owner consent completes PKCE sign-in and issues a DPoP token", async () => {
@@ -2076,4 +2273,413 @@ test("activityPubConfig: AP_MODERATORS is ignored (undefined) for a Person actor
     makeActivityPubEnv({ AP_MODERATORS: "https://mod1.example/actor" }),
   );
   expect(config?.moderators).toBeUndefined();
+});
+
+// --- Worker read gate (#1568) ------------------------------------------------------------
+
+async function sessionCookieFor(me: string): Promise<string> {
+  const token = await createReaderSessionToken(normalizeReaderIdentity(me), testEnv.TOKEN_SIGNING_KEY);
+  return `${READER_SESSION_COOKIE}=${token}`;
+}
+
+/** Minimal stub satisfying `Fetcher`, since the vitest miniflare env has no real ASSETS binding. */
+function assetsAlways404(): WorkerEnv["ASSETS"] {
+  return { fetch: async () => new Response("Not Found", { status: 404 }) } as unknown as WorkerEnv["ASSETS"];
+}
+
+test("contacts/signin: renders the sign-in form with no me", async () => {
+  const response = await fetchWorker(new Request("https://owner.example/contacts/signin"));
+  expect(response.status).toBe(200);
+  expect(await response.text()).toContain('name="me"');
+});
+
+test("contacts/signin: discovers the endpoint and redirects with a signed state", async () => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(
+      '<html><head><link rel="authorization_endpoint" href="https://alice.example/auth"></head></html>',
+      { headers: { "content-type": "text/html" } },
+    )) as unknown as typeof fetch;
+  try {
+    const response = await fetchWorker(
+      new Request("https://owner.example/contacts/signin?me=https://alice.example/"),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toContain("https://alice.example/auth");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("contacts/callback: verifies identity, checks the allowlist, and starts a session", async () => {
+  const { createSigninState } = await import("./reader-session.ts");
+  const state = await createSigninState(
+    {
+      me: "https://alice.example/",
+      redirectTo: "/notes/hello",
+      authorizationEndpoint: "https://alice.example/auth",
+      verifier: "v",
+    },
+    testEnv.TOKEN_SIGNING_KEY,
+  );
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async () =>
+    new Response(JSON.stringify({ me: "https://alice.example/" }), {
+      headers: { "content-type": "application/json" },
+    })) as unknown as typeof fetch;
+  try {
+    await testEnv.SOCIAL_KV!.put("contacts:allowlist", JSON.stringify(["alice.example"]));
+    const response = await fetchWorker(
+      new Request(`https://owner.example/contacts/callback?code=abc&state=${encodeURIComponent(state)}`),
+    );
+    expect(response.status).toBe(302);
+    expect(response.headers.get("location")).toBe("/notes/hello");
+    expect(response.headers.get("set-cookie")).toContain(READER_SESSION_COOKIE);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("contacts/feed: 403 without a session, 200 listing only contacts-visibility posts with one", async () => {
+  const unauthorized = await fetchWorker(new Request("https://owner.example/contacts/feed"));
+  expect(unauthorized.status).toBe(403);
+
+  const store = createMicropubStore({ MICROPUB_DB: testEnv.MICROPUB_DB! });
+  await store.insertPost({
+    url: "https://owner.example/notes/gate-feed-restricted",
+    type: "h-entry",
+    properties: { name: ["Gate Feed Restricted"], visibility: ["contacts"] },
+    now: 1_000,
+  });
+  const cookie = await sessionCookieFor("https://alice.example/");
+  const authorized = await fetchWorker(
+    new Request("https://owner.example/contacts/feed", { headers: { Cookie: cookie } }),
+  );
+  expect(authorized.status).toBe(200);
+  expect(await authorized.text()).toContain("Gate Feed Restricted");
+});
+
+test("gated permalink fallback: unrelated 404s are untouched, plausible post URLs are gated", async () => {
+  const assetsEnv = { ...testEnv, ASSETS: assetsAlways404() };
+
+  // Not shaped like a post permalink — the gate never engages, plain 404 exactly as before #1568.
+  const unrelated = await worker.fetch(
+    new Request("https://owner.example/styles.css"),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(unrelated.status).toBe(404);
+
+  // Plausible post URL, no session — uniform 403, not a leak-revealing 404.
+  const noSession = await worker.fetch(
+    new Request("https://owner.example/notes/some-slug"),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(noSession.status).toBe(403);
+
+  // Authorized session, but no such post — falls back to the plain 404 (safe: only a verified,
+  // allowlisted contact ever reaches this branch).
+  const cookie = await sessionCookieFor("https://alice.example/");
+  const authorizedNoPost = await worker.fetch(
+    new Request("https://owner.example/notes/does-not-exist-either", { headers: { Cookie: cookie } }),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(authorizedNoPost.status).toBe(404);
+
+  // Authorized session, real restricted post — renders it.
+  const store = createMicropubStore({ MICROPUB_DB: testEnv.MICROPUB_DB! });
+  await store.insertPost({
+    url: "https://owner.example/notes/gate-permalink-restricted",
+    type: "h-entry",
+    properties: { name: ["Gate Permalink Restricted"], visibility: ["contacts"] },
+    now: 1_000,
+  });
+  const rendered = await worker.fetch(
+    new Request("https://owner.example/notes/gate-permalink-restricted", { headers: { Cookie: cookie } }),
+    assetsEnv,
+    createExecutionContext(),
+  );
+  expect(rendered.status).toBe(200);
+  expect(await rendered.text()).toContain("Gate Permalink Restricted");
+});
+
+// --- MCP server endpoint (#1576) ----------------------------------------------------------
+
+test("handleMcp: 404 when experimental.mcp is disabled", async () => {
+  const handleMcp = createHandleMcp({ enabled: false, feedPaths: [] });
+  const kv = makeFakeKV();
+  const request = new Request("https://example.com/mcp", { method: "POST" });
+  const response = await handleMcp(request, { ...testEnv, SOCIAL_KV: kv }, createExecutionContext());
+  expect(response.status).toBe(404);
+});
+
+/** A JSON-RPC `tools/call` POST to `/mcp` — the only shape the rate limiter meters. */
+function mcpToolCallRequest(
+  name: string,
+  args: Record<string, unknown> = {},
+  extraHeaders: Record<string, string> = {},
+): Request {
+  return new Request("https://example.com/mcp", {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+      ...extraHeaders,
+    },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/call", params: { name, arguments: args } }),
+  });
+}
+
+test("handleMcp: 429 when the rate limit is exceeded", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const kv = makeFakeKV();
+  const env = { ...testEnv, SOCIAL_KV: kv, ASSETS: makeFakeAssets({}) };
+  const ip = "203.0.113.7";
+  for (let i = 0; i < 60; i++) {
+    const response = await handleMcp(
+      mcpToolCallRequest("list_feeds", {}, { "CF-Connecting-IP": ip }),
+      env,
+      createExecutionContext(),
+    );
+    expect(response.status).not.toBe(429);
+  }
+  const limited = await handleMcp(
+    mcpToolCallRequest("list_feeds", {}, { "CF-Connecting-IP": ip }),
+    env,
+    createExecutionContext(),
+  );
+  expect(limited.status).toBe(429);
+});
+
+test("handleMcp: non-tool-call traffic costs no KV write and is never rate-limited", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const kv = makeFakeKV();
+  const env = { ...testEnv, SOCIAL_KV: kv, ASSETS: makeFakeAssets({}) };
+  const ip = "203.0.113.8";
+
+  // A bare GET (what worker.ts mirrors HEAD into) and a tools/list handshake, well past the
+  // 60/window threshold — neither may increment the mcp-tool-call: counter.
+  for (let i = 0; i < 70; i++) {
+    await handleMcp(
+      new Request("https://example.com/mcp", { method: "GET", headers: { "CF-Connecting-IP": ip } }),
+      env,
+      createExecutionContext(),
+    );
+    await handleMcp(
+      new Request("https://example.com/mcp", {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+          "CF-Connecting-IP": ip,
+        },
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      }),
+      env,
+      createExecutionContext(),
+    );
+  }
+  expect([...kv.store.keys()].filter((k) => k.startsWith("mcp-tool-call:"))).toEqual([]);
+
+  // …and a real tool call from the same IP still goes through, because nothing was counted.
+  const toolCall = await handleMcp(
+    mcpToolCallRequest("list_feeds", {}, { "CF-Connecting-IP": ip }),
+    env,
+    createExecutionContext(),
+  );
+  expect(toolCall.status).toBe(200);
+});
+
+test("isMcpToolCallRequest: only a JSON-RPC tools/call POST counts", async () => {
+  expect(await isMcpToolCallRequest(mcpToolCallRequest("list_feeds"))).toBe(true);
+  expect(await isMcpToolCallRequest(new Request("https://example.com/mcp", { method: "GET" }))).toBe(false);
+  expect(
+    await isMcpToolCallRequest(
+      new Request("https://example.com/mcp", {
+        method: "POST",
+        body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+      }),
+    ),
+  ).toBe(false);
+  expect(
+    await isMcpToolCallRequest(new Request("https://example.com/mcp", { method: "POST", body: "not json" })),
+  ).toBe(false);
+  // A JSON-RPC batch counts when any member is a tools/call.
+  expect(
+    await isMcpToolCallRequest(
+      new Request("https://example.com/mcp", {
+        method: "POST",
+        body: JSON.stringify([
+          { jsonrpc: "2.0", id: 1, method: "tools/list" },
+          { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "list_feeds" } },
+        ]),
+      }),
+    ),
+  ).toBe(true);
+});
+
+test("isMcpRateLimited: a failing KV write fails closed rather than throwing", async () => {
+  const throwingKV = {
+    async get() {
+      return null;
+    },
+    async put() {
+      throw new Error("KV PUT failed: 429 daily write quota exceeded");
+    },
+  } as unknown as WorkerEnv["SOCIAL_KV"];
+  const limited = await isMcpRateLimited(
+    new Request("https://example.com/mcp", { method: "POST" }),
+    { ...testEnv, SOCIAL_KV: throwingKV },
+  );
+  expect(limited).toBe(true);
+});
+
+test("isMcpRateLimited: fails closed (rate-limited) when SOCIAL_KV is unbound", async () => {
+  const request = new Request("https://example.com/mcp");
+  const limited = await isMcpRateLimited(request, { ...testEnv, SOCIAL_KV: undefined });
+  expect(limited).toBe(true);
+});
+
+test("mcpRateLimitKey: distinct IPs produce distinct keys with the mcp-tool-call: prefix", async () => {
+  const a = await mcpRateLimitKey(new Request("https://example.com/mcp", { headers: { "CF-Connecting-IP": "1.1.1.1" } }));
+  const b = await mcpRateLimitKey(new Request("https://example.com/mcp", { headers: { "CF-Connecting-IP": "2.2.2.2" } }));
+  expect(a).not.toBe(b);
+  expect(a.startsWith("mcp-tool-call:")).toBe(true);
+});
+
+/**
+ * The installed `@modelcontextprotocol/server@2.0.0` only answers a bare JSON-RPC POST (no
+ * `_meta` protocol-envelope claim — every real MCP client in the field today, since the 2026-era
+ * envelope isn't yet emitted by any client) over its "legacy" 2025-era code path, which always
+ * frames the body as SSE (`event: message\ndata: {...}`) regardless of the handler's
+ * `responseMode` option — that option only affects the modern per-request-envelope path. Verified
+ * directly against the installed package (see task-9-report.md); this parses that one `data:`
+ * line rather than assuming a plain JSON body.
+ */
+function parseSseJsonRpcResult(body: string): {
+  result?: { tools?: Array<{ name: string }>; content?: Array<{ type: string; text: string }> };
+} {
+  const dataLine = body.split("\n").find((line) => line.startsWith("data: "));
+  if (!dataLine) throw new Error(`Expected an SSE "data:" line in MCP response body, got: ${body}`);
+  return JSON.parse(dataLine.slice("data: ".length));
+}
+
+/** Drives one `tools/call` all the way through `createMcpHandler` and returns the joined text of
+ *  the tool's `content` blocks — the real integration path `tools/list` alone never exercises. */
+async function callMcpTool(
+  handleMcp: ReturnType<typeof createHandleMcp>,
+  env: WorkerEnv,
+  name: string,
+  args: Record<string, unknown> = {},
+): Promise<string> {
+  const response = await handleMcp(mcpToolCallRequest(name, args), env, createExecutionContext());
+  expect(response.status).toBe(200);
+  const body = parseSseJsonRpcResult(await response.text());
+  return (body.result?.content ?? []).map((c) => c.text).join("\n");
+}
+
+test("handleMcp: enabled with a bound ASSETS responds to a tools/list JSON-RPC request", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml", "/atom.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const env = { ...testEnv, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const request = new Request("https://example.com/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json", accept: "application/json, text/event-stream" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  });
+  const response = await handleMcp(request, env, createExecutionContext());
+  expect(response.status).toBe(200);
+  const body = parseSseJsonRpcResult(await response.text());
+  const names = (body.result?.tools ?? []).map((t) => t.name);
+  expect(names).toEqual(expect.arrayContaining(["search_posts", "fetch_page_content", "list_feeds"]));
+});
+
+test("tools/call fetch_page_content: serves the .md mirror when one exists", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const env = {
+    ...testEnv,
+    SOCIAL_KV: makeFakeKV(),
+    ASSETS: makeFakeAssets({
+      "/blog/welcome-to-your-blog.md": { status: 200, body: "---\ntitle: \"Welcome\"\n---\n\nMirror body text." },
+      // The HTML fallback must NOT win when the .md mirror is present.
+      "/blog/welcome-to-your-blog": { status: 200, body: "<html><body><p>HTML fallback</p></body></html>" },
+    }),
+  };
+  // Trailing slash normalization is part of the same path this exercises.
+  const text = await callMcpTool(handleMcp, env, "fetch_page_content", { path: "/blog/welcome-to-your-blog/" });
+  expect(text).toContain("Mirror body text.");
+  expect(text).not.toContain("HTML fallback");
+});
+
+test("tools/call fetch_page_content: falls back to plain text from the built HTML page", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const env = {
+    ...testEnv,
+    SOCIAL_KV: makeFakeKV(),
+    ASSETS: makeFakeAssets({ "/about": { status: 200, body: "<html><body><h1>About</h1><p>Hello there.</p></body></html>" } }),
+  };
+  const text = await callMcpTool(handleMcp, env, "fetch_page_content", { path: "/about" });
+  expect(text).toContain("Hello there.");
+  expect(text).not.toContain("<p>");
+});
+
+test("tools/call fetch_page_content: returns the Not found shape for an unknown path", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const env = { ...testEnv, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const text = await callMcpTool(handleMcp, env, "fetch_page_content", { path: "/nope" });
+  expect(text).toBe("Not found: /nope");
+});
+
+test("tools/call search_posts: returns a blog hit from the built search index", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  // The exact shape src/pages/mcp-search-index.json.ts emits — a blog entry included, which is
+  // what the endpoint's ENTRY_COLLECTIONS-only iteration used to make impossible (#1576 review).
+  const index = [
+    {
+      title: "Welcome to your blog",
+      url: "/blog/welcome-to-your-blog",
+      excerpt: "This is your blog's first post.",
+      collection: "blog",
+      tags: [],
+      date: "2026-01-01T00:00:00.000Z",
+    },
+  ];
+  const env = {
+    ...testEnv,
+    SOCIAL_KV: makeFakeKV(),
+    ASSETS: makeFakeAssets({ "/mcp-search-index.json": { status: 200, body: JSON.stringify(index) } }),
+  };
+  const text = await callMcpTool(handleMcp, env, "search_posts", { query: "welcome" });
+  expect(text).toContain("Welcome to your blog");
+  expect(text).toContain("/blog/welcome-to-your-blog");
+});
+
+test("tools/call search_posts: reports no results rather than throwing on an unparseable index", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  // A disabled build still ships a 0-byte mcp-search-index.json with a 200 status.
+  const env = {
+    ...testEnv,
+    SOCIAL_KV: makeFakeKV(),
+    ASSETS: makeFakeAssets({ "/mcp-search-index.json": { status: 200, body: "" } }),
+  };
+  const text = await callMcpTool(handleMcp, env, "search_posts", { query: "welcome" });
+  expect(text).toBe('No results for "welcome".');
+});
+
+test("tools/call list_feeds: returns the build-time feed path list", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: ["/rss.xml", "/blog/rss.xml"] };
+  const handleMcp = createHandleMcp(config);
+  const env = { ...testEnv, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const text = await callMcpTool(handleMcp, env, "list_feeds");
+  expect(text).toContain("/rss.xml");
+  expect(text).toContain("/blog/rss.xml");
 });

@@ -80,6 +80,13 @@ public struct EffectCatalog: Sendable {
     /// gallery's display order, so no re-sorting happens app-side.
     public let entries: [EffectCatalogEntry]
 
+    /// Wraps an already-decoded entry list — mirrors `ThemeCatalog.init(themes:)`. Production
+    /// loads via ``load(templateDirectory:)``; `Bootstrap.swift` uses this directly for the
+    /// empty fallback when the bundled template can't be resolved.
+    public init(entries: [EffectCatalogEntry]) {
+        self.entries = entries
+    }
+
     /// Mirrors the manifest's top-level shape (`{ "version": 2, "components": [...] }`); only
     /// `components` is consumed today.
     private struct ManifestFile: Codable {

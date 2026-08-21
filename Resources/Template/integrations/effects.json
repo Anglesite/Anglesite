@@ -68,7 +68,11 @@
         "cursor": "cursor character (default \"|\")"
       },
       "props": {
-        "texts": ["Design.", "Build.", "Ship."]
+        "texts": [
+          "Design.",
+          "Build.",
+          "Ship."
+        ]
       },
       "snippet": "---\nimport TypewriterText from \"@astroanimate/core/TypewriterText\";\n---\n<TypewriterText texts={[\"Design.\", \"Build.\", \"Ship.\"]} />"
     },
@@ -96,14 +100,23 @@
       "keyProps": {
         "cards": "array of { title, content } cards (required)",
         "stackSize": "visible cards (default 3)",
-        "enhance": "keep false — CSS-only mode (site CSP blocks enhance=true)"
+        "enhance": "keep false \u2014 CSS-only mode (site CSP blocks enhance=true)"
       },
       "props": {
         "enhance": false,
         "cards": [
-          { "title": "Alex", "content": "Loved the onboarding flow." },
-          { "title": "Sam", "content": "Setup took five minutes." },
-          { "title": "Priya", "content": "Support was fast and friendly." }
+          {
+            "title": "Alex",
+            "content": "Loved the onboarding flow."
+          },
+          {
+            "title": "Sam",
+            "content": "Setup took five minutes."
+          },
+          {
+            "title": "Priya",
+            "content": "Support was fast and friendly."
+          }
         ]
       },
       "snippet": "---\nimport CardStack from \"@astroanimate/core/CardStack\";\n---\n<CardStack\n  enhance={false}\n  cards={[\n    { title: \"Alex\", content: \"Loved the onboarding flow.\" },\n    { title: \"Sam\", content: \"Setup took five minutes.\" },\n  ]}\n/>"
@@ -229,6 +242,227 @@
         "value": 60
       },
       "snippet": "---\nimport ProgressBar from \"@astroanimate/core/ProgressBar\";\n---\n<ProgressBar value={60} label=\"Upload progress\" />"
+    },
+    {
+      "component": "BlobMorph",
+      "title": "Blob Morph",
+      "ownerDescription": "An organic blob shape that continuously morphs between rounded shapes.",
+      "category": "generativeArt",
+      "keyProps": {
+        "color": "CSS color (default \"currentColor\")",
+        "size": "CSS size (default \"320px\")"
+      },
+      "props": {
+        "color": "currentColor",
+        "size": "320px"
+      },
+      "snippet": "---\nimport BlobMorph from \"../components/effects/BlobMorph.astro\";\n---\n<BlobMorph color=\"#7c3aed\" size=\"320px\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "MeshGradient",
+      "title": "Mesh Gradient",
+      "ownerDescription": "Soft blurred color blobs that drift slowly, creating an organic gradient mesh.",
+      "category": "generativeArt",
+      "keyProps": {
+        "colors": "array of CSS colors (default purple/blue/teal/pink)"
+      },
+      "props": {
+        "colors": [
+          "#7c3aed",
+          "#2563eb",
+          "#0891b2",
+          "#db2777"
+        ]
+      },
+      "snippet": "---\nimport MeshGradient from \"../components/effects/MeshGradient.astro\";\n---\n<MeshGradient colors={[\"#7c3aed\", \"#2563eb\", \"#0891b2\", \"#db2777\"]} />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "DotGridPulse",
+      "title": "Dot Grid Pulse",
+      "ownerDescription": "A grid of dots that pulse in a wave pattern, creating a rhythmic animation.",
+      "category": "generativeArt",
+      "keyProps": {
+        "columns": "grid columns (default 8)",
+        "rows": "grid rows (default 4)",
+        "color": "dot color (default \"currentColor\")"
+      },
+      "props": {
+        "columns": 8,
+        "rows": 4,
+        "color": "currentColor"
+      },
+      "snippet": "---\nimport DotGridPulse from \"../components/effects/DotGridPulse.astro\";\n---\n<DotGridPulse columns={8} rows={4} color=\"currentColor\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "ParticleField",
+      "title": "Particle Field",
+      "ownerDescription": "Drifting dots connected by faint lines when close.",
+      "category": "canvasBackground",
+      "keyProps": {
+        "density": "particle count (default 60)",
+        "color": "dot/line color (default currentColor)"
+      },
+      "props": {
+        "density": 60,
+        "color": "#7c3aed"
+      },
+      "snippet": "---\nimport ParticleField from \"../components/effects/ParticleField.astro\";\n---\n<div style=\"position: relative;\">\n  <ParticleField />\n</div>",
+      "placement": {
+        "kind": "background",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "AuroraGradient",
+      "title": "Aurora Gradient",
+      "ownerDescription": "Slow blurred color-blob blending.",
+      "category": "canvasBackground",
+      "keyProps": {
+        "colors": "array of CSS colors (default a purple/blue/teal trio)"
+      },
+      "props": {
+        "colors": [
+          "#7c3aed",
+          "#2563eb",
+          "#0891b2"
+        ]
+      },
+      "snippet": "---\nimport AuroraGradient from \"../components/effects/AuroraGradient.astro\";\n---\n<div style=\"position: relative;\">\n  <AuroraGradient />\n</div>",
+      "placement": {
+        "kind": "background",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "GrainOverlay",
+      "title": "Grain Overlay",
+      "ownerDescription": "Subtle animated film-grain texture.",
+      "category": "canvasBackground",
+      "keyProps": {
+        "opacity": "0-1 (default 0.05)"
+      },
+      "props": {
+        "opacity": 0.05
+      },
+      "snippet": "---\nimport GrainOverlay from \"../components/effects/GrainOverlay.astro\";\n---\n<div style=\"position: relative;\">\n  <GrainOverlay />\n</div>",
+      "placement": {
+        "kind": "background",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "MagneticButton",
+      "title": "Magnetic Button",
+      "ownerDescription": "A button that eases toward the pointer as it gets close, then springs back.",
+      "category": "cursorReactive",
+      "keyProps": {
+        "text": "button label (default \"Get in touch\")",
+        "href": "renders as a link when set"
+      },
+      "props": {
+        "text": "Get in touch"
+      },
+      "snippet": "---\nimport MagneticButton from \"../components/effects/MagneticButton.astro\";\n---\n<MagneticButton text=\"Get in touch\" href=\"/contact\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "CursorGlow",
+      "title": "Cursor Glow",
+      "ownerDescription": "A soft glow that follows the pointer around the page.",
+      "category": "cursorReactive",
+      "keyProps": {
+        "color": "glow color (default \"rgba(124, 58, 237, 0.35)\")"
+      },
+      "props": {
+        "color": "rgba(124, 58, 237, 0.35)"
+      },
+      "snippet": "---\nimport CursorGlow from \"../components/effects/CursorGlow.astro\";\n---\n<CursorGlow />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "TiltCard",
+      "title": "Tilt Card",
+      "ownerDescription": "A card that tilts in 3D as the pointer moves over it.",
+      "category": "cursorReactive",
+      "keyProps": {
+        "title": "card title (default \"Card title\")",
+        "body": "supporting copy (default a short placeholder line)",
+        "imageSrc": "optional image URL"
+      },
+      "props": {
+        "title": "Card title",
+        "body": "A short line of supporting copy."
+      },
+      "snippet": "---\nimport TiltCard from \"../components/effects/TiltCard.astro\";\n---\n<TiltCard title=\"Card title\" body=\"A short line of supporting copy.\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "ParallaxLayers",
+      "title": "Parallax Layers",
+      "ownerDescription": "A two-layer decorative block where the back layer drifts slower than the page scroll.",
+      "category": "scrollDriven",
+      "keyProps": {
+        "height": "block height (default \"40vh\")"
+      },
+      "props": {
+        "height": "40vh"
+      },
+      "snippet": "---\nimport ParallaxLayers from \"../components/effects/ParallaxLayers.astro\";\n---\n<ParallaxLayers height=\"40vh\" />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "RevealMask",
+      "title": "Reveal Mask",
+      "ownerDescription": "Content that reveals with a clip-path wipe the first time it scrolls into view.",
+      "category": "scrollDriven",
+      "keyProps": {},
+      "props": {},
+      "snippet": "---\nimport RevealMask from \"../components/effects/RevealMask.astro\";\n---\n<RevealMask>\n  Sample content that reveals as you scroll.\n</RevealMask>",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
+    },
+    {
+      "component": "ScrollProgressTrace",
+      "title": "Scroll Progress Trace",
+      "ownerDescription": "A slim reading-progress line along the viewport edge that fills as the page scrolls.",
+      "category": "scrollDriven",
+      "keyProps": {
+        "color": "trace color (default \"currentColor\")"
+      },
+      "props": {
+        "color": "currentColor"
+      },
+      "snippet": "---\nimport ScrollProgressTrace from \"../components/effects/ScrollProgressTrace.astro\";\n---\n<ScrollProgressTrace />",
+      "placement": {
+        "kind": "inline",
+        "allowedParents": null
+      }
     }
   ]
 }

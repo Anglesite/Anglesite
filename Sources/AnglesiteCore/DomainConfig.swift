@@ -33,6 +33,7 @@ public struct DomainConfig: Equatable, Sendable {
     /// choosing GitHub Pages never forces the site's source history public. `nil` until a
     /// GitHub Pages deploy target has created (or been pointed at) one.
     public var githubPages: GitHubPages?
+    public var experimental: Experimental?
 
     public init(
         version: Int = 1,
@@ -43,7 +44,8 @@ public struct DomainConfig: Equatable, Sendable {
         workers: Workers? = nil,
         experiments: Experiments? = nil,
         deployTarget: String? = nil,
-        githubPages: GitHubPages? = nil
+        githubPages: GitHubPages? = nil,
+        experimental: Experimental? = nil
     ) {
         self.version = version
         self.domain = domain
@@ -54,6 +56,7 @@ public struct DomainConfig: Equatable, Sendable {
         self.experiments = experiments
         self.deployTarget = deployTarget
         self.githubPages = githubPages
+        self.experimental = experimental
     }
 
     /// The owner's declared hostname and attachment intent — replaces the `DOMAIN`/`DOMAIN_CHOICE`
@@ -169,10 +172,21 @@ public struct DomainConfig: Equatable, Sendable {
     public struct Email: Codable, Equatable, Sendable {
         public var provider: String?
         public var dmarcReportEmail: String?
+        /// The owner's email address for `/inbox` forwarding (#1570, `WorkerComposition`'s
+        /// `inboxForwardEmail`) — deliberately a separate field from `dmarcReportEmail` rather
+        /// than reusing it: a DMARC aggregate-report mailbox is often monitored differently
+        /// (automated tooling, a different person) than where the owner wants forwarded visitor
+        /// contact messages to land, and defaulting one from the other would be a silent
+        /// behavior change for any site that already had `dmarcReportEmail` set for its original
+        /// purpose. `nil` (the default) means "no forwarding configured" even when
+        /// `dmarcReportEmail` is set — `PlistEditorModel.saveInboxForwardEmail` is the only
+        /// writer, so forwarding only ever turns on when the owner explicitly opts in.
+        public var inboxForwardAddress: String?
 
-        public init(provider: String? = nil, dmarcReportEmail: String? = nil) {
+        public init(provider: String? = nil, dmarcReportEmail: String? = nil, inboxForwardAddress: String? = nil) {
             self.provider = provider
             self.dmarcReportEmail = dmarcReportEmail
+            self.inboxForwardAddress = inboxForwardAddress
         }
     }
 
@@ -196,6 +210,18 @@ public struct DomainConfig: Equatable, Sendable {
 
         public init(active: [String]? = nil) {
             self.active = active
+        }
+    }
+
+    /// Template-level opt-in feature flags read from `anglesite.json`'s `experimental` section
+    /// (#1576) — mirrors the TypeScript `AnglesiteExperimentalConfig`
+    /// (`Resources/Template/scripts/anglesite-config.ts`) field-for-field. `mcp` gates the
+    /// site's read-only MCP server (`worker/mcp-server.ts`) and its generated server card.
+    public struct Experimental: Codable, Equatable, Sendable {
+        public var mcp: Bool?
+
+        public init(mcp: Bool? = nil) {
+            self.mcp = mcp
         }
     }
 
@@ -285,7 +311,7 @@ public struct DomainConfig: Equatable, Sendable {
 
 extension DomainConfig: Codable {
     private enum CodingKeys: String, CodingKey {
-        case version, domain, dns, edge, email, workers, experiments, deployTarget, githubPages
+        case version, domain, dns, edge, email, workers, experiments, deployTarget, githubPages, experimental
     }
 
     public init(from decoder: Decoder) throws {
@@ -299,6 +325,7 @@ extension DomainConfig: Codable {
         experiments = try container.decodeIfPresent(Experiments.self, forKey: .experiments)
         deployTarget = try container.decodeIfPresent(String.self, forKey: .deployTarget)
         githubPages = try container.decodeIfPresent(GitHubPages.self, forKey: .githubPages)
+        experimental = try container.decodeIfPresent(Experimental.self, forKey: .experimental)
     }
 
     public func encode(to encoder: Encoder) throws {
@@ -312,5 +339,6 @@ extension DomainConfig: Codable {
         try container.encodeIfPresent(experiments, forKey: .experiments)
         try container.encodeIfPresent(deployTarget, forKey: .deployTarget)
         try container.encodeIfPresent(githubPages, forKey: .githubPages)
+        try container.encodeIfPresent(experimental, forKey: .experimental)
     }
 }

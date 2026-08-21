@@ -71,6 +71,15 @@ public actor PreDeployCheck {
             /// network-free, distinct from the deploy-time declared-vs-live check
             /// (`DeployCommand.Result.domainConfigDrift`).
             case anglesiteConfigInvalid = "anglesite-config-invalid"
+            /// A restricted (`visibility: contacts`) post's content was found in `Source/` —
+            /// restricted posts publish straight to the Worker's D1 store via Micropub and must
+            /// never be written to `Source/` as content-collection frontmatter (#963 §2.1,
+            /// #1569). Defense-in-depth backstop, not the primary mechanism.
+            case restrictedContentInSource = "restricted-content-in-source"
+            /// A restricted (`visibility: contacts`) post's content was found in the built
+            /// `dist/` output — restricted content must only ever be served through the Worker's
+            /// IndieAuth read gate (#1568), never the static build (#963 §2.1, #1569).
+            case restrictedContentInDist = "restricted-content-in-dist"
             /// Any category code this build doesn't recognize yet — decoding falls back here
             /// instead of throwing, so a future/typo'd category can't crash the whole scan (#742).
             case other = "other"

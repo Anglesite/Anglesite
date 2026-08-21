@@ -64,6 +64,12 @@ import experimentsArtifact from "./experiments.json";
 import utmCodesArtifact from "../utm-codes.json";
 import { tagFediverseUrl } from "./utm-codes.ts";
 import { GOAL_ENDPOINT_PATH } from "../scripts/experiments-paths.ts";
+import { base64url, decodeBase64url, deriveKey } from "./token-signing.ts";
+import { escapeHTML, extractMf2ContentString, extractMf2Photos, type ExtractedPhoto } from "./render-utils.ts";
+import { handleReaderCallback, handleReaderSignin } from "./reader-auth.ts";
+import { handleGatedFallback, handlePrivateFeed } from "./gated-content.ts";
+import { handleMcp } from "./mcp-server.ts";
+import { EmailMessage } from "cloudflare:email";
 
 /**
  * Per-site Cloudflare Worker entry point.
@@ -76,9 +82,10 @@ import { GOAL_ENDPOINT_PATH } from "../scripts/experiments-paths.ts";
  * app to pull and commit into the site's git working copy the next time it opens
  * (Sources/AnglesiteCore/InboxSubmissionSync.swift).
  *
- * Static assets are served by the [assets] binding in wrangler.toml; this Worker handles only
- * the social + inbox endpoint paths. When neither is enabled, this file is not referenced
- * (wrangler.toml has no `main` entry and deploys static-only).
+ * Static assets are served by the [assets] binding in wrangler.toml; this Worker handles the
+ * social + inbox endpoint paths, a running A/B experiment's routes, and (#1576) the read-only
+ * MCP server. When none of those are enabled, this file is not referenced (wrangler.toml has no
+ * `main` entry and deploys static-only).
  *
  * Routing (#746): `ROUTES` below is a declarative table mirroring the generic HTTP route claims
  * the app's Worker catalog declares for the active workers; Anglesite generates matching
@@ -100,6 +107,18 @@ export interface WorkerEnv extends IndieAuthEnv {
   ASSETS?: Fetcher;
   INBOX_KV?: InboxKV;
   SOCIAL_KV?: InboxKV;
+  /**
+   * Owner-email forwarding for `/inbox` submissions (#1570, reconciling #587 with the
+   * email-as-DM decision) — additive to the `INBOX_KV` capture above, which stays the
+   * structured record. Both optional: a site whose owner hasn't run email setup
+   * (`EmailSetupPlanner`/`EmailSetupExecutor`) has neither bound, and `handleInbox` degrades to
+   * KV-only capture rather than throwing. `SEND_EMAIL`'s `destination_address` (see
+   * `WorkerComposition.generateWranglerToml`, Swift) restricts the binding to `INBOX_FORWARD_EMAIL`
+   * specifically — the Worker can't be made to send anywhere else even if this env were
+   * otherwise compromised.
+   */
+  SEND_EMAIL?: SendEmail;
+  INBOX_FORWARD_EMAIL?: string;
   INDIEAUTH_OWNER_PASSWORD: string;
   /**
    * Inbound-Webmention bindings (V-3.1, #359). All optional: a site that hasn't provisioned
@@ -242,49 +261,6 @@ interface ConsentGrant {
   codeChallenge: string;
   scope: string;
   resources: string[];
-}
-
-function base64url(bytes: Uint8Array): string {
-  let binary = "";
-  for (const byte of bytes) binary += String.fromCharCode(byte);
-  return btoa(binary).replace(/\+/g, "-").replace(/\//g, "_").replace(/=+$/, "");
-}
-
-function decodeBase64url(value: string): Uint8Array<ArrayBuffer> | null {
-  try {
-    const padded = value.replace(/-/g, "+").replace(/_/g, "/").padEnd(Math.ceil(value.length / 4) * 4, "=");
-    const binary = atob(padded);
-    const bytes = new Uint8Array(binary.length);
-    for (let index = 0; index < binary.length; index += 1) {
-      bytes[index] = binary.charCodeAt(index);
-    }
-    return bytes;
-  } catch {
-    return null;
-  }
-}
-
-/**
- * Derives a purpose-specific HMAC key from `secret` via HKDF, so that `TOKEN_SIGNING_KEY` — the
- * one secret provisioned for both consent-token signing and owner-password comparison — yields
- * independent subkeys per purpose. A weakness or misuse in one purpose's key can't cross over
- * into the other's.
- */
-async function deriveKey(secret: string, purpose: string): Promise<CryptoKey> {
-  const baseKey = await crypto.subtle.importKey(
-    "raw",
-    new TextEncoder().encode(secret),
-    "HKDF",
-    false,
-    ["deriveKey"],
-  );
-  return crypto.subtle.deriveKey(
-    { name: "HKDF", hash: "SHA-256", salt: new Uint8Array(0), info: new TextEncoder().encode(purpose) },
-    baseKey,
-    { name: "HMAC", hash: "SHA-256", length: 256 },
-    false,
-    ["sign", "verify"],
-  );
 }
 
 function grantFor(request: AuthorizationRequest, expiresAt: number): ConsentGrant {
@@ -465,16 +441,6 @@ async function secretsMatch(provided: string, expected: string, comparisonSecret
   // Keep both passwords as message data under one server-controlled key and delegate the MAC
   // comparison to WebCrypto instead of comparing attacker-influenced bytes in JavaScript.
   return crypto.subtle.verify("HMAC", key, expectedMAC, encoder.encode(provided));
-}
-
-function escapeHTML(value: string): string {
-  return value.replace(/[&<>"']/g, (character) => ({
-    "&": "&amp;",
-    "<": "&lt;",
-    ">": "&gt;",
-    "\"": "&quot;",
-    "'": "&#39;",
-  })[character] ?? character);
 }
 
 function consentPage(request: AuthorizationRequest): Response {
@@ -884,16 +850,21 @@ function handleSolidPodGcScheduled(
   return gc(controller, env as unknown as SolidPodGcEnv, ctx);
 }
 
+/**
+ * Micropub's scopes ("create"/"update"/"delete"/"media") plus Microsub's ("follow"/"channels"/
+ * "read", V-4.3 #365) — @dwk/indieauth's constrainScopes drops any requested scope absent from
+ * this list, so a client authorizing for Microsub without "follow"/"channels" listed here would
+ * silently be granted an empty scope and then fail every Microsub action with
+ * `insufficient_scope`. Shared with the RFC 9728 protected-resource metadata (#1577) below so the
+ * two documents can't silently drift.
+ */
+const INDIEAUTH_SCOPES_SUPPORTED = ["create", "update", "delete", "media", "follow", "channels", "read"] as const;
+
 function indieAuthHandler(request: Request, env: WorkerEnv) {
   const baseUrl = new URL(request.url).origin;
   return createIndieAuth({
     baseUrl,
-    // Micropub's scopes ("create"/"update"/"delete"/"media") plus Microsub's ("follow"/
-    // "channels"/"read", V-4.3 #365) — @dwk/indieauth's constrainScopes drops any requested
-    // scope absent from this list, so a client authorizing for Microsub without "follow"/
-    // "channels" listed here would silently be granted an empty scope and then fail every
-    // Microsub action with `insufficient_scope`.
-    scopesSupported: ["create", "update", "delete", "media", "follow", "channels", "read"],
+    scopesSupported: INDIEAUTH_SCOPES_SUPPORTED,
     resourceIndicatorPolicy(resource) {
       try {
         return new URL(resource).origin === baseUrl;
@@ -912,6 +883,34 @@ function indieAuthHandler(request: Request, env: WorkerEnv) {
       }
       return consentPage(authorization);
     },
+  });
+}
+
+/**
+ * RFC 9728 OAuth 2.0 Protected Resource Metadata (#1577, slice 2 of the #1326 Agent Readiness
+ * ladder) — the resource-side counterpart to the RFC 8414 `/.well-known/oauth-authorization-server`
+ * document `indieAuthHandler` already serves. Points an agent at this site's own IndieAuth
+ * authorization server before it calls the IndieAuth-gated endpoints (Micropub, Microsub, the
+ * media endpoint).
+ *
+ * IndieAuth's endpoints are always live for every site (`AUTH_DB`/`TOKEN_SIGNING_KEY` are
+ * required, not optional, on `WorkerEnv`), so — like that document — this one is unconditional and
+ * needs no binding checks.
+ */
+function handleOAuthProtectedResourceMetadata(request: Request): Response {
+  const baseUrl = new URL(request.url).origin;
+  const metadata = {
+    resource: baseUrl,
+    authorization_servers: [baseUrl],
+    scopes_supported: INDIEAUTH_SCOPES_SUPPORTED,
+    // `@dwk/indieauth` always issues DPoP-bound tokens (`token_type: "DPoP"`, never plain
+    // Bearer — see its metadata.ts), so bearer_methods_supported is omitted and these two fields
+    // mirror the algorithm list the authorization-server metadata document advertises.
+    dpop_bound_access_tokens_required: true,
+    dpop_signing_alg_values_supported: ["ES256", "ES384", "RS256", "PS256"],
+  };
+  return new Response(JSON.stringify(metadata), {
+    headers: { "content-type": "application/json" },
   });
 }
 
@@ -973,63 +972,6 @@ function handleWebmentionQueue(
     WEBMENTION_INBOX: env.WEBMENTION_INBOX,
   };
   return consumer(batch, webmentionEnv, ctx);
-}
-
-/**
- * Extracts a plain-text value from an mf2 `content` property entry (V-4.1, #363 review fix).
- * Microformats2-JSON — and `@dwk/micropub`'s own accepted input shape — allows `content` to be
- * either a plain string or a rich-text object (`{ html, value }`); naively coercing the object
- * form with `String(...)` produces the literal `"[object Object]"`, which would silently publish
- * garbage to followers instead of skipping the fan-out. `undefined` (missing/unrecognized shape)
- * is treated the same as an empty string by the caller, which already skips the fan-out rather
- * than publish an empty Note.
- */
-function extractMf2ContentString(raw: unknown): string {
-  if (typeof raw === "string") return raw;
-  if (raw && typeof raw === "object") {
-    const obj = raw as { value?: unknown; html?: unknown };
-    if (typeof obj.value === "string") return obj.value;
-    // Standard Micropub JSON *create* shape for HTML content: { html } with no `value` key at
-    // all — `value` only appears in mf2 read back off a rendered page, not in what a client
-    // posts — so `html` is checked as a fallback, not just `value`.
-    if (typeof obj.html === "string") return obj.html;
-  }
-  return "";
-}
-
-/** A photo attachment extracted from an mf2 `photo` property entry, ready for AS2 mapping. */
-interface ExtractedPhoto {
-  readonly url: string;
-  readonly alt?: string;
-}
-
-/**
- * Extracts `{ url, alt? }` pairs from an mf2 `photo` property array (#1240) — each entry is
- * either a plain URL string or the mf2 alt-text object shape `{ value, alt }`, mirroring
- * {@link extractMf2ContentString}'s tolerance for `content`'s two accepted shapes. Feeds the AS2
- * `attachment` mapping in `fanOutMicropubCreateToActivityPub` so a photo post is renderable by
- * media-only Fediverse clients (Pixelfed shows only posts with attachments).
- */
-function extractMf2Photos(raw: unknown): ExtractedPhoto[] {
-  if (!Array.isArray(raw)) return [];
-  const photos: ExtractedPhoto[] = [];
-  for (const entry of raw) {
-    if (typeof entry === "string" && entry.length > 0) {
-      photos.push({ url: entry });
-      continue;
-    }
-    if (entry && typeof entry === "object") {
-      const obj = entry as { value?: unknown; alt?: unknown };
-      if (typeof obj.value === "string" && obj.value.length > 0) {
-        photos.push(
-          typeof obj.alt === "string" && obj.alt.length > 0
-            ? { url: obj.value, alt: obj.alt }
-            : { url: obj.value },
-        );
-      }
-    }
-  }
-  return photos;
 }
 
 /**
@@ -1625,9 +1567,87 @@ async function parseRequestFields(request: Request): Promise<Record<string, stri
   return null;
 }
 
+/** Max payload bytes per RFC 2047 "B" encoded-word: the spec caps a whole encoded-word
+ *  (`=?UTF-8?B?...?=`) at 75 characters. `"=?UTF-8?B?"` (10) + `"?="` (2) leaves 63 for the
+ *  base64 portion; 60 of those (a multiple of 4, so no padding) decode to exactly 45 bytes —
+ *  keeping each word at 72 characters, under the cap with room to spare. */
+const MAX_ENCODED_WORD_PAYLOAD_BYTES = 45;
+
+/** RFC 2047 "B" (base64) encoded-word(s), folded per RFC 2047 §2's 75-char-per-word cap (a
+ *  near-`MAX_SUBJECT_LENGTH` subject would otherwise produce one oversized word some strict
+ *  MTAs reject or mangle) — consecutive words separated only by folding whitespace (`\r\n `),
+ *  which RFC 2047 defines as insignificant between adjacent encoded-words, so decoders
+ *  reconstruct the original value across the fold. Every byte of `value` round-trips through
+ *  the base64 alphabet only, so an anonymous submitter's raw subject can never inject a CR/LF —
+ *  or anything else — into the header it's placed in, regardless of content (#1570). Each word's
+ *  payload ends on a UTF-8 character boundary so no chunk decodes to invalid UTF-8. */
+function encodeMimeHeaderValue(value: string): string {
+  const bytes = new TextEncoder().encode(value);
+  const words: string[] = [];
+  let start = 0;
+  do {
+    let end = Math.min(start + MAX_ENCODED_WORD_PAYLOAD_BYTES, bytes.length);
+    // Back off while the next byte is a UTF-8 continuation byte (10xxxxxx) so a multi-byte
+    // character never splits across two encoded-words.
+    while (end < bytes.length && (bytes[end]! & 0xc0) === 0x80) end--;
+    let binary = "";
+    for (const byte of bytes.slice(start, end)) binary += String.fromCharCode(byte);
+    words.push(`=?UTF-8?B?${btoa(binary)}?=`);
+    start = end;
+  } while (start < bytes.length);
+  return words.join("\r\n ");
+}
+
+/** Builds the raw RFC 5322 message `forwardInboxSubmissionByEmail` hands to `EmailMessage`.
+ *  `submission.from`/`.message` are anonymous, unvalidated user input — they appear only in the
+ *  body (after the blank line separating headers from body), never in a header, so unlike
+ *  `.subject` they need no encoding: there's no header-injection surface for body content
+ *  regardless of what it contains. Exported for direct unit testing of that injection-safety
+ *  property. */
+export function buildInboxForwardRaw(
+  fromAddress: string,
+  toAddress: string,
+  submission: InboxFields & { id: string; receivedAt: string },
+): string {
+  const headers = [
+    `From: "Site Inbox" <${fromAddress}>`,
+    `To: <${toAddress}>`,
+    `Subject: ${encodeMimeHeaderValue(`[Inbox] ${submission.subject}`)}`,
+    "MIME-Version: 1.0",
+    'Content-Type: text/plain; charset="utf-8"',
+    "Content-Transfer-Encoding: 8bit",
+  ];
+  const body = [
+    "New /inbox submission — replies go directly to the sender, this address doesn't relay them.",
+    "",
+    `From: ${submission.from}`,
+    `Subject: ${submission.subject}`,
+    "",
+    submission.message,
+    "",
+    "—",
+    `Submission ID: ${submission.id}`,
+    `Received: ${submission.receivedAt}`,
+  ];
+  return `${headers.join("\r\n")}\r\n\r\n${body.join("\r\n")}\r\n`;
+}
+
+/** Best-effort — callers must swallow rejections; see `handleInbox`'s comment on why an email
+ *  failure must never affect the KV/git capture path. */
+async function forwardInboxSubmissionByEmail(
+  sendEmail: SendEmail,
+  toAddress: string,
+  siteHostname: string,
+  submission: InboxFields & { id: string; receivedAt: string },
+): Promise<void> {
+  const fromAddress = `inbox@${siteHostname}`;
+  const raw = buildInboxForwardRaw(fromAddress, toAddress, submission);
+  await sendEmail.send(new EmailMessage(fromAddress, toAddress, raw));
+}
+
 export async function handleInbox(
   request: Request,
-  env: Pick<WorkerEnv, "INBOX_KV">,
+  env: Pick<WorkerEnv, "INBOX_KV" | "SEND_EMAIL" | "INBOX_FORWARD_EMAIL">,
 ): Promise<Response> {
   if (request.method !== "POST") return new Response("Method Not Allowed", { status: 405 });
   if (!env.INBOX_KV) return new Response("Inbox capture not configured", { status: 500 });
@@ -1655,6 +1675,21 @@ export async function handleInbox(
   const submission = { id, ...validated, receivedAt: new Date().toISOString() };
   await env.INBOX_KV.put(`inbox:${id}`, JSON.stringify(submission));
 
+  // #1570: additionally forwards to the owner's email, reconciling #587 with the email-as-DM
+  // decision — KV above (→ git commit-back via `InboxSubmissionSync`) stays the structured
+  // record regardless of whether this succeeds. Best-effort only: a bounced/misconfigured
+  // destination address or an Email Routing binding that isn't fully verified yet must never
+  // roll back the KV write or turn a successfully captured submission into an error response.
+  if (env.SEND_EMAIL && env.INBOX_FORWARD_EMAIL) {
+    try {
+      await forwardInboxSubmissionByEmail(
+        env.SEND_EMAIL, env.INBOX_FORWARD_EMAIL, new URL(request.url).hostname, submission,
+      );
+    } catch (error) {
+      console.error("inbox: failed to forward submission by email", error);
+    }
+  }
+
   return new Response(null, { status: 202 });
 }
 
@@ -1678,6 +1713,13 @@ export const ROUTES: readonly WorkerRoute[] = [
     match: "exact",
     methods: ["GET", "HEAD"],
     handler: (request, env, ctx) => indieAuthHandler(request, env)(request, env, ctx),
+  },
+  {
+    // RFC 9728 protected-resource metadata (#1577) — see handleOAuthProtectedResourceMetadata.
+    path: "/.well-known/oauth-protected-resource",
+    match: "exact",
+    methods: ["GET", "HEAD"],
+    handler: (request) => handleOAuthProtectedResourceMetadata(request),
   },
   {
     // GET renders/redirects the authorization request; POST redeems an authorization code for
@@ -1853,6 +1895,39 @@ export const ROUTES: readonly WorkerRoute[] = [
     methods: ["GET", "HEAD"],
     handler: (request, env, ctx) => handleWebFinger(request, env, ctx),
   },
+  {
+    // IndieAuth relying-party sign-in for a visitor proving their own site's identity (#1568):
+    // no `me` renders the form, `me` present discovers that site's authorization_endpoint and
+    // redirects there. See gated-content.ts's design doc for the full flow.
+    path: "/contacts/signin",
+    match: "exact",
+    methods: ["GET"],
+    handler: (request, env) => handleReaderSignin(request, env),
+  },
+  {
+    // OAuth redirect target for the sign-in above: redeems the code, verifies identity, checks
+    // the pushed allowlist, and starts a reader session (#1568).
+    path: "/contacts/callback",
+    match: "exact",
+    methods: ["GET"],
+    handler: (request, env) => handleReaderCallback(request, env),
+  },
+  {
+    // Private h-feed of restricted (`visibility: contacts`) posts, gated the same way as a
+    // restricted permalink (#1568).
+    path: "/contacts/feed",
+    match: "exact",
+    methods: ["GET", "HEAD"],
+    handler: (request, env) => handlePrivateFeed(request, env),
+  },
+  {
+    // Read-only MCP server (#1576): gated behind experimental.mcp, degrades to a plain 404
+    // when off — see worker/mcp-server.ts.
+    path: "/mcp",
+    match: "exact",
+    methods: ["GET", "POST", "HEAD"],
+    handler: (request, env, ctx) => handleMcp(request, env, ctx),
+  },
 ];
 
 export function matchRoute(pathname: string, routes: readonly WorkerRoute[] = ROUTES): WorkerRoute | null {
@@ -1947,6 +2022,13 @@ export default {
         return new Response("No assets binding configured", { status: 500 });
       }
       response = await assets.fetch(request);
+      // A restricted (`visibility: contacts`) post is never in the static build (#1568), so its
+      // permalink always misses here — give the read gate a chance to serve it (or a uniform 403
+      // for an unauthenticated/unauthorized visitor) before falling back to the plain asset 404.
+      if (response.status === 404) {
+        const gated = await handleGatedFallback(request, env, pathname);
+        if (gated !== null) response = gated;
+      }
     }
 
     // Goal-signal conversion counting (#1270 slice 1): applied to whatever response the branches

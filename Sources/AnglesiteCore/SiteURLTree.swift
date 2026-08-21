@@ -6,8 +6,6 @@ import Foundation
 public struct URLTreeNode: Identifiable, Sendable, Equatable {
     /// What a row represents, which decides its icon, context menu, and ``target``.
     public enum Kind: Sendable, Equatable {
-        /// The pinned first row for the site itself — activates website settings, not a route.
-        case website
         /// The home page (`/`), pinned ahead of its top-level siblings.
         case home
         /// Any other single page or collection entry.
@@ -29,7 +27,7 @@ public struct URLTreeNode: Identifiable, Sendable, Equatable {
     /// nil for leaves so `List`/`OutlineGroup` hides the disclosure chevron.
     public let children: [URLTreeNode]?
 
-    /// Memberwise initializer; `buildSiteURLTree(websiteTitle:pages:posts:feedCollections:contentTypes:)`
+    /// Memberwise initializer; `buildSiteURLTree(pages:posts:feedCollections:contentTypes:)`
     /// is the production constructor — direct use is for tests and previews.
     public init(id: String, title: String, route: String, kind: Kind, children: [URLTreeNode]?) {
         self.id = id; self.title = title; self.route = route; self.kind = kind
@@ -41,31 +39,23 @@ public struct URLTreeNode: Identifiable, Sendable, Equatable {
     /// through one selection path.
     public var target: NavigatorTarget {
         switch kind {
-        case .website: return .websiteSettings
         case .directory(let collection, _): return .directory(collection: collection, route: route)
         case .home, .page: return .route(route)
         }
     }
 }
 
-/// Builds the sidebar tree: website-settings row pinned first, then home (`/`), then other
-/// top-level pages by title, then directories by title. Inside a directory: its own index page
-/// pinned, then entries newest-first (undated after dated, by title), then subdirectories.
+/// Builds the sidebar tree: home (`/`) first, then other top-level pages by title, then
+/// directories by title. Inside a directory: its own index page pinned, then entries
+/// newest-first (undated after dated, by title), then subdirectories.
 /// Returns [] for a site with no content so the sidebar keeps its "No content yet" empty state.
 public func buildSiteURLTree(
-    websiteTitle: String?,
     pages: [SiteContentGraph.Page],
     posts: [SiteContentGraph.Post],
     feedCollections: Set<String>,
     contentTypes: ContentTypeRegistry = .default
 ) -> [URLTreeNode] {
     guard !pages.isEmpty || !posts.isEmpty else { return [] }
-
-    let trimmed = websiteTitle?.trimmingCharacters(in: .whitespacesAndNewlines)
-    let websiteNode = URLTreeNode(
-        id: "website",
-        title: (trimmed?.isEmpty == false ? trimmed! : "Website"),
-        route: "/", kind: .website, children: nil)
 
     let root = DirectoryBuilder(route: "/")
     for page in pages {
@@ -78,9 +68,7 @@ public func buildSiteURLTree(
     }
     root.mergeIndexPages()
 
-    var nodes = [websiteNode]
-    nodes.append(contentsOf: root.buildTopLevel(feedCollections: feedCollections, contentTypes: contentTypes))
-    return nodes
+    return root.buildTopLevel(feedCollections: feedCollections, contentTypes: contentTypes)
 }
 
 /// "/docs/guides/setup" → ["docs", "guides", "setup"]; "/" → [].

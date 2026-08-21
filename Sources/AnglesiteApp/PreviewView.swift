@@ -37,6 +37,19 @@ struct PreviewView: NSViewRepresentable {
     /// doc comment. Defaults to a no-op for callers (e.g. tests) that don't need it.
     var onPlacementPick: AnglesiteScriptHandler.PlacementPickHandler = { _ in }
 
+    /// Called with a decoded `anglesite:pick-goal-element` message when the owner clicks an
+    /// element in the live preview while the experiment configure step's goal picker is armed
+    /// (#1518). Forwarded straight into `AnglesiteScriptHandler`'s own `onGoalElementPick` — see
+    /// that type's doc comment. Defaults to a no-op for callers (e.g. tests) that don't need it.
+    var onGoalElementPick: AnglesiteScriptHandler.GoalElementPickHandler = { _ in }
+
+    /// Called every time a navigation finishes in the preview — an HMR reload, a route change, ⌘R.
+    /// The overlay's placement-pick mode is closure-local JS state that a real navigation wipes
+    /// (the `WKUserScript` re-runs and comes back inactive), so anything holding "we're waiting for
+    /// a placement click" on the native side has to hear about it or it waits forever on a
+    /// listener that no longer exists (#768 final review, Finding 8).
+    var onPreviewNavigated: () -> Void = {}
+
     /// Called with the `WKWebView` once it's created, so the owning `PreviewModel` can hold a weak
     /// reference and drive the View-menu preview commands (reload/history/zoom).
     /// Defaults to a no-op for callers (e.g. tests) that don't need it.
@@ -66,7 +79,9 @@ struct PreviewView: NSViewRepresentable {
             // WKWebView is torn down, releasing the strong reference.
             { @Sendable elements in await provider.update(elements) }
         }
-        let handler = AnglesiteScriptHandler(router: router, onVisibleElements: onVisibleElements, onPlacementPick: onPlacementPick)
+        let handler = AnglesiteScriptHandler(
+            router: router, onVisibleElements: onVisibleElements,
+            onPlacementPick: onPlacementPick, onGoalElementPick: onGoalElementPick)
         // `wysiwygTransport` is always a `WYSIWYGCanvasController` in production
         // (`PreviewModel.wysiwygCanvas`'s concrete type); casting once here — rather than inside
         // the handler closure on every message — is what lets `updateNSView` below compare "is
@@ -95,6 +110,7 @@ struct PreviewView: NSViewRepresentable {
         // final-review round 2, Finding B). Assigning it before `load(_:)` below means it's live
         // for this very first navigation too, not just later ones.
         webView.navigationDelegate = context.coordinator
+        context.coordinator.onNavigated = onPreviewNavigated
         webView.load(URLRequest(url: url))
         context.coordinator.loadedURL = url
         // Stashed on the coordinator because `dismantleNSView` is static — it has no access to
@@ -124,6 +140,7 @@ struct PreviewView: NSViewRepresentable {
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.onDismantle = onWebViewDismantled
+        context.coordinator.onNavigated = onPreviewNavigated
 
         // `makeNSView` only ever registers the WYSIWYG handler / mounts the JS engine once, at
         // construction — a `PreviewView` whose `wysiwygTransport` flips from nil to non-nil (Site ▸
@@ -214,7 +231,13 @@ struct PreviewView: NSViewRepresentable {
         /// repeat calls idempotent rather than stacking two live engine instances on one page.
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             wysiwygController?.mountEngine()
+            onNavigated?()
         }
+
+        /// Set from `makeNSView`/`updateNSView` (the represented view's `onPreviewNavigated`), so
+        /// a finished navigation can tell the native side that all page-injected JS state — the
+        /// overlay's placement-pick mode included — has just been discarded.
+        var onNavigated: (() -> Void)?
     }
 }
 

@@ -161,6 +161,47 @@ struct SocialWorkerProvisionCommandTests {
         #expect(await recorder.arguments.isEmpty)
     }
 
+    @Test("mcpEnabled alone (no active workers) provisions SOCIAL_KV and composes the Worker")
+    func mcpEnabledProvisionsSocialKV() async throws {
+        let site = try temporaryDirectory()
+        let recorder = WranglerRecorder([
+            ["kv", "namespace", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"id":"kv-id"}}"#, stderr: "", exitCode: 0),
+        ])
+        let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
+        let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, runner: recorder.runner, deployer: deployer.deployer)
+
+        let result = await command.provision(
+            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [],
+            mcpEnabled: true
+        )
+
+        guard case .succeeded(_, let resources, _) = result else {
+            Issue.record("expected success, got \(result)")
+            return
+        }
+        #expect(resources.kvNamespaceID == "kv-id")
+        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        #expect(toml.contains("main = \"worker/worker.ts\""))
+        #expect(toml.contains("binding = \"SOCIAL_KV\""))
+        #expect(toml.contains("run_worker_first = [\"/mcp\"]"))
+    }
+
+    @Test("mcpEnabled false with no workers provisions nothing")
+    func mcpDisabledProvisionsNothing() async throws {
+        let site = try temporaryDirectory()
+        let recorder = WranglerRecorder([:])
+        let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
+        let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, runner: recorder.runner, deployer: deployer.deployer)
+
+        let result = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [])
+
+        guard case .succeeded = result else {
+            Issue.record("expected success, got \(result)")
+            return
+        }
+        #expect(await recorder.arguments.isEmpty)
+    }
+
     @Test("threads activityPubActorType and moderators into the deployed wrangler.toml")
     func provisionsGroupActorWithModerators() async throws {
         let site = try temporaryDirectory()
@@ -307,6 +348,34 @@ struct SocialWorkerProvisionCommandTests {
         let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
         #expect(toml.contains("main = \"worker/worker.ts\""))
         #expect(toml.contains("id = \"inbox-kv-id\""))
+    }
+
+    @Test("inboxCaptureEnabled + inboxForwardEmail writes a send_email binding into wrangler.toml")
+    func provisionsInboxCaptureWithForwardEmail() async throws {
+        let site = try temporaryDirectory()
+        let recorder = WranglerRecorder([
+            ["kv", "namespace", "create", "my-site-inbox", "--json"]: .init(stdout: #"{"result":{"id":"inbox-kv-id"}}"#, stderr: "", exitCode: 0),
+        ])
+        let command = SocialWorkerProvisionCommand(
+            tokenSource: { "token" },
+            runner: recorder.runner,
+            deployer: DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1)).deployer,
+            accountIDSource: { _ in "acct-1" }
+        )
+
+        let result = await command.provision(
+            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [],
+            inboxCaptureEnabled: true, inboxForwardEmail: "owner@example.com"
+        )
+
+        guard case .succeeded = result else {
+            Issue.record("expected success, got \(result)")
+            return
+        }
+        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        #expect(toml.contains("[[send_email]]"))
+        #expect(toml.contains("destination_address = \"owner@example.com\""))
+        #expect(toml.contains("INBOX_FORWARD_EMAIL = \"owner@example.com\""))
     }
 
     @Test("inboxCaptureEnabled false never invokes wrangler kv namespace create")

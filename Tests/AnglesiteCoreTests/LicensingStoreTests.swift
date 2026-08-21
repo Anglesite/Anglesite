@@ -411,4 +411,53 @@ struct LicensingStoreTests {
         try write(#"{"licenseChosen":true}"#, to: dir)
         #expect(try LicensingStore(sourceDirectory: dir).load().licenseChosen == true)
     }
+
+    // MARK: resolvedLicense / suppressesFileEmbedding / LicensableCollection(routePath:) (#999)
+
+    @Test("resolvedLicense falls through inherit to the site default")
+    func resolvedLicenseInheritsSiteDefault() {
+        var policy = LicensingPolicy(defaultLicense: ccBY)
+        #expect(policy.resolvedLicense(for: .notes) == ccBY)
+        // A nil collection (a page outside every collection) also gets the site default.
+        #expect(policy.resolvedLicense(for: nil) == ccBY)
+        policy.setRule(.assertNothing, for: .notes)
+        #expect(policy.resolvedLicense(for: .notes) == nil)
+    }
+
+    @Test("resolvedLicense asserts nothing for non-asserting collections by default")
+    func resolvedLicenseNonAsserting() {
+        let policy = LicensingPolicy(defaultLicense: ccBY)
+        #expect(policy.resolvedLicense(for: .bookmarks) == nil)
+        #expect(policy.resolvedLicense(for: .replies) == nil)
+        #expect(policy.resolvedLicense(for: .likes) == nil)
+        #expect(policy.resolvedLicense(for: .reviews) == nil)
+        #expect(policy.resolvedLicense(for: .notes) == ccBY)
+    }
+
+    @Test("resolvedLicense honors an explicit override on a non-asserting collection")
+    func resolvedLicenseExplicitOverrideWins() {
+        var policy = LicensingPolicy(defaultLicense: nil)
+        policy.setRule(.license(ccBY), for: .bookmarks)
+        #expect(policy.resolvedLicense(for: .bookmarks) == ccBY)
+    }
+
+    @Test("suppressesFileEmbedding is true only for non-asserting collections with no override")
+    func suppressesFileEmbedding() {
+        var policy = LicensingPolicy(defaultLicense: ccBY)
+        #expect(policy.suppressesFileEmbedding(for: .bookmarks) == true)
+        #expect(policy.suppressesFileEmbedding(for: .notes) == false)
+        #expect(policy.suppressesFileEmbedding(for: nil) == false)
+        policy.setRule(.license(ccBY), for: .bookmarks)
+        #expect(policy.suppressesFileEmbedding(for: .bookmarks) == false)
+        policy.setRule(.assertNothing, for: .bookmarks)
+        #expect(policy.suppressesFileEmbedding(for: .bookmarks) == true)
+    }
+
+    @Test("LicensableCollection(routePath:) reads the route's first path segment")
+    func collectionFromRoutePath() {
+        #expect(LicensableCollection(routePath: "/notes/my-slug/") == .notes)
+        #expect(LicensableCollection(routePath: "photos/my-slug") == .photos)
+        #expect(LicensableCollection(routePath: "/") == nil)
+        #expect(LicensableCollection(routePath: "/about/") == nil)
+    }
 }

@@ -1,0 +1,29 @@
+---
+/**
+ * Effects gallery — Generative Art (#768). An organic blob shape that continuously morphs
+ * between rounded shapes, creating an ever-shifting form. Pure CSS animation, no runtime JS.
+ */
+interface Props {
+  color?: string;
+  size?: string;
+}
+const { color = "currentColor", size = "320px" } = Astro.props;
+---
+<div class="blob-morph" style={`--blob-color: ${color}; --blob-size: ${size}`}></div>
+
+<style>
+  .blob-morph {
+    width: var(--blob-size, 320px);
+    height: var(--blob-size, 320px);
+    background: color-mix(in srgb, var(--blob-color, currentColor) 25%, transparent);
+    animation: blob-morph-shift 12s ease-in-out infinite;
+  }
+  @keyframes blob-morph-shift {
+    0%, 100% { border-radius: 42% 58% 65% 35% / 45% 40% 60% 55%; }
+    33% { border-radius: 60% 40% 30% 70% / 55% 65% 35% 45%; }
+    66% { border-radius: 35% 65% 55% 45% / 40% 30% 70% 60%; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .blob-morph { animation: none; border-radius: 45% 55% 60% 40% / 50% 45% 55% 50%; }
+  }
+</style>

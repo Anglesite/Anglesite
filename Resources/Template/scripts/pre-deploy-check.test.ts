@@ -11,8 +11,11 @@ import {
   checkSecurityTxt,
   checkEmbedMedia,
   checkAnglesiteConfig,
+  checkExperimentalSection,
   checkExperiments,
   checkRSL,
+  checkNoRestrictedContentInSource,
+  checkNoRestrictedContentInDist,
   runningExperimentControlDistPath,
   runningExperimentVariantDistPath,
 } from "./pre-deploy-check";
@@ -102,6 +105,62 @@ test("checkPII: flags an SSN with the pii-ssn category", () => {
   const issues = checkPII("<p>SSN: 123-45-6789</p>", "dist/contact.html");
   assert.equal(issues.length, 1);
   assert.equal(issues[0].category, "pii-ssn");
+});
+
+test("checkNoRestrictedContentInSource: flags YAML frontmatter visibility: contacts", () => {
+  const file = "src/content/notes/leaked.md";
+  const content = "---\npublishDate: 2026-08-18\nvisibility: contacts\n---\nBody text.\n";
+  const issues = checkNoRestrictedContentInSource(file, content);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].severity, "error");
+  assert.equal(issues[0].category, "restricted-content-in-source");
+  assert.equal(issues[0].file, file);
+});
+
+test("checkNoRestrictedContentInSource: flags a quoted visibility value too", () => {
+  const content = '---\nvisibility: "contacts"\n---\nBody.\n';
+  const issues = checkNoRestrictedContentInSource("src/content/notes/leaked.md", content);
+  assert.equal(issues.length, 1);
+});
+
+test("checkNoRestrictedContentInSource: does not flag ordinary content with no visibility field", () => {
+  const content = "---\npublishDate: 2026-08-18\ntags: [\"hello\"]\n---\nThis is your first note.\n";
+  const issues = checkNoRestrictedContentInSource("src/content/notes/hello-note.md", content);
+  assert.deepEqual(issues, []);
+});
+
+test("checkNoRestrictedContentInSource: does not flag public visibility", () => {
+  const content = "---\nvisibility: public\n---\nBody.\n";
+  const issues = checkNoRestrictedContentInSource("src/content/notes/hello-note.md", content);
+  assert.deepEqual(issues, []);
+});
+
+test("checkNoRestrictedContentInDist: flags a leaked mf2 JSON property array in built output", () => {
+  const file = "dist/notes/leaked/index.html";
+  const content = '<script type="application/json">{"properties":{"visibility":["contacts"]}}</script>';
+  const issues = checkNoRestrictedContentInDist(file, content);
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].severity, "error");
+  assert.equal(issues[0].category, "restricted-content-in-dist");
+  assert.equal(issues[0].file, file);
+});
+
+test("checkNoRestrictedContentInDist: flags a JSON string form", () => {
+  const content = '{"visibility":"contacts"}';
+  const issues = checkNoRestrictedContentInDist("dist/api/posts.json", content);
+  assert.equal(issues.length, 1);
+});
+
+test("checkNoRestrictedContentInDist: does not flag ordinary built HTML", () => {
+  const content = "<html><body><p>Hello world.</p></body></html>";
+  const issues = checkNoRestrictedContentInDist("dist/index.html", content);
+  assert.deepEqual(issues, []);
+});
+
+test("checkNoRestrictedContentInDist: does not flag public visibility", () => {
+  const content = '{"visibility":"public"}';
+  const issues = checkNoRestrictedContentInDist("dist/api/posts.json", content);
+  assert.deepEqual(issues, []);
 });
 
 // Pagefind's UI bundle embeds its translators' contact addresses as `thanks_to` credits. Those
@@ -584,6 +643,36 @@ test("checkAnglesiteConfig: unknown top-level keys are tolerated (hand-edit rule
   assert.deepEqual(checkAnglesiteConfig(JSON.stringify({ version: 1, somethingFromANewerApp: true })), []);
 });
 
+test("checkExperimentalSection: no issues when anglesite.json is absent", () => {
+  assert.deepEqual(checkExperimentalSection(null), []);
+});
+
+test("checkExperimentalSection: no issues when experimental is absent", () => {
+  assert.deepEqual(checkExperimentalSection(JSON.stringify({ version: 1 })), []);
+});
+
+test("checkExperimentalSection: no issues when experimental.mcp is a boolean", () => {
+  assert.deepEqual(checkExperimentalSection(JSON.stringify({ version: 1, experimental: { mcp: true } })), []);
+  assert.deepEqual(checkExperimentalSection(JSON.stringify({ version: 1, experimental: { mcp: false } })), []);
+});
+
+test("checkExperimentalSection: reports experimental.mcp not a boolean", () => {
+  const issues = checkExperimentalSection(JSON.stringify({ version: 1, experimental: { mcp: "yes" } }));
+  assert.equal(issues.length, 1);
+  assert.equal(issues[0].severity, "error");
+  assert.match(issues[0].message, /"experimental\.mcp" must be a boolean/);
+});
+
+test("checkExperimentalSection: reports experimental not an object", () => {
+  const issues = checkExperimentalSection(JSON.stringify({ version: 1, experimental: "nope" }));
+  assert.equal(issues.length, 1);
+  assert.match(issues[0].message, /"experimental" must be an object/);
+});
+
+test("checkExperimentalSection: malformed JSON yields no issues (checkAnglesiteConfig's job)", () => {
+  assert.deepEqual(checkExperimentalSection("not json {"), []);
+});
+
 const VALID_ACTIVE = [
   {
     id: "homepage-hero",
@@ -915,6 +1004,34 @@ test("checkExperiments: skips the beacon-tag check when control HTML wasn't capt
     "<urlset></urlset>",
   );
   assert.ok(!issues.some((i) => i.message.includes("control page")));
+});
+
+const VISIBLE_GOAL_ACTIVE = [{ ...VALID_ACTIVE[0], goal: { kind: "visible", selector: "#reviews" } }];
+
+test("checkExperiments: flags a visible-goal selector that matches neither built page", () => {
+  const controlHtml = `<html><head>${BEACON_SCRIPT_TAG}</head><body><h1>Home</h1></body></html>`;
+  const variantHtml = `<html><head><link rel="canonical" href="https://example.com/"><meta name="robots" content="noindex">${BEACON_SCRIPT_TAG}</head><body><h1>Home (variant)</h1></body></html>`;
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VISIBLE_GOAL_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/x/goal-beacon.js"]),
+    variantHtml,
+    "<urlset></urlset>",
+    controlHtml,
+  );
+  assert.ok(issues.some((i) => i.category === "experiments-goal-beacon" && i.message.includes("#reviews")));
+});
+
+test("checkExperiments: passes a visible-goal selector present in both built pages", () => {
+  const controlHtml = `<html><head>${BEACON_SCRIPT_TAG}</head><body><section id="reviews">Great</section></body></html>`;
+  const variantHtml = `<html><head><link rel="canonical" href="https://example.com/"><meta name="robots" content="noindex">${BEACON_SCRIPT_TAG}</head><body><section id="reviews">Great</section></body></html>`;
+  const issues = checkExperiments(
+    JSON.stringify({ version: 1, experiments: { active: VISIBLE_GOAL_ACTIVE } }),
+    distFilesFor(["dist/index.html", "dist/x/homepage-hero/b/index.html", "dist/x/goal-beacon.js"]),
+    variantHtml,
+    "<urlset></urlset>",
+    controlHtml,
+  );
+  assert.deepEqual(issues, []);
 });
 
 test("runningExperimentControlDistPath: a well-formed running experiment resolves its own dist path", () => {

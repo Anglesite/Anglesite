@@ -1,0 +1,53 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Parallax Layers</title>
+<style>body{margin:0;position:relative;min-height:100vh;display:grid;place-items:center;
+font-family:-apple-system,system-ui,sans-serif;background:Canvas;color:CanvasText;color-scheme:light dark}</style>
+<style>
+  .parallax-layers {
+    position: relative;
+    height: var(--parallax-height, 40vh);
+    overflow: hidden;
+    border-radius: 12px;
+  }
+  .parallax-layer {
+    position: absolute;
+    inset: -10% 0;
+  }
+  .parallax-layer--back {
+    background: linear-gradient(180deg, color-mix(in srgb, currentColor 20%, transparent), transparent);
+  }
+  .parallax-layer--front {
+    background: linear-gradient(0deg, color-mix(in srgb, currentColor 10%, transparent), transparent 60%);
+  }
+</style>
+</head><body>
+<div class="parallax-layers" style="--parallax-height: 40vh" data-astro-cid-63j4vyil><div class="parallax-layer parallax-layer--back" data-astro-cid-63j4vyil></div><div class="parallax-layer parallax-layer--front" data-astro-cid-63j4vyil></div></div>
+<script>const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+if (!reduceMotion) {
+    document.querySelectorAll(".parallax-layers").forEach((root) => {
+        const back = root.querySelector(".parallax-layer--back");
+        if (!back)
+            return;
+        let listening = false;
+        function onScroll() {
+            const rect = root.getBoundingClientRect();
+            back.style.transform = `translateY(${rect.top * 0.15}px)`;
+        }
+        const observer = new IntersectionObserver((entries) => {
+            for (const entry of entries) {
+                if (entry.isIntersecting && !listening) {
+                    listening = true;
+                    addEventListener("scroll", onScroll, { passive: true });
+                    onScroll();
+                }
+                else if (!entry.isIntersecting && listening) {
+                    listening = false;
+                    removeEventListener("scroll", onScroll);
+                }
+            }
+        });
+        observer.observe(root);
+    });
+}
+</script>
+</body></html>

@@ -323,3 +323,212 @@ import ProgressBar from "@astroanimate/core/ProgressBar";
 <ProgressBar value={60} label="Upload progress" />
 ```
 
+## Effects library
+
+The 12 components below live in this template at `src/components/effects/` — hand-authored,
+script-first effects distinct from the `@astroanimate/core` set above. They power the app's
+Effects gallery: each carries a `placement` (`inline` or `background`) in `integrations/effects.json`
+so the gallery knows where it can be dropped, and a matching entry in `blocks.manifest.json` so the
+component editor can place it. Every animated component here respects `prefers-reduced-motion`
+(generative-art components do so purely in CSS, with zero `<script>`; the rest gate a real client
+script behind a `matchMedia("(prefers-reduced-motion: reduce)")` check). Import from the template's
+own `src/components/effects/` path, not a package.
+
+**Canvas Backgrounds**
+
+## ParticleField
+
+Drifting dots connected by faint lines when close.
+
+| Prop | Notes |
+| --- | --- |
+| `density` | particle count (default 60) |
+| `color` | dot/line color (default currentColor) |
+
+```astro
+---
+import ParticleField from "../components/effects/ParticleField.astro";
+---
+<div style="position: relative;">
+  <ParticleField />
+</div>
+```
+
+## AuroraGradient
+
+Slow blurred color-blob blending.
+
+| Prop | Notes |
+| --- | --- |
+| `colors` | array of CSS colors (default a purple/blue/teal trio) |
+
+```astro
+---
+import AuroraGradient from "../components/effects/AuroraGradient.astro";
+---
+<div style="position: relative;">
+  <AuroraGradient />
+</div>
+```
+
+## GrainOverlay
+
+Subtle animated film-grain texture.
+
+| Prop | Notes |
+| --- | --- |
+| `opacity` | 0-1 (default 0.05) |
+
+```astro
+---
+import GrainOverlay from "../components/effects/GrainOverlay.astro";
+---
+<div style="position: relative;">
+  <GrainOverlay />
+</div>
+```
+
+**Cursor-Reactive**
+
+## MagneticButton
+
+A button that eases toward the pointer as it gets close, then springs back.
+
+| Prop | Notes |
+| --- | --- |
+| `text` | button label (default "Get in touch") |
+| `href` | renders as a link when set |
+
+```astro
+---
+import MagneticButton from "../components/effects/MagneticButton.astro";
+---
+<MagneticButton text="Get in touch" href="/contact" />
+```
+
+## CursorGlow
+
+A soft glow that follows the pointer around the page.
+
+| Prop | Notes |
+| --- | --- |
+| `color` | glow color (default "rgba(124, 58, 237, 0.35)") |
+
+```astro
+---
+import CursorGlow from "../components/effects/CursorGlow.astro";
+---
+<CursorGlow />
+```
+
+## TiltCard
+
+A card that tilts in 3D as the pointer moves over it.
+
+| Prop | Notes |
+| --- | --- |
+| `title` | card title (default "Card title") |
+| `body` | supporting copy (default a short placeholder line) |
+| `imageSrc` | optional image URL |
+
+```astro
+---
+import TiltCard from "../components/effects/TiltCard.astro";
+---
+<TiltCard title="Card title" body="A short line of supporting copy." />
+```
+
+**Scroll-Driven**
+
+## ParallaxLayers
+
+A two-layer decorative block where the back layer drifts slower than the page scroll.
+
+| Prop | Notes |
+| --- | --- |
+| `height` | block height (default "40vh") |
+
+```astro
+---
+import ParallaxLayers from "../components/effects/ParallaxLayers.astro";
+---
+<ParallaxLayers height="40vh" />
+```
+
+## RevealMask
+
+Content that reveals with a clip-path wipe the first time it scrolls into view.
+
+```astro
+---
+import RevealMask from "../components/effects/RevealMask.astro";
+---
+<RevealMask>
+  Sample content that reveals as you scroll.
+</RevealMask>
+```
+
+## ScrollProgressTrace
+
+A slim reading-progress line along the viewport edge that fills as the page scrolls.
+
+| Prop | Notes |
+| --- | --- |
+| `color` | trace color (default "currentColor") |
+
+```astro
+---
+import ScrollProgressTrace from "../components/effects/ScrollProgressTrace.astro";
+---
+<ScrollProgressTrace />
+```
+
+**Generative Art**
+
+## BlobMorph
+
+An organic blob shape that continuously morphs between rounded shapes.
+
+| Prop | Notes |
+| --- | --- |
+| `color` | CSS color (default "currentColor") |
+| `size` | CSS size (default "320px") |
+
+```astro
+---
+import BlobMorph from "../components/effects/BlobMorph.astro";
+---
+<BlobMorph color="#7c3aed" size="320px" />
+```
+
+## MeshGradient
+
+Soft blurred color blobs that drift slowly, creating an organic gradient mesh.
+
+| Prop | Notes |
+| --- | --- |
+| `colors` | array of CSS colors (default purple/blue/teal/pink) |
+
+```astro
+---
+import MeshGradient from "../components/effects/MeshGradient.astro";
+---
+<MeshGradient colors={["#7c3aed", "#2563eb", "#0891b2", "#db2777"]} />
+```
+
+## DotGridPulse
+
+A grid of dots that pulse in a wave pattern, creating a rhythmic animation.
+
+| Prop | Notes |
+| --- | --- |
+| `columns` | grid columns (default 8) |
+| `rows` | grid rows (default 4) |
+| `color` | dot color (default "currentColor") |
+
+```astro
+---
+import DotGridPulse from "../components/effects/DotGridPulse.astro";
+---
+<DotGridPulse columns={8} rows={4} color="currentColor" />
+```

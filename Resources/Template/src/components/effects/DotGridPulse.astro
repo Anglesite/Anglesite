@@ -1,0 +1,43 @@
+---
+/**
+ * Effects gallery — Generative Art (#768). A CSS grid of small dots that pulse in opacity
+ * with a cascading wave pattern across rows and columns, creating a rhythmic animation effect.
+ * Pure CSS animation, no runtime JS.
+ */
+interface Props {
+  columns?: number;
+  rows?: number;
+  color?: string;
+}
+const { columns = 8, rows = 4, color = "currentColor" } = Astro.props;
+const dots = Array.from({ length: columns * rows }, (_, i) => i);
+---
+<div class="dot-grid-pulse" style={`--dgp-columns: ${columns}; --dgp-color: ${color}`}>
+  {dots.map((i) => (
+    <span class="dot-grid-pulse-dot" style={`--dgp-delay: ${(i % columns) * 0.1 + Math.floor(i / columns) * 0.1}s`}></span>
+  ))}
+</div>
+
+<style>
+  .dot-grid-pulse {
+    display: grid;
+    grid-template-columns: repeat(var(--dgp-columns, 8), 1fr);
+    gap: 1em;
+    padding: 1em;
+  }
+  .dot-grid-pulse-dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: var(--dgp-color, currentColor);
+    animation: dot-grid-pulse-fade 2.4s ease-in-out infinite;
+    animation-delay: var(--dgp-delay, 0s);
+  }
+  @keyframes dot-grid-pulse-fade {
+    0%, 100% { opacity: 0.15; }
+    50% { opacity: 1; }
+  }
+  @media (prefers-reduced-motion: reduce) {
+    .dot-grid-pulse-dot { animation: none; opacity: 0.6; }
+  }
+</style>

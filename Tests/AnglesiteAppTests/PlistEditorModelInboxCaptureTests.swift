@@ -151,4 +151,62 @@ struct PlistEditorModelInboxCaptureTests {
         #expect(fixture.model.inboxCaptureEnabled == false)
         #expect(fixture.model.inboxCaptureError != nil)
     }
+
+    // MARK: - inboxForwardEmail (#1570)
+
+    @Test("loadWorkers pre-fills inboxForwardEmail from anglesite.json's email.inboxForwardAddress")
+    func loadWorkersPreFillsForwardEmail() async throws {
+        let fixture = try await makeFixture()
+        try DomainConfigStore(sourceDirectory: fixture.model.sourceDirectory).save(
+            DomainConfig(email: .init(inboxForwardAddress: "owner@example.com")))
+
+        await fixture.model.loadWorkers()
+
+        #expect(fixture.model.inboxForwardEmail == "owner@example.com")
+    }
+
+    @Test("saveInboxForwardEmail trims and persists a valid address without disturbing dmarcReportEmail")
+    func saveInboxForwardEmailPersists() async throws {
+        let fixture = try await makeFixture()
+        try DomainConfigStore(sourceDirectory: fixture.model.sourceDirectory).save(
+            DomainConfig(email: .init(provider: "fastmail", dmarcReportEmail: "dmarc@example.com")))
+        await fixture.model.loadWorkers()
+
+        fixture.model.saveInboxForwardEmail("  owner@example.com  ")
+
+        #expect(fixture.model.inboxForwardEmail == "owner@example.com")
+        #expect(fixture.model.inboxForwardEmailError == nil)
+        let saved = try DomainConfigStore(sourceDirectory: fixture.model.sourceDirectory).load()
+        #expect(saved.email?.inboxForwardAddress == "owner@example.com")
+        #expect(saved.email?.dmarcReportEmail == "dmarc@example.com")
+        #expect(saved.email?.provider == "fastmail")
+    }
+
+    @Test("saveInboxForwardEmail rejects a value with no @ and leaves the prior address on disk")
+    func saveInboxForwardEmailRejectsInvalid() async throws {
+        let fixture = try await makeFixture()
+        try DomainConfigStore(sourceDirectory: fixture.model.sourceDirectory).save(
+            DomainConfig(email: .init(inboxForwardAddress: "owner@example.com")))
+        await fixture.model.loadWorkers()
+
+        fixture.model.saveInboxForwardEmail("not-an-email")
+
+        #expect(fixture.model.inboxForwardEmailError != nil)
+        let saved = try DomainConfigStore(sourceDirectory: fixture.model.sourceDirectory).load()
+        #expect(saved.email?.inboxForwardAddress == "owner@example.com")
+    }
+
+    @Test("saveInboxForwardEmail with a blank value clears a previously-set address")
+    func saveInboxForwardEmailClears() async throws {
+        let fixture = try await makeFixture()
+        try DomainConfigStore(sourceDirectory: fixture.model.sourceDirectory).save(
+            DomainConfig(email: .init(inboxForwardAddress: "owner@example.com")))
+        await fixture.model.loadWorkers()
+
+        fixture.model.saveInboxForwardEmail("   ")
+
+        #expect(fixture.model.inboxForwardEmail == "")
+        #expect(fixture.model.inboxForwardEmailError == nil)
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: fixture.model.sourceDirectory) == nil)
+    }
 }

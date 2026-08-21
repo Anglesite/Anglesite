@@ -17,7 +17,8 @@ import {
   scanWellKnown,
   type ClaimEntry,
 } from "./well-known";
-import { MTA_STS_MARKER, SECURITY_TXT_MARKER } from "./edge-artifacts";
+import { buildMcpServerCard, MTA_STS_MARKER, SECURITY_TXT_MARKER } from "./edge-artifacts";
+import { AGENT_SKILLS_MARKER } from "./agent-skills";
 
 /** A scratch site directory, removed by the caller's `t.after`. */
 function scratch(): string {
@@ -291,14 +292,45 @@ test("runVerify: reports a marker-owned artifact separately so the host doesn't 
   writeFile(root, "dist/.well-known/security.txt", `${SECURITY_TXT_MARKER}\nContact: mailto:x@example.com\n`);
   writeFile(root, "dist/.well-known/mta-sts.txt", `version: STSv1\n${MTA_STS_MARKER}\n`);
   writeFile(root, "dist/.well-known/hand-written.txt", "not generated\n");
+  writeFile(root, "dist/.well-known/agent-skills/index.json", JSON.stringify({ generator: "anglesite", skills: [] }));
+  writeFile(
+    root,
+    "dist/.well-known/agent-skills/subscribe-feed/SKILL.md",
+    `---\nname: subscribe-feed\n---\n${AGENT_SKILLS_MARKER}\n`,
+  );
   writeFile(root, "manifest.json", JSON.stringify({ entries: [] }));
   const resultPath = join(root, "result.json");
 
   runVerify(root, { [MANIFEST_ENV_VAR]: join(root, "manifest.json"), [RESULT_PATH_ENV_VAR]: resultPath });
 
   const result = readSeamResult(resultPath);
-  assert.deepEqual(result.observedArtifacts, ["hand-written.txt", "mta-sts.txt", "security.txt"]);
-  assert.deepEqual(result.generatedArtifacts, ["mta-sts.txt", "security.txt"]);
+  assert.deepEqual(result.observedArtifacts, [
+    "agent-skills/index.json",
+    "agent-skills/subscribe-feed/SKILL.md",
+    "hand-written.txt",
+    "mta-sts.txt",
+    "security.txt",
+  ]);
+  assert.deepEqual(result.generatedArtifacts, [
+    "agent-skills/index.json",
+    "agent-skills/subscribe-feed/SKILL.md",
+    "mta-sts.txt",
+    "security.txt",
+  ]);
+});
+
+test("runVerify: recognizes a generated MCP server card as marker-owned, not unclaimed", (t) => {
+  const root = scratch();
+  t.after(() => rmSync(root, { recursive: true, force: true }));
+  writeFile(root, "dist/.well-known/mcp/server-card.json", buildMcpServerCard("https://example.com"));
+  writeFile(root, "manifest.json", JSON.stringify({ entries: [] }));
+  const resultPath = join(root, "result.json");
+
+  runVerify(root, { [MANIFEST_ENV_VAR]: join(root, "manifest.json"), [RESULT_PATH_ENV_VAR]: resultPath });
+
+  const result = readSeamResult(resultPath);
+  assert.deepEqual(result.observedArtifacts, ["mcp/server-card.json"]);
+  assert.deepEqual(result.generatedArtifacts, ["mcp/server-card.json"]);
 });
 
 test("runCheck: a blocking collision writes only the collisions, not unrelated advisories", (t) => {

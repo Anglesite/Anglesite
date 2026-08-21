@@ -115,7 +115,9 @@ public struct MCPApplyEditRouter: EditRouter {
                 commit: parsed?.commit,
                 result: parsed?.result,
                 model: parsed?.model,
-                newFile: parsed?.newFile
+                newFile: parsed?.newFile,
+                inverseNodeId: parsed?.inverseNodeId,
+                postWriteVersion: parsed?.postWriteVersion
             )
             if let persistEdit {
                 do {
@@ -211,8 +213,24 @@ public struct MCPApplyEditRouter: EditRouter {
         // Present on `anglesite:edit-failed` bodies (e.g. "stale", "no-match", "invalid-input") —
         // the machine-readable counterpart to the free-form `detail` prose folded into `message`.
         let reason = json["reason"] as? String
-        if file == nil && commit == nil && image == nil && newFile == nil && model == nil && reason == nil { return nil }
-        return Parsed(file: file, commit: commit, result: image, newFile: newFile, model: model, reason: reason)
+        // `inverse.component.{nodeId, baseVersion}` — a narrow, explicitly-scoped decode (see
+        // `EditReply.inverseNodeId`/`postWriteVersion`'s doc comments): NOT general
+        // inverse-for-undo support, only enough to learn a freshly-inserted node's real id +
+        // fresh version for `SidecarWYSIWYGHostTransport`'s attribute follow-up. `inverse` is
+        // absent for ops that don't compute one, and its `component` sub-object may lack either
+        // key — decode defensively, `nil` on any shape mismatch, never throw.
+        var inverseNodeId: String?
+        var postWriteVersion: String?
+        if let inverse = json["inverse"] as? [String: Any],
+           let inverseComponent = inverse["component"] as? [String: Any] {
+            inverseNodeId = inverseComponent["nodeId"] as? String
+            postWriteVersion = inverseComponent["baseVersion"] as? String
+        }
+        if file == nil && commit == nil && image == nil && newFile == nil && model == nil && reason == nil
+            && inverseNodeId == nil && postWriteVersion == nil { return nil }
+        return Parsed(
+            file: file, commit: commit, result: image, newFile: newFile, model: model, reason: reason,
+            inverseNodeId: inverseNodeId, postWriteVersion: postWriteVersion)
     }
 
     struct Parsed: Equatable {
@@ -222,5 +240,7 @@ public struct MCPApplyEditRouter: EditRouter {
         let newFile: String?
         let model: ComponentModel?
         let reason: String?
+        let inverseNodeId: String?
+        let postWriteVersion: String?
     }
 }

@@ -91,6 +91,16 @@ public enum WorkerComposition {
         handler: "inbox-capture"
     )
 
+    /// Route claim for the read-only MCP server (#1576) — same static-let pattern as
+    /// `inboxCaptureRouteClaim` above, since `/mcp` is app-owned (not sourced from the
+    /// `@dwk/workers` catalog).
+    public static let mcpRouteClaim = WorkerRouteClaim(
+        path: "/mcp",
+        match: .exact,
+        methods: ["GET", "POST", "HEAD"],
+        handler: "mcp"
+    )
+
     private static let validNameCharacters = CharacterSet(
         charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
     )
@@ -182,6 +192,15 @@ public enum WorkerComposition {
     ///     `inboxCaptureEnabled` is `true` — if `nil` or empty, the emitted
     ///     `[[kv_namespaces]]` block gets a placeholder empty `id` for provisioning to fill in
     ///     later, rather than throwing.
+    ///   - inboxForwardEmail: The owner's email address (`DomainConfig.Email.dmarcReportEmail`,
+    ///     already captured by `EmailSetupPlanner`/`EmailSetupExecutor`) that `/inbox`
+    ///     submissions should additionally forward to (#1570, reconciling #587 with the
+    ///     email-as-DM decision) — the KV→git commit-back pipeline stays the structured record;
+    ///     this is purely additive. Ignored unless `inboxCaptureEnabled` is `true`. `nil`, empty,
+    ///     or a value that fails `isSafeTomlStringValue`/contains no `"@"` omits both the
+    ///     `[[send_email]]` binding and the `INBOX_FORWARD_EMAIL` var entirely — the composed
+    ///     Worker's `handleInbox` degrades to KV-only capture without either bound
+    ///     (`worker.ts`'s concern, not this function's).
     ///   - siteURL: The site's public URL, threaded into the composed Worker's config.
     ///   - displayName: The site's display name (`SiteSettings.displayName`, already falling back
     ///     to the site name by the time a caller passes it in — this function stays pure and does
@@ -212,6 +231,12 @@ public enum WorkerComposition {
     ///     `routeClaims`/the inbox-capture claim. A running experiment also emits its own
     ///     `[[d1_databases]]` block bound to `EXPERIMENTS_DB` on the same shared
     ///     `"\(siteName)-social"` database. Defaults to `[]` (no experiments).
+    ///   - mcpEnabled: The site's declared `experimental.mcp` flag (#1576) — Worker composition's
+    ///     fourth enabler, alongside `hasSocialFeatures`, `inboxCaptureEnabled`, and a running
+    ///     experiment: on its own (no active `workers`, no inbox capture, no experiment) it still
+    ///     composes a Worker, claims `/mcp` in `[assets].run_worker_first` via `mcpRouteClaim`, and
+    ///     emits the `SOCIAL_KV` `[[kv_namespaces]]` binding the site's MCP rate limiter needs.
+    ///     Defaults to `false` (inert).
     /// - Returns: A complete wrangler.toml string.
     /// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` contains
     ///   characters outside `[A-Za-z0-9_-]`, or ``ConfigError/invalidRouteClaim(path:reason:)``
@@ -223,12 +248,14 @@ public enum WorkerComposition {
         resources: ProvisionedResources = .init(),
         inboxCaptureEnabled: Bool = false,
         inboxKVNamespaceID: String? = nil,
+        inboxForwardEmail: String? = nil,
         siteURL: String? = nil,
         displayName: String? = nil,
         activityPubActorType: String? = nil,
         moderators: [String]? = nil,
         apUsername: String? = nil,
-        experiments: [DomainConfig.Experiments.Experiment] = []
+        experiments: [DomainConfig.Experiments.Experiment] = [],
+        mcpEnabled: Bool = false
     ) throws -> String {
         guard isValidSiteName(siteName) else {
             throw ConfigError.invalidSiteName(siteName)
@@ -236,6 +263,9 @@ public enum WorkerComposition {
         var effectiveClaims = routeClaims
         if inboxCaptureEnabled {
             effectiveClaims.append(inboxCaptureRouteClaim)
+        }
+        if mcpEnabled {
+            effectiveClaims.append(mcpRouteClaim)
         }
         // Full single-claim validation (not just path syntax), so a future caller that skips
         // `WorkerRouteClaims.activeClaims` still can't emit an invalid claim into TOML. Cross-
@@ -314,7 +344,7 @@ public enum WorkerComposition {
         // #1270 slice 3: a running experiment is the third enabler of Worker composition,
         // alongside an active catalog worker and inbox capture — a static-only site's first
         // running experiment gets a Worker for exactly its paths and nothing else (design §3).
-        let composesWorker = hasSocialFeatures || inboxCaptureEnabled || hasRunningExperiment
+        let composesWorker = hasSocialFeatures || inboxCaptureEnabled || hasRunningExperiment || mcpEnabled
         if composesWorker {
             lines.append("main = \"worker/worker.ts\"")
         }
@@ -505,7 +535,12 @@ public enum WorkerComposition {
             lines.append("crons = [\(list)]")
         }
 
-        if workers.contains(where: { $0.resources.needsKV }) {
+        // #1576: a plain-blog site with only `experimental.mcp` on has no `needsKV`-flagged
+        // worker active, but `worker/mcp-server.ts`'s rate limiter still needs SOCIAL_KV bound —
+        // `SocialWorkerProvisionCommand.provision` already gates *creating* the namespace on
+        // `mcpEnabled` too (its own `needsKV || mcpEnabled` check), so this TOML-emission gate
+        // must match or the namespace gets created but never bound into the deployed Worker.
+        if workers.contains(where: { $0.resources.needsKV }) || mcpEnabled {
             lines.append("")
             lines.append("[[kv_namespaces]]")
             lines.append("binding = \"SOCIAL_KV\"")
@@ -571,6 +606,21 @@ public enum WorkerComposition {
             }
         }
 
+        // #1570: /inbox submissions additionally forward to the owner's email — restricted to a
+        // single `destination_address` (rather than left open) so the binding can never be used
+        // to send anywhere but the owner's own configured address, verified separately via
+        // Cloudflare Email Routing. `INBOX_FORWARD_EMAIL` below carries the same address into the
+        // Worker as a var, since `EmailMessage`'s `to` must match it exactly at request time
+        // (worker.ts's concern, not this function's).
+        let hasInboxForwarding = inboxCaptureEnabled
+            && (inboxForwardEmail.map(isPlausibleEmailAddress) ?? false)
+        if hasInboxForwarding, let inboxForwardEmail {
+            lines.append("")
+            lines.append("[[send_email]]")
+            lines.append("name = \"SEND_EMAIL\"")
+            lines.append("destination_address = \"\(inboxForwardEmail)\"")
+        }
+
         var varsLines: [String] = []
         // SITE_URL: the canonical origin the queue consumers key on — Webmention's verifier
         // scopes accepted targets with it, WebSub's consumer derives its topic URLs from it, and
@@ -604,6 +654,13 @@ public enum WorkerComposition {
             if !safeModerators.isEmpty {
                 varsLines.append("AP_MODERATORS = \"\(safeModerators.joined(separator: ","))\"")
             }
+        }
+        // INBOX_FORWARD_EMAIL (#1570): the same address as the `[[send_email]]` block's
+        // `destination_address` above, threaded as a var too because `EmailMessage`'s `to`
+        // argument is a runtime value the Worker must supply itself — Wrangler only *authorizes*
+        // the binding to send to this one address, it doesn't supply the recipient implicitly.
+        if hasInboxForwarding, let inboxForwardEmail {
+            varsLines.append("INBOX_FORWARD_EMAIL = \"\(inboxForwardEmail)\"")
         }
         if !varsLines.isEmpty {
             lines.append("")
@@ -656,5 +713,18 @@ public enum WorkerComposition {
     static func isSafeTomlStringValue(_ value: String) -> Bool {
         !value.contains("\"") && !value.contains("\\")
             && !value.unicodeScalars.contains(where: { $0.value < 0x20 || $0.value == 0x7F })
+    }
+
+    /// A light plausibility check for `inboxForwardEmail` — not RFC 5322 validation (nothing
+    /// else in this file validates `.site-config`-sourced strings that deeply either, see
+    /// `resolveActivityPubUsername`'s doc comment for the precedent), just enough to keep an
+    /// obviously-wrong value out of the generated `destination_address`: non-empty, contains
+    /// exactly one `@` with content on both sides, no whitespace, and safe to interpolate per
+    /// `isSafeTomlStringValue`. An implausible value degrades to omitting both the
+    /// `[[send_email]]` binding and `INBOX_FORWARD_EMAIL` var, same as `nil`.
+    static func isPlausibleEmailAddress(_ value: String) -> Bool {
+        guard isSafeTomlStringValue(value), !value.contains(where: \.isWhitespace) else { return false }
+        let parts = value.split(separator: "@", omittingEmptySubsequences: false)
+        return parts.count == 2 && !parts[0].isEmpty && !parts[1].isEmpty
     }
 }

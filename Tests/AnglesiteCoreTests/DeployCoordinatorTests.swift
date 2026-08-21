@@ -186,6 +186,67 @@ struct DeployCoordinatorTests {
         #expect(DeployCoordinator.resolveRunningExperiments(sourceDirectory: dir).isEmpty)
     }
 
+    // MARK: - resolveMCPEnabled (#1576)
+
+    @Test("resolveMCPEnabled is true only when anglesite.json declares experimental.mcp: true")
+    func resolveMCPEnabledReadsFlag() throws {
+        let dir = try temporaryDirectory()
+        #expect(!DeployCoordinator.resolveMCPEnabled(sourceDirectory: dir))
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(experimental: .init(mcp: true)))
+        #expect(DeployCoordinator.resolveMCPEnabled(sourceDirectory: dir))
+    }
+
+    @Test("resolveMCPEnabled is false with no anglesite.json at all")
+    func resolveMCPEnabledEmptyByDefault() throws {
+        let dir = try temporaryDirectory()
+        #expect(!DeployCoordinator.resolveMCPEnabled(sourceDirectory: dir))
+    }
+
+    // MARK: - resolveInboxForwardEmail (#1570)
+
+    @Test("resolveInboxForwardEmail reads email.inboxForwardAddress from anglesite.json")
+    func resolveInboxForwardEmailReadsInboxForwardAddress() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(provider: "fastmail", inboxForwardAddress: "owner@example.com")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == "owner@example.com")
+    }
+
+    @Test("resolveInboxForwardEmail is nil with no anglesite.json at all")
+    func resolveInboxForwardEmailNilByDefault() throws {
+        let dir = try temporaryDirectory()
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == nil)
+    }
+
+    @Test("resolveInboxForwardEmail is nil when a dmarcReportEmail is set but no inboxForwardAddress was — reusing one for the other would be a silent behavior change")
+    func resolveInboxForwardEmailIgnoresDmarcReportEmail() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(provider: "fastmail", dmarcReportEmail: "dmarc@example.com")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == nil)
+    }
+
+    @Test("resolveInboxForwardEmail is nil when email setup was run but no forward address was set")
+    func resolveInboxForwardEmailNilWithoutForwardAddress() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(provider: "fastmail", inboxForwardAddress: nil)))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == nil)
+    }
+
+    @Test("resolveInboxForwardEmail trims whitespace and treats an all-whitespace value as nil")
+    func resolveInboxForwardEmailTrimsWhitespace() throws {
+        let dir = try temporaryDirectory()
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(email: .init(inboxForwardAddress: "  owner@example.com  ")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir) == "owner@example.com")
+
+        let dir2 = try temporaryDirectory()
+        try DomainConfigStore(sourceDirectory: dir2).save(DomainConfig(email: .init(inboxForwardAddress: "   ")))
+        #expect(DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: dir2) == nil)
+    }
+
     // MARK: - deployLogSources
 
     @Test("deployLogSources includes worker-provision:<siteID> so SocialWorkerProvisionCommand's wrangler output reaches the drawer")
@@ -651,6 +712,7 @@ struct DeployCoordinatorTests {
             "milestone:syndicating", "syndicate",
             "milestone:websubPing", "notify",
             "milestone:activityPubBackfill",
+            "milestone:contactsAllowlistPush",
         ])
     }
 
@@ -684,6 +746,7 @@ struct DeployCoordinatorTests {
             "milestone:syndicating", "syndicate",
             "milestone:websubPing", "notify",
             "milestone:activityPubBackfill",
+            "milestone:contactsAllowlistPush",
         ])
     }
 
@@ -702,6 +765,7 @@ struct DeployCoordinatorTests {
             "milestone:syndicating", "syndicate",
             "milestone:websubPing",
             "milestone:activityPubBackfill",
+            "milestone:contactsAllowlistPush",
         ])
     }
 
@@ -724,11 +788,47 @@ struct DeployCoordinatorTests {
             "milestone:syndicating", "syndicate",
             "milestone:websubPing", "notify",
             "milestone:activityPubBackfill", "backfill",
+            "milestone:contactsAllowlistPush",
         ])
     }
 
     @Test("backfillActivityPubOutbox defaults to a no-op, so existing call sites without it still compile and run")
     func postDeploySequencingDefaultsBackfillToNoOp() async {
+        let recorder = CallRecorder()
+        await DeployCoordinator.runPostDeploySequencing(
+            onMilestone: { _ in },
+            sendWebmentions: { recorder.record("send") },
+            syndicate: { recorder.record("syndicate") }
+        )
+        #expect(recorder.calls == ["send", "syndicate"])
+    }
+
+    @Test("pushContactsAllowlist runs last, after backfillActivityPubOutbox, with a milestone immediately before it")
+    func postDeploySequencingRunsContactsAllowlistPushLast() async {
+        let recorder = CallRecorder()
+        await DeployCoordinator.runPostDeploySequencing(
+            onMilestone: { progress in recorder.record("milestone:\(progress.phase)") },
+            sendWebmentions: { recorder.record("send") },
+            publishStandardSite: { recorder.record("standardsite") },
+            publishStandardSiteGraph: { recorder.record("standardsitegraph") },
+            syndicate: { recorder.record("syndicate") },
+            notifySubscribers: { recorder.record("notify") },
+            backfillActivityPubOutbox: { recorder.record("backfill") },
+            pushContactsAllowlist: { recorder.record("allowlist") }
+        )
+        #expect(recorder.calls == [
+            "milestone:webmentions", "send",
+            "milestone:standardSitePublishing", "standardsite",
+            "milestone:standardSiteGraphPublishing", "standardsitegraph",
+            "milestone:syndicating", "syndicate",
+            "milestone:websubPing", "notify",
+            "milestone:activityPubBackfill", "backfill",
+            "milestone:contactsAllowlistPush", "allowlist",
+        ])
+    }
+
+    @Test("pushContactsAllowlist defaults to a no-op, so existing call sites without it still compile and run")
+    func postDeploySequencingDefaultsContactsAllowlistPushToNoOp() async {
         let recorder = CallRecorder()
         await DeployCoordinator.runPostDeploySequencing(
             onMilestone: { _ in },

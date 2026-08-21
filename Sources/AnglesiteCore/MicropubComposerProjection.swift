@@ -28,13 +28,27 @@ public enum MicropubComposerProjection {
     ///   - descriptor: The content type whose fields are being projected.
     ///   - values: The form's per-field values.
     ///   - status: Stamped as the `post-status` property.
+    ///   - visibility: Stamped as the `visibility` property when non-`nil`; **omitted entirely**
+    ///     when `nil` (the default), same omit-don't-placeholder rule the optional fields above
+    ///     follow. Omission matters on the update path: this map is an update's `replace` map, and
+    ///     the deployed Worker's visibility vocabulary is wider than
+    ///     ``MicropubPostVisibility`` — ``MicropubPost/visibility`` reads any unrecognized tier
+    ///     (`unlisted`, `private`, …) as `public`, so stamping a re-derived value on every save
+    ///     would silently widen a post another client restricted. Callers pass a concrete value
+    ///     only when it's an actual, deliberate choice (a create, or a picker the owner changed).
     /// - Returns: The mf2 property map for a create body or an update's `replace` map.
     public static func properties(
         for descriptor: ContentTypeDescriptor,
         values: TypedContentEditor.Values,
-        status: MicropubPostStatus
+        status: MicropubPostStatus,
+        visibility: MicropubPostVisibility? = nil
     ) -> [String: [JSONValue]] {
-        var out: [String: [JSONValue]] = ["post-status": [.string(status.rawValue)]]
+        var out: [String: [JSONValue]] = [
+            "post-status": [.string(status.rawValue)],
+        ]
+        if let visibility {
+            out["visibility"] = [.string(visibility.rawValue)]
+        }
         for field in descriptor.fields where field.name != "draft" {
             guard let property = descriptor.projections.rawMf2Property(forField: field.name),
                   let value = values[field.name],

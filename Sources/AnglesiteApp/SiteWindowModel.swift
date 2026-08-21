@@ -57,6 +57,7 @@ final class SiteWindowModel {
     private let conventionsEngine: ProjectConventionsEngine
     private let contentIndexerStore: ContentIndexerStore
     private let integrationOps = IntegrationOperations.live()
+    private let restrictedPostPublisher = RestrictedPostPublisher()
     private let contentCreation: ContentCreationWorkflow
     /// Owns the invisible-publish (#357) queue/watcher/connectivity-monitor lifecycle — see
     /// `InvisiblePublishCoordinator`'s own doc comment (one of #822's four extracted subsystems).
@@ -304,6 +305,67 @@ final class SiteWindowModel {
     /// change, window close, or the open component being deleted out from under it.
     private(set) var componentEditor: ComponentEditorModel?
 
+    /// The hoisted Website inspector model (#714 v2 slice 1) — created/loaded on first use by
+    /// `ensureWebsiteInspectorLoaded()`, keyed to the open site's `packageURL`. Persists across
+    /// selection changes (unlike `inspectorSelection`'s targets): the website inspector is a
+    /// second, mutually-exclusive trailing panel, not a per-selection context. Torn down on site
+    /// change / window close alongside `componentEditor` — and, on a site change with the panel
+    /// still presented, rebuilt against the new package in the same transaction, so the panel is
+    /// never left presented over a nil model.
+    private(set) var websiteInspector: WebsiteInspectorModel?
+
+    /// Mirrors whether the website inspector panel is actually presented right now (#714 v2
+    /// slice 1 fix round 1, Important 3). The model has no visibility into `SiteWindow`'s
+    /// `@SceneStorage activeInspector`/`inspectorShown`, so `SiteWindow`'s toggle funcs and a
+    /// scene-level `.onChange` keep this in sync, synchronously, on every path that can flip
+    /// which inspector is active or shown. Exists solely so `clearInspectorThenSwitchPane`'s
+    /// #1126 settle predicate can tell whether *any* inspector panel is visible before a
+    /// main-pane swap, not just the selection one `inspectorSelection` already covers.
+    var websiteInspectorPresented = false
+
+    /// Withholds the website inspector panel (`true`) and puts it back (`false`), wired by
+    /// `SiteWindow` to its own presentation state.
+    ///
+    /// Mirrors the existing `dismissSiteWindow` closure seam: presentation of the *website*
+    /// inspector lives entirely in `SiteWindow`'s `@SceneStorage` (`inspectorShown` +
+    /// `activeInspector`), which this model cannot reach — `websiteInspectorPresented` above is a
+    /// read-only mirror, so before this seam existed the model could observe that panel but never
+    /// take it down. `clearInspectorThenSwitchPane` needs exactly that: its #1126 settle only helps
+    /// if a dismissal has actually been started before it waits, and for the website panel there
+    /// was none, so the main pane swapped underneath a still-presented inspector and re-entered
+    /// AppKit's update-constraints pass (`_postWindowNeedsUpdateConstraints` abort, #714 v2 slice
+    /// 1 fix round 5).
+    ///
+    /// Two-edged rather than one-shot (fix round 6). Round 5 hid the panel by routing through
+    /// `InspectorActivationPolicy`, which wrote the user's persisted `inspectorShown` preference to
+    /// false — so an in-panel button like Metadata ▸ More Settings… closed the panel for good,
+    /// across relaunches. The panel is now *suspended*: `SiteWindow` withholds it without touching
+    /// the preference, and this model — the only place that knows when the swap finished — resumes
+    /// it. Both edges therefore belong to one call site, `clearInspectorThenSwitchPane`.
+    ///
+    /// **Known residual, not introduced here.** Opening this panel's column while the *Graph* pane
+    /// is showing sends AppKit into the same runaway update-constraints cycle (100% CPU, then an
+    /// `__NSWindowGetDisplayCycleObserverForUpdateConstraints_block_invoke` →
+    /// `objc_exception_rethrow` abort — crash report `Anglesite-2026-08-20-152412.ips`). A/B
+    /// confirmed against this branch's parent commit, where a plain ⌥⌘J on the Graph pane aborts
+    /// identically, so it is the same #1126-class residual the round-5 notes already record for
+    /// the panel over the `.plist` settings editor, not a consequence of the suspension. It is
+    /// *reachable* through the restore above, though: round 5 hid the panel by writing the
+    /// preference off, which left nothing to reopen, and this round correctly puts it back. Six
+    /// ⌥⌘J toggles over the Preview pane never raise the CPU at all, so the trigger is the weight
+    /// of the main pane being relaid out beside the opening column. Fixing that belongs with the
+    /// Graph pane's own layout, not here.
+    ///
+    /// Only that method drives this seam. Other `mainPaneMode` writes (`applyNavigatorSelection`'s
+    /// `.route`/`.directory` returns to Preview, `openFile`'s "already the active editor" fast
+    /// path, `deleteCleanupCandidate`) swap the pane without it, so a presented website panel rides
+    /// those transitions live. They are left alone deliberately: they are synchronous, non-`async`
+    /// paths that would each need their own dismiss/settle/swap/resume sequence, which is a larger
+    /// change than this fix round takes on. If the #1126 class resurfaces on one of them, route it
+    /// through `clearInspectorThenSwitchPane` rather than growing a second seam.
+    @ObservationIgnored
+    var setWebsiteInspectorSuspended: ((Bool) -> Void)?
+
     /// What the window inspector is inspecting, in precedence order. Component and collection are
     /// gated on the pane mode they belong to, so a stale value from an earlier selection can never
     /// shadow the current one after a pane toggle.
@@ -543,13 +605,66 @@ final class SiteWindowModel {
     /// that gap.
     @MainActor
     private func clearInspectorThenSwitchPane(to mode: MainPaneMode) async {
-        let wasInspecting = inspectorSelection != nil
+        // `inspectorSelection != nil` alone used to equal "an inspector panel is presented", but
+        // the website inspector (#714 v2 slice 1) presents without any selection — OR in
+        // `websiteInspectorPresented` so this predicate still matches actual presentation
+        // (fix round 1, Important 3).
+        let wasInspecting = inspectorSelection != nil || websiteInspectorPresented
+        let suspendingWebsitePanel = websiteInspectorPresented
+        // Commit the website inspector's in-flight edit before its panel leaves the view tree.
+        // Its `TextField`s save on focus loss, and suspension unmounts them without ever
+        // delivering one, so a Title/Language typed-but-not-committed edit would be silently
+        // dropped by the pane switch (#714 v2 slice 1 fix round 6, Important 3). This is the same
+        // flush-before-leaving contract `leaveCurrentEditor()`/`leaveCurrentInspector()` give the
+        // other two dirty-able surfaces — done here rather than in `leaveCurrentInspector()`
+        // because the trigger is the *unmount*, which happens only on this path (the navigator's
+        // direct `mainPaneMode` writes leave the panel presented, so its fields keep their focus
+        // and their normal commit-on-blur).
+        //
+        // The result is deliberately ignored, unlike `leaveCurrentInspector()`'s: this model has
+        // no conflict-resolution flow (that belongs to `PlistEditorModel`, the deep editor), so a
+        // failed write surfaces as `saveError` inside the panel instead of vetoing a pane switch
+        // the user asked for — matching how `close()`/`handleSiteChanged()` already treat it.
+        if suspendingWebsitePanel, let websiteInspector, websiteInspector.isDirty {
+            await websiteInspector.saveAll()
+        }
+        // Clearing `inspectorContext`/`collectionInspection` starts the *selection* inspector's
+        // dismissal; the website inspector's presentation is scene state this model doesn't own,
+        // so it needs an explicit suspension through `SiteWindow`'s seam — otherwise `settle()`
+        // below waited out a dismissal that never began and the pane swapped under a genuinely
+        // presented panel, which is the actual `_postWindowNeedsUpdateConstraints` abort (#1126
+        // class) the smoke test hit via ⌥⌘J → ⌘3/⌘1 and via Metadata ▸ More Settings… (whose
+        // `openFile` on `Info.plist` routes here too, rebuilding the whole detail view as the
+        // heavyweight `.plist` settings editor). Both clears run before the single `settle()`, so
+        // the two dismissals share one SwiftUI transaction rather than stacking two waits.
+        //
+        // Not yet the whole story: with the panel presented *over* the `.plist` settings editor,
+        // ⌘3 still aborts in the same class (crash reports `Anglesite-2026-08-20-132733.ips`,
+        // `-133259.ips`). The same switches with no website inspector presented survive, so the
+        // remaining trigger is on this panel's side, not a general pane-switch defect.
+        if suspendingWebsitePanel { setWebsiteInspectorSuspended?(true) }
         inspectorContext = nil
         collectionInspection = nil
         if wasInspecting {
             await AppKitConstraintStormMitigation.settle()
         }
         mainPaneMode = mode
+        // Put the panel back. The suspension is a temporary withholding, not a dismissal — the
+        // user's activation preference was never touched — so leaving it withheld would be the
+        // very regression this round fixes, only transient instead of persisted.
+        //
+        // Behind a second settle, and awaited rather than fired-and-forgotten: resuming remounts
+        // the panel's `Form` (`SiteWindow.inspectorContent`'s gate renders a zero-size leaf while
+        // suspended), and a fresh inspector subtree mounting into an expanding column *is* #1139's
+        // crash shape. Coalescing that remount with the pane rebuild above is the mirror image of
+        // the dismissal case this whole method exists for, and gets the same treatment `openFile`
+        // gives the Component Editor's inspector presentation: its own transaction, one settle
+        // later. Callers are already in a `Task`, so the extra 300 ms delays nothing on screen —
+        // the new pane is up and interactive throughout.
+        if suspendingWebsitePanel {
+            await AppKitConstraintStormMitigation.settle()
+            setWebsiteInspectorSuspended?(false)
+        }
     }
 
     /// Resolves a chat citation's file path to a Site Graph Explorer node and reveals it there
@@ -726,7 +841,8 @@ final class SiteWindowModel {
     func presentExperimentStats() {
         guard experimentStatsModel == nil, let site else { return }
         let model = ExperimentStatsModel(
-            siteID: site.id, sourceDirectory: site.sourceDirectory, configDirectory: site.configDirectory)
+            siteID: site.id, sourceDirectory: site.sourceDirectory, configDirectory: site.configDirectory,
+            currentRoute: preview.activeRoute ?? "/")
         experimentStatsModel = model
         Task { await model.loadLivePrefillIfAvailable() }
     }
@@ -786,10 +902,30 @@ final class SiteWindowModel {
         // alert can be shown on a closing window, so a conflict-gated flush would silently drop
         // the edits. Last-writer-wins, matching the .text/.plist teardown above.
         if let model = inspectorContext?.model { Task { await model.save() } }
+        // Mirrors the `inspectorContext` flush above — `saveAll()` no-ops per-field when clean, so
+        // this is safe to fire unconditionally (fix round 1, Important 2: this used to drop a
+        // dirty title/lang edit silently on a site swap).
+        if let websiteInspector { Task { await websiteInspector.saveAll() } }
         inspectorContext = nil
         collectionInspection = nil
         componentEditor = nil
+        websiteInspector = nil
         mainPaneMode = .preview
+        // Re-create immediately, in this same synchronous transaction, whenever the website
+        // inspector is presented right now (fix round 4, Criticals 1 and 2). This handler runs on
+        // `SiteWindow`'s `.onChange(of: model.site?.id)`, which covers BOTH the initial nil →
+        // loaded transition and a later site swap, and `websiteInspectorPresented` is already
+        // mirrored by `SiteWindow`'s `initial: true` handlers before the site resolves. So this is
+        // the guaranteed creation path for every activation that no toggle press covers:
+        //   - scene restoration with `activeInspector` persisted as `.website` (the panel is the
+        //     first thing built for the restored window; no toggle ever fires),
+        //   - ⌥⌘J pressed while the window still shows "Loading site…" (the toggle's own
+        //     `ensureWebsiteInspectorLoaded()` no-ops with no site, but the activation still
+        //     flips),
+        //   - a site swap while the panel is up (the teardown three lines above would otherwise
+        //     leave it presented with nothing to render).
+        // Leaving it nil in any of those cases rendered the panel permanently blank.
+        if websiteInspectorPresented { ensureWebsiteInspectorLoaded() }
     }
 
     func close(suddenTerminationLease: SuddenTerminationController.Lease? = nil) {
@@ -833,17 +969,27 @@ final class SiteWindowModel {
         let inspectorSaveTask = (inspectorContext?.model).map { model in
             Task { await model.save() }
         }
+        // Mirrors the `inspectorContext` flush immediately above — fix round 1, Important 2: this
+        // used to drop a dirty website-inspector title/lang edit silently on window close, three
+        // lines below the sibling teardown that already flushed `inspectorContext`.
+        let websiteInspectorWasDirty = websiteInspector?.isDirty == true
+        let websiteInspectorSaveTask = websiteInspector.map { inspector in
+            Task { await inspector.saveAll() }
+        }
         inspectorContext = nil
         collectionInspection = nil
         componentEditor = nil
+        websiteInspector = nil
         let closeTerminationLease = suddenTerminationLease
-            ?? ((editorSaveTask != nil || inspectorWasDirty) ? SuddenTerminationController.shared.acquire() : nil)
+            ?? ((editorSaveTask != nil || inspectorWasDirty || websiteInspectorWasDirty)
+                ? SuddenTerminationController.shared.acquire() : nil)
         #if ANGLESITE_MAS
         let closingScopedURL = grantController.release()
         #endif
         Task { @MainActor in
             await editorSaveTask?.value
             _ = await inspectorSaveTask?.value
+            _ = await websiteInspectorSaveTask?.value
             #if ANGLESITE_MAS
             closingScopedURL?.stopAccessingSecurityScopedResource()
             #endif
@@ -1054,7 +1200,7 @@ final class SiteWindowModel {
         case .plist(let model): model.hasAnyUnsavedEdits
         case nil: false
         }
-        return editorDirty || (inspectorContext?.model.isDirty ?? false)
+        return editorDirty || (inspectorContext?.model.isDirty ?? false) || (websiteInspector?.isDirty ?? false)
     }
 
     /// True while any save/revert IO is in flight on either editing surface. File ▸ Save / Revert
@@ -1067,7 +1213,8 @@ final class SiteWindowModel {
         case .plist(let model): if model.isAnySaving { return true }
         case nil: break
         }
-        return inspectorContext?.model.isSaving ?? false
+        if inspectorContext?.model.isSaving == true { return true }
+        return (websiteInspector?.isSavingTitle ?? false) || (websiteInspector?.isSavingLang ?? false)
     }
 
     /// Serializes File ▸ Save / Revert themselves (the per-model `isSaving` flags only cover each
@@ -1089,6 +1236,9 @@ final class SiteWindowModel {
         case nil: break
         }
         if let model = inspectorContext?.model { await model.save() }
+        // The website inspector (#714 v2 slice 1) is a third dirty-able editing surface `hasUnsavedEdits`
+        // already counts — `saveAll()` no-ops per-field when clean, matching the other two above.
+        if let websiteInspector { await websiteInspector.saveAll() }
     }
 
     /// File ▸ Revert to Saved: present the confirmation alert (no-op when nothing is dirty, so a
@@ -1111,6 +1261,9 @@ final class SiteWindowModel {
         default: break
         }
         if let model = inspectorContext?.model, model.isDirty { await model.load() }
+        // Mirrors the two branches above: reverting the website inspector means re-reading its
+        // fields from disk, discarding the in-memory title/lang edit.
+        if let websiteInspector, websiteInspector.isDirty { await websiteInspector.load() }
     }
 
     func leaveCurrentEditor() async -> Bool {
@@ -1174,7 +1327,6 @@ final class SiteWindowModel {
             }
             if entry.name != site?.name {
                 site?.name = entry.name
-                navigator?.updateWebsiteTitle(entry.name)
             }
         }
     }
@@ -1360,6 +1512,12 @@ final class SiteWindowModel {
     @MainActor
     func openFile(_ file: FileRef) {
         if activeEditorFile?.id == file.id {
+            // Bypasses `clearInspectorThenSwitchPane`, so a presented website inspector is neither
+            // flushed nor suspended across this swap (see `setWebsiteInspectorSuspended`'s doc
+            // comment for the full list of such paths and why they're left as-is). Reachable via
+            // More Settings… when `Info.plist` is already the active editor but the pane has since
+            // returned to Preview. Left synchronous deliberately: routing it through the async
+            // sequence would also have to join `inFlightOpenFile`'s bookkeeping.
             mainPaneMode = .editor(file)
             return
         }
@@ -1613,8 +1771,32 @@ final class SiteWindowModel {
     }
 
     /// Backing cache for `effectPlacementController` below — see that property's doc comment for
-    /// the route-staleness fix this pair implements.
+    /// the route-staleness fix this pair implements. `@ObservationIgnored` because
+    /// `effectPlacementController` is read from a view body (`SiteWindow`'s placement-HUD overlay)
+    /// and writes this cache as a side effect — an observation-tracked write during a view update
+    /// is exactly the invalidate-while-rendering shape SwiftUI warns about. Nothing observes the
+    /// cache itself: the HUD tracks the returned controller's own `@Observable` state, and a route
+    /// change re-evaluates the reading body anyway (via `preview.activeRoute`).
+    @ObservationIgnored
     private var cachedEffectPlacementController: (path: String, controller: EffectPlacementController)?
+
+    /// Main-actor snapshot of this site's scanned pages, refreshed alongside every
+    /// `SiteContentGraph` rescan. `SiteContentGraph` is an actor, so a synchronous computed
+    /// property (`effectPlacementController`) can't read it — but it needs the route → source-file
+    /// mapping to hand `PageModelClient`/`insertBlock` a real `.astro` path rather than a route
+    /// (#768 final review, Finding 1). Empty until the first rescan lands, which
+    /// ``PageSourcePath/resolve(route:pages:)`` covers with its naming-convention fallback.
+    private var scannedPages: [SiteContentGraph.Page] = []
+
+    /// Resolves the live preview's current route to its project-relative `.astro` source path,
+    /// via the same `PageSourcePath.resolve(route:pages:)` call `effectPlacementController` makes
+    /// below. Exposed (rather than `scannedPages` itself) so `PreviewNavigationCommands`'s Edit
+    /// Page toggle — a separate `Commands`/`FocusedValue`-reading type with no access to this
+    /// model's private state — can resolve the real path `PreviewModel.enterEditMode(path:)`
+    /// needs (#1222) without duplicating the resolution logic or the scanned-pages cache.
+    var activePageSourcePath: String {
+        PageSourcePath.resolve(route: preview.activeRoute, pages: scannedPages)
+    }
 
     /// The click-to-place controller for the Effects gallery sheet (Website ▸ Effects…, #768).
     /// `EffectPlacementController` captures its target `path` once at construction (`path` is a
@@ -1631,7 +1813,7 @@ final class SiteWindowModel {
     /// under itself — only an idle cached controller is eligible for a route-triggered rebuild, so
     /// an in-progress pick always resolves against the path it actually started against.
     var effectPlacementController: EffectPlacementController {
-        let path = preview.activeRoute ?? "/"
+        let path = activePageSourcePath
         if let cached = cachedEffectPlacementController,
            cached.path == path || cached.controller.state != .idle {
             return cached.controller
@@ -1652,14 +1834,41 @@ final class SiteWindowModel {
         )
     }
 
-    /// Ensures the site's `blocks.manifest.json` has entries for every shipped placeable effect.
-    /// Fire-and-forget-safe (idempotent, cheap JSON merge) — called once per site attach, not on
-    /// every gallery open.
-    private func syncBlockManifest(site: SiteStore.Site) {
-        guard let templateDirectory = TemplateRuntime.resolve().url else { return }
+    /// Ensures the site's `blocks.manifest.json` has entries for every shipped placeable effect —
+    /// and that the component files those entries point at actually exist in the site. Idempotent
+    /// and cheap (a JSON merge plus, on a pre-feature site, a handful of file copies), so it runs
+    /// once per site attach rather than on every gallery open.
+    ///
+    /// Failures are logged, not swallowed: `BlockManifestSync.sync` throws `.corruptSiteManifest`
+    /// instead of overwriting a manifest it can't parse *specifically* so the failure is visible,
+    /// which a bare `try?` at the only call site quietly undid (#768 final review, Finding 9).
+    private func syncBlockManifest(site: SiteStore.Site) async {
+        guard let templateDirectory = TemplateRuntime.resolve().url else {
+            await LogCenter.shared.append(
+                source: "effects", stream: .stderr,
+                text: "Skipped placeable-effect sync: the website template isn't available.")
+            return
+        }
         let templateManifest = templateDirectory.appendingPathComponent("blocks.manifest.json")
         let siteManifest = site.sourceDirectory.appendingPathComponent("blocks.manifest.json")
-        try? BlockManifestSync.sync(templateBlocksManifest: templateManifest, siteBlocksManifest: siteManifest)
+        do {
+            let outcome = try BlockManifestSync.sync(
+                templateBlocksManifest: templateManifest, siteBlocksManifest: siteManifest)
+            if !outcome.addedPaths.isEmpty || !outcome.copiedComponentPaths.isEmpty {
+                await LogCenter.shared.append(
+                    source: "effects", stream: .stdout,
+                    text: "Registered \(outcome.addedPaths.count) placeable effect(s); copied \(outcome.copiedComponentPaths.count) component file(s) into the site.")
+            }
+            if !outcome.skippedMissingComponentPaths.isEmpty {
+                await LogCenter.shared.append(
+                    source: "effects", stream: .stderr,
+                    text: "Left \(outcome.skippedMissingComponentPaths.count) effect(s) unregistered — their component files are missing from the template: \(outcome.skippedMissingComponentPaths.joined(separator: ", "))")
+            }
+        } catch {
+            await LogCenter.shared.append(
+                source: "effects", stream: .stderr,
+                text: "Couldn't sync placeable effects into blocks.manifest.json: \(error)")
+        }
     }
 
     /// (Re)builds the hoisted component editor for the active editor file when it is an `.astro`
@@ -1691,6 +1900,40 @@ final class SiteWindowModel {
         await editor.load()
     }
 
+    /// Creates the hoisted Website inspector for the open site the first time it's needed, then
+    /// returns it as-is on every later call — the website inspector isn't rebuilt on repeat
+    /// activation the way the component editor is; `handleSiteChanged()`/`close(...)` tear it down
+    /// instead when a rebuild is actually warranted (a different site). Loading is kicked off in a
+    /// detached `Task` rather than awaited here so this stays a synchronous MainActor call: callers
+    /// need a same-transaction read-then-write for the #968/#969 presentation-gate discipline,
+    /// which an `async` signature would break.
+    ///
+    /// **The invariant every caller upholds** (#714 v2 slice 1, fix rounds 3–4): whenever the
+    /// website inspector becomes presented, this has already run — synchronously, before the
+    /// activation state the panel renders from is written. A GUI smoke found the panel reserving
+    /// space and toggling correctly while its content stayed permanently blank, because the only
+    /// thing that created the model was a `.task` attached to the panel's own `if let websiteModel
+    /// = model.websiteInspector { … }` subtree: with the model nil that subtree renders nothing,
+    /// SwiftUI doesn't run `.task` for a subtree that renders nothing, and so the task that would
+    /// have created the model could never run. Hence the three callers, in order of how reliably
+    /// each fires:
+    ///
+    /// - `SiteWindow.activateInspector(_:)` — every toggle press, before `activeInspector` flips.
+    /// - `handleSiteChanged()` — every site load or swap while the panel is presented, covering
+    ///   scene restoration onto a persisted `.website` activation and ⌥⌘J pressed before the site
+    ///   finished loading, neither of which involves a toggle press with a site in hand.
+    /// - The `.task(id:)` on the panel's content — now backed by a non-empty placeholder branch so
+    ///   it can actually fire, but kept as belt-and-braces rather than a guarantee.
+    ///
+    /// The guard below makes calling it from all three idempotent.
+    @MainActor
+    func ensureWebsiteInspectorLoaded() {
+        guard websiteInspector == nil, let site else { return }
+        let inspector = WebsiteInspectorModel(packageURL: site.packageURL)
+        websiteInspector = inspector
+        Task { await inspector.load() }
+    }
+
     private func isFrontmatterPage(_ relPath: String) -> Bool {
         let ext = (relPath as NSString).pathExtension.lowercased()
         return ext == "md" || ext == "mdx" || ext == "markdown"
@@ -1704,7 +1947,6 @@ final class SiteWindowModel {
         do {
             guard let updated = try await SiteStore.shared.setDisplayName(title, for: id) else { return }
             site = updated
-            navigator?.updateWebsiteTitle(updated.name)
         } catch {
             await LogCenter.shared.append(
                 source: "editor", stream: .stderr,
@@ -1814,6 +2056,23 @@ final class SiteWindowModel {
                 relativePath: filePath, before: nil, after: createdContents(at: filePath))
         }
         return result
+    }
+
+    /// Whether this site can publish restricted (`visibility: contacts`) posts right now — a
+    /// resolvable Micropub session must exist (#1566 design §5.1). Gates the New Post sheet's
+    /// visibility picker.
+    func canPublishRestrictedPosts() async -> Bool {
+        guard let site else { return false }
+        return await restrictedPostPublisher.isAvailable(siteID: site.id, sourceDirectory: site.sourceDirectory)
+    }
+
+    /// Creates a restricted post directly via Micropub — never touches `Source/`, so unlike
+    /// `createPost(title:)` this never calls `refreshAfterContentMutation()` or
+    /// `registerContentUndo(...)`, both of which assume a `Source/`-relative file path.
+    func createRestrictedPost(title: String, body: String) async -> ComposerCreateOutcome {
+        guard let site else { return .siteNotFound }
+        return await restrictedPostPublisher.createPost(
+            title: title, body: body, siteID: site.id, sourceDirectory: site.sourceDirectory)
     }
 
     /// Components aren't tracked in `SiteContentGraph` at all, so there's no change-stream event to
@@ -2140,6 +2399,9 @@ final class SiteWindowModel {
     /// after the first content create/delete (#660).
     func refreshContentGraph(siteID: String, sourceDirectory: URL) async {
         await contentGraph.rescan(siteID: siteID, projectRoot: sourceDirectory)
+        // Mirror the freshly-scanned pages into `scannedPages` so the synchronous
+        // `effectPlacementController` can resolve a route to its real source file.
+        scannedPages = await contentGraph.pages(for: siteID)
     }
 
     func loadAndStart(siteID: String?, openSitesWindow: () -> Void, dismissSiteWindow: @escaping () -> Void) async {
@@ -2172,9 +2434,12 @@ final class SiteWindowModel {
         // the previous site's route would be exactly the kind of staleness
         // `effectPlacementController`'s cache is meant to avoid.
         cachedEffectPlacementController = nil
+        // Same reasoning for the page snapshot the controller's path is resolved from: it belongs
+        // to whichever site was attached before, and `refreshContentGraph` below repopulates it.
+        scannedPages = []
         // Idempotent per-site setup (#768): merges the template's placeable-effect entries into
         // this site's `blocks.manifest.json` once per attach, not on every Effects gallery open.
-        syncBlockManifest(site: resolved)
+        await syncBlockManifest(site: resolved)
         // Constructed once and threaded into every child model below instead of each one
         // separately re-deriving `id`/`sourceDirectory`/`packageURL`/`configDirectory` from
         // `resolved` at its own call site (#822) — see `CurrentSite`'s own doc comment.
@@ -2437,7 +2702,7 @@ final class SiteWindowModel {
         navModel.registerUndo = { [weak self] mutation in
             self?.contentUndoCoordinator.register(mutation)
         }
-        navModel.start(site: currentSite, websiteTitle: currentSite.name)
+        navModel.start(site: currentSite)
         navigator = navModel
         graphExplorer.start(site: currentSite)
         cleanup.configure(site: currentSite)

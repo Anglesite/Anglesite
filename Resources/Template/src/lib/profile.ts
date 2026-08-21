@@ -17,6 +17,12 @@ export function siteProfile(): SiteProfile {
   return (Object.values(mods)[0]?.default ?? {}) as SiteProfile;
 }
 
+/** Whether `src/data/profile.json` exists at all — distinct from `siteProfile()`, which
+ * collapses "absent" and "present but empty" to the same `{}` return value. */
+export function profileExists(): boolean {
+  return Object.keys(mods).length > 0;
+}
+
 /** The site owner's display name, when configured — used as the `author` of Article/BlogPosting. */
 export function ownerName(): string | undefined {
   const name = siteProfile().name;

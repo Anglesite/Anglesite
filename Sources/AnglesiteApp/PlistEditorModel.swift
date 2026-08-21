@@ -160,6 +160,16 @@ final class PlistEditorModel {
     /// The most recently loaded `SiteSettings`, the base for toggle read-modify-write saves.
     private var workerSettings = SiteSettings()
 
+    /// The Inbox Capture section's "forward to email" text field (#1570) — pre-filled by
+    /// `loadWorkers()` from `DeployCoordinator.resolveInboxForwardEmail` (`anglesite.json`'s
+    /// `email.inboxForwardAddress`). Mutable, like `activityPubUsername`, so the Workers tab can
+    /// bind a `TextField` directly for live typing; `saveInboxForwardEmail(_:)` is the explicit
+    /// commit step. A dedicated field rather than reusing `email.dmarcReportEmail` — see that
+    /// field's doc comment (`DomainConfig.Email`) for why forwarding must be an explicit,
+    /// separate opt-in.
+    var inboxForwardEmail = ""
+    private(set) var inboxForwardEmailError: String?
+
     /// The ActivityPub handle text field's current value (#1239) — pre-filled with
     /// `DeployCoordinator.resolveEffectiveActivityPubUsername` (the `.site-config` `AP_USERNAME`
     /// override, or the hostname-derived default) by `loadWorkers()`. Mutable (like
@@ -1028,7 +1038,12 @@ final class PlistEditorModel {
         try await CloudflareAPICredentials.resolve(secretStore: keychain, diagnosticSource: "analytics")
     }
 
-    private static func isWebsiteTitleEntry(_ entry: PlistDocumentIO.PlistEntry) -> Bool {
+    /// Which plist entry is the website title. Internal (not `private`) because
+    /// `WebsiteInspectorModel` (#714) is a second consumer — this stays the single owner of
+    /// "which plist entry is the title" rather than duplicating the key list there. Pure and
+    /// stateless, so `nonisolated` even though this type is `@MainActor`: that second consumer
+    /// calls it from inside a `Task.detached` block, off the main actor.
+    nonisolated static func isWebsiteTitleEntry(_ entry: PlistDocumentIO.PlistEntry) -> Bool {
         entry.key == "AnglesiteDisplayName" || entry.key == "displayName"
     }
 
@@ -1071,6 +1086,8 @@ final class PlistEditorModel {
         workerSettings = settings
         inboxCaptureEnabled = settings.inboxCaptureEnabled ?? false
         inboxCaptureNamespaceID = settings.provisionedWorkerResources?.inboxKVNamespaceID
+        inboxForwardEmail = DeployCoordinator.resolveInboxForwardEmail(sourceDirectory: sourceDirectory) ?? ""
+        inboxForwardEmailError = nil
         workerLastDeployedIDs = settings.lastDeployedWorkerIDs ?? []
         let catalog = await workerCatalogProvider()
         let snapshot = graphSnapshotProvider()
@@ -1213,6 +1230,28 @@ final class PlistEditorModel {
         workerSettings = settings
         inboxCaptureEnabled = true
         inboxCaptureError = nil
+    }
+
+    /// Persists the `/inbox` email-forwarding destination to `anglesite.json`'s
+    /// `email.inboxForwardAddress` (#1570) — a dedicated field the owner explicitly opts into
+    /// here, deliberately not reused from `email.dmarcReportEmail` (see `DomainConfig.Email`'s
+    /// doc comment). A blank value writes an explicit empty string (not simply omitting the
+    /// write) so it actually clears a previously-set address on disk —
+    /// `DomainConfigStore.save`'s merge only preserves keys the caller doesn't mention, so
+    /// turning forwarding back off has to write through, not just skip the write.
+    func saveInboxForwardEmail(_ newValue: String) {
+        let trimmed = newValue.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard trimmed.isEmpty || trimmed.contains("@") else {
+            inboxForwardEmailError = String(localized: "Enter a valid email address.")
+            return
+        }
+        inboxForwardEmailError = nil
+        inboxForwardEmail = trimmed
+        DomainConfigStore.update(sourceDirectory: sourceDirectory) { config in
+            var email = config.email ?? DomainConfig.Email()
+            email.inboxForwardAddress = trimmed
+            config.email = email
+        }
     }
 
     /// Loads what the Social tab shows: persisted `SiteSettings` (for the Atmosphere toggle) and

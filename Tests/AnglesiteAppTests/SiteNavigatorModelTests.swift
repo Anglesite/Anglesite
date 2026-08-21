@@ -25,7 +25,7 @@ struct SiteNavigatorModelTests {
             posts: [], images: []
         )
         let model = SiteNavigatorModel(graph: graph)
-        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root), websiteTitle: "Test")
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
         while model.nodes.isEmpty { await Task.yield() }
 
         let id = try #require(flatten(model.nodes).first { $0.title == "About" }?.id)
@@ -36,26 +36,28 @@ struct SiteNavigatorModelTests {
 
     /// Components/styles no longer appear in the tree at all (#714 slice 1 — they move to the
     /// Website Settings surface in a later slice), so the non-content-row case this used to cover
-    /// with a component file is now exercised via the website-settings row, which is always
-    /// present once the tree is non-empty and carries a `.websiteSettings` (non-route) target.
-    @Test("canDelete and canDuplicate are false for the website-settings row")
-    func canDeleteAndDuplicateWebsiteSettingsRowIsFalse() async throws {
+    /// with a component file is now exercised via a directory row, the only remaining non-route
+    /// (`.directory`) target once the pinned website row was also removed (#714 v2 slice 1).
+    @Test("canDelete and canDuplicate are false for a directory row")
+    func canDeleteAndDuplicateDirectoryRowIsFalse() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let graph = SiteContentGraph()
         await graph.load(
             siteID: "site-1",
-            pages: [SiteContentGraph.Page(
-                id: "site-1:page:/about", siteID: "site-1", route: "/about",
-                filePath: "src/pages/about.astro", title: "About", lastModified: Date())],
-            posts: [], images: []
+            pages: [],
+            posts: [SiteContentGraph.Post(
+                id: "site-1:post:hello", siteID: "site-1", collection: "notes", slug: "hello",
+                title: "Hello", draft: false, publishDate: Date(), tags: [],
+                filePath: "src/content/notes/hello.md", lastModified: Date())],
+            images: []
         )
         let model = SiteNavigatorModel(graph: graph)
-        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root), websiteTitle: "Test")
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
         while model.nodes.isEmpty { await Task.yield() }
 
-        let id = try #require(model.nodes.first { $0.kind == .website }?.id)
+        let id = try #require(model.nodes.first { if case .directory = $0.kind { return true }; return false }?.id)
 
         #expect(model.canDelete(id) == false)
         #expect(model.canDuplicate(id) == false)
@@ -84,7 +86,7 @@ struct SiteNavigatorModelTests {
             posts: [], images: []
         )
         let model = SiteNavigatorModel(graph: graph)
-        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root), websiteTitle: "Test")
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
         while model.nodes.isEmpty { await Task.yield() }
         let id = try #require(flatten(model.nodes).first { $0.title == "About" }?.id)
 
@@ -113,7 +115,7 @@ struct SiteNavigatorModelTests {
             posts: [], images: []
         )
         let model = SiteNavigatorModel(graph: graph)
-        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root), websiteTitle: "Test")
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
         while model.nodes.isEmpty { await Task.yield() }
         let id = try #require(flatten(model.nodes).first { $0.title == "About" }?.id)
         model.selection = id
@@ -123,23 +125,25 @@ struct SiteNavigatorModelTests {
         #expect(model.deletableSelection() == nil)
     }
 
-    @Test("deletableSelection is nil for the non-deletable website-settings row")
-    func deletableSelectionNilForWebsiteSettingsRow() async throws {
+    @Test("deletableSelection is nil for the non-deletable directory row")
+    func deletableSelectionNilForDirectoryRow() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let graph = SiteContentGraph()
         await graph.load(
             siteID: "site-1",
-            pages: [SiteContentGraph.Page(
-                id: "site-1:page:/about", siteID: "site-1", route: "/about",
-                filePath: "src/pages/about.astro", title: "About", lastModified: Date())],
-            posts: [], images: []
+            pages: [],
+            posts: [SiteContentGraph.Post(
+                id: "site-1:post:hello", siteID: "site-1", collection: "notes", slug: "hello",
+                title: "Hello", draft: false, publishDate: Date(), tags: [],
+                filePath: "src/content/notes/hello.md", lastModified: Date())],
+            images: []
         )
         let model = SiteNavigatorModel(graph: graph)
-        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root), websiteTitle: "Test")
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
         while model.nodes.isEmpty { await Task.yield() }
-        let id = try #require(model.nodes.first { $0.kind == .website }?.id)
+        let id = try #require(model.nodes.first { if case .directory = $0.kind { return true }; return false }?.id)
         model.selection = id
 
         #expect(model.deletableSelection() == nil)
@@ -159,7 +163,7 @@ struct SiteNavigatorModelTests {
             posts: [], images: []
         )
         let model = SiteNavigatorModel(graph: graph)
-        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root), websiteTitle: "Test")
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
         while model.nodes.isEmpty { await Task.yield() }
         let id = try #require(flatten(model.nodes).first { $0.title == "About" }?.id)
 
@@ -182,30 +186,32 @@ struct SiteNavigatorModelTests {
             images: []
         )
         let model = SiteNavigatorModel(graph: graph)
-        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root), websiteTitle: "Test")
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
         while model.nodes.isEmpty { await Task.yield() }
         let id = try #require(flatten(model.nodes).first { $0.title == "Hello" }?.id)
 
         #expect(model.fileURL(for: id) == root.appendingPathComponent("src/content/blog/hello.md"))
     }
 
-    @Test("fileURL(for:) is nil for the website-settings row")
-    func fileURLNilForWebsiteSettingsRow() async throws {
+    @Test("fileURL(for:) is nil for a directory row")
+    func fileURLNilForDirectoryRow() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: root) }
         let graph = SiteContentGraph()
         await graph.load(
             siteID: "site-1",
-            pages: [SiteContentGraph.Page(
-                id: "site-1:page:/about", siteID: "site-1", route: "/about",
-                filePath: "src/pages/about.astro", title: "About", lastModified: Date())],
-            posts: [], images: []
+            pages: [],
+            posts: [SiteContentGraph.Post(
+                id: "site-1:post:hello", siteID: "site-1", collection: "notes", slug: "hello",
+                title: "Hello", draft: false, publishDate: Date(), tags: [],
+                filePath: "src/content/notes/hello.md", lastModified: Date())],
+            images: []
         )
         let model = SiteNavigatorModel(graph: graph)
-        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root), websiteTitle: "Test")
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
         while model.nodes.isEmpty { await Task.yield() }
-        let id = try #require(model.nodes.first { $0.kind == .website }?.id)
+        let id = try #require(model.nodes.first { if case .directory = $0.kind { return true }; return false }?.id)
 
         #expect(model.fileURL(for: id) == nil)
     }
@@ -236,8 +242,7 @@ struct SiteNavigatorModelRedirectsTests {
         let graph = SiteContentGraph()
         let model = SiteNavigatorModel(graph: graph)
         model.start(
-            site: CurrentSite(id: "site1", packageURL: sourceDirectory, sourceDirectory: sourceDirectory),
-            websiteTitle: "Test")
+            site: CurrentSite(id: "site1", packageURL: sourceDirectory, sourceDirectory: sourceDirectory))
         return model
     }
 
@@ -303,7 +308,7 @@ struct SiteNavigatorModelPublishGatingTests {
         )
 
         let model = SiteNavigatorModel(graph: graph)
-        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root), websiteTitle: "Test")
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
         while model.nodes.isEmpty { await Task.yield() }
 
         #expect(model.canPublish("site-1:post:draft-note") == true)

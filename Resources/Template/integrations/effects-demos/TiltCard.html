@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Tilt Card</title>
+<style>body{margin:0;position:relative;min-height:100vh;display:grid;place-items:center;
+font-family:-apple-system,system-ui,sans-serif;background:Canvas;color:CanvasText;color-scheme:light dark}</style>
+<style>
+  .tilt-card {
+    display: block;
+    max-width: 320px;
+    padding: 1.5em;
+    border-radius: 12px;
+    background: color-mix(in srgb, currentColor 6%, transparent);
+    border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+    transition: transform 0.15s ease-out;
+    transform-style: preserve-3d;
+  }
+  .tilt-card img {
+    width: 100%;
+    border-radius: 8px;
+    margin-bottom: 0.75em;
+  }
+</style>
+</head><body>
+<div class="tilt-card" data-astro-cid-eoobulao><h3 data-astro-cid-eoobulao>Card title</h3><p data-astro-cid-eoobulao>A short line of supporting copy.</p></div>
+<script>const reduceMotion = matchMedia("(prefers-reduced-motion: reduce)").matches;
+const canHover = matchMedia("(hover: hover) and (pointer: fine)").matches;
+if (!reduceMotion && canHover) {
+    document.querySelectorAll(".tilt-card").forEach((card) => {
+        card.addEventListener("pointermove", (ev) => {
+            const rect = card.getBoundingClientRect();
+            const px = (ev.clientX - rect.left) / rect.width - 0.5;
+            const py = (ev.clientY - rect.top) / rect.height - 0.5;
+            card.style.transform = `perspective(600px) rotateX(${py * -8}deg) rotateY(${px * 8}deg)`;
+        });
+        card.addEventListener("pointerleave", () => {
+            card.style.transform = "perspective(600px) rotateX(0) rotateY(0)";
+        });
+    });
+}
+</script>
+</body></html>

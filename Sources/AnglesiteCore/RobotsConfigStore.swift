@@ -177,7 +177,7 @@ public enum RobotsConfigFile {
     /// through — is what keeps a stored entry matchable at build time (#1093). Idempotent: a route
     /// that already ends in `/` (collection entries, the home page's `/`) is returned unchanged.
     static func normalizedRoutePath(_ path: String) -> String {
-        path.hasSuffix("/") ? path : path + "/"
+        ContentScaffold.servedRoute(path)
     }
 
     /// Applies the desired noindex/disallowCrawl state for `source`, writing back only if an entry
