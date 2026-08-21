@@ -1,5 +1,5 @@
 // @vitest-environment jsdom
-import { describe, it, expect, vi } from "vitest";
+import { describe, it, expect } from "vitest";
 import { WysiwygEngine } from "../src/engine.js";
 import { RichTextEditor } from "../src/rich-text.js";
 import { KeyboardNavigation } from "../src/keyboard-nav.js";

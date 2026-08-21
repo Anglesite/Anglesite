@@ -51,7 +51,7 @@ describe("AccessibilityAnnotator (#1589)", () => {
 
   it("re-annotates after a model update (e.g. a new block inserted)", async () => {
     document.body.innerHTML = `<h2 data-anglesite-block-id="b1"></h2>`;
-    const engine = new WysiwygEngine({ ...fixtureModel(), rootIds: ["b1"], blocks: { b1: fixtureModel().blocks.b1 } }, fixtureTransport());
+    const engine = new WysiwygEngine({ ...fixtureModel(), rootIds: ["b1"], blocks: { b1: fixtureModel().blocks.b1! } }, fixtureTransport());
     new AccessibilityAnnotator(engine, { h2: "Heading" });
 
     document.body.innerHTML += `<div data-anglesite-block-id="b2"></div>`;
