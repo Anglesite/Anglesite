@@ -205,6 +205,46 @@ struct WorkerActivationTests {
         #expect(advisory!.contains("no conformance suite reported"))
     }
 
+    @Test("micropubConformanceAdvisory is non-nil while @dwk/micropub is pending")
+    func micropubAdvisoryReportsWhilePending() {
+        let status = try! WorkersConformanceReader.parse("""
+        { "packages": { "@dwk/micropub": { "standard": "Micropub", "suites": { "micropub.rocks": { "status": "pending" } }, "integration": { "status": "pending" } } } }
+        """.data(using: .utf8)!)
+        #expect(WorkerActivation.micropubConformanceAdvisory(conformance: status) != nil)
+    }
+
+    @Test("micropubConformanceAdvisory doesn't blame Micropub when a sibling V-3 package is the actual gap")
+    func micropubAdvisoryDoesNotNameMicropubWhenItsSiblingIsBlocked() {
+        // @dwk/micropub itself is fully release-ready; @dwk/webmention is still pending. The
+        // returned text must not single out Micropub, since it isn't the actual blocker (#800
+        // review feedback).
+        let status = try! WorkersConformanceReader.parse("""
+        {
+          "packages": {
+            "@dwk/micropub": { "standard": "Micropub", "suites": { "micropub.rocks": { "status": "passing" } }, "integration": { "status": "passing" } },
+            "@dwk/webmention": { "standard": "Webmention", "suites": { "webmention.rocks/sender": { "status": "pending" }, "webmention.rocks/receiver": { "status": "pending" } }, "integration": { "status": "pending" } }
+          }
+        }
+        """.data(using: .utf8)!)
+        let advisory = WorkerActivation.micropubConformanceAdvisory(conformance: status)
+        #expect(advisory != nil)
+        #expect(advisory?.contains("Micropub") == false)
+    }
+
+    @Test("micropubConformanceAdvisory is nil once V-3's required packages are all release-ready")
+    func micropubAdvisoryNilOnceV3Ready() {
+        let status = try! WorkersConformanceReader.parse("""
+        {
+          "packages": {
+            "@dwk/micropub": { "standard": "Micropub", "suites": { "micropub.rocks": { "status": "passing" } }, "integration": { "status": "passing" } },
+            "@dwk/webmention": { "standard": "Webmention", "suites": { "webmention.rocks/sender": { "status": "passing" }, "webmention.rocks/receiver": { "status": "passing" } }, "integration": { "status": "passing" } },
+            "@dwk/websub": { "standard": "WebSub", "suites": {}, "integration": { "status": "passing" } }
+          }
+        }
+        """.data(using: .utf8)!)
+        #expect(WorkerActivation.micropubConformanceAdvisory(conformance: status) == nil)
+    }
+
     @Test("componentNodeIDs resolves a catalog componentID to a real prefixed component node by filename stem")
     func componentNodeIDsResolvesRealGraphNode() {
         let snapshot = SiteGraphExplorerSnapshot(

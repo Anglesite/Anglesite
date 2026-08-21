@@ -80,23 +80,55 @@ public final class MicropubOnboardingModel {
     /// on the next sign-in or by the composer's own flow; discovery is not persisted).
     public private(set) var micropubClient: MicropubClient?
 
+    /// Honest-labeling advisory for posting's V-3 conformance gate (#800/#801), set by
+    /// ``refreshConformanceAdvisory()``. `nil` until that runs, and again once V-3 is
+    /// release-ready — never blocks or hides sign-in/posting either way; see
+    /// `WorkerActivation.micropubConformanceAdvisory`'s doc comment.
+    public private(set) var conformanceAdvisory: String?
+
     private var siteID: String?
     private var siteURL: URL?
     private let secretStore: any SecretStore
     private let discovery: MicropubEndpointDiscovery
     private let indieAuthClient: SiteIndieAuthClient
     private let webAuthenticator: any SiteWebAuthenticating
+    /// Fetches the current `@dwk/workers` conformance snapshot for ``refreshConformanceAdvisory()``.
+    /// A closure, not a concrete `WorkersConformanceFetcher`, so tests can substitute a fixture
+    /// without any network I/O — the same DI shape `discovery`/`indieAuthClient` already use via
+    /// their injected `transport` closures. Never called by ``configure(site:)`` itself, so every
+    /// existing "no network I/O" test on `configure` stays true; callers opt in explicitly.
+    private let conformanceStatus: @Sendable () async -> WorkersConformanceStatus
 
     public init(
         secretStore: any SecretStore = PlatformSecretStore.make(),
         discovery: MicropubEndpointDiscovery = MicropubEndpointDiscovery(),
         indieAuthClient: SiteIndieAuthClient = SiteIndieAuthClient(),
-        webAuthenticator: any SiteWebAuthenticating
+        webAuthenticator: any SiteWebAuthenticating,
+        conformanceStatus: @escaping @Sendable () async -> WorkersConformanceStatus = { await MicropubOnboardingModel.fetchProductionConformanceStatus() }
     ) {
         self.secretStore = secretStore
         self.discovery = discovery
         self.indieAuthClient = indieAuthClient
         self.webAuthenticator = webAuthenticator
+        self.conformanceStatus = conformanceStatus
+    }
+
+    /// Refreshes ``conformanceAdvisory`` from the injected `conformanceStatus` fetch — call
+    /// separately from ``configure(site:)``, e.g. sequentially after it in the same `.task`.
+    /// Safe to await directly rather than detaching into its own `Task`: `configure(site:)`
+    /// already drives every other piece of visible state, so SwiftUI has already re-rendered
+    /// sign-in/connect by the time this runs, and awaiting it inline (instead of a separate
+    /// unstructured `Task`) ties its lifetime to the enclosing `.task`, so it's cancelled — not
+    /// orphaned — if the view disappears mid-fetch (#800 review feedback).
+    public func refreshConformanceAdvisory() async {
+        conformanceAdvisory = WorkerActivation.micropubConformanceAdvisory(conformance: await conformanceStatus())
+    }
+
+    /// Production default for `conformanceStatus`: the shared bounded-timeout production fetcher
+    /// (see `WorkersConformanceFetcher.productionBounded()`), the same one `DeployModel` uses for
+    /// its debug-pane advisory.
+    public static func fetchProductionConformanceStatus() async -> WorkersConformanceStatus {
+        await WorkersConformanceFetcher.productionBounded().status()
     }
 
     /// Records which site this model signs in for, resolves its deployed URL from

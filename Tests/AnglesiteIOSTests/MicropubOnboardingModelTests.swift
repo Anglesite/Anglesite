@@ -102,13 +102,17 @@ struct MicropubOnboardingModelTests {
     private func makeModel(
         store: InMemorySecretStore = InMemorySecretStore(),
         webAuthenticator: any SiteWebAuthenticating = EchoingWebAuthenticator(),
-        transport: @escaping @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse) = siteTransport()
+        transport: @escaping @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse) = siteTransport(),
+        conformanceStatus: @escaping @Sendable () async -> WorkersConformanceStatus = {
+            try! WorkersConformanceReader.parse(Data(#"{"packages":{}}"#.utf8))
+        }
     ) -> MicropubOnboardingModel {
         MicropubOnboardingModel(
             secretStore: store,
             discovery: MicropubEndpointDiscovery(transport: transport),
             indieAuthClient: SiteIndieAuthClient(transport: transport),
-            webAuthenticator: webAuthenticator
+            webAuthenticator: webAuthenticator,
+            conformanceStatus: conformanceStatus
         )
     }
 
@@ -295,5 +299,42 @@ struct MicropubOnboardingModelTests {
             return
         }
         #expect(try store.readMicropubAccessToken(siteID: site.id.uuidString) == nil)
+    }
+
+    @Test("configure never triggers the conformance fetch — conformanceAdvisory stays nil until refreshed")
+    func configureDoesNotFetchConformance() async throws {
+        let model = makeModel(conformanceStatus: {
+            Issue.record("conformance fetch must not run from configure()")
+            return try! WorkersConformanceReader.parse(Data(#"{"packages":{}}"#.utf8))
+        })
+        await model.configure(site: try makePackage(siteURL: Self.siteOrigin))
+        #expect(model.conformanceAdvisory == nil)
+    }
+
+    @Test("refreshConformanceAdvisory is nil once V-3's required packages are release-ready")
+    func refreshConformanceAdvisoryNilWhenReady() async throws {
+        let status = try WorkersConformanceReader.parse("""
+        {
+          "packages": {
+            "@dwk/micropub": { "standard": "Micropub", "suites": { "micropub.rocks": { "status": "passing" } }, "integration": { "status": "passing" } },
+            "@dwk/webmention": { "standard": "Webmention", "suites": { "webmention.rocks/sender": { "status": "passing" }, "webmention.rocks/receiver": { "status": "passing" } }, "integration": { "status": "passing" } },
+            "@dwk/websub": { "standard": "WebSub", "suites": {}, "integration": { "status": "passing" } }
+          }
+        }
+        """.data(using: .utf8)!)
+        let model = makeModel(conformanceStatus: { status })
+        await model.refreshConformanceAdvisory()
+        #expect(model.conformanceAdvisory == nil)
+    }
+
+    @Test("refreshConformanceAdvisory surfaces an honest label while @dwk/micropub is still pending")
+    func refreshConformanceAdvisoryReportsPending() async throws {
+        let status = try WorkersConformanceReader.parse("""
+        { "packages": { "@dwk/micropub": { "standard": "Micropub", "suites": { "micropub.rocks": { "status": "pending" } }, "integration": { "status": "pending" } } } }
+        """.data(using: .utf8)!)
+        let model = makeModel(conformanceStatus: { status })
+        await model.refreshConformanceAdvisory()
+        #expect(model.conformanceAdvisory == WorkerActivation.micropubConformanceAdvisory(conformance: status))
+        #expect(model.conformanceAdvisory != nil)
     }
 }

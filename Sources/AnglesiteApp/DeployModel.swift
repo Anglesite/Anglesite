@@ -817,15 +817,7 @@ final class DeployModel {
         // Advisory-only (#359): surfaces @dwk/workers conformance status for the active set's
         // gated phase, if any. Never blocks — a fetch failure degrades to an empty status inside
         // WorkersConformanceFetcher, and conformanceAdvisory returning nil just skips the log.
-        // Bounded to a short request timeout (rather than URLSession.shared's ~60s default) so
-        // an unreachable raw.githubusercontent.com (offline dev, corporate firewall) can't add
-        // meaningful latency to every deploy before falling back to cache/empty.
-        let conformanceSessionConfig = URLSessionConfiguration.default
-        conformanceSessionConfig.timeoutIntervalForRequest = 5
-        let conformanceStatus = await WorkersConformanceFetcher(
-            statusURL: WorkersConformanceFetcher.productionStatusURL,
-            session: URLSession(configuration: conformanceSessionConfig)
-        ).status()
+        let conformanceStatus = await WorkersConformanceFetcher.productionBounded().status()
         if let advisory = WorkerActivation.conformanceAdvisory(
             activeIDs: effectiveActiveIDs, conformance: conformanceStatus
         ) {

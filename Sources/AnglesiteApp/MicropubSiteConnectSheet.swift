@@ -112,6 +112,7 @@ struct MicropubSiteConnectSheet: View {
             let model = MicropubOnboardingModel(webAuthenticator: SiteMicropubSignIn())
             self.model = model
             await model.configure(site: discovered)
+            await model.refreshConformanceAdvisory()
         }
     }
 
@@ -175,6 +176,7 @@ struct MicropubSiteConnectSheet: View {
             Button("Sign In") { Task { await model?.signIn() } }
                 .buttonStyle(.borderedProminent)
                 .padding(.top, 8)
+            ConformanceAdvisoryLabel(advisory: model?.conformanceAdvisory)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -196,6 +198,7 @@ struct MicropubSiteConnectSheet: View {
             Button("Done") { dismiss() }
                 .buttonStyle(.borderedProminent)
                 .padding(.top, 8)
+            ConformanceAdvisoryLabel(advisory: model?.conformanceAdvisory)
         }
         .padding()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
