@@ -21,6 +21,8 @@ describe("wysiwyg engine host mount entry point (#1225)", () => {
     delete (window as any).__anglesiteWysiwygEngine;
     delete (window as any).__anglesiteWysiwygRichTextEditor;
     delete (window as any).__anglesiteWysiwygQualityGates;
+    delete (window as any).__anglesiteWysiwygKeyboardNav;
+    delete (window as any).__anglesiteWysiwygAccessibility;
     delete (window as any).__anglesiteWysiwygHost;
   });
 
@@ -88,5 +90,64 @@ describe("wysiwyg engine host mount entry point (#1225)", () => {
 
     expect(disposeSpy).toHaveBeenCalledOnce();
     expect(window.__anglesiteWysiwygQualityGates).toBeUndefined();
+  });
+
+  it("mount() constructs KeyboardNavigation and AccessibilityAnnotator", () => {
+    window.__anglesiteWysiwygMount!.mount(model, {});
+    expect(window.__anglesiteWysiwygKeyboardNav).toBeDefined();
+    expect(window.__anglesiteWysiwygAccessibility).toBeDefined();
+  });
+
+  it("unmount() disposes and clears the keyboard-nav and accessibility globals too", () => {
+    window.__anglesiteWysiwygMount!.mount(model, {});
+    window.__anglesiteWysiwygMount!.unmount();
+    expect(window.__anglesiteWysiwygKeyboardNav).toBeUndefined();
+    expect(window.__anglesiteWysiwygAccessibility).toBeUndefined();
+  });
+
+  it("mount() posts a selection-changed message when the engine's selection changes", () => {
+    const postMessage = vi.fn();
+    window.webkit = { messageHandlers: { wysiwyg: { postMessage } } };
+
+    const engine = window.__anglesiteWysiwygMount!.mount(model, {});
+    engine.selection.select(null); // no-op (already null) — proves the listener doesn't fire spuriously
+    expect(postMessage).not.toHaveBeenCalled();
+
+    document.body.innerHTML = `<p data-anglesite-block-id="b1"></p>`;
+    engine.selection.select("b1");
+    expect(postMessage).toHaveBeenCalledWith({ type: "selection-changed", blockId: "b1" });
+
+    delete (window as any).webkit;
+  });
+
+  /**
+   * #1589 final review, Fix 5: `WYSIWYGBlockContextMenu` (native, Swift) sets
+   * `controller.selectedBlockId` directly on right-click, but nothing told `engine.selection` about
+   * it — so a subsequent arrow-key press computed from JS's own (possibly stale) selection and could
+   * silently relocate the user's selection to a different block. The `contextmenu` listener in
+   * mount.ts must now also call `engine.selection.select(blockId)` before posting its message.
+   *
+   * jsdom has no layout engine, so `Document#elementFromPoint` always returns null (see
+   * hit-test.test.ts) — there's no way to land a real `contextmenu` event on a point and have
+   * `engine.hitTest()` resolve it naturally. Following that file's own documented workaround, stub
+   * `elementFromPoint` directly so `hitTest()` resolves to the fixture block.
+   */
+  it("contextmenu updates engine.selection to the right-clicked block", () => {
+    const oneBlockModel: BlockModel = {
+      path: "src/pages/index.astro",
+      version: "v0",
+      rootIds: ["b1"],
+      blocks: { b1: { id: "b1", kind: "text", componentName: "p", props: {}, slots: {}, sourceSpan: [0, 0], richText: [] } },
+    };
+    document.body.innerHTML = `<p data-anglesite-block-id="b1"></p>`;
+    const el = document.querySelector('[data-anglesite-block-id="b1"]') as HTMLElement;
+    document.elementFromPoint = vi.fn().mockReturnValue(el);
+
+    const engine = window.__anglesiteWysiwygMount!.mount(oneBlockModel, {});
+    expect(engine.selection.current).toBeNull();
+
+    el.dispatchEvent(new MouseEvent("contextmenu", { bubbles: true, cancelable: true, clientX: 5, clientY: 5 }));
+
+    expect(engine.selection.current).toBe("b1");
   });
 });

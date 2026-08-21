@@ -124,18 +124,34 @@ struct PreviewView: NSViewRepresentable {
     /// registration) and `updateNSView` (registration on an edit-mode-off → on transition, #1225
     /// final-review fix wave, Finding 6) so the two don't drift.
     private func makeWYSIWYGHandler(for controller: WYSIWYGCanvasController, coordinator: Coordinator) -> WYSIWYGScriptHandler {
-        WYSIWYGScriptHandler(transport: controller) { [weak coordinator] blockId, point in
-            Task { @MainActor in
-                guard let webView = coordinator?.webView else { return }
-                let menu = WYSIWYGBlockContextMenu.build(for: blockId, controller: controller)
-                // `point` is the DOM `contextmenu` event's `clientX`/`clientY` (top-left origin);
-                // `WKWebView` is a non-flipped AppKit view (bottom-left origin), so popping the
-                // menu up at the raw DOM point mirrors it vertically — near the top of the page it
-                // appeared near the bottom of the view (#1225 final-review fix wave, Finding 3).
-                let converted = Self.convertContextMenuPoint(point, viewHeight: webView.bounds.height)
-                menu.popUp(positioning: nil, at: converted, in: webView)
+        WYSIWYGScriptHandler(
+            transport: controller,
+            onContextMenu: { [weak coordinator] blockId, point in
+                Task { @MainActor in
+                    guard let webView = coordinator?.webView else { return }
+                    let menu = WYSIWYGBlockContextMenu.build(for: blockId, controller: controller)
+                    // `point` is the DOM `contextmenu` event's `clientX`/`clientY` (top-left origin);
+                    // `WKWebView` is a non-flipped AppKit view (bottom-left origin), so popping the
+                    // menu up at the raw DOM point mirrors it vertically — near the top of the page it
+                    // appeared near the bottom of the view (#1225 final-review fix wave, Finding 3).
+                    let converted = Self.convertContextMenuPoint(point, viewHeight: webView.bounds.height)
+                    menu.popUp(positioning: nil, at: converted, in: webView)
+                }
+            },
+            // Each `selection-changed` bridge message is handled by its own unstructured `Task`
+            // (`WYSIWYGScriptHandler`), with no ordering guarantee relative to other such messages —
+            // compounded here by this closure's own additional `Task` hop to `MainActor`. Under rapid
+            // arrow-key auto-repeat this could theoretically let two in-flight messages complete out
+            // of order, briefly landing `selectedBlockId` on a stale block until the next
+            // selection-changed message corrects it. Accepted for now per the #1589 final review — a
+            // real fix needs a sequencing mechanism (e.g. a monotonic version counter) across the
+            // JS↔native bridge, which is out of scope for this fix wave.
+            onSelectionChanged: { [weak controller] blockId in
+                Task { @MainActor in
+                    controller?.selectedBlockId = blockId
+                }
             }
-        }
+        )
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {

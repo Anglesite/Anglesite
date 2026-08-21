@@ -234,7 +234,7 @@ final class WYSIWYGCanvasController {
     /// Edit Page menu item against an already-`.ready` preview) always has a loaded page.
     func mountEngine() {
         guard let webView else { return }
-        webView.evaluateJavaScript(Self.mountScript(for: model))
+        webView.evaluateJavaScript(Self.mountScript(for: model, displayNames: blockDisplayNames))
     }
 
     /// The `unmount()` counterpart — disposes the mounted engine/rich-text-editor and clears their
@@ -247,22 +247,32 @@ final class WYSIWYGCanvasController {
         webView.evaluateJavaScript(Self.unmountScript)
     }
 
-    /// Builds the `mount(...)` `evaluateJavaScript` string for `model` — factored out of
-    /// `mountEngine()` so it's testable without a real `WKWebView` (`swift test` can't drive one;
-    /// see `WYSIWYGCanvasControllerTests`). JSON-encodes `model` with `JSONEncoder` (matching
-    /// `BlockModel`'s `Codable` conformance, which mirrors `JS/wysiwyg-engine/src/types.ts`'s wire
-    /// format exactly — see `WYSIWYGOps.swift`'s header comment) and splices it into the call
-    /// `mount.ts` exposes. Returns a no-op script (rather than crashing/force-unwrapping) on the
-    /// unexpected case that `model` fails to encode, since `BlockModel`'s fields are all
-    /// straightforwardly `Codable`.
-    static func mountScript(for model: BlockModel) -> String {
-        guard let data = try? JSONEncoder().encode(model), let json = String(data: data, encoding: .utf8) else {
-            return "" // unreachable in practice — BlockModel's fields are all plain Codable
+    /// Builds the `mount(...)` `evaluateJavaScript` string for `model` and `displayNames` — factored
+    /// out of `mountEngine()` so it's testable without a real `WKWebView`. `displayNames` maps
+    /// `componentName` -> the owner-facing name VoiceOver announces for that block
+    /// (`AccessibilityAnnotator`'s `displayName(_:)` on the JS side falls back to the raw
+    /// `componentName` for anything not in this map — see `blockPalette`'s own doc comment for why the
+    /// map is still a small interim stand-in). Returns a no-op script if either fails to encode
+    /// (unreachable in practice — both are plain `Codable`/`Encodable` values).
+    static func mountScript(for model: BlockModel, displayNames: [String: String]) -> String {
+        guard let modelData = try? JSONEncoder().encode(model), let modelJSON = String(data: modelData, encoding: .utf8),
+              let namesData = try? JSONEncoder().encode(displayNames), let namesJSON = String(data: namesData, encoding: .utf8)
+        else {
+            return ""
         }
-        return "window.__anglesiteWysiwygMount?.mount(\(json))"
+        return "window.__anglesiteWysiwygMount?.mount(\(modelJSON), \(namesJSON))"
     }
 
-    /// The `unmount()` counterpart to `mountScript(for:)` — no model to encode, so this is just the
+    /// `componentName -> displayName` built from `blockPalette` — the interim manifest stand-in
+    /// `AccessibilityAnnotator` (JS side) uses to label blocks for VoiceOver (#1589). Uses
+    /// `uniquingKeysWith:` (keeping the first entry) rather than `uniqueKeysWithValues:` — the palette
+    /// is a hardcoded array today, but nothing enforces distinct `componentName`s as it grows, and a
+    /// duplicate must not crash the whole mount call over a labeling concern.
+    private var blockDisplayNames: [String: String] {
+        Dictionary(blockPalette.map { ($0.componentName, $0.displayName) }, uniquingKeysWith: { first, _ in first })
+    }
+
+    /// The `unmount()` counterpart to `mountScript(for:displayNames:)` — no model to encode, so this is just the
     /// literal call string, kept as a `static let` for the same test-without-`WKWebView` reason.
     static let unmountScript = "window.__anglesiteWysiwygMount?.unmount?.()"
 

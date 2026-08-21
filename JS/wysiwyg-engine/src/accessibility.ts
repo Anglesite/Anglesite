@@ -1,0 +1,77 @@
+import type { BlockId } from "./types.js";
+import type { WysiwygEngine, EngineEvent } from "./engine.js";
+import { findBlockElement } from "./selection.js";
+
+/**
+ * Keeps VoiceOver-relevant attributes on each block's rendered element in sync with the model and
+ * selection (design doc §8.6: "VoiceOver navigates blocks by their owner-facing manifest names —
+ * the block model doubles as the accessibility model"). Manages `aria-label`, `aria-current`, and
+ * roving `tabindex` only. Uses `aria-current` rather than `aria-selected` because it's a valid
+ * state on any role, whereas `aria-selected` is only supported on `option`/`row`/`tab`/`gridcell`/
+ * `treeitem`/`columnheader`/`rowheader` roles. Deliberately leaves each block's own native role
+ * (heading, paragraph, etc.) untouched rather than overwriting it — so VoiceOver's rotor and
+ * heading navigation keep working inside the canvas while edit mode is on. Never renders DOM
+ * itself — only annotates elements the host's already-rendered page produced with the block-id
+ * attribute, the same contract `findBlockElement` relies on elsewhere (e.g. `RichTextEditor.enter()`).
+ */
+export class AccessibilityAnnotator {
+  #engine: WysiwygEngine;
+  #displayNames: Record<string, string>;
+  #root: ParentNode;
+  #unsubscribeEngine: () => void;
+  #unsubscribeSelection: () => void;
+
+  constructor(engine: WysiwygEngine, displayNames: Record<string, string>, root: ParentNode = document) {
+    this.#engine = engine;
+    this.#displayNames = displayNames;
+    this.#root = root;
+    this.#annotateAll();
+    this.#unsubscribeEngine = engine.onEvent((event) => this.#onEngineEvent(event));
+    this.#unsubscribeSelection = engine.selection.onChange((id) => this.#onSelectionChange(id));
+  }
+
+  /** The name VoiceOver announces for `componentName` — the interim palette's display name if
+   *  known, otherwise the raw component name (documented interim limitation, same as
+   *  `WYSIWYGCanvasController.stubBlockPalette`'s own doc comment: a real CEM-aligned manifest
+   *  replaces this once #1222's model service supplies one). */
+  displayName(componentName: string): string {
+    return this.#displayNames[componentName] ?? componentName;
+  }
+
+  dispose(): void {
+    this.#unsubscribeEngine();
+    this.#unsubscribeSelection();
+  }
+
+  #onEngineEvent(event: EngineEvent): void {
+    const rerenders =
+      event.type === "model-updated" || event.type === "applied" || (event.type === "rejected" && event.model !== undefined);
+    if (rerenders) this.#annotateAll();
+  }
+
+  #onSelectionChange(selected: BlockId | null): void {
+    const model = this.#engine.modelSync.current;
+    for (const id of model.rootIds) {
+      const el = findBlockElement(id, this.#root) as HTMLElement | null;
+      if (!el) continue;
+      const isSelected = id === selected;
+      el.setAttribute("aria-current", String(isSelected));
+      el.tabIndex = isSelected ? 0 : -1;
+    }
+    if (selected) (findBlockElement(selected, this.#root) as HTMLElement | null)?.focus();
+  }
+
+  #annotateAll(): void {
+    const model = this.#engine.modelSync.current;
+    const selected = this.#engine.selection.current;
+    for (const id of model.rootIds) {
+      const node = model.blocks[id];
+      const el = findBlockElement(id, this.#root) as HTMLElement | null;
+      if (!node || !el) continue;
+      el.setAttribute("aria-label", this.displayName(node.componentName));
+      const isSelected = id === selected;
+      el.setAttribute("aria-current", String(isSelected));
+      el.tabIndex = isSelected ? 0 : -1;
+    }
+  }
+}

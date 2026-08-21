@@ -553,4 +553,24 @@ describe("RichTextEditor", () => {
     expect(editor.activeBlockId).toBeNull();
     expect(el.contentEditable).toBe("false");
   });
+
+  it("exiting via Escape stops the event from reaching a document-level listener", () => {
+    const engine = new WysiwygEngine(
+      { path: "src/pages/index.astro", version: "v0", rootIds: ["b1"], blocks: { b1: { id: "b1", kind: "text", componentName: "p", props: {}, slots: {}, sourceSpan: [0, 0], richText: [] } } },
+      { sendOp: async () => ({ status: "applied", model: { path: "src/pages/index.astro", version: "v1", rootIds: ["b1"], blocks: {} } }), onModelUpdate: () => () => {} },
+    );
+    document.body.innerHTML = `<p data-anglesite-block-id="b1"></p>`;
+    const editor = new RichTextEditor(engine);
+    editor.enter("b1");
+
+    const documentListener = vi.fn();
+    document.addEventListener("keydown", documentListener);
+
+    const el = document.querySelector('[data-anglesite-block-id="b1"]') as HTMLElement;
+    el.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+
+    expect(editor.activeBlockId).toBeNull();
+    expect(documentListener).not.toHaveBeenCalled();
+    document.removeEventListener("keydown", documentListener);
+  });
 });
