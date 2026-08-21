@@ -26,6 +26,7 @@ struct SiteToolbarItemIDTests {
             "deploy",
             "chat",
             "inspector",
+            "wysiwygPalette",
             "styleGuide",
             "sync",
             "securityReports",

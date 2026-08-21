@@ -30,6 +30,8 @@ public enum SiteToolbarItemID: String, CaseIterable, Sendable {
     case deploy
     case chat
     case inspector
+    /// Toggles the native WYSIWYG block palette source list (#1588 Task 20).
+    case wysiwygPalette
     case styleGuide
     /// iCloud sync status badge (#881) — synced/syncing/waiting-for-iCloud/needs-attention.
     case sync

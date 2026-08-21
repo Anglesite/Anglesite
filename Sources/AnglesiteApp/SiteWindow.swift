@@ -24,6 +24,10 @@ struct SiteWindow: View {
     /// Inspector visibility, persisted per window. Defaults to shown (auto-open); the toolbar toggle
     /// flips it and the choice persists across selections.
     @SceneStorage("siteInspector.shown") private var inspectorShown = true
+    /// WYSIWYG block palette visibility (#1588 Task 20). Unlike `inspectorShown`, this isn't
+    /// persisted across launches — the palette is only meaningful while Site ▸ Edit Page is on
+    /// (see the toolbar item's `.disabled`), so there's no stable state to restore between runs.
+    @State private var showWYSIWYGPalette = false
     /// The title shown in the content-delete confirmation dialog. Held separately from
     /// `model.deleteConfirmation` so the title stays stable through the dismiss animation —
     /// mirrors `SiteNavigatorView`'s `candidateToDeleteTitle` for the same reason.
@@ -249,6 +253,20 @@ struct SiteWindow: View {
                         .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
                     HStack(spacing: 0) {
+                        // Leading tool panel (#1588 Task 20): same Divider + fixed-width +
+                        // transition convention the trailing chat/related-pages panels below use,
+                        // just anchored on the leading edge since this is a palette next to the
+                        // canvas rather than an auxiliary content panel.
+                        if showWYSIWYGPalette, model.preview.isEditModeEnabled {
+                            WYSIWYGPaletteView(entries: WYSIWYGCanvasController.stubBlockPalette) { entry in
+                                Task { await model.preview.wysiwygCanvas?.insertBlock(entry) }
+                            }
+                            .frame(width: 220)
+                            .transition(reduceMotion
+                                ? .opacity
+                                : .move(edge: .leading).combined(with: .opacity))
+                            Divider()
+                        }
                         mainPane(for: site)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         if model.chatPresented, let chat = model.chat {
@@ -270,6 +288,7 @@ struct SiteWindow: View {
                     }
                     .animation(.easeInOut(duration: 0.18), value: model.chatPresented)
                     .animation(.easeInOut(duration: 0.18), value: model.relatedPagesPresented)
+                    .animation(.easeInOut(duration: 0.18), value: showWYSIWYGPalette)
                 }
                 if model.deploy.drawerPresented {
                     DeployDrawerView(
@@ -643,6 +662,19 @@ struct SiteWindow: View {
                 .disabled(model.inspectorSelection == nil)
                 .help("Show or hide the inspector")
                 .accessibilityIdentifier(AXID.toolbar(.inspector))
+            }
+
+            // Unconditional per the file's own toolbar-customization rule above: disabled (not
+            // hidden) outside Site ▸ Edit Page, so Customize Toolbar always shows it (#1588 Task 20).
+            ToolbarItem(id: SiteToolbarItemID.wysiwygPalette.rawValue, placement: .primaryAction) {
+                Button {
+                    showWYSIWYGPalette.toggle()
+                } label: {
+                    Label("Block Palette", systemImage: "square.grid.2x2")
+                }
+                .disabled(!model.preview.isEditModeEnabled)
+                .help("Show or hide the block palette")
+                .accessibilityIdentifier(AXID.toolbar(.wysiwygPalette))
             }
         }
         // Trailing search field (#520). Not a `.toolbar(id:)` item: `.searchable` mints its own
