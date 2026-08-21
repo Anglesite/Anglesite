@@ -1,3 +1,4 @@
+import Foundation
 import Testing
 @testable import AnglesiteBridgeCore
 @testable import AnglesiteCore
@@ -77,5 +78,29 @@ struct WYSIWYGOpsDispatcherTests {
             Issue.record("expected .rejected(.envelopeDecode), got \(result)")
             return
         }
+    }
+
+    @Test("dispatch routes selection-changed to .selectionChanged with the reported block")
+    func dispatchRoutesSelectionChanged() async {
+        let model = BlockModel(path: "src/pages/index.astro", version: "v1", rootIds: [], blocks: [:])
+        let transport = RecordingTransport(reply: .applied(model: model))
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "selection-changed", "blockId": "b1"], via: transport)
+        guard case .selectionChanged(let blockId) = result else {
+            Issue.record("expected .selectionChanged, got \(result)")
+            return
+        }
+        #expect(blockId == "b1")
+    }
+
+    @Test("dispatch routes selection-changed with a null blockId to .selectionChanged(nil)")
+    func dispatchRoutesSelectionChangedClear() async {
+        let model = BlockModel(path: "src/pages/index.astro", version: "v1", rootIds: [], blocks: [:])
+        let transport = RecordingTransport(reply: .applied(model: model))
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "selection-changed", "blockId": NSNull()], via: transport)
+        guard case .selectionChanged(let blockId) = result else {
+            Issue.record("expected .selectionChanged, got \(result)")
+            return
+        }
+        #expect(blockId == nil)
     }
 }

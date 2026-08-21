@@ -30,6 +30,11 @@ public enum WYSIWYGOpsDispatcher {
         /// `context-menu` reported the block under the right-clicked point; the adapter should
         /// present a host-native menu there. No reply is sent back to the page.
         case contextMenu(blockId: BlockId, point: WYSIWYGPoint)
+        /// `selection-changed` reported the block the owner (keyboard nav, click-to-select) currently has
+        /// selected, or `nil` when selection was cleared. The adapter should update its `selectedBlockId`
+        /// so Duplicate/Delete keep acting on the right block. No reply is sent back to the page — mirrors
+        /// `.contextMenu`.
+        case selectionChanged(blockId: BlockId?)
         case rejected(RejectionReason)
 
         public enum RejectionReason: Sendable, Equatable {
@@ -64,6 +69,8 @@ public enum WYSIWYGOpsDispatcher {
                 return .rejected(.envelopeDecode("could not decode context-menu fields"))
             }
             return .contextMenu(blockId: blockId, point: WYSIWYGPoint(x: x, y: y))
+        case "selection-changed":
+            return .selectionChanged(blockId: dict["blockId"] as? String)
         default:
             return .rejected(.unknownType(typeStr))
         }

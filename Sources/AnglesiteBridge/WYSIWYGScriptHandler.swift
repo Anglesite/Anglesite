@@ -29,6 +29,9 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
             switch await WYSIWYGOpsDispatcher.dispatch(body: body, via: transport) {
             case .contextMenu(let blockId, let point):
                 onContextMenu?(blockId, CGPoint(x: point.x, y: point.y))
+            case .selectionChanged:
+                // TODO(#1589): wire selection-changed into the adapter
+                break
             case .opResult(let requestId, let result):
                 guard let webView else {
                     await logCenter.append(source: "wysiwyg-bridge", stream: .stderr, text: "webView deallocated before submit-op reply for id=\(requestId)")
