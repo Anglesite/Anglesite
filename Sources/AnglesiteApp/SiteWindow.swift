@@ -1317,14 +1317,31 @@ struct SiteWindow: View {
             // both attached to the same view. Same `wysiwygCanvas`-nil guard keeps this inert
             // outside edit mode. Reuses `resolveWYSIWYGDropTarget` (`PreviewView.swift`) for the
             // drop-target JS evaluate-and-decode step instead of duplicating it here.
+            //
+            // `UTType.fileURL` matches *any* Finder file drag, not only images (there's no
+            // narrower UTI that still covers Photos' own promise), so a `.zip` dropped here is
+            // accepted by the drag session and then rejected downstream by
+            // `WYSIWYGImageAssetIngestor`'s magic-byte sniff. Each rejection along that path logs
+            // to `LogCenter` (final-review Finding 3 / the plan's "no silent failure paths"
+            // constraint) so the no-op is at least traceable in the debug pane; a user-facing
+            // error presentation is deferred with the rest of the drop UX.
             .onDrop(of: [UTType.image.identifier, UTType.fileURL.identifier], isTargeted: nil) { providers, location in
                 guard let canvas = model.preview.wysiwygCanvas, let webView = model.preview.webView,
                       let siteDirectory = model.preview.openSiteDirectory
                 else { return false }
                 Task {
-                    guard let bytes = await WYSIWYGImageDropHandler.loadImageBytes(from: providers),
-                          let assetPath = try? WYSIWYGImageAssetIngestor.ingest(bytes: bytes, siteDirectory: siteDirectory)
-                    else { return }
+                    let logCenter = LogCenter.shared
+                    guard let bytes = await WYSIWYGImageDropHandler.loadImageBytes(from: providers) else { return }
+                    let assetPath: String?
+                    do {
+                        assetPath = try WYSIWYGImageAssetIngestor.ingest(bytes: bytes, siteDirectory: siteDirectory)
+                    } catch {
+                        await logCenter.append(
+                            source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,
+                            text: "failed to write dropped image into public/images: \(error.localizedDescription)")
+                        return
+                    }
+                    guard let assetPath else { return }
                     guard let target = await resolveWYSIWYGDropTarget(at: location, webView: webView) else { return }
                     let newId = UUID().uuidString
                     // Alt-text proposal is stubbed empty — the real proposal is on-device AI

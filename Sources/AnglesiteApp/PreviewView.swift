@@ -259,21 +259,59 @@ struct WYSIWYGDropTargetPayload: Decodable {
 /// `dropTargetAt` (Task 10) — shared by every drop mechanism that lands on the canvas
 /// (`performWYSIWYGPaletteDrop`'s palette-row drag, and Task 13's Finder/Photos `.onDrop`) so the
 /// JS-evaluate-and-decode step isn't duplicated per call site.
+///
+/// Every `nil` return logs its reason to `LogCenter` first (the plan's Global Constraints: "no
+/// silent failure paths — every bridge rejection/drop logs"). The drop still no-ops for the owner;
+/// the point is that "I dragged an image in and nothing happened" is diagnosable from the debug
+/// pane rather than invisible inside a `try?`.
 @MainActor
-func resolveWYSIWYGDropTarget(at location: CGPoint, webView: WKWebView) async -> WYSIWYGDropTargetPayload? {
+func resolveWYSIWYGDropTarget(
+    at location: CGPoint, webView: WKWebView, logCenter: LogCenter = .shared
+) async -> WYSIWYGDropTargetPayload? {
     let script = "JSON.stringify(window.__anglesiteWysiwygMount?.dropTargetAt?.(\(location.x), \(location.y)) ?? null)"
-    guard let json = try? await webView.evaluateJavaScript(script) as? String,
-          let data = json.data(using: .utf8)
-    else { return nil }
-    return try? JSONDecoder().decode(WYSIWYGDropTargetPayload.self, from: data)
+    let evaluated: Any?
+    do {
+        evaluated = try await webView.evaluateJavaScript(script)
+    } catch {
+        await logCenter.append(
+            source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,
+            text: "dropTargetAt evaluation failed at (\(location.x), \(location.y)): \(error.localizedDescription)")
+        return nil
+    }
+    // `?? null` above means a page with no mounted engine stringifies to the literal "null" —
+    // i.e. a drop landed on the preview while edit mode wasn't actually mounted.
+    guard let json = evaluated as? String, let data = json.data(using: .utf8) else {
+        await logCenter.append(
+            source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,
+            text: "dropTargetAt returned a non-string result — no engine mounted?")
+        return nil
+    }
+    do {
+        return try JSONDecoder().decode(WYSIWYGDropTargetPayload.self, from: data)
+    } catch {
+        await logCenter.append(
+            source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,
+            text: "could not decode dropTargetAt payload \(json): \(error.localizedDescription)")
+        return nil
+    }
 }
 
 /// Resolves a palette drop's screen location to a structural insertion target via the mounted
 /// engine's `dropTargetAt` (Task 10), then submits the resulting `insertBlock` — the WYSIWYG
 /// analog of `ComponentEditorCanvasPane.performCanvasDrop`.
 @MainActor
-func performWYSIWYGPaletteDrop(payload: WYSIWYGPaletteDragPayload, location: CGPoint, webView: WKWebView, controller: WYSIWYGCanvasController) async {
-    guard let target = await resolveWYSIWYGDropTarget(at: location, webView: webView) else { return }
+func performWYSIWYGPaletteDrop(
+    payload: WYSIWYGPaletteDragPayload, location: CGPoint, webView: WKWebView,
+    controller: WYSIWYGCanvasController, logCenter: LogCenter = .shared
+) async {
+    guard let target = await resolveWYSIWYGDropTarget(at: location, webView: webView, logCenter: logCenter) else {
+        // `resolveWYSIWYGDropTarget` already logged *why*; this records what was lost with it, so
+        // the debug pane names the block the owner was trying to add rather than only the failure.
+        await logCenter.append(
+            source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,
+            text: "palette drop of \(payload.componentName) discarded — no insertion target")
+        return
+    }
     let newId = UUID().uuidString
     let content = BlockNodeContent(kind: payload.kind, componentName: payload.componentName, props: [:], slots: [:], sourceSpan: [0, 0])
     await controller.submit(.insertBlock(parentId: target.parentId, slot: target.slot, index: target.index, newId: newId, block: content))

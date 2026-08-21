@@ -21,12 +21,28 @@ public enum WYSIWYGImageAssetIngestor {
         }
     }
 
+    /// `LogCenter` source string for the WYSIWYG drop pipeline — shared with the app-side
+    /// `WYSIWYGImageDropHandler` so one drop's whole story reads as a single run in the debug pane.
+    public static let logSource = "wysiwyg-drop"
+
     /// Returns `nil` for unrecognized bytes — callers treat that as "not a droppable image,
-    /// ignore the drop" rather than a thrown error.
+    /// ignore the drop" rather than a thrown error. That `nil` is logged to `logCenter` first (the
+    /// plan's Global Constraints: "no silent failure paths"), via a detached `Task` because this
+    /// stays a synchronous API — the same shape `LocalContainerSiteRuntime` uses to log from its
+    /// non-async stream callbacks.
     /// - Throws: whatever `FileManager`/`Data.write` throws for a recognized image that fails to
     ///   write.
-    public static func ingest(bytes: Data, siteDirectory: URL, fileManager: FileManager = .default) throws -> String? {
-        guard let format = sniff(bytes) else { return nil }
+    public static func ingest(
+        bytes: Data, siteDirectory: URL, fileManager: FileManager = .default, logCenter: LogCenter = .shared
+    ) throws -> String? {
+        guard let format = sniff(bytes) else {
+            Task {
+                await logCenter.append(
+                    source: logSource, stream: .stderr,
+                    text: "dropped \(bytes.count) bytes matched no known image signature (jpeg/png/gif/webp) — ignoring drop")
+            }
+            return nil
+        }
         let directory = siteDirectory.appendingPathComponent("public/images", isDirectory: true)
         try fileManager.createDirectory(at: directory, withIntermediateDirectories: true)
         let name = "wysiwyg-\(UUID().uuidString.prefix(8)).\(format.fileExtension)"

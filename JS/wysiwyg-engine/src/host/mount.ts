@@ -4,7 +4,18 @@ import { QualityGateChips } from "../quality-gates.js";
 import { NativeHostTransport } from "./native-host-transport.js";
 import { DragReorderController, computeDropTarget } from "../drag-drop.js";
 import { computeHandleRect } from "../selection.js";
+import { BLOCK_ID_ATTR } from "../hit-test.js";
+import { ROOT_PARENT_ID } from "../types.js";
 import type { BlockId, BlockModel } from "../types.js";
+import type { DropTarget } from "../drag-drop.js";
+
+/**
+ * The slot name the *native* side uses for the page root — `WYSIWYGCanvasController.locate`,
+ * `insertBlock`, `duplicateSelectedBlock` and `deleteSelectedBlock` all spell it `"main"`, so any
+ * target this module hands across the bridge must too. Deliberately not `computeDropTarget`'s own
+ * `"default"` default, which is the fixture-host/in-canvas-reorder convention and never leaves JS.
+ */
+const NATIVE_ROOT_SLOT = "main";
 
 declare global {
   interface Window {
@@ -59,10 +70,33 @@ function wireSelection(engine: WysiwygEngine): () => void {
 function renderSelectionHandle(engine: WysiwygEngine, dragReorder: Pick<DragReorderController, "startDrag">): () => void {
   const handle = document.createElement("div");
   handle.id = "__anglesite-wysiwyg-drag-handle";
+  // Deliberately opaque, bordered and glyph-bearing rather than the transparent hit-target this
+  // started as: a drag affordance nobody can see is a feature nobody discovers. Colors are
+  // hard-coded rather than inherited from the site's theme — this is host chrome overlaying an
+  // arbitrary owner-authored page, so it has to stay legible against whatever that page paints.
   handle.setAttribute(
     "style",
-    "position: fixed; width: 14px; height: 14px; margin-left: -18px; cursor: grab; z-index: 2147483647; display: none; background: transparent;",
+    [
+      "position: fixed",
+      "width: 14px",
+      "height: 14px",
+      "margin-left: -18px",
+      "cursor: grab",
+      "z-index: 2147483647",
+      "display: none",
+      "box-sizing: border-box",
+      "background: #ffffff",
+      "border: 1px solid #6e6e73",
+      "border-radius: 3px",
+      "box-shadow: 0 1px 2px rgba(0, 0, 0, 0.3)",
+      "color: #1c1c1e",
+      "font: 10px/12px -apple-system, system-ui, sans-serif",
+      "text-align: center",
+      "user-select: none",
+    ].join("; "),
   );
+  handle.textContent = "⠿";
+  handle.setAttribute("aria-hidden", "true");
   document.body.appendChild(handle);
 
   const reposition = (blockId: BlockId | null) => {
@@ -91,23 +125,85 @@ function renderSelectionHandle(engine: WysiwygEngine, dragReorder: Pick<DragReor
   const unsubscribe = engine.onEvent((event) => {
     if (event.type === "selection-changed") reposition(event.blockId);
   });
+
+  // `computeHandleRect` returns viewport coordinates and the handle is `position: fixed`, so a
+  // rect computed at selection time goes stale the moment the page scrolls or the window resizes —
+  // leaving a visible handle (and its hit target) parked over unrelated content. Capture-phase
+  // `scroll` so scrolling inside a nested scroll container counts too: scroll events from an
+  // element don't bubble to `window`, but they do reach it in the capture phase.
+  const onViewportChange = () => reposition(engine.selection.current);
+  window.addEventListener("scroll", onViewportChange, true);
+  window.addEventListener("resize", onViewportChange);
+
   reposition(engine.selection.current);
 
   return () => {
     handle.removeEventListener("pointerdown", onPointerDown);
+    window.removeEventListener("scroll", onViewportChange, true);
+    window.removeEventListener("resize", onViewportChange);
     unsubscribe();
     handle.remove();
   };
+}
+
+/**
+ * The host half of `DragReorderController`'s `onIndicator` contract (design doc §5: the controller
+ * computes a live `DropTarget` during a drag and leaves it to the host to draw). A thin rule laid
+ * across the top edge of the block that would be pushed down by the drop — or the bottom edge of
+ * the last block, for an append — so a reorder gesture shows where it will land instead of
+ * committing blind. Same "host chrome over an arbitrary page" reasoning as the drag handle above:
+ * fixed-position, own colors, `pointer-events: none` so it never eats the in-flight drag.
+ */
+function renderDropIndicator(): { update: (target: DropTarget | null) => void; dispose: () => void } {
+  const line = document.createElement("div");
+  line.id = "__anglesite-wysiwyg-drop-indicator";
+  line.setAttribute(
+    "style",
+    [
+      "position: fixed",
+      "height: 2px",
+      "z-index: 2147483646",
+      "display: none",
+      "background: #0a84ff",
+      "pointer-events: none",
+    ].join("; "),
+  );
+  line.setAttribute("aria-hidden", "true");
+  document.body.appendChild(line);
+
+  const update = (target: DropTarget | null) => {
+    if (!target) {
+      line.style.display = "none";
+      return;
+    }
+    // Same candidate set `computeDropTarget` measured the index against (drag-drop.ts), so the
+    // indicator lands on the block the submitted op would actually insert before.
+    const blocks = Array.from(document.body.children).filter((el) => el.hasAttribute(BLOCK_ID_ATTR));
+    const atEnd = target.index >= blocks.length;
+    const anchor = atEnd ? blocks[blocks.length - 1] : blocks[target.index];
+    if (!anchor) {
+      line.style.display = "none";
+      return;
+    }
+    const rect = anchor.getBoundingClientRect();
+    line.style.display = "block";
+    line.style.left = `${rect.left}px`;
+    line.style.width = `${rect.width}px`;
+    line.style.top = `${(atEnd ? rect.bottom : rect.top) - 1}px`;
+  };
+
+  return { update, dispose: () => line.remove() };
 }
 
 // Test-only escape hatch (vitest imports this module directly rather than going through the
 // window globals mount() sets) — mirrors no existing precedent in this file because mount.ts had
 // no internal functions worth unit-testing before this task; kept to the functions that need it
 // rather than exporting everything.
-export const __testables = { wireSelection, renderSelectionHandle };
+export const __testables = { wireSelection, renderSelectionHandle, renderDropIndicator };
 
 let disposeSelection: (() => void) | null = null;
 let disposeHandle: (() => void) | null = null;
+let dropIndicator: { update: (target: DropTarget | null) => void; dispose: () => void } | null = null;
 let dragReorder: DragReorderController | null = null;
 
 // Disposes whatever is currently mounted (if anything) and clears the globals — the shared body
@@ -125,6 +221,11 @@ function disposeMounted(): void {
   // a later `pointerup` would then call `submit()` on an already-disposed engine.
   dragReorder?.dispose();
   dragReorder = null;
+  // After `dragReorder.dispose()` — that call fires `onIndicator(null)`, which reaches back into
+  // this indicator, so removing the element first would leave the callback writing to a detached
+  // node (harmless, but the ordering is load-bearing for the next reader).
+  dropIndicator?.dispose();
+  dropIndicator = null;
   window.__anglesiteWysiwygRichTextEditor?.dispose();
   window.__anglesiteWysiwygQualityGates?.dispose();
   window.__anglesiteWysiwygEngine?.dispose();
@@ -150,7 +251,10 @@ window.__anglesiteWysiwygMount = {
     // `window.__anglesiteWysiwygHost` bridge.
     window.__anglesiteWysiwygQualityGates = new QualityGateChips(engine, transport);
     disposeSelection = wireSelection(engine);
-    dragReorder = new DragReorderController(engine, () => {}, document);
+    dropIndicator = renderDropIndicator();
+    // Real callback, not a no-op: `DragReorderController` already computes the live drop target on
+    // every `pointermove` and hands it to `onIndicator` precisely so a host can draw it.
+    dragReorder = new DragReorderController(engine, (target) => dropIndicator?.update(target), document);
     disposeHandle = renderSelectionHandle(engine, dragReorder);
     return engine;
   },
@@ -165,7 +269,15 @@ window.__anglesiteWysiwygMount = {
   // `ComponentEditorCanvasPane.performCanvasDrop` already uses for
   // `window.anglesiteCanvas?.dropTargetAt?.(x, y)`.
   dropTargetAt(x: number, y: number) {
-    return computeDropTarget({ x, y }, document.body);
+    // `parentId`/`slot` passed explicitly rather than leaning on `computeDropTarget`'s own
+    // defaults: this is the one place a JS-computed target crosses into the *native* op stream
+    // (`resolveWYSIWYGDropTarget` → `insertBlock`), and every native path — `locate`,
+    // `insertBlock`, `duplicateSelectedBlock`, `deleteSelectedBlock` in
+    // `WYSIWYGCanvasController` — names the page-root slot `"main"`. Inheriting the JS-side
+    // `"default"` here would file drop-inserted blocks under a slot name nothing else on the
+    // native side ever writes, which is inert only while the stub transport ignores `slot` at
+    // the root.
+    return computeDropTarget({ x, y }, document.body, ROOT_PARENT_ID, NATIVE_ROOT_SLOT);
   },
 };
 

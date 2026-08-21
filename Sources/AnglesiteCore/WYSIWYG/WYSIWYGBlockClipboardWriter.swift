@@ -23,9 +23,17 @@ public enum WYSIWYGBlockClipboardWriter {
         }
     }
 
+    /// Escapes for **both** element text and double-quoted attribute values — `runHTML`
+    /// interpolates the result of this into `href="…"`, and the rendered HTML is written to
+    /// `NSPasteboard.general`, so an href carrying a `"` must not be able to break out of the
+    /// attribute and inject a new one (e.g. `a" onmouseover="…`) into whatever app the owner
+    /// pastes into next. `&` stays first so an already-escaped entity in the source text isn't
+    /// double-escaped by a later replacement.
     private static func escapeHTML(_ text: String) -> String {
         text.replacingOccurrences(of: "&", with: "&amp;")
             .replacingOccurrences(of: "<", with: "&lt;")
             .replacingOccurrences(of: ">", with: "&gt;")
+            .replacingOccurrences(of: "\"", with: "&quot;")
+            .replacingOccurrences(of: "'", with: "&#39;")
     }
 }

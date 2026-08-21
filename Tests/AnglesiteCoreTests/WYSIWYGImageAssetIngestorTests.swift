@@ -29,4 +29,26 @@ struct WYSIWYGImageAssetIngestorTests {
         #expect(path == nil)
         #expect(!FileManager.default.fileExists(atPath: tempDir.appendingPathComponent("public/images").path))
     }
+
+    @Test("logs the rejection for unrecognized bytes rather than dropping it silently")
+    func logsUnrecognizedFormat() async throws {
+        let tempDir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let logCenter = LogCenter()
+        // Subscribe *before* ingesting: the ingestor stays a synchronous API and logs from a
+        // detached `Task`, so awaiting the subscription's first line is what makes this
+        // deterministic — polling `snapshot()` would race that task.
+        let subscription = await logCenter.subscribe()
+
+        let path = try WYSIWYGImageAssetIngestor.ingest(
+            bytes: Data([0x00, 0x01, 0x02]), siteDirectory: tempDir, logCenter: logCenter)
+        #expect(path == nil)
+
+        var iterator = subscription.stream.makeAsyncIterator()
+        let line = await iterator.next()
+        subscription.cancel()
+        #expect(line?.source == WYSIWYGImageAssetIngestor.logSource)
+        #expect(line?.stream == .stderr)
+        #expect(line?.text.contains("matched no known image signature") == true)
+    }
 }
