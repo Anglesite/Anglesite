@@ -218,7 +218,10 @@ export class RichTextEditor {
   #onInput = () => this.#committer.notifyChange();
   #onBlur = () => this.exit();
   #onKeydown = (event: KeyboardEvent) => {
-    if (event.key === "Escape") this.exit();
+    if (event.key === "Escape") {
+      this.exit();
+      event.stopPropagation();
+    }
   };
 
   constructor(engine: WysiwygEngine, options: RichTextEditorOptions = {}) {
