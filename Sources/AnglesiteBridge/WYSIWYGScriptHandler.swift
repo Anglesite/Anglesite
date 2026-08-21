@@ -10,11 +10,17 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
     private let transport: any WYSIWYGHostTransport
     private let logCenter: LogCenter
     private let onContextMenu: (@Sendable (BlockId, CGPoint) -> Void)?
+    private let onSelectionChanged: (@Sendable (BlockId?) -> Void)?
 
-    public init(transport: any WYSIWYGHostTransport, logCenter: LogCenter = .shared, onContextMenu: (@Sendable (BlockId, CGPoint) -> Void)? = nil) {
+    public init(
+        transport: any WYSIWYGHostTransport, logCenter: LogCenter = .shared,
+        onContextMenu: (@Sendable (BlockId, CGPoint) -> Void)? = nil,
+        onSelectionChanged: (@Sendable (BlockId?) -> Void)? = nil
+    ) {
         self.transport = transport
         self.logCenter = logCenter
         self.onContextMenu = onContextMenu
+        self.onSelectionChanged = onSelectionChanged
         super.init()
     }
 
@@ -25,13 +31,13 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
         let transport = self.transport
         let logCenter = self.logCenter
         let onContextMenu = self.onContextMenu
+        let onSelectionChanged = self.onSelectionChanged
         Task {
             switch await WYSIWYGOpsDispatcher.dispatch(body: body, via: transport) {
             case .contextMenu(let blockId, let point):
                 onContextMenu?(blockId, CGPoint(x: point.x, y: point.y))
-            case .selectionChanged:
-                // TODO(#1589): wire selection-changed into the adapter
-                break
+            case .selectionChanged(let blockId):
+                onSelectionChanged?(blockId)
             case .opResult(let requestId, let result):
                 guard let webView else {
                     await logCenter.append(source: "wysiwyg-bridge", stream: .stderr, text: "webView deallocated before submit-op reply for id=\(requestId)")
