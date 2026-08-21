@@ -122,6 +122,15 @@ function renderSelectionHandle(engine: WysiwygEngine, dragReorder: Pick<DragReor
   };
   handle.addEventListener("pointerdown", onPointerDown);
 
+  // `preventDefault()` on `pointerdown` suppresses the compatibility *mouse* events but not
+  // `click` (Pointer Events spec), so without this a click or a completed drag on the handle
+  // bubbles to `wireSelection`'s document-level listener, whose `hitTest` walks up from the handle
+  // to `document.body`, finds no block id, and clears the selection — hiding the very handle that
+  // was just grabbed. Harmless while the handle was an invisible hit target nobody aimed at;
+  // load-bearing now that it's a real affordance.
+  const onClick = (event: MouseEvent) => event.stopPropagation();
+  handle.addEventListener("click", onClick);
+
   const unsubscribe = engine.onEvent((event) => {
     if (event.type === "selection-changed") reposition(event.blockId);
   });
@@ -139,6 +148,7 @@ function renderSelectionHandle(engine: WysiwygEngine, dragReorder: Pick<DragReor
 
   return () => {
     handle.removeEventListener("pointerdown", onPointerDown);
+    handle.removeEventListener("click", onClick);
     window.removeEventListener("scroll", onViewportChange, true);
     window.removeEventListener("resize", onViewportChange);
     unsubscribe();

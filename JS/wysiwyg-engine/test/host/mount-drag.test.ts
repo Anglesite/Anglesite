@@ -88,6 +88,34 @@ describe("mount.ts drag chrome", () => {
     expect(document.getElementById("__anglesite-wysiwyg-drag-handle")).toBeNull();
   });
 
+  it("clicking the handle does not clear the selection it belongs to", () => {
+    const el = document.createElement("div");
+    el.setAttribute("data-anglesite-block-id", "b1");
+    document.body.appendChild(el);
+    Object.defineProperty(el, "getBoundingClientRect", {
+      value: () => ({ x: 5, y: 5, width: 10, height: 10, top: 5, left: 5, right: 15, bottom: 15 }),
+    });
+
+    const engine = new WysiwygEngine(emptyModel(), stubTransport());
+    const disposeSelection = __testables.wireSelection(engine);
+    engine.selection.select("b1");
+    const disposeHandle = __testables.renderSelectionHandle(engine, { startDrag: vi.fn() } as any);
+
+    const handle = document.getElementById("__anglesite-wysiwyg-drag-handle")!;
+    // What `hitTest` would really see for a click on the handle: jsdom has no layout engine, so
+    // stub the lookup the way mount-selection.test.ts does. Walking up from the handle finds no
+    // block id, so an unstopped click would select `null` and hide the handle mid-gesture.
+    Object.defineProperty(document, "elementFromPoint", {
+      value: vi.fn().mockReturnValue(handle),
+      configurable: true,
+    });
+    handle.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+
+    expect(engine.selection.current).toBe("b1");
+    disposeHandle();
+    disposeSelection();
+  });
+
   it("renderDropIndicator shows a line at the drop target and hides it on null", () => {
     const first = document.createElement("div");
     first.setAttribute("data-anglesite-block-id", "b1");
