@@ -264,6 +264,71 @@ struct SidecarWYSIWYGHostTransportTests {
         #expect(editRouter.messages.count == 1)
     }
 
+    // #1617: an insertBlock whose `block.richText` is non-empty must follow up with an `editText`
+    // call addressed at the real (server-assigned) node id — the sidecar's `insertBlock`/
+    // `insert-node` wire schema has no text-content field at all (only `nodeSpec(for:)`'s tag
+    // reaches the wire, see `WYSIWYGOpTranslator`), so without this follow-up the text an
+    // `AddTextBlockIntent` caller supplies would be silently dropped.
+    @Test func insertBlockWithRichTextIssuesEditTextFollowUp() async {
+        let pageModelClient = PageModelClient(toolCaller: { _, _ in
+            let data = try! JSONEncoder().encode(emptyPageModel(version: "sha256:fresh555555"))
+            return MCPClient.ToolCallResult(content: [.init(type: "text", text: String(data: data, encoding: .utf8))], isError: false)
+        })
+        let insertReply = EditReply(id: "req-11", status: .applied, message: nil, inverseNodeId: "n42", postWriteVersion: "sha256:postwrite1")
+        let editTextReply = EditReply(id: "req-11-text", status: .applied, message: nil, postWriteVersion: "sha256:postwrite2")
+        let editRouter = SequencedEditRouter(replies: [insertReply, editTextReply])
+        let transport = SidecarWYSIWYGHostTransport(path: "src/pages/index.astro", pageModelClient: pageModelClient, editRouter: editRouter, rootId: "n0")
+
+        let content = BlockNodeContent(
+            kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0],
+            richText: [RichTextRun(kind: .text, text: "Hello world")])
+        let op = Op.insertBlock(parentId: rootParentID, slot: "default", index: 0, newId: "n9", block: content)
+        let result = await transport.sendOp(OpEnvelope(id: "req-11", targetVersion: "sha256:stale000000", op: op))
+
+        guard case .applied(let model) = result else { Issue.record("expected .applied, got \(result)"); return }
+        #expect(model.version == "sha256:fresh555555")
+        #expect(editRouter.messages.count == 2)
+        #expect(editRouter.messages[0].op == EditMessage.Op.insertBlock)
+
+        let followUp = editRouter.messages[1]
+        #expect(followUp.op == EditMessage.Op.editText)
+        #expect(attrValue(followUp, "textNodeId") == .string("n42"))
+        guard case .array(let runs)? = attrValue(followUp, "runs"), case .object(let run)? = runs.first else {
+            Issue.record("expected a runs array with one run"); return
+        }
+        #expect(run["text"] == .string("Hello world"))
+    }
+
+    // When an insertBlock carries BOTH props and richText, the setAttr follow-up(s) go first and
+    // the editText follow-up last, with baseVersion chaining through every reply in order —
+    // exercises the two follow-up kinds composing rather than either being tested in isolation.
+    @Test func insertBlockWithPropsAndRichTextChainsSetAttrThenEditText() async {
+        let pageModelClient = PageModelClient(toolCaller: { _, _ in
+            let data = try! JSONEncoder().encode(emptyPageModel(version: "sha256:fresh666666"))
+            return MCPClient.ToolCallResult(content: [.init(type: "text", text: String(data: data, encoding: .utf8))], isError: false)
+        })
+        let insertReply = EditReply(id: "req-12", status: .applied, message: nil, inverseNodeId: "n42", postWriteVersion: "sha256:postwrite1")
+        let setAttrReply = EditReply(id: "req-12-attr-0", status: .applied, message: nil, postWriteVersion: "sha256:postwrite2")
+        let editTextReply = EditReply(id: "req-12-text", status: .applied, message: nil, postWriteVersion: "sha256:postwrite3")
+        let editRouter = SequencedEditRouter(replies: [insertReply, setAttrReply, editTextReply])
+        let transport = SidecarWYSIWYGHostTransport(path: "src/pages/index.astro", pageModelClient: pageModelClient, editRouter: editRouter, rootId: "n0")
+
+        let content = BlockNodeContent(
+            kind: .text, componentName: "p", props: ["class": .string("lead")], slots: [:], sourceSpan: [0, 0],
+            richText: [RichTextRun(kind: .text, text: "Hello world")])
+        let op = Op.insertBlock(parentId: rootParentID, slot: "default", index: 0, newId: "n9", block: content)
+        let result = await transport.sendOp(OpEnvelope(id: "req-12", targetVersion: "sha256:stale000000", op: op))
+
+        guard case .applied = result else { Issue.record("expected .applied, got \(result)"); return }
+        #expect(editRouter.messages.count == 3)
+        #expect(editRouter.messages[0].op == EditMessage.Op.insertBlock)
+        #expect(editRouter.messages[1].op == EditMessage.Op.setAttr)
+        #expect(editRouter.messages[2].op == EditMessage.Op.editText)
+        // The editText follow-up's baseVersion is the setAttr reply's postWriteVersion, not the
+        // insert's — proves the chain threads through both follow-up kinds in sequence.
+        #expect(attrValue(editRouter.messages[2], "baseVersion") == .string("sha256:postwrite2"))
+    }
+
     // Regression guard: an insertBlock with EMPTY props must behave exactly as before this fix —
     // a single insert call, no setAttr follow-ups, straight through to the re-fetch.
     @Test func insertBlockWithEmptyPropsIssuesNoFollowUp() async {

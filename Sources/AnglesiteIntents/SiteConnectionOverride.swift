@@ -1,9 +1,11 @@
 import AnglesiteCore
 
-/// Test-only escape hatch for the site connectivity ``AddEffectIntent`` normally resolves from
+/// Test-only escape hatch for the site connectivity an intent normally resolves from
 /// `PageModelClientRegistry`/`EditRouterRegistry` — registries populated by `PreviewModel.open()`/
 /// `close()` that only have entries while a site window is open. `swift test` has no open window,
-/// so tests bind this instead of relying on the live registries.
+/// so tests bind this instead of relying on the live registries. Shared by every intent that needs
+/// this exact pair (`AddEffectIntent`, `AddTextBlockIntent`) rather than each declaring its own
+/// identically-shaped bundle.
 ///
 /// Unlike ``EffectCatalogOverride`` (which pairs with a `@Dependency`, matching every other
 /// catalog/service override in this file's sibling intents), there's no single existing
@@ -11,7 +13,7 @@ import AnglesiteCore
 /// them up as a pair via `PageModelClientRegistry.shared`/`EditRouterRegistry.shared` directly,
 /// not through `@Dependency`. So this stays a small dedicated bundle rather than forcing a
 /// mismatched single-`@Dependency` shape onto a pair of registry lookups that don't have one.
-public struct AddEffectSiteConnection: Sendable {
+public struct SiteConnection: Sendable {
     /// The site's page-model source, or `nil` to simulate "site not open in Anglesite."
     public let pageModelClient: PageModelClient?
     /// The site's edit router, or `nil` to simulate "site not open in Anglesite." Independent of
@@ -26,9 +28,9 @@ public struct AddEffectSiteConnection: Sendable {
     }
 }
 
-/// `@TaskLocal` binding point for ``AddEffectSiteConnection``. `AddEffectIntent` reads
-/// `AddEffectSiteConnectionOverride.scoped` first; a bound value wins over the live registry
-/// lookups. Always `nil` in production.
-public enum AddEffectSiteConnectionOverride {
-    @TaskLocal public static var scoped: AddEffectSiteConnection?
+/// `@TaskLocal` binding point for ``SiteConnection``. Each intent that needs live site
+/// connectivity reads `SiteConnectionOverride.scoped` first; a bound value wins over the live
+/// registry lookups. Always `nil` in production.
+public enum SiteConnectionOverride {
+    @TaskLocal public static var scoped: SiteConnection?
 }

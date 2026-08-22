@@ -6,7 +6,7 @@ import Foundation
 /// Covers `AddEffectIntent`: the pure `defaultInsertion` placement math (Step 2 of the task
 /// brief), the pure `EffectDialogs` strings, and `run()`'s plan → confirm → apply flow driven
 /// through `performForTesting()` with `EffectCatalogOverride` (mirrors `ThemeCatalogOverride`)
-/// and `AddEffectSiteConnectionOverride` standing in for the `@Dependency`-resolved catalog and
+/// and `SiteConnectionOverride` standing in for the `@Dependency`-resolved catalog and
 /// the site's `PageModelClient`/`EditRouter` registries, respectively.
 @Suite struct EffectIntentsTests {
     // MARK: - Fixtures
@@ -75,8 +75,8 @@ import Foundation
         pageModelClient: PageModelClient?, editRouter: EditRouter?
     ) async throws -> String {
         try await EffectCatalogOverride.$scoped.withValue(catalog) {
-            try await AddEffectSiteConnectionOverride.$scoped.withValue(
-                AddEffectSiteConnection(pageModelClient: pageModelClient, editRouter: editRouter)
+            try await SiteConnectionOverride.$scoped.withValue(
+                SiteConnection(pageModelClient: pageModelClient, editRouter: editRouter)
             ) {
                 try await intent.performForTesting()
             }

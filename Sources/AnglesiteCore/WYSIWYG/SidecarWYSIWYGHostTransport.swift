@@ -30,8 +30,8 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
         let reply = await editRouter.apply(message)
         switch reply.status {
         case .applied:
-            if case .insertBlock(_, _, _, _, let block) = envelope.op, !block.props.isEmpty {
-                if let rejection = await applyPropsFollowUp(block.props, insertReply: reply, requestId: envelope.id) {
+            if case .insertBlock(_, _, _, _, let block) = envelope.op {
+                if let rejection = await applyInsertFollowUp(block, insertReply: reply, requestId: envelope.id) {
                     return rejection
                 }
             }
@@ -60,12 +60,13 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
         }
     }
 
-    /// The sidecar's `insertBlock`/`insert-node` wire schema has NO attributes field at all
-    /// (`apply-edit-schema.mjs`'s `componentEditSchema`, confirmed against
-    /// `server/component-structure-edit.mjs`'s `applyInsertNode`) — so a `.insertBlock` op whose
-    /// `block.props` is non-empty can't carry those attributes in the insert call itself. This
-    /// issues one `setAttr` follow-up per prop instead, addressed at the newly-inserted node's
-    /// REAL (server-assigned) id — learned from `insertReply.inverseNodeId`, a narrow,
+    /// The sidecar's `insertBlock`/`insert-node` wire schema has NO attributes field, and no
+    /// text-content field either (`apply-edit-schema.mjs`'s `componentEditSchema`, confirmed
+    /// against `server/component-structure-edit.mjs`'s `applyInsertNode`) — so a `.insertBlock` op
+    /// whose `block.props` and/or `block.richText` is non-empty can't carry that content in the
+    /// insert call itself. This issues one `setAttr` follow-up per prop, then (if `richText` is
+    /// non-empty) one `editText` follow-up, all addressed at the newly-inserted node's REAL
+    /// (server-assigned) id — learned from `insertReply.inverseNodeId`, a narrow,
     /// explicitly-scoped decode of the insert reply's `inverse.component.nodeId` (see
     /// `EditReply`'s doc comments — this is NOT an adoption of the sidecar's general
     /// inverse-for-undo mechanism, which stays out of scope per the plan doc's design decision
@@ -76,8 +77,9 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
     ///
     /// Returns a `.rejected` result — honest about exactly what did and didn't land — the moment
     /// anything about the follow-up can't proceed: the insert reply didn't carry enough
-    /// information to address the new node, or a `setAttr` call itself failed. Returns `nil` when
-    /// every prop's `setAttr` landed, so the caller proceeds to its normal re-fetch+adapt path.
+    /// information to address the new node, a `setAttr` call failed, or the `editText` call
+    /// failed. Returns `nil` when every follow-up landed (or none were needed), so the caller
+    /// proceeds to its normal re-fetch+adapt path.
     ///
     /// `props` is a `[String: PropValue]` dictionary — iteration order isn't guaranteed, but each
     /// `setAttr` call targets a distinct attribute name independently, so that's harmless here.
@@ -96,21 +98,22 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
     /// shared with `WYSIWYGOpTranslator.translate`'s `setProp` case, where `.null` legitimately
     /// means "remove this EXISTING attribute" and has to keep working; the skip belongs here, at
     /// the insert-follow-up call site, not inside `stringValue`.)
-    private func applyPropsFollowUp(_ props: [String: PropValue], insertReply: EditReply, requestId: String) async -> OpResult? {
+    private func applyInsertFollowUp(_ block: BlockNodeContent, insertReply: EditReply, requestId: String) async -> OpResult? {
         // Drop `.null` props BEFORE the nodeId/version guard below — a block whose props are all
         // `.null` (e.g. duplicating `<button disabled>`, which carries only the one boolean
         // attribute) needs no follow-up `setAttr` calls at all, so it must not fail just because
         // the insert reply happened not to carry an `inverseNodeId`/`postWriteVersion` that
         // nothing here would actually use.
-        let attributeProps = props.filter { _, value in
+        let attributeProps = block.props.filter { _, value in
             if case .null = value { return false }
             return true
         }
-        guard !attributeProps.isEmpty else { return nil }
+        let richText = block.richText ?? []
+        guard !attributeProps.isEmpty || !richText.isEmpty else { return nil }
         guard let nodeId = insertReply.inverseNodeId, let initialVersion = insertReply.postWriteVersion else {
             return .rejected(
                 reason: .hostError,
-                message: "The block was inserted, but its attributes could not be set — the "
+                message: "The block was inserted, but its content could not be finalized — the "
                     + "preview server's reply didn't include enough information to address the "
                     + "new block.",
                 freshModel: nil
@@ -133,6 +136,19 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
             }
             if let nextVersion = setReply.postWriteVersion {
                 baseVersion = nextVersion
+            }
+        }
+        if !richText.isEmpty {
+            let textMessage = ComponentStructureEditBuilder.editText(
+                id: "\(requestId)-text", path: path, baseVersion: baseVersion, textNodeId: nodeId, runs: richText)
+            let textReply = await editRouter.apply(textMessage)
+            guard textReply.status == .applied else {
+                return .rejected(
+                    reason: .hostError,
+                    message: "The block was inserted, but setting its text failed: "
+                        + "\(textReply.message ?? "unknown error").",
+                    freshModel: nil
+                )
             }
         }
         return nil
