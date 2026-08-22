@@ -10,8 +10,13 @@ public enum CloudflareError: Error, Equatable, Sendable {
     /// Cloudflare answered 401/403 — the token is invalid, expired, or missing a scope. Kept
     /// distinct from ``http(status:)`` so callers can point the user at the token, not the network.
     case unauthorized
-    /// Any other non-2xx status. The body wasn't consulted — Cloudflare's error envelope is only
-    /// decoded for 2xx responses whose `success` flag is false (see ``api(message:)``).
+    /// Any other non-2xx status. Most callers don't consult the body for this case — Cloudflare's
+    /// error envelope is normally decoded only for 2xx responses whose `success` flag is false
+    /// (see ``api(message:)``) — but a caller may choose to inspect a non-2xx body first and
+    /// throw ``api(message:)`` instead when it decodes as that envelope (e.g.
+    /// `WebmentionInboxD1Client`, which needs to recognize a D1 "no such column" error
+    /// regardless of which HTTP status Cloudflare reports it under). This case is only thrown
+    /// when the body either wasn't consulted or didn't decode as the expected envelope.
     case http(status: Int)
     /// The request reached the API but Cloudflare reported failure in its response envelope
     /// (`success: false`); `message` is the first error message Cloudflare returned.
