@@ -41,4 +41,22 @@ import Testing
         let contact = resolved.items.first { $0.sourceURL == "https://example.com/contact" }
         #expect(contact?.rung == .readability)
     }
+
+    @Test func homepageMatchesAcrossTrailingSlashVariants() {
+        // siteURL has no trailing slash; the crawled homepage page does. normalizeURL alone
+        // treats these as different strings ("https://example.com" vs "https://example.com/"),
+        // which used to make homepage detection miss and let the root page leak into `items`.
+        let snapshot = ImportSnapshot(
+            siteURL: "https://example.com",
+            probes: SiteProbes(),
+            pages: [
+                CapturedPage(url: "https://example.com/",
+                             extraction: ExtractionRecord(title: "My Site", markdown: "home")),
+            ],
+            assets: [],
+            conversions: [:])
+        let resolved = ImportSourceResolver.resolve(snapshot)
+        #expect(resolved.homepage?.extraction.title == "My Site")
+        #expect(resolved.items.isEmpty) // homepage must never appear as an item
+    }
 }

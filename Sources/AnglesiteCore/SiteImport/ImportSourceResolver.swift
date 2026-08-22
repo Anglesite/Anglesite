@@ -73,12 +73,14 @@ public enum ImportSourceResolver {
             itemsByURL[item.sourceURL] = item
         }
 
-        let homepageKey = ImportSnapshot.normalizeURL(snapshot.siteURL)
+        let homepageKey = homepageComparisonKey(for: snapshot.siteURL)
         // A rung can legitimately produce an item for the homepage URL (e.g. a WordPress "page"
-        // at the site root) — the homepage never becomes an item regardless of source, so drop it.
-        itemsByURL[homepageKey] = nil
+        // at the site root) under either trailing-slash form — the homepage never becomes an
+        // item regardless of source, so drop every key that resolves to it.
+        let homepageItemKeys = itemsByURL.keys.filter { homepageComparisonKey(for: $0) == homepageKey }
+        for key in homepageItemKeys { itemsByURL[key] = nil }
         let homepage = snapshot.pages.first {
-            ImportSnapshot.normalizeURL($0.extraction.canonical ?? $0.url) == homepageKey
+            homepageComparisonKey(for: $0.extraction.canonical ?? $0.url) == homepageKey
         }
 
         // Skipped-archive entries keep the page's URL as crawled (not normalized) since they're
@@ -86,7 +88,7 @@ public enum ImportSourceResolver {
         var skippedURLs: [String] = []
         for page in snapshot.pages {
             let key = ImportSnapshot.normalizeURL(page.extraction.canonical ?? page.url)
-            guard key != homepageKey, itemsByURL[key] == nil else { continue }
+            guard homepageComparisonKey(for: key) != homepageKey, itemsByURL[key] == nil else { continue }
             let rawPath = URLComponents(string: page.url)?.path ?? ""
             if isArchivePath(rawPath.isEmpty ? "/" : rawPath) {
                 skippedURLs.append(page.url)
@@ -112,6 +114,23 @@ public enum ImportSourceResolver {
 
         return ResolvedContent(items: items, homepage: homepage, skippedURLs: skippedURLs,
                                problems: problems)
+    }
+
+    /// The comparison key used to test whether a URL is the site's homepage.
+    ///
+    /// `ImportSnapshot.normalizeURL` only trims an *existing* trailing slash — it never mints
+    /// one for a bare host — so `https://example.com` and `https://example.com/` normalize to
+    /// two different strings even though they're the same page. This treats an empty path the
+    /// same as `/` on top of `normalizeURL` so both forms compare equal. Deliberately not
+    /// folded into `ImportSnapshot.normalizeURL` itself (pinned by Task 1's tests) and never
+    /// used as an `ImportItem.sourceURL` — only for matching the homepage.
+    private static func homepageComparisonKey(for rawURL: String) -> String {
+        let normalized = ImportSnapshot.normalizeURL(rawURL)
+        guard var components = URLComponents(string: normalized) else { return normalized }
+        if components.path.isEmpty {
+            components.path = "/"
+        }
+        return components.string ?? normalized
     }
 
     /// Whether a URL path matches one of the archive patterns (tag/category/author/search,
