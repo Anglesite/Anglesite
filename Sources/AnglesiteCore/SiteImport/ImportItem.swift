@@ -68,6 +68,17 @@ public struct ImportItem: Sendable, Equatable {
     public var hint: Hint
 
     /// Initializes an ImportItem with metadata and content.
+    /// - Parameters:
+    ///   - sourceURL: The normalized source URL of the item, pre-normalized via `ImportSnapshot.normalizeURL`.
+    ///   - title: The item's title, if available.
+    ///   - published: The item's publication date, if available.
+    ///   - lang: The item's language code, if available.
+    ///   - markdown: The item's content as Markdown.
+    ///   - excerpt: The item's excerpt, if available.
+    ///   - images: URLs of images associated with the item.
+    ///   - tags: Tags associated with the item.
+    ///   - rung: The extraction rung that produced this item.
+    ///   - hint: A semantic hint about the item's content type.
     public init(sourceURL: String, title: String? = nil, published: Date? = nil,
                 lang: String? = nil, markdown: String, excerpt: String? = nil,
                 images: [String] = [], tags: [String] = [], rung: Rung, hint: Hint) {

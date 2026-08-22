@@ -12,7 +12,8 @@ public enum WordPressRESTRung {
     }
 
     /// Extracts items from WordPress REST API JSON in the snapshot.
-    /// Returns items successfully extracted and problems encountered.
+    /// - Parameter snapshot: The import snapshot containing WordPress REST JSON and HTML conversions.
+    /// - Returns: A tuple containing extracted items and any problems encountered during extraction.
     public static func items(from snapshot: ImportSnapshot)
         -> (items: [ImportItem], problems: [ImportProblem]) {
         var items: [ImportItem] = []
