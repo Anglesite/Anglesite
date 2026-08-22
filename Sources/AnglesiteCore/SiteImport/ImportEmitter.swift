@@ -26,20 +26,28 @@ public struct ImportFileEmission: Sendable, Equatable {
 public enum ImportEmitter {
     /// Renders a classified item into its destination file: content-collection Markdown with
     /// strict frontmatter, or a Markdown page with a `layout` pointing at `BaseLayout.astro`.
-    /// - Parameter classified: The item and the destination `ContentClassifier` assigned it.
+    /// - Parameters:
+    ///   - classified: The item and the destination `ContentClassifier` assigned it.
+    ///   - now: The fallback publish date for a collection item that carries no `published` date
+    ///     of its own. Every collection's `publishDate`/`pubDate` field is required by its
+    ///     `.strict()` schema, so an emission must never omit it — but silently substituting
+    ///     wall-clock `Date()` would make output non-deterministic and untestable, so the caller
+    ///     supplies the clock instead.
     /// - Returns: The file's site-relative path and complete contents.
-    public static func emission(for classified: ClassifiedItem) -> ImportFileEmission {
+    public static func emission(for classified: ClassifiedItem, now: Date) -> ImportFileEmission {
         switch classified.destination {
         case .collection(let name, let slug):
-            return collectionEmission(item: classified.item, collection: name, slug: slug)
+            return collectionEmission(item: classified.item, collection: name, slug: slug, now: now)
         case .page(let route):
             return pageEmission(item: classified.item, route: route)
         }
     }
 
     /// Dispatches to the frontmatter builder for `collection`, then assembles the file.
-    private static func collectionEmission(item: ImportItem, collection: String, slug: String) -> ImportFileEmission {
-        let fields = frontmatterFields(item: item, collection: collection)
+    private static func collectionEmission(
+        item: ImportItem, collection: String, slug: String, now: Date
+    ) -> ImportFileEmission {
+        let fields = frontmatterFields(item: item, collection: collection, now: now)
         let relativePath = ContentScaffold.postRelativePath(collection: collection, slug: slug)
         return ImportFileEmission(relativePath: relativePath, contents: render(fields: fields, body: item.markdown))
     }
@@ -51,26 +59,27 @@ public enum ImportEmitter {
     /// declares are ever produced — an unrecognized collection name falls back to `draft: false`
     /// alone, which fails loudly (missing a required field) rather than emitting a key `.strict()`
     /// would reject.
-    private static func frontmatterFields(item: ImportItem, collection: String) -> [(String, String)] {
+    private static func frontmatterFields(item: ImportItem, collection: String, now: Date) -> [(String, String)] {
         var fields: [(String, String)]
 
         switch collection {
         case "blog":
             fields = [
                 ("title", yamlString(item.title ?? "")),
-                ("pubDate", dateString(item.published)),
+                ("pubDate", dateString(item.published, now: now)),
             ]
             if let excerpt = item.excerpt { fields.append(("description", yamlString(excerpt))) }
+            if let lang = item.lang { fields.append(("lang", yamlString(lang))) }
 
         case "notes":
-            fields = [("publishDate", dateString(item.published))]
+            fields = [("publishDate", dateString(item.published, now: now))]
             if let lang = item.lang { fields.append(("lang", yamlString(lang))) }
             if !item.tags.isEmpty { fields.append(("tags", yamlList(item.tags))) }
 
         case "photos":
             fields = [
                 ("image", yamlString(photoImage(item))),
-                ("publishDate", dateString(item.published)),
+                ("publishDate", dateString(item.published, now: now)),
             ]
             if let excerpt = item.excerpt { fields.append(("caption", yamlString(excerpt))) }
             if let lang = item.lang { fields.append(("lang", yamlString(lang))) }
@@ -79,7 +88,7 @@ public enum ImportEmitter {
         case "bookmarks":
             fields = [
                 ("bookmarkOf", yamlString(bookmarkOf(item))),
-                ("publishDate", dateString(item.published)),
+                ("publishDate", dateString(item.published, now: now)),
             ]
             if let title = item.title { fields.append(("title", yamlString(title))) }
             if let image = item.images.first { fields.append(("image", yamlString(image))) }
@@ -89,14 +98,14 @@ public enum ImportEmitter {
         case "replies":
             fields = [
                 ("inReplyTo", yamlString(replyTo(item))),
-                ("publishDate", dateString(item.published)),
+                ("publishDate", dateString(item.published, now: now)),
             ]
             if let lang = item.lang { fields.append(("lang", yamlString(lang))) }
 
         case "likes":
             fields = [
                 ("likeOf", yamlString(likeOf(item))),
-                ("publishDate", dateString(item.published)),
+                ("publishDate", dateString(item.published, now: now)),
             ]
             if let lang = item.lang { fields.append(("lang", yamlString(lang))) }
 
@@ -171,15 +180,16 @@ public enum ImportEmitter {
         return lines.joined(separator: "\n")
     }
 
-    /// Formats a date as `YYYY-MM-DD` (`en_US_POSIX`, UTC), falling back to today's date (in the
-    /// same fixed calendar) when the item carries none — every collection's `publishDate`/`pubDate`
-    /// field is required by its `.strict()` schema, so an emission must never omit it.
-    private static func dateString(_ date: Date?) -> String {
+    /// Formats a date as `YYYY-MM-DD` (`en_US_POSIX`, UTC), falling back to the caller-supplied
+    /// `now` when the item carries no `published` date of its own — a deterministic substitute
+    /// for wall-clock `Date()`, since every collection's `publishDate`/`pubDate` field is required
+    /// by its `.strict()` schema and an emission must never omit it.
+    private static func dateString(_ date: Date?, now: Date) -> String {
         let formatter = DateFormatter()
         formatter.dateFormat = "yyyy-MM-dd"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
-        return formatter.string(from: date ?? Date())
+        return formatter.string(from: date ?? now)
     }
 
     /// Renders a YAML flow-sequence of already-quoted strings, e.g. `["a", "b"]`.
