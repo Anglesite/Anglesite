@@ -51,6 +51,30 @@ struct BlogrollTrustSyncTests {
         #expect(await captured.value == ["alice.example", "bob.example"])
     }
 
+    @Test("push lowercases hostnames so a mixed-case blogroll URL still matches the lookup")
+    func pushLowercasesHostnames() async throws {
+        let siteDirectory = try Self.makeSiteDirectory()
+        defer { try? FileManager.default.removeItem(at: siteDirectory) }
+        try Self.writeEntry(name: "alice", url: "https://Alice.Example/", in: siteDirectory)
+        let plan = BlogrollPlan.build(projectRoot: siteDirectory)
+
+        let captured = CapturedURLs()
+        let client = BlogrollTrustKVClient(
+            accountID: "acct1", namespaceID: "ns1", apiToken: "token",
+            transport: { request in
+                if let body = request.httpBody, let domains = try? JSONDecoder().decode([String].self, from: body) {
+                    await captured.set(domains)
+                }
+                return (Data(), Self.response(200))
+            })
+
+        await BlogrollTrustSync.push(entries: plan.entries, client: client)
+
+        // `vouch-trust.ts`'s isTrustedVouchDomain is looked up against a hostname already
+        // lowercased by `verifyVouch`, so the pushed set must be lowercased too.
+        #expect(await captured.value == ["alice.example"])
+    }
+
     @Test("push dedupes multiple entries on the same host")
     func pushDedupesHosts() async throws {
         let siteDirectory = try Self.makeSiteDirectory()

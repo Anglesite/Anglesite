@@ -16,7 +16,10 @@ public enum BlogrollTrustSync {
     /// current state.
     public static func push(entries: [BlogrollPlan.Entry], client: BlogrollTrustKVClient) async {
         do {
-            let domains = Set(entries.compactMap { $0.url.host })
+            // Lowercased to match `vouch-trust.ts`'s `isTrustedVouchDomain`, which is looked up
+            // against a hostname already lowercased by `verifyVouch` — a blogroll entry written
+            // in mixed case (e.g. `https://Alice.Example/`) must still match.
+            let domains = Set(entries.compactMap { $0.url.host?.lowercased() })
             try await client.putTrustedDomains(domains)
         } catch {
             await LogCenter.shared.append(
