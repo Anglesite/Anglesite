@@ -182,4 +182,27 @@ import Testing
         #expect(result.installedPaths == ["public/images/link-gallery-1.png", "public/images/link-gallery-2.png"])
         #expect(result.problems.isEmpty)
     }
+
+    /// A plain substring replace would corrupt a longer, distinct URL that merely starts with the
+    /// exact URL being replaced (e.g. a `?v=2` query-string variant) — regression coverage for
+    /// that boundary bug.
+    @Test func doesNotCorruptALongerURLThatStartsWithTheExactMatch() throws {
+        let (snapshotDirectory, siteDirectory) = try makeFixture()
+        defer { cleanup(snapshotDirectory) }
+
+        let exactURL = "https://e.com/photo.jpg"
+        let variantURL = "https://e.com/photo.jpg?v=2"
+        let snapshot = ImportSnapshot(
+            siteURL: "https://e.com", probes: SiteProbes(), pages: [],
+            assets: [CapturedAsset(sourceURL: exactURL, relativePath: "assets/photo.png")],
+            conversions: [:])
+
+        let result = AssetLocalizer.localize(
+            markdown: "![a](\(exactURL)) ![b](\(variantURL)) ![c](\(exactURL))",
+            imageURLs: [exactURL], itemSlug: "hello",
+            snapshot: snapshot, snapshotDirectory: snapshotDirectory, siteDirectory: siteDirectory)
+
+        #expect(result.markdown == "![a](/images/link-hello-1.png) ![b](\(variantURL)) ![c](/images/link-hello-1.png)")
+        #expect(result.problems.isEmpty)
+    }
 }

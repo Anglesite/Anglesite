@@ -69,9 +69,26 @@ public enum AssetLocalizer {
             }
 
             installedPaths.append(installedPath)
-            rewritten = rewritten.replacingOccurrences(of: url, with: LinkImageAsset.publicURLPath(slug: slug, format: format))
+            rewritten = Self.replacingURL(url, in: rewritten, with: LinkImageAsset.publicURLPath(slug: slug, format: format))
         }
 
         return (rewritten, installedPaths, problems)
+    }
+
+    /// Replaces every occurrence of `url` in `markdown` with `replacement`, but only where `url`
+    /// isn't immediately followed by another URL-continuing character.
+    ///
+    /// A plain `replacingOccurrences(of:with:)` would treat `url` as a bare substring match, so
+    /// replacing `https://e.com/photo.jpg` would also corrupt a longer, distinct reference like
+    /// `https://e.com/photo.jpg?v=2` mid-string — silently smuggling an unvalidated URL fragment
+    /// (`?v=2`) past the refusal path this function exists to enforce. Anchoring the match with a
+    /// negative lookahead over the characters a URL can continue with (`[A-Za-z0-9?&=%._~/-]`)
+    /// keeps replace-ALL semantics for exact matches while leaving longer URLs untouched.
+    private static func replacingURL(_ url: String, in markdown: String, with replacement: String) -> String {
+        let pattern = NSRegularExpression.escapedPattern(for: url) + "(?![A-Za-z0-9?&=%._~/-])"
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return markdown }
+        let template = NSRegularExpression.escapedTemplate(for: replacement)
+        let range = NSRange(markdown.startIndex..<markdown.endIndex, in: markdown)
+        return regex.stringByReplacingMatches(in: markdown, range: range, withTemplate: template)
     }
 }
