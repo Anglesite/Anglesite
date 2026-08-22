@@ -95,6 +95,37 @@ test("author and content are optional", () => {
   assert.equal(all[0].content, undefined);
 });
 
+test("vouch is optional and round-trips when present", () => {
+  const all = parseInteractions(mods(raw({ vouch: { url: "https://trusted.example/", verified: true } })));
+  assert.equal(all.length, 1);
+  assert.deepEqual(all[0].vouch, { url: "https://trusted.example/", verified: true });
+});
+
+test("a failed vouch attempt round-trips distinctly from no vouch", () => {
+  const all = parseInteractions(mods(raw({ vouch: { url: "https://untrusted.example/", verified: false } })));
+  assert.equal(all[0].vouch?.verified, false);
+});
+
+test("vouch is undefined when absent", () => {
+  const all = parseInteractions(mods(raw()));
+  assert.equal(all[0].vouch, undefined);
+});
+
+test("rejects a non-http(s) vouch.url", () => {
+  const warnings: string[] = [];
+  const origWarn = console.warn;
+  console.warn = (...args: unknown[]) => warnings.push(args.join(" "));
+  try {
+    const all = parseInteractions(
+      mods(raw({ vouch: { url: "javascript:alert(1)", verified: true } })),
+    );
+    assert.equal(all.length, 0);
+    assert.equal(warnings.length, 1);
+  } finally {
+    console.warn = origWarn;
+  }
+});
+
 test("accepts type: bluesky", () => {
   const all = parseInteractions(mods(raw({ id: "bsky-abc123", type: "bluesky" })));
   assert.equal(all.length, 1);
