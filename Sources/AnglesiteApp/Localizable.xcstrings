@@ -175,6 +175,16 @@
         }
       }
     },
+    "%@: %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@: %2$lld"
+          }
+        }
+      }
+    },
     "%@: dependency alert" : {
 
     },
@@ -741,6 +751,9 @@
 
     },
     "Block Crawling" : {
+
+    },
+    "Block Palette" : {
 
     },
     "Block crawling entirely" : {
@@ -2440,6 +2453,9 @@
     "No drift found." : {
 
     },
+    "No editable properties" : {
+
+    },
     "No entries yet — follow a feed above to get started." : {
 
     },
@@ -2750,6 +2766,9 @@
 
     },
     "Paste Style" : {
+
+    },
+    "Paste and Match Style" : {
 
     },
     "Paste the HTML code from another analytics provider here, such as Google Analytics, Plausible, Fathom, or a conversion tag." : {
@@ -3511,6 +3530,9 @@
 
     },
     "Show or hide %@" : {
+
+    },
+    "Show or hide the block palette" : {
 
     },
     "Show or hide the inspector" : {
