@@ -34,13 +34,22 @@ final class QuickLookPreviewController: NSViewController, QLPreviewPanelDataSour
     /// data source/delegate by walking the key window's responder chain from whatever is currently
     /// first responder, and this controller's invisible view has no reason to already be there
     /// (SwiftUI's own content typically holds first responder). A no-op when `packageURL` is `nil`.
+    ///
+    /// Closes only when THIS controller is the one currently controlling the shared panel
+    /// (`panel.dataSource === self`), not merely when the panel happens to be visible: the panel
+    /// is one instance app-wide, so `panel.isVisible` alone can't distinguish "already showing
+    /// this window's package" from "showing a different window's package" — the latter must take
+    /// over control and refresh, not close (review finding on #1619). `reloadData()` after taking
+    /// over forces the panel to re-query this controller's data source rather than keep showing
+    /// whatever the previous controller supplied.
     func togglePanel() {
         guard packageURL != nil, let panel = QLPreviewPanel.shared() else { return }
-        if panel.isVisible {
+        if panel.isVisible, panel.dataSource === self {
             panel.orderOut(nil)
         } else {
             view.window?.makeFirstResponder(self)
             panel.makeKeyAndOrderFront(nil)
+            panel.reloadData()
         }
     }
 
