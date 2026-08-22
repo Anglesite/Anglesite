@@ -164,21 +164,32 @@ struct WYSIWYGCanvasControllerTests {
         #expect(reported?.inverse == WYSIWYGOpInverter.invert(staleOp))
     }
 
-    @Test("mountScript(for:) builds a mount(...) call carrying the model's exact JSON encoding")
+    @Test("mountScript(for:displayNames:) builds a mount(...) call carrying the model's and display names' exact JSON")
     func mountScriptBuildsCall() throws {
         let node = BlockNode(id: "b1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 5])
         let model = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["b1"], blocks: ["b1": node])
+        let displayNames = ["p": "Paragraph"]
 
-        let script = WYSIWYGCanvasController.mountScript(for: model)
+        let script = WYSIWYGCanvasController.mountScript(for: model, displayNames: displayNames)
 
-        #expect(script.hasPrefix("window.__anglesiteWysiwygMount?.mount("))
+        let prefix = "window.__anglesiteWysiwygMount?.mount("
+        #expect(script.hasPrefix(prefix))
         #expect(script.hasSuffix(")"))
-        // Round-trip the embedded JSON back through BlockModel to prove it's a faithful encoding,
-        // not just a prefix/suffix match on the wrapper string.
-        let jsonStart = script.index(script.startIndex, offsetBy: "window.__anglesiteWysiwygMount?.mount(".count)
-        let json = String(script[jsonStart..<script.index(before: script.endIndex)])
-        let decoded = try JSONDecoder().decode(BlockModel.self, from: Data(json.utf8))
-        #expect(decoded == model)
+        // `JSONEncoder`'s key order is not guaranteed stable across separate `encode()` calls of an
+        // equivalent value (confirmed on this toolchain: five back-to-back encodes of the identical
+        // `BlockNode` produced five different key orderings) — so, same as the pre-Task-7 version of
+        // this test, round-trip both JSON blobs back through their types instead of string-comparing
+        // against a freshly-encoded reference. `mount.ts`'s wrapper is the only place a bare ", "
+        // (comma-space) can appear in this string — the default `JSONEncoder` output has no
+        // whitespace around any of its own commas — so splitting on it isolates the two arguments.
+        let inner = script.dropFirst(prefix.count).dropLast()
+        let separator = try #require(inner.range(of: ", "), "expected a ', ' separator between the two JSON arguments")
+        let modelJSON = String(inner[inner.startIndex..<separator.lowerBound])
+        let namesJSON = String(inner[separator.upperBound...])
+        let decodedModel = try JSONDecoder().decode(BlockModel.self, from: Data(modelJSON.utf8))
+        let decodedNames = try JSONDecoder().decode([String: String].self, from: Data(namesJSON.utf8))
+        #expect(decodedModel == model)
+        #expect(decodedNames == displayNames)
     }
 
     @Test("unmountScript is the literal unmount() call")

@@ -838,11 +838,16 @@ final class SiteWindowModel {
     var canOpenExperimentStats: Bool { site != nil }
 
     /// Presents the Experiment Results sheet (#769), same fresh-construction pattern as
-    /// `presentCopyEdit`.
+    /// `presentCopyEdit`. Kicks off the live-prefill fetch (#1270 §4/§10 slice 4) right after
+    /// presentation — fire-and-forget, since a no-op/failed prefill just leaves the sheet's
+    /// manual-entry fields at their defaults.
     func presentExperimentStats() {
         guard experimentStatsModel == nil, let site else { return }
-        experimentStatsModel = ExperimentStatsModel(
-            siteID: site.id, sourceDirectory: site.sourceDirectory, currentRoute: preview.activeRoute ?? "/")
+        let model = ExperimentStatsModel(
+            siteID: site.id, sourceDirectory: site.sourceDirectory, configDirectory: site.configDirectory,
+            currentRoute: preview.activeRoute ?? "/")
+        experimentStatsModel = model
+        Task { await model.loadLivePrefillIfAvailable() }
     }
 
     /// Presents the Repurpose Post sheet (#465), same pattern as `presentCopyEdit`/`presentSocialPlan`.

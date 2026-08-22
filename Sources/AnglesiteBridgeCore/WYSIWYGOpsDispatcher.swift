@@ -31,9 +31,11 @@ public enum WYSIWYGOpsDispatcher {
         /// `context-menu` reported the block under the right-clicked point; the adapter should
         /// present a host-native menu there. No reply is sent back to the page.
         case contextMenu(blockId: BlockId, point: WYSIWYGPoint)
-        /// `selection-changed` reported the engine's own selection state changing (a click, or any
-        /// other engine-internal cause) — `blockId` is `nil` when the selection was cleared. No reply
-        /// is sent back to the page, same as `contextMenu`.
+        /// `selection-changed` reported the engine's own selection state changing (a click,
+        /// keyboard nav, or any other engine-internal cause) — `blockId` is `nil` when the
+        /// selection was cleared. The adapter should update its `selectedBlockId` so
+        /// Duplicate/Delete keep acting on the right block. No reply is sent back to the page,
+        /// same as `contextMenu`.
         case selectionChanged(blockId: BlockId?)
         case rejected(RejectionReason)
 

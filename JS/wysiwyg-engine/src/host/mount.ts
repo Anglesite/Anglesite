@@ -1,6 +1,8 @@
 import { WysiwygEngine } from "../engine.js";
 import { RichTextEditor } from "../rich-text.js";
 import { QualityGateChips } from "../quality-gates.js";
+import { KeyboardNavigation } from "../keyboard-nav.js";
+import { AccessibilityAnnotator } from "../accessibility.js";
 import { NativeHostTransport } from "./native-host-transport.js";
 import { DragReorderController, computeDropTarget } from "../drag-drop.js";
 import { computeHandleRect } from "../selection.js";
@@ -22,8 +24,10 @@ declare global {
     __anglesiteWysiwygEngine?: WysiwygEngine;
     __anglesiteWysiwygRichTextEditor?: RichTextEditor;
     __anglesiteWysiwygQualityGates?: QualityGateChips;
+    __anglesiteWysiwygKeyboardNav?: KeyboardNavigation;
+    __anglesiteWysiwygAccessibility?: AccessibilityAnnotator;
     __anglesiteWysiwygMount?: {
-      mount: (initialModel: BlockModel) => WysiwygEngine;
+      mount: (initialModel: BlockModel, displayNames?: Record<string, string>) => WysiwygEngine;
       unmount: () => void;
       dropTargetAt: (x: number, y: number) => { parentId: string; slot: string; index: number };
     };
@@ -219,7 +223,7 @@ let dragReorder: DragReorderController | null = null;
 // Disposes whatever is currently mounted (if anything) and clears the globals — the shared body
 // of `unmount()` below, factored out so `mount()` can call it too (#1225 final-review round 2,
 // Finding B) rather than only being reachable from the native `unmountEngine()` call. Safe to call
-// when nothing is mounted: all three globals are `undefined` and the optional-chained calls no-op.
+// when nothing is mounted: all globals are `undefined` and the optional-chained calls no-op.
 function disposeMounted(): void {
   disposeSelection?.();
   disposeSelection = null;
@@ -238,9 +242,13 @@ function disposeMounted(): void {
   dropIndicator = null;
   window.__anglesiteWysiwygRichTextEditor?.dispose();
   window.__anglesiteWysiwygQualityGates?.dispose();
+  window.__anglesiteWysiwygKeyboardNav?.dispose();
+  window.__anglesiteWysiwygAccessibility?.dispose();
   window.__anglesiteWysiwygEngine?.dispose();
   window.__anglesiteWysiwygRichTextEditor = undefined;
   window.__anglesiteWysiwygQualityGates = undefined;
+  window.__anglesiteWysiwygKeyboardNav = undefined;
+  window.__anglesiteWysiwygAccessibility = undefined;
   window.__anglesiteWysiwygEngine = undefined;
 }
 
@@ -248,7 +256,7 @@ function disposeMounted(): void {
 // WysiwygEngine needs an initialModel, which is only known once the native host has fetched one —
 // so this just exposes a `mount()` entry point the Swift host calls via `evaluateJavaScript`.
 window.__anglesiteWysiwygMount = {
-  mount(initialModel: BlockModel): WysiwygEngine {
+  mount(initialModel: BlockModel, displayNames: Record<string, string> = {}): WysiwygEngine {
     // Idempotent: dispose any already-mounted engine/RichTextEditor/QualityGateChips first (#1225
     // final-review round 2, Finding B) — see the original comment on this behavior for why.
     disposeMounted();
@@ -260,6 +268,14 @@ window.__anglesiteWysiwygMount = {
     // `HostTransport` and `QualityGateTransport` (#1226 Task 12), so one object owns the whole
     // `window.__anglesiteWysiwygHost` bridge.
     window.__anglesiteWysiwygQualityGates = new QualityGateChips(engine, transport);
+    window.__anglesiteWysiwygKeyboardNav = new KeyboardNavigation(engine, window.__anglesiteWysiwygRichTextEditor);
+    window.__anglesiteWysiwygAccessibility = new AccessibilityAnnotator(engine, displayNames);
+    // `wireSelection` below posts every `"selection-changed"` engine event to native regardless of
+    // cause — clicks (its own hit-test listener), keyboard nav (`KeyboardNavigation` calling
+    // `engine.selection.select(...)`), or anything else — since `WysiwygEngine`'s constructor
+    // already forwards every `selection.onChange` into its own `onEvent("selection-changed")`
+    // stream. A second, keyboard-specific posting subscription here would just double-post on
+    // every keyboard-driven selection change; keeping one funnel is both simpler and correct.
     disposeSelection = wireSelection(engine);
     dropIndicator = renderDropIndicator();
     // Real callback, not a no-op: `DragReorderController` already computes the live drop target on
@@ -305,5 +321,10 @@ document.addEventListener("contextmenu", (event) => {
   const blockId = engine.hitTest({ x: event.clientX, y: event.clientY });
   if (!blockId) return;
   event.preventDefault();
+  // Keep the engine's own selection in sync with the right-clicked block (#1589 final review):
+  // without this, right-click acted on a block that keyboard navigation and AccessibilityAnnotator
+  // never learned was selected, so a subsequent arrow press could silently relocate the user's
+  // selection instead of moving from the block they just right-clicked.
+  engine.selection.select(blockId);
   window.webkit?.messageHandlers?.wysiwyg?.postMessage({ type: "context-menu", blockId, x: event.clientX, y: event.clientY });
 });

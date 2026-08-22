@@ -138,8 +138,18 @@ struct PreviewView: NSViewRepresentable {
                     menu.popUp(positioning: nil, at: converted, in: webView)
                 }
             },
+            // Each `selection-changed` bridge message is handled by its own unstructured `Task`
+            // (`WYSIWYGScriptHandler`), with no ordering guarantee relative to other such messages —
+            // compounded here by this closure's own additional `Task` hop to `MainActor`. Under rapid
+            // arrow-key auto-repeat this could theoretically let two in-flight messages complete out
+            // of order, briefly landing `selectedBlockId` on a stale block until the next
+            // selection-changed message corrects it. Accepted for now per the #1589 final review — a
+            // real fix needs a sequencing mechanism (e.g. a monotonic version counter) across the
+            // JS↔native bridge, which is out of scope for this fix wave.
             onSelectionChanged: { [weak controller] blockId in
-                Task { @MainActor in controller?.selectedBlockId = blockId }
+                Task { @MainActor in
+                    controller?.selectedBlockId = blockId
+                }
             }
         )
     }

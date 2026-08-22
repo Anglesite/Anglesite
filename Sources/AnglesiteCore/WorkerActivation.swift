@@ -164,4 +164,23 @@ public enum WorkerActivation {
         guard !messages.isEmpty else { return nil }
         return "conformance: " + messages.joined(separator: "; ")
     }
+
+    /// User-facing (not debug-pane) honest-labeling advisory for the Micropub posting client
+    /// specifically (#800/#801): always evaluates the `.v3` gate, since the ``MicropubClient`` the
+    /// Mac connect sheet and iOS posting UI both drive is gated on that phase regardless of which
+    /// per-site `@dwk/*` workers happen to be active. Distinct from ``conformanceAdvisory(activeIDs:conformance:)``
+    /// above, which digests every active phase into one debug-pane log line — this is a single
+    /// sentence meant to sit directly under the posting UI, and it's advisory-only for the same
+    /// reason: `conformance/status.json` reports `@dwk/micropub` as `"pending"` throughout active
+    /// development even once the feature ships and works (verified live 2026-08-20), so this
+    /// never hides or disables posting — it only names the gap honestly. The wording deliberately
+    /// doesn't name a specific package: `.v3`'s gate also requires `@dwk/webmention` and
+    /// `@dwk/websub`, so a site could see this while `@dwk/micropub` itself is fully
+    /// release-ready and a sibling package is the actual gap (review feedback, #800) — naming
+    /// Micropub unconditionally would misattribute that. `nil` once V-3's required packages are
+    /// all release-ready.
+    public static func micropubConformanceAdvisory(conformance: WorkersConformanceStatus) -> String? {
+        guard !conformance.gateStatus(for: .v3).isUnblocked else { return nil }
+        return "Posting is ahead of its public conformance certification — it works today, but hasn't finished conformance testing yet."
+    }
 }

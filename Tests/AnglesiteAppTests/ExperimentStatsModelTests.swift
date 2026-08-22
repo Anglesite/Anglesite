@@ -6,7 +6,9 @@ import Foundation
 @MainActor
 @Suite struct ExperimentStatsModelTests {
     @Test func canAnalyzeOnlyOnceBothVariantsHaveVisitors() throws {
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: try tempDirectory(), currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: try tempDirectory(), configDirectory: try tempDirectory(),
+            currentRoute: "/")
         #expect(!model.canAnalyze)
         model.controlImpressions = 1000
         model.controlConversions = 50
@@ -17,7 +19,9 @@ import Foundation
     }
 
     @Test func analyzeProducesAResultAndSummary() throws {
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: try tempDirectory(), currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: try tempDirectory(), configDirectory: try tempDirectory(),
+            currentRoute: "/")
         model.experimentName = "Hero headline"
         model.controlImpressions = 1000
         model.controlConversions = 50
@@ -29,7 +33,9 @@ import Foundation
     }
 
     @Test func editAgainClearsTheResultButKeepsCounts() throws {
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: try tempDirectory(), currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: try tempDirectory(), configDirectory: try tempDirectory(),
+            currentRoute: "/")
         model.controlImpressions = 1000
         model.controlConversions = 50
         model.treatmentImpressions = 1000
@@ -42,14 +48,140 @@ import Foundation
     }
 
     @Test func suggestionPlaybookIsAlwaysAvailable() throws {
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: try tempDirectory(), currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: try tempDirectory(), configDirectory: try tempDirectory(),
+            currentRoute: "/")
         #expect(!model.suggestions.isEmpty)
         #expect(model.suggestions == ExperimentStats.suggestionPlaybook)
     }
 
+    // MARK: - #1270 live prefill
+
+    @Test func loadLivePrefillIsANoOpAndLeavesManualEntryUsableWhenNothingIsConfigured() async {
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: URL(fileURLWithPath: "/nonexistent-source"),
+            configDirectory: URL(fileURLWithPath: "/nonexistent-config"), currentRoute: "/")
+        await model.loadLivePrefillIfAvailable()
+        #expect(!model.isLive)
+        #expect(model.controlImpressions == 0)
+        #expect(model.treatmentImpressions == 0)
+        #expect(!model.canAnalyze)
+    }
+
+    @Test func loadLivePrefillFillsFieldsAndMarksLiveWhenAvailable() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
+        defer { cfToken.release() }
+        let fm = FileManager.default
+        let sourceDirectory = fm.temporaryDirectory.appendingPathComponent(
+            "experiment-stats-model-source-\(UUID().uuidString)", isDirectory: true)
+        let configDirectory = fm.temporaryDirectory.appendingPathComponent(
+            "experiment-stats-model-config-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? fm.removeItem(at: sourceDirectory)
+            try? fm.removeItem(at: configDirectory)
+        }
+        try fm.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try fm.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+
+        let experiment = DomainConfig.Experiments.Experiment(
+            id: "hero-headline", name: "Hero headline", page: "/",
+            variant: .init(id: "hero-2", name: "New headline", page: "/hero-2/"),
+            split: 0.5, goal: .init(kind: "pageview", path: "/contact/"), status: "running",
+            startedAt: "2026-08-01")
+        try DomainConfigStore(sourceDirectory: sourceDirectory).save(
+            DomainConfig(experiments: .init(active: [experiment])))
+        try await SiteConfigStore(configDirectory: configDirectory).save(
+            SiteSettings(provisionedWorkerResources: .init(d1DatabaseID: "db1")))
+
+        let accountsBody = Data(#"{"success": true, "result": [{"id": "acct1"}]}"#.utf8)
+        let d1Body = Data("""
+        {"success": true, "result": [{"success": true, "results": [
+            {"variant_id": "control", "metric": "impression", "total": 620},
+            {"variant_id": "control", "metric": "conversion", "total": 31},
+            {"variant_id": "hero-2", "metric": "impression", "total": 615},
+            {"variant_id": "hero-2", "metric": "conversion", "total": 48}
+        ]}]}
+        """.utf8)
+
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: sourceDirectory, configDirectory: configDirectory, currentRoute: "/")
+        await model.loadLivePrefillIfAvailable(
+            secretStore: FakeSecretStore(token: "token"),
+            transport: { request in
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                if request.url!.path.hasSuffix("/accounts") { return (accountsBody, response) }
+                if request.url!.path.contains("/d1/database/db1/query") { return (d1Body, response) }
+                return (Data(), HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!)
+            })
+
+        #expect(model.isLive)
+        #expect(model.experimentName == "Hero headline")
+        #expect(model.treatmentName == "New headline")
+        #expect(model.controlImpressions == 620)
+        #expect(model.controlConversions == 31)
+        #expect(model.treatmentImpressions == 615)
+        #expect(model.treatmentConversions == 48)
+        #expect(model.canAnalyze)
+    }
+
+    @Test func loadLivePrefillDoesNotClobberCountsTheOwnerAlreadyTyped() async throws {
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
+        defer { cfToken.release() }
+        let fm = FileManager.default
+        let sourceDirectory = fm.temporaryDirectory.appendingPathComponent(
+            "experiment-stats-model-source-\(UUID().uuidString)", isDirectory: true)
+        let configDirectory = fm.temporaryDirectory.appendingPathComponent(
+            "experiment-stats-model-config-\(UUID().uuidString)", isDirectory: true)
+        defer {
+            try? fm.removeItem(at: sourceDirectory)
+            try? fm.removeItem(at: configDirectory)
+        }
+        try fm.createDirectory(at: sourceDirectory, withIntermediateDirectories: true)
+        try fm.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+
+        let experiment = DomainConfig.Experiments.Experiment(
+            id: "hero-headline", name: "Hero headline", page: "/",
+            variant: .init(id: "hero-2", name: "New headline", page: "/hero-2/"),
+            split: 0.5, goal: .init(kind: "pageview", path: "/contact/"), status: "running",
+            startedAt: "2026-08-01")
+        try DomainConfigStore(sourceDirectory: sourceDirectory).save(
+            DomainConfig(experiments: .init(active: [experiment])))
+        try await SiteConfigStore(configDirectory: configDirectory).save(
+            SiteSettings(provisionedWorkerResources: .init(d1DatabaseID: "db1")))
+
+        let accountsBody = Data(#"{"success": true, "result": [{"id": "acct1"}]}"#.utf8)
+        let d1Body = Data("""
+        {"success": true, "result": [{"success": true, "results": [
+            {"variant_id": "control", "metric": "impression", "total": 620},
+            {"variant_id": "control", "metric": "conversion", "total": 31},
+            {"variant_id": "hero-2", "metric": "impression", "total": 615},
+            {"variant_id": "hero-2", "metric": "conversion", "total": 48}
+        ]}]}
+        """.utf8)
+
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: sourceDirectory, configDirectory: configDirectory, currentRoute: "/")
+        model.controlImpressions = 42
+        await model.loadLivePrefillIfAvailable(
+            secretStore: FakeSecretStore(token: "token"),
+            transport: { request in
+                let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                if request.url!.path.hasSuffix("/accounts") { return (accountsBody, response) }
+                if request.url!.path.contains("/d1/database/db1/query") { return (d1Body, response) }
+                return (Data(), HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!)
+            })
+
+        #expect(!model.isLive)
+        #expect(model.controlImpressions == 42)
+        #expect(model.treatmentImpressions == 0)
+    }
+
+    // MARK: - #1518 lifecycle
+
     @Test func withNoConfigStartsInManual() throws {
         let tmp = try tempDirectory()
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         #expect(model.step == .manual)
     }
 
@@ -61,7 +193,8 @@ import Foundation
             split: 0.5, goal: .init(kind: "pageview", path: "/contact/thanks/"), status: "draft")
         DomainConfigStore.update(sourceDirectory: tmp) { $0.experiments = .init(active: [experiment]) }
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         guard case .configure(let draft) = model.step else {
             Issue.record("expected .configure, got \(model.step)")
             return
@@ -78,7 +211,8 @@ import Foundation
             status: "running", startedAt: "2026-08-01")
         DomainConfigStore.update(sourceDirectory: tmp) { $0.experiments = .init(active: [experiment]) }
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         guard case .running(let running) = model.step else {
             Issue.record("expected .running, got \(model.step)")
             return
@@ -88,7 +222,8 @@ import Foundation
 
     @Test func proposeFromASuggestionMovesToConfigureWithASlugifiedID() throws {
         let tmp = try tempDirectory()
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         model.propose(from: ExperimentStats.suggestionPlaybook[0]) // "Hero headline"
         guard case .configure(let draft) = model.step else {
             Issue.record("expected .configure, got \(model.step)")
@@ -110,7 +245,8 @@ import Foundation
         <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
         """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
         await model.scaffoldVariant()
 
@@ -136,7 +272,8 @@ import Foundation
         <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
         """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
         await model.scaffoldVariant()
 
@@ -149,7 +286,8 @@ import Foundation
 
     @Test func canStartOnlyOnceVariantAndGoalAreBothSet() throws {
         let tmp = try tempDirectory()
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
         #expect(!model.canStart)
         model.setScrollGoal(depth: 75)
@@ -170,7 +308,8 @@ import Foundation
         <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
         """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
         await model.scaffoldVariant()
         model.setPageviewGoal(path: "/thanks/")
@@ -195,7 +334,8 @@ import Foundation
         <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
         """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
         await model.scaffoldVariant()
         model.setPageviewGoal(path: "/thanks/")
@@ -218,7 +358,8 @@ import Foundation
         <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
         """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
         await model.scaffoldVariant()
         model.setPageviewGoal(path: "/thanks/")
@@ -260,7 +401,8 @@ import Foundation
         """.write(to: tmp.appendingPathComponent("src/pages/pricing.astro"), atomically: true, encoding: .utf8)
 
         // `preview.activeRoute`/`ContentScanner.routeFromPagePath` hand over the slash-less form…
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/pricing")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/pricing")
         model.proposeCustom(name: "Hero headline")
         await model.scaffoldVariant()
         model.setPageviewGoal(path: "/thanks") // …and the owner can type one too.
@@ -288,7 +430,8 @@ import Foundation
             split: 0.5, goal: .init(kind: "pageview", path: "/thanks"), status: "draft")
         DomainConfigStore.update(sourceDirectory: tmp) { $0.experiments = .init(active: [stale]) }
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         guard case .configure(let draft) = model.step, let healed = draft.asExperiment else {
             Issue.record("expected a complete .configure draft, got \(model.step)")
             return
@@ -308,7 +451,8 @@ import Foundation
             split: 0.5, goal: .init(kind: "route", path: "/api/contact"), status: "draft")
         DomainConfigStore.update(sourceDirectory: tmp) { $0.experiments = .init(active: [entry]) }
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         guard case .configure(let draft) = model.step, let round = draft.asExperiment else {
             Issue.record("expected a complete .configure draft, got \(model.step)")
             return
@@ -317,7 +461,9 @@ import Foundation
     }
 
     @Test func theRootRouteStaysASingleSlash() throws {
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: try tempDirectory(), currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: try tempDirectory(), configDirectory: try tempDirectory(),
+            currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
         guard case .configure(let draft) = model.step else {
             Issue.record("expected .configure, got \(model.step)")
@@ -328,7 +474,8 @@ import Foundation
 
     @Test func scaffoldVariantSurfacesWhyItFailed() async throws {
         let tmp = try tempDirectory() // no src/pages/index.astro to duplicate
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
         await model.scaffoldVariant()
 
@@ -351,7 +498,8 @@ import Foundation
         <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
         """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
         await model.scaffoldVariant()
         model.setPageviewGoal(path: "/thanks/")
@@ -378,7 +526,8 @@ import Foundation
         <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
         """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         model.proposeCustom(name: "Hero headline")
         await model.scaffoldVariant()
         model.setPageviewGoal(path: "/thanks/")
@@ -402,7 +551,8 @@ import Foundation
         <BaseLayout title="Home"><h1>Home</h1></BaseLayout>
         """.write(to: tmp.appendingPathComponent("src/pages/index.astro"), atomically: true, encoding: .utf8)
 
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         #expect(!model.canReturnToManual) // already there
         model.openPropose()
         #expect(model.canReturnToManual)
@@ -435,7 +585,8 @@ import Foundation
 
         // Reached via returnToManual(), the only way to land on `.manual` while a running
         // experiment still exists on disk (the model would otherwise start in `.running`).
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         guard case .running = model.step else { Issue.record("expected .running, got \(model.step)"); return }
         model.returnToManual()
         #expect(model.step == .manual)
@@ -466,7 +617,8 @@ import Foundation
 
         // A draft (not running) config starts in .configure; return to manual and confirm
         // openPropose() is NOT blocked, since nothing is actually running.
-        let model = ExperimentStatsModel(siteID: "s1", sourceDirectory: tmp, currentRoute: "/")
+        let model = ExperimentStatsModel(
+            siteID: "s1", sourceDirectory: tmp, configDirectory: try tempDirectory(), currentRoute: "/")
         model.returnToManual()
         #expect(model.step == .manual)
         #expect(model.runningExperiment == nil)
@@ -479,4 +631,11 @@ import Foundation
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         return tmp
     }
+}
+
+private struct FakeSecretStore: SecretStore {
+    let token: String?
+    func read(account: String) throws -> String? { account == SecretAccounts.cloudflareToken ? token : nil }
+    func write(_ value: String, account: String) throws {}
+    func delete(account: String) throws {}
 }
