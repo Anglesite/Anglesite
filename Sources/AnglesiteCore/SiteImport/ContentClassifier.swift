@@ -52,12 +52,12 @@ public enum ContentClassifier {
     ///
     /// - Parameters:
     ///   - resolved: The resolved content items to classify.
-    ///   - now: The current date, used as a fallback for undated blog items.
+    ///   - now: The current date, used as a fallback for undated blog items and URL-based slugs.
     /// - Returns: An array of classified items.
     public static func classify(_ resolved: ResolvedContent, now: Date) -> [ClassifiedItem] {
         resolved.items.map { item in
             var classifiedItem = item
-            let destination = classifyDestination(for: item)
+            let destination = classifyDestination(for: item, now: now)
 
             // Titled blog items with no published date get published = now
             if case .collection(let name, _) = destination, name == "blog",
@@ -71,8 +71,8 @@ public enum ContentClassifier {
     }
 
     /// Classifies a single item to its destination.
-    private static func classifyDestination(for item: ImportItem) -> ImportDestination {
-        let slug = extractSlug(from: item.sourceURL)
+    private static func classifyDestination(for item: ImportItem, now: Date) -> ImportDestination {
+        let slug = extractSlug(from: item.sourceURL, now: now)
         let route = normalizeRoute(from: item.sourceURL)
 
         // Rule 1: .wpPost → collection("blog", slug)
@@ -118,8 +118,9 @@ public enum ContentClassifier {
     /// Extracts a slug from an item's source URL.
     ///
     /// The slug is the last non-empty path segment, run through `ContentScaffold.slugify`.
-    /// If the last segment is empty or missing, falls back to `ContentScaffold.slugFromURL`.
-    private static func extractSlug(from sourceURL: String) -> String {
+    /// If the last segment is empty or missing, falls back to `ContentScaffold.slugFromURL` with
+    /// the provided date, ensuring deterministic output.
+    private static func extractSlug(from sourceURL: String, now: Date) -> String {
         let path = URLComponents(string: sourceURL)?.path ?? ""
         let lastSegment = path
             .split(separator: "/", omittingEmptySubsequences: true)
@@ -127,8 +128,8 @@ public enum ContentClassifier {
             .map(String.init) ?? ""
 
         if lastSegment.isEmpty {
-            // Fallback to date-based slug from URL
-            return ContentScaffold.slugFromURL(sourceURL, now: Date())
+            // Fallback to date-based slug from URL using the provided date
+            return ContentScaffold.slugFromURL(sourceURL, now: now)
         }
 
         return ContentScaffold.slugify(lastSegment)
