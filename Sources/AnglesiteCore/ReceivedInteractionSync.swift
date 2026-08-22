@@ -24,13 +24,22 @@ public enum ReceivedInteractionSync {
                 url: mention.authorURL.flatMap(URL.init(string:)),
                 photo: mention.authorPhoto.flatMap(URL.init(string:)))
             : nil
+        // A vouch requires both the URL and the verified flag from the row — if either is missing
+        // (no vouch was sent, or a malformed vouchURL somehow made it through), there is no vouch.
+        let vouch: ReceivedInteraction.Vouch? = {
+            guard let vouchURLString = mention.vouchURL, let vouchVerified = mention.vouchVerified,
+                  let vouchURL = URL(string: vouchURLString)
+            else { return nil }
+            return ReceivedInteraction.Vouch(url: vouchURL, verified: vouchVerified)
+        }()
         let verifiedAt = Double(mention.verifiedAt) / 1000
         let publishedAt = Double(mention.publishedAt ?? mention.verifiedAt) / 1000
         return try? ReceivedInteraction(
             id: mention.id, type: .webmention, source: source, target: target,
             interactionType: interactionType, author: author, content: mention.content,
             published: Date(timeIntervalSince1970: publishedAt),
-            verified: Date(timeIntervalSince1970: verifiedAt), verificationStatus: .verified)
+            verified: Date(timeIntervalSince1970: verifiedAt), verificationStatus: .verified,
+            vouch: vouch)
     }
 
     /// Queries `client` for the full current inbox, maps it to `ReceivedInteraction`, and
