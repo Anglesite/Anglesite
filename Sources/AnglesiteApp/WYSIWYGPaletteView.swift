@@ -43,6 +43,11 @@ struct WYSIWYGPaletteView: View {
         case .text: "text.alignleft"
         case .astro: "square.on.square"
         case .customElement: "puzzlepiece"
+        // `.element`/`.fragment` (#1222) are structural target kinds the sidecar transport
+        // reports on existing nodes — no palette entry (`WYSIWYGCanvasController.stubBlockPalette`)
+        // is ever built with either kind, but the switch must stay exhaustive.
+        case .element: "chevron.left.slash.chevron.right"
+        case .fragment: "square.dashed"
         }
     }
 }

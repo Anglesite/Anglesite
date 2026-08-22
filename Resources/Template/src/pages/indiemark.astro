@@ -1,0 +1,33 @@
+---
+import BaseLayout from "../layouts/BaseLayout.astro";
+import { assessIndieMark } from "../lib/indiemark.ts";
+import { gatherIndieMarkInputs } from "../lib/indiemark-astro.ts";
+
+const results = assessIndieMark(await gatherIndieMarkInputs());
+---
+
+<BaseLayout
+  title="IndieMark self-assessment"
+  description="How this site measures up against the IndieWeb community's IndieMark self-assessment guide."
+>
+  <h1>IndieMark self-assessment</h1>
+
+  <p>
+    <a href="https://indieweb.org/IndieMark">IndieMark</a> is the IndieWeb community's own guide
+    to independent-web features, organized into axes like identity, posting, and syndication. It's
+    explicitly informal and still in progress — the wiki itself asks that it not be used to decide
+    whether a site "is a member of the IndieWeb." Treat what follows as a snapshot of where this
+    site and the Anglesite platform stand today, not a certification.
+  </p>
+
+  {
+    results.map((result) => (
+      <section>
+        <h2>{result.axis}</h2>
+        <p>
+          <strong>{result.label}.</strong> {result.detail}
+        </p>
+      </section>
+    ))
+  }
+</BaseLayout>

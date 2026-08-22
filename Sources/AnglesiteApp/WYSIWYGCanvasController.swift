@@ -247,7 +247,7 @@ final class WYSIWYGCanvasController {
     /// set: the right-click context menu never fires, `applyFormat(_:href:)` above is a permanent
     /// no-op, and no `submit-op` message is ever posted from JS (#1225 final-review fix wave,
     /// Finding 1 — the whole bridge was dead code at runtime before this). Called from
-    /// `PreviewModel.enterEditMode(seedModel:undoManager:)` (if the web view is already live) and from
+    /// `PreviewModel.enterEditMode(path:undoManager:)` (if the web view is already live) and from
     /// `PreviewView`'s `onWebView`/`updateNSView` (once the web view (re)appears while edit mode is
     /// already on) — see those call sites' doc comments for why both orderings need a call site.
     /// Best-effort: if the page hasn't finished loading yet, `evaluateJavaScript` will report an

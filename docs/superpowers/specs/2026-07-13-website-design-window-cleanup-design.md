@@ -2,7 +2,12 @@
 
 **Date:** 2026-07-13
 **Issue:** [#714](https://github.com/Anglesite/Anglesite-app/issues/714)
-**Status:** Approved by DWK 2026-07-13. Amended 2026-07-30 (approved by DWK):
+**Status:** Approved by DWK 2026-07-13. **Partially superseded 2026-08-18:**
+the unshipped slices (§7 Website Settings surface, §5 toolbar re-curation) are
+replaced by
+[`2026-08-18-website-design-window-v2-design.md`](2026-08-18-website-design-window-v2-design.md);
+the shipped slices (§1–§4, §6) remain the record of what was built.
+Amended 2026-07-30 (approved by DWK):
 §4 redesigned as the *unified* inspector — the window inspector becomes the only
 inspector, following the selection (element, page, or collection); §6's
 main-pane Collection Settings surface is dropped in favor of an inspector

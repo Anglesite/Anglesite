@@ -63,8 +63,95 @@ struct WYSIWYGPlumbingIntegrationTests {
         #expect(controller.model.rootIds == ["b1"])
         #expect(controller.model.blocks["b1"]?.componentName == "p")
     }
+
+    /// Task 5 (#1222): proves the production seam — `PreviewModel.enterEditMode(path:)` really
+    /// fetches through `PageModelClient`/`get_page_model` and adapts the result via
+    /// `PageModelBlockAdapter`, rather than seeding the canvas with a placeholder model. Uses
+    /// ``makeFakeGetPageModelClient(pageModel:)`` (below) to give `UnavailableSiteRuntime` a real,
+    /// started `MCPClient` backed by an in-process fake transport — the same shape
+    /// `MCPClientTests.FakeMCPServerTransport` establishes, scoped to just `get_page_model` since
+    /// that's the only tool this call path exercises (`enterEditMode` never calls `editRouter
+    /// .apply` itself; that only happens once an op is submitted through the mounted canvas).
+    @Test("enterEditMode fetches the real page model through PageModelClient and wires SidecarWYSIWYGHostTransport")
+    func enterEditModeFetchesRealModelThroughSidecarTransport() async throws {
+        let canned = PageModel(
+            version: "sha256:canned0000", path: "src/pages/index.astro",
+            tree: .init(
+                id: "root", kind: .fragment, tag: nil, attrs: [], span: .init(start: 0, end: 0),
+                loc: nil, text: nil, children: [], block: nil))
+        let client = try await makeFakeGetPageModelClient(pageModel: canned)
+        let previewModel = PreviewModel(runtime: UnavailableSiteRuntime(
+            reason: "no runtime needed — this test only exercises the get_page_model fetch",
+            mcpClient: client))
+
+        await previewModel.enterEditMode(path: "src/pages/index.astro", undoManager: nil)
+
+        #expect(previewModel.isEditModeEnabled)
+        #expect(previewModel.wysiwygCanvas?.model.path == "src/pages/index.astro")
+        #expect(previewModel.wysiwygCanvas?.model.version == "sha256:canned0000")
+    }
 }
 
 private extension OpResult {
     var isApplied: Bool { if case .applied = self { true } else { false } }
+}
+
+// MARK: - Shared fake `get_page_model` MCP transport
+
+/// In-process fake `MCPTransport` answering `get_page_model` (`tools/call`) with a canned
+/// `PageModel`, encoded exactly like a real sidecar reply (`content: [{type: "text", text:
+/// <json>}], isError: false`). Mirrors `MCPClientTests.FakeMCPServerTransport`'s pattern (no
+/// subprocess, no wall-clock dependency, responses yielded synchronously from `send(_:)`) but
+/// scoped to the one tool this feature's tests need. `internal` (not `private`) so both this
+/// file's own test above and `PreviewModelWYSIWYGTests.swift` can share it instead of each
+/// re-implementing a fake MCP server.
+actor FakeGetPageModelTransport: MCPTransport {
+    private var continuation: AsyncStream<JSONValue>.Continuation?
+    private let stream: AsyncStream<JSONValue>
+    private let pageModelJSON: String
+
+    init(pageModel: PageModel) {
+        var cont: AsyncStream<JSONValue>.Continuation!
+        stream = AsyncStream { cont = $0 }
+        continuation = cont
+        let data = try! JSONEncoder().encode(pageModel) // fixed, always-encodable model — force_try is safe here
+        pageModelJSON = String(data: data, encoding: .utf8)!
+    }
+
+    func open() async throws {}
+    nonisolated func inbound() -> AsyncStream<JSONValue> { stream }
+    func close() async { continuation?.finish() }
+
+    func send(_ message: JSONValue) async throws {
+        guard case .object(let obj) = message, case .string(let method)? = obj["method"] else { return }
+        guard case .int(let id)? = obj["id"] else { return } // notifications get no response
+        switch method {
+        case "tools/call":
+            continuation?.yield(.object([
+                "jsonrpc": .string("2.0"),
+                "id": .int(id),
+                "result": .object([
+                    "content": .array([.object(["type": .string("text"), "text": .string(pageModelJSON)])]),
+                    "isError": .bool(false),
+                ]),
+            ]))
+        default:
+            // Covers the `server/discover` ready probe too: any JSON-RPC response (error
+            // included) proves liveness, per `MCPClient.probeServerReady()`.
+            continuation?.yield(.object([
+                "jsonrpc": .string("2.0"),
+                "id": .int(id),
+                "error": .object(["code": .int(-32601), "message": .string("method not found")]),
+            ]))
+        }
+    }
+}
+
+/// Builds a started `MCPClient` backed by ``FakeGetPageModelTransport``. `internal` for the same
+/// cross-file sharing reason as the transport above.
+func makeFakeGetPageModelClient(pageModel: PageModel) async throws -> MCPClient {
+    let client = MCPClient(supervisor: .shared)
+    try await client.startWithTransport(
+        FakeGetPageModelTransport(pageModel: pageModel), readyTimeout: 5, clientName: "test", clientVersion: "0")
+    return client
 }

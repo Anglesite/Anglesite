@@ -17,6 +17,10 @@ public enum ComponentStructureEditBuilder {
         /// A `<slot>` outlet; `name` maps to the wire's `slotName` for a named slot, omitted
         /// entirely (not sent as null) for the default slot.
         case slot(name: String? = nil)
+        /// Pre-serialized markup, inserted verbatim — used when reinstating a block whose
+        /// content the app already has (e.g. undo of a delete), not when creating a brand-new
+        /// empty node.
+        case raw(markup: String)
 
         var jsonValue: JSONValue {
             switch self {
@@ -28,6 +32,8 @@ public enum ComponentStructureEditBuilder {
                 var obj: [String: JSONValue] = ["kind": .string("slot")]
                 if let name { obj["slotName"] = .string(name) }
                 return .object(obj)
+            case .raw(let markup):
+                return .object(["kind": .string("raw"), "markup": .string(markup)])
             }
         }
     }
@@ -187,6 +193,164 @@ public enum ComponentStructureEditBuilder {
                 "nodeId": .string(nodeId),
                 "name": .string(name),
                 "value": value.map(JSONValue.string) ?? .null,
+            ]),
+            value: nil
+        )
+    }
+
+    /// Builds the `moveBlock` message: reparent/reorder `nodeId` under `newParentId` at
+    /// `newIndex`. Wire-identical to `moveNode`'s payload — a distinct name because the WYSIWYG
+    /// engine and the Component Editor are separate protocol-facing callers of the same resolver.
+    public static func moveBlock(
+        id: String,
+        path: String,
+        baseVersion: String,
+        nodeId: String,
+        newParentId: String,
+        newIndex: Int
+    ) -> EditMessage {
+        EditMessage(
+            id: id,
+            path: path,
+            selector: nil,
+            op: EditMessage.Op.moveBlock,
+            component: .object([
+                "path": .string(path),
+                "baseVersion": .string(baseVersion),
+                "nodeId": .string(nodeId),
+                "newParentId": .string(newParentId),
+                "newIndex": .int(newIndex),
+            ]),
+            value: nil
+        )
+    }
+
+    /// Builds the `deleteBlock` message: delete `nodeId` and its whole subtree. Wire-identical to
+    /// `removeNode`'s payload.
+    public static func deleteBlock(
+        id: String,
+        path: String,
+        baseVersion: String,
+        nodeId: String
+    ) -> EditMessage {
+        EditMessage(
+            id: id,
+            path: path,
+            selector: nil,
+            op: EditMessage.Op.deleteBlock,
+            component: .object([
+                "path": .string(path),
+                "baseVersion": .string(baseVersion),
+                "nodeId": .string(nodeId),
+            ]),
+            value: nil
+        )
+    }
+
+    /// Builds the `editText` message: replace `textNodeId`'s rich-text runs. `runs` encodes to
+    /// the sidecar's ACTUAL wire shape — `{text, marks: ("strong"|"em"|"code")[], href?}`
+    /// (`apply-edit-schema.mjs`'s `runs` field, consumed by `text-run-edit.mjs`'s
+    /// `serializeRuns`) — NOT `RichTextRun`'s own Codable shape (`{kind, text, href, children}`).
+    /// That own-Codable encoding doesn't exist on the wire at all: Zod silently strips the
+    /// unrecognized `kind` key, so every `editText` op used to lose its formatting.
+    public static func editText(
+        id: String,
+        path: String,
+        baseVersion: String,
+        textNodeId: String,
+        runs: [RichTextRun]
+    ) -> EditMessage {
+        EditMessage(
+            id: id,
+            path: path,
+            selector: nil,
+            op: EditMessage.Op.editText,
+            component: .object([
+                "path": .string(path),
+                "baseVersion": .string(baseVersion),
+                "textNodeId": .string(textNodeId),
+                "runs": .array(runs.map(wireRun)),
+            ]),
+            value: nil
+        )
+    }
+
+    /// Maps one `RichTextRun` to the sidecar's flat `{text, marks, href?}` wire shape.
+    /// `.link` carries no mark of its own on the wire — the sidecar's `serializeRuns` wraps in
+    /// `<a href="...">` purely from `href`'s presence — so `.link` contributes `href` and an
+    /// empty `marks` array. `.children` (nested runs) has NO wire equivalent (the sidecar's
+    /// schema/serializer is a flat list, one level, no nesting) — deliberately dropped here
+    /// rather than mis-encoded; a run with non-empty `children` loses that nested content on the
+    /// wire, which is an honest, documented gap, not silent corruption.
+    private static func wireRun(_ run: RichTextRun) -> JSONValue {
+        var obj: [String: JSONValue] = ["text": .string(run.text)]
+        switch run.kind {
+        case .text:
+            obj["marks"] = .array([])
+        case .strong:
+            obj["marks"] = .array([.string("strong")])
+        case .em:
+            obj["marks"] = .array([.string("em")])
+        case .code:
+            obj["marks"] = .array([.string("code")])
+        case .link:
+            obj["marks"] = .array([])
+            if let href = run.href {
+                obj["href"] = .string(href)
+            }
+        }
+        return .object(obj)
+    }
+
+    /// Builds the `setDesignToken` message: patch `token`'s value in `global.css`'s light
+    /// `:root` block. `path` must be `"src/styles/global.css"` — the sidecar hardcodes and
+    /// validates this exact target, so callers always pass that literal, not the edited page's
+    /// path.
+    public static func setDesignToken(
+        id: String,
+        path: String,
+        baseVersion: String,
+        token: String,
+        tokenValue: String
+    ) -> EditMessage {
+        EditMessage(
+            id: id,
+            path: path,
+            selector: nil,
+            op: EditMessage.Op.setDesignToken,
+            component: .object([
+                "path": .string(path),
+                "baseVersion": .string(baseVersion),
+                "token": .string(token),
+                "tokenValue": .string(tokenValue),
+            ]),
+            value: nil
+        )
+    }
+
+    /// Builds an `insertBlock` message from an explicit `NodeSpec` rather than a manifest name —
+    /// the sibling of `insertBlock(id:path:baseVersion:parentId:index:manifestBlock:)` above, for
+    /// callers that already have concrete node content (e.g. reinstating raw markup on undo, or
+    /// inserting a plain element/slot the manifest doesn't know about).
+    public static func insertBlockNode(
+        id: String,
+        path: String,
+        baseVersion: String,
+        parentId: String,
+        index: Int,
+        node: NodeSpec
+    ) -> EditMessage {
+        EditMessage(
+            id: id,
+            path: path,
+            selector: nil,
+            op: EditMessage.Op.insertBlock,
+            component: .object([
+                "path": .string(path),
+                "baseVersion": .string(baseVersion),
+                "parentId": .string(parentId),
+                "index": .int(index),
+                "node": node.jsonValue,
             ]),
             value: nil
         )
