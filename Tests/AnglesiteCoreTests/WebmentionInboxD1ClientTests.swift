@@ -112,6 +112,52 @@ struct WebmentionInboxD1ClientTests {
         #expect(await attempts.get() == 2)
     }
 
+    @Test("falls back to legacy columns when the \"no such column\" error arrives as a non-2xx status")
+    func fallsBackWhenVouchColumnsAreMissingViaNon2xxStatus() async throws {
+        // The real Cloudflare D1 REST API isn't guaranteed to wrap every SQL error in a 200 +
+        // success:false body — a non-2xx status with a decodable {success, errors} envelope must
+        // still trigger the same fallback, not just the 200-with-success:false shape the other
+        // test above covers.
+        let missingColumnBody = Data("""
+        {"success": false, "errors": [{"code": 7500, "message": "D1_ERROR: no such column: vouch_url: SQLITE_ERROR"}]}
+        """.utf8)
+        let legacyBody = Data("""
+        {"success": true, "result": [{"success": true, "results": [
+            {"id": "wm-abc123", "source": "https://alice.example/post", "target": "https://me.example/blog/hi",
+             "verified_at": 1753300000000, "interaction_type": "reply", "author_name": "Alice",
+             "author_url": "https://alice.example", "author_photo": "https://alice.example/photo.jpg",
+             "content": "Great post!", "published_at": 1753299000000}
+        ]}]}
+        """.utf8)
+
+        let attempts = ActorBox<Int>(0)
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token",
+            transport: { _ in
+                let n = await attempts.get()
+                await attempts.set(n + 1)
+                return n == 0 ? (missingColumnBody, Self.response(400)) : (legacyBody, Self.response(200))
+            })
+
+        let mentions = try await client.listVerifiedMentions()
+        let mention = try #require(mentions.first)
+        #expect(mention.id == "wm-abc123")
+        #expect(mention.vouchURL == nil)
+        #expect(mention.vouchVerified == nil)
+        #expect(await attempts.get() == 2)
+    }
+
+    @Test("still throws .http when a non-2xx status has a body that isn't a decodable D1 envelope")
+    func throwsHTTPWhenNon2xxBodyIsNotDecodable() async throws {
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token",
+            transport: { _ in (Data("not json".utf8), Self.response(500)) })
+
+        await #expect(throws: CloudflareError.http(status: 500)) {
+            _ = try await client.listVerifiedMentions()
+        }
+    }
+
     @Test("still throws when the D1 failure is unrelated to a missing column")
     func doesNotFallBackOnUnrelatedError() async throws {
         let body = Data("""

@@ -185,7 +185,17 @@ public struct WebmentionInboxD1Client: Sendable {
 
         let (data, http) = try await transport(request)
         if http.statusCode == 401 || http.statusCode == 403 { throw CloudflareError.unauthorized }
-        guard (200..<300).contains(http.statusCode) else { throw CloudflareError.http(status: http.statusCode) }
+        guard (200..<300).contains(http.statusCode) else {
+            // A non-2xx status from D1's REST API can still carry a decodable `{success, errors}`
+            // envelope (e.g. a SQL error like "no such column" returned as 400/500 rather than
+            // 200 + success:false) — inspect the body before giving up on it, so
+            // `listVerifiedMentions()`'s "no such column" fallback can still trigger regardless
+            // of which shape the real API happens to use for that error.
+            if let envelope = try? JSONDecoder().decode(Envelope.self, from: data), !envelope.success {
+                throw CloudflareError.api(message: envelope.errors?.first?.message ?? "unknown D1 error")
+            }
+            throw CloudflareError.http(status: http.statusCode)
+        }
         guard let envelope = try? JSONDecoder().decode(Envelope.self, from: data) else {
             throw CloudflareError.malformedResponse
         }
