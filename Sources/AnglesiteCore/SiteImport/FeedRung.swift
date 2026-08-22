@@ -176,7 +176,7 @@ final class FeedXMLParser: NSObject, XMLParserDelegate {
             if linkURL == nil { linkURL = text }
         case "pubDate":
             if current?.published == nil {
-                current?.published = Self.rfc822Formatter.date(from: text)
+                current?.published = Self.rfc822Formatter.date(from: text) ?? Self.rfc822ZoneNameFormatter.date(from: text)
             }
         case "published", "updated":
             if name == "published" || current?.published == nil {
@@ -207,6 +207,17 @@ final class FeedXMLParser: NSObject, XMLParserDelegate {
     private nonisolated(unsafe) static let rfc822Formatter: DateFormatter = {
         let formatter = DateFormatter()
         formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss Z"
+        formatter.locale = Locale(identifier: "en_US_POSIX")
+        formatter.timeZone = TimeZone(identifier: "UTC")
+        return formatter
+    }()
+
+    /// Fallback for RFC822 dates using a literal zone name (`GMT`, `UT`, `EST`, …) instead of a
+    /// numeric offset — common in feeds from WordPress, Blogger, and other RSS generators, and not
+    /// matched by `rfc822Formatter`'s `Z` specifier.
+    private nonisolated(unsafe) static let rfc822ZoneNameFormatter: DateFormatter = {
+        let formatter = DateFormatter()
+        formatter.dateFormat = "EEE, dd MMM yyyy HH:mm:ss zzz"
         formatter.locale = Locale(identifier: "en_US_POSIX")
         formatter.timeZone = TimeZone(identifier: "UTC")
         return formatter

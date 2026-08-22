@@ -57,4 +57,21 @@ import Testing
             pages: [], assets: [], conversions: [ImportSnapshot.htmlKey(html): "json body"])
         #expect(FeedRung.items(from: snapshot).items.first?.markdown == "json body")
     }
+
+    @Test func parsesRSS2PubDateWithLiteralZoneName() {
+        let html = "<p>GMT body</p>"
+        let rss = """
+        <?xml version="1.0"?><rss version="2.0"><channel><item>
+        <title>GMT Post</title><link>https://example.com/gmt/</link>
+        <pubDate>Mon, 01 Jan 2024 00:00:00 GMT</pubDate>
+        <description><![CDATA[\(html)]]></description>
+        </item></channel></rss>
+        """
+        let snapshot = ImportSnapshot(
+            siteURL: "https://example.com",
+            probes: SiteProbes(feeds: [CapturedFeed(url: "https://example.com/feed", body: rss)]),
+            pages: [], assets: [], conversions: [ImportSnapshot.htmlKey(html): "GMT body"])
+        let result = FeedRung.items(from: snapshot)
+        #expect(result.items.first?.published != nil)
+    }
 }
