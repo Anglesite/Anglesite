@@ -52,7 +52,7 @@ public struct WebmentionInboxD1Client: Sendable {
         /// The sender's Vouch URL (indieweb.org/Vouch), when supplied and the mention verified.
         /// `nil` when no vouch was sent, or the row predates vouch support upstream.
         public let vouchURL: String?
-        /// Whether `vouchURL` was confirmed to link to this mention's target domain. `nil` exactly
+        /// Whether `vouchURL` was confirmed to link to the source's own domain. `nil` exactly
         /// when `vouchURL` is `nil`; otherwise `true`/`false` — a failed vouch attempt is still
         /// recorded (not collapsed into "no vouch"), since it's a stronger spam signal than silence.
         public let vouchVerified: Bool?

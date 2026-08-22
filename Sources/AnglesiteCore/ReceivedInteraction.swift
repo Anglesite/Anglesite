@@ -76,14 +76,14 @@ public struct ReceivedInteraction: Codable, Sendable, Equatable, Identifiable {
     }
 
     /// A Vouch (indieweb.org/Vouch): the sender-supplied URL and whether the Worker confirmed it
-    /// links to this mention's target domain — an additional inbound-trust signal beyond ordinary
+    /// links to the source's own domain — an additional inbound-trust signal beyond ordinary
     /// source→target link verification. A vouch that was sent but did NOT check out is still
     /// represented here (`verified: false`), not collapsed into "no vouch" — see the type-level
     /// design doc for why.
     public struct Vouch: Codable, Sendable, Equatable {
         /// The URL the sender supplied as their vouch.
         public let url: URL
-        /// Whether `url` was confirmed to link to the target's domain.
+        /// Whether `url` was confirmed to link to the source's own domain.
         public let verified: Bool
 
         /// Creates a vouch outcome.
