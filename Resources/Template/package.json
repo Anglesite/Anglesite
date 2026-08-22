@@ -31,7 +31,7 @@
     "@dwk/solid-oidc": "1.0.0-beta.1",
     "@dwk/solid-pod": "1.0.0-beta.1",
     "@dwk/webfinger": "1.0.0-beta.1",
-    "@dwk/webmention": "1.0.0-beta.1",
+    "@dwk/webmention": "1.0.0-beta.2",
     "@dwk/websub": "1.0.0-beta.1",
     "@modelcontextprotocol/client": "^2.0.0",
     "@modelcontextprotocol/sdk": "^1.30.0",

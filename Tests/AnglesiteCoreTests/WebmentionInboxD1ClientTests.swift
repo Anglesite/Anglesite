@@ -38,6 +38,94 @@ struct WebmentionInboxD1ClientTests {
         #expect(mention.publishedAt == 1_753_299_000_000)
     }
 
+    @Test("decodes a vouched mention")
+    func decodesVouchedMention() async throws {
+        let body = Data("""
+        {"success": true, "result": [{"success": true, "results": [
+            {"id": "wm-abc123", "source": "https://alice.example/post", "target": "https://me.example/blog/hi",
+             "verified_at": 1753300000000, "interaction_type": "reply", "author_name": "Alice",
+             "author_url": "https://alice.example", "author_photo": "https://alice.example/photo.jpg",
+             "content": "Great post!", "published_at": 1753299000000,
+             "vouch_url": "https://trusted.example/", "vouch_verified": 1}
+        ]}]}
+        """.utf8)
+
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token",
+            transport: { _ in (body, Self.response(200)) })
+
+        let mentions = try await client.listVerifiedMentions()
+        let mention = try #require(mentions.first)
+        #expect(mention.vouchURL == "https://trusted.example/")
+        #expect(mention.vouchVerified == true)
+    }
+
+    @Test("decodes an unverified vouch attempt as verified == false, not nil")
+    func decodesUnverifiedVouch() async throws {
+        let body = Data("""
+        {"success": true, "result": [{"success": true, "results": [
+            {"id": "wm-ghi789", "source": "https://carol.example/post", "target": "https://me.example/blog/hi",
+             "verified_at": 1753300000000, "interaction_type": null, "author_name": null,
+             "author_url": null, "author_photo": null, "content": null, "published_at": null,
+             "vouch_url": "https://untrusted.example/", "vouch_verified": 0}
+        ]}]}
+        """.utf8)
+
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token",
+            transport: { _ in (body, Self.response(200)) })
+
+        let mentions = try await client.listVerifiedMentions()
+        let mention = try #require(mentions.first)
+        #expect(mention.vouchURL == "https://untrusted.example/")
+        #expect(mention.vouchVerified == false)
+    }
+
+    @Test("falls back to the legacy column set when the site's worker hasn't migrated the vouch columns yet")
+    func fallsBackWhenVouchColumnsAreMissing() async throws {
+        let missingColumnBody = Data("""
+        {"success": false, "errors": [{"code": 7500, "message": "D1_ERROR: no such column: vouch_url: SQLITE_ERROR"}]}
+        """.utf8)
+        let legacyBody = Data("""
+        {"success": true, "result": [{"success": true, "results": [
+            {"id": "wm-abc123", "source": "https://alice.example/post", "target": "https://me.example/blog/hi",
+             "verified_at": 1753300000000, "interaction_type": "reply", "author_name": "Alice",
+             "author_url": "https://alice.example", "author_photo": "https://alice.example/photo.jpg",
+             "content": "Great post!", "published_at": 1753299000000}
+        ]}]}
+        """.utf8)
+
+        let attempts = ActorBox<Int>(0)
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token",
+            transport: { _ in
+                let n = await attempts.get()
+                await attempts.set(n + 1)
+                return n == 0 ? (missingColumnBody, Self.response(200)) : (legacyBody, Self.response(200))
+            })
+
+        let mentions = try await client.listVerifiedMentions()
+        let mention = try #require(mentions.first)
+        #expect(mention.id == "wm-abc123")
+        #expect(mention.vouchURL == nil)
+        #expect(mention.vouchVerified == nil)
+        #expect(await attempts.get() == 2)
+    }
+
+    @Test("still throws when the D1 failure is unrelated to a missing column")
+    func doesNotFallBackOnUnrelatedError() async throws {
+        let body = Data("""
+        {"success": false, "errors": [{"code": 7500, "message": "D1_ERROR: database is locked"}]}
+        """.utf8)
+        let client = WebmentionInboxD1Client(
+            accountID: "acct1", databaseID: "db1", apiToken: "token",
+            transport: { _ in (body, Self.response(200)) })
+
+        await #expect(throws: CloudflareError.api(message: "D1_ERROR: database is locked")) {
+            _ = try await client.listVerifiedMentions()
+        }
+    }
+
     @Test("decodes rows from a pre-enrichment inbox where the new columns are all null")
     func decodesLegacyRowsWithNullEnrichmentColumns() async throws {
         let body = Data("""
