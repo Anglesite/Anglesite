@@ -40,9 +40,11 @@ struct FileItemCommands: Commands {
 
             Divider()
 
-            // ShareLink ships in the toolbar (#523); the menu item is planned until the
-            // File-menu share popover (incl. "Package as Single File", spec §4.2) exists.
-            PlannedItem("Share…")
+            // Full Share popover (ShareLink + "Package as Single File", spec §4.2) is still
+            // planned; this narrower slice (#1617) shows an in-app Quick Look of the package
+            // instead, scoped per the WYSIWYG design doc §5.
+            Button("Share…") { model?.shareSite() }
+                .disabled(model?.canShareSite != true)
         }
     }
 }

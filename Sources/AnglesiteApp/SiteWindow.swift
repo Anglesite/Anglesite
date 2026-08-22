@@ -147,6 +147,9 @@ struct SiteWindow: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
+        // Invisible responder-chain seam for File ▸ Share…'s in-app Quick Look (#1617) — see
+        // `QuickLookPreviewController`'s doc comment.
+        .background(QuickLookPreviewHost(model: model).frame(width: 0, height: 0))
         .task(id: siteID) {
             await model.loadAndStart(
                 siteID: siteID,

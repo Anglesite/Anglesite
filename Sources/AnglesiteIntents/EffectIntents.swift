@@ -108,11 +108,11 @@ public struct AddEffectIntent: AppIntent {
             return EffectDialogs.notPlaceable(effectTitle: entry.title)
         }
 
-        // Tests bind AddEffectSiteConnectionOverride.scoped; production reads the live
+        // Tests bind SiteConnectionOverride.scoped; production reads the live
         // per-siteID registries (populated only while the site's window is open).
         let pageModelClient: PageModelClient?
         let editRouter: EditRouter?
-        if let connection = AddEffectSiteConnectionOverride.scoped {
+        if let connection = SiteConnectionOverride.scoped {
             pageModelClient = connection.pageModelClient
             editRouter = connection.editRouter
         } else {

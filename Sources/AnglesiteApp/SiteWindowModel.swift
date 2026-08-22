@@ -1181,6 +1181,22 @@ final class SiteWindowModel {
         }
     }
 
+    /// The window's Quick Look responder-chain seam (#1617) — set once by
+    /// `QuickLookPreviewHost.makeNSViewController` when the invisible host view is created, mirroring
+    /// `windowUndoManager`'s externally-supplied-`weak var` pattern. `weak` so a torn-down view
+    /// controller doesn't stay pinned alive through this model.
+    weak var quickLookController: QuickLookPreviewController?
+
+    var canShareSite: Bool { site != nil }
+
+    /// File ▸ Share…: shows (or hides, if already showing) an in-app Quick Look preview of the
+    /// site's `.anglesite` package, scoped down from the menu-bar spec's full Share vision per the
+    /// WYSIWYG design doc §5 — no `NSSharingServicePicker`, no package export.
+    func shareSite() {
+        quickLookController?.packageURL = site?.packageURL
+        quickLookController?.togglePanel()
+    }
+
     var canRenameNavigatorItem: Bool {
         guard let navigator, let selection = navigator.selection else { return false }
         return navigator.canRename(selection)
