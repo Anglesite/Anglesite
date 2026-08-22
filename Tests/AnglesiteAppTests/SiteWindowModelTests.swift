@@ -1425,6 +1425,140 @@ extension SiteWindowModelTests {
         #expect(model.inspectorSelection == nil)
     }
 
+    @Test("applyNavigatorSelection's .route branch clears a stale WYSIWYG block selection, so it can't shadow the new page context (#1588 Task 8 follow-up)")
+    func applyNavigatorSelectionRouteClearsStaleWYSIWYGSelection() async throws {
+        let (root, packageURL, package) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let graph = SiteContentGraph()
+        await graph.load(
+            siteID: "site-a",
+            pages: [SiteContentGraph.Page(
+                id: "site-a:page:/about", siteID: "site-a", route: "/about",
+                filePath: "src/pages/about.md", title: "About", lastModified: Date()
+            )],
+            posts: [], images: []
+        )
+        // `enterEditMode(path:)` (#1222) needs a started `MCPClient` answering `get_page_model` —
+        // `makeModel(contentGraph:)`'s `NeverStartedSiteRuntimeFactory` leaves the client
+        // unstarted, so the fetch would fail and `wysiwygCanvas` would never mount. Wire the same
+        // fake transport `PreviewModelWYSIWYGTests`/`WYSIWYGPlumbingIntegrationTests` use instead.
+        let pageModel = PageModel(
+            version: "sha256:test00000000", path: "src/pages/about.md",
+            tree: .init(
+                id: "root", kind: .fragment, tag: nil, attrs: [], span: .init(start: 0, end: 0),
+                loc: nil, text: nil, children: [], block: nil))
+        let client = try await makeFakeGetPageModelClient(pageModel: pageModel)
+        let model = SiteWindowModel(
+            contentGraph: graph,
+            knowledgeIndex: SiteKnowledgeIndex(),
+            semanticRanker: nil,
+            conventionsEngine: ProjectConventionsEngine(),
+            runtimeFactory: FakeGetPageModelSiteRuntimeFactory(mcpClient: client),
+            contentIndexerStore: ContentIndexerStore()
+        )
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+
+        // Turn on edit mode and select a block — mirrors the owner clicking a block in the
+        // canvas before navigating elsewhere in the sidebar. Edit mode is a toggle independent of
+        // `mainPaneMode`/navigator selection, so nothing about the navigation below touches it on
+        // its own; `applyNavigatorSelection` must clear `selectedBlockId` explicitly.
+        await model.preview.enterEditMode(path: "src/pages/about.md", undoManager: nil)
+        model.preview.wysiwygCanvas?.selectedBlockId = "b1"
+        guard case .wysiwygBlock = model.inspectorSelection else {
+            Issue.record("expected .wysiwygBlock while a block is selected in edit mode")
+            return
+        }
+
+        let navModel = SiteNavigatorModel(graph: graph)
+        navModel.start(
+            site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL))
+        while navModel.nodes.isEmpty { await Task.yield() }
+        let routeID = "site-a:page:/about"
+        #expect(navModel.target(for: routeID) == .route("/about"))
+        model.navigator = navModel
+
+        navModel.selection = routeID
+        model.applyNavigatorSelection(routeID)
+
+        // `.route`'s body runs inside its own `Task { ... }` — poll for the final state rather
+        // than asserting inline, same technique as the other `applyNavigatorSelection` tests above.
+        while model.inspectorContext == nil { await Task.yield() }
+        #expect(model.preview.wysiwygCanvas?.selectedBlockId == nil)
+        guard case .page = model.inspectorSelection else {
+            Issue.record("expected the stale .wysiwygBlock selection to no longer shadow the new .page context")
+            return
+        }
+    }
+
+    @Test("applyNavigatorSelection's .directory branch clears a stale WYSIWYG block selection, so it can't shadow the new collection context (#1588 Task 8 follow-up)")
+    func applyNavigatorSelectionDirectoryClearsStaleWYSIWYGSelection() async throws {
+        let (root, packageURL, package) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let graph = SiteContentGraph()
+        await graph.load(
+            siteID: "site-a", pages: [],
+            posts: [SiteContentGraph.Post(
+                id: "site-a:post:hello", siteID: "site-a", collection: "notes", slug: "hello",
+                title: "Hello", draft: false, publishDate: nil, tags: [],
+                filePath: "src/content/notes/hello.md", lastModified: Date()
+            )],
+            images: []
+        )
+        // See the `.route` test above for why this test needs a started fake `get_page_model`
+        // client rather than `makeModel(contentGraph:)`'s never-started runtime.
+        let pageModel = PageModel(
+            version: "sha256:test00000000", path: "src/pages/index.astro",
+            tree: .init(
+                id: "root", kind: .fragment, tag: nil, attrs: [], span: .init(start: 0, end: 0),
+                loc: nil, text: nil, children: [], block: nil))
+        let client = try await makeFakeGetPageModelClient(pageModel: pageModel)
+        let model = SiteWindowModel(
+            contentGraph: graph,
+            knowledgeIndex: SiteKnowledgeIndex(),
+            semanticRanker: nil,
+            conventionsEngine: ProjectConventionsEngine(),
+            runtimeFactory: FakeGetPageModelSiteRuntimeFactory(mcpClient: client),
+            contentIndexerStore: ContentIndexerStore()
+        )
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+
+        await model.preview.enterEditMode(path: "src/pages/index.astro", undoManager: nil)
+        model.preview.wysiwygCanvas?.selectedBlockId = "b1"
+        guard case .wysiwygBlock = model.inspectorSelection else {
+            Issue.record("expected .wysiwygBlock while a block is selected in edit mode")
+            return
+        }
+
+        let navModel = SiteNavigatorModel(graph: graph)
+        navModel.start(site: CurrentSite(id: "site-a", packageURL: packageURL, sourceDirectory: package.sourceURL))
+        // One post in one collection ("notes") and no pages builds exactly one top-level
+        // directory node (`buildSiteURLTree`'s `buildTopLevel`), so polling for `nodes.count`
+        // to reach 2 would spin forever — poll for non-empty instead, matching the `.route` test
+        // above.
+        while navModel.nodes.isEmpty { await Task.yield() }
+        let directoryID = "dir:/notes/"
+        #expect(navModel.target(for: directoryID) == .directory(collection: "notes", route: "/notes/"))
+        model.navigator = navModel
+
+        navModel.selection = directoryID
+        model.applyNavigatorSelection(directoryID)
+
+        while model.collectionInspection == nil { await Task.yield() }
+        #expect(model.preview.wysiwygCanvas?.selectedBlockId == nil)
+        guard case .collection = model.inspectorSelection else {
+            Issue.record("expected the stale .wysiwygBlock selection to no longer shadow the new .collection context")
+            return
+        }
+    }
+
     @Test("ensureWebsiteInspectorLoaded creates the website inspector once and clears it on site change (#714 v2 slice 1)")
     func websiteInspectorLifecycle() async throws {
         let (root, packageURL, _) = try makeSitePackage()
@@ -1843,5 +1977,23 @@ extension SiteWindowModelTests {
         let reloaded = WebsiteInspectorModel(packageURL: packageURL)
         await reloaded.load()
         #expect(reloaded.title == "Flushed By Pane Switch", "the edit never reached Info.plist")
+    }
+}
+
+/// Wraps a pre-started fake `get_page_model` `MCPClient` (`makeFakeGetPageModelClient`,
+/// `WYSIWYGPlumbingIntegrationTests.swift`) behind a `SiteRuntimeFactory`, so a `SiteWindowModel`
+/// built with it can actually run `preview.enterEditMode(path:)` to completion in a test — unlike
+/// `NeverStartedSiteRuntimeFactory` above, whose `MCPClient` is never started and would fail every
+/// `get_page_model` fetch.
+private struct FakeGetPageModelSiteRuntimeFactory: SiteRuntimeFactory {
+    let mcpClient: MCPClient
+
+    func makeRuntime(
+        contentGraph: SiteContentGraph?,
+        knowledgeIndex: SiteKnowledgeIndex?,
+        semanticRanker: SemanticRanker?,
+        conventionsEngine: ProjectConventionsEngine?
+    ) -> any SiteRuntime {
+        UnavailableSiteRuntime(reason: "test: WYSIWYG edit mode via fake get_page_model", mcpClient: mcpClient)
     }
 }

@@ -42,6 +42,28 @@ struct WYSIWYGCanvasControllerTests {
         #expect(applied == false)
     }
 
+    @Test("hasUncommittedOps flips true after a successful submit")
+    func hasUncommittedOpsFlipsAfterSubmit() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+        #expect(controller.hasUncommittedOps == false)
+
+        _ = await controller.submit(.setDesignToken(tokenName: "t", value: "a", previousValue: "b"))
+
+        #expect(controller.hasUncommittedOps == true)
+    }
+
+    @Test("hasUncommittedOps stays false when a submit is rejected")
+    func hasUncommittedOpsStaysFalseOnRejection() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+        controller.forceTargetVersion = "stale"
+
+        _ = await controller.submit(.setDesignToken(tokenName: "t", value: "a", previousValue: "b"))
+
+        #expect(controller.hasUncommittedOps == false)
+    }
+
     @Test("duplicateSelectedBlock submits an insertBlock op for a copy of the selected block")
     func duplicateSelectedBlockSubmitsInsert() async {
         let existing = BlockNode(id: "b1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0])
@@ -55,8 +77,8 @@ struct WYSIWYGCanvasControllerTests {
         #expect(controller.model.rootIds.count == 2)
     }
 
-    @Test("duplicateSelectedBlock no-ops for a nested (non-root) block instead of misplacing a copy at the root")
-    func duplicateSelectedBlockNoOpsForNestedBlock() async {
+    @Test("duplicateSelectedBlock duplicates a nested block into its real parent slot, adjacent to it")
+    func duplicateSelectedBlockHandlesNestedBlock() async {
         let nested = BlockNode(id: "b2", kind: .text, componentName: "span", props: [:], slots: [:], sourceSpan: [10, 20])
         let container = BlockNode(id: "b1", kind: .astro, componentName: "Container", props: [:], slots: ["main": ["b2"]], sourceSpan: [0, 30])
         let initial = BlockModel(
@@ -64,11 +86,33 @@ struct WYSIWYGCanvasControllerTests {
             blocks: ["b1": container, "b2": nested])
         let transport = StubWYSIWYGHostTransport(model: initial)
         let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
-        controller.selectedBlockId = "b2" // exists in model.blocks, but not in model.rootIds
+        controller.selectedBlockId = "b2"
 
         await controller.duplicateSelectedBlock()
 
-        #expect(controller.model == initial)
+        let parent = controller.model.blocks["b1"]
+        #expect(parent?.slots["main"]?.count == 2)
+        #expect(parent?.slots["main"]?.first == "b2")
+    }
+
+    @Test("locate finds a root block's parent/slot/index")
+    func locateFindsRootBlock() {
+        let existing = BlockNode(id: "b1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["b1"], blocks: ["b1": existing])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+
+        let location = controller.locate("b1")
+
+        #expect(location?.parentId == rootParentID)
+        #expect(location?.index == 0)
+    }
+
+    @Test("locate returns nil for a block not present in the model")
+    func locateReturnsNilForMissingBlock() {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+
+        #expect(controller.locate("ghost") == nil)
     }
 
     @Test("deleteSelectedBlock submits a deleteBlock op and clears the selection")
@@ -226,6 +270,25 @@ struct WYSIWYGCanvasControllerTests {
         let json = String(script[jsonStart..<script.index(before: script.endIndex)])
         let decoded = try JSONDecoder().decode([Finding].self, from: Data(json.utf8))
         #expect(decoded == [finding])
+    }
+
+    @Test("stubBlockPalette's Callout entry exposes text, color, and boolean prop descriptors")
+    func stubPaletteCalloutHasTypedProps() {
+        let callout = WYSIWYGCanvasController.stubBlockPalette.first { $0.componentName == "Callout" }
+        guard let callout else {
+            Issue.record("Callout entry not found in palette")
+            return
+        }
+        let kinds = callout.props.map(\.kind).sorted(by: { $0.rawValue < $1.rawValue })
+        let expected: [WYSIWYGPropEditorKind] = [.boolean, .color, .text].sorted(by: { $0.rawValue < $1.rawValue })
+        #expect(kinds == expected)
+    }
+
+    @Test("stubBlockPalette's Heading entry exposes an enum level prop")
+    func stubPaletteHeadingHasEnumLevel() {
+        let heading = WYSIWYGCanvasController.stubBlockPalette.first { $0.componentName == "h2" }
+        #expect(heading?.props.first?.kind == .enumeration)
+        #expect(heading?.props.first?.enumOptions == ["1", "2", "3", "4"])
     }
 }
 

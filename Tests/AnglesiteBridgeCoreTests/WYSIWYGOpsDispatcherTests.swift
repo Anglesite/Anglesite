@@ -80,10 +80,9 @@ struct WYSIWYGOpsDispatcherTests {
         }
     }
 
-    @Test("dispatch routes selection-changed to .selectionChanged with the reported block")
-    func dispatchRoutesSelectionChanged() async {
-        let model = BlockModel(path: "src/pages/index.astro", version: "v1", rootIds: [], blocks: [:])
-        let transport = RecordingTransport(reply: .applied(model: model))
+    @Test("dispatch decodes a selection-changed message with a block id")
+    func decodesSelectionChangedWithBlock() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
         let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "selection-changed", "blockId": "b1"], via: transport)
         guard case .selectionChanged(let blockId) = result else {
             Issue.record("expected .selectionChanged, got \(result)")
@@ -92,10 +91,9 @@ struct WYSIWYGOpsDispatcherTests {
         #expect(blockId == "b1")
     }
 
-    @Test("dispatch routes selection-changed with a null blockId to .selectionChanged(nil)")
-    func dispatchRoutesSelectionChangedClear() async {
-        let model = BlockModel(path: "src/pages/index.astro", version: "v1", rootIds: [], blocks: [:])
-        let transport = RecordingTransport(reply: .applied(model: model))
+    @Test("dispatch decodes a selection-changed message clearing the selection")
+    func decodesSelectionChangedCleared() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
         let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "selection-changed", "blockId": NSNull()], via: transport)
         guard case .selectionChanged(let blockId) = result else {
             Issue.record("expected .selectionChanged, got \(result)")

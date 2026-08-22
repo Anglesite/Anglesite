@@ -24,6 +24,10 @@ struct SiteWindow: View {
     /// Inspector visibility, persisted per window. Defaults to shown (auto-open); the toolbar toggle
     /// flips it and the choice persists across selections.
     @SceneStorage("siteInspector.shown") private var inspectorShown = true
+    /// WYSIWYG block palette visibility (#1588 Task 20). Unlike `inspectorShown`, this isn't
+    /// persisted across launches — the palette is only meaningful while Site ▸ Edit Page is on
+    /// (see the toolbar item's `.disabled`), so there's no stable state to restore between runs.
+    @State private var showWYSIWYGPalette = false
     /// Which inspector occupies the trailing panel while `inspectorShown` is true (#714 v2 slice
     /// 1): the existing per-selection inspector, or the new Website inspector. Mutually exclusive
     /// — switching one on switches the other off. Persisted per window like `inspectorShown`.
@@ -427,6 +431,20 @@ struct SiteWindow: View {
                         .transition(reduceMotion ? .opacity : .move(edge: .top).combined(with: .opacity))
                     }
                     HStack(spacing: 0) {
+                        // Leading tool panel (#1588 Task 20): same Divider + fixed-width +
+                        // transition convention the trailing chat/related-pages panels below use,
+                        // just anchored on the leading edge since this is a palette next to the
+                        // canvas rather than an auxiliary content panel.
+                        if showWYSIWYGPalette, model.preview.isEditModeEnabled {
+                            WYSIWYGPaletteView(entries: WYSIWYGCanvasController.stubBlockPalette) { entry in
+                                Task { await model.preview.wysiwygCanvas?.insertBlock(entry) }
+                            }
+                            .frame(width: 220)
+                            .transition(reduceMotion
+                                ? .opacity
+                                : .move(edge: .leading).combined(with: .opacity))
+                            Divider()
+                        }
                         mainPane(for: site)
                             .frame(maxWidth: .infinity, maxHeight: .infinity)
                         if model.chatPresented, let chat = model.chat {
@@ -448,6 +466,7 @@ struct SiteWindow: View {
                     }
                     .animation(.easeInOut(duration: 0.18), value: model.chatPresented)
                     .animation(.easeInOut(duration: 0.18), value: model.relatedPagesPresented)
+                    .animation(.easeInOut(duration: 0.18), value: showWYSIWYGPalette)
                 }
                 if model.deploy.drawerPresented {
                     DeployDrawerView(
@@ -477,11 +496,16 @@ struct SiteWindow: View {
             inspectorContent
                 .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
         }
-        .navigationTitle(site.name)
+        .navigationTitle(model.preview.editingPageTitle ?? site.name)
         .navigationSubtitle(model.preview.readyURL?.absoluteString ?? "")
         // Titlebar proxy icon (#521): ⌘-click shows the package's path, and the icon drags as the
         // `.anglesite` package itself. The window's security-scoped grant already covers the URL.
-        .navigationDocument(site.packageURL)
+        // While WYSIWYG edit mode is active (#1588 Task 18), both title and proxy icon instead
+        // point at the specific page being edited inside `Source/`.
+        .navigationDocument(model.preview.editingPageSourceURL ?? site.packageURL)
+        // Titlebar edited-dot (#1588 Task 17): reflects uncommitted in-memory WYSIWYG ops against
+        // the stub backend, not a real git-dirty state — see `WindowEditedStateBridge`'s doc comment.
+        .background(WindowEditedStateBridge(isEdited: model.preview.wysiwygCanvas?.hasUncommittedOps ?? false))
         // Leading title, free center — the document-style layout (Pages/Freeform) that makes room
         // for the .principal pane switcher.
         .toolbarRole(.editor)
@@ -810,6 +834,19 @@ struct SiteWindow: View {
                 .disabled(model.inspectorSelection == nil)
                 .help("Show or hide the inspector")
                 .accessibilityIdentifier(AXID.toolbar(.inspector))
+            }
+
+            // Unconditional per the file's own toolbar-customization rule above: disabled (not
+            // hidden) outside Site ▸ Edit Page, so Customize Toolbar always shows it (#1588 Task 20).
+            ToolbarItem(id: SiteToolbarItemID.wysiwygPalette.rawValue, placement: .primaryAction) {
+                Button {
+                    showWYSIWYGPalette.toggle()
+                } label: {
+                    Label("Block Palette", systemImage: "square.grid.2x2")
+                }
+                .disabled(!model.preview.isEditModeEnabled)
+                .help("Show or hide the block palette")
+                .accessibilityIdentifier(AXID.toolbar(.wysiwygPalette))
             }
         }
         // Trailing search field (#520). Not a `.toolbar(id:)` item: `.searchable` mints its own
@@ -1527,6 +1564,58 @@ struct SiteWindow: View {
                 onWebViewDismantled: { [preview = model.preview] webView in preview.detachWebView(webView) }
             )
             .wysiwygCanvasFocusTracking(model.preview.wysiwygCanvas)
+            // #1588 Task 11: a palette row dragged onto the canvas. Guarding on `wysiwygCanvas`
+            // (nil except while Site ▸ Edit Page is on, per `PreviewModel.isEditModeEnabled`'s doc
+            // comment) is what keeps this inert outside edit mode — no separate `active:` gate
+            // needed the way `.onDeleteCommand` below requires one, since returning `false` here
+            // both declines the drop and leaves nothing else attached that could conflict with it.
+            .dropDestination(for: WYSIWYGPaletteDragPayload.self) { payloads, location in
+                guard let payload = payloads.first, let canvas = model.preview.wysiwygCanvas, let webView = model.preview.webView else { return false }
+                Task { await performWYSIWYGPaletteDrop(payload: payload, location: location, webView: webView, controller: canvas) }
+                return true
+            }
+            // #1588 Task 13: a real Finder/Photos drag, stacked alongside Task 11's
+            // `.dropDestination` above (a `Transferable`-based palette-row drag) rather than
+            // replacing it — the two mechanisms serve different drag sources and SwiftUI allows
+            // both attached to the same view. Same `wysiwygCanvas`-nil guard keeps this inert
+            // outside edit mode. Reuses `resolveWYSIWYGDropTarget` (`PreviewView.swift`) for the
+            // drop-target JS evaluate-and-decode step instead of duplicating it here.
+            //
+            // `UTType.fileURL` matches *any* Finder file drag, not only images (there's no
+            // narrower UTI that still covers Photos' own promise), so a `.zip` dropped here is
+            // accepted by the drag session and then rejected downstream by
+            // `WYSIWYGImageAssetIngestor`'s magic-byte sniff. Each rejection along that path logs
+            // to `LogCenter` (final-review Finding 3 / the plan's "no silent failure paths"
+            // constraint) so the no-op is at least traceable in the debug pane; a user-facing
+            // error presentation is deferred with the rest of the drop UX.
+            .onDrop(of: [UTType.image.identifier, UTType.fileURL.identifier], isTargeted: nil) { providers, location in
+                guard let canvas = model.preview.wysiwygCanvas, let webView = model.preview.webView,
+                      let siteDirectory = model.preview.openSiteDirectory
+                else { return false }
+                Task {
+                    let logCenter = LogCenter.shared
+                    guard let bytes = await WYSIWYGImageDropHandler.loadImageBytes(from: providers) else { return }
+                    let assetPath: String?
+                    do {
+                        assetPath = try WYSIWYGImageAssetIngestor.ingest(bytes: bytes, siteDirectory: siteDirectory)
+                    } catch {
+                        await logCenter.append(
+                            source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,
+                            text: "failed to write dropped image into public/images: \(error.localizedDescription)")
+                        return
+                    }
+                    guard let assetPath else { return }
+                    guard let target = await resolveWYSIWYGDropTarget(at: location, webView: webView) else { return }
+                    let newId = UUID().uuidString
+                    // Alt-text proposal is stubbed empty — the real proposal is on-device AI
+                    // (#1227, out of scope here per the design doc).
+                    let content = BlockNodeContent(
+                        kind: .astro, componentName: "img", props: ["src": .string(assetPath), "alt": .string("")],
+                        slots: [:], sourceSpan: [0, 0])
+                    await canvas.submit(.insertBlock(parentId: target.parentId, slot: target.slot, index: target.index, newId: newId, block: content))
+                }
+                return true
+            }
             // #1225 Task 11 / #1423: the canvas's own Delete target — attached only while the
             // sentinel above reports real keyboard focus on the canvas (menu-bar IA spec's "one
             // focus-scoped command" rule; no second Commands-level Delete button). The `active:`
@@ -1537,6 +1626,25 @@ struct SiteWindow: View {
             .onDeleteCommand(active: model.preview.wysiwygCanvas?.hasKeyboardFocus == true) {
                 guard let canvas = model.preview.wysiwygCanvas else { return }
                 Task { await canvas.deleteSelectedBlock() }
+            }
+            // #1588 Task 16 (reviewed): the canvas's own Copy target, same `active:`-gated shape
+            // as `.onDeleteCommand` immediately above and for the same reason — a Commands-level
+            // "Copy" button would duplicate AppKit's default Edit ▸ Copy item. `copySelectedBlock()`
+            // writes HTML + plain text directly onto `NSPasteboard.general` itself (see its doc
+            // comment, `WYSIWYGCanvasController.swift`), so this closure returns `[]`: SwiftUI's
+            // `onCopyCommand(perform:)` requires a non-optional `[NSItemProvider]` back, but there's
+            // nothing left for its own pasteboard-placement plumbing to add on top of that.
+            .onCopyCommand(active: model.preview.wysiwygCanvas?.hasKeyboardFocus == true) {
+                model.preview.wysiwygCanvas?.copySelectedBlock()
+                return []
+            }
+            // #1588 Task 19: Edit ▸ Find… over the WYSIWYG canvas. `WYSIWYGFindBar` itself checks
+            // `isFindBarPresented`, so this overlay is inert (renders nothing) outside edit mode
+            // and while the bar isn't showing.
+            .overlay(alignment: .top) {
+                if let canvas = model.preview.wysiwygCanvas {
+                    WYSIWYGFindBar(controller: canvas)
+                }
             }
         case .starting, .ready:
             // `.ready` reaches here only while `isShowingCompletionHold` is true (see the guarded

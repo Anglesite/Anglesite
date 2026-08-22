@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import AppKit
 import WebKit
 import AnglesiteCore
 
@@ -24,6 +25,21 @@ final class WYSIWYGCanvasController {
     /// on this canvas's block selection or the Navigator's row selection (menu-bar IA spec: "⌘D
     /// Duplicate is one focus-scoped command").
     var hasKeyboardFocus = false
+
+    /// Whether the WYSIWYG find bar is showing (#1588 Task 19) — `EditMenuSkeletonCommands`'s
+    /// Edit ▸ Find dispatch flips this on; `WYSIWYGFindBar` flips it off.
+    var isFindBarPresented = false
+
+    /// Performs a native in-page find via `WKWebView.find` — no custom highlighting/DOM
+    /// manipulation needed, WebKit handles scroll-to-match and highlight itself.
+    func find(_ query: String, backwards: Bool = false) {
+        guard let webView, !query.isEmpty else { return }
+        let configuration = WKFindConfiguration()
+        configuration.backwards = backwards
+        configuration.caseSensitive = false
+        configuration.wraps = true
+        webView.find(query, configuration: configuration) { _ in }
+    }
 
     /// Bridges this canvas's applied ops into the window's `UndoManager` for real ⌘Z/⇧⌘Z (#1225,
     /// Task 9). Wired via `addOpAppliedListener` below at `init` time, so callers (`PreviewModel`)
@@ -73,6 +89,13 @@ final class WYSIWYGCanvasController {
     /// force a version-mismatch rejection without needing two controllers racing a real one.
     var forceTargetVersion: String?
 
+    /// Whether any op has applied since this canvas mounted — the interim "uncommitted ops"
+    /// signal `WindowEditedStateBridge` (#1588 Task 17) drives the titlebar edited-dot from.
+    /// Explicitly *not* a real git-dirty flag: against `StubWYSIWYGHostTransport` every applied op
+    /// is only ever in-memory, so this stays true for the rest of the editing session once set —
+    /// the design doc flags this as a stand-in until #1222's real backend lands.
+    private(set) var hasUncommittedOps = false
+
     /// Set by `PreviewView`'s `onWebView` callback (`SiteWindow.previewPane(for:)`) once the
     /// underlying `WKWebView` exists, so `applyFormat(_:href:)` (#1225 Task 10) has something to
     /// call into. Weak: the view owns the web view's lifetime, matching `PreviewModel.webView`'s
@@ -106,6 +129,7 @@ final class WYSIWYGCanvasController {
     func submit(_ op: Op) async -> OpResult {
         let result = await apply(op)
         if case .applied(let newModel) = result {
+            hasUncommittedOps = true
             fireOpApplied(op, WYSIWYGOpInverter.invert(op), newModel)
         }
         return result
@@ -151,45 +175,43 @@ final class WYSIWYGCanvasController {
         return result
     }
 
-    /// The Edit-menu Duplicate button's canvas-focused target (#1225 Task 11) — extends
-    /// `NavigatorEditCommands.Duplicate` (⌘D) rather than adding a second menu item, per the
-    /// menu-bar IA spec's "one focus-scoped command" rule (`SiteWindow.navigatorSelectionActions(for:)`
-    /// picks this over the Navigator's own duplicate when `hasKeyboardFocus` is true).
-    ///
-    /// PR1 duplicates at the page root only — locating the block's real parent/slot to insert the
-    /// copy adjacent to it needs a parent-lookup helper the model doesn't expose yet; kept out of
-    /// scope here and flagged for a PR2 follow-up once the native palette (Task 13) needs the same
-    /// lookup for drop-target computation. `rootIds.contains(id)` is load-bearing, not defensive
-    /// filler: without it, a `selectedBlockId` pointing at a nested block (inside a slot/container
-    /// — not reachable today, but will be once Task 12/13 wire up real block selection) would
-    /// still pass the `model.blocks[id]` lookup and get "duplicated" as a brand-new *root-level*
-    /// block built from the nested block's content — silently detaching it from its real
-    /// structural context instead of no-op'ing, same failure mode `deleteSelectedBlock()` below
-    /// already guards against with `rootIds.firstIndex(of:)`.
+    /// The Edit-menu Duplicate button's canvas-focused target (#1225 Task 11, generalized #1588
+    /// Task 3). Duplicates into the block's real parent/slot, immediately after it — `locate(_:)`
+    /// is what makes that possible; PR1 could only insert at the page root because this lookup
+    /// didn't exist yet.
     func duplicateSelectedBlock() async {
-        guard let id = selectedBlockId, let node = model.blocks[id], model.rootIds.contains(id) else { return }
+        guard let id = selectedBlockId, let node = model.blocks[id], let location = locate(id) else { return }
         let newId = UUID().uuidString
         let content = BlockNodeContent(
             kind: node.kind, componentName: node.componentName, props: node.props,
             slots: node.slots, sourceSpan: node.sourceSpan, richText: node.richText)
-        await submit(.insertBlock(parentId: rootParentID, slot: "main", index: model.rootIds.count, newId: newId, block: content))
+        await submit(.insertBlock(parentId: location.parentId, slot: location.slot, index: location.index + 1, newId: newId, block: content))
     }
 
-    /// The canvas's own `.onDeleteCommand` target (#1225 Task 11) — reachable only when the canvas
-    /// holds real keyboard focus (`hasKeyboardFocus`). `SiteWindow.previewPane(for:)` and
-    /// `SiteNavigatorView` both gate their `.onDeleteCommand` attachment on this flag directly
-    /// (#1423) rather than leaving both permanently attached for AppKit's responder chain to
-    /// arbitrate — that arbitration turned out unreliable for the shared Edit ▸ Delete menu item
-    /// once two `.onDeleteCommand`s coexisted, even though it correctly scopes menu-bar IA's "one
-    /// focus-scoped command" rule for physical keypresses (matching `duplicateSelectedBlock()`
-    /// above, unaffected since Duplicate has no auto-generated menu item to conflict over). PR1
-    /// only supports root-level blocks (see
-    /// `duplicateSelectedBlock()`'s doc comment) — `rootIds.firstIndex(of:)` returning `nil` for a
-    /// nested block just no-ops, same as `guard let node` above.
+    /// The canvas's own `.onDeleteCommand` target (#1225 Task 11, generalized #1588 Task 3) —
+    /// reachable only when the canvas holds real keyboard focus (`hasKeyboardFocus`). Now handles
+    /// nested blocks via `locate(_:)`, same reasoning as `duplicateSelectedBlock()` above.
     func deleteSelectedBlock() async {
-        guard let id = selectedBlockId, let node = model.blocks[id], let index = model.rootIds.firstIndex(of: id) else { return }
-        await submit(.deleteBlock(parentId: rootParentID, slot: "main", index: index, blockId: id, block: node))
+        guard let id = selectedBlockId, let node = model.blocks[id], let location = locate(id) else { return }
+        await submit(.deleteBlock(parentId: location.parentId, slot: location.slot, index: location.index, blockId: id, block: node))
         selectedBlockId = nil
+    }
+
+    /// The Edit ▸ Copy target for the canvas's block selection (#1588 Task 16) — writes real HTML
+    /// + plain text via `WYSIWYGBlockClipboardWriter`, not just a debug string. Wired via
+    /// `.onCopyCommand(active:perform:)` on `previewPane(for:)` (`SiteWindow.swift`), gated on
+    /// `hasKeyboardFocus` the same way `deleteSelectedBlock()` is wired via `.onDeleteCommand` —
+    /// **not** a `Commands`-level menu button, which would duplicate the system's default Edit ▸
+    /// Copy item (#989/#1423's already-solved shape). Self-guards on `selectedBlockId` like
+    /// `deleteSelectedBlock()` does, so callers don't need to check first.
+    func copySelectedBlock(pasteboard: NSPasteboard = .general) {
+        guard let id = selectedBlockId, let node = model.blocks[id] else { return }
+        let (html, plain) = WYSIWYGBlockClipboardWriter.render(node)
+        pasteboard.clearContents()
+        pasteboard.setString(plain, forType: .string)
+        if let htmlData = html.data(using: .utf8) {
+            pasteboard.setData(htmlData, forType: .html)
+        }
     }
 
     /// The Insert menu's Component submenu (#1225 Task 12) — appends a brand-new block built
@@ -330,6 +352,28 @@ final class WYSIWYGCanvasController {
     }
 }
 
+extension WYSIWYGCanvasController {
+    /// Finds `id`'s structural position in `model` — its parent (`rootParentID` for a page-root
+    /// block), containing slot, and index within that slot — by walking every block's `slots`
+    /// dictionary. `nil` means `id` isn't reachable from `model.rootIds` or any block's slots at
+    /// all (already deleted, or a stale selection). This is the lookup PR1's duplicate/delete
+    /// deliberately deferred (see those methods' own doc comments) rather than root-only guard
+    /// clauses re-derived ad hoc at each call site.
+    func locate(_ id: BlockId) -> (parentId: ParentRef, slot: String, index: Int)? {
+        if let index = model.rootIds.firstIndex(of: id) {
+            return (rootParentID, "main", index)
+        }
+        for (parentId, node) in model.blocks {
+            for (slot, children) in node.slots {
+                if let index = children.firstIndex(of: id) {
+                    return (parentId, slot, index)
+                }
+            }
+        }
+        return nil
+    }
+}
+
 /// One entry in the Insert menu's Component submenu (#1225 Task 12) — what `WYSIWYGCanvasController
 /// .insertBlock(_:)` builds a new `BlockNodeContent` from.
 struct WYSIWYGBlockPaletteEntry: Identifiable, Sendable {
@@ -337,15 +381,39 @@ struct WYSIWYGBlockPaletteEntry: Identifiable, Sendable {
     let displayName: String
     let kind: BlockKind
     let componentName: String
+    let props: [WYSIWYGPropDescriptor]
+
+    init(id: UUID, displayName: String, kind: BlockKind, componentName: String, props: [WYSIWYGPropDescriptor] = []) {
+        self.id = id
+        self.displayName = displayName
+        self.kind = kind
+        self.componentName = componentName
+        self.props = props
+    }
 }
 
 extension WYSIWYGCanvasController {
-    /// Static interim palette until #1222's sidecar model service supplies a real
-    /// CEM-aligned theme manifest. Kept intentionally small — enough to exercise the Insert
-    /// menu's data-driven wiring, not a stand-in for real theme block coverage.
+    /// Static interim palette until #1222's sidecar model service supplies a real CEM-aligned
+    /// theme manifest — now with `props` (#1588 Task 5) so the native inspector (Task 6-8) has
+    /// real per-kind schemas to render, covering every `WYSIWYGPropEditorKind`.
     static let stubBlockPalette: [WYSIWYGBlockPaletteEntry] = [
         WYSIWYGBlockPaletteEntry(id: UUID(), displayName: "Paragraph", kind: .text, componentName: "p"),
-        WYSIWYGBlockPaletteEntry(id: UUID(), displayName: "Heading", kind: .text, componentName: "h2"),
+        WYSIWYGBlockPaletteEntry(
+            id: UUID(), displayName: "Heading", kind: .text, componentName: "h2",
+            props: [WYSIWYGPropDescriptor(name: "level", label: "Level", kind: .enumeration, enumOptions: ["1", "2", "3", "4"])]),
+        WYSIWYGBlockPaletteEntry(
+            id: UUID(), displayName: "Callout", kind: .astro, componentName: "Callout",
+            props: [
+                WYSIWYGPropDescriptor(name: "title", label: "Title", kind: .text),
+                WYSIWYGPropDescriptor(name: "accentColor", label: "Accent Color", kind: .color),
+                WYSIWYGPropDescriptor(name: "emphasis", label: "Emphasis", kind: .boolean),
+            ]),
+        WYSIWYGBlockPaletteEntry(
+            id: UUID(), displayName: "Image", kind: .astro, componentName: "img",
+            props: [
+                WYSIWYGPropDescriptor(name: "src", label: "Source", kind: .text),
+                WYSIWYGPropDescriptor(name: "alt", label: "Alt Text", kind: .text),
+            ]),
     ]
 }
 

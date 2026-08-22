@@ -257,6 +257,76 @@ struct PreviewView: NSViewRepresentable {
     }
 }
 
+/// Structural insertion target for a palette drop, decoded from the mounted engine's
+/// `window.__anglesiteWysiwygMount.dropTargetAt` (Task 10) — matches its JS return shape.
+struct WYSIWYGDropTargetPayload: Decodable {
+    let parentId: String
+    let slot: String
+    let index: Int
+}
+
+/// Resolves a screen location to a structural insertion target via the mounted engine's
+/// `dropTargetAt` (Task 10) — shared by every drop mechanism that lands on the canvas
+/// (`performWYSIWYGPaletteDrop`'s palette-row drag, and Task 13's Finder/Photos `.onDrop`) so the
+/// JS-evaluate-and-decode step isn't duplicated per call site.
+///
+/// Every `nil` return logs its reason to `LogCenter` first (the plan's Global Constraints: "no
+/// silent failure paths — every bridge rejection/drop logs"). The drop still no-ops for the owner;
+/// the point is that "I dragged an image in and nothing happened" is diagnosable from the debug
+/// pane rather than invisible inside a `try?`.
+@MainActor
+func resolveWYSIWYGDropTarget(
+    at location: CGPoint, webView: WKWebView, logCenter: LogCenter = .shared
+) async -> WYSIWYGDropTargetPayload? {
+    let script = "JSON.stringify(window.__anglesiteWysiwygMount?.dropTargetAt?.(\(location.x), \(location.y)) ?? null)"
+    let evaluated: Any?
+    do {
+        evaluated = try await webView.evaluateJavaScript(script)
+    } catch {
+        await logCenter.append(
+            source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,
+            text: "dropTargetAt evaluation failed at (\(location.x), \(location.y)): \(error.localizedDescription)")
+        return nil
+    }
+    // `?? null` above means a page with no mounted engine stringifies to the literal "null" —
+    // i.e. a drop landed on the preview while edit mode wasn't actually mounted.
+    guard let json = evaluated as? String, let data = json.data(using: .utf8) else {
+        await logCenter.append(
+            source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,
+            text: "dropTargetAt returned a non-string result — no engine mounted?")
+        return nil
+    }
+    do {
+        return try JSONDecoder().decode(WYSIWYGDropTargetPayload.self, from: data)
+    } catch {
+        await logCenter.append(
+            source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,
+            text: "could not decode dropTargetAt payload \(json): \(error.localizedDescription)")
+        return nil
+    }
+}
+
+/// Resolves a palette drop's screen location to a structural insertion target via the mounted
+/// engine's `dropTargetAt` (Task 10), then submits the resulting `insertBlock` — the WYSIWYG
+/// analog of `ComponentEditorCanvasPane.performCanvasDrop`.
+@MainActor
+func performWYSIWYGPaletteDrop(
+    payload: WYSIWYGPaletteDragPayload, location: CGPoint, webView: WKWebView,
+    controller: WYSIWYGCanvasController, logCenter: LogCenter = .shared
+) async {
+    guard let target = await resolveWYSIWYGDropTarget(at: location, webView: webView, logCenter: logCenter) else {
+        // `resolveWYSIWYGDropTarget` already logged *why*; this records what was lost with it, so
+        // the debug pane names the block the owner was trying to add rather than only the failure.
+        await logCenter.append(
+            source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,
+            text: "palette drop of \(payload.componentName) discarded — no insertion target")
+        return
+    }
+    let newId = UUID().uuidString
+    let content = BlockNodeContent(kind: payload.kind, componentName: payload.componentName, props: [:], slots: [:], sourceSpan: [0, 0])
+    await controller.submit(.insertBlock(parentId: target.parentId, slot: target.slot, index: target.index, newId: newId, block: content))
+}
+
 /// Watches whether the WYSIWYG canvas (#1225) holds real AppKit keyboard focus, so
 /// `WYSIWYGCanvasController.hasKeyboardFocus` (Task 11) and `EditorFocusRegistry`'s
 /// `.wysiwygCanvas` case (added inert in Task 10 — `FormatCommands`/`EditMenuSkeletonCommands`
@@ -326,6 +396,22 @@ extension View {
     func onDeleteCommand(active isActive: Bool, perform action: @escaping () -> Void) -> some View {
         if isActive {
             onDeleteCommand(perform: action)
+        } else {
+            self
+        }
+    }
+}
+
+/// Attaches `.onCopyCommand` only while `isActive` (#1588 Task 16, reviewed) — same shape as
+/// `onDeleteCommand(active:perform:)` above and for the same reason (#989/#1423): the canvas's
+/// block-copy target is gated on `WYSIWYGCanvasController.hasKeyboardFocus` rather than added as a
+/// second `Commands`-level menu item, so it never contends with AppKit's own default Edit ▸ Copy
+/// menu-bridging for whatever else might respond to `copy:` elsewhere in the window.
+extension View {
+    @ViewBuilder
+    func onCopyCommand(active isActive: Bool, perform action: @escaping () -> [NSItemProvider]) -> some View {
+        if isActive {
+            onCopyCommand(perform: action)
         } else {
             self
         }
