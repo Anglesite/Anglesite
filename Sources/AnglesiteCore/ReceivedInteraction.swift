@@ -75,6 +75,24 @@ public struct ReceivedInteraction: Codable, Sendable, Equatable, Identifiable {
         }
     }
 
+    /// A Vouch (indieweb.org/Vouch): the sender-supplied URL and whether the Worker confirmed it
+    /// links to this mention's target domain — an additional inbound-trust signal beyond ordinary
+    /// source→target link verification. A vouch that was sent but did NOT check out is still
+    /// represented here (`verified: false`), not collapsed into "no vouch" — see the type-level
+    /// design doc for why.
+    public struct Vouch: Codable, Sendable, Equatable {
+        /// The URL the sender supplied as their vouch.
+        public let url: URL
+        /// Whether `url` was confirmed to link to the target's domain.
+        public let verified: Bool
+
+        /// Creates a vouch outcome.
+        public init(url: URL, verified: Bool) {
+            self.url = url
+            self.verified = verified
+        }
+    }
+
     /// Stable, unique ID assigned by the Worker (e.g. `wm-{hash}`, `ap-{hash}`).
     public let id: String
     /// Protocol source — webmention, activitypub, or micropub.
@@ -96,6 +114,8 @@ public struct ReceivedInteraction: Codable, Sendable, Equatable, Identifiable {
     public let verified: Date
     /// Current verification state of the interaction.
     public let verificationStatus: VerificationStatus
+    /// The sender's Vouch outcome, when a vouch was supplied; `nil` when none was.
+    public let vouch: Vouch?
 
     /// The relative path within `Source/` where this interaction is stored in git.
     ///
@@ -123,7 +143,8 @@ public struct ReceivedInteraction: Codable, Sendable, Equatable, Identifiable {
         content: String?,
         published: Date,
         verified: Date,
-        verificationStatus: VerificationStatus
+        verificationStatus: VerificationStatus,
+        vouch: Vouch? = nil
     ) throws {
         guard id.range(of: #"^[A-Za-z0-9_-]+$"#, options: .regularExpression) != nil else {
             throw ValidationError.invalidID(id)
@@ -138,5 +159,6 @@ public struct ReceivedInteraction: Codable, Sendable, Equatable, Identifiable {
         self.published = published
         self.verified = verified
         self.verificationStatus = verificationStatus
+        self.vouch = vouch
     }
 }
