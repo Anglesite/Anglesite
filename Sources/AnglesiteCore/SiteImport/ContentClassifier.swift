@@ -50,14 +50,30 @@ public enum ContentClassifier {
     /// Titled blog items without a published date are assigned `published = now` at
     /// classification time, since emitters require a date.
     ///
+    /// Destinations are deduplicated as they're assigned: a source site's URL shape frequently
+    /// maps two distinct posts onto the same slug (`/2024/01/hello/` and `/2025/03/hello/` both
+    /// reduce to `hello`), and every downstream stage — the emitted file path, the served path,
+    /// the redirect destination — is derived from the destination alone. Left alone, the second
+    /// item's file silently overwrites the first's and both source URLs redirect to the one
+    /// surviving post. A repeat instead gets `-2`, `-3`, … appended to its slug (or to a page
+    /// route's last segment); the counter walks forward until the result is itself unused, so a
+    /// site that already has a literal `hello-2` doesn't collide with the generated one. Numbering
+    /// follows `resolved.items` order, which ``ImportSourceResolver/resolve(_:)`` already sorts
+    /// deterministically, so the same snapshot always produces the same assignment. Collections
+    /// and pages are deduplicated in separate namespaces — they write to different trees
+    /// (`src/content/<collection>/` vs `src/pages/`) and serve at different paths, so a `blog`
+    /// entry and a page may share a slug without conflict.
+    ///
     /// - Parameters:
     ///   - resolved: The resolved content items to classify.
     ///   - now: The current date, used as a fallback for undated blog items and URL-based slugs.
-    /// - Returns: An array of classified items.
+    /// - Returns: An array of classified items, one per input item, in input order.
     public static func classify(_ resolved: ResolvedContent, now: Date) -> [ClassifiedItem] {
-        resolved.items.map { item in
+        var used: Set<String> = []
+
+        return resolved.items.map { item in
             var classifiedItem = item
-            let destination = classifyDestination(for: item, now: now)
+            let destination = deduplicating(classifyDestination(for: item, now: now), used: &used)
 
             // Titled blog items with no published date get published = now
             if case .collection(let name, _) = destination, name == "blog",
@@ -67,6 +83,44 @@ public enum ContentClassifier {
             }
 
             return ClassifiedItem(item: classifiedItem, destination: destination)
+        }
+    }
+
+    /// Returns `destination` if its identity is still free, otherwise the same destination with
+    /// the lowest unused `-<n>` suffix (`n` ≥ 2) appended to its slug or route tail. Records
+    /// whichever identity it returns in `used`.
+    private static func deduplicating(
+        _ destination: ImportDestination, used: inout Set<String>
+    ) -> ImportDestination {
+        var candidate = destination
+        var suffix = 1
+        while used.contains(identity(of: candidate)) {
+            suffix += 1
+            candidate = suffixed(destination, with: suffix)
+        }
+        used.insert(identity(of: candidate))
+        return candidate
+    }
+
+    /// The uniqueness key for a destination: one namespace per collection, plus a separate one
+    /// for page routes (`page:` can't collide with a collection name, which never contains `:`).
+    private static func identity(of destination: ImportDestination) -> String {
+        switch destination {
+        case .collection(let name, let slug):
+            return "\(name):\(slug)"
+        case .page(let route):
+            return "page:\(route)"
+        }
+    }
+
+    /// `destination` with `-<suffix>` appended: to a collection entry's slug, or to the last
+    /// segment of a page route (`/team/about` → `/team/about-2`).
+    private static func suffixed(_ destination: ImportDestination, with suffix: Int) -> ImportDestination {
+        switch destination {
+        case .collection(let name, let slug):
+            return .collection(name: name, slug: "\(slug)-\(suffix)")
+        case .page(let route):
+            return .page(route: "\(route)-\(suffix)")
         }
     }
 
