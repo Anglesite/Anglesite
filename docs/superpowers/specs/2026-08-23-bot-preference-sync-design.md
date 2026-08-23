@@ -1,7 +1,7 @@
 # Cloudflare Bot Preference Sync Support — Design
 
 **Date:** 2026-08-23
-**Issue:** TBD — file before implementation begins (see `CONTRIBUTING.md` issue-claim workflow)
+**Issue:** [#1628](https://github.com/Anglesite/Anglesite/issues/1628) — implementation; [#1627](https://github.com/Anglesite/Anglesite/issues/1627) — follow-up (flip default flag once Cloudflare GA)
 **Related:** [Cloudflare: Bot Preference Sync](https://blog.cloudflare.com/bot-preference-sync/); #689 (per-content-type content licensing), #991 (Content-Signal / named-bot blocklist clamp), #992 (RSL phase 3), #1093 (per-route robots-config.json)
 **Scope:** Let a site owner choose, per site, whether Anglesite's own named-bot blocklist or Cloudflare's Bot Preference Sync is responsible for blocking AI crawlers in `robots.txt`. Anglesite's `Content-Signal` permissions (search/aiInput/aiTrain) keep being emitted by Anglesite either way — Cloudflare's feature doesn't produce that directive. Ships behind a feature flag, off by default.
 
@@ -162,7 +162,7 @@ public enum BotPreferenceSyncDashboardLinks {
 
 - **Exact Cloudflare dashboard settings path is unknown** pending GA — `BotPreferenceSyncDashboardLinks.settingsURL` is a best guess, isolated to one file for an easy fix.
 - **No way to verify Cloudflare's sync is actually enabled** for a zone that resolves — Anglesite can confirm the *zone*, not the *setting*. Copy needs to be honest about this trust boundary.
-- **Flag removal criteria**: flip the default on (or remove the flag) once Cloudflare's feature is GA and the dashboard path is confirmed — tracked as a followup once Cloudflare's changelog announces availability, not part of this spec's implementation.
+- **Flag removal criteria**: flip the default on (or remove the flag) once Cloudflare's feature is GA and the dashboard path is confirmed — tracked in [#1627](https://github.com/Anglesite/Anglesite/issues/1627), not part of this spec's implementation.
 
 ## Rollout plan
 
