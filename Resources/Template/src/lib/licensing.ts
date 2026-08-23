@@ -30,6 +30,14 @@ export interface LicenseRef {
 export type UsagePermission = "yes" | "no" | "unset";
 
 /**
+ * Who blocks named AI crawlers in `robots.txt`: Anglesite's own hardcoded list
+ * (`blockAICrawlers`), or Cloudflare's Bot Preference Sync — a zone-level dashboard setting with
+ * no public API (see docs/superpowers/specs/2026-08-23-bot-preference-sync-design.md). Mirrors
+ * `BotBlocklistManager` in `LicensingStore.swift`.
+ */
+export type BotBlocklistManager = "anglesite" | "cloudflare";
+
+/**
  * Site-wide AI usage permissions (#991). Two `robots.txt` projections derive from this and only
  * this: the `Content-Signal` directive and the named-agent blocklist. Keeping them derived is what
  * makes "permits AI training but Disallows GPTBot" unrepresentable rather than merely discouraged.
@@ -44,6 +52,13 @@ export interface AIUsage {
   aiTrain: UsagePermission;
   /** Refuse the named AI agents outright in `robots.txt`. See `mayBlockAICrawlers`. */
   blockAICrawlers: boolean;
+  /**
+   * Optional so every existing `AIUsage` object literal in this template keeps compiling
+   * unchanged. Absent (`undefined`) means the same thing as an explicit `"anglesite"` everywhere
+   * this field is read — see `edge-artifacts.ts`'s gate. `normalizeUsage` below always populates
+   * a concrete value on its *output*, even though the type stays optional for callers.
+   */
+  botBlocklistManagedBy?: BotBlocklistManager;
 }
 
 export const NO_USAGE: AIUsage = {
@@ -51,6 +66,7 @@ export const NO_USAGE: AIUsage = {
   aiInput: "unset",
   aiTrain: "unset",
   blockAICrawlers: false,
+  botBlocklistManagedBy: "anglesite",
 };
 
 /**
@@ -76,12 +92,13 @@ function toPermission(raw: unknown): UsagePermission {
  */
 export function normalizeUsage(raw: unknown): AIUsage {
   if (!raw || typeof raw !== "object") return { ...NO_USAGE };
-  const { search, aiInput, aiTrain, blockAICrawlers } = raw as Record<string, unknown>;
+  const { search, aiInput, aiTrain, blockAICrawlers, botBlocklistManagedBy } = raw as Record<string, unknown>;
   const usage: AIUsage = {
     search: toPermission(search),
     aiInput: toPermission(aiInput),
     aiTrain: toPermission(aiTrain),
     blockAICrawlers: false,
+    botBlocklistManagedBy: botBlocklistManagedBy === "cloudflare" ? "cloudflare" : "anglesite",
   };
   usage.blockAICrawlers = blockAICrawlers === true && mayBlockAICrawlers(usage);
   return usage;
