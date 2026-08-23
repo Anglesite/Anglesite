@@ -29,7 +29,9 @@ public enum ImportStep: Sendable, Equatable {
     case warning(String)
 }
 
-/// A fatal precondition failure that stops ``ImportTransform/run`` before it writes anything.
+/// A fatal precondition failure that stops
+/// ``ImportTransform/run(snapshot:snapshotDirectory:sourceDirectory:configDirectory:now:onStep:)``
+/// before it writes anything.
 public enum ImportTransformError: Error, Equatable {
     /// `sourceDirectory` (the site's scaffolded `Source/` tree) doesn't exist at the given path.
     /// The transform assumes scaffolding already ran — see the task-level scaffold step that

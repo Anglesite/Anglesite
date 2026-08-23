@@ -211,7 +211,7 @@ public enum ImportEmitter {
     /// Escapes `\` → `\\`, `"` → `\"`, and the two YAML line breaks (`\n`, `\r`) to their escape
     /// sequences, so the value round-trips through a YAML double-quoted scalar unchanged.
     ///
-    /// Only string-valued fields use this. Dates go through ``dateString(_:now:)`` and `draft`'s
+    /// Only string-valued fields use this. Dates go through `dateString(_:now:)` and `draft`'s
     /// boolean literal is emitted bare, since quoting either would make it a string its schema
     /// rejects; a page's `layout` is emitted bare too — it's an app-generated relative path
     /// (`../layouts/BaseLayout.astro`), never site-controlled text.
