@@ -1,0 +1,12 @@
+[
+  {
+    "code" : 301,
+    "destination" : "\/blog\/second-post\/",
+    "source" : "\/second-post\/"
+  },
+  {
+    "code" : 301,
+    "destination" : "\/blog\/hello-wordpress\/",
+    "source" : "\/2024\/03\/15\/hello-wordpress\/"
+  }
+]

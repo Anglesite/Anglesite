@@ -203,6 +203,12 @@ var packageTargets: [Target] = [
         name: "AnglesiteCoreTests",
         dependencies: anglesiteCoreTestsDependencies,
         path: "Tests/AnglesiteCoreTests",
+        // Tests/AnglesiteCoreTests/Fixtures/SiteImport/wp-site/ holds the ImportTransform golden
+        // fixture (#1615 Task 13): a hand-authored ImportSnapshot plus the exact Source/ tree it
+        // should produce. `.copy` (not `.process`) preserves the fixture's own directory layout
+        // and byte-for-byte file contents in the test bundle, matching the convention other
+        // targets in this file use for their own `Fixtures/` (see AnglesiteBridgeCoreTests below).
+        resources: [.copy("Fixtures")],
         swiftSettings: strictConcurrency,
         linkerSettings: weakLinkFoundationModels
     ),

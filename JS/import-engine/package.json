@@ -1,0 +1,30 @@
+{
+  "name": "@anglesite/import-engine",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Injected extraction engine for website import (#1615): Readability article extraction, Turndown HTML-to-Markdown, microformats2 parsing. Runs in the capture WKWebView. Spec: docs/superpowers/specs/2026-08-21-website-import-transform-design.md",
+  "type": "module",
+  "scripts": {
+    "build": "esbuild src/global.ts --bundle --format=iife --target=es2022 --outfile=../../Resources/ImportEngine/import-engine.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "oxlint src test",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "dependencies": {
+    "@mozilla/readability": "^0.6.0",
+    "microformats-parser": "^2.0.6",
+    "turndown": "^7.2.4"
+  },
+  "devDependencies": {
+    "@types/jsdom": "^30.0.0",
+    "@types/node": "^26.2.0",
+    "@types/turndown": "^5.0.6",
+    "esbuild": "^0.28.2",
+    "jsdom": "^30.0.1",
+    "oxlint": "^1.79.0",
+    "typescript": "^7.0.2",
+    "vitest": "^4.1.11"
+  },
+  "engines": { "node": ">=22" }
+}

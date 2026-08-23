@@ -1,0 +1,70 @@
+{
+  "siteURL": "https://wp-site.example",
+  "probes": {
+    "wpPostsJSON": "[{\"link\": \"https://wp-site.example/2024/03/15/hello-wordpress/\", \"date_gmt\": \"2024-03-15T10:00:00\", \"title\": {\"rendered\": \"Hello WordPress\"}, \"content\": {\"rendered\": \"<p>Welcome to my first post, powered by WordPress.</p>\\n<p><img src=\\\"https://wp-site.example/wp-content/uploads/2024/03/cat.jpg\\\" alt=\\\"A cat\\\"></p>\"}, \"excerpt\": {\"rendered\": \"<p>Welcome to my first post.</p>\"}}, {\"link\": \"https://wp-site.example/second-post/\", \"date_gmt\": \"2024-04-02T08:30:00\", \"title\": {\"rendered\": \"Second Post\"}, \"content\": {\"rendered\": \"<p>Another update from the blog, with a photo below.</p>\\n<p><img src=\\\"https://wp-site.example/wp-content/uploads/2024/04/dog.jpg\\\" alt=\\\"A dog\\\"></p>\"}, \"excerpt\": {\"rendered\": \"<p>Another update from the blog.</p>\"}}]",
+    "wpPagesJSON": "[{\"link\": \"https://wp-site.example/about/\", \"date_gmt\": \"2024-01-01T00:00:00\", \"title\": {\"rendered\": \"About\"}, \"content\": {\"rendered\": \"<p>This is the about page for WP Site.</p>\"}, \"excerpt\": {\"rendered\": \"<p>About WP Site.</p>\"}}]",
+    "feeds": []
+  },
+  "pages": [
+    {
+      "url": "https://wp-site.example/",
+      "extraction": {
+        "title": "WP Site — A Test Blog",
+        "excerpt": "Musings from a test site.",
+        "lang": "en",
+        "markdown": "Welcome to WP Site.",
+        "images": [],
+        "feedLinks": []
+      }
+    },
+    {
+      "url": "https://wp-site.example/2024/03/15/hello-wordpress/",
+      "extraction": {
+        "title": "Hello WordPress",
+        "markdown": "Welcome to my first post, powered by WordPress.",
+        "images": [
+          "https://wp-site.example/wp-content/uploads/2024/03/cat.jpg"
+        ],
+        "feedLinks": []
+      }
+    },
+    {
+      "url": "https://wp-site.example/second-post/",
+      "extraction": {
+        "title": "Second Post",
+        "markdown": "Another update from the blog, with a photo below.",
+        "images": [
+          "https://wp-site.example/wp-content/uploads/2024/04/dog.jpg"
+        ],
+        "feedLinks": []
+      }
+    },
+    {
+      "url": "https://wp-site.example/tag/notes/",
+      "extraction": {
+        "title": "Notes",
+        "markdown": "Tag archive.",
+        "images": [],
+        "feedLinks": []
+      }
+    }
+  ],
+  "assets": [
+    {
+      "sourceURL": "https://wp-site.example/wp-content/uploads/2024/03/cat.jpg",
+      "relativePath": "assets/cat.png"
+    },
+    {
+      "sourceURL": "https://wp-site.example/wp-content/uploads/2024/04/dog.jpg",
+      "relativePath": "assets/dog.png"
+    }
+  ],
+  "conversions": {
+    "9cdd3062319b93111c41130beed0f70b17ec198506ed481ee6e5568577d1d610": "Welcome to my first post, powered by WordPress.\n\n![A cat](https://wp-site.example/wp-content/uploads/2024/03/cat.jpg)",
+    "31e17e921fb88c53099b8b983b97c16132e8064140d598b178d55cb84af6f060": "Welcome to my first post.",
+    "97a4c2a3db88bc67b7f8fab677fd74c9edcb25062a99f6ef2322932790a09488": "Another update from the blog, with a photo below.\n\n![A dog](https://wp-site.example/wp-content/uploads/2024/04/dog.jpg)",
+    "5373800bc17cc75464252252229e7789eac436738e1260925f57ee6963656d60": "Another update from the blog.",
+    "2e77c99605efc7ae0bb98ee1c073e645b3b2d5bd459ede284e6cf020e39b1cf3": "This is the about page for WP Site.",
+    "b07dff54515a8e6f9ad0499936df9723bee38c5cf9a0748d3590b14bd8d78bde": "About WP Site."
+  }
+}

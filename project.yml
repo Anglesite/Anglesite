@@ -89,6 +89,9 @@ targets:
       - name: Build WYSIWYG engine
         script: "\"${PROJECT_DIR}/scripts/build-wysiwyg-engine.sh\""
         basedOnDependencyAnalysis: false
+      - name: Build import engine
+        script: "\"${PROJECT_DIR}/scripts/build-import-engine.sh\""
+        basedOnDependencyAnalysis: false
       - name: Build Help index
         script: "\"${PROJECT_DIR}/scripts/build-help-index.sh\""
         basedOnDependencyAnalysis: false
@@ -217,6 +220,9 @@ targets:
         basedOnDependencyAnalysis: false
       - name: Build WYSIWYG engine
         script: "\"${PROJECT_DIR}/scripts/build-wysiwyg-engine.sh\""
+        basedOnDependencyAnalysis: false
+      - name: Build import engine
+        script: "\"${PROJECT_DIR}/scripts/build-import-engine.sh\""
         basedOnDependencyAnalysis: false
     # See the Anglesite target's matching comment on configFiles above.
     configFiles:
