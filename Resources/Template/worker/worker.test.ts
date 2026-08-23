@@ -19,6 +19,7 @@ import {
   handleWebdav,
   handleWebdavCredentials,
   activityPubConfig,
+  resolveFanOutAddressing,
   type InboxKV,
   type WorkerEnv,
 } from "./worker";
@@ -1800,6 +1801,108 @@ test("micropub-to-activitypub fan-out: never fires when ActivityPub isn't provis
   const response = await worker.fetch(request, envWithoutToken as WorkerEnv, createExecutionContext());
   // Must still succeed as a plain Micropub create — the fan-out being skipped is silent, not a failure.
   expect(response.status).toBe(201);
+});
+
+test("resolveFanOutAddressing (#1565): public/absent visibility always addresses the AS2 Public collection", () => {
+  expect(resolveFanOutAddressing(undefined, [])).toEqual({ to: ["https://www.w3.org/ns/activitystreams#Public"] });
+  expect(resolveFanOutAddressing("public", ["https://mastodon.example/users/friend"])).toEqual({
+    to: ["https://www.w3.org/ns/activitystreams#Public"],
+  });
+});
+
+test("resolveFanOutAddressing (#1565): restricted visibility with linked contacts addresses them blindly, never publicly", () => {
+  expect(resolveFanOutAddressing("contacts", ["https://mastodon.example/users/friend", "https://a.example/users/b"]))
+    .toEqual({ bto: ["https://mastodon.example/users/friend", "https://a.example/users/b"] });
+});
+
+test("resolveFanOutAddressing (#1565): restricted visibility with no linked contacts returns null rather than falling back to public", () => {
+  // The critical privacy invariant: nobody to `bto` deliver to must skip federation entirely, not
+  // default to `{ to: [Public] }` — see the doc comment on `resolveFanOutAddressing`.
+  expect(resolveFanOutAddressing("contacts", [])).toBeNull();
+});
+
+test("micropub-to-activitypub fan-out (#1565): a restricted JSON create with linked contacts delivers via bto, never appears in the public outbox", async () => {
+  const { token, keyPair } = await mintAccessToken("create");
+  const url = "https://owner.example/micropub";
+  const ctx = createExecutionContext();
+  const createResponse = await worker.fetch(new Request(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `DPoP ${token}`,
+      DPoP: await dpopProof(url, "POST", keyPair, token),
+    },
+    body: JSON.stringify({
+      type: ["h-entry"],
+      properties: {
+        content: ["For contacts only"],
+        visibility: ["contacts"],
+        // The ephemeral, never-persisted delivery hint (#1565) — see `handleMicropub`'s
+        // pre-`micropub()` extraction and `MicropubPost`'s `mp-*` command convention.
+        "mp-bto": ["https://mastodon.example/users/friend"],
+      },
+    }),
+  }), testEnv, ctx);
+  expect(createResponse.status).toBe(201);
+  await waitOnExecutionContext(ctx);
+
+  const outboxPageResponse = await fetchWorker(new Request("https://owner.example/users/site/outbox?page=1"));
+  const outboxPage = await outboxPageResponse.json() as { orderedItems?: FanOutOutboxItem[] };
+  expect(outboxPage.orderedItems?.some((item) => item.object?.content?.includes("For contacts only"))).toBe(false);
+});
+
+test("micropub-to-activitypub fan-out (#1565): a restricted create with no linked contacts fans out to nobody, not the public", async () => {
+  const { token, keyPair } = await mintAccessToken("create");
+  const url = "https://owner.example/micropub";
+  const ctx = createExecutionContext();
+  const createResponse = await worker.fetch(new Request(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `DPoP ${token}`,
+      DPoP: await dpopProof(url, "POST", keyPair, token),
+    },
+    body: JSON.stringify({
+      type: ["h-entry"],
+      properties: { content: ["Restricted with no linked contacts"], visibility: ["contacts"] },
+    }),
+  }), testEnv, ctx);
+  expect(createResponse.status).toBe(201);
+  await waitOnExecutionContext(ctx);
+
+  const outboxPageResponse = await fetchWorker(new Request("https://owner.example/users/site/outbox?page=1"));
+  const outboxPage = await outboxPageResponse.json() as { orderedItems?: FanOutOutboxItem[] };
+  expect(
+    outboxPage.orderedItems?.some((item) => item.object?.content?.includes("Restricted with no linked contacts")),
+  ).toBe(false);
+});
+
+test("micropub-to-activitypub fan-out (#1565): a form-encoded restricted create reads visibility and mp-bto[] the same way", async () => {
+  const { token, keyPair } = await mintAccessToken("create");
+  const url = "https://owner.example/micropub";
+  const ctx = createExecutionContext();
+  const body = new URLSearchParams();
+  body.append("h", "entry");
+  body.append("content", "Form-encoded restricted post");
+  body.append("visibility", "contacts");
+  body.append("mp-bto[]", "https://mastodon.example/users/friend");
+  const createResponse = await worker.fetch(new Request(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      authorization: `DPoP ${token}`,
+      DPoP: await dpopProof(url, "POST", keyPair, token),
+    },
+    body: body.toString(),
+  }), testEnv, ctx);
+  expect(createResponse.status).toBe(201);
+  await waitOnExecutionContext(ctx);
+
+  const outboxPageResponse = await fetchWorker(new Request("https://owner.example/users/site/outbox?page=1"));
+  const outboxPage = await outboxPageResponse.json() as { orderedItems?: FanOutOutboxItem[] };
+  expect(
+    outboxPage.orderedItems?.some((item) => item.object?.content?.includes("Form-encoded restricted post")),
+  ).toBe(false);
 });
 
 test("tagFediverseUrl: appends utm params when a campaign targets fediverse", () => {

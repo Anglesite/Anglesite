@@ -65,7 +65,13 @@ import utmCodesArtifact from "../utm-codes.json";
 import { tagFediverseUrl } from "./utm-codes.ts";
 import { GOAL_ENDPOINT_PATH } from "../scripts/experiments-paths.ts";
 import { base64url, decodeBase64url, deriveKey } from "./token-signing.ts";
-import { escapeHTML, extractMf2ContentString, extractMf2Photos, type ExtractedPhoto } from "./render-utils.ts";
+import {
+  escapeHTML,
+  extractMf2ContentString,
+  extractMf2Photos,
+  extractMf2StringList,
+  type ExtractedPhoto,
+} from "./render-utils.ts";
 import { handleReaderCallback, handleReaderSignin } from "./reader-auth.ts";
 import { handleGatedFallback, handlePrivateFeed } from "./gated-content.ts";
 import { handleMcp } from "./mcp-server.ts";
@@ -1023,22 +1029,32 @@ function handleMicropub(
   // a locked stream reader could silently break the fan-out with no visible failure). Doing the
   // extraction up front — before `micropub(request, ...)` is called — sidesteps that hazard
   // entirely rather than relying on it.
-  const contentPromise: Promise<{ content: string; photos: ExtractedPhoto[] }> = (async () => {
-    if (!env.AP_PUBLISH_TOKEN || request.method !== "POST") return { content: "", photos: [] };
+  const contentPromise: Promise<{
+    content: string;
+    photos: ExtractedPhoto[];
+    visibility: string | undefined;
+    btoTargets: string[];
+  }> = (async () => {
+    const empty = { content: "", photos: [], visibility: undefined, btoTargets: [] };
+    if (!env.AP_PUBLISH_TOKEN || request.method !== "POST") return empty;
     const cloned = request.clone();
     try {
       const contentType = cloned.headers.get("content-type") ?? "";
       if (contentType.includes("application/json")) {
         const body = (await cloned.json()) as {
-          properties?: { content?: unknown[]; photo?: unknown[] };
+          properties?: { content?: unknown[]; photo?: unknown[]; visibility?: unknown[]; "mp-bto"?: unknown[] };
         };
         return {
           content: extractMf2ContentString(body.properties?.content?.[0]),
           photos: extractMf2Photos(body.properties?.photo),
+          visibility: typeof body.properties?.visibility?.[0] === "string" ? body.properties.visibility[0] : undefined,
+          btoTargets: extractMf2StringList(body.properties?.["mp-bto"]),
         };
       }
       const form = await cloned.formData();
       const content = String(form.get("content") ?? form.get("properties[content]") ?? "");
+      const visibilityRaw = form.get("visibility") ?? form.get("properties[visibility]");
+      const visibility = typeof visibilityRaw === "string" && visibilityRaw.length > 0 ? visibilityRaw : undefined;
       // Form-encoded `photo`/`photo[]`/`properties[photo][]` fields carry a bare URL string per
       // entry — the mf2 `{ value, alt }` alt-text shape has no flat-form equivalent (per
       // `@dwk/micropub`'s own `parseFormBody`, only one `photo[sub]` nested object can round-trip
@@ -1047,27 +1063,57 @@ function handleMicropub(
       // fallback two lines up — a client using that nesting convention for `content` would
       // otherwise have its photos silently dropped from the fan-out (#1325 review). Walking
       // `form.entries()` once (rather than concatenating separate `getAll()` calls) preserves
-      // submission order across mixed field names (#1325 review).
+      // submission order across mixed field names (#1325 review). `mp-bto`/`mp-bto[]` mirrors the
+      // same two-name convention for the restricted-post blind-recipient list (#1565).
       const photoFieldNames = new Set(["photo", "photo[]", "properties[photo][]"]);
+      const btoFieldNames = new Set(["mp-bto", "mp-bto[]"]);
       const rawPhotos: string[] = [];
+      const rawBtoTargets: string[] = [];
       for (const [key, value] of form.entries()) {
-        if (photoFieldNames.has(key) && typeof value === "string" && value.length > 0) {
-          rawPhotos.push(value);
-        }
+        if (typeof value !== "string" || value.length === 0) continue;
+        if (photoFieldNames.has(key)) rawPhotos.push(value);
+        else if (btoFieldNames.has(key)) rawBtoTargets.push(value);
       }
-      return { content, photos: extractMf2Photos(rawPhotos) };
+      return { content, photos: extractMf2Photos(rawPhotos), visibility, btoTargets: rawBtoTargets };
     } catch {
       // Can't recover the post content — skip the fan-out rather than publish an empty Note.
-      return { content: "", photos: [] };
+      return empty;
     }
   })();
   return micropub(request, micropubEnv, ctx).then(async (response) => {
     if (request.method === "POST" && response.status === 201) {
-      const { content, photos } = await contentPromise;
-      ctx.waitUntil(fanOutMicropubCreateToActivityPub(content, photos, baseUrl, response, env, ctx));
+      const { content, photos, visibility, btoTargets } = await contentPromise;
+      ctx.waitUntil(
+        fanOutMicropubCreateToActivityPub(content, photos, visibility, btoTargets, baseUrl, response, env, ctx),
+      );
     }
     return response;
   });
+}
+
+/** The AS2 Public collection IRI — addressing a `to` value every server treats as "everyone". */
+const AS2_PUBLIC = "https://www.w3.org/ns/activitystreams#Public";
+
+/**
+ * The `to`/`bto` addressing for a Micropub-originated fan-out Note (#1565, §2.4). A restricted
+ * post (`visibility: contacts`) must never fall back to public `to` addressing — not even when
+ * there is nobody to deliver it to. `@dwk/activitypub`'s outbox handler (`#asOutboxActivity`)
+ * only withholds its own public-addressing default when the posted object already carries a
+ * `bto` key at all (`input.bto !== undefined`); an *empty* `bto: []` would still satisfy that
+ * check but produce an activity with no visible addressing, which the store then treats as
+ * unrestricted (`blindRecipients` is empty, so `restricted` comes out `false`) — quietly
+ * exposing the restricted post's content in the public outbox collection. So a restricted post
+ * with zero linkable targets gets no `bto` key at all: the caller must skip the fan-out entirely
+ * (`null`) rather than post an object this package would treat as public.
+ */
+export function resolveFanOutAddressing(
+  visibility: string | undefined,
+  btoTargets: readonly string[],
+): { to: string[] } | { bto: string[] } | null {
+  if (visibility === "contacts") {
+    return btoTargets.length > 0 ? { bto: [...btoTargets] } : null;
+  }
+  return { to: [AS2_PUBLIC] };
 }
 
 /**
@@ -1084,10 +1130,24 @@ function handleMicropub(
  * to a Pixelfed follower. `@dwk/activitypub`'s outbox wraps the posted object with `{ ...input }`
  * (see its `#asOutboxActivity`), so `attachment` passes through to delivery unmodified — no
  * package-side change needed.
+ *
+ * `visibility`/`btoTargets` drive restricted (`visibility: contacts`) delivery (#1565, §2.4):
+ * `btoTargets` are meant to be the actor IRIs of contacts with a linked ActivityPub actor — the
+ * Worker has no access to the owner's private `ContactStore` itself (§2.3's deliberate privacy
+ * boundary: linked-actor data is never pushed to Worker storage), so a caller resolves that list
+ * client-side and carries it on the originating Micropub POST as the ephemeral `mp-bto` command
+ * property (see `handleMicropub`'s extraction) — never persisted, since `mp-*` keys are stripped
+ * before storage. No caller populates `mp-bto` yet, so restricted posts currently fan out to
+ * nobody (see `resolveFanOutAddressing`'s null case) rather than leaking publicly; wiring an
+ * actual source for it is follow-up work. Best-effort, honor-system distribution either way:
+ * `bto` addressing is a delivery hint, not access control — the Worker's IndieAuth-gated read
+ * stays the enforced, canonical copy.
  */
 async function fanOutMicropubCreateToActivityPub(
   content: string,
   photos: readonly ExtractedPhoto[],
+  visibility: string | undefined,
+  btoTargets: readonly string[],
   baseUrl: string,
   micropubResponse: Response,
   env: WorkerEnv,
@@ -1098,6 +1158,10 @@ async function fanOutMicropubCreateToActivityPub(
   // `content` alone would drop exactly the case this issue exists to fix: a bare photo post
   // with no text is a normal, common shape, and Pixelfed only needs the `attachment` to render.
   if (!content && photos.length === 0) return;
+  const addressing = resolveFanOutAddressing(visibility, btoTargets);
+  // Restricted with nobody to deliver to (#1565): never federate this Note at all, rather than
+  // let it fall through to any public-addressing default — see `resolveFanOutAddressing`.
+  if (!addressing) return;
   const location = micropubResponse.headers.get("location");
   if (!location) return;
 
@@ -1120,9 +1184,10 @@ async function fanOutMicropubCreateToActivityPub(
     // No `cc` naming the followers collection: unlike the convention some AP implementations
     // use for "public post, also cc followers" addressing, @dwk/activitypub's owner-publish
     // outbox handler (`#publish` in its Durable Object) fans out to every current follower's
-    // inbox unconditionally — it never inspects `to`/`cc` to decide who receives delivery, only
-    // to shape what's displayed. Public-only addressing is sufficient here.
-    to: ["https://www.w3.org/ns/activitystreams#Public"],
+    // inbox for a *publicly* addressed activity — it never inspects `to`/`cc` beyond that to
+    // decide delivery. A `bto`-only activity (no `to` at all, the restricted case above) is
+    // delivered individually to its blind recipients instead, with no follower fan-out (#496).
+    ...addressing,
   };
   const publishRequest = new Request(`${actorIRI}/outbox`, {
     method: "POST",
