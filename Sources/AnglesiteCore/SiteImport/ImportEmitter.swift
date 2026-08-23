@@ -197,27 +197,33 @@ public enum ImportEmitter {
         "[" + values.map(yamlString).joined(separator: ", ") + "]"
     }
 
-    /// Quotes `value` for YAML scalar output when it would otherwise be ambiguous or invalid
-    /// unquoted: contains `: ` (looks like a nested mapping), `#` (looks like a comment), `"`,
-    /// leading/trailing whitespace, or starts with a YAML indicator character. Quoted output
-    /// backslash-escapes `\` and `"` so the value round-trips through a YAML double-quoted
-    /// scalar unchanged.
+    /// Renders `value` as an always-double-quoted YAML scalar.
+    ///
+    /// Every field routed through here is a *string* in its collection's `.strict()` zod schema,
+    /// and imported values are site-controlled text — so quoting is unconditional rather than
+    /// heuristic. A "quote only when it looks ambiguous" rule has to enumerate every YAML
+    /// resolution rule to be safe, and misses retype or break the frontmatter outright: a numeric
+    /// title (`1984`) or a boolean/null-like one (`true`, `null`, `~`) resolves to a non-string
+    /// and fails `z.string()`; a trailing colon (`Coming up:`) is a syntax error; an embedded
+    /// newline ends the line and orphans the remainder as a bogus key. Quoting always costs two
+    /// bytes per value and removes the entire class.
+    ///
+    /// Escapes `\` → `\\`, `"` → `\"`, and the two YAML line breaks (`\n`, `\r`) to their escape
+    /// sequences, so the value round-trips through a YAML double-quoted scalar unchanged.
+    ///
+    /// Only string-valued fields use this. Dates go through ``dateString(_:now:)`` and `draft`'s
+    /// boolean literal is emitted bare, since quoting either would make it a string its schema
+    /// rejects; a page's `layout` is emitted bare too — it's an app-generated relative path
+    /// (`../layouts/BaseLayout.astro`), never site-controlled text.
+    ///
     /// - Parameter value: The raw scalar value to render as YAML.
-    /// - Returns: `value` unquoted when safe to emit bare, otherwise a double-quoted, escaped form.
+    /// - Returns: `value` as a double-quoted, escaped YAML scalar.
     static func yamlString(_ value: String) -> String {
-        let indicatorCharacters = CharacterSet(charactersIn: "-?[]{}&*!|>%@`")
-        let needsQuoting = value.contains(": ")
-            || value.contains("#")
-            || value.contains("\"")
-            || value.hasPrefix(" ")
-            || value.hasSuffix(" ")
-            || (value.unicodeScalars.first.map { indicatorCharacters.contains($0) } ?? false)
-
-        guard needsQuoting else { return value }
-
         let escaped = value
             .replacingOccurrences(of: "\\", with: "\\\\")
             .replacingOccurrences(of: "\"", with: "\\\"")
+            .replacingOccurrences(of: "\n", with: "\\n")
+            .replacingOccurrences(of: "\r", with: "\\r")
         return "\"\(escaped)\""
     }
 }

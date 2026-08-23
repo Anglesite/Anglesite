@@ -1,7 +1,7 @@
 ---
-title: Second Post
+title: "Second Post"
 pubDate: 2024-04-02
-description: Another update from the blog.
+description: "Another update from the blog."
 draft: false
 ---
 

@@ -1,7 +1,7 @@
 ---
-title: Hello WordPress
+title: "Hello WordPress"
 pubDate: 2024-03-15
-description: Welcome to my first post.
+description: "Welcome to my first post."
 draft: false
 ---
 
