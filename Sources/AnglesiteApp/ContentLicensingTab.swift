@@ -289,6 +289,20 @@ struct ContentLicensingTab: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
+            if model.botPreferenceSyncZoneID != nil {
+                Picker("Bot blocklist managed by", selection: $model.licensingPolicy.usage.botBlocklistManagedBy) {
+                    Text("Anglesite").tag(BotBlocklistManager.anglesite)
+                    Text("Cloudflare").tag(BotBlocklistManager.cloudflare)
+                }
+                .pickerStyle(.segmented)
+                .frame(maxWidth: 280)
+                Text(model.licensingPolicy.usage.botBlocklistManagedBy == .cloudflare
+                     ? "Cloudflare's Bot Preference Sync manages named-bot blocking for this site. Turn it on for this zone in the Cloudflare dashboard — Anglesite can confirm the zone exists but can't confirm the sync itself is enabled there, since Cloudflare doesn't expose that setting through an API yet."
+                     : "Anglesite manages named-bot blocking below. This site is also on Cloudflare — switch to Cloudflare if you'd rather its dashboard-managed Bot Preference Sync keep the blocklist current for you.")
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+            }
+
             Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 10) {
                 usageRow(
                     "Search",
@@ -314,17 +328,26 @@ struct ContentLicensingTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            VStack(alignment: .leading, spacing: 6) {
-                Toggle(
-                    "Refuse AI crawlers in robots.txt",
-                    isOn: $model.licensingPolicy.usage.blockAICrawlers)
-                    .toggleStyle(.switch)
-                    .disabled(!model.licensingPolicy.usage.mayBlockAICrawlers)
-                Text(model.licensingPolicy.usage.mayBlockAICrawlers
-                     ? "Adds robots.txt rules refusing 17 known AI crawlers (GPTBot, ClaudeBot, and others). This reduces your site's visibility to AI assistants and AI-generated search summaries — it does not affect traditional search engines."
-                     : "Available once both AI Answers and AI Training are set to Disallow. Refusing a crawler while still permitting what it does would contradict itself.")
-                    .font(.callout)
-                    .foregroundStyle(.secondary)
+            if model.licensingPolicy.usage.botBlocklistManagedBy == .cloudflare, let zoneID = model.botPreferenceSyncZoneID {
+                VStack(alignment: .leading, spacing: 6) {
+                    Link("Manage in Cloudflare Dashboard →", destination: BotPreferenceSyncDashboardLinks.settingsURL(zoneID: zoneID))
+                    Text("Cloudflare periodically updates this zone's robots.txt with named-bot rules for the categories you choose there (Search, Agent, Training). Anglesite's own \"AI Answers\"/\"AI Training\" signals above still apply either way.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                VStack(alignment: .leading, spacing: 6) {
+                    Toggle(
+                        "Refuse AI crawlers in robots.txt",
+                        isOn: $model.licensingPolicy.usage.blockAICrawlers)
+                        .toggleStyle(.switch)
+                        .disabled(!model.licensingPolicy.usage.mayBlockAICrawlers)
+                    Text(model.licensingPolicy.usage.mayBlockAICrawlers
+                         ? "Adds robots.txt rules refusing 17 known AI crawlers (GPTBot, ClaudeBot, and others). This reduces your site's visibility to AI assistants and AI-generated search summaries — it does not affect traditional search engines."
+                         : "Available once both AI Answers and AI Training are set to Disallow. Refusing a crawler while still permitting what it does would contradict itself.")
+                        .font(.callout)
+                        .foregroundStyle(.secondary)
+                }
             }
 
             VStack(alignment: .leading, spacing: 6) {

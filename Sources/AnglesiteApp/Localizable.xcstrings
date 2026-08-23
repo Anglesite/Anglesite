@@ -374,6 +374,9 @@
     "Add ${effect} to ${site}" : {
 
     },
+    "Add ${text} to ${site}" : {
+
+    },
     "Add Agent…" : {
 
     },
@@ -536,6 +539,9 @@
     "Analyze Manually" : {
 
     },
+    "Anglesite" : {
+
+    },
     "Anglesite Debug" : {
 
     },
@@ -546,6 +552,9 @@
 
     },
     "Anglesite lost access to “%@”, likely after a restart. Locate it again to restore access." : {
+
+    },
+    "Anglesite manages named-bot blocking below. This site is also on Cloudflare — switch to Cloudflare if you'd rather its dashboard-managed Bot Preference Sync keep the blocklist current for you." : {
 
     },
     "Anglesite plugin" : {
@@ -784,6 +793,9 @@
 
     },
     "Bookmarks" : {
+
+    },
+    "Bot blocklist managed by" : {
 
     },
     "Bottom" : {
@@ -1043,7 +1055,13 @@
     "Cloudflare (OAuth)" : {
 
     },
+    "Cloudflare periodically updates this zone's robots.txt with named-bot rules for the categories you choose there (Search, Agent, Training). Anglesite's own \"AI Answers\"/\"AI Training\" signals above still apply either way." : {
+
+    },
     "Cloudflare's Agent Readiness score checks whether AI agents and assistants can discover, read, and act on your deployed site — the 2026 equivalent of a Lighthouse score, but for AI agents instead of browsers." : {
+
+    },
+    "Cloudflare's Bot Preference Sync manages named-bot blocking for this site. Turn it on for this zone in the Cloudflare dashboard — Anglesite can confirm the zone exists but can't confirm the sync itself is enabled there, since Cloudflare doesn't expose that setting through an API yet." : {
 
     },
     "Cloudflare's Content Signals Policy states a usage preference per purpose in robots.txt. It's a signal that well-behaved crawlers honor, not an enforced block." : {
@@ -2177,6 +2195,9 @@
     "Lets Tor Browser users reach your site over the Tor network without exiting through a third-party relay. No changes to your site or URLs." : {
 
     },
+    "Lets you choose, per site, whether Anglesite's own AI-bot blocklist or Cloudflare's Bot Preference Sync (a Cloudflare dashboard setting) manages named-bot blocking in robots.txt. Off by default — Cloudflare's feature isn't generally available yet." : {
+
+    },
     "License" : {
 
     },
@@ -2262,6 +2283,9 @@
 
     },
     "Manage UTM Codes…" : {
+
+    },
+    "Manage in Cloudflare Dashboard →" : {
 
     },
     "Medium (e.g. feed)" : {
@@ -3500,6 +3524,9 @@
 
     },
     "Show Chat" : {
+
+    },
+    "Show Cloudflare bot management option in Content Licensing" : {
 
     },
     "Show Debug Pane" : {
