@@ -12,6 +12,11 @@ interface Props {
   canonical: string;
 }
 
+// Vouch (indieweb.org/Vouch): the sender named a page this blog already trusts, and that page
+// links to the sender's own domain — never the target's. Kept as a single const so a future
+// wording correction only needs to land in one place.
+const VOUCH_BADGE_TITLE = "A site this blog already trusts links to this sender";
+
 const mods = import.meta.glob("../../data/interactions/*.json", { eager: true });
 const g = interactionsFor(Astro.props.canonical, parseInteractions(mods as Record<string, unknown>));
 
@@ -88,6 +93,9 @@ function human(iso: string): string {
                     ) : (
                       <span class="u-author h-card">{c.author?.name ?? new URL(c.source).hostname}</span>
                     )}
+                    {c.vouch?.verified && (
+                      <span class="trust-badge" title={VOUCH_BADGE_TITLE}>Vouched</span>
+                    )}
                     <a class="u-url" href={c.source} rel="nofollow ugc">
                       <time class="dt-published" datetime={c.published}>
                         {human(c.published)}
@@ -109,6 +117,9 @@ function human(iso: string): string {
               <a class="h-cite" href={m.source} rel="nofollow ugc">
                 {m.author?.name ?? new URL(m.source).hostname}
               </a>
+              {m.vouch?.verified && (
+                <span class="trust-badge" title={VOUCH_BADGE_TITLE}>Vouched</span>
+              )}
               {index < g.mentions.length - 1 ? ", " : ""}
             </>
           ))}
@@ -182,5 +193,17 @@ function human(iso: string): string {
   .mentions {
     color: var(--color-text-muted, #64748b);
     font-size: 0.9rem;
+  }
+  .trust-badge {
+    display: inline-block;
+    margin-left: 0.4rem;
+    padding: 0.05rem 0.5rem;
+    border-radius: 999px;
+    font-size: 0.75rem;
+    font-weight: 600;
+    vertical-align: middle;
+    background: var(--color-surface, #f8fafc);
+    color: var(--color-primary, #2563eb);
+    border: 1px solid var(--color-primary, #2563eb);
   }
 </style>

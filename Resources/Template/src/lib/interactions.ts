@@ -49,6 +49,18 @@ const interactionSchema = z.object({
   published: isoDate,
   verified: isoDate,
   verificationStatus: z.enum(["verified", "pending", "failed"]),
+  /**
+   * The sender's Vouch outcome (indieweb.org/Vouch), when a vouch was supplied and the mention
+   * verified. `verified: false` means a vouch was attempted but didn't check out — distinct from
+   * no vouch at all, and worth surfacing since a failed vouch is a stronger spam signal than
+   * silence.
+   */
+  vouch: z
+    .object({
+      url: httpUrl,
+      verified: z.boolean(),
+    })
+    .optional(),
 });
 
 export type ReceivedInteraction = z.infer<typeof interactionSchema>;

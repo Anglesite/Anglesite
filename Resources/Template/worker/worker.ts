@@ -69,6 +69,7 @@ import { escapeHTML, extractMf2ContentString, extractMf2Photos, type ExtractedPh
 import { handleReaderCallback, handleReaderSignin } from "./reader-auth.ts";
 import { handleGatedFallback, handlePrivateFeed } from "./gated-content.ts";
 import { handleMcp } from "./mcp-server.ts";
+import { isTrustedVouchDomain } from "./vouch-trust.ts";
 import { EmailMessage } from "cloudflare:email";
 
 /**
@@ -966,6 +967,7 @@ function handleWebmentionQueue(
   const consumer = createWebmentionQueueConsumer({
     baseUrl: env.SITE_URL,
     inbox: createD1Inbox(env.WEBMENTION_INBOX),
+    isTrustedVouchDomain: (hostname) => isTrustedVouchDomain(env, hostname),
   });
   const webmentionEnv: WebmentionEnv = {
     WEBMENTION_QUEUE: env.WEBMENTION_QUEUE,

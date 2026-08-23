@@ -55,6 +55,44 @@ struct ReceivedInteractionSyncTests {
         #expect(interaction.published == interaction.verified)
     }
 
+    @Test("makeInteraction maps a vouched mention")
+    func makeInteractionMapsVouchedMention() throws {
+        let mention = WebmentionInboxD1Client.Mention(
+            id: "wm-abc123", source: "https://alice.example/post", target: "https://me.example/blog/hi",
+            verifiedAt: 1_753_300_000_000, interactionType: "reply", authorName: "Alice",
+            authorURL: "https://alice.example", authorPhoto: "https://alice.example/photo.jpg",
+            content: "Great post!", publishedAt: 1_753_299_000_000,
+            vouchURL: "https://trusted.example/", vouchVerified: true)
+
+        let interaction = try #require(ReceivedInteractionSync.makeInteraction(from: mention))
+        #expect(interaction.vouch?.url.absoluteString == "https://trusted.example/")
+        #expect(interaction.vouch?.verified == true)
+    }
+
+    @Test("makeInteraction maps a failed vouch attempt distinctly from no vouch")
+    func makeInteractionMapsFailedVouch() throws {
+        let mention = WebmentionInboxD1Client.Mention(
+            id: "wm-fail", source: "https://alice.example/post", target: "https://me.example/blog/hi",
+            verifiedAt: 1_753_300_000_000, interactionType: "reply", authorName: nil,
+            authorURL: nil, authorPhoto: nil, content: nil, publishedAt: nil,
+            vouchURL: "https://untrusted.example/", vouchVerified: false)
+
+        let interaction = try #require(ReceivedInteractionSync.makeInteraction(from: mention))
+        #expect(interaction.vouch?.url.absoluteString == "https://untrusted.example/")
+        #expect(interaction.vouch?.verified == false)
+    }
+
+    @Test("makeInteraction has no vouch when the mention carries none")
+    func makeInteractionHasNoVouchWhenAbsent() throws {
+        let mention = WebmentionInboxD1Client.Mention(
+            id: "wm-def456", source: "https://bob.example/post", target: "https://me.example/blog/hi",
+            verifiedAt: 1_753_300_000_000, interactionType: nil, authorName: nil,
+            authorURL: nil, authorPhoto: nil, content: nil, publishedAt: nil)
+
+        let interaction = try #require(ReceivedInteractionSync.makeInteraction(from: mention))
+        #expect(interaction.vouch == nil)
+    }
+
     @Test("makeInteraction returns nil for an unparseable source URL")
     func makeInteractionSkipsInvalidSourceURL() {
         let mention = WebmentionInboxD1Client.Mention(

@@ -13,10 +13,14 @@ import FoundationNetworking
 /// coupling, token passed in at init.
 ///
 /// The row shape is queried, not decoded from the npm package's TypeScript types, so this client
-/// tolerates the enrichment columns (`interaction_type`, `author_*`, `content`, `published_at`)
-/// being entirely `NULL` — the shape written by `@dwk/webmention` versions published before the
-/// mf2-enrichment pass (issue #417 upstream) landed. Once a site redeploys against a version that
-/// populates them, the same query returns richer rows with no app-side change needed.
+/// tolerates the enrichment columns (`interaction_type`, `author_*`, `content`, `published_at`,
+/// `vouch_url`, `vouch_verified`) being entirely `NULL` — the shape written by `@dwk/webmention`
+/// versions published before the mf2-enrichment pass (issue #417 upstream) landed. Once a site
+/// redeploys against a version that populates them, the same query returns richer rows with no
+/// app-side change needed. A *missing* `vouch_url`/`vouch_verified` column (as opposed to a
+/// `NULL` value) — the case for a site whose Worker hasn't been redeployed against the version
+/// that added those columns — is a separate, harder failure and is handled by
+/// ``listVerifiedMentions()``'s fallback-to-legacy-columns retry, not by NULL-tolerance.
 public struct WebmentionInboxD1Client: Sendable {
     /// A verified mention row as read from the `webmentions` D1 table — field names mirror
     /// `@dwk/webmention`'s `VerifiedMention` (`packages/webmention/src/inbox.ts`), flattened
@@ -45,6 +49,35 @@ public struct WebmentionInboxD1Client: Sendable {
         public let content: String?
         /// Source page's declared publication date in epoch milliseconds, when enrichment ran.
         public let publishedAt: Int?
+        /// The sender's Vouch URL (indieweb.org/Vouch), when supplied and the mention verified.
+        /// `nil` when no vouch was sent, or the row predates vouch support upstream.
+        public let vouchURL: String?
+        /// Whether `vouchURL` was confirmed to link to the source's own domain. `nil` exactly
+        /// when `vouchURL` is `nil`; otherwise `true`/`false` — a failed vouch attempt is still
+        /// recorded (not collapsed into "no vouch"), since it's a stronger spam signal than silence.
+        public let vouchVerified: Bool?
+
+        /// Creates a mention row. `vouchURL`/`vouchVerified` default to `nil` so every existing
+        /// call site (production and test) that predates vouch support keeps compiling unchanged.
+        init(
+            id: String, source: String, target: String, verifiedAt: Int,
+            interactionType: String?, authorName: String?, authorURL: String?, authorPhoto: String?,
+            content: String?, publishedAt: Int?,
+            vouchURL: String? = nil, vouchVerified: Bool? = nil
+        ) {
+            self.id = id
+            self.source = source
+            self.target = target
+            self.verifiedAt = verifiedAt
+            self.interactionType = interactionType
+            self.authorName = authorName
+            self.authorURL = authorURL
+            self.authorPhoto = authorPhoto
+            self.content = content
+            self.publishedAt = publishedAt
+            self.vouchURL = vouchURL
+            self.vouchVerified = vouchVerified
+        }
     }
 
     private struct Row: Decodable {
@@ -58,6 +91,8 @@ public struct WebmentionInboxD1Client: Sendable {
         let author_photo: String?
         let content: String?
         let published_at: Int?
+        let vouch_url: String?
+        let vouch_verified: Int?
     }
 
     private struct QueryResult: Decodable {
@@ -65,9 +100,14 @@ public struct WebmentionInboxD1Client: Sendable {
         let success: Bool
     }
 
+    private struct D1ErrorDetail: Decodable {
+        let message: String
+    }
+
     private struct Envelope: Decodable {
         let success: Bool
         let result: [QueryResult]?
+        let errors: [D1ErrorDetail]?
     }
 
     private struct QueryBody: Encodable {
@@ -78,6 +118,14 @@ public struct WebmentionInboxD1Client: Sendable {
     /// (`packages/webmention/src/inbox.ts`) with no `target` filter — the snapshot step wants the
     /// whole inbox, not one post's mentions.
     private static let listVerifiedSQL = """
+    SELECT id, source, target, verified_at, interaction_type, author_name, author_url, \
+    author_photo, content, published_at, vouch_url, vouch_verified FROM webmentions ORDER BY verified_at DESC
+    """
+
+    /// Column set from before vouch support existed. Used as a fallback when a site's D1
+    /// database hasn't been migrated yet — see `listVerifiedMentions()`'s deploy-ordering
+    /// handling below.
+    private static let listVerifiedSQLLegacy = """
     SELECT id, source, target, verified_at, interaction_type, author_name, author_url, \
     author_photo, content, published_at FROM webmentions ORDER BY verified_at DESC
     """
@@ -110,21 +158,50 @@ public struct WebmentionInboxD1Client: Sendable {
     /// the `id` column existed, per the upstream package's migration notes) is skipped rather than
     /// re-deriving the id — that would require reimplementing `@dwk/mf2`'s FNV-1a hash in Swift
     /// for a case that can't occur on an inbox created by the current package version.
+    ///
+    /// Queries the vouch columns first; if the site's D1 database hasn't been migrated to include
+    /// them yet, that `SELECT` fails with a "no such column" error rather than returning `NULL`
+    /// (see the type-level doc comment), so this retries once against the legacy column set. That
+    /// keeps interaction sync working — minus vouch data — for a site that hasn't redeployed,
+    /// instead of `ReceivedInteractionSync.pullAndCommit` silently treating every call as "nothing
+    /// to sync" because this throws.
     public func listVerifiedMentions() async throws -> [Mention] {
+        do {
+            return try await queryMentions(sql: Self.listVerifiedSQL, includeVouch: true)
+        } catch CloudflareError.api(let message)
+        where message.localizedCaseInsensitiveContains("no such column") {
+            return try await queryMentions(sql: Self.listVerifiedSQLLegacy, includeVouch: false)
+        }
+    }
+
+    private func queryMentions(sql: String, includeVouch: Bool) async throws -> [Mention] {
         let url = URL(string: "\(baseURL)/accounts/\(accountID)/d1/database/\(databaseID)/query")
         guard let url else { throw CloudflareError.malformedResponse }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(QueryBody(sql: Self.listVerifiedSQL))
+        request.httpBody = try JSONEncoder().encode(QueryBody(sql: sql))
 
         let (data, http) = try await transport(request)
         if http.statusCode == 401 || http.statusCode == 403 { throw CloudflareError.unauthorized }
-        guard (200..<300).contains(http.statusCode) else { throw CloudflareError.http(status: http.statusCode) }
-        guard let envelope = try? JSONDecoder().decode(Envelope.self, from: data), envelope.success,
-              let rows = envelope.result?.first?.results
-        else { throw CloudflareError.malformedResponse }
+        guard (200..<300).contains(http.statusCode) else {
+            // A non-2xx status from D1's REST API can still carry a decodable `{success, errors}`
+            // envelope (e.g. a SQL error like "no such column" returned as 400/500 rather than
+            // 200 + success:false) — inspect the body before giving up on it, so
+            // `listVerifiedMentions()`'s "no such column" fallback can still trigger regardless
+            // of which shape the real API happens to use for that error.
+            if let envelope = try? JSONDecoder().decode(Envelope.self, from: data), !envelope.success {
+                throw CloudflareError.api(message: envelope.errors?.first?.message ?? "unknown D1 error")
+            }
+            throw CloudflareError.http(status: http.statusCode)
+        }
+        guard let envelope = try? JSONDecoder().decode(Envelope.self, from: data) else {
+            throw CloudflareError.malformedResponse
+        }
+        guard envelope.success, let rows = envelope.result?.first?.results else {
+            throw CloudflareError.api(message: envelope.errors?.first?.message ?? "unknown D1 error")
+        }
 
         return rows.compactMap { row in
             guard let id = row.id else { return nil }
@@ -132,7 +209,9 @@ public struct WebmentionInboxD1Client: Sendable {
                 id: id, source: row.source, target: row.target, verifiedAt: row.verified_at,
                 interactionType: row.interaction_type, authorName: row.author_name,
                 authorURL: row.author_url, authorPhoto: row.author_photo, content: row.content,
-                publishedAt: row.published_at)
+                publishedAt: row.published_at,
+                vouchURL: includeVouch ? row.vouch_url : nil,
+                vouchVerified: includeVouch ? row.vouch_verified.map { $0 != 0 } : nil)
         }
     }
 }

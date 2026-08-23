@@ -83,6 +83,11 @@ public extension OperationProgress {
     static let deployPushingContactsAllowlist = OperationProgress(
         kind: .deploy, phase: "contactsAllowlistPush", label: "Syncing contacts allowlist…"
     )
+    /// Post-deploy: pushing the blogroll's domains to the Vouch trust list's backing store
+    /// (#1597).
+    static let deployPushingVouchTrustList = OperationProgress(
+        kind: .deploy, phase: "vouchTrustListPush", label: "Syncing Vouch trust list…"
+    )
 
     /// Backup: staging working-tree changes.
     static let backupStaging = OperationProgress(kind: .backup, phase: "staging", label: "Staging changes…")
