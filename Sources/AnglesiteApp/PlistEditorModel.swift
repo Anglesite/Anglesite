@@ -18,6 +18,8 @@ final class PlistEditorModel {
     private let customAnalyticsValidator: any CustomAnalyticsHTMLValidating
     private let keychain: KeychainStore
     private let capabilityProber: CloudflareCapabilityProber
+    private let reader: any CloudflareReading
+    private let appSettings: AppSettings
     var entries: [PlistDocumentIO.PlistEntry] = []
     private(set) var savedEntries: [PlistDocumentIO.PlistEntry] = []
     private var allEntries: [PlistDocumentIO.PlistEntry] = []
@@ -76,6 +78,13 @@ final class PlistEditorModel {
     private(set) var licensingError: String?
     private(set) var isSavingLicensing = false
     private(set) var licensingLoadFailed = false
+    /// The site's Cloudflare zone ID, resolved lazily in `load()` only when
+    /// `AppSettings.botPreferenceSyncUIEnabled` is on — `nil` until resolved, and permanently
+    /// `nil` when the flag is off, no domain is configured, no Cloudflare token is available, or
+    /// the domain doesn't resolve to a zone. `ContentLicensingTab` uses this both to decide
+    /// whether to show the "Bot blocklist managed by" control at all, and to build the dashboard
+    /// deep link once it does.
+    private(set) var botPreferenceSyncZoneID: String?
     /// Whether Markdown for Agents (#1247) is enabled for this site's deploys — `Config/`-backed
     /// (`SiteSettings.markdownForAgentsDisabled`), not part of `licensingPolicy`'s git-tracked
     /// `licensing.json`: it's a Cloudflare zone setting applied at deploy time, not generated
@@ -255,6 +264,8 @@ final class PlistEditorModel {
          containerControlProvider: @escaping AstroHTMLValidator.ContainerControlProvider = { nil },
          keychain: KeychainStore = KeychainStore(),
          capabilityProber: CloudflareCapabilityProber = CloudflareCapabilityProber(),
+         reader: any CloudflareReading = HTTPCloudflareClient(),
+         appSettings: AppSettings = .shared,
          posseCredentials: @escaping POSSECredentialResolver.Provider = POSSECredentialResolver.provider(),
          domainOperations: any DomainOperationsService = DomainOperations(),
          repoSecurity: any RepoSecurityReading & RepoSecurityWriting = HTTPGitHubClient(),
@@ -285,6 +296,8 @@ final class PlistEditorModel {
             ?? AstroHTMLValidator(containerControlProvider: containerControlProvider)
         self.keychain = keychain
         self.capabilityProber = capabilityProber
+        self.reader = reader
+        self.appSettings = appSettings
         self.domainOperations = domainOperations
         self.repoSecurity = repoSecurity
         self.gitRunner = gitRunner
@@ -350,6 +363,16 @@ final class PlistEditorModel {
                 savedLicensingPolicy = policy
                 licensingError = nil
                 licensingLoadFailed = false
+                if appSettings.botPreferenceSyncUIEnabled {
+                    let zoneID = await resolvedBotPreferenceSyncZoneID()
+                    botPreferenceSyncZoneID = zoneID
+                    if zoneID != nil, policy.usage == AIUsage() {
+                        licensingPolicy.usage.botBlocklistManagedBy = .cloudflare
+                        savedLicensingPolicy.usage.botBlocklistManagedBy = .cloudflare
+                    }
+                } else {
+                    botPreferenceSyncZoneID = nil
+                }
             } catch {
                 licensingPolicy = LicensingPolicy()
                 savedLicensingPolicy = LicensingPolicy()
@@ -1036,6 +1059,23 @@ final class PlistEditorModel {
     /// fallback source in use is worth a log line; a normal OAuth resolution isn't).
     private func cloudflareToken() async throws -> String? {
         try await CloudflareAPICredentials.resolve(secretStore: keychain, diagnosticSource: "analytics")
+    }
+
+    /// Same resolution order as `cloudflareToken()` (env → OAuth → legacy token) but with its own
+    /// `diagnosticSource` breadcrumb, since this call site is unrelated to Analytics.
+    private func cloudflareTokenForBotPreferenceSync() async throws -> String? {
+        try await CloudflareAPICredentials.resolve(secretStore: keychain, diagnosticSource: "botPreferenceSync")
+    }
+
+    /// Resolves the site's Cloudflare zone for the Bot Preference Sync gate — `nil` for any
+    /// reason (no configured domain, no token, a thrown error, or a domain that isn't a Cloudflare
+    /// zone at all) rather than surfacing an error, since an unresolved zone just means "don't
+    /// show the Cloudflare-managed option," never a failure state worth reporting in this tab.
+    private func resolvedBotPreferenceSyncZoneID() async -> String? {
+        guard let siteURLString = DeployCoordinator.resolveSiteURL(siteDirectory: sourceDirectory),
+              let domain = URL(string: siteURLString)?.host else { return nil }
+        guard let token = try? await cloudflareTokenForBotPreferenceSync(), !token.isEmpty else { return nil }
+        return try? await reader.resolveZoneID(domain: domain, apiToken: token)
     }
 
     /// Which plist entry is the website title. Internal (not `private`) because
