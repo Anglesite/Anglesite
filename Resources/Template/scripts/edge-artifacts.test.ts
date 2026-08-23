@@ -106,6 +106,23 @@ test("buildRobotsTxt: gates the blocklist on mayBlockAICrawlers even given an un
   }
 });
 
+test("buildRobotsTxt: cloudflare-managed mode suppresses the blocklist even when requested", () => {
+  const out = buildRobotsTxt({ ...BLOCKING, botBlocklistManagedBy: "cloudflare" });
+  assert.doesNotMatch(out, /User-agent: GPTBot/);
+});
+
+test("buildRobotsTxt: cloudflare-managed mode still emits Content-Signal", () => {
+  const out = buildRobotsTxt({ ...BLOCKING, botBlocklistManagedBy: "cloudflare" });
+  assert.match(out, /Content-Signal: search=yes, ai-input=no, ai-train=no/);
+});
+
+test("buildRobotsTxt: an absent botBlocklistManagedBy behaves exactly like anglesite-managed", () => {
+  const withField = buildRobotsTxt({ ...BLOCKING, botBlocklistManagedBy: "anglesite" });
+  const withoutField = buildRobotsTxt(BLOCKING);
+  assert.equal(withField, withoutField);
+  assert.match(withoutField, /User-agent: GPTBot/);
+});
+
 test("contentSignalDirective: one pair per stated purpose, undefined when none are stated", () => {
   assert.equal(contentSignalDirective(NO_USAGE), undefined);
   assert.equal(
