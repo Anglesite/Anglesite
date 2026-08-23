@@ -101,4 +101,48 @@ struct WYSIWYGOpsDispatcherTests {
         }
         #expect(blockId == nil)
     }
+
+    @Test("dispatch decodes a focus-inspector message requesting forward direction (#1616)")
+    func decodesFocusInspectorForward() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "focus-inspector", "direction": "forward", "blockId": "b1"], via: transport)
+        guard case .focusInspector(let direction, let blockId) = result else {
+            Issue.record("expected .focusInspector, got \(result)")
+            return
+        }
+        #expect(direction == .forward)
+        #expect(blockId == "b1")
+    }
+
+    @Test("dispatch decodes a focus-inspector message requesting backward direction (#1616)")
+    func decodesFocusInspectorBackward() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "focus-inspector", "direction": "backward", "blockId": "b1"], via: transport)
+        guard case .focusInspector(let direction, let blockId) = result else {
+            Issue.record("expected .focusInspector, got \(result)")
+            return
+        }
+        #expect(direction == .backward)
+        #expect(blockId == "b1")
+    }
+
+    @Test("dispatch rejects a focus-inspector message with an unrecognized direction (#1616)")
+    func rejectsInvalidFocusInspectorDirection() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "focus-inspector", "direction": "sideways", "blockId": "b1"], via: transport)
+        guard case .rejected(.envelopeDecode) = result else {
+            Issue.record("expected .rejected(.envelopeDecode), got \(result)")
+            return
+        }
+    }
+
+    @Test("dispatch rejects a focus-inspector message missing blockId (#1616)")
+    func rejectsFocusInspectorMissingBlockId() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "focus-inspector", "direction": "forward"], via: transport)
+        guard case .rejected(.envelopeDecode) = result else {
+            Issue.record("expected .rejected(.envelopeDecode), got \(result)")
+            return
+        }
+    }
 }

@@ -107,6 +107,25 @@ struct WYSIWYGCanvasControllerTests {
         #expect(location?.index == 0)
     }
 
+    @Test("inspectorFocusRequest starts nil and can be set (#1616)")
+    func inspectorFocusRequestDefaultsNilAndCanBeSet() {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+
+        #expect(controller.inspectorFocusRequest == nil)
+
+        controller.inspectorFocusRequest = .forward
+        #expect(controller.inspectorFocusRequest == .forward)
+    }
+
+    @Test("focusCanvas() is a safe no-op when no webView is attached (#1616)")
+    func focusCanvasNoOpsWithoutWebView() {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+
+        controller.focusCanvas()
+    }
+
     @Test("locate returns nil for a block not present in the model")
     func locateReturnsNilForMissingBlock() {
         let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])

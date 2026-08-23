@@ -268,7 +268,19 @@ window.__anglesiteWysiwygMount = {
     // `HostTransport` and `QualityGateTransport` (#1226 Task 12), so one object owns the whole
     // `window.__anglesiteWysiwygHost` bridge.
     window.__anglesiteWysiwygQualityGates = new QualityGateChips(engine, transport);
-    window.__anglesiteWysiwygKeyboardNav = new KeyboardNavigation(engine, window.__anglesiteWysiwygRichTextEditor);
+    window.__anglesiteWysiwygKeyboardNav = new KeyboardNavigation(
+      engine,
+      window.__anglesiteWysiwygRichTextEditor,
+      document,
+      // Tab-walks-props (#1616): the actual focus move is native-side (WKWebView → the SwiftUI
+      // inspector), so this just relays the request across the bridge, same shape as this
+      // function's own `context-menu`/`selection-changed` posts. `blockId` rides along rather
+      // than trusting native's own `selectedBlockId` mirror to already be caught up — that
+      // mirror updates from the separate `selection-changed` message above, posted and
+      // dispatched independently, so a fast select-then-Tab could otherwise land the focus
+      // request against native's still-stale prior selection.
+      (direction, blockId) => window.webkit?.messageHandlers?.wysiwyg?.postMessage({ type: "focus-inspector", direction, blockId }),
+    );
     window.__anglesiteWysiwygAccessibility = new AccessibilityAnnotator(engine, displayNames);
     // `wireSelection` below posts every `"selection-changed"` engine event to native regardless of
     // cause — clicks (its own hit-test listener), keyboard nav (`KeyboardNavigation` calling
