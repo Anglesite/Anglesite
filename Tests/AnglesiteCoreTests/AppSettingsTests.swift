@@ -189,6 +189,19 @@ final class AppSettingsTests {
         #expect(!settings.debugPaneEnabled)
     }
 
+    @Test("Bot Preference Sync UI defaults to false") func botPreferenceSyncUIEnabledDefaultsToFalse() {
+        let settings = AppSettings(defaults: defaults)
+        #expect(!settings.botPreferenceSyncUIEnabled)
+    }
+
+    @Test("Bot Preference Sync UI round trip") func botPreferenceSyncUIEnabledRoundTrip() {
+        let settings = AppSettings(defaults: defaults)
+        settings.botPreferenceSyncUIEnabled = true
+        #expect(settings.botPreferenceSyncUIEnabled)
+        settings.botPreferenceSyncUIEnabled = false
+        #expect(!settings.botPreferenceSyncUIEnabled)
+    }
+
     // MARK: Auto alt-text (C.7 — vision alt-text pipeline)
 
     @Test("autoGenerateAltText defaults to true (on)") func autoAltTextDefaultsToTrue() {

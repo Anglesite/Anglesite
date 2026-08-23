@@ -27,6 +27,8 @@ public final class AppSettings: @unchecked Sendable {
         public static let lanRuntimeMCPPort     = "anglesite.lanRuntimeMCPPort"
         /// Backs ``AppSettings/debugPaneEnabled``.
         public static let debugPaneEnabled   = "anglesite.debugPaneEnabled"
+        /// Backs ``AppSettings/botPreferenceSyncUIEnabled``.
+        public static let botPreferenceSyncUIEnabled = "anglesite.botPreferenceSyncUIEnabled"
         /// Backs ``AppSettings/esiPreviewUnprocessed``.
         public static let esiPreviewUnprocessed = "anglesite.esiPreviewUnprocessed"
         /// Backs ``AppSettings/lastOpenedSiteID``.
@@ -226,6 +228,15 @@ public final class AppSettings: @unchecked Sendable {
     public var debugPaneEnabled: Bool {
         get { defaults.bool(forKey: Key.debugPaneEnabled) }
         set { defaults.set(newValue, forKey: Key.debugPaneEnabled) }
+    }
+
+    /// Opt-in toggle (Settings → Advanced) that reveals the "Bot blocklist managed by" control in
+    /// Content Licensing. Off by default: Cloudflare's Bot Preference Sync isn't GA yet and its
+    /// dashboard settings path isn't documented (docs/superpowers/specs/2026-08-23-bot-preference-sync-design.md).
+    /// See #1627 for flipping this default once Cloudflare ships.
+    public var botPreferenceSyncUIEnabled: Bool {
+        get { defaults.bool(forKey: Key.botPreferenceSyncUIEnabled) }
+        set { defaults.set(newValue, forKey: Key.botPreferenceSyncUIEnabled) }
     }
 
     /// Forces local preview to skip `EsiInclude`'s dev-only fetch shim, so `EsiRemove`'s fallback
