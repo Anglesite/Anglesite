@@ -93,9 +93,9 @@ struct RestrictedPostPublisherTests {
             Issue.record("expected .failed, got \(outcome)")
             return
         }
-        // The exact sentence, not just "some failure": a 400 is the most likely outcome of this
-        // feature today (the deployed Worker rejects `visibility: contacts` until
-        // davidwkeith/workers#498 ships), so this is the message a site owner actually reads.
+        // The exact sentence, not just "some failure": a plain 400 (invalid mf2, an unrecognized
+        // property value, etc.) is a real, user-reachable outcome of this feature, so this is the
+        // message a site owner actually reads.
         #expect(reason == "Publish failed: The site declined the request (HTTP 400).")
         // `MicropubError` has no `LocalizedError` conformance — a raw `localizedDescription`
         // would leak "AnglesiteCore.MicropubError error 3." into the composer's error text.

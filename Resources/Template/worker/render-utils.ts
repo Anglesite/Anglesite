@@ -66,3 +66,14 @@ export function extractMf2Photos(raw: unknown): ExtractedPhoto[] {
   }
   return photos;
 }
+
+/**
+ * Extracts the non-empty plain-string entries of an mf2 property array, dropping anything else
+ * (rich-value objects, numbers, blanks). Used for flat IRI lists such as the restricted-post
+ * fan-out's blind-recipient actor addresses, which — unlike `content`/`photo` — have no rich
+ * object shape to accommodate.
+ */
+export function extractMf2StringList(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((entry): entry is string => typeof entry === "string" && entry.length > 0);
+}
