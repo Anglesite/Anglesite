@@ -1843,11 +1843,7 @@ export const ROUTES: readonly WorkerRoute[] = [
     handler: (request, env, ctx) => handleMicropub(request, env, ctx),
   },
   {
-    // Media retrieval by key (V-3.2, #360). NOTE: the catalog.json claim for this prefix route
-    // currently has no specificationURL, which WorkerRouteClaims.validate (Swift) requires for
-    // any prefix claim — until that's patched upstream, this route is unreachable in production
-    // (no run_worker_first entry gets generated for it), though it's still exercised directly by
-    // the miniflare test suite below.
+    // Media retrieval by key (V-3.2, #360).
     path: "/media",
     match: "prefix",
     methods: ["GET", "HEAD"],
