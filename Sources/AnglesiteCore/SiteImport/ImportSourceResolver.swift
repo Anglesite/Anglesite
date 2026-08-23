@@ -66,7 +66,7 @@ public enum ImportSourceResolver {
         let wpResult = WordPressRESTRung.items(from: snapshot)
         let feedResult = FeedRung.items(from: snapshot)
         let mfResult = MicroformatsRung.items(from: snapshot)
-        var problems = wpResult.problems + feedResult.problems + mfResult.problems
+        let problems = wpResult.problems + feedResult.problems + mfResult.problems
 
         var itemsByURL: [String: ImportItem] = [:]
         for item in wpResult.items + feedResult.items + mfResult.items where itemsByURL[item.sourceURL] == nil {

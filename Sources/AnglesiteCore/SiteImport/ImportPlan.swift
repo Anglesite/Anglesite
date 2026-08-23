@@ -131,7 +131,9 @@ public struct ImportReport: Codable, Sendable, Equatable {
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
         let data = try encoder.encode(self)
-        try data.write(to: configDirectory.appendingPathComponent(Self.fileName))
+        // Atomic: a report half-written by an interrupted run would fail `load(from:)` outright,
+        // leaving the owner with no record of an import that did happen.
+        try data.write(to: configDirectory.appendingPathComponent(Self.fileName), options: .atomic)
     }
 
     /// Loads a previously saved report from `configDirectory/import-report.json`.

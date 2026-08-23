@@ -186,22 +186,42 @@ public enum ImportTransform {
         return (writtenPaths, installedImagePaths)
     }
 
-    /// Merges `entries` into `sourceDirectory/redirects.json`, treating a missing or unreadable
-    /// existing file as an empty redirect set (`[]`) — the template's own scaffold ships one, but
-    /// a defensive fallback keeps this robust if that assumption is ever violated. A merge or
-    /// write failure is appended to `writeProblems` and reported as `.warning`; the file is left
-    /// as-is.
+    /// Merges `entries` into `sourceDirectory/redirects.json`.
+    ///
+    /// An *absent* file starts from an empty redirect set (`[]`) — the template's own scaffold
+    /// ships one, but a defensive fallback keeps this robust if that assumption is ever violated.
+    /// An *existing but unreadable* file is a different case entirely and is never treated as
+    /// empty: doing so would overwrite the owner's redirects — the ones keeping their old inbound
+    /// links alive — with only this import's entries, destroying data the app couldn't read but
+    /// could still see was there. That case records an ``ImportProblem``, reports `.warning`, and
+    /// leaves the file untouched. A merge or write failure is handled the same way.
+    ///
     /// - Parameters:
     ///   - entries: The redirects computed for this run (``RedirectsEmitter/entries(for:)``).
     ///   - sourceDirectory: The destination site's `Source/` directory.
-    ///   - writeProblems: Accumulates one ``ImportProblem`` if the merge or write fails.
+    ///   - writeProblems: Accumulates one ``ImportProblem`` if the file is unreadable, or if the
+    ///     merge or write fails.
     ///   - onStep: Called with `.warning` if a problem is recorded.
     private static func writeRedirects(
         _ entries: [RedirectEntry], sourceDirectory: URL,
         writeProblems: inout [ImportProblem], onStep: @Sendable (ImportStep) -> Void
     ) {
         let redirectsURL = sourceDirectory.appendingPathComponent("redirects.json")
-        let existingJSON = (try? String(contentsOf: redirectsURL, encoding: .utf8)) ?? "[]"
+        let existingJSON: String
+        if FileManager.default.fileExists(atPath: redirectsURL.path) {
+            do {
+                existingJSON = try String(contentsOf: redirectsURL, encoding: .utf8)
+            } catch {
+                let message = "Could not read redirects.json, so it was left unchanged: "
+                    + error.localizedDescription
+                writeProblems.append(ImportProblem(sourceURL: redirectsURL.path, message: message))
+                onStep(.warning(message))
+                return
+            }
+        } else {
+            existingJSON = "[]"
+        }
+
         do {
             let merged = try RedirectsEmitter.merge(existingJSON: existingJSON, adding: entries)
             try merged.write(to: redirectsURL, atomically: true, encoding: .utf8)
