@@ -30,6 +30,31 @@ import Testing
         #expect(item.published != nil)
     }
 
+    /// The REST payload has no image inventory, so an item's `images` — the list
+    /// `AssetLocalizer` works from — can only come from the crawled page for the same URL.
+    @Test func threadsCrawledPageImages() {
+        let html = "<p>See <img src=\\\"https://example.com/cat.jpg\\\"></p>"
+        let posts = """
+        [{"link":"https://example.com/2024/05/01/hello/","date_gmt":"2024-05-01T10:00:00",
+          "title":{"rendered":"Hello"},"content":{"rendered":"\(html)"},
+          "excerpt":{"rendered":""}}]
+        """
+        var snapshot = makeSnapshot(
+            postsJSON: posts,
+            conversions: [ImportSnapshot.htmlKey("<p>See <img src=\"https://example.com/cat.jpg\"></p>"):
+                            "See ![](https://example.com/cat.jpg)"])
+        // No crawled page for the post → no images to localize, rather than a wrong guess.
+        #expect(WordPressRESTRung.items(from: snapshot).items.first?.images == [])
+
+        snapshot.pages = [CapturedPage(
+            url: "https://example.com/2024/05/01/hello/",
+            extraction: ExtractionRecord(markdown: "ignored", images: ["https://example.com/cat.jpg"]))]
+        let result = WordPressRESTRung.items(from: snapshot)
+        #expect(result.items.first?.images == ["https://example.com/cat.jpg"])
+        // The REST conversion still wins the body; only the images come from the page.
+        #expect(result.items.first?.markdown == "See ![](https://example.com/cat.jpg)")
+    }
+
     @Test func missingConversionFallsBackToCrawledPageThenProblem() {
         let posts = """
         [{"link":"https://example.com/p/","date_gmt":"2024-01-01T00:00:00",

@@ -7,4 +7,4 @@ draft: false
 
 Another update from the blog, with a photo below.
 
-![A dog](https://wp-site.example/wp-content/uploads/2024/04/dog.jpg)
+![A dog](/images/link-second-post-1.png)

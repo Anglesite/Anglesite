@@ -25,14 +25,24 @@ public enum AssetLocalizer {
     ///   - siteDirectory: The destination site's `Source/` directory, where `public/images/` is
     ///     created if needed.
     /// - Returns: The rewritten markdown, the site-relative paths of every image actually
-    ///   installed (in `imageURLs` order), and one ``ImportProblem`` per URL that was refused or
-    ///   couldn't be resolved.
+    ///   installed (in `imageURLs` order), the remote-URL → served-path mapping for those same
+    ///   images, and one ``ImportProblem`` per URL that was refused or couldn't be resolved.
+    ///
+    ///   `localizedURLs` exists because Markdown isn't the only place an imported image URL
+    ///   lands: the `photos` collection's `image:` frontmatter field and the `bookmarks`
+    ///   collection's come from ``ImportItem``'s hint and `images` list, not from the body. Those
+    ///   callers need the same rewrite applied to a value that was never part of `markdown`, and
+    ///   a mapping is the honest seam for that — the alternative, re-running the body rewrite
+    ///   over a synthetic one-line string, would silently return the value unchanged whenever the
+    ///   image was refused, which is exactly the case that has to stay visible.
     public static func localize(
         markdown: String, imageURLs: [String], itemSlug: String,
         snapshot: ImportSnapshot, snapshotDirectory: URL, siteDirectory: URL
-    ) -> (markdown: String, installedPaths: [String], problems: [ImportProblem]) {
+    ) -> (markdown: String, installedPaths: [String], localizedURLs: [String: String],
+          problems: [ImportProblem]) {
         var rewritten = markdown
         var installedPaths: [String] = []
+        var localizedURLs: [String: String] = [:]
         var problems: [ImportProblem] = []
 
         for (index, url) in imageURLs.enumerated() {
@@ -69,10 +79,12 @@ public enum AssetLocalizer {
             }
 
             installedPaths.append(installedPath)
-            rewritten = Self.replacingURL(url, in: rewritten, with: LinkImageAsset.publicURLPath(slug: slug, format: format))
+            let publicPath = LinkImageAsset.publicURLPath(slug: slug, format: format)
+            localizedURLs[url] = publicPath
+            rewritten = Self.replacingURL(url, in: rewritten, with: publicPath)
         }
 
-        return (rewritten, installedPaths, problems)
+        return (rewritten, installedPaths, localizedURLs, problems)
     }
 
     /// Replaces every occurrence of `url` in `markdown` with `replacement`, but only where `url`

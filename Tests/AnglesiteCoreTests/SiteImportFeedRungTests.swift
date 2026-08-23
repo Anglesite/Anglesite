@@ -24,6 +24,33 @@ import Testing
         #expect(result.items[0].published != nil)
     }
 
+    /// A feed document has no image inventory, so an item's `images` — the list
+    /// `AssetLocalizer` works from — can only come from the crawled page for the same URL.
+    @Test func threadsCrawledPageImages() {
+        let html = "<p>See <img src=\"https://example.com/cat.jpg\"></p>"
+        let rss = """
+        <?xml version="1.0"?><rss version="2.0"><channel><item>
+        <title>Post</title><link>https://example.com/one/</link>
+        <description><![CDATA[\(html)]]></description>
+        </item></channel></rss>
+        """
+        let probes = SiteProbes(feeds: [CapturedFeed(url: "https://example.com/feed", body: rss)])
+        let conversions = [ImportSnapshot.htmlKey(html): "See ![](https://example.com/cat.jpg)"]
+
+        // No crawled page for the entry → no images to localize, rather than a wrong guess.
+        let uncrawled = ImportSnapshot(siteURL: "https://example.com", probes: probes,
+                                       pages: [], assets: [], conversions: conversions)
+        #expect(FeedRung.items(from: uncrawled).items.first?.images == [])
+
+        let crawled = ImportSnapshot(
+            siteURL: "https://example.com", probes: probes,
+            pages: [CapturedPage(url: "https://example.com/one/",
+                                 extraction: ExtractionRecord(markdown: "short",
+                                                              images: ["https://example.com/cat.jpg"]))],
+            assets: [], conversions: conversions)
+        #expect(FeedRung.items(from: crawled).items.first?.images == ["https://example.com/cat.jpg"])
+    }
+
     @Test func excerptOnlyFeedFallsBackToPageBody() {
         let excerptHTML = "<p>Teaser…</p>"
         let rss = """

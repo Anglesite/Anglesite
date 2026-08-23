@@ -10,6 +10,11 @@ public enum FeedRung {
     /// less than half the length of the page's extracted Markdown — the page's Markdown is used
     /// instead, while the feed's title and publish date are kept.
     ///
+    /// A feed document carries no image inventory, so each item's `images` come from the crawled
+    /// page record for the same URL (`extraction.images`) — the list ``AssetLocalizer`` needs to
+    /// install the captured bytes into `public/images/` and rewrite the entry's remote image URLs.
+    /// An entry with no matching crawled page contributes no images.
+    ///
     /// - Parameter snapshot: The import snapshot containing captured feeds, crawled pages, and HTML
     ///   conversions.
     /// - Returns: A tuple containing extracted items and any problems encountered during extraction.
@@ -32,8 +37,9 @@ public enum FeedRung {
                     problems.append(ImportProblem(sourceURL: feed.url, message: "Feed entry without a link"))
                     continue
                 }
+                let page = snapshot.page(forURL: url)
                 var markdown = entry.bodyHTML.flatMap(snapshot.markdown(forHTML:))
-                if let page = snapshot.page(forURL: url) {
+                if let page {
                     let pageMarkdown = page.extraction.markdown
                     if markdown == nil || markdown!.count * 2 < pageMarkdown.count {
                         // Excerpt-only feed: body comes from the crawled page; metadata stays the feed's.
@@ -46,7 +52,9 @@ public enum FeedRung {
                 }
                 items.append(ImportItem(sourceURL: ImportSnapshot.normalizeURL(url),
                                         title: entry.title, published: entry.published,
-                                        markdown: markdown, rung: .feed, hint: .none))
+                                        markdown: markdown,
+                                        images: page?.extraction.images ?? [],
+                                        rung: .feed, hint: .none))
             }
         }
         return (items, problems)

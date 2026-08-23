@@ -18,6 +18,28 @@
       }
     },
     {
+      "url": "https://wp-site.example/2024/03/15/hello-wordpress/",
+      "extraction": {
+        "title": "Hello WordPress",
+        "markdown": "Welcome to my first post, powered by WordPress.",
+        "images": [
+          "https://wp-site.example/wp-content/uploads/2024/03/cat.jpg"
+        ],
+        "feedLinks": []
+      }
+    },
+    {
+      "url": "https://wp-site.example/second-post/",
+      "extraction": {
+        "title": "Second Post",
+        "markdown": "Another update from the blog, with a photo below.",
+        "images": [
+          "https://wp-site.example/wp-content/uploads/2024/04/dog.jpg"
+        ],
+        "feedLinks": []
+      }
+    },
+    {
       "url": "https://wp-site.example/tag/notes/",
       "extraction": {
         "title": "Notes",
@@ -29,8 +51,12 @@
   ],
   "assets": [
     {
-      "sourceURL": "https://wp-site.example/wp-content/uploads/cat.png",
+      "sourceURL": "https://wp-site.example/wp-content/uploads/2024/03/cat.jpg",
       "relativePath": "assets/cat.png"
+    },
+    {
+      "sourceURL": "https://wp-site.example/wp-content/uploads/2024/04/dog.jpg",
+      "relativePath": "assets/dog.png"
     }
   ],
   "conversions": {

@@ -12,7 +12,11 @@ public enum MicroformatsRung {
     /// `in-reply-to` → `.reply(to:)`, a `photo` with no substantial `content` → `.photo(image:)`, a
     /// missing/empty `name` → `.note`, otherwise `.article`. The body prefers `content[0].html`
     /// converted via `snapshot.markdown(forHTML:)`, falls back to `content[0].value` (or a bare
-    /// string) as plain text, and finally falls back to the page's own extracted Markdown.
+    /// string) as plain text, and finally falls back to the page's own extracted Markdown. An
+    /// item's `images` are the entry's own `photo` property URLs (in document order), plus the
+    /// crawled page's `extraction.images` when the body fell back to the page's Markdown,
+    /// deduplicated — the list ``AssetLocalizer`` needs to install the captured bytes into
+    /// `public/images/` and rewrite the entry's remote image URLs.
     ///
     /// - Parameter snapshot: The import snapshot containing captured pages and HTML conversions.
     /// - Returns: A tuple containing extracted items and any problems encountered during extraction.
@@ -78,12 +82,24 @@ public enum MicroformatsRung {
             hint = .article
         }
 
-        let markdown = body(from: properties["content"], snapshot: snapshot) ?? page.extraction.markdown
+        let entryBody = body(from: properties["content"], snapshot: snapshot)
+        let markdown = entryBody ?? page.extraction.markdown
         let published = firstStringValue(properties["published"]).flatMap(parseDate)
         let sourceURL = firstStringValue(properties["url"]) ?? page.url
 
+        // The entry's own `photo` properties come first — for a `.photo` item that first URL is
+        // the one the `photos` collection's `image:` field is built from, so its localized
+        // position must be stable. The page's extracted images are added only when the body fell
+        // back to the page's Markdown, since that's the only case where the body can reference
+        // images the h-entry itself never declared.
+        var images = allStringValues(properties["photo"])
+        if entryBody == nil { images.append(contentsOf: page.extraction.images) }
+        var seenImages: Set<String> = []
+        images = images.filter { seenImages.insert($0).inserted }
+
         return ImportItem(sourceURL: ImportSnapshot.normalizeURL(sourceURL), title: title,
-                          published: published, markdown: markdown, rung: .microformats, hint: hint)
+                          published: published, markdown: markdown, images: images,
+                          rung: .microformats, hint: hint)
     }
 
     /// Resolves an entry's body: HTML content converted to Markdown, else the plain-text content
@@ -131,6 +147,12 @@ public enum MicroformatsRung {
     /// The first element of an mf2 property's array value, resolved to a plain string.
     private static func firstStringValue(_ propertyArray: Any?) -> String? {
         firstElement(of: propertyArray).flatMap(stringValue)
+    }
+
+    /// Every element of an mf2 property's array value, resolved to plain strings, in document
+    /// order. Elements that resolve to nothing (a nested microformat with no `value`) are dropped.
+    private static func allStringValues(_ propertyArray: Any?) -> [String] {
+        ((propertyArray as? [Any]) ?? []).compactMap(stringValue)
     }
 
     /// Resolves an mf2 property value to a plain string: either the value is itself a string, or

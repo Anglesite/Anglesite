@@ -46,5 +46,40 @@ import Testing
         let result = MicroformatsRung.items(from: snapshot([page(mf2: mf2)]))
         #expect(result.items.first?.hint == .photo(image: "https://example.com/images/p.jpg"))
         #expect(result.items.first?.markdown == "fallback")
+        // The hint alone isn't enough: `AssetLocalizer` only localizes what `images` lists.
+        #expect(result.items.first?.images == ["https://example.com/images/p.jpg"])
+    }
+
+    @Test("photo properties lead, page images follow only on a body fallback, deduplicated")
+    func threadsPhotoAndPageImages() {
+        let mf2 = """
+        {"items":[{"type":["h-entry"],"properties":{
+          "photo":["https://example.com/a.jpg",{"value":"https://example.com/b.jpg","alt":"B"}],
+          "url":["https://example.com/g-1/"]}}]}
+        """
+        let fellBack = CapturedPage(
+            url: "https://example.com/x/",
+            extraction: ExtractionRecord(
+                markdown: "fallback", images: ["https://example.com/b.jpg", "https://example.com/c.jpg"],
+                mf2JSON: mf2))
+        #expect(MicroformatsRung.items(from: snapshot([fellBack])).items.first?.images == [
+            "https://example.com/a.jpg", "https://example.com/b.jpg", "https://example.com/c.jpg",
+        ])
+
+        // With its own content the entry never reads the page body, so the page's images —
+        // navigation chrome, sidebar thumbnails — aren't this entry's to claim.
+        let ownBody = """
+        {"items":[{"type":["h-entry"],"properties":{
+          "photo":["https://example.com/a.jpg"],
+          "content":[{"html":"<p>hi</p>","value":"hi"}],
+          "url":["https://example.com/g-2/"]}}]}
+        """
+        let independent = CapturedPage(
+            url: "https://example.com/y/",
+            extraction: ExtractionRecord(
+                markdown: "fallback", images: ["https://example.com/c.jpg"], mf2JSON: ownBody))
+        let result = MicroformatsRung.items(from: snapshot(
+            [independent], conversions: [ImportSnapshot.htmlKey("<p>hi</p>"): "hi"]))
+        #expect(result.items.first?.images == ["https://example.com/a.jpg"])
     }
 }

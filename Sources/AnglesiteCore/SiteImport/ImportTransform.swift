@@ -167,6 +167,16 @@ public enum ImportTransform {
 
             var localizedItem = classifiedItem.item
             localizedItem.markdown = localized.markdown
+            // The body isn't the only place an image URL reaches the emitted file: `photos` builds
+            // its required `image:` from the item's `.photo` hint and `bookmarks` its optional one
+            // from `images.first`. Both go through frontmatter, which `AssetLocalizer` never sees,
+            // so apply the same URL → served-path mapping here. An image that was refused isn't in
+            // the mapping and keeps its remote URL — already reported as an `ImportProblem` above,
+            // so it stays visible rather than being silently rewritten to a file that isn't there.
+            localizedItem.images = localizedItem.images.map { localized.localizedURLs[$0] ?? $0 }
+            if case .photo(let image) = localizedItem.hint, let localPath = localized.localizedURLs[image] {
+                localizedItem.hint = .photo(image: localPath)
+            }
             let localizedClassified = ClassifiedItem(item: localizedItem, destination: classifiedItem.destination)
             let emission = ImportEmitter.emission(for: localizedClassified, now: now)
             let fileURL = sourceDirectory.appendingPathComponent(emission.relativePath)
