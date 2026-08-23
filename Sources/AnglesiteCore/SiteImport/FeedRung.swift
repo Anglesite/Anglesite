@@ -1,4 +1,9 @@
 import Foundation
+// XMLParser/XMLParserDelegate live in FoundationXML on non-Darwin platforms
+// (swift-corelibs-foundation); this import is a no-op on macOS.
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 /// The feed extraction rung: decodes RSS 2.0, Atom, and JSON Feed documents.
 public enum FeedRung {

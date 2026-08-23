@@ -1,5 +1,7 @@
-import CryptoKit
 import Foundation
+#if canImport(CryptoKit)
+import CryptoKit
+#endif
 
 /// A snapshot of all content and metadata extracted from a website during the crawl phase.
 public struct ImportSnapshot: Codable, Sendable, Equatable {
@@ -30,7 +32,11 @@ public struct ImportSnapshot: Codable, Sendable, Equatable {
 
     /// Computes the stable SHA-256 hex digest of a UTF-8 HTML string.
     public static func htmlKey(_ html: String) -> String {
-        SHA256.hash(data: Data(html.utf8)).map { String(format: "%02x", $0) }.joined()
+        #if canImport(CryptoKit)
+        return SHA256.hash(data: Data(html.utf8)).map { String(format: "%02x", $0) }.joined()
+        #else
+        return PortableSHA256.hexDigest(of: Array(html.utf8))
+        #endif
     }
 
     /// Looks up the Markdown for a given HTML string, if a conversion was recorded for it.
