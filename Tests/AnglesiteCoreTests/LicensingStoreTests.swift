@@ -47,6 +47,29 @@ struct LicensingStoreTests {
         #expect(try LicensingStore(sourceDirectory: dir).load() == policy)
     }
 
+    @Test("botBlocklistManagedBy defaults to .anglesite when absent from the document")
+    func botBlocklistManagedByDefaultsWhenAbsent() throws {
+        let dir = try makeDirectory()
+        try write(#"{"usage":{"blockAICrawlers":false}}"#, to: dir)
+        #expect(try LicensingStore(sourceDirectory: dir).load().usage.botBlocklistManagedBy == .anglesite)
+    }
+
+    @Test("botBlocklistManagedBy round-trips through save() and load()")
+    func botBlocklistManagedByRoundTrips() throws {
+        let dir = try makeDirectory()
+        var policy = LicensingPolicy()
+        policy.usage = AIUsage(botBlocklistManagedBy: .cloudflare)
+        try LicensingStore(sourceDirectory: dir).save(policy)
+        #expect(try LicensingStore(sourceDirectory: dir).load().usage.botBlocklistManagedBy == .cloudflare)
+    }
+
+    @Test("an unrecognized botBlocklistManagedBy value degrades to .anglesite")
+    func botBlocklistManagedByUnrecognizedDegrades() throws {
+        let dir = try makeDirectory()
+        try write(#"{"usage":{"botBlocklistManagedBy":"bogus"}}"#, to: dir)
+        #expect(try LicensingStore(sourceDirectory: dir).load().usage.botBlocklistManagedBy == .anglesite)
+    }
+
     @Test("save() omits unset purposes so the JSON never carries key=unset")
     func saveOmitsUnset() throws {
         let dir = try makeDirectory()

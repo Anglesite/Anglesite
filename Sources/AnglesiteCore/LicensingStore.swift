@@ -115,6 +115,16 @@ public enum UsagePermission: String, Sendable, Equatable, CaseIterable, Identifi
     public var id: Self { self }
 }
 
+/// Who blocks named AI crawlers in `robots.txt`: Anglesite's own hardcoded list
+/// (`blockAICrawlers`), or Cloudflare's Bot Preference Sync — a zone-level dashboard setting with
+/// no public API (see docs/superpowers/specs/2026-08-23-bot-preference-sync-design.md). Mirrors
+/// `BotBlocklistManager` in `licensing.ts`.
+public enum BotBlocklistManager: String, Sendable, Equatable, CaseIterable, Identifiable {
+    case anglesite
+    case cloudflare
+    public var id: Self { self }
+}
+
 /// Site-wide AI usage permissions (#991). `robots.txt`'s `Content-Signal` directive and its
 /// named-agent blocklist are both derived from this by `scripts/edge-artifacts.ts`, so they cannot
 /// disagree with each other.
@@ -128,6 +138,12 @@ public struct AIUsage: Sendable, Equatable {
     /// Whether the named-agent blocklist is emitted into `robots.txt`. Only honored when
     /// ``mayBlockAICrawlers`` allows it — ``clamped`` enforces that on every load and save.
     public var blockAICrawlers: Bool
+    /// Who acts on ``blockAICrawlers``. `.cloudflare` suppresses Anglesite's own blocklist at
+    /// build time regardless of ``blockAICrawlers``'s value, deferring to Cloudflare's own
+    /// dashboard-managed Bot Preference Sync instead. Defaults to `.anglesite`, matching an
+    /// absent key in `licensing.json` — every site created before this field existed behaves
+    /// identically to before.
+    public var botBlocklistManagedBy: BotBlocklistManager
 
     /// All parameters default to the most conservative state — no preference stated, no
     /// blocklist — so a zero-argument `AIUsage()` equals a document with no `usage` key at all.
@@ -135,12 +151,14 @@ public struct AIUsage: Sendable, Equatable {
         search: UsagePermission = .unset,
         aiInput: UsagePermission = .unset,
         aiTrain: UsagePermission = .unset,
-        blockAICrawlers: Bool = false
+        blockAICrawlers: Bool = false,
+        botBlocklistManagedBy: BotBlocklistManager = .anglesite
     ) {
         self.search = search
         self.aiInput = aiInput
         self.aiTrain = aiTrain
         self.blockAICrawlers = blockAICrawlers
+        self.botBlocklistManagedBy = botBlocklistManagedBy
     }
 
     /// Whether the blocklist may fire. Blocking is stronger than signalling, not contradictory, so
@@ -159,7 +177,7 @@ public struct AIUsage: Sendable, Equatable {
 
 extension AIUsage: Codable {
     private enum CodingKeys: String, CodingKey {
-        case search, aiInput, aiTrain, blockAICrawlers
+        case search, aiInput, aiTrain, blockAICrawlers, botBlocklistManagedBy
     }
 
     /// Lenient decode mirroring `normalizeUsage` in `licensing.ts`: an unrecognized or
@@ -173,11 +191,13 @@ extension AIUsage: Codable {
             let raw = (try? container.decodeIfPresent(String.self, forKey: key)) ?? nil
             return UsagePermission(rawValue: raw ?? "") ?? .unset
         }
+        let rawManager = (try? container.decodeIfPresent(String.self, forKey: .botBlocklistManagedBy)) ?? nil
         self.init(
             search: permission(.search),
             aiInput: permission(.aiInput),
             aiTrain: permission(.aiTrain),
-            blockAICrawlers: ((try? container.decodeIfPresent(Bool.self, forKey: .blockAICrawlers)) ?? nil) ?? false
+            blockAICrawlers: ((try? container.decodeIfPresent(Bool.self, forKey: .blockAICrawlers)) ?? nil) ?? false,
+            botBlocklistManagedBy: BotBlocklistManager(rawValue: rawManager ?? "") ?? .anglesite
         )
         self = clamped
     }
@@ -191,6 +211,7 @@ extension AIUsage: Codable {
         if usage.aiInput != .unset { try container.encode(usage.aiInput.rawValue, forKey: .aiInput) }
         if usage.aiTrain != .unset { try container.encode(usage.aiTrain.rawValue, forKey: .aiTrain) }
         try container.encode(usage.blockAICrawlers, forKey: .blockAICrawlers)
+        try container.encode(usage.botBlocklistManagedBy.rawValue, forKey: .botBlocklistManagedBy)
     }
 }
 
