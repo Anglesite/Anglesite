@@ -9,8 +9,6 @@ public struct ImportSummaryModel: Sendable, Equatable {
     public var countLines: [String]
 
     /// e.g. `"3 pages couldn't be brought over cleanly"` — nil when problems is empty.
-    /// - Parameters:
-    ///   - plan: The import plan to summarize.
     public var attentionLine: String?
 
     /// e.g. `"12 archive pages were left behind (tags, categories)"` — nil when skippedURLs is empty.
@@ -43,8 +41,7 @@ public struct ImportSummaryModel: Sendable, Equatable {
 
         // Build attention line if there are problems
         if !plan.problems.isEmpty {
-            let categoryName = Self.categoryForAttention(counts: plan.counts)
-            let displayName = Self.displayName(for: categoryName, count: plan.problems.count)
+            let displayName = Self.displayName(for: "pages", count: plan.problems.count)
             self.attentionLine = "\(plan.problems.count) \(displayName) couldn't be brought over cleanly"
         } else {
             self.attentionLine = nil
@@ -82,8 +79,8 @@ public struct ImportSummaryModel: Sendable, Equatable {
             singular = "image"
         case "archive-page":
             singular = "archive page"
-        default:
-            singular = "item"
+        case _:
+            singular = "page"
         }
 
         if count == 1 {
@@ -95,24 +92,5 @@ public struct ImportSummaryModel: Sendable, Equatable {
             }
             return singular + "s"
         }
-    }
-
-    /// Selects a category name for the attention line based on which category has the most items.
-    /// Defaults to "pages" if no counts are present.
-    private static func categoryForAttention(counts: [String: Int]) -> String {
-        // Order of preference for picking category name
-        let order = ["blog", "pages", "notes", "photos", "bookmarks", "replies", "likes"]
-
-        var highestCategory = "pages"
-        var highestCount = 0
-
-        for category in order {
-            if let count = counts[category], count > highestCount {
-                highestCount = count
-                highestCategory = category
-            }
-        }
-
-        return highestCategory
     }
 }

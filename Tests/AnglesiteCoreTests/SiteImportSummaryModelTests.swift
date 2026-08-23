@@ -96,7 +96,7 @@ import Testing
         #expect(model.attentionLine == nil)
     }
 
-    @Test("attentionLine describes problems with correct singular/plural")
+    @Test("attentionLine uses generic noun regardless of which category has high count")
     func attentionLineWithProblems() {
         let plan1 = ImportPlan(
             counts: ["pages": 5, "blog": 2],
@@ -123,6 +123,23 @@ import Testing
         )
         let model3 = ImportSummaryModel(plan: plan3)
         #expect(model3.attentionLine == "3 pages couldn't be brought over cleanly")
+
+        // Mismatch scenario: problems are extraction failures not tied to a category,
+        // so the attentionLine uses "pages" generically even when blog has more items
+        let planMismatch = ImportPlan(
+            counts: ["blog": 100, "pages": 2],
+            imageCount: 0,
+            problems: [
+                ImportProblem(sourceURL: "https://e.com/1", message: "boom"),
+                ImportProblem(sourceURL: "https://e.com/2", message: "boom"),
+                ImportProblem(sourceURL: "https://e.com/3", message: "boom")
+            ],
+            skippedURLs: [],
+            rungBreakdown: [:],
+            seeds: SiteConfigSeeds(siteName: "Site")
+        )
+        let modelMismatch = ImportSummaryModel(plan: planMismatch)
+        #expect(modelMismatch.attentionLine == "3 pages couldn't be brought over cleanly")
     }
 
     @Test("skippedLine is nil when skippedURLs is empty")
