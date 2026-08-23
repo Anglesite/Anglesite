@@ -79,4 +79,16 @@ import Testing
         snapshot.conversions = [ImportSnapshot.htmlKey("<p>a</p>"): "a"]
         #expect(WordPressRESTRung.items(from: snapshot).items.first?.hint == .wpPage)
     }
+
+    /// WordPress renders a literal title `5 &lt; 10` as the double-escaped `5 &amp;lt; 10`.
+    /// Decoding `&amp;` first (the original, buggy order) would turn that into `5 < 10` — an
+    /// entity that was never actually present in the source title. `&amp;` must decode last, as
+    /// `ContentScanner.decodeHTMLEntities(_:)` already does.
+    @Test func decodeHTMLEntitiesLeavesDoubleEscapedEntitiesIntact() {
+        #expect(decodeHTMLEntities("5 &amp;lt; 10") == "5 &lt; 10")
+        // Numeric character references (e.g. an em dash) still decode correctly.
+        #expect(decodeHTMLEntities("Hello &#8212; again") == "Hello — again")
+        // A plain, single-escaped entity still decodes as expected.
+        #expect(decodeHTMLEntities("Tom &amp; Jerry") == "Tom & Jerry")
+    }
 }

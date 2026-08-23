@@ -44,8 +44,15 @@ public enum AssetLocalizer {
         var installedPaths: [String] = []
         var localizedURLs: [String: String] = [:]
         var problems: [ImportProblem] = []
+        var processedURLs: Set<String> = []
 
         for (index, url) in imageURLs.enumerated() {
+            // A duplicate URL later in the list would otherwise re-install the same bytes under
+            // a new slug and leave the returned mapping/installedPaths inconsistent with what the
+            // markdown actually references (which was already rewritten by the first occurrence).
+            // The first occurrence — success or refusal — wins; every later duplicate is a no-op.
+            guard processedURLs.insert(url).inserted else { continue }
+
             let n = index + 1
 
             func refuse(_ reason: String) {
@@ -88,16 +95,22 @@ public enum AssetLocalizer {
     }
 
     /// Replaces every occurrence of `url` in `markdown` with `replacement`, but only where `url`
-    /// isn't immediately followed by another URL-continuing character.
+    /// isn't immediately adjacent to another URL-continuing character on either side.
     ///
     /// A plain `replacingOccurrences(of:with:)` would treat `url` as a bare substring match, so
     /// replacing `https://e.com/photo.jpg` would also corrupt a longer, distinct reference like
     /// `https://e.com/photo.jpg?v=2` mid-string — silently smuggling an unvalidated URL fragment
-    /// (`?v=2`) past the refusal path this function exists to enforce. Anchoring the match with a
-    /// negative lookahead over the characters a URL can continue with (`[A-Za-z0-9?&=%._~/-]`)
-    /// keeps replace-ALL semantics for exact matches while leaving longer URLs untouched.
+    /// (`?v=2`) past the refusal path this function exists to enforce. That's the right boundary,
+    /// guarded by a negative lookahead over the characters a URL can continue with
+    /// (`[A-Za-z0-9?&=%._~/-]`). The same corruption can happen on the left: `url` appearing as
+    /// the *suffix* of a longer token, e.g. a tracking link `https://a.example/hit?dest=<url>`,
+    /// would otherwise get its outer URL mangled too. A symmetric negative lookbehind over the
+    /// same character class guards that side, keeping replace-ALL semantics for exact,
+    /// standalone matches (including ones directly preceded by Markdown syntax like `(` or `]`,
+    /// which aren't in the class) while leaving both longer and embedded URLs untouched.
     private static func replacingURL(_ url: String, in markdown: String, with replacement: String) -> String {
-        let pattern = NSRegularExpression.escapedPattern(for: url) + "(?![A-Za-z0-9?&=%._~/-])"
+        let pattern = "(?<![A-Za-z0-9?&=%._~/-])" + NSRegularExpression.escapedPattern(for: url)
+            + "(?![A-Za-z0-9?&=%._~/-])"
         guard let regex = try? NSRegularExpression(pattern: pattern) else { return markdown }
         let template = NSRegularExpression.escapedTemplate(for: replacement)
         let range = NSRange(markdown.startIndex..<markdown.endIndex, in: markdown)

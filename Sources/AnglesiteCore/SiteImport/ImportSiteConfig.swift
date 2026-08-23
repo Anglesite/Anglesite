@@ -115,8 +115,26 @@ public enum ImportSiteConfig {
         return String(trimmed[trimmed.startIndex..<equalsIndex])
     }
 
-    /// Double-quotes a value for a `.site-config` line, escaping embedded `"` characters.
+    /// Double-quotes a value for a `.site-config` line, normalizing embedded newlines and
+    /// escaping `\` and `"` characters.
+    ///
+    /// `.site-config` readers (`Resources/Template/scripts/config.ts`) are line-oriented and do
+    /// not unescape `\n` sequences, so a seed value carrying an embedded CR/LF/CRLF — a
+    /// Readability excerpt or title used as `tagline`/`siteName` routinely spans what was
+    /// visually multiple lines — would splice a second physical line into the file and break the
+    /// one-entry-per-line format no matter how it were escaped. Collapsing newline runs to a
+    /// single space (then trimming) is therefore the correct move, not escaping. `\` and `"` are
+    /// then backslash-escaped, matching `ImportEmitter.yamlString`'s convention.
     private static func quoted(_ value: String) -> String {
-        "\"" + value.replacingOccurrences(of: "\"", with: "\\\"") + "\""
+        let normalized = value
+            .replacingOccurrences(of: "\r\n", with: "\n")
+            .replacingOccurrences(of: "\r", with: "\n")
+            .components(separatedBy: "\n")
+            .joined(separator: " ")
+            .trimmingCharacters(in: .whitespaces)
+        let escaped = normalized
+            .replacingOccurrences(of: "\\", with: "\\\\")
+            .replacingOccurrences(of: "\"", with: "\\\"")
+        return "\"" + escaped + "\""
     }
 }

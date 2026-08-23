@@ -61,9 +61,13 @@ public enum WordPressRESTRung {
 }
 
 /// Decodes the five predefined XML entities plus decimal/hex numeric character references.
+///
+/// `&amp;` is decoded last, mirroring `ContentScanner.decodeHTMLEntities(_:)`, so that a
+/// double-escaped entity like `&amp;lt;` (WordPress's rendering of a literal `&lt;` in a title)
+/// becomes `&lt;` rather than being corrupted into `<` by an early, greedy `&amp;` pass.
 func decodeHTMLEntities(_ value: String) -> String {
     var result = value
-    for (entity, char) in [("&amp;", "&"), ("&lt;", "<"), ("&gt;", ">"),
+    for (entity, char) in [("&lt;", "<"), ("&gt;", ">"),
                            ("&quot;", "\""), ("&#039;", "'"), ("&apos;", "'")] {
         result = result.replacingOccurrences(of: entity, with: char)
     }
@@ -74,5 +78,6 @@ func decodeHTMLEntities(_ value: String) -> String {
         let replacement = scalar.flatMap(Unicode.Scalar.init).map { String(Character($0)) } ?? ""
         result.replaceSubrange(range, with: replacement)
     }
+    result = result.replacingOccurrences(of: "&amp;", with: "&")
     return result
 }

@@ -129,4 +129,33 @@ import Testing
         #expect(result.contains("SITE_NAME=\"New Name\""))
         #expect(!result.contains("Old Name"))
     }
+
+    /// `.site-config` is line-oriented and its reader (`Resources/Template/scripts/config.ts`)
+    /// does not unescape `\n` sequences, so a seed value with an embedded newline — routine for a
+    /// Readability excerpt used as `tagline` — must be normalized to a single line rather than
+    /// escaped, or it would splice a second physical line into the file.
+    @Test("apply normalizes an embedded newline in the value to a single space")
+    func applyNormalizesEmbeddedNewline() {
+        let text = ""
+        let seeds = SiteConfigSeeds(siteName: nil, tagline: "line one\nline two", lang: nil)
+
+        let result = ImportSiteConfig.apply(seeds, toConfigText: text)
+
+        #expect(result == "TAGLINE=\"line one line two\"\n")
+        // Exactly one TAGLINE line — the newline did not become a second physical line.
+        #expect(result.components(separatedBy: "\n").filter { $0.hasPrefix("TAGLINE=") }.count == 1)
+    }
+
+    @Test("apply escapes a backslash before a quote so the value round-trips")
+    func applyEscapesBackslashAndQuote() {
+        let text = ""
+        let value = "C:\\Users\\" // literal value: C:\Users\
+        let seeds = SiteConfigSeeds(siteName: value, tagline: nil, lang: nil)
+
+        let result = ImportSiteConfig.apply(seeds, toConfigText: text)
+
+        // Backslash is escaped first, then the (here absent) quote — matching
+        // `ImportEmitter.yamlString`'s convention — so the value round-trips unambiguously.
+        #expect(result == "SITE_NAME=\"C:\\\\Users\\\\\"\n")
+    }
 }

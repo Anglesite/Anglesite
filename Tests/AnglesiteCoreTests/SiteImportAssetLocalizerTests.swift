@@ -205,4 +205,54 @@ import Testing
         #expect(result.markdown == "![a](/images/link-hello-1.png) ![b](\(variantURL)) ![c](/images/link-hello-1.png)")
         #expect(result.problems.isEmpty)
     }
+
+    /// The same URL appearing twice in `imageURLs` (e.g. an item referencing one photo from both
+    /// the body and a `photos` frontmatter field) must not re-install the same bytes under a new
+    /// slug — that would leave `installedPaths`/`localizedURLs` inconsistent with what the
+    /// markdown actually references. The first occurrence wins; the duplicate is a true no-op.
+    @Test func duplicateImageURLsInstallOnlyOnce() throws {
+        let (snapshotDirectory, siteDirectory) = try makeFixture()
+        defer { cleanup(snapshotDirectory) }
+
+        let imageURL = "https://example.com/photo.png"
+        let snapshot = ImportSnapshot(
+            siteURL: "https://example.com", probes: SiteProbes(), pages: [],
+            assets: [CapturedAsset(sourceURL: imageURL, relativePath: "assets/photo.png")],
+            conversions: [:])
+
+        let result = AssetLocalizer.localize(
+            markdown: "![a](\(imageURL))",
+            imageURLs: [imageURL, imageURL], itemSlug: "hello",
+            snapshot: snapshot, snapshotDirectory: snapshotDirectory, siteDirectory: siteDirectory)
+
+        #expect(result.markdown == "![a](/images/link-hello-1.png)")
+        #expect(result.installedPaths == ["public/images/link-hello-1.png"])
+        #expect(result.installedPaths.count == 1)
+        #expect(result.localizedURLs == [imageURL: "/images/link-hello-1.png"])
+        #expect(result.problems.isEmpty)
+    }
+
+    /// A right-boundary-only guard lets a captured URL that appears as the *suffix* of a longer
+    /// token (e.g. embedded in a tracking link's query string) get rewritten too, mangling the
+    /// outer URL. A symmetric left-boundary negative lookbehind must prevent that while still
+    /// matching a standalone occurrence directly preceded by Markdown syntax like `(`.
+    @Test func doesNotCorruptAURLEmbeddedAsASuffixOfALongerToken() throws {
+        let (snapshotDirectory, siteDirectory) = try makeFixture()
+        defer { cleanup(snapshotDirectory) }
+
+        let imageURL = "https://x.com/photo.jpg"
+        let trackingURL = "https://analytics.example.com/hit?dest=\(imageURL)"
+        let snapshot = ImportSnapshot(
+            siteURL: "https://x.com", probes: SiteProbes(), pages: [],
+            assets: [CapturedAsset(sourceURL: imageURL, relativePath: "assets/photo.png")],
+            conversions: [:])
+
+        let result = AssetLocalizer.localize(
+            markdown: "[track](\(trackingURL)) and ![img](\(imageURL))",
+            imageURLs: [imageURL], itemSlug: "hello",
+            snapshot: snapshot, snapshotDirectory: snapshotDirectory, siteDirectory: siteDirectory)
+
+        #expect(result.markdown == "[track](\(trackingURL)) and ![img](/images/link-hello-1.png)")
+        #expect(result.problems.isEmpty)
+    }
 }
