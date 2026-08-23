@@ -120,6 +120,24 @@ describe("wysiwyg engine host mount entry point (#1225)", () => {
     delete (window as any).webkit;
   });
 
+  it("mount() posts a focus-inspector message when Tab/Shift-Tab is pressed with a block selected (#1616)", () => {
+    const postMessage = vi.fn();
+    window.webkit = { messageHandlers: { wysiwyg: { postMessage } } };
+    document.body.innerHTML = `<p data-anglesite-block-id="b1"></p>`;
+
+    const engine = window.__anglesiteWysiwygMount!.mount(model, {});
+    engine.selection.select("b1");
+    postMessage.mockClear();
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", bubbles: true, cancelable: true }));
+    expect(postMessage).toHaveBeenCalledWith({ type: "focus-inspector", direction: "forward", blockId: "b1" });
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+    expect(postMessage).toHaveBeenCalledWith({ type: "focus-inspector", direction: "backward", blockId: "b1" });
+
+    delete (window as any).webkit;
+  });
+
   /**
    * #1589 final review, Fix 5: `WYSIWYGBlockContextMenu` (native, Swift) sets
    * `controller.selectedBlockId` directly on right-click, but nothing told `engine.selection` about

@@ -7,10 +7,15 @@ import { findBlockElement } from "./selection.js";
  * Keyboard-only editing grammar (design doc §8.6): arrows move block selection, Return enters text
  * editing on the selected block, Escape exits the deepest active context first — text-editing (via
  * `RichTextEditor`'s own Escape handling, which stops propagation once it fires — see rich-text.ts),
- * then block-selected, then none.
- *
- * Tab-walks-props is deliberately not handled here: it needs the native inspector PR2 ships
- * (#1588/#1613), which doesn't exist on `main` yet — see this plan's header and #1589's PR body.
+ * then block-selected, then none. Tab walks focus into the native inspector's first prop field with
+ * a block selected (Shift-Tab into the last field); the actual focus move is native-side (#1616),
+ * so this class only requests it via `onFocusInspectorRequested` — `mount.ts` posts that request
+ * across the bridge, same as this file's other host-bound signals. The request carries the
+ * selected block's id rather than relying on the native side's own `selectedBlockId` mirror
+ * already being in sync: that mirror is updated by a *separate* `selection-changed` bridge
+ * message, posted and dispatched independently (final review, #1616) — without the id riding
+ * along, a fast select-then-Tab could have the inspector focus request land against native's
+ * still-stale prior selection.
  *
  * Listens on `document` (default `target`) rather than a specific block element, mirroring
  * `mount.ts`'s own `contextmenu` listener: whichever element already has focus (a block, or
@@ -23,12 +28,19 @@ export class KeyboardNavigation {
   #engine: WysiwygEngine;
   #richText: RichTextEditor;
   #target: GlobalEventHandlers;
+  #onFocusInspectorRequested: (direction: "forward" | "backward", blockId: BlockId) => void;
   #onKeydown = (event: Event) => this.#handleKeydown(event as KeyboardEvent);
 
-  constructor(engine: WysiwygEngine, richText: RichTextEditor, target: GlobalEventHandlers = document) {
+  constructor(
+    engine: WysiwygEngine,
+    richText: RichTextEditor,
+    target: GlobalEventHandlers = document,
+    onFocusInspectorRequested: (direction: "forward" | "backward", blockId: BlockId) => void = () => {},
+  ) {
     this.#engine = engine;
     this.#richText = richText;
     this.#target = target;
+    this.#onFocusInspectorRequested = onFocusInspectorRequested;
     target.addEventListener("keydown", this.#onKeydown);
   }
 
@@ -65,6 +77,14 @@ export class KeyboardNavigation {
           event.preventDefault();
         }
         break;
+      case "Tab": {
+        const selected = this.#engine.selection.current;
+        if (selected !== null) {
+          this.#onFocusInspectorRequested(event.shiftKey ? "backward" : "forward", selected);
+          event.preventDefault();
+        }
+        break;
+      }
     }
   }
 

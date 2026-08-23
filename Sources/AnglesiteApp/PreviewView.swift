@@ -150,6 +150,19 @@ struct PreviewView: NSViewRepresentable {
                 Task { @MainActor in
                     controller?.selectedBlockId = blockId
                 }
+            },
+            // `blockId` rides along with the request rather than trusting `controller
+            // .selectedBlockId` to already have caught up: that's set by the separate
+            // `selection-changed` message above, posted and dispatched independently (same
+            // no-ordering-guarantee caveat that closure's own doc comment states) — a fast
+            // select-then-Tab could otherwise land this request while the selection mirror is
+            // still stale. Setting both here, in the same MainActor hop, keeps them consistent
+            // regardless of which order the two messages' own `Task`s actually settle in.
+            onFocusInspectorRequested: { [weak controller] direction, blockId in
+                Task { @MainActor in
+                    controller?.selectedBlockId = blockId
+                    controller?.inspectorFocusRequest = direction
+                }
             }
         )
     }

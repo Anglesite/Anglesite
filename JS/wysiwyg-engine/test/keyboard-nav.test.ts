@@ -111,4 +111,53 @@ describe("KeyboardNavigation (#1589)", () => {
 
     expect(engine.selection.current).toBeNull();
   });
+
+  it("Tab requests forward focus into the inspector for the currently selected block (#1616)", () => {
+    const engine = new WysiwygEngine(fixtureModel(), fixtureTransport());
+    const richText = new RichTextEditor(engine);
+    const requests: Array<{ direction: "forward" | "backward"; blockId: string }> = [];
+    new KeyboardNavigation(engine, richText, document, (direction, blockId) => requests.push({ direction, blockId }));
+    engine.selection.select("b1");
+
+    dispatchKey(document, "Tab");
+
+    expect(requests).toEqual([{ direction: "forward", blockId: "b1" }]);
+  });
+
+  it("Shift+Tab requests backward focus for the currently selected block (#1616)", () => {
+    const engine = new WysiwygEngine(fixtureModel(), fixtureTransport());
+    const richText = new RichTextEditor(engine);
+    const requests: Array<{ direction: "forward" | "backward"; blockId: string }> = [];
+    new KeyboardNavigation(engine, richText, document, (direction, blockId) => requests.push({ direction, blockId }));
+    engine.selection.select("b1");
+
+    document.dispatchEvent(new KeyboardEvent("keydown", { key: "Tab", shiftKey: true, bubbles: true, cancelable: true }));
+
+    expect(requests).toEqual([{ direction: "backward", blockId: "b1" }]);
+  });
+
+  it("Tab does nothing when no block is selected (#1616)", () => {
+    const engine = new WysiwygEngine(fixtureModel(), fixtureTransport());
+    const richText = new RichTextEditor(engine);
+    const requests: Array<{ direction: "forward" | "backward"; blockId: string }> = [];
+    new KeyboardNavigation(engine, richText, document, (direction, blockId) => requests.push({ direction, blockId }));
+
+    dispatchKey(document, "Tab");
+
+    expect(requests).toEqual([]);
+  });
+
+  it("Tab is a no-op while a text-editing session is active (#1616)", () => {
+    document.body.innerHTML = `<p data-anglesite-block-id="b1"></p>`;
+    const engine = new WysiwygEngine(fixtureModel(), fixtureTransport());
+    const richText = new RichTextEditor(engine);
+    const requests: Array<{ direction: "forward" | "backward"; blockId: string }> = [];
+    new KeyboardNavigation(engine, richText, document, (direction, blockId) => requests.push({ direction, blockId }));
+    engine.selection.select("b1");
+    richText.enter("b1");
+
+    dispatchKey(document, "Tab");
+
+    expect(requests).toEqual([]);
+  });
 });

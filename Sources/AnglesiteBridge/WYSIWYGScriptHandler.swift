@@ -11,16 +11,19 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
     private let logCenter: LogCenter
     private let onContextMenu: (@Sendable (BlockId, CGPoint) -> Void)?
     private let onSelectionChanged: (@Sendable (BlockId?) -> Void)?
+    private let onFocusInspectorRequested: (@Sendable (WYSIWYGOpsDispatcher.FocusDirection, BlockId) -> Void)?
 
     public init(
         transport: any WYSIWYGHostTransport, logCenter: LogCenter = .shared,
         onContextMenu: (@Sendable (BlockId, CGPoint) -> Void)? = nil,
-        onSelectionChanged: (@Sendable (BlockId?) -> Void)? = nil
+        onSelectionChanged: (@Sendable (BlockId?) -> Void)? = nil,
+        onFocusInspectorRequested: (@Sendable (WYSIWYGOpsDispatcher.FocusDirection, BlockId) -> Void)? = nil
     ) {
         self.transport = transport
         self.logCenter = logCenter
         self.onContextMenu = onContextMenu
         self.onSelectionChanged = onSelectionChanged
+        self.onFocusInspectorRequested = onFocusInspectorRequested
         super.init()
     }
 
@@ -32,12 +35,15 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
         let logCenter = self.logCenter
         let onContextMenu = self.onContextMenu
         let onSelectionChanged = self.onSelectionChanged
+        let onFocusInspectorRequested = self.onFocusInspectorRequested
         Task {
             switch await WYSIWYGOpsDispatcher.dispatch(body: body, via: transport) {
             case .contextMenu(let blockId, let point):
                 onContextMenu?(blockId, CGPoint(x: point.x, y: point.y))
             case .selectionChanged(let blockId):
                 onSelectionChanged?(blockId)
+            case .focusInspector(let direction, let blockId):
+                onFocusInspectorRequested?(direction, blockId)
             case .opResult(let requestId, let result):
                 guard let webView else {
                     await logCenter.append(source: "wysiwyg-bridge", stream: .stderr, text: "webView deallocated before submit-op reply for id=\(requestId)")

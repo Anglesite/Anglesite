@@ -16,13 +16,23 @@ public struct WYSIWYGPoint: Sendable, Equatable {
 
 /// Webview-agnostic message schema + routing for the `wysiwyg` script-message namespace —
 /// deliberately separate from `AnglesiteMessageDispatcher` (the older edit-overlay protocol).
-/// Three message types: `submit-op`, an `OpEnvelope` the engine sends when the owner performs a
+/// Four message types: `submit-op`, an `OpEnvelope` the engine sends when the owner performs a
 /// gesture (the reply is the resulting `OpResult`); `context-menu`, the engine's hit-test result
 /// on a native `contextmenu` DOM event (spec §8.1 — the host builds a real `NSMenu`, no reply
-/// expected); and `selection-changed`, the engine's own selection state changing (no reply
-/// expected).
+/// expected); `selection-changed`, the engine's own selection state changing (no reply expected);
+/// and `focus-inspector`, `KeyboardNavigation`'s Tab/Shift-Tab request to move real AppKit focus
+/// into the native inspector's first/last prop field (#1616 — no reply expected, same as
+/// `context-menu`/`selection-changed`).
 public enum WYSIWYGOpsDispatcher {
     public static let scriptMessageNamespace = "wysiwyg"
+
+    /// Which end of the native inspector's prop fields a `focus-inspector` request should land
+    /// on — `forward` (Tab) the first field, `backward` (Shift-Tab) the last, mirroring how
+    /// tabbing backward into a preceding control conventionally lands on its last stop.
+    public enum FocusDirection: String, Sendable {
+        case forward
+        case backward
+    }
 
     public enum DispatchResult: Sendable {
         /// `submit-op` was applied against the transport; the adapter should reply with `result`
@@ -37,6 +47,15 @@ public enum WYSIWYGOpsDispatcher {
         /// Duplicate/Delete keep acting on the right block. No reply is sent back to the page,
         /// same as `contextMenu`.
         case selectionChanged(blockId: BlockId?)
+        /// `focus-inspector` requested the native inspector take real AppKit keyboard focus
+        /// (#1616) — the adapter should move focus to its first (`.forward`) or last
+        /// (`.backward`) prop field. `blockId` is the block that was selected in JS at the
+        /// moment Tab was pressed — the adapter should adopt it as `selectedBlockId` itself
+        /// rather than trust that value already being in sync: it's normally kept in sync by the
+        /// separate `selection-changed` message above, posted and dispatched independently, so a
+        /// fast select-then-Tab could otherwise land this request against a stale prior
+        /// selection. No reply is sent back to the page.
+        case focusInspector(direction: FocusDirection, blockId: BlockId)
         case rejected(RejectionReason)
 
         public enum RejectionReason: Sendable, Equatable {
@@ -75,6 +94,13 @@ public enum WYSIWYGOpsDispatcher {
             // `blockId` is legitimately absent/null (selection cleared) — unlike context-menu's
             // required blockId, this isn't a decode failure.
             return .selectionChanged(blockId: dict["blockId"] as? String)
+        case "focus-inspector":
+            guard let rawDirection = dict["direction"] as? String, let direction = FocusDirection(rawValue: rawDirection),
+                  let blockId = dict["blockId"] as? String
+            else {
+                return .rejected(.envelopeDecode("could not decode focus-inspector fields"))
+            }
+            return .focusInspector(direction: direction, blockId: blockId)
         default:
             return .rejected(.unknownType(typeStr))
         }

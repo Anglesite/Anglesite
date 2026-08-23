@@ -3,6 +3,7 @@ import Observation
 import AppKit
 import WebKit
 import AnglesiteCore
+import AnglesiteBridgeCore
 
 /// App-side orchestrator for one mounted WYSIWYG canvas (#1225). Owns the transport and current
 /// block selection; menu commands (`FormatCommands`, Edit-menu Duplicate/Delete) and
@@ -25,6 +26,24 @@ final class WYSIWYGCanvasController {
     /// on this canvas's block selection or the Navigator's row selection (menu-bar IA spec: "⌘D
     /// Duplicate is one focus-scoped command").
     var hasKeyboardFocus = false
+
+    /// Set by `PreviewView`'s `WYSIWYGScriptHandler` wiring when `KeyboardNavigation` posts a
+    /// `focus-inspector` bridge message (Tab/Shift-Tab with a block selected, #1616) —
+    /// `WYSIWYGInspectorView` observes this to move real `@FocusState` onto its first
+    /// (`.forward`) or last (`.backward`) prop field, then clears it back to `nil` once it has.
+    /// The reverse direction (inspector → canvas) is `focusCanvas()` below, driven by Escape
+    /// inside the inspector.
+    var inspectorFocusRequest: WYSIWYGOpsDispatcher.FocusDirection?
+
+    /// Returns real AppKit keyboard focus to the canvas — the inspector's Escape-from-a-prop-field
+    /// counterpart to `inspectorFocusRequest` above (#1616). `selectedBlockId` was never cleared
+    /// while the inspector held focus (see `hasKeyboardFocus`'s doc comment), so the block stays
+    /// selected across the round-trip without any extra action here. A `nil` `webView` (no canvas
+    /// mounted, or a unit test with no real `WKWebView`) no-ops harmlessly, same as
+    /// `applyFormat(_:href:)`/`mountEngine()` elsewhere in this type.
+    func focusCanvas() {
+        webView?.window?.makeFirstResponder(webView)
+    }
 
     /// Whether the WYSIWYG find bar is showing (#1588 Task 19) — `EditMenuSkeletonCommands`'s
     /// Edit ▸ Find dispatch flips this on; `WYSIWYGFindBar` flips it off.
