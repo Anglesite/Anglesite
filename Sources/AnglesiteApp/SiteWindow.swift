@@ -111,6 +111,25 @@ struct SiteWindow: View {
 
     var body: some View {
         focusedValues(for: coreBody)
+            // Invisible responder-chain seam for File ▸ Share…'s in-app Quick Look (#1617,
+            // #1621). Deliberately attached HERE, outside `focusedValues(for:)`'s wrapping and
+            // outside `coreBody`'s `Group { if let site ... } else { ... } }` branch switch —
+            // NOT alongside it as originally shipped in #1619. A manual smoke test (#1621) found
+            // the File ▸ Share… menu item staying permanently disabled even once
+            // `SiteWindowModel.canShareSite` genuinely evaluated `true` (confirmed by
+            // instrumenting the getter directly). Instrumenting `QuickLookPreviewController`'s
+            // lifecycle in the same pass showed `QuickLookPreviewHost.makeNSViewController`
+            // firing more than once per window and the underlying controller identity churning
+            // while `model.site` transitioned from nil (the loading placeholder) to loaded — this
+            // controller sitting inside the exact subtree `focusedValues(for:)` wraps with
+            // `.focusedSceneValue(...)` is the most likely interference with AppKit's
+            // `NSMenuItem` validation/sync for Commands scoped to that focused value, though the
+            // precise SwiftUI-internal mechanism isn't confirmed beyond the repro. Moving the
+            // attachment to `body`'s own top-level modifier chain (unaffected by both of those)
+            // fixed it, re-verified with the same manual smoke test that first caught it — same
+            // "outlives any single `body` evaluation" placement reasoning `onAppear`/`onDisappear`
+            // below already rely on for `setWebsiteInspectorSuspended`.
+            .background(QuickLookPreviewHost(model: model).frame(width: 0, height: 0))
             .onAppear {
                 // Also stash the launcher-opener here (see SitesWindowRoot): window restoration can
                 // relaunch the app with only site windows, so relying on the launcher's onAppear
@@ -147,9 +166,6 @@ struct SiteWindow: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
         }
-        // Invisible responder-chain seam for File ▸ Share…'s in-app Quick Look (#1617) — see
-        // `QuickLookPreviewController`'s doc comment.
-        .background(QuickLookPreviewHost(model: model).frame(width: 0, height: 0))
         .task(id: siteID) {
             await model.loadAndStart(
                 siteID: siteID,
