@@ -17,7 +17,7 @@
     "jsdom": "^30.0.1",
     "oxlint": "^1.79.0",
     "typescript": "^7.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=22"
