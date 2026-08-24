@@ -1061,6 +1061,9 @@
     "Cloudflare's Agent Readiness score checks whether AI agents and assistants can discover, read, and act on your deployed site — the 2026 equivalent of a Lighthouse score, but for AI agents instead of browsers." : {
 
     },
+    "Cloudflare's Bot Preference Sync manages named-bot blocking for this site, but Anglesite can't currently confirm the zone — check Settings ▸ Credentials and this site's domain." : {
+
+    },
     "Cloudflare's Bot Preference Sync manages named-bot blocking for this site. Turn it on for this zone in the Cloudflare dashboard — Anglesite can confirm the zone exists but can't confirm the sync itself is enabled there, since Cloudflare doesn't expose that setting through an API yet." : {
 
     },

@@ -92,6 +92,28 @@ struct PlistEditorModelBotPreferenceSyncTests {
         #expect(model.licensingPolicy.usage.botBlocklistManagedBy == .anglesite)
     }
 
+    /// Final-review finding (#1628): a site can be persisted as Cloudflare-managed while its
+    /// zone doesn't currently resolve — the flag was turned back off and on, the token rotated,
+    /// or Cloudflare was briefly unreachable. This never happens by the preselection algorithm
+    /// alone (that only ever *sets* `.cloudflare` when a zone resolves, never clears it), but it
+    /// is exactly what an already-Cloudflare-managed `licensing.json` produces once the zone
+    /// stops resolving. `ContentLicensingTab` must key its mode branch on
+    /// `botBlocklistManagedBy` alone in this state — never on `botPreferenceSyncZoneID` — or it
+    /// falls through to the "Refuse AI crawlers" toggle whose effect the build (`edge-artifacts.ts`,
+    /// gated purely on the persisted `botBlocklistManagedBy`) silently ignores. This test proves
+    /// the state combination itself is reachable and unambiguous at the model layer, so the
+    /// view's `if model.licensingPolicy.usage.botBlocklistManagedBy == .cloudflare` branch
+    /// (zone-independent) is provably correct by inspection.
+    @Test("flag on, persisted cloudflare mode, zone no longer resolves: mode is preserved, not silently reverted")
+    func persistedCloudflareModeSurvivesUnresolvedZone() async throws {
+        let model = try makeModel(
+            licensingJSON: #"{"usage":{"botBlocklistManagedBy":"cloudflare","blockAICrawlers":true,"aiInput":"no","aiTrain":"no"}}"#,
+            zoneID: nil)
+        await model.load()
+        #expect(model.botPreferenceSyncZoneID == nil)
+        #expect(model.licensingPolicy.usage.botBlocklistManagedBy == .cloudflare)
+    }
+
     @Test("flag on, no domain configured: never attempts resolution")
     func noDomainConfigured() async throws {
         let model = try makeModel(domain: nil)

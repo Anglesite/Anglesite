@@ -289,7 +289,14 @@ struct ContentLicensingTab: View {
                 .font(.callout)
                 .foregroundStyle(.secondary)
 
-            if model.botPreferenceSyncZoneID != nil {
+            // Shown whenever a zone is currently resolved (so the option can be offered) OR the
+            // site is already persisted as Cloudflare-managed (so a site whose zone stopped
+            // resolving — flag toggled off and back on, token rotated, Cloudflare briefly
+            // unreachable — can still be switched back to Anglesite-managed from this tab, rather
+            // than the control silently vanishing and leaving the owner stuck). See the
+            // `.cloudflare` branch below for the corresponding zone-optional handling of the
+            // dashboard link.
+            if model.botPreferenceSyncZoneID != nil || model.licensingPolicy.usage.botBlocklistManagedBy == .cloudflare {
                 Picker("Bot blocklist managed by", selection: $model.licensingPolicy.usage.botBlocklistManagedBy) {
                     Text("Anglesite").tag(BotBlocklistManager.anglesite)
                     Text("Cloudflare").tag(BotBlocklistManager.cloudflare)
@@ -328,9 +335,24 @@ struct ContentLicensingTab: View {
                     .foregroundStyle(.secondary)
             }
 
-            if model.licensingPolicy.usage.botBlocklistManagedBy == .cloudflare, let zoneID = model.botPreferenceSyncZoneID {
+            // Keyed on `botBlocklistManagedBy` alone — never on whether a zone happens to be
+            // resolved right now. The build's own gate (`edge-artifacts.ts`) suppresses the
+            // 17-bot Disallow block purely from the persisted mode, so this view must never show
+            // the "Refuse AI crawlers" toggle while Cloudflare mode is persisted, even when the
+            // zone can't currently be confirmed (flag turned back off, token rotated, Cloudflare
+            // briefly unreachable) — doing so would show an enabled, seemingly-functional toggle
+            // whose effect the build silently ignores.
+            if model.licensingPolicy.usage.botBlocklistManagedBy == .cloudflare {
                 VStack(alignment: .leading, spacing: 6) {
-                    Link("Manage in Cloudflare Dashboard →", destination: BotPreferenceSyncDashboardLinks.settingsURL(zoneID: zoneID))
+                    // The zone is only needed to build the dashboard URL; when it isn't resolved,
+                    // fall back to the same explanatory copy with no clickable link, rather than
+                    // ever falling back to the Anglesite toggle above.
+                    if let zoneID = model.botPreferenceSyncZoneID {
+                        Link("Manage in Cloudflare Dashboard →", destination: BotPreferenceSyncDashboardLinks.settingsURL(zoneID: zoneID))
+                    } else {
+                        Text("Cloudflare's Bot Preference Sync manages named-bot blocking for this site, but Anglesite can't currently confirm the zone — check Settings ▸ Credentials and this site's domain.")
+                            .font(.callout)
+                    }
                     Text("Cloudflare periodically updates this zone's robots.txt with named-bot rules for the categories you choose there (Search, Agent, Training). Anglesite's own \"AI Answers\"/\"AI Training\" signals above still apply either way.")
                         .font(.callout)
                         .foregroundStyle(.secondary)
