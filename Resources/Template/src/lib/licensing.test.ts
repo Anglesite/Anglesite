@@ -225,7 +225,20 @@ test("normalizeUsage: reads a well-formed block", () => {
     aiInput: "no",
     aiTrain: "no",
     blockAICrawlers: true,
+    botBlocklistManagedBy: "anglesite",
   });
+});
+
+test("normalizeUsage: botBlocklistManagedBy defaults to anglesite when absent", () => {
+  assert.equal(normalizeUsage({ search: "yes" }).botBlocklistManagedBy, "anglesite");
+});
+
+test("normalizeUsage: botBlocklistManagedBy reads cloudflare when explicitly requested", () => {
+  assert.equal(normalizeUsage({ botBlocklistManagedBy: "cloudflare" }).botBlocklistManagedBy, "cloudflare");
+});
+
+test("normalizeUsage: an unrecognized botBlocklistManagedBy value degrades to anglesite", () => {
+  assert.equal(normalizeUsage({ botBlocklistManagedBy: "bogus" }).botBlocklistManagedBy, "anglesite");
 });
 
 test("normalizeUsage: drops unrecognized values and unknown keys", () => {

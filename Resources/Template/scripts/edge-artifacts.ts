@@ -164,7 +164,7 @@ Content-Signal: ${contentSignal}
   // `buildRobotsTxt` is exported and the whole point of #991 is that the blocklist never exceeds
   // what the permissions deny — that invariant belongs to this function, not just to its one
   // caller (#991 review finding 3).
-  if (usage.blockAICrawlers && mayBlockAICrawlers(usage)) {
+  if (usage.blockAICrawlers && mayBlockAICrawlers(usage) && usage.botBlocklistManagedBy !== "cloudflare") {
     body += `\n# AI crawler / training bot directives (usage.blockAICrawlers in src/data/licensing.json)\n`;
     for (const bot of aiCrawlers) {
       body += `\nUser-agent: ${bot}\nDisallow: /\n`;

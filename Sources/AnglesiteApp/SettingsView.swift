@@ -394,6 +394,7 @@ enum AdvancedSettingsCopy {
 private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.sitesRootOverride) private var sitesRootOverride: String = ""
     @AppStorage(AppSettings.Key.debugPaneEnabled) private var debugPaneEnabled: Bool = false
+    @AppStorage(AppSettings.Key.botPreferenceSyncUIEnabled) private var botPreferenceSyncUIEnabled: Bool = false
     @AppStorage(AppSettings.Key.lanRuntimeHost) private var lanRuntimeHost: String = ""
     @AppStorage(AppSettings.Key.lanRuntimePreviewPort) private var lanRuntimePreviewPort: String = ""
     @AppStorage(AppSettings.Key.lanRuntimeMCPPort) private var lanRuntimeMCPPort: String = ""
@@ -503,6 +504,10 @@ private struct AdvancedSettingsView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
                 #endif
+                Toggle("Show Cloudflare bot management option in Content Licensing", isOn: $botPreferenceSyncUIEnabled)
+                Text("Lets you choose, per site, whether Anglesite's own AI-bot blocklist or Cloudflare's Bot Preference Sync (a Cloudflare dashboard setting) manages named-bot blocking in robots.txt. Off by default — Cloudflare's feature isn't generally available yet.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)

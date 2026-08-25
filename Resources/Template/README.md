@@ -19,7 +19,10 @@ default plus optional per-collection overrides:
     "photos": { "url": "https://creativecommons.org/licenses/by-nc/4.0/", "name": "CC BY-NC 4.0" },
     "notes": null
   },
-  "usage": { "search": "yes", "aiInput": "no", "aiTrain": "no", "blockAICrawlers": true },
+  "usage": {
+    "search": "yes", "aiInput": "no", "aiTrain": "no",
+    "blockAICrawlers": true, "botBlocklistManagedBy": "anglesite"
+  },
   "publishRSL": false
 }
 ```
@@ -31,12 +34,20 @@ default plus optional per-collection overrides:
 
 The `usage` block states, site-wide, what AI systems may do with your content. Each of `search`,
 `aiInput`, and `aiTrain` is `"yes"` or `"no"`; omit a key to state no preference. `robots.txt`
-derives both of its crawler signals from this block and nothing else:
+derives both of its crawler signals from this block:
 
-- The `Content-Signal` directive gets one `key=value` pair per stated purpose.
+- The `Content-Signal` directive gets one `key=value` pair per stated purpose — emitted
+  unconditionally, regardless of `botBlocklistManagedBy` below.
 - `"blockAICrawlers": true` adds `Disallow: /` records for 17 named AI agents. It only takes effect
   when `aiInput` and `aiTrain` are **both** `"no"` — blocking a crawler while permitting the use it
-  performs would be self-contradictory, so the build ignores it and says so.
+  performs would be self-contradictory, so the build ignores it and says so — **and** when
+  `botBlocklistManagedBy` is `"anglesite"` (see below).
+- `"botBlocklistManagedBy"` is `"anglesite"` (the default; an absent key behaves the same) or
+  `"cloudflare"`. `"cloudflare"` suppresses the 17-bot `Disallow` block entirely, regardless of
+  `blockAICrawlers`, on the assumption that Cloudflare's own dashboard-driven Bot Preference Sync
+  handles named-bot blocking for the zone instead. Anglesite has no way to verify that setting is
+  actually turned on in Cloudflare's dashboard — this field only tells the build who's responsible,
+  it doesn't check.
 
 The resolved license is emitted three ways: `license` in the page's schema.org JSON-LD,
 `u-license` in the entry's Microformats2 markup, and `<link rel="license">` in `<head>`.
