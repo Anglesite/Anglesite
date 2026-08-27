@@ -74,4 +74,54 @@ struct SiteActionsScaffoldingContextTests {
         let unwrapped = try #require(context, "Template/catalog should resolve from the fixture override")
         #expect(!unwrapped.catalog.themes.isEmpty)
     }
+
+    @Test("resolveScaffoldingContext reports the template-missing message via onFailure")
+    func templateMissingCallsOnFailure() async throws {
+        // A directory that exists but isn't a template (no scripts/themes.ts) — combined with
+        // `swift test`'s `Bundle.main` never having a bundled Template either (it's the Swift
+        // toolchain's own `swiftpm-testing-helper`, not the app bundle — see `loadsCatalog()`'s
+        // doc comment above), `TemplateRuntime.resolve()` falls all the way through to `.missing`.
+        let bareDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scaffolding-context-bare-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: bareDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: bareDir) }
+        let sitesRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scaffolding-context-sites-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: sitesRoot) }
+        let (settings, cleanup) = try makeIsolatedSettings(sitesRoot: sitesRoot)
+        defer { cleanup() }
+        settings.templatePathOverride = bareDir
+
+        var reportedMessage: String?
+        let context = await SiteActions.resolveScaffoldingContext(settings: settings, onFailure: { reportedMessage = $0 })
+
+        #expect(context == nil)
+        #expect(reportedMessage == "Template not found — can't create a site. Reinstall the app.")
+    }
+
+    @Test("resolveScaffoldingContext reports the catalog-load-failure message via onFailure")
+    func catalogLoadFailureCallsOnFailure() async throws {
+        // A directory that passes `TemplateRuntime.isTemplateDirectory` (has `scripts/themes.ts`)
+        // but whose `scripts/themes.json` is malformed — `ThemeCatalog.load` throws, same as
+        // `ThemeCatalogTests.malformedJSONThrows()` exercises directly against `parse(themesJSON:)`.
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scaffolding-context-malformed-\(UUID().uuidString)")
+        let scriptsDir = root.appendingPathComponent("scripts", isDirectory: true)
+        try FileManager.default.createDirectory(at: scriptsDir, withIntermediateDirectories: true)
+        try Data("export const THEMES".utf8).write(to: scriptsDir.appendingPathComponent("themes.ts"))
+        try Data("not json".utf8).write(to: scriptsDir.appendingPathComponent("themes.json"))
+        defer { try? FileManager.default.removeItem(at: root) }
+        let sitesRoot = FileManager.default.temporaryDirectory
+            .appendingPathComponent("scaffolding-context-sites-\(UUID().uuidString)")
+        defer { try? FileManager.default.removeItem(at: sitesRoot) }
+        let (settings, cleanup) = try makeIsolatedSettings(sitesRoot: sitesRoot)
+        defer { cleanup() }
+        settings.templatePathOverride = root
+
+        var reportedMessage: String?
+        let context = await SiteActions.resolveScaffoldingContext(settings: settings, onFailure: { reportedMessage = $0 })
+
+        #expect(context == nil)
+        #expect(reportedMessage?.hasPrefix("Couldn't load themes: ") == true)
+    }
 }

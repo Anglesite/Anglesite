@@ -487,7 +487,7 @@ struct SitesLauncherView: View {
         guard newSiteSession == nil, !preparingNewSite else { return }
         preparingNewSite = true
         defer { preparingNewSite = false }
-        guard let context = await SiteActions.resolveScaffoldingContext() else { return }
+        guard let context = await SiteActions.resolveScaffoldingContext(onFailure: { loadError = $0 }) else { return }
         sitesRootScopedURL = context.sitesRootAccess
         let model = NewSiteWizardModel(catalog: context.catalog, isNameTaken: context.isNameTaken)
         newSiteSession = NewSiteSession(model: model, scaffolder: context.scaffolder, templateURL: context.templateURL)
@@ -498,7 +498,7 @@ struct SitesLauncherView: View {
         guard newCommunitySession == nil, !preparingNewCommunity else { return }
         preparingNewCommunity = true
         defer { preparingNewCommunity = false }
-        guard let context = await SiteActions.resolveScaffoldingContext() else { return }
+        guard let context = await SiteActions.resolveScaffoldingContext(onFailure: { loadError = $0 }) else { return }
         sitesRootScopedURL = context.sitesRootAccess
         let model = NewCommunityWizardModel(isNameTaken: context.isNameTaken)
         newCommunitySession = NewCommunitySession(model: model, scaffolder: context.scaffolder)

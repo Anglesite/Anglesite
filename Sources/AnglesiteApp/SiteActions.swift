@@ -173,13 +173,31 @@ enum SiteActions {
     /// depending on `Bundle.main` (never the app bundle under `swift test`) or this machine's
     /// real iCloud state.
     ///
+    /// `onFailure`, when supplied, is called with a user-facing message on the two failure paths
+    /// a caller would otherwise have no way to explain to the user: the template is missing, or
+    /// the theme catalog fails to load (both signs of a broken install). It is deliberately NOT
+    /// called when the MAS sites-root-access grant panel is cancelled — that's a user choice, not
+    /// an error worth surfacing. Defaults to `nil` so callers that don't need this messaging (like
+    /// a future `importWXR()`) can omit it.
+    ///
     /// - Returns: The context, or `nil` if the template is missing, the catalog fails to load, or
     ///   (under MAS, outside the iCloud container) the user cancels the access-grant panel.
     @MainActor
-    static func resolveScaffoldingContext(settings: AppSettings = .shared, bundle: Bundle = .main) async -> ScaffoldingContext? {
+    static func resolveScaffoldingContext(
+        settings: AppSettings = .shared, bundle: Bundle = .main, onFailure: ((String) -> Void)? = nil
+    ) async -> ScaffoldingContext? {
         let resolution = TemplateRuntime.resolve(settings: settings, bundle: bundle)
-        guard let templateURL = resolution.url else { return nil }
-        guard let catalog = try? ThemeCatalog.load(templateURL: templateURL) else { return nil }
+        guard let templateURL = resolution.url else {
+            onFailure?("Template not found — can't create a site. Reinstall the app.")
+            return nil
+        }
+        let catalog: ThemeCatalog
+        do {
+            catalog = try ThemeCatalog.load(templateURL: templateURL)
+        } catch {
+            onFailure?("Couldn't load themes: \(error.localizedDescription)")
+            return nil
+        }
 
         let sitesRoot = settings.sitesRoot
         var sitesRootAccess: URL?
