@@ -53,6 +53,14 @@ test("committed public/robots.txt is byte-identical to buildRobotsTxt()", () => 
   assert.equal(buildRobotsTxt(), committed);
 });
 
+test("committed src/data/licensing.json gives a freshly scaffolded site a Content-Signal line (#1657)", () => {
+  const templateRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
+  const { usage, clamped } = readLicensingUsage(templateRoot);
+  assert.equal(clamped, false);
+  assert.equal(contentSignalDirective(usage), "search=yes, ai-input=no, ai-train=no");
+  assert.match(buildRobotsTxt(usage), /^Content-Signal: search=yes, ai-input=no, ai-train=no$/m);
+});
+
 const BLOCKING: AIUsage = { search: "yes", aiInput: "no", aiTrain: "no", blockAICrawlers: true };
 
 test("buildRobotsTxt(blocking usage): blocks every crawler in aiCrawlers", () => {

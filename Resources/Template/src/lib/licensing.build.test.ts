@@ -82,8 +82,7 @@ test("licensing: JSON-LD, u-license, and <link rel=license> agree on every page"
     // Configure the site: an explicit per-collection override for reviews, a site-wide default
     // that notes should inherit, and (implicitly) nothing for likes despite that default —
     // exercising all three resolution rules from licensing.ts at once. Written only into the
-    // tmpdir copy — the committed `src/data/licensing.json` (`{ "default": null, "collections":
-    // {} }`) must never be touched.
+    // tmpdir copy — the committed `src/data/licensing.json` must never be touched.
     await writeFile(
       join(fixtureDir, "src/data/licensing.json"),
       JSON.stringify(LICENSING_FIXTURE, null, 2),
@@ -191,8 +190,10 @@ test("licensing: JSON-LD, u-license, and <link rel=license> agree on every page"
 
     // --- negative case: no license and no holder -> no site-rights element at all ----------
     // Rebuild the same fixture (node_modules already installed, so this is just another
-    // `astro build`, not a second full install) with the committed licensing.json default
-    // (`{ "default": null, "collections": {} }`) and no `.site-config`/COPYRIGHT_HOLDER, and no
+    // `astro build`, not a second full install) with a license-and-usage-free policy
+    // (`{ "default": null, "collections": {} }` — note this is *not* the committed
+    // `src/data/licensing.json`, which also carries a default `usage` block irrelevant to this
+    // license-only assertion) and no `.site-config`/COPYRIGHT_HOLDER, and no
     // `src/data/profile.json` (absent by default in the template, so ownerName() also yields
     // undefined). Rights.astro must render nothing — not an empty `<div class="site-rights">` —
     // when both inputs are falsy; a stray empty wrapper would be worse than no wrapper at all.
