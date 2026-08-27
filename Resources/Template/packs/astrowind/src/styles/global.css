@@ -1,0 +1,282 @@
+/* AstroWind pack (#1649) — full global.css replacement, per the port contract
+   (docs/superpowers/specs/2026-07-31-curated-theme-ports-design.md §2). Adapted from
+   AstroWind (https://github.com/arthelokyo/astrowind, MIT © onWidget) — the design,
+   rebuilt on the chassis's vanilla-CSS token system; none of the original's Tailwind
+   comes along. Pack-internal extras use the `--aw-` prefix (ThemeApplier never
+   rewrites them). */
+
+:root {
+  --color-primary: #0161ef;
+  --color-accent: #6d28d9;
+  --color-background: #ffffff;
+  --color-surface: #f4f7fb;
+  --color-text: #111827;
+  --color-text-muted: #4b5563;
+  --font-heading: system-ui, -apple-system, sans-serif;
+  --font-body: system-ui, -apple-system, sans-serif;
+  --spacing-unit: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.75rem;
+  --radius-lg: 1.5rem;
+  color-scheme: light dark;
+  /* Text links. Light mode reads straight from the brand primary; dark mode swaps in a
+     lighter blue below — the primary itself must stay one value in both schemes because
+     the catalog entry's `vars` pin it (ThemeApplier rewrites `--color-primary:`
+     declarations file-wide, so a dark override would be flattened on theme re-apply). */
+  --aw-link: var(--color-primary);
+  --aw-border: #e5e9f0;
+}
+
+/* Dark palette. Only tokens *outside* the catalog entry's `vars` may differ per scheme
+   (see the --aw-link note above). All pairs meet WCAG AA on --color-background:
+   text 15.3:1, muted 7.3:1 (6.5:1 on surface), links 9.0:1. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #0b1120;
+    --color-surface: #151e32;
+    --color-text: #e2e8f0;
+    --color-text-muted: #94a3b8;
+    --aw-link: #8ab4ff;
+    --aw-border: #263145;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-body);
+  color: var(--color-text);
+  background-color: var(--color-background);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* AstroWind's typographic personality: heavy, tightly-tracked headings. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  line-height: 1.15;
+}
+
+a {
+  color: var(--aw-link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid var(--aw-link);
+  outline-offset: 2px;
+}
+
+/* First focusable element on every page (BaseLayout). Visually hidden until it receives
+   keyboard focus, then shown as a small pill over the top-left corner. */
+.skip-link {
+  position: absolute;
+  inset-block-start: calc(var(--spacing-unit) * 2);
+  inset-inline-start: calc(var(--spacing-unit) * 2);
+  z-index: 100;
+  padding: calc(var(--spacing-unit) * 2) calc(var(--spacing-unit) * 4);
+  background-color: var(--color-primary);
+  color: #ffffff;
+  border-radius: var(--radius-sm);
+  transform: translateY(calc(-100% - var(--spacing-unit) * 4));
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+main {
+  flex: 1;
+  width: 100%;
+  max-width: 72rem;
+  margin-inline: auto;
+  padding-inline: calc(var(--spacing-unit) * 6);
+}
+
+/* The skip link's target: it takes programmatic focus (tabindex="-1") so assistive tech
+   follows the jump, but a focus ring around the whole content region is just noise. */
+main:focus {
+  outline: none;
+}
+
+/* Homepage hero. The `.hero` class and its `<section class="hero">` open tag are
+   load-bearing (HeroImage.heroOpenLine — the app inserts the site logo and generated
+   hero image right after it), so the AstroWind treatment hangs entirely off this class. */
+.hero {
+  position: relative;
+  padding-block: calc(var(--spacing-unit) * 28) calc(var(--spacing-unit) * 20);
+  text-align: center;
+}
+
+/* AstroWind's signature soft glow behind the hero. Decorative only — sits behind the
+   text and never carries meaning, so no contrast requirement applies. */
+.hero::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background:
+    radial-gradient(40rem 20rem at 50% 0%,
+      color-mix(in srgb, var(--color-primary) 12%, transparent), transparent 70%),
+    radial-gradient(30rem 16rem at 80% 10%,
+      color-mix(in srgb, var(--color-accent) 8%, transparent), transparent 70%);
+}
+
+.site-logo {
+  display: block;
+  width: min(12rem, 48vw);
+  max-height: 6rem;
+  object-fit: contain;
+  margin: 0 auto calc(var(--spacing-unit) * 6);
+}
+
+.hero h1 {
+  font-size: clamp(2.5rem, 6vw, 4rem);
+  letter-spacing: -0.03em;
+  margin-block-end: calc(var(--spacing-unit) * 5);
+}
+
+.hero p {
+  font-size: 1.25rem;
+  color: var(--color-text-muted);
+  max-width: 42rem;
+  margin-inline: auto;
+}
+
+/* Hero call-to-action row (the sentinel paragraph's sibling). */
+.aw-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(var(--spacing-unit) * 3);
+  margin-block-start: calc(var(--spacing-unit) * 8);
+}
+
+/* Buttons — AstroWind's rounded-full pill pair (solid primary + quiet outline). */
+.aw-btn {
+  display: inline-block;
+  padding: calc(var(--spacing-unit) * 3) calc(var(--spacing-unit) * 7);
+  border: 1px solid var(--aw-border);
+  border-radius: 9999px;
+  font-weight: 600;
+  color: var(--color-text);
+  background-color: var(--color-background);
+}
+
+.aw-btn:hover {
+  text-decoration: none;
+  border-color: var(--color-text-muted);
+}
+
+.aw-btn-primary {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary);
+  color: #ffffff;
+}
+
+.aw-btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+/* Embed cards (#682). Global rather than scoped: the remark plugin injects this markup as an
+   HTML string, which Astro's scoped-style attributes never reach. */
+.embed-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing-unit) * 2);
+  margin-block: calc(var(--spacing-unit) * 6);
+  padding: calc(var(--spacing-unit) * 4);
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.embed-card__author {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing-unit) * 2);
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-text);
+}
+
+.embed-card__avatar {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.embed-card__handle {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.embed-card__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.embed-card__media,
+.embed-card__video {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+
+.embed-card__video {
+  aspect-ratio: 16 / 9;
+  border: 0;
+}
+
+.embed-card__play {
+  font-size: 1.5rem;
+  color: var(--aw-link);
+}
+
+.embed-card__permalink {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+/* A video card's permalink wraps the thumbnail and the play glyph, so the whole thing is one
+   click target. It stacks its children the way the card itself does. */
+.embed-card__permalink--thumbnail {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing-unit) * 2);
+  text-decoration: none;
+}
+
+/* Neutralize animation for visitors who ask for reduced motion — including anything
+   integrations or future components add on top of this sheet. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

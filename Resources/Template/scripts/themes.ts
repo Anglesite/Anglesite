@@ -28,8 +28,10 @@ export interface Theme {
 
 export type ThemeRecord = Theme & { id: string };
 
-/** The catalog in JSON order (order is load-bearing: first entry = fallback default). */
-export const THEME_RECORDS: ThemeRecord[] = themesData;
+/** The catalog in JSON order (order is load-bearing: first entry = fallback default).
+ * The cast narrows the JSON import's widened `category: string` to `ThemeCategory` —
+ * themes.test.ts enforces the actual value set at runtime. */
+export const THEME_RECORDS: ThemeRecord[] = themesData as ThemeRecord[];
 
 export const THEMES: Record<string, Theme> = Object.fromEntries(
   THEME_RECORDS.map(({ id, ...theme }) => [id, theme]),

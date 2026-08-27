@@ -1,0 +1,95 @@
+---
+// AstroWind pack (#1649): "how it works" — the original's numbered vertical timeline,
+// rebuilt as an ordered list with a CSS counter and connecting rule.
+---
+
+<section class="aw-steps" aria-labelledby="steps-heading">
+  <p class="aw-eyebrow">How it works</p>
+  <h2 id="steps-heading">From first contact to done</h2>
+  <ol>
+    <li>
+      <h3>Get in touch</h3>
+      <p>Say how customers start — a call, a visit, or a message.</p>
+    </li>
+    <li>
+      <h3>Agree on a plan</h3>
+      <p>Describe the quote, consultation, or booking step.</p>
+    </li>
+    <li>
+      <h3>We do the work</h3>
+      <p>Explain what happens while the job is underway.</p>
+    </li>
+    <li>
+      <h3>You're all set</h3>
+      <p>Wrap up with delivery, follow-up, or whatever comes last.</p>
+    </li>
+  </ol>
+</section>
+
+<style>
+  .aw-steps {
+    padding-block: calc(var(--spacing-unit) * 16);
+  }
+
+  .aw-eyebrow {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--aw-link);
+    margin-block-end: calc(var(--spacing-unit) * 2);
+  }
+
+  h2 {
+    font-size: clamp(1.75rem, 4vw, 2.5rem);
+    margin-block-end: calc(var(--spacing-unit) * 10);
+  }
+
+  ol {
+    list-style: none;
+    counter-reset: aw-step;
+    max-width: 40rem;
+  }
+
+  li {
+    counter-increment: aw-step;
+    position: relative;
+    padding-inline-start: calc(var(--spacing-unit) * 14);
+    padding-block-end: calc(var(--spacing-unit) * 8);
+  }
+
+  /* The connecting rule between step markers. */
+  li:not(:last-child)::after {
+    content: "";
+    position: absolute;
+    inset-inline-start: calc(var(--spacing-unit) * 5 - 1px);
+    top: calc(var(--spacing-unit) * 10);
+    bottom: 0;
+    width: 2px;
+    background-color: var(--aw-border);
+  }
+
+  li::before {
+    content: counter(aw-step);
+    position: absolute;
+    inset-inline-start: 0;
+    top: 0;
+    display: grid;
+    place-items: center;
+    width: calc(var(--spacing-unit) * 10);
+    height: calc(var(--spacing-unit) * 10);
+    border-radius: 50%;
+    background-color: var(--color-primary);
+    color: #ffffff;
+    font-weight: 700;
+  }
+
+  h3 {
+    font-size: 1.125rem;
+    margin-block-end: calc(var(--spacing-unit) * 2);
+  }
+
+  li p {
+    color: var(--color-text-muted);
+  }
+</style>
