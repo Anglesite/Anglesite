@@ -60,10 +60,18 @@ struct PlistEditorModelBotPreferenceSyncTests {
             appSettings: appSettings)
     }
 
+    @Test("load() never resolves a zone — resolution only happens via resolveBotPreferenceSyncZoneIfNeeded()")
+    func loadNeverResolves() async throws {
+        let model = try makeModel()
+        await model.load()
+        #expect(model.botPreferenceSyncZoneID == nil)
+    }
+
     @Test("flag off: never resolves a zone, even with a domain and token")
     func flagOffNeverResolves() async throws {
         let model = try makeModel(flagEnabled: false)
         await model.load()
+        await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == nil)
     }
 
@@ -71,6 +79,7 @@ struct PlistEditorModelBotPreferenceSyncTests {
     func pristineUsagePreselectsCloudflare() async throws {
         let model = try makeModel()
         await model.load()
+        await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == "z1")
         #expect(model.licensingPolicy.usage.botBlocklistManagedBy == .cloudflare)
         #expect(model.isLicensingDirty == false)
@@ -80,6 +89,7 @@ struct PlistEditorModelBotPreferenceSyncTests {
     func expressedPreferenceIsUnchanged() async throws {
         let model = try makeModel(licensingJSON: #"{"usage":{"blockAICrawlers":false,"aiTrain":"no"}}"#)
         await model.load()
+        await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == "z1")
         #expect(model.licensingPolicy.usage.botBlocklistManagedBy == .anglesite)
     }
@@ -94,6 +104,7 @@ struct PlistEditorModelBotPreferenceSyncTests {
     func explicitAnglesiteChoiceIsUnchanged() async throws {
         let model = try makeModel(licensingJSON: #"{"usage":{"botBlocklistManagedBy":"anglesite"}}"#)
         await model.load()
+        await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == "z1")
         #expect(model.licensingPolicy.usage.botBlocklistManagedBy == .anglesite)
         #expect(model.isLicensingDirty == false)
@@ -103,7 +114,21 @@ struct PlistEditorModelBotPreferenceSyncTests {
     func noZoneResolved() async throws {
         let model = try makeModel(zoneID: nil)
         await model.load()
+        await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == nil)
+        #expect(model.licensingPolicy.usage.botBlocklistManagedBy == .anglesite)
+    }
+
+    @Test("resolveBotPreferenceSyncZoneIfNeeded() is safe to call repeatedly — only resolves once")
+    func repeatedCallsResolveOnce() async throws {
+        let model = try makeModel()
+        await model.load()
+        await model.resolveBotPreferenceSyncZoneIfNeeded()
+        #expect(model.botPreferenceSyncZoneID == "z1")
+        // A second call (e.g. `ContentLicensingTab`'s `.task` re-running when the tab
+        // re-mounts) must not re-trigger resolution or re-clobber an expressed preference.
+        model.licensingPolicy.usage.botBlocklistManagedBy = .anglesite
+        await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.licensingPolicy.usage.botBlocklistManagedBy == .anglesite)
     }
 
@@ -125,6 +150,7 @@ struct PlistEditorModelBotPreferenceSyncTests {
             licensingJSON: #"{"usage":{"botBlocklistManagedBy":"cloudflare","blockAICrawlers":true,"aiInput":"no","aiTrain":"no"}}"#,
             zoneID: nil)
         await model.load()
+        await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == nil)
         #expect(model.licensingPolicy.usage.botBlocklistManagedBy == .cloudflare)
     }
@@ -133,6 +159,7 @@ struct PlistEditorModelBotPreferenceSyncTests {
     func noDomainConfigured() async throws {
         let model = try makeModel(domain: nil)
         await model.load()
+        await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == nil)
     }
 
@@ -140,6 +167,7 @@ struct PlistEditorModelBotPreferenceSyncTests {
     func noToken() async throws {
         let model = try makeModel(token: nil)
         await model.load()
+        await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == nil)
     }
 }

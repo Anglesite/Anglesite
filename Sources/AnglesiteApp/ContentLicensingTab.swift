@@ -72,6 +72,11 @@ struct ContentLicensingTab: View {
                 ProgressView().controlSize(.small)
             }
         }
+        // Deferred here rather than `PlistEditorModel.load()` (#1631) — this tab is the only
+        // consumer of `botPreferenceSyncZoneID`, so opening Website Settings shouldn't block on
+        // a Cloudflare round trip for owners who never visit Licensing. `resolveBotPreferenceSyncZoneIfNeeded()`
+        // no-ops past its first call, so re-running this `.task` when the tab re-mounts is safe.
+        .task { await model.resolveBotPreferenceSyncZoneIfNeeded() }
     }
 
     // MARK: Site default
