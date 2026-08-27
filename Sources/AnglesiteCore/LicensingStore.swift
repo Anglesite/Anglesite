@@ -498,6 +498,27 @@ public struct LicensingStore: Sendable {
         return try JSONDecoder().decode(LicensingPolicy.self, from: try Data(contentsOf: fileURL))
     }
 
+    /// Whether `usage.botBlocklistManagedBy` was present as an explicit key in the raw JSON,
+    /// as opposed to absent (#1630). `AIUsage.init(from:)` decodes both an absent key and an
+    /// explicit `"anglesite"` to the same `.anglesite` default, so `load()`'s decoded
+    /// `LicensingPolicy` alone can't tell a site owner's deliberate "Anglesite" choice apart
+    /// from a document nobody has ever touched — a distinction the Bot Preference Sync
+    /// preselect (`PlistEditorModel.load()`) needs before it overwrites `botBlocklistManagedBy`
+    /// with `.cloudflare`. This reads the file as loose JSON rather than through
+    /// `LicensingPolicy`'s lenient `Codable` conformance specifically to preserve that
+    /// presence/absence distinction, which decoding collapses by design. Returns `false` (never
+    /// throws on shape) for a missing file, unparseable JSON, or a document whose top level or
+    /// `usage` isn't an object — every one of those is already "no explicit choice was made".
+    public func hasExplicitBotBlocklistManagedBy() -> Bool {
+        guard fileManager.fileExists(atPath: fileURL.path),
+              let data = try? Data(contentsOf: fileURL),
+              let json = try? JSONSerialization.jsonObject(with: data),
+              let object = json as? [String: Any],
+              let usage = object["usage"] as? [String: Any]
+        else { return false }
+        return usage["botBlocklistManagedBy"] != nil
+    }
+
     /// `policy` with an empty-URL default license normalized to nil. `ContentLicensingTab`'s
     /// "Custom…" picker choice reveals the URL/name fields without writing a `LicenseRef` into the
     /// model until a URL is actually typed, but this is a second, independent line of defense: no

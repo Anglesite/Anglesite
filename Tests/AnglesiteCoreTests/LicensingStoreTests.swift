@@ -70,6 +70,39 @@ struct LicensingStoreTests {
         #expect(try LicensingStore(sourceDirectory: dir).load().usage.botBlocklistManagedBy == .anglesite)
     }
 
+    /// #1630: an explicit `.anglesite` choice and an absent key both decode to the same
+    /// `AIUsage()` through `load()`, so a caller that needs to tell them apart (the Bot
+    /// Preference Sync preselect) has to ask this instead — see `LicensingStore.load()`'s doc.
+    @Test("hasExplicitBotBlocklistManagedBy() is false when the file is absent")
+    func hasExplicitBotBlocklistManagedByAbsentFile() throws {
+        let dir = try makeDirectory()
+        #expect(LicensingStore(sourceDirectory: dir).hasExplicitBotBlocklistManagedBy() == false)
+    }
+
+    @Test("hasExplicitBotBlocklistManagedBy() is false when usage has no such key")
+    func hasExplicitBotBlocklistManagedByAbsentKey() throws {
+        let dir = try makeDirectory()
+        try write(#"{"usage":{"blockAICrawlers":false}}"#, to: dir)
+        #expect(LicensingStore(sourceDirectory: dir).hasExplicitBotBlocklistManagedBy() == false)
+    }
+
+    @Test("hasExplicitBotBlocklistManagedBy() is true for an explicit .anglesite value, even though it decodes to the default")
+    func hasExplicitBotBlocklistManagedByExplicitAnglesite() throws {
+        let dir = try makeDirectory()
+        try write(#"{"usage":{"botBlocklistManagedBy":"anglesite"}}"#, to: dir)
+        let store = LicensingStore(sourceDirectory: dir)
+        #expect(store.hasExplicitBotBlocklistManagedBy() == true)
+        // The decoded value is indistinguishable from "never touched" — that's the whole bug.
+        #expect(try store.load().usage == AIUsage())
+    }
+
+    @Test("hasExplicitBotBlocklistManagedBy() is true for an explicit .cloudflare value")
+    func hasExplicitBotBlocklistManagedByExplicitCloudflare() throws {
+        let dir = try makeDirectory()
+        try write(#"{"usage":{"botBlocklistManagedBy":"cloudflare"}}"#, to: dir)
+        #expect(LicensingStore(sourceDirectory: dir).hasExplicitBotBlocklistManagedBy() == true)
+    }
+
     @Test("save() omits unset purposes so the JSON never carries key=unset")
     func saveOmitsUnset() throws {
         let dir = try makeDirectory()
