@@ -43,6 +43,7 @@ import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
   isAtprotoDidOwned,
+  isHttpMessageSignaturesDirectoryMarkerOwned,
   isMcpServerCardMarkerOwned,
   isMTAStsMarkerOwned,
   isSecurityTxtMarkerOwned,
@@ -361,7 +362,8 @@ function isGeneratedArtifact(fullPath: string): boolean {
     isAtprotoDidOwned(content) ||
     isMcpServerCardMarkerOwned(content) ||
     isAgentSkillsIndexOwned(content) ||
-    isAgentSkillsDocOwned(content)
+    isAgentSkillsDocOwned(content) ||
+    isHttpMessageSignaturesDirectoryMarkerOwned(content)
   );
 }
 

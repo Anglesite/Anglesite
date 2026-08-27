@@ -24,3 +24,6 @@
 
 /.well-known/site.standard.publication
   Content-Type: text/plain; charset=utf-8
+
+/.well-known/http-message-signatures-directory
+  Content-Type: application/http-message-signatures-directory+json

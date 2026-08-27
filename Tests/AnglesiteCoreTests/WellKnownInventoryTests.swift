@@ -216,6 +216,74 @@ struct WellKnownInventoryTests {
         #expect(GeneratedEndpoints.isMcpServerCardMarkerOwned(value) == expected)
     }
 
+    @Test("a marker-carrying http-message-signatures-directory is classified generated")
+    func httpMessageSignaturesDirectoryMarkerClassifiesAsGenerated() throws {
+        let wellKnown = try makeWellKnownDirectory()
+        defer { try? FileManager.default.removeItem(at: wellKnown.deletingLastPathComponent()) }
+        // Byte-for-byte the shape `buildHttpMessageSignaturesDirectory` writes (edge-artifacts.ts).
+        let content = """
+            {
+              "__marker": "\(GeneratedEndpoints.httpMessageSignaturesDirectoryMarker)",
+              "keys": []
+            }
+
+            """
+        try content.write(
+            to: wellKnown.appendingPathComponent("http-message-signatures-directory"),
+            atomically: true, encoding: .utf8)
+
+        let (rows, findings) = WellKnownInventory.scanUserStatic(wellKnownDirectory: wellKnown)
+        #expect(findings.isEmpty)
+        #expect(rows.count == 1)
+        #expect(rows[0].suffix == "http-message-signatures-directory")
+        #expect(rows[0].delivery == .generated)
+        #expect(rows[0].owner == "generator:http-message-signatures-directory")
+        #expect(rows[0].validatorID == nil)
+        #expect(rows[0].registration == .custom("draft"))
+        #expect(!rows[0].authorityBinding)
+    }
+
+    @Test("an unmarked hand-authored http-message-signatures-directory is preserved as user-static")
+    func unmarkedHttpMessageSignaturesDirectoryStaysUserStatic() throws {
+        let wellKnown = try makeWellKnownDirectory()
+        defer { try? FileManager.default.removeItem(at: wellKnown.deletingLastPathComponent()) }
+        try #"{"keys": [{"kty": "OKP"}]}"#.write(
+            to: wellKnown.appendingPathComponent("http-message-signatures-directory"),
+            atomically: true, encoding: .utf8)
+
+        let (rows, _) = WellKnownInventory.scanUserStatic(wellKnownDirectory: wellKnown)
+        #expect(rows.count == 1)
+        #expect(rows[0].delivery == .userStatic)
+        #expect(rows[0].owner == "user-static")
+    }
+
+    @Test("marker-shaped content at a different suffix is not misclassified as the http-message-signatures-directory generator")
+    func httpMessageSignaturesDirectoryMarkerElsewhereStaysUserStatic() throws {
+        let wellKnown = try makeWellKnownDirectory()
+        defer { try? FileManager.default.removeItem(at: wellKnown.deletingLastPathComponent()) }
+        let content = "{\"__marker\": \"\(GeneratedEndpoints.httpMessageSignaturesDirectoryMarker)\", \"keys\": []}"
+        try content.write(to: wellKnown.appendingPathComponent("some-other-file"), atomically: true, encoding: .utf8)
+
+        let (rows, _) = WellKnownInventory.scanUserStatic(wellKnownDirectory: wellKnown)
+        #expect(rows.count == 1)
+        #expect(rows[0].delivery == .userStatic)
+    }
+
+    @Test(
+        "isHttpMessageSignaturesDirectoryMarkerOwned mirrors edge-artifacts.ts's predicate on representative cases",
+        arguments: [
+            (#"{"__marker": "__anglesite_generated_http_message_signatures_directory__", "keys": []}"#, true),
+            (#"{"keys": []}"#, false),
+            (#"{"__marker": "something-else"}"#, false),
+            ("not json at all", false),
+            ("", false),
+            (#"["__anglesite_generated_http_message_signatures_directory__"]"#, false),
+        ]
+    )
+    func httpMessageSignaturesDirectoryMarkerPredicateAgreesWithTemplate(value: String, expected: Bool) throws {
+        #expect(GeneratedEndpoints.isHttpMessageSignaturesDirectoryMarkerOwned(value) == expected)
+    }
+
     @Test("a file whose content matches the site.standard.publication at-URI shape is classified generated")
     func standardSitePublicationShapeClassifiesAsGenerated() throws {
         let wellKnown = try makeWellKnownDirectory()
@@ -573,6 +641,8 @@ struct WellKnownInventoryTests {
         #expect(source.contains(GeneratedEndpoints.mcpServerCardMarker))
         // The TypeScript side must keep reading the marker out of the same JSON field this does.
         #expect(source.contains("parsed.__marker === MCP_SERVER_CARD_MARKER"))
+        #expect(source.contains(GeneratedEndpoints.httpMessageSignaturesDirectoryMarker))
+        #expect(source.contains("parsed.__marker === HTTP_MESSAGE_SIGNATURES_DIRECTORY_MARKER"))
     }
 
     /// Same drift guard, for `agent-skills.ts`'s two ownership markers (#1579): the literal

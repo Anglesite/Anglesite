@@ -142,6 +142,11 @@ struct AgentReadinessScanningTests {
         #expect(AgentReadinessCatalog.checkInfo(for: "oauthDiscovery").anglesiteProvides == true)
     }
 
+    @Test("catalog marks webBotAuth as provided by the template (#1581 empty http-message-signatures-directory)")
+    func webBotAuthMarkedProvided() {
+        #expect(AgentReadinessCatalog.checkInfo(for: "webBotAuth").anglesiteProvides == true)
+    }
+
     @Test("agentReadinessResult maps 401 to unauthorized")
     func resultUnauthorized() async throws {
         let client = HTTPCloudflareClient(transport: fakeTransport([

@@ -424,6 +424,23 @@ public enum GeneratedEndpoints {
         return marker == mcpServerCardMarker
     }
 
+    /// Mirrors `HTTP_MESSAGE_SIGNATURES_DIRECTORY_MARKER` in
+    /// `Resources/Template/scripts/edge-artifacts.ts` (#1581). Same `__marker`-field convention as
+    /// `mcpServerCardMarker` — an empty JWKS (RFC 7517 §5) has no room for a comment-line marker.
+    /// `WellKnownInventoryFixtureTests` guards against the two drifting apart.
+    public static let httpMessageSignaturesDirectoryMarker = "__anglesite_generated_http_message_signatures_directory__"
+
+    /// True when `content` parses as a JSON object carrying `__marker` equal to
+    /// `httpMessageSignaturesDirectoryMarker` — the Swift mirror of
+    /// `isHttpMessageSignaturesDirectoryMarkerOwned` in `Resources/Template/scripts/edge-artifacts.ts`.
+    static func isHttpMessageSignaturesDirectoryMarkerOwned(_ content: String) -> Bool {
+        guard let data = content.data(using: .utf8),
+              let object = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+              let marker = object["__marker"] as? String
+        else { return false }
+        return marker == httpMessageSignaturesDirectoryMarker
+    }
+
     /// Mirrors `ATPROTO_DID_PATTERN` in `Resources/Template/scripts/edge-artifacts.ts`
     /// (`isValidAtprotoDid`) — a syntactically valid DID per the
     /// [W3C DID Core syntax](https://www.w3.org/TR/did-core/#did-syntax).
@@ -503,6 +520,14 @@ public enum GeneratedEndpoints {
         owner: "generator:mcp-server-card", validatorID: nil,
         specificationURL: URL(string: "https://github.com/modelcontextprotocol/modelcontextprotocol/issues/1649")!,
         registration: .custom("draft"))
+    /// The HTTP Message Signatures Directory at `http-message-signatures-directory` (#1581,
+    /// draft-meunier-http-message-signatures-directory) — an Internet-Draft, so `.custom("draft")`
+    /// like `mcpServerCard`, not an IANA-registered well-known URI.
+    private static let httpMessageSignaturesDirectory = Descriptor(
+        owner: "generator:http-message-signatures-directory", validatorID: nil,
+        specificationURL: URL(
+            string: "https://datatracker.ietf.org/doc/html/draft-meunier-http-message-signatures-directory")!,
+        registration: .custom("draft"))
     private static let standardSitePublication = Descriptor(
         owner: "generator:standard-site-publication", validatorID: nil,
         specificationURL: URL(string: "https://standard.site/docs/lexicons/publication")!,
@@ -521,8 +546,9 @@ public enum GeneratedEndpoints {
     /// The generator whose marker appears on `content`'s first line (`security.txt`), anywhere in
     /// `content` (`mta-sts.txt`, matching `isMTAStsMarkerOwned`'s own scan), whose entire
     /// (trimmed) content is a valid DID at the `atproto-did` suffix, whose JSON body carries the
-    /// `__marker` field (`mcp/server-card.json`, matching `isMcpServerCardMarkerOwned`), whose
-    /// output shape `content` matches in full (`site.standard.publication` — see
+    /// `__marker` field (`mcp/server-card.json`, matching `isMcpServerCardMarkerOwned`; or
+    /// `http-message-signatures-directory`, matching `isHttpMessageSignaturesDirectoryMarkerOwned`),
+    /// whose output shape `content` matches in full (`site.standard.publication` — see
     /// `isStandardSitePublicationURI`'s doc comment for why this one can't use a marker line),
     /// whose top-level JSON `generator` field is `"anglesite"` at the `agent-skills/index.json`
     /// suffix (`isAgentSkillsIndexOwned`), whose marker line appears anywhere in `content` at an
@@ -545,6 +571,9 @@ public enum GeneratedEndpoints {
         // DID-shape check above.
         if isMcpServerCardMarkerOwned(content) {
             return mcpServerCard
+        }
+        if suffix == "http-message-signatures-directory", isHttpMessageSignaturesDirectoryMarkerOwned(content) {
+            return httpMessageSignaturesDirectory
         }
         if isStandardSitePublicationURI(content) {
             return standardSitePublication
