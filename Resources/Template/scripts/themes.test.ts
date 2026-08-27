@@ -18,11 +18,12 @@ const EXPECTED_IDS = [
   "studio",
   "coastal",
   "minimal",
+  "astrowind",
 ];
 
 const REQUIRED_VARS = ["color-primary", "color-accent", "font-heading", "font-body"];
 
-test("THEMES exposes the 8 built-in themes under their expected ids", () => {
+test("THEMES exposes the 8 built-in themes and the ported packs under their expected ids", () => {
   assert.deepEqual(Object.keys(THEMES), EXPECTED_IDS);
 });
 

@@ -60,11 +60,11 @@ struct ThemeCatalogTests {
     }
 
     @Test func defaultThemeIDUsesPreferredMappingWhenPresent() {
-        let ids = ["classic", "elegant", "warm", "bold", "community"]
+        let ids = ["classic", "elegant", "warm", "bold", "community", "astrowind"]
         let catalog = ThemeCatalog(themes: ids.map {
             Theme(id: $0, name: $0, blurb: "", swatch: [], cssVars: [:])
         })
-        #expect(catalog.defaultThemeID(for: .business) == "classic")
+        #expect(catalog.defaultThemeID(for: .business) == "astrowind")
         #expect(catalog.defaultThemeID(for: .personal) == "elegant")
         #expect(catalog.defaultThemeID(for: .blog) == "warm")
         #expect(catalog.defaultThemeID(for: .portfolio) == "bold")
@@ -97,7 +97,7 @@ struct ThemeCatalogTests {
     // DRIFT GUARD: decode the REAL bundled themes.json from the in-repo template.
     @Test func realThemesFileParsesToEightCompleteThemes() throws {
         let themes = try ThemeCatalog.parse(themesJSON: Data(contentsOf: Self.realThemesURL()))
-        #expect(themes.count == 8, "expected 8 built-in themes")
+        #expect(themes.count == 9, "expected 8 built-in themes + 1 ported pack (astrowind)")
         // A duplicate id would silently collide in theme(id:)'s first{} lookup (and in the
         // template's Object.fromEntries) — enforce uniqueness at the source.
         let ids = themes.map(\.id)

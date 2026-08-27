@@ -1,0 +1,68 @@
+---
+// AstroWind pack (#1649): sticky translucent site header — the port's signature chrome.
+// The slot receives whatever BaseLayout places at the `<!-- anglesite:nav -->` anchor
+// (e.g. the menu integration's injected <Nav />), so integration nav items land inside
+// this header instead of floating above it.
+import { readConfig } from "../../scripts/config";
+
+const siteName = readConfig("SITE_NAME") ?? "Home";
+---
+
+<header class="aw-header">
+  <div class="aw-header-inner">
+    <a class="aw-brand" href="/">{siteName}</a>
+    <nav aria-label="Site">
+      <a href="/about/">About</a>
+      <a href="/blog/">Blog</a>
+      <a href="/search/">Search</a>
+    </nav>
+    <slot />
+  </div>
+</header>
+
+<style>
+  .aw-header {
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    border-bottom: 1px solid var(--aw-border);
+    background-color: color-mix(in srgb, var(--color-background) 82%, transparent);
+    -webkit-backdrop-filter: blur(12px);
+    backdrop-filter: blur(12px);
+  }
+
+  .aw-header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 4);
+    max-width: 72rem;
+    margin-inline: auto;
+    padding: calc(var(--spacing-unit) * 3) calc(var(--spacing-unit) * 6);
+  }
+
+  .aw-brand {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.125rem;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 5);
+  }
+
+  nav a {
+    font-weight: 500;
+    color: var(--color-text-muted);
+  }
+
+  nav a:hover {
+    color: var(--color-text);
+    text-decoration: none;
+  }
+</style>

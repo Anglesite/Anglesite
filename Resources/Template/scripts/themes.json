@@ -94,5 +94,25 @@
       "font-heading": "system-ui, -apple-system, sans-serif",
       "font-body": "system-ui, -apple-system, sans-serif"
     }
+  },
+  {
+    "id": "astrowind",
+    "displayName": "AstroWind",
+    "description": "Bold marketing site with hero, features, and stats",
+    "bestFor": ["services", "startups", "local shops"],
+    "vars": {
+      "color-primary": "#0161ef",
+      "color-accent": "#6d28d9",
+      "font-heading": "system-ui, -apple-system, sans-serif",
+      "font-body": "system-ui, -apple-system, sans-serif"
+    },
+    "category": "business",
+    "pack": "astrowind",
+    "thumbnail": "packs/astrowind/thumbnail.png",
+    "credit": {
+      "name": "AstroWind by onWidget",
+      "url": "https://github.com/arthelokyo/astrowind",
+      "license": "MIT"
+    }
   }
 ]

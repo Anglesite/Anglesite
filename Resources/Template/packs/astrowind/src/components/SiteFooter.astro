@@ -1,0 +1,55 @@
+---
+// AstroWind pack (#1649): footer band. Deliberately a <div>, not a <footer> — the slotted
+// Hcard already renders the page's one body-level <footer class="site-identity"> (the single
+// contentinfo landmark; see Hcard.astro's own comment), and this wrapper only gives it and
+// the Rights line the AstroWind surface treatment. The chassis components are slotted, so
+// their styling below needs :global().
+---
+
+<div class="aw-footer">
+  <div class="aw-footer-inner">
+    <slot />
+    <nav aria-label="Footer">
+      <a href="/blog/">Blog</a>
+      <a href="/blogroll/">Blogroll</a>
+      <a href="/rss.xml">RSS</a>
+    </nav>
+  </div>
+</div>
+
+<style>
+  .aw-footer {
+    margin-block-start: calc(var(--spacing-unit) * 20);
+    border-top: 1px solid var(--aw-border);
+    background-color: var(--color-surface);
+  }
+
+  .aw-footer-inner {
+    max-width: 72rem;
+    margin-inline: auto;
+    padding: calc(var(--spacing-unit) * 10) calc(var(--spacing-unit) * 6);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 4);
+    font-size: 0.9375rem;
+    color: var(--color-text-muted);
+  }
+
+  .aw-footer-inner :global(.site-identity) {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 2);
+  }
+
+  .aw-footer-inner :global(.h-card .p-name) {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    color: var(--color-text);
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 5);
+  }
+</style>

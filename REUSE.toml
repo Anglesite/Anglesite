@@ -57,3 +57,12 @@ path = "JS/safari-extension/vendor/microformat-shiv/**"
 precedence = "override"
 SPDX-FileCopyrightText = "2016 Glenn Jones"
 SPDX-License-Identifier = "MIT"
+
+# Theme pack ported from AstroWind (#1649). The code is a from-scratch vanilla-CSS
+# adaptation, but the design it derives from is MIT-licensed, so the pack carries the
+# original's license and attribution (the pack's own LICENSE file holds the full text).
+[[annotations]]
+path = "Resources/Template/packs/astrowind/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2023 onWidget"
+SPDX-License-Identifier = "MIT"

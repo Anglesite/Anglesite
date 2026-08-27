@@ -1,0 +1,32 @@
+---
+// AstroWind pack (#1649) homepage: the original's marketing-page rhythm — hero, features,
+// steps, stats, closing CTA — with the chassis's HomepageWriter sentinels kept byte-for-byte
+// (title/description below, and the hero's <h1>/<p>). The `<section class="hero">` open tag
+// is also load-bearing: HeroImage/LogoAsset insert the site logo and generated hero image
+// right after it.
+import BaseLayout from "../layouts/BaseLayout.astro";
+import HomeFeatures from "../components/HomeFeatures.astro";
+import HomeSteps from "../components/HomeSteps.astro";
+import HomeStats from "../components/HomeStats.astro";
+import HomeCallToAction from "../components/HomeCallToAction.astro";
+// anglesite:imports — integration component imports are injected here on setup
+---
+
+<BaseLayout
+  title="Welcome — Your New Anglesite Business Website"
+  description="Your business website is ready to set up in Anglesite."
+>
+  <section class="hero">
+    <h1>Welcome</h1>
+    <p>This site is ready to customize in Anglesite. Open the app to edit your pages, add content, and publish when you're ready.</p>
+    <p class="aw-hero-actions">
+      <a class="aw-btn aw-btn-primary" href="/about/">About us</a>
+      <a class="aw-btn" href="/blog/">Read the blog</a>
+    </p>
+    <!-- anglesite:hero-cta -->
+  </section>
+  <HomeFeatures />
+  <HomeSteps />
+  <HomeStats />
+  <HomeCallToAction />
+</BaseLayout>

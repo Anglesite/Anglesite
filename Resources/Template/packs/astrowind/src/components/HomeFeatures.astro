@@ -1,0 +1,83 @@
+---
+// AstroWind pack (#1649): homepage features grid — the original's "What you get" card
+// section, rebuilt as a vanilla-CSS grid. Placeholder copy is generic-business on purpose;
+// the owner edits it in the app like any other page content.
+---
+
+<section class="aw-features" aria-labelledby="features-heading">
+  <p class="aw-eyebrow">Why choose us</p>
+  <h2 id="features-heading">What sets this business apart</h2>
+  <ul>
+    <li>
+      <h3>Quality first</h3>
+      <p>Describe the craft, care, or standards behind what you offer.</p>
+    </li>
+    <li>
+      <h3>Fast turnaround</h3>
+      <p>Tell visitors how quickly they can expect results or delivery.</p>
+    </li>
+    <li>
+      <h3>Personal service</h3>
+      <p>Explain how customers reach a real person when they need help.</p>
+    </li>
+    <li>
+      <h3>Fair pricing</h3>
+      <p>Set expectations about cost, estimates, or what's included.</p>
+    </li>
+    <li>
+      <h3>Local roots</h3>
+      <p>Share where you're based and the community you serve.</p>
+    </li>
+    <li>
+      <h3>Proven results</h3>
+      <p>Point at the outcomes, reviews, or track record you're proud of.</p>
+    </li>
+  </ul>
+</section>
+
+<style>
+  .aw-features {
+    padding-block: calc(var(--spacing-unit) * 16);
+    text-align: center;
+  }
+
+  .aw-eyebrow {
+    font-size: 0.8125rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--aw-link);
+    margin-block-end: calc(var(--spacing-unit) * 2);
+  }
+
+  h2 {
+    font-size: clamp(1.75rem, 4vw, 2.5rem);
+    margin-block-end: calc(var(--spacing-unit) * 10);
+  }
+
+  ul {
+    list-style: none;
+    display: grid;
+    /* min(100%, …) keeps the minimum from overflowing narrow phones; 19rem settles the
+       six cards into three balanced columns at desktop width. */
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 19rem), 1fr));
+    gap: calc(var(--spacing-unit) * 5);
+    text-align: start;
+  }
+
+  li {
+    padding: calc(var(--spacing-unit) * 6);
+    border: 1px solid var(--aw-border);
+    border-radius: var(--radius-md);
+    background-color: var(--color-surface);
+  }
+
+  h3 {
+    font-size: 1.125rem;
+    margin-block-end: calc(var(--spacing-unit) * 2);
+  }
+
+  li p {
+    color: var(--color-text-muted);
+  }
+</style>

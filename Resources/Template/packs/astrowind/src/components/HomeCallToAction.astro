@@ -1,0 +1,44 @@
+---
+// AstroWind pack (#1649): closing call-to-action band — the original's gradient-washed
+// CTA card. Points at /about/ (a page every scaffolded site has) until the owner wires
+// up a real contact path.
+---
+
+<section class="aw-cta" aria-labelledby="cta-heading">
+  <div>
+    <h2 id="cta-heading">Ready to get started?</h2>
+    <p>Tell visitors the one thing you want them to do next.</p>
+    <a class="aw-btn aw-btn-primary" href="/about/">Learn more about us</a>
+  </div>
+</section>
+
+<style>
+  .aw-cta {
+    padding-block: calc(var(--spacing-unit) * 16) calc(var(--spacing-unit) * 8);
+  }
+
+  div {
+    position: relative;
+    overflow: hidden;
+    text-align: center;
+    padding: calc(var(--spacing-unit) * 14) calc(var(--spacing-unit) * 8);
+    border: 1px solid var(--aw-border);
+    border-radius: var(--radius-lg);
+    background:
+      radial-gradient(30rem 14rem at 20% 0%,
+        color-mix(in srgb, var(--color-primary) 10%, transparent), transparent 70%),
+      radial-gradient(30rem 14rem at 85% 100%,
+        color-mix(in srgb, var(--color-accent) 9%, transparent), transparent 70%),
+      var(--color-surface);
+  }
+
+  h2 {
+    font-size: clamp(1.75rem, 4vw, 2.5rem);
+    margin-block-end: calc(var(--spacing-unit) * 3);
+  }
+
+  p {
+    color: var(--color-text-muted);
+    margin-block-end: calc(var(--spacing-unit) * 7);
+  }
+</style>
