@@ -7,6 +7,9 @@
     "!community@instance or URL" : {
 
     },
+    "%@" : {
+
+    },
     "%@ %@" : {
       "localizations" : {
         "en" : {
@@ -2049,6 +2052,9 @@
 
     },
     "Import WordPress Export (WXR)…" : {
+
+    },
+    "Import complete" : {
 
     },
     "Import existing site…" : {
