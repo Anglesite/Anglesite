@@ -10,7 +10,7 @@ import Testing
       xmlns:content="http://purl.org/rss/1.0/modules/content/"
       xmlns:wp="http://wordpress.org/export/1.2/">
     <channel>
-      <title>Sample Blog</title>
+      <title>Sample &amp; Blog</title>
       <link>https://example.com</link>
       <item>
         <title>Hello &amp; Welcome</title>
@@ -58,8 +58,16 @@ import Testing
 
     @Test func parsesChannelHeader() throws {
         let result = try WXRParser.parse(Data(Self.sample.utf8))
-        #expect(result.channel.title == "Sample Blog")
         #expect(result.channel.link == "https://example.com")
+    }
+
+    /// The channel title becomes the imported site's display name and package directory name
+    /// (`SiteActions.candidateSiteName`), so it must be HTML-entity-decoded exactly like item
+    /// titles already are — asymmetric decoding here would leave a literal `&amp;` in a new
+    /// site's name (#1636 final review, Minor #6).
+    @Test func channelTitleIsHTMLEntityDecoded() throws {
+        let result = try WXRParser.parse(Data(Self.sample.utf8))
+        #expect(result.channel.title == "Sample & Blog")
     }
 
     @Test func parsesEveryItemRegardlessOfTypeOrStatus() throws {

@@ -155,7 +155,7 @@ public enum WXRParser {
             defer { path.removeLast() }
             let parent = path.dropLast().last
             switch (elementName, parent) {
-            case ("title", "channel"): channel.title = buffer
+            case ("title", "channel"): channel.title = decodeHTMLEntities(buffer)
             case ("link", "channel"): channel.link = buffer
             case ("title", "item"): current?.title = buffer
             case ("link", "item"): current?.link = buffer
