@@ -577,6 +577,13 @@ struct SitesLauncherView: View {
         guard newSiteSession == nil, !preparingNewSite else { return }
         preparingNewSite = true
         defer { preparingNewSite = false }
+        // A File ▸ New Site that follows hot on a just-dismissed wizard (Esc, then immediately
+        // reopening) can land this sheet's presentation transaction on top of the previous one's
+        // still-settling dismissal — back-to-back `.sheet(item:)` presentations, the same macOS 27
+        // beta AppKit constraint-update storm as #1126/#1139, and the same shape
+        // `SiteWindowModel.loadAndStart`'s dependency-sheet-to-scripts-sheet handoff already guards
+        // with this mitigation. Crash: Anglesite-2026-08-27-101104.ips (#1639).
+        await AppKitConstraintStormMitigation.settle()
         guard let context = await resolveScaffoldingContext() else { return }
         let model = NewSiteWizardModel(catalog: context.catalog, isNameTaken: context.isNameTaken)
         newSiteSession = NewSiteSession(model: model, scaffolder: context.scaffolder, templateURL: context.templateURL)
@@ -587,6 +594,9 @@ struct SitesLauncherView: View {
         guard newCommunitySession == nil, !preparingNewCommunity else { return }
         preparingNewCommunity = true
         defer { preparingNewCommunity = false }
+        // Same #1639/#1126-class guard as `presentNewSite()` above — this sheet is presented the
+        // same way, from the same view, so it's exposed to the same back-to-back-presentation race.
+        await AppKitConstraintStormMitigation.settle()
         guard let context = await resolveScaffoldingContext() else { return }
         let model = NewCommunityWizardModel(isNameTaken: context.isNameTaken)
         newCommunitySession = NewCommunitySession(model: model, scaffolder: context.scaffolder)
