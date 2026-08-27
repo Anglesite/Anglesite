@@ -5,19 +5,19 @@
 
 ## Purpose
 
-Verify a user can create a `.anglesite` package end-to-end: the chooser asks exactly one question (which template), the scaffold lands a complete git-initialized `Source/` **with a real initial commit** (#697) named "Untitled" in the sites root, the site registers in recents, and the container runtime boots to a live preview of the owner's homepage without further user action.
+Verify a user can create a `.anglesite` package end-to-end: the chooser asks exactly one question (which template, browsed by category — #1452), the scaffold lands a complete git-initialized `Source/` **with a real initial commit** (#697) named "Untitled" in the sites root, the site registers in recents, and the container runtime boots to a live preview of the owner's homepage without further user action.
 
 ## Preconditions
 
 - Part 1 passed. Container artifacts provisioned and build entitled (overview doc) — otherwise every case from 7 on fails by design.
-- Test inputs used throughout: a non-default built-in theme picked in the chooser. There is no name/type/content/domain input — the site is created as **"Untitled"** (#1071).
+- Test inputs used throughout: the **Blank website** category (the chooser's starting selection) with a non-default built-in theme picked. There is no name/content/domain input — the site is created as **"Untitled"** (#1071) — and the only site-type input is the category sidebar (#1452).
 
 ## Acceptance Matrix
 
 | # | Case | Result | Notes |
 |---|---|---|---|
 | 1 | Chooser entry points |  |  |
-| 2 | Chooser, labels, selection |  |  |
+| 2 | Chooser: category sidebar, labels, selection |  |  |
 | 3 | Sandbox grant + silent save location |  |  |
 | 4 | Building checklist completes clean |  |  |
 | 5 | Package layout + marker on disk |  |  |
@@ -39,15 +39,28 @@ All three routes present the same template-chooser sheet on the launcher window:
 - Dock menu **"New Site"**.
 - Launcher **Add Site → "Create new site…"**.
 
-### 2. Chooser, labels, selection
+### 2. Chooser: category sidebar, labels, selection
 
-One screen (fixed ~560×460 sheet; footer **Cancel / Create**):
+One screen (fixed 720×480 sheet; footer **Cancel / Create**):
 
-- Title **"Choose a Template"**; a grid of theme cards, each a miniature page mock in the
-  theme's colors with name + description. The first catalog theme is pre-selected.
+- **Left: category sidebar** (#1452) — a standard macOS sidebar list of six categories, each
+  with an SF Symbol, in this order: **Business website, Personal website, Blog, Portfolio,
+  Organization website, Blank website**. No "Hosted community" entry (communities are a
+  separate creation flow). The chooser opens on **Blank website**. Arrow keys move the
+  selection; a category can never be deselected.
+- **Right: the grid** — title **"Choose a Template"**; theme cards filtered to the selected
+  category. On Blank all eight built-in themes appear, each card a miniature page mock in
+  the theme's colors with name + description; the first catalog theme ("Classic") is
+  pre-selected. *(Once theme packs land under #1179, pack cards render a committed
+  thumbnail image instead of the synthesized mock, and switching to a category pre-selects
+  its flagship pack.)*
+- **Empty categories:** until theme packs land, every non-Blank category shows
+  **"No themes in this category yet"** with **Create disabled** — not an empty grid, not a
+  phantom selection, and nothing on disk if dismissed from that state.
 - Single click selects (accent ring); **double-click creates immediately**.
-- **Create** is the default button (Return). No name field, no domain question, no site-type
-  step, no content step, no save panel (#1071).
+- **Create** is the default button (Return). No name field, no domain question, no separate
+  site-type step, no content step, no save panel (#1071) — the category choice *is* the
+  site-type input, recorded as `SITE_TYPE` for non-Blank categories (case 5).
 - Cancel must dismiss with nothing on disk.
 
 ### 3. Sandbox grant + silent save location
@@ -72,9 +85,9 @@ Inspect `~/Sites/Untitled.anglesite/`:
 
 - `Info.plist` marker with format version 1, a stable site UUID, display name "Untitled", created date.
 - `Source/` — the Astro project: `package.json` (name `anglesite-site`), `astro.config.ts`, `src/`, `public/`, `scripts/`, `worker/`, `.site-config`.
-- `.site-config` contains: `SITE_NAME=Untitled`, `DOMAIN_CHOICE=later`, `THEME`, `CF_PROJECT_NAME=untitled`, and the real `ANGLESITE_VERSION` (not the `1.0.0` placeholder); **must not contain** `SITE_TYPE` or `TAGLINE`.
+- `.site-config` contains: `SITE_NAME=Untitled`, `DOMAIN_CHOICE=later`, `THEME`, `CF_PROJECT_NAME=untitled`, and the real `ANGLESITE_VERSION` (not the `1.0.0` placeholder); **must not contain** `SITE_TYPE` or `TAGLINE` for this Blank-category run. *(A site created from a non-Blank category — possible only once theme packs land — must instead contain `SITE_TYPE=<category>`, e.g. `SITE_TYPE=business` (#1452).)*
 - `Config/` exists beside `Source/` with the dependency baseline; `Config/` is **not** inside the git repo.
-- Excluded from the copy: `scripts/scaffold.sh`, `scripts/themes.ts`, `*.test.ts`, `integrations/`, `node_modules/`.
+- Excluded from the copy: `scripts/scaffold.sh`, `scripts/themes.ts`, `scripts/themes.json`, `scripts/check-pack.ts`, `scripts/build-packs.sh`, `packs/`, `scripts/*.test.ts`, `integrations/`, `node_modules/`.
 - When the package landed in the iCloud folder, any sync indicator (toolbar/inspector) showing this site as iCloud-sync-eligible is **expected, not a regression**: since #865 new sites are created inside the iCloud container, so `ICloudSyncEligibility` (#881) is now true by default rather than only for deliberately-relocated sites.
 
 ### 6. Git repo with initial commit (#697)
