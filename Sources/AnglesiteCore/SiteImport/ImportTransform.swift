@@ -85,21 +85,74 @@ public enum ImportTransform {
         sourceDirectory: URL, configDirectory: URL,
         now: Date, onStep: @Sendable (ImportStep) -> Void
     ) throws -> ImportReport {
+        try preflight(sourceDirectory: sourceDirectory)
+        onStep(.resolvingContent)
+        let resolved = ImportSourceResolver.resolve(snapshot)
+        return try runResolved(resolved, assetSnapshot: snapshot, snapshotDirectory: snapshotDirectory,
+                               sourceDirectory: sourceDirectory, configDirectory: configDirectory,
+                               now: now, onStep: onStep)
+    }
+
+    /// Runs the transform from already-resolved content, skipping ``ImportSourceResolver`` (#1636).
+    ///
+    /// For sources that build their own ``ImportItem``s directly rather than through a crawled
+    /// ``ImportSnapshot`` — the WXR rung has no live crawl to resolve against, since it reads a
+    /// one-shot export file instead. `assets`/`assetsDirectory` stand in for a crawl snapshot's
+    /// asset inventory purely so ``AssetLocalizer`` needs no changes: it only ever reads
+    /// `snapshot.asset(forURL:)` and `snapshotDirectory`, never a snapshot's `pages` or `probes`,
+    /// so a snapshot built from just `assets` satisfies it completely.
+    ///
+    /// - Parameters:
+    ///   - resolved: The already-resolved, already-deduplicated content to classify and write.
+    ///   - assets: Downloaded asset records for every image `resolved`'s items reference (see
+    ///     ``WXRAssetDownloader``).
+    ///   - assetsDirectory: The directory `assets`' `relativePath`s are relative to.
+    ///   - sourceDirectory: The destination site's `Source/` directory. Must already exist.
+    ///   - configDirectory: The destination site's `Config/` directory.
+    ///   - now: The deterministic fallback clock (see the `snapshot:` overload's doc comment).
+    ///   - onStep: Called synchronously with each ``ImportStep`` as the run progresses. Never
+    ///     receives `.resolvingContent` — there is nothing to resolve.
+    /// - Returns: The completed, already-saved ``ImportReport``.
+    /// - Throws: ``ImportTransformError/sourceDirectoryMissing(_:)`` if `sourceDirectory` doesn't
+    ///   exist, or any error `ImportReport.save(to:)` raises persisting the final report.
+    @discardableResult
+    public static func run(
+        resolved: ResolvedContent, assets: [CapturedAsset], assetsDirectory: URL,
+        sourceDirectory: URL, configDirectory: URL,
+        now: Date, onStep: @Sendable (ImportStep) -> Void
+    ) throws -> ImportReport {
+        try preflight(sourceDirectory: sourceDirectory)
+        let assetSnapshot = ImportSnapshot(siteURL: "", probes: SiteProbes(), pages: [],
+                                           assets: assets, conversions: [:])
+        return try runResolved(resolved, assetSnapshot: assetSnapshot, snapshotDirectory: assetsDirectory,
+                               sourceDirectory: sourceDirectory, configDirectory: configDirectory,
+                               now: now, onStep: onStep)
+    }
+
+    /// Verifies `sourceDirectory` exists — shared precondition for both `run` overloads above.
+    private static func preflight(sourceDirectory: URL) throws {
         var isDirectory: ObjCBool = false
         let exists = FileManager.default.fileExists(atPath: sourceDirectory.path, isDirectory: &isDirectory)
         guard exists, isDirectory.boolValue else {
             throw ImportTransformError.sourceDirectoryMissing(sourceDirectory.path)
         }
+    }
 
-        onStep(.resolvingContent)
-        let resolved = ImportSourceResolver.resolve(snapshot)
-
+    /// The shared body of both `run` overloads: classify → write content/images → redirects →
+    /// seed config → save report. `assetSnapshot`/`snapshotDirectory` are only ever read by
+    /// ``AssetLocalizer`` inside `writeContent`.
+    @discardableResult
+    private static func runResolved(
+        _ resolved: ResolvedContent, assetSnapshot: ImportSnapshot, snapshotDirectory: URL,
+        sourceDirectory: URL, configDirectory: URL,
+        now: Date, onStep: @Sendable (ImportStep) -> Void
+    ) throws -> ImportReport {
         onStep(.classifying(itemCount: resolved.items.count))
         let classified = ContentClassifier.classify(resolved, now: now)
 
         var writeProblems: [ImportProblem] = []
         let (writtenPaths, installedImagePaths) = writeContent(
-            classified, snapshot: snapshot, snapshotDirectory: snapshotDirectory,
+            classified, snapshot: assetSnapshot, snapshotDirectory: snapshotDirectory,
             sourceDirectory: sourceDirectory, now: now,
             writeProblems: &writeProblems, onStep: onStep)
 
