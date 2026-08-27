@@ -111,7 +111,7 @@ struct SiteActionsImportWXRTests {
         converter.responses["<p>Hi there.</p>"] = ("Hi there.", [])
 
         var committed: URL?
-        let site = try await SiteActions.importWXR(
+        let (site, report) = try await SiteActions.importWXR(
             data: Data(Self.sampleWXR.utf8), fileName: "export.xml", context: context, converter: converter,
             commitGit: { sourceDirectory in committed = sourceDirectory },
             now: Date(timeIntervalSince1970: 1_700_000_000), siteStore: store)
@@ -122,6 +122,14 @@ struct SiteActionsImportWXRTests {
         let written = try String(
             contentsOf: site.sourceDirectory.appendingPathComponent("src/content/blog/hello.md"), encoding: .utf8)
         #expect(written.contains("Hi there."))
+
+        // The returned ImportReport is what a caller (the panel-driving importWXR() wrapper)
+        // builds the owner-facing import summary from — assert it's actually populated rather
+        // than a discarded/empty value, so that summary path can't silently regress (#1636 final
+        // review, Important #2).
+        #expect(report.plan.counts["blog"] == 1)
+        let summary = ImportSummaryModel(plan: report.plan)
+        #expect(summary.countLines == ["1 blog post"])
     }
 
     @Test func numbersTheChannelTitleWhenAlreadyTaken() async throws {
@@ -137,9 +145,50 @@ struct SiteActionsImportWXRTests {
         let converter = StubConverter()
         converter.responses["<p>Hi there.</p>"] = ("Hi there.", [])
 
-        let site = try await SiteActions.importWXR(
+        let (site, _) = try await SiteActions.importWXR(
             data: Data(Self.sampleWXR.utf8), fileName: "old-blog-export.xml", context: context, converter: converter,
             commitGit: { _ in }, now: Date(timeIntervalSince1970: 1_700_000_000), siteStore: store)
         #expect(site.name == "My Old Blog 2")
+    }
+
+    /// Captures the package URL `commitGit` observed before throwing — a small actor, mirroring
+    /// `SiteActionsImportTests.ImportRecorder`, so the `@Sendable` `commitGit` closure below can
+    /// record it without a mutable-var-capture warning.
+    private actor PackageURLRecorder {
+        private(set) var packageURL: URL?
+        func record(_ url: URL) { packageURL = url }
+    }
+
+    @Test func cleansUpTheScaffoldedPackageWhenCommitGitFails() async throws {
+        struct Boom: Error {}
+
+        let root = try tempSitesRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let store = SiteStore(persistenceURL: root.appendingPathComponent("recents.json"))
+        let scaffolder = try makeScaffolder(sitesRoot: root, store: store) { _ in }
+        let catalog = try ThemeCatalog.load(templateURL: Self.realTemplateURL())
+        let context = SiteActions.ScaffoldingContext(
+            catalog: catalog, scaffolder: scaffolder, templateURL: Self.realTemplateURL(),
+            isNameTaken: { _ in false }, sitesRootAccess: nil)
+
+        let converter = StubConverter()
+        converter.responses["<p>Hi there.</p>"] = ("Hi there.", [])
+
+        let recorder = PackageURLRecorder()
+        await #expect(throws: SiteActions.WXRImportError.self) {
+            _ = try await SiteActions.importWXR(
+                data: Data(Self.sampleWXR.utf8), fileName: "export.xml", context: context, converter: converter,
+                commitGit: { sourceDirectory in
+                    // The package directory is two levels up from Source/ — record it before
+                    // throwing, so the assertion below can confirm cleanup actually removed it.
+                    await recorder.record(sourceDirectory.deletingLastPathComponent())
+                    throw Boom()
+                },
+                now: Date(timeIntervalSince1970: 1_700_000_000), siteStore: store)
+        }
+
+        let cleanedUp = try #require(await recorder.packageURL)
+        #expect(!FileManager.default.fileExists(atPath: cleanedUp.path))
+        #expect(await store.sites.isEmpty)
     }
 }

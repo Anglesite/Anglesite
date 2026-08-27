@@ -364,9 +364,12 @@ enum SiteActions {
     }
 
     private struct ScaffoldFailure: LocalizedError {
+        /// Kept for logging — not surfaced in `errorDescription`, since `SiteScaffolder`'s step
+        /// names (`"creatingFolder"`, `"copyingTemplate"`, …) are internal identifiers, not
+        /// owner-facing language.
         let step: String
         let message: String
-        var errorDescription: String? { "\(step): \(message)" }
+        var errorDescription: String? { String(localized: "\(message)") }
     }
 
     /// Parses a WXR (WordPress export) file, scaffolds a fresh site for its content, and writes
@@ -382,7 +385,8 @@ enum SiteActions {
     ///   - converter: Converts each entry's HTML body to Markdown (production:
     ///     ``OffscreenHTMLConverter``).
     ///   - assetDownloader: Fetches the images referenced in imported content.
-    ///   - commitGit: Lands the initial commit for the imported content, injectable for tests.
+    ///   - commitGit: Lands a commit for the imported content, on top of the scaffold's own
+    ///     initial commit, injectable for tests.
     ///   - now: The deterministic clock forwarded to ``ImportTransform``.
     ///   - siteStore: Where the just-scaffolded site is looked up by ID once `context.scaffolder`
     ///     reports `.done` — `context.scaffolder`'s own `register` closure is what actually wrote
@@ -391,8 +395,12 @@ enum SiteActions {
     ///     ``registerPackage(_:siteStore:)``'s existing seam above, so tests can exercise a real
     ///     scaffold → register → look-up round trip against an isolated store instead of writing
     ///     to the real, on-disk `~/Library/Application Support/Anglesite/recents.json`.
-    /// - Returns: The newly created, already-registered site.
-    /// - Throws: ``WXRImportError`` wrapping whatever stage failed.
+    /// - Returns: The newly created, already-registered site, and the completed ``ImportReport``
+    ///   describing what was written (so a caller can show the owner an import summary).
+    /// - Throws: ``WXRImportError`` wrapping whatever stage failed. A failure after scaffolding
+    ///   already created and registered the new site removes both the recents entry and the
+    ///   package directory before rethrowing, matching ``importDirectory`` below — otherwise a
+    ///   failed import would leave a mysterious, contentless site in the launcher.
     static func importWXR(
         data: Data, fileName: String, context: ScaffoldingContext, converter: any ImportHTMLConverter,
         assetDownloader: WXRAssetDownloader = WXRAssetDownloader(),
@@ -401,7 +409,7 @@ enum SiteActions {
         },
         now: Date = Date(),
         siteStore: SiteStore = .shared
-    ) async throws -> SiteStore.Site {
+    ) async throws -> (site: SiteStore.Site, report: ImportReport) {
         do {
             let (channel, entries) = try WXRParser.parse(data)
             let (items, extractionProblems) = await WXRRung.items(from: entries, convert: converter)
@@ -424,21 +432,37 @@ enum SiteActions {
                 throw ScaffoldFailure(step: "registering", message: "Scaffolding finished with no site")
             }
 
-            let imageURLs = items.flatMap(\.images)
-            let assetsDirectory = FileManager.default.temporaryDirectory
-                .appendingPathComponent("wxr-import-\(UUID().uuidString)", isDirectory: true)
-            defer { try? FileManager.default.removeItem(at: assetsDirectory) }
-            let (assets, downloadProblems) = await assetDownloader.download(imageURLs: imageURLs, into: assetsDirectory)
+            // From here on, a package has been scaffolded and registered — any further failure
+            // must clean up the orphan (recents entry + package directory) before rethrowing,
+            // mirroring `importDirectory`'s catch block below. `Data(contentsOf:)`'s caller
+            // already moved that read off the main actor; `ImportTransform.run` does its own
+            // per-item file I/O for potentially hundreds of posts, so it's detached here too —
+            // same reasoning as `importDirectory`'s `Task.detached` around `PackageTransfer`.
+            do {
+                let imageURLs = items.flatMap(\.images)
+                let assetsDirectory = FileManager.default.temporaryDirectory
+                    .appendingPathComponent("wxr-import-\(UUID().uuidString)", isDirectory: true)
+                defer { try? FileManager.default.removeItem(at: assetsDirectory) }
+                let (assets, downloadProblems) = await assetDownloader.download(imageURLs: imageURLs, into: assetsDirectory)
 
-            let resolved = ResolvedContent(items: items, homepage: nil, skippedURLs: [],
-                                           problems: extractionProblems + downloadProblems)
-            try ImportTransform.run(
-                resolved: resolved, assets: assets, assetsDirectory: assetsDirectory,
-                sourceDirectory: site.sourceDirectory, configDirectory: site.configDirectory,
-                now: now, onStep: { _ in })
+                let resolved = ResolvedContent(items: items, homepage: nil, skippedURLs: [],
+                                               problems: extractionProblems + downloadProblems)
+                let sourceDirectory = site.sourceDirectory
+                let configDirectory = site.configDirectory
+                let report = try await Task.detached {
+                    try ImportTransform.run(
+                        resolved: resolved, assets: assets, assetsDirectory: assetsDirectory,
+                        sourceDirectory: sourceDirectory, configDirectory: configDirectory,
+                        now: now, onStep: { _ in })
+                }.value
 
-            try await commitGit(site.sourceDirectory)
-            return site
+                try await commitGit(site.sourceDirectory)
+                return (site, report)
+            } catch {
+                try? await siteStore.remove(id: site.id)
+                try? FileManager.default.removeItem(at: site.packageURL)
+                throw error
+            }
         } catch {
             throw WXRImportError(fileName: fileName, underlying: error)
         }
@@ -492,14 +516,35 @@ enum SiteActions {
         defer { context.sitesRootAccess?.stopAccessingSecurityScopedResource() }
 
         do {
-            let data = try Data(contentsOf: url)
-            return try await importWXR(data: data, fileName: url.lastPathComponent, context: context,
-                                       converter: OffscreenHTMLConverter())
+            // A real WordPress export can be 50-200MB — read it off the main actor so choosing a
+            // large file doesn't freeze the UI before the scaffold/convert work even starts.
+            let data = try await Task.detached {
+                try Data(contentsOf: url)
+            }.value
+            let (site, report) = try await importWXR(data: data, fileName: url.lastPathComponent, context: context,
+                                                      converter: OffscreenHTMLConverter())
+            presentImportSummaryAlert(for: report)
+            return site
         } catch let error as WXRImportError {
             throw error
         } catch {
             throw WXRImportError(fileName: url.lastPathComponent, underlying: error)
         }
+    }
+
+    /// Shows the owner what a completed WXR import brought over — counts by content type, plus
+    /// any items that couldn't be brought over cleanly or were deliberately left behind — using
+    /// the same owner-language phrasing `ImportSummaryModel` already builds and tests.
+    private static func presentImportSummaryAlert(for report: ImportReport) {
+        let summary = ImportSummaryModel(plan: report.plan)
+        var informativeLines = [summary.countLines.joined(separator: ", ")]
+        if let attentionLine = summary.attentionLine { informativeLines.append(attentionLine) }
+        if let skippedLine = summary.skippedLine { informativeLines.append(skippedLine) }
+
+        let alert = NSAlert()
+        alert.messageText = String(localized: "Import complete")
+        alert.informativeText = informativeLines.joined(separator: "\n")
+        alert.runModal()
     }
 
     /// Run the package picker, register the chosen `.anglesite` package with `SiteStore`, and
