@@ -482,102 +482,13 @@ struct SitesLauncherView: View {
         }
     }
 
-    private struct ScaffoldingContext {
-        let catalog: ThemeCatalog
-        let scaffolder: SiteScaffolder
-        let templateURL: URL
-        let isNameTaken: (String) -> Bool
-    }
-
-    /// Everything both `presentNewSite()` and `presentNewCommunity()` need before they can
-    /// construct their own wizard model: template/theme catalog, sites-root resolution (with
-    /// MAS security-scope handling), name-uniqueness check, and a ready `SiteScaffolder`.
-    /// Extracted so the two flows (#907, design doc §3) don't duplicate this setup.
-    @MainActor
-    private func resolveScaffoldingContext() async -> ScaffoldingContext? {
-        let resolution = TemplateRuntime.resolve()
-        guard let templateURL = resolution.url else {
-            loadError = "Template not found — can't create a site. Reinstall the app."
-            return nil
-        }
-        let catalog: ThemeCatalog
-        do { catalog = try ThemeCatalog.load(templateURL: templateURL) }
-        catch { loadError = "Couldn't load themes: \(error.localizedDescription)"; return nil }
-
-        // Effective sites root (the app's iCloud container by default since #865; an override or
-        // the ~/Sites fallback otherwise) — the same accessor SiteStore uses.
-        let sitesRoot = AppSettings.shared.sitesRoot
-
-        #if ANGLESITE_MAS
-        // The app's own iCloud container needs no security-scoped grant — the
-        // icloud-container-identifiers entitlement itself is the grant. Anywhere else (the
-        // `~/Sites/` fallback used when iCloud is unavailable, or an explicit sitesRootOverride)
-        // is outside the sandbox and does need one. Decide from where sitesRoot *declared* it
-        // resolved from, not from a write probe: createDirectory(withIntermediateDirectories:)
-        // reports success for an existing directory even when the sandbox would deny writing into
-        // it, so probing silently skipped the grant panel on every run after the first (#865
-        // final review). `ensureSitesRootAccess` is shared with `SiteActions.importPackage()` —
-        // see that enum's doc comment on keeping MAS bookmark minting in exactly one place.
-        if AppSettings.shared.sitesRootSource != .iCloudContainer {
-            guard let rootScope = await SiteActions.ensureSitesRootAccess(sitesRoot) else { return nil }  // user cancelled
-            sitesRootScopedURL = rootScope
-        }
-        #endif
-        try? FileManager.default.createDirectory(at: sitesRoot, withIntermediateDirectories: true)
-
-        // Load persisted registry to derive taken slugs; no scan needed (registry = source of truth).
-        try? await SiteStore.shared.load()
-        let knownSites = await SiteStore.shared.sites
-        let takenSlugs = Set(knownSites.map { SiteSlug.derive(from: $0.name) })
-
-        // "Untitled N" availability (#1071): taken if it collides with a registered site's slug
-        // OR a package already on disk in the sites root (registered or not) — silent save must
-        // never clobber an existing folder.
-        let isNameTaken: (String) -> Bool = { name in
-            takenSlugs.contains(SiteSlug.derive(from: name))
-                || FileManager.default.fileExists(atPath: sitesRoot.appendingPathComponent("\(name).anglesite").path)
-        }
-
-        let scaffolder = SiteScaffolder(
-            sitesRoot: sitesRoot,
-            templateURL: templateURL,
-            catalog: catalog,
-            run: { exe, args, cwd in
-                try await ProcessSupervisor.shared.run(executable: exe, arguments: args, currentDirectoryURL: cwd)
-            },
-            gitInit: { sourceDir in
-                // Route through GitInitRunner so a failure throws instead of being discarded —
-                // see #548, where this used to `_ = try await ...run(...)` and silently kept a
-                // Source/ with no .git that could never preview. SwiftGit2 (in-process libgit2,
-                // #640) rather than a /usr/bin/git subprocess, so there's no subprocess output to
-                // forward to LogCenter here.
-                try GitInitRunner.run(in: sourceDir)
-            },
-            gitCommit: { sourceDir in
-                // Local init+commit only (no GitHub) — lands a real initial commit so the site
-                // has a HEAD immediately and can be cloned into a container runtime for preview.
-                try await RepoBootstrap.live().commitAll(source: sourceDir)
-            },
-            register: { package in
-                let site = try await SiteStore.shared.record(package)
-                #if ANGLESITE_MAS
-                // Mint from the canonicalized recorded path, and propagate a failure (don't swallow
-                // it with `try?`) — a grantless new site would silently fail to preview at open.
-                let bm = try SecurityScopedBookmark.create(for: site.packageURL)
-                try await SiteStore.shared.setBookmark(bm, for: site.id)
-                #endif
-                return site
-            }
-        )
-        return ScaffoldingContext(catalog: catalog, scaffolder: scaffolder, templateURL: templateURL, isNameTaken: isNameTaken)
-    }
-
     @MainActor
     private func presentNewSite() async {
         guard newSiteSession == nil, !preparingNewSite else { return }
         preparingNewSite = true
         defer { preparingNewSite = false }
-        guard let context = await resolveScaffoldingContext() else { return }
+        guard let context = await SiteActions.resolveScaffoldingContext() else { return }
+        sitesRootScopedURL = context.sitesRootAccess
         let model = NewSiteWizardModel(catalog: context.catalog, isNameTaken: context.isNameTaken)
         newSiteSession = NewSiteSession(model: model, scaffolder: context.scaffolder, templateURL: context.templateURL)
     }
@@ -587,7 +498,8 @@ struct SitesLauncherView: View {
         guard newCommunitySession == nil, !preparingNewCommunity else { return }
         preparingNewCommunity = true
         defer { preparingNewCommunity = false }
-        guard let context = await resolveScaffoldingContext() else { return }
+        guard let context = await SiteActions.resolveScaffoldingContext() else { return }
+        sitesRootScopedURL = context.sitesRootAccess
         let model = NewCommunityWizardModel(isNameTaken: context.isNameTaken)
         newCommunitySession = NewCommunitySession(model: model, scaffolder: context.scaffolder)
     }

@@ -145,6 +145,80 @@ enum SiteActions {
     }
     #endif
 
+    /// Everything a scaffolding flow needs before it can build a site: template/theme catalog,
+    /// sites-root resolution (with MAS security-scope handling), a name-uniqueness check, and a
+    /// ready ``SiteScaffolder``. Shared by `SitesLauncherView`'s New Site/New Community flows and
+    /// `importWXR()` (#1636) so the MAS-bookmark-sensitive setup exists in exactly one place.
+    @MainActor
+    struct ScaffoldingContext {
+        let catalog: ThemeCatalog
+        let scaffolder: SiteScaffolder
+        let templateURL: URL
+        let isNameTaken: (String) -> Bool
+        /// The security-scoped sites-root URL this call started accessing, under MAS, when the
+        /// sites root isn't the app's own iCloud container — `nil` otherwise (iCloud container,
+        /// or non-MAS build). The caller owns stopping access on this URL once it's done with it;
+        /// `resolveScaffoldingContext()` doesn't stop it itself, since callers need it to outlive
+        /// this one call (a wizard sheet stays open across several scaffolding steps).
+        let sitesRootAccess: URL?
+    }
+
+    /// Resolves everything `ScaffoldingContext` needs: loads the template/theme catalog, resolves
+    /// (and, under MAS, grants access to) the sites root, and builds a `SiteScaffolder` wired to
+    /// production `ProcessSupervisor`/`GitInitRunner`/`RepoBootstrap`/`SiteStore`.
+    ///
+    /// `settings`/`bundle` mirror `TemplateRuntime.resolve(settings:bundle:)`'s own test seam
+    /// (defaulting to the live app values, same as `SiteWindowModel.resolvedThemeCatalog`) so
+    /// tests can point at a fixture template and a fake iCloud-container answer instead of
+    /// depending on `Bundle.main` (never the app bundle under `swift test`) or this machine's
+    /// real iCloud state.
+    ///
+    /// - Returns: The context, or `nil` if the template is missing, the catalog fails to load, or
+    ///   (under MAS, outside the iCloud container) the user cancels the access-grant panel.
+    @MainActor
+    static func resolveScaffoldingContext(settings: AppSettings = .shared, bundle: Bundle = .main) async -> ScaffoldingContext? {
+        let resolution = TemplateRuntime.resolve(settings: settings, bundle: bundle)
+        guard let templateURL = resolution.url else { return nil }
+        guard let catalog = try? ThemeCatalog.load(templateURL: templateURL) else { return nil }
+
+        let sitesRoot = settings.sitesRoot
+        var sitesRootAccess: URL?
+        #if ANGLESITE_MAS
+        if settings.sitesRootSource != .iCloudContainer {
+            guard let rootScope = await ensureSitesRootAccess(sitesRoot) else { return nil }
+            sitesRootAccess = rootScope
+        }
+        #endif
+        try? FileManager.default.createDirectory(at: sitesRoot, withIntermediateDirectories: true)
+
+        try? await SiteStore.shared.load()
+        let knownSites = await SiteStore.shared.sites
+        let takenSlugs = Set(knownSites.map { SiteSlug.derive(from: $0.name) })
+        let isNameTaken: (String) -> Bool = { name in
+            takenSlugs.contains(SiteSlug.derive(from: name))
+                || FileManager.default.fileExists(atPath: sitesRoot.appendingPathComponent("\(name).anglesite").path)
+        }
+
+        let scaffolder = SiteScaffolder(
+            sitesRoot: sitesRoot, templateURL: templateURL, catalog: catalog,
+            run: { exe, args, cwd in
+                try await ProcessSupervisor.shared.run(executable: exe, arguments: args, currentDirectoryURL: cwd)
+            },
+            gitInit: { sourceDir in try GitInitRunner.run(in: sourceDir) },
+            gitCommit: { sourceDir in try await RepoBootstrap.live().commitAll(source: sourceDir) },
+            register: { package in
+                let site = try await SiteStore.shared.record(package)
+                #if ANGLESITE_MAS
+                let bm = try SecurityScopedBookmark.create(for: site.packageURL)
+                try await SiteStore.shared.setBookmark(bm, for: site.id)
+                #endif
+                return site
+            }
+        )
+        return ScaffoldingContext(catalog: catalog, scaffolder: scaffolder, templateURL: templateURL,
+                                  isNameTaken: isNameTaken, sitesRootAccess: sitesRootAccess)
+    }
+
     /// Pick a plain Anglesite directory, choose where to save the new package, copy it in, and
     /// register the package. Returns the new site, or nil if either panel was cancelled.
     static func importPackage() async throws -> SiteStore.Site? {
