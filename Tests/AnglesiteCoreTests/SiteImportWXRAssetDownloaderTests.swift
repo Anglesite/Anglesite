@@ -2,7 +2,8 @@ import Foundation
 import Testing
 @testable import AnglesiteCore
 
-@Suite struct SiteImportWXRAssetDownloaderTests {
+@Suite("SiteImportWXRAssetDownloader", .serialized)  // stub state is static; keep cases sequential
+struct SiteImportWXRAssetDownloaderTests {
     private final class StubURLProtocol: URLProtocol {
         nonisolated(unsafe) static var responses: [String: (status: Int, data: Data)] = [:]
 
