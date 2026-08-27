@@ -11,4 +11,9 @@
 # `swift test --filter`/`--skip`, confirmed via `swift test --help`: no tag-based
 # filtering exists in this toolchain). Each name below was checked for accidental
 # substring collisions against every other suite in Tests/.
-export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LANHostScanCoordinatorTests'
+#
+# LoopbackMCPBridgeTests + LocalContainerSiteRuntimeReindexTests (#1656): both assert
+# real wall-clock budgets (a Task.sleep-raced response timeout; an unstructured-Task
+# reindex poll) and were seen missing those budgets under build-test's full-parallel
+# scheduler contention — the same class of flake #1344 isolated this lane for.
+export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LANHostScanCoordinatorTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests'
