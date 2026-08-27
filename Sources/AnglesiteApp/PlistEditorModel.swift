@@ -366,7 +366,14 @@ final class PlistEditorModel {
                 if appSettings.botPreferenceSyncUIEnabled {
                     let zoneID = await resolvedBotPreferenceSyncZoneID()
                     botPreferenceSyncZoneID = zoneID
-                    if zoneID != nil, policy.usage == AIUsage() {
+                    // Gated on the raw key's presence, not just the decoded value equaling the
+                    // default: an explicit `.anglesite` choice with every other field untouched
+                    // decodes to the same `AIUsage()` as a document nobody has ever saved, so the
+                    // pristine-value check alone can't tell them apart and would silently revert
+                    // a deliberate "Anglesite" pick back to "Cloudflare" on the next load (#1630).
+                    let hasExplicitChoice = LicensingStore(sourceDirectory: sourceDirectory)
+                        .hasExplicitBotBlocklistManagedBy()
+                    if zoneID != nil, policy.usage == AIUsage(), !hasExplicitChoice {
                         licensingPolicy.usage.botBlocklistManagedBy = .cloudflare
                         savedLicensingPolicy.usage.botBlocklistManagedBy = .cloudflare
                     }

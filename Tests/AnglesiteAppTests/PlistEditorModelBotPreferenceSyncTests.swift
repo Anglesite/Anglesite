@@ -84,6 +84,21 @@ struct PlistEditorModelBotPreferenceSyncTests {
         #expect(model.licensingPolicy.usage.botBlocklistManagedBy == .anglesite)
     }
 
+    /// Regression test for #1630: an explicit `.anglesite` choice, with every other `usage`
+    /// field left at its default, decodes to the exact same `AIUsage()` as a document nobody
+    /// has ever touched — so the pristine-value check (`policy.usage == AIUsage()`) alone can't
+    /// tell them apart. Before the fix, this reloaded as `.cloudflare`, silently reverting the
+    /// owner's deliberate choice. The key being present in the raw JSON — even though it decodes
+    /// to the default `.anglesite` value — is what must stop the preselect.
+    @Test("flag on, zone resolves, explicit anglesite choice with otherwise-default usage: never overridden")
+    func explicitAnglesiteChoiceIsUnchanged() async throws {
+        let model = try makeModel(licensingJSON: #"{"usage":{"botBlocklistManagedBy":"anglesite"}}"#)
+        await model.load()
+        #expect(model.botPreferenceSyncZoneID == "z1")
+        #expect(model.licensingPolicy.usage.botBlocklistManagedBy == .anglesite)
+        #expect(model.isLicensingDirty == false)
+    }
+
     @Test("flag on, no zone resolves: stays anglesite-managed and hides the option")
     func noZoneResolved() async throws {
         let model = try makeModel(zoneID: nil)
