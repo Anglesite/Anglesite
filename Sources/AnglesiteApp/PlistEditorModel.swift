@@ -78,13 +78,19 @@ final class PlistEditorModel {
     private(set) var licensingError: String?
     private(set) var isSavingLicensing = false
     private(set) var licensingLoadFailed = false
-    /// The site's Cloudflare zone ID, resolved lazily in `load()` only when
-    /// `AppSettings.botPreferenceSyncUIEnabled` is on — `nil` until resolved, and permanently
-    /// `nil` when the flag is off, no domain is configured, no Cloudflare token is available, or
-    /// the domain doesn't resolve to a zone. `ContentLicensingTab` uses this both to decide
-    /// whether to show the "Bot blocklist managed by" control at all, and to build the dashboard
-    /// deep link once it does.
+    /// The site's Cloudflare zone ID, resolved lazily by `resolveBotPreferenceSyncZoneIfNeeded()`
+    /// the first time `ContentLicensingTab` appears — not in `load()` (#1631), so opening
+    /// Website Settings never blocks on a Cloudflare round trip for owners who never visit
+    /// Licensing. `nil` until resolved, and permanently `nil` when `AppSettings
+    /// .botPreferenceSyncUIEnabled` is off, no domain is configured, no Cloudflare token is
+    /// available, or the domain doesn't resolve to a zone. `ContentLicensingTab` uses this both
+    /// to decide whether to show the "Bot blocklist managed by" control at all, and to build the
+    /// dashboard deep link once it does.
     private(set) var botPreferenceSyncZoneID: String?
+    /// Guards `resolveBotPreferenceSyncZoneIfNeeded()` against re-entrancy — `ContentLicensingTab`
+    /// calls it from `.task`, which SwiftUI restarts whenever the tab view re-mounts (e.g.
+    /// switching to another tab and back), not just on first appearance.
+    private var botPreferenceSyncZoneResolutionStarted = false
     /// Whether Markdown for Agents (#1247) is enabled for this site's deploys — `Config/`-backed
     /// (`SiteSettings.markdownForAgentsDisabled`), not part of `licensingPolicy`'s git-tracked
     /// `licensing.json`: it's a Cloudflare zone setting applied at deploy time, not generated
@@ -363,16 +369,11 @@ final class PlistEditorModel {
                 savedLicensingPolicy = policy
                 licensingError = nil
                 licensingLoadFailed = false
-                if appSettings.botPreferenceSyncUIEnabled {
-                    let zoneID = await resolvedBotPreferenceSyncZoneID()
-                    botPreferenceSyncZoneID = zoneID
-                    if zoneID != nil, policy.usage == AIUsage() {
-                        licensingPolicy.usage.botBlocklistManagedBy = .cloudflare
-                        savedLicensingPolicy.usage.botBlocklistManagedBy = .cloudflare
-                    }
-                } else {
-                    botPreferenceSyncZoneID = nil
-                }
+                // Zone resolution (a Keychain/OAuth lookup plus a Cloudflare API round trip) is
+                // deliberately not kicked off here — see `resolveBotPreferenceSyncZoneIfNeeded()`
+                // and #1631. `load()` runs on every Website Settings open regardless of which tab
+                // the owner visits; the network call is deferred until `ContentLicensingTab`
+                // actually appears.
             } catch {
                 licensingPolicy = LicensingPolicy()
                 savedLicensingPolicy = LicensingPolicy()
@@ -1076,6 +1077,22 @@ final class PlistEditorModel {
               let domain = URL(string: siteURLString)?.host else { return nil }
         guard let token = try? await cloudflareTokenForBotPreferenceSync(), !token.isEmpty else { return nil }
         return try? await reader.resolveZoneID(domain: domain, apiToken: token)
+    }
+
+    /// Kicks off `botPreferenceSyncZoneID` resolution the first time `ContentLicensingTab`
+    /// appears, rather than eagerly in `load()` (#1631) — every other Cloudflare-backed control
+    /// in this model is triggered by explicit user action, not by opening the settings sheet.
+    /// A no-op when the feature flag is off or a resolution is already in flight/complete, so
+    /// it's safe for `ContentLicensingTab` to call from `.task` on every appearance.
+    func resolveBotPreferenceSyncZoneIfNeeded() async {
+        guard appSettings.botPreferenceSyncUIEnabled, !botPreferenceSyncZoneResolutionStarted else { return }
+        botPreferenceSyncZoneResolutionStarted = true
+        let zoneID = await resolvedBotPreferenceSyncZoneID()
+        botPreferenceSyncZoneID = zoneID
+        if zoneID != nil, licensingPolicy.usage == AIUsage() {
+            licensingPolicy.usage.botBlocklistManagedBy = .cloudflare
+            savedLicensingPolicy.usage.botBlocklistManagedBy = .cloudflare
+        }
     }
 
     /// Which plist entry is the website title. Internal (not `private`) because
