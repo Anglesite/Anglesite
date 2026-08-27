@@ -95,7 +95,7 @@ final class OffscreenHTMLConverter: NSObject, ImportHTMLConverter, WKNavigationD
     /// calling it directly would throw instead of resolving to a decodable value.
     static let extractScript = "window.__anglesiteImportExtract?.() ?? \"\""
 
-    /// Decodes the JSON string `__anglesiteImportExtract()` returns into an ``ExtractionRecord``
+    /// Decodes the JSON string `__anglesiteImportExtract()` returns into an `ExtractionRecord`
     /// — `nil` for the empty-string fallback above, or any malformed payload.
     static func decodeExtraction(_ json: String) -> ExtractionRecord? {
         guard let data = json.data(using: .utf8) else { return nil }

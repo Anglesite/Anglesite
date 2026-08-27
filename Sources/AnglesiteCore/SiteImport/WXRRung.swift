@@ -3,7 +3,7 @@ import Foundation
 /// Converts a fragment of rendered HTML into Markdown, extracting the image URLs it references.
 /// The seam between the pure-Swift `SiteImport` pipeline and the platform-specific engine that
 /// actually runs `JS/import-engine` — AnglesiteCore stays portable (no WebKit), so a concrete
-/// conformance lives in `AnglesiteApp` (``OffscreenHTMLConverter``, offscreen `WKWebView`).
+/// conformance lives in `AnglesiteApp` (`OffscreenHTMLConverter`, offscreen `WKWebView`).
 ///
 /// Implementations must never throw: a conversion failure should surface as empty output
 /// (`("", [])`) so callers (``WXRRung``) can turn it into a recorded ``ImportProblem`` instead of

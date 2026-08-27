@@ -147,7 +147,7 @@ enum SiteActions {
 
     /// Everything a scaffolding flow needs before it can build a site: template/theme catalog,
     /// sites-root resolution (with MAS security-scope handling), a name-uniqueness check, and a
-    /// ready ``SiteScaffolder``. Shared by `SitesLauncherView`'s New Site/New Community flows and
+    /// ready `SiteScaffolder`. Shared by `SitesLauncherView`'s New Site/New Community flows and
     /// `importWXR()` (#1636) so the MAS-bookmark-sensitive setup exists in exactly one place.
     @MainActor
     struct ScaffoldingContext {
@@ -381,25 +381,25 @@ enum SiteActions {
     ///   - data: The raw bytes of the `.xml` export file.
     ///   - fileName: The picked file's display name — used as a site-name fallback and in error
     ///     messages.
-    ///   - context: A scaffolding context (``resolveScaffoldingContext()``).
+    ///   - context: A scaffolding context (`resolveScaffoldingContext()`).
     ///   - converter: Converts each entry's HTML body to Markdown (production:
-    ///     ``OffscreenHTMLConverter``).
+    ///     `OffscreenHTMLConverter`).
     ///   - assetDownloader: Fetches the images referenced in imported content.
     ///   - commitGit: Lands a commit for the imported content, on top of the scaffold's own
     ///     initial commit, injectable for tests.
-    ///   - now: The deterministic clock forwarded to ``ImportTransform``.
+    ///   - now: The deterministic clock forwarded to `ImportTransform`.
     ///   - siteStore: Where the just-scaffolded site is looked up by ID once `context.scaffolder`
     ///     reports `.done` — `context.scaffolder`'s own `register` closure is what actually wrote
     ///     it there (in production, `resolveScaffoldingContext()` registers through
     ///     `SiteStore.shared`, the same store this defaults to). Injectable, matching
-    ///     ``registerPackage(_:siteStore:)``'s existing seam above, so tests can exercise a real
+    ///     `registerPackage(_:siteStore:)`'s existing seam above, so tests can exercise a real
     ///     scaffold → register → look-up round trip against an isolated store instead of writing
     ///     to the real, on-disk `~/Library/Application Support/Anglesite/recents.json`.
-    /// - Returns: The newly created, already-registered site, and the completed ``ImportReport``
+    /// - Returns: The newly created, already-registered site, and the completed `ImportReport`
     ///   describing what was written (so a caller can show the owner an import summary).
-    /// - Throws: ``WXRImportError`` wrapping whatever stage failed. A failure after scaffolding
+    /// - Throws: `WXRImportError` wrapping whatever stage failed. A failure after scaffolding
     ///   already created and registered the new site removes both the recents entry and the
-    ///   package directory before rethrowing, matching ``importDirectory`` below — otherwise a
+    ///   package directory before rethrowing, matching `importDirectory` below — otherwise a
     ///   failed import would leave a mysterious, contentless site in the launcher.
     static func importWXR(
         data: Data, fileName: String, context: ScaffoldingContext, converter: any ImportHTMLConverter,
@@ -486,7 +486,7 @@ enum SiteActions {
     /// WordPress Export (WXR)… menu command's target.
     /// - Returns: the newly created site, or `nil` if the panel was cancelled or the user
     ///   cancelled a MAS sites-root access grant (both silent, non-error dismissals).
-    /// - Throws: ``WXRImportError`` if the template is missing, the theme catalog fails to load,
+    /// - Throws: `WXRImportError` if the template is missing, the theme catalog fails to load,
     ///   or parsing/scaffolding/writing the import fails.
     static func importWXR() async throws -> SiteStore.Site? {
         let panel = NSOpenPanel()
