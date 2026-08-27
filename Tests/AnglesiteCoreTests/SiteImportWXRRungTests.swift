@@ -84,10 +84,10 @@ import Testing
         #expect(converter.converted == ["<p>Hi</p>", "<p>Short</p>"])
     }
 
-    @Test func titleIsHTMLEntityDecoded() async {
+    @Test func titlePassesThroughUnchanged() async {
         let converter = FakeConverter()
         converter.responses["<p>Hi</p>"] = ("Hi", [])
-        let (items, _) = await WXRRung.items(from: [makeEntry(title: "Tom &amp; Jerry")], convert: converter)
+        let (items, _) = await WXRRung.items(from: [makeEntry(title: "Tom & Jerry")], convert: converter)
         #expect(items.first?.title == "Tom & Jerry")
     }
 }

@@ -64,7 +64,7 @@ public enum WXRRung {
 
             items.append(ImportItem(
                 sourceURL: ImportSnapshot.normalizeURL(entry.link),
-                title: entry.title.map { decodeHTMLEntities($0) }, published: entry.published, markdown: converted.markdown,
+                title: entry.title, published: entry.published, markdown: converted.markdown,
                 excerpt: excerpt, images: converted.images, rung: .wxr, hint: hint))
         }
 
