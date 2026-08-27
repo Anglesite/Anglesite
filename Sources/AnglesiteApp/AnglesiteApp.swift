@@ -259,6 +259,17 @@ struct AnglesiteApp: App {
                         }
                     }
                 }
+                Button("Import WordPress Export (WXR)…") {
+                    Task { @MainActor in
+                        do {
+                            if let site = try await SiteActions.importWXR() {
+                                openWindow(value: site.id)
+                            }
+                        } catch {
+                            NSAlert(error: error).runModal()
+                        }
+                    }
+                }
             }
             // Export is its own Commands type so @FocusedValue tracks scene focus (see ExportSiteCommands).
             ExportSiteCommands()

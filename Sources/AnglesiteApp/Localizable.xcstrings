@@ -989,6 +989,9 @@
     "Choose a Template" : {
 
     },
+    "Choose a WordPress export (WXR) file to import." : {
+
+    },
     "Choose a provider" : {
 
     },
@@ -1317,6 +1320,16 @@
     },
     "Couldn't finish setup" : {
 
+    },
+    "Couldn't import “%@”: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't import “%1$@”: %2$@"
+          }
+        }
+      }
     },
     "Couldn't insert that image" : {
 
@@ -2033,6 +2046,9 @@
 
     },
     "Import Site…" : {
+
+    },
+    "Import WordPress Export (WXR)…" : {
 
     },
     "Import existing site…" : {

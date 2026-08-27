@@ -354,6 +354,154 @@ enum SiteActions {
         }
     }
 
+    /// Surfaced when importing a WXR export fails at any stage — parse, scaffold, or write.
+    struct WXRImportError: LocalizedError {
+        let fileName: String
+        let underlying: Error
+        var errorDescription: String? {
+            String(localized: "Couldn't import “\(fileName)”: \(underlying.localizedDescription)")
+        }
+    }
+
+    private struct ScaffoldFailure: LocalizedError {
+        let step: String
+        let message: String
+        var errorDescription: String? { "\(step): \(message)" }
+    }
+
+    /// Parses a WXR (WordPress export) file, scaffolds a fresh site for its content, and writes
+    /// the imported posts/pages into it (#1636). Panel-free core — `importWXR()` below drives the
+    /// file picker and calls this, mirroring `importDirectory`/`importPackage`'s existing split so
+    /// the actual import logic is unit-testable without driving AppKit.
+    ///
+    /// - Parameters:
+    ///   - data: The raw bytes of the `.xml` export file.
+    ///   - fileName: The picked file's display name — used as a site-name fallback and in error
+    ///     messages.
+    ///   - context: A scaffolding context (``resolveScaffoldingContext()``).
+    ///   - converter: Converts each entry's HTML body to Markdown (production:
+    ///     ``OffscreenHTMLConverter``).
+    ///   - assetDownloader: Fetches the images referenced in imported content.
+    ///   - commitGit: Lands the initial commit for the imported content, injectable for tests.
+    ///   - now: The deterministic clock forwarded to ``ImportTransform``.
+    ///   - siteStore: Where the just-scaffolded site is looked up by ID once `context.scaffolder`
+    ///     reports `.done` — `context.scaffolder`'s own `register` closure is what actually wrote
+    ///     it there (in production, `resolveScaffoldingContext()` registers through
+    ///     `SiteStore.shared`, the same store this defaults to). Injectable, matching
+    ///     ``registerPackage(_:siteStore:)``'s existing seam above, so tests can exercise a real
+    ///     scaffold → register → look-up round trip against an isolated store instead of writing
+    ///     to the real, on-disk `~/Library/Application Support/Anglesite/recents.json`.
+    /// - Returns: The newly created, already-registered site.
+    /// - Throws: ``WXRImportError`` wrapping whatever stage failed.
+    static func importWXR(
+        data: Data, fileName: String, context: ScaffoldingContext, converter: any ImportHTMLConverter,
+        assetDownloader: WXRAssetDownloader = WXRAssetDownloader(),
+        commitGit: @escaping @Sendable (_ sourceDirectory: URL) async throws -> Void = { sourceDirectory in
+            try await RepoBootstrap.live().commitAll(source: sourceDirectory)
+        },
+        now: Date = Date(),
+        siteStore: SiteStore = .shared
+    ) async throws -> SiteStore.Site {
+        do {
+            let (channel, entries) = try WXRParser.parse(data)
+            let (items, extractionProblems) = await WXRRung.items(from: entries, convert: converter)
+
+            var draft = NewSiteDraft(siteType: .blog,
+                                     name: Self.candidateSiteName(channel: channel, fileName: fileName,
+                                                                  isNameTaken: context.isNameTaken))
+            draft.themeID = context.catalog.defaultThemeID(for: .blog)
+
+            var completedSiteID: String?
+            for await step in context.scaffolder.scaffold(draft) {
+                if case .failed(let stepName, let message) = step {
+                    throw ScaffoldFailure(step: stepName, message: message)
+                }
+                if case .done(let id) = step { completedSiteID = id }
+            }
+            guard let siteID = completedSiteID,
+                  let site = await siteStore.sites.first(where: { $0.id == siteID })
+            else {
+                throw ScaffoldFailure(step: "registering", message: "Scaffolding finished with no site")
+            }
+
+            let imageURLs = items.flatMap(\.images)
+            let assetsDirectory = FileManager.default.temporaryDirectory
+                .appendingPathComponent("wxr-import-\(UUID().uuidString)", isDirectory: true)
+            defer { try? FileManager.default.removeItem(at: assetsDirectory) }
+            let (assets, downloadProblems) = await assetDownloader.download(imageURLs: imageURLs, into: assetsDirectory)
+
+            let resolved = ResolvedContent(items: items, homepage: nil, skippedURLs: [],
+                                           problems: extractionProblems + downloadProblems)
+            try ImportTransform.run(
+                resolved: resolved, assets: assets, assetsDirectory: assetsDirectory,
+                sourceDirectory: site.sourceDirectory, configDirectory: site.configDirectory,
+                now: now, onStep: { _ in })
+
+            try await commitGit(site.sourceDirectory)
+            return site
+        } catch {
+            throw WXRImportError(fileName: fileName, underlying: error)
+        }
+    }
+
+    /// Site name for the freshly scaffolded package: the WXR channel's title when present,
+    /// non-empty, and not already taken; the picked file's basename otherwise; a numbered suffix
+    /// (`"Name 2"`, `"Name 3"`, …) if even that collides.
+    private static func candidateSiteName(channel: WXRChannel, fileName: String,
+                                          isNameTaken: (String) -> Bool) -> String {
+        let trimmedTitle = channel.title?.trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = (trimmedTitle?.isEmpty == false ? trimmedTitle! : nil)
+            ?? (fileName as NSString).deletingPathExtension
+        guard isNameTaken(base) else { return base }
+        var suffix = 2
+        while isNameTaken("\(base) \(suffix)") { suffix += 1 }
+        return "\(base) \(suffix)"
+    }
+
+    /// Picks a `.xml` file, resolves a scaffolding context, and imports it — the File ▸ Import
+    /// WordPress Export (WXR)… menu command's target.
+    /// - Returns: the newly created site, or `nil` if the panel was cancelled or the user
+    ///   cancelled a MAS sites-root access grant (both silent, non-error dismissals).
+    /// - Throws: ``WXRImportError`` if the template is missing, the theme catalog fails to load,
+    ///   or parsing/scaffolding/writing the import fails.
+    static func importWXR() async throws -> SiteStore.Site? {
+        let panel = NSOpenPanel()
+        panel.canChooseDirectories = false
+        panel.canChooseFiles = true
+        panel.allowedContentTypes = [.xml]
+        panel.allowsMultipleSelection = false
+        panel.prompt = String(localized: "Choose")
+        panel.message = String(localized: "Choose a WordPress export (WXR) file to import.")
+        guard panel.runModal() == .OK, let url = panel.url else { return nil }
+
+        // `onFailure` distinguishes a real setup problem (template missing, catalog load failed —
+        // worth an alert) from the MAS access-grant panel simply being cancelled (silent, like the
+        // panel above) — `resolveScaffoldingContext` returns `nil` for both, but only calls
+        // `onFailure` for the former. Without this, a broken install would make File ▸ Import
+        // WordPress Export… silently do nothing, the same gap Task 6's review caught and fixed for
+        // the New Site/New Community launcher flows.
+        var setupFailureMessage: String?
+        guard let context = await resolveScaffoldingContext(onFailure: { setupFailureMessage = $0 })
+        else {
+            if let setupFailureMessage {
+                throw WXRImportError(fileName: url.lastPathComponent,
+                                     underlying: ScaffoldFailure(step: "setup", message: setupFailureMessage))
+            }
+            return nil
+        }
+        defer { context.sitesRootAccess?.stopAccessingSecurityScopedResource() }
+
+        do {
+            let data = try Data(contentsOf: url)
+            return try await importWXR(data: data, fileName: url.lastPathComponent, context: context,
+                                       converter: OffscreenHTMLConverter())
+        } catch let error as WXRImportError {
+            throw error
+        } catch {
+            throw WXRImportError(fileName: url.lastPathComponent, underlying: error)
+        }
+    }
+
     /// Run the package picker, register the chosen `.anglesite` package with `SiteStore`, and
     /// (on MAS) mint + persist a security-scoped bookmark so the grant survives relaunch.
     ///
