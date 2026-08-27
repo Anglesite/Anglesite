@@ -844,6 +844,9 @@ final class DeployModel {
             transition(siteID: siteID, to: .failed(reason: reason, exitCode: nil))
             return .failed(reason: reason, exitCode: nil)
         }
+        // #1659: adds the app-owned RFC 9727 API Catalog claim whenever the social layer is
+        // composed at all, before either downstream use below — see `withAPICatalogClaim`.
+        let effectiveRouteClaims = WorkerComposition.withAPICatalogClaim(routeClaims, workers: workers)
 
         // ActivityPub handle-rename confirmation (#1239, design doc §"Owner-chosen username"):
         // once an actor has federated, a resolved-handle change from the last-deployed baseline
@@ -906,7 +909,7 @@ final class DeployModel {
                     currentRoutes: currentRoutes,
                     // #744: feeds the same already-validated active route claims (#746, computed
                     // above) into DeployCommand's pre-build /.well-known/ collision check.
-                    wellKnownDynamicClaims: WorkerRouteClaims.wellKnownClaims(routeClaims),
+                    wellKnownDynamicClaims: WorkerRouteClaims.wellKnownClaims(effectiveRouteClaims),
                     onPreflight: { [weak self] outcome in
                         Task { @MainActor in self?.onScanComplete?(outcome) }
                     },
@@ -977,7 +980,7 @@ final class DeployModel {
             siteDirectory: siteDirectory,
             siteName: workerSiteName,
             workers: workers,
-            routeClaims: routeClaims.map(\.claim),
+            routeClaims: effectiveRouteClaims.map(\.claim),
             knownResources: settings.provisionedWorkerResources ?? .init(),
             siteURL: siteURL,
             displayName: settings.displayName,

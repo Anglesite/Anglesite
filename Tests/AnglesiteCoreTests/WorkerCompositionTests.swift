@@ -246,6 +246,30 @@ struct WorkerCompositionTests {
         #expect(toml.contains(#"run_worker_first = ["/inbox"]"#))
     }
 
+    @Test("withAPICatalogClaim leaves claims untouched on a static-only site (#1659)")
+    func withAPICatalogClaimNoOpWhenStatic() {
+        let claims = [WorkerRouteClaims.OwnedClaim(owner: "indieauth", claim: WorkerComposition.mcpRouteClaim)]
+        let result = WorkerComposition.withAPICatalogClaim(claims, workers: [])
+        #expect(result == claims)
+    }
+
+    @Test("withAPICatalogClaim appends the catalog claim once the social layer is composed (#1659)")
+    func withAPICatalogClaimAppendsWhenSocial() {
+        let result = WorkerComposition.withAPICatalogClaim([], workers: [indieauthWorker])
+        #expect(result.count == 1)
+        #expect(result[0].owner == WorkerComposition.apiCatalogOwnerID)
+        #expect(result[0].claim == WorkerComposition.apiCatalogRouteClaim)
+    }
+
+    @Test("the API catalog claim reaches run_worker_first via generateWranglerToml (#1659)")
+    func apiCatalogClaimReachesRunWorkerFirst() throws {
+        let owned = WorkerRouteClaims.wellKnownClaims(
+            WorkerComposition.withAPICatalogClaim([], workers: [indieauthWorker]))
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [indieauthWorker], routeClaims: owned.map(\.claim))
+        #expect(toml.contains(#""/.well-known/api-catalog""#))
+    }
+
     @Test("static-only sites emit no run_worker_first")
     func staticOnlyOmitsRunWorkerFirst() throws {
         let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [])

@@ -135,6 +135,9 @@ public struct SiteOperations: Sendable {
         } catch {
             return .failed(reason: "worker route claims are invalid: \(error)", exitCode: nil)
         }
+        // #1659: adds the app-owned RFC 9727 API Catalog claim whenever the social layer is
+        // composed at all, before either downstream use below — see `withAPICatalogClaim`.
+        let effectiveRouteClaims = WorkerComposition.withAPICatalogClaim(routeClaims, workers: workers)
 
         // Prefer the site's already-established Worker name (`.site-config`'s `CF_PROJECT_NAME`,
         // set at the first successful deploy or by a worker-name-conflict rename, #740) over
@@ -164,13 +167,13 @@ public struct SiteOperations: Sendable {
             siteDirectory: siteDirectory,
             siteName: workerSiteName,
             workers: workers,
-            routeClaims: routeClaims.map(\.claim),
+            routeClaims: effectiveRouteClaims.map(\.claim),
             knownResources: settings.provisionedWorkerResources ?? .init(),
             // #934: this headless path (App Intents/Shortcuts/Siri) now sees the same active
             // dynamic /.well-known/ claims the GUI Deploy button already threads via
             // `DeployModel.runDeploy`'s custom deployer closure, so #744's collision check blocks
             // identically regardless of trigger.
-            wellKnownDynamicClaims: WorkerRouteClaims.wellKnownClaims(routeClaims),
+            wellKnownDynamicClaims: WorkerRouteClaims.wellKnownClaims(effectiveRouteClaims),
             activityPubActorType: isHostedCommunity ? "Group" : nil,
             moderators: isHostedCommunity ? settings.moderators : nil,
             experiments: runningExperiments,
