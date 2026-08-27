@@ -35,4 +35,35 @@ struct OffscreenHTMLConverterTests {
     @Test func malformedJSONDecodesToNil() {
         #expect(OffscreenHTMLConverter.decodeExtraction("not json") == nil)
     }
+
+    /// This decouples the resource-PATH-construction logic from Xcode's actual bundling — it
+    /// can't catch a future "forgot to add Resources/ImportEngine to project.yml's Anglesite
+    /// target `sources:`" regression (nothing but a real Xcode build can, see the app-build
+    /// verification in the #1636 final-review fix report), but it does catch a path-construction
+    /// typo in `importEngineSource(bundle:)` itself.
+    @Test func importEngineSourceReadsTheBundledJSFile() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("offscreen-html-converter-\(UUID().uuidString)", isDirectory: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+        let engineDir = tempDir.appendingPathComponent("ImportEngine", isDirectory: true)
+        try FileManager.default.createDirectory(at: engineDir, withIntermediateDirectories: true)
+        try "window.__anglesiteImportExtract = () => \"{}\";".write(
+            to: engineDir.appendingPathComponent("import-engine.js"), atomically: true, encoding: .utf8)
+
+        // A plain directory `Bundle` resolves `resourceURL` to itself — enough to exercise
+        // `importEngineSource`'s path-joining without needing a real .bundle/.app structure.
+        let bundle = try #require(Bundle(url: tempDir))
+        let source = OffscreenHTMLConverter.importEngineSource(bundle: bundle)
+        #expect(source == "window.__anglesiteImportExtract = () => \"{}\";")
+    }
+
+    @Test func importEngineSourceReturnsNilWhenTheResourceIsMissing() throws {
+        let tempDir = FileManager.default.temporaryDirectory
+            .appendingPathComponent("offscreen-html-converter-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: tempDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: tempDir) }
+
+        let bundle = try #require(Bundle(url: tempDir))
+        #expect(OffscreenHTMLConverter.importEngineSource(bundle: bundle) == nil)
+    }
 }

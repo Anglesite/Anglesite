@@ -53,6 +53,10 @@ targets:
         type: folder
         buildPhase: resources
         optional: true
+      - path: Resources/ImportEngine
+        type: folder
+        buildPhase: resources
+        optional: true
       - path: Resources/Anglesite.help
         type: folder
         buildPhase: resources

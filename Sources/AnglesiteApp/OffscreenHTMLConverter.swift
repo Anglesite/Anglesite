@@ -36,7 +36,12 @@ final class OffscreenHTMLConverter: NSObject, ImportHTMLConverter, WKNavigationD
     /// Reads `Resources/ImportEngine/import-engine.js` from `bundle` — `nil` if the resource is
     /// missing (an unlikely but non-fatal build issue; conversion then always yields `("", [])`,
     /// which `WXRRung` already turns into a per-entry `ImportProblem` rather than crashing).
-    private static func importEngineSource(bundle: Bundle) -> String? {
+    ///
+    /// `internal` (not `private`) so tests can point it at a fixture `Bundle` and verify the
+    /// path-construction logic directly, decoupled from whether Xcode's real build actually
+    /// bundles `Resources/ImportEngine/` (that half can only be verified by a real app build —
+    /// see `project.yml`'s `Anglesite` target `sources:` list).
+    static func importEngineSource(bundle: Bundle) -> String? {
         guard let resourceURL = bundle.resourceURL else { return nil }
         return try? String(contentsOf: resourceURL.appendingPathComponent("ImportEngine/import-engine.js"),
                            encoding: .utf8)
