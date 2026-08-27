@@ -1,4 +1,9 @@
 import Foundation
+// XMLParser/XMLParserDelegate live in FoundationXML on non-Darwin platforms
+// (swift-corelibs-foundation); this import is a no-op on macOS.
+#if canImport(FoundationXML)
+import FoundationXML
+#endif
 
 /// One `<item>` from a WordPress eXtended RSS (WXR) export — the file WordPress's own "Export"
 /// screen and Cloudflare's EmDash Exporter plugin both produce (#1636). `WXRParser` decodes every
