@@ -1,0 +1,54 @@
+---
+// AstroPaper pack (#1651) homepage: the original's blog-first front page — a short
+// masthead intro followed straight by the recent-posts list — with the chassis's
+// HomepageWriter sentinels kept byte-for-byte (title/description below, and the hero's
+// <h1>/<p>). The `<section class="hero">` open tag is also load-bearing:
+// HeroImage/LogoAsset insert the site logo and generated hero image right after it.
+import { getCollection } from "astro:content";
+import BaseLayout from "../layouts/BaseLayout.astro";
+import PostListItem from "../components/PostListItem.astro";
+// anglesite:imports — integration component imports are injected here on setup
+
+/** How many posts the front page lists before handing off to /blog/ (AstroPaper's own count). */
+const RECENT_COUNT = 4;
+
+const posts = (
+  await getCollection("blog", ({ data }) => (import.meta.env.PROD ? !data.draft : true))
+).sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
+const recent = posts.slice(0, RECENT_COUNT);
+---
+
+<BaseLayout
+  title="Welcome — Your New Anglesite Business Website"
+  description="Your business website is ready to set up in Anglesite."
+>
+  <section class="hero">
+    <h1>Welcome</h1>
+    <p>This site is ready to customize in Anglesite. Open the app to edit your pages, add content, and publish when you're ready.</p>
+    <p><a href="/blog/rss.xml">Subscribe (RSS)</a> · <a href="/search/">Search</a></p>
+    <!-- anglesite:hero-cta -->
+  </section>
+  <section>
+    <h2 class="ap-section-title">Recent Posts</h2>
+    {
+      recent.length === 0 ? (
+        <p>No posts yet. Add a Markdown file in <code>src/content/blog/</code> to get started.</p>
+      ) : (
+        <ul class="ap-post-list">
+          {recent.map((post) => (
+            <PostListItem
+              href={`/blog/${post.id}/`}
+              title={post.data.title}
+              pubDate={post.data.pubDate}
+              description={post.data.description}
+              draft={post.data.draft}
+            />
+          ))}
+        </ul>
+      )
+    }
+    {posts.length > recent.length && (
+      <p class="ap-more"><a href="/blog/">All posts →</a></p>
+    )}
+  </section>
+</BaseLayout>
