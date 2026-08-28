@@ -60,12 +60,12 @@ struct ThemeCatalogTests {
     }
 
     @Test func defaultThemeIDUsesPreferredMappingWhenPresent() {
-        let ids = ["classic", "elegant", "warm", "bold", "community", "astrowind"]
+        let ids = ["classic", "elegant", "warm", "bold", "community", "astrowind", "cactus"]
         let catalog = ThemeCatalog(themes: ids.map {
             Theme(id: $0, name: $0, blurb: "", swatch: [], cssVars: [:])
         })
         #expect(catalog.defaultThemeID(for: .business) == "astrowind")
-        #expect(catalog.defaultThemeID(for: .personal) == "elegant")
+        #expect(catalog.defaultThemeID(for: .personal) == "cactus")
         #expect(catalog.defaultThemeID(for: .blog) == "warm")
         #expect(catalog.defaultThemeID(for: .portfolio) == "bold")
         #expect(catalog.defaultThemeID(for: .organization) == "community")
@@ -97,7 +97,7 @@ struct ThemeCatalogTests {
     // DRIFT GUARD: decode the REAL bundled themes.json from the in-repo template.
     @Test func realThemesFileParsesToEightCompleteThemes() throws {
         let themes = try ThemeCatalog.parse(themesJSON: Data(contentsOf: Self.realThemesURL()))
-        #expect(themes.count == 9, "expected 8 built-in themes + 1 ported pack (astrowind)")
+        #expect(themes.count == 10, "expected 8 built-in themes + 2 ported packs (astrowind, cactus)")
         // A duplicate id would silently collide in theme(id:)'s first{} lookup (and in the
         // template's Object.fromEntries) — enforce uniqueness at the source.
         let ids = themes.map(\.id)
@@ -110,6 +110,21 @@ struct ThemeCatalogTests {
         let catalog = ThemeCatalog(themes: themes)
         for type in SiteType.allCases {
             #expect(catalog.theme(id: catalog.defaultThemeID(for: type)) != nil)
+        }
+    }
+
+    // DRIFT GUARD: every category that has a ported pack must have its flagship wired up —
+    // `defaultThemeID(for:)` resolves to a real catalog entry that actually carries `pack`,
+    // `category`, `thumbnail`, and `credit`, so the chooser's per-category pre-selection can
+    // never land on a plain CSS-var theme once a pack ships for that category (spec §4).
+    @Test func portedCategoriesPreselectTheirFlagshipPack() throws {
+        let catalog = ThemeCatalog(themes: try ThemeCatalog.parse(themesJSON: Data(contentsOf: Self.realThemesURL())))
+        for (type, category) in [(SiteType.business, "business"), (SiteType.personal, "personal")] {
+            let theme = try #require(catalog.theme(id: catalog.defaultThemeID(for: type)))
+            #expect(theme.category == category, "\(type) preselects \(theme.id), category \(theme.category ?? "nil")")
+            #expect(theme.pack != nil, "\(theme.id) is not a pack entry")
+            #expect(theme.thumbnail != nil, "\(theme.id) has no thumbnail")
+            #expect(theme.credit != nil, "\(theme.id) has no credit")
         }
     }
 

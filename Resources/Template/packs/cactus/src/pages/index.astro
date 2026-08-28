@@ -1,0 +1,26 @@
+---
+// Astro Cactus pack (#1650) homepage: the original's front-page rhythm — a short greeting,
+// then Posts, Notes, and where to find the owner elsewhere — with the chassis's
+// HomepageWriter sentinels kept byte-for-byte (title/description below, and the hero's
+// <h1>/<p>). The `<section class="hero">` open tag is also load-bearing: HeroImage/LogoAsset
+// insert the site logo and generated hero image right after it.
+import BaseLayout from "../layouts/BaseLayout.astro";
+import HomePosts from "../components/HomePosts.astro";
+import HomeNotes from "../components/HomeNotes.astro";
+import SocialList from "../components/SocialList.astro";
+// anglesite:imports — integration component imports are injected here on setup
+---
+
+<BaseLayout
+  title="Welcome — Your New Anglesite Business Website"
+  description="Your business website is ready to set up in Anglesite."
+>
+  <section class="hero">
+    <h1>Welcome</h1>
+    <p>This site is ready to customize in Anglesite. Open the app to edit your pages, add content, and publish when you're ready.</p>
+    <!-- anglesite:hero-cta -->
+  </section>
+  <HomePosts />
+  <HomeNotes />
+  <SocialList />
+</BaseLayout>

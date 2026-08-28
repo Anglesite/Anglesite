@@ -1,0 +1,74 @@
+---
+// Astro Cactus pack (#1650): the original's minimal header — brand on the left, a short
+// monospaced nav and the theme toggle on the right, no background, no border. The slot
+// receives whatever BaseLayout places at the `<!-- anglesite:nav -->` anchor (e.g. the menu
+// integration's injected <Nav />), so integration nav items land inside this header instead
+// of floating above it.
+import ThemeToggle from "./ThemeToggle.astro";
+import { readConfig } from "../../scripts/config";
+
+const siteName = readConfig("SITE_NAME") ?? "Home";
+---
+
+<header class="cactus-header">
+  <div class="cactus-header-inner">
+    <a class="cactus-brand" href="/">{siteName}</a>
+    <div class="cactus-header-end">
+      <nav aria-label="Site">
+        <a href="/blog/">Posts</a>
+        <a href="/notes/">Notes</a>
+        <a href="/now/">Now</a>
+        <a href="/about/">About</a>
+      </nav>
+      <slot />
+      <ThemeToggle />
+    </div>
+  </div>
+</header>
+
+<style>
+  .cactus-header {
+    width: 100%;
+  }
+
+  .cactus-header-inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 4);
+    max-width: var(--cactus-measure);
+    margin-inline: auto;
+    padding: calc(var(--spacing-unit) * 8) calc(var(--spacing-unit) * 6) calc(var(--spacing-unit) * 4);
+  }
+
+  .cactus-brand {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.0625rem;
+    color: var(--color-text);
+  }
+
+  .cactus-header-end {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--spacing-unit) * 4);
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 4);
+  }
+
+  /* Monospaced nav is the original's most recognisable typographic tic. */
+  nav a {
+    font-family: var(--cactus-mono);
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  nav a:hover {
+    color: var(--cactus-link);
+  }
+</style>
