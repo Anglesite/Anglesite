@@ -1,0 +1,74 @@
+---
+// Starfolio pack (#1652): recent writing — the original's MDX blog, surfaced on the one-page
+// homepage as its three most recent posts. Unlike the other placeholder sections this one is
+// live: it reads the chassis's own `blog` collection with the same draft rule the chassis blog
+// index uses, so a site with posts shows them and a brand-new site shows the empty-state line.
+import { getCollection } from "astro:content";
+import DraftBadge from "./DraftBadge.astro";
+
+const posts = (
+  await getCollection("blog", ({ data }) => (import.meta.env.PROD ? !data.draft : true))
+)
+  .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
+  .slice(0, 3);
+---
+
+<section id="writing" class="sf-section" aria-labelledby="writing-heading">
+  <h2 id="writing-heading">Writing</h2>
+  {
+    posts.length === 0 ? (
+      <p class="sf-empty">
+        No posts yet. Add a Markdown file in <code>src/content/blog/</code>, or write your first
+        post in Anglesite.
+      </p>
+    ) : (
+      <ol class="sf-rows">
+        {posts.map((post) => (
+          <li>
+            <div>
+              <h3><DraftBadge draft={post.data.draft} /><a href={`/blog/${post.id}/`}>{post.data.title}</a></h3>
+              {post.data.description && <p>{post.data.description}</p>}
+            </div>
+            <time class="sf-meta" datetime={post.data.pubDate.toISOString()}>
+              {post.data.pubDate.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}
+            </time>
+          </li>
+        ))}
+      </ol>
+    )
+  }
+  <p class="sf-more"><a href="/blog/">All posts</a> · <a href="/blog/rss.xml">RSS</a></p>
+</section>
+
+<style>
+  .sf-rows {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 5);
+  }
+
+  li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: calc(var(--spacing-unit) * 4);
+  }
+
+  h3 {
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  li p,
+  .sf-empty {
+    font-size: 0.9375rem;
+    color: var(--color-text-muted);
+  }
+
+  .sf-more {
+    margin-block-start: calc(var(--spacing-unit) * 5);
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+</style>

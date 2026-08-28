@@ -51,12 +51,15 @@ One screen (fixed 720×480 sheet; footer **Cancel / Create**):
 - **Right: the grid** — title **"Choose a Template"**; theme cards filtered to the selected
   category. On Blank all eight built-in themes appear, each card a miniature page mock in
   the theme's colors with name + description; the first catalog theme ("Classic") is
-  pre-selected. *(Once theme packs land under #1179, pack cards render a committed
-  thumbnail image instead of the synthesized mock, and switching to a category pre-selects
-  its flagship pack.)*
-- **Empty categories:** until theme packs land, every non-Blank category shows
-  **"No themes in this category yet"** with **Create disabled** — not an empty grid, not a
-  phantom selection, and nothing on disk if dismissed from that state.
+  pre-selected.
+- **Ported packs** (#1179): a pack's card renders its committed `thumbnail.png` — a real
+  screenshot of the pack's homepage — instead of the synthesized two-color mock, and
+  switching to that pack's category pre-selects it. Currently shipped: **Business** →
+  *AstroWind* (#1649), **Portfolio** → *Starfolio* (#1652).
+- **Categories with no pack yet:** Personal website, Blog, and Organization website still
+  show **"No themes in this category yet"** with **Create disabled** — not an empty grid,
+  not a phantom selection, and nothing on disk if dismissed from that state. Each drops off
+  this list as its port lands (#1650, #1651, #1653).
 - Single click selects (accent ring); **double-click creates immediately**.
 - **Create** is the default button (Return). No name field, no domain question, no separate
   site-type step, no content step, no save panel (#1071) — the category choice *is* the
