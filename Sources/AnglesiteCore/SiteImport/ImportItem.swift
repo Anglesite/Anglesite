@@ -22,6 +22,7 @@ public struct ImportItem: Sendable, Equatable {
         case feed
         case microformats
         case readability
+        case wxr
     }
 
     /// A semantic hint about the item's content type.

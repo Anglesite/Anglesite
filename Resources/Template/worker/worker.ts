@@ -922,6 +922,26 @@ function handleOAuthProtectedResourceMetadata(request: Request): Response {
 }
 
 /**
+ * RFC 9728 §5.1: a protected resource returning `401` should point back at its own
+ * protected-resource metadata via `WWW-Authenticate`'s `resource_metadata` parameter — the
+ * mechanism an agent uses to find `/.well-known/oauth-protected-resource` straight from a failed
+ * request, without already knowing the URL. `@dwk/micropub`/`@dwk/microsub`'s own 401s don't set
+ * this header, so `handleMicropub`/`handleMicrosub` wrap their responses through this instead of
+ * patching the upstream library. Scheme is `DPoP`, not `Bearer` — matching
+ * `handleOAuthProtectedResourceMetadata`'s `dpop_bound_access_tokens_required`, since
+ * `@dwk/indieauth` never issues plain Bearer tokens. A non-401 response, or one that already
+ * carries its own `WWW-Authenticate`, passes through unchanged.
+ */
+function withResourceMetadataChallenge(response: Response, baseUrl: string): Response {
+  if (response.status !== 401 || response.headers.has("www-authenticate")) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  headers.set("www-authenticate", `DPoP resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+/**
  * Inbound-Webmention receive endpoint (V-3.1, #359).
  *
  * Composes `@dwk/webmention`'s receiver: a form-encoded `POST` of `source` + `target` is
@@ -1087,7 +1107,7 @@ function handleMicropub(
         fanOutMicropubCreateToActivityPub(content, photos, visibility, btoTargets, baseUrl, response, env, ctx),
       );
     }
-    return response;
+    return withResourceMetadataChallenge(response, baseUrl);
   });
 }
 
@@ -1441,7 +1461,7 @@ function handleMicrosub(
     AUTH_DB: env.AUTH_DB,
     TOKEN_SIGNING_KEY: env.TOKEN_SIGNING_KEY,
   };
-  return microsub(request, microsubEnv, ctx);
+  return microsub(request, microsubEnv, ctx).then((response) => withResourceMetadataChallenge(response, baseUrl));
 }
 
 /**

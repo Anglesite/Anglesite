@@ -1,4 +1,9 @@
 {
   "default": null,
-  "collections": {}
+  "collections": {},
+  "usage": {
+    "search": "yes",
+    "aiInput": "no",
+    "aiTrain": "no"
+  }
 }

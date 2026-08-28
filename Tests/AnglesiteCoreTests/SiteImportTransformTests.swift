@@ -56,6 +56,52 @@ import Testing
         }
     }
 
+    @Test func runFromResolvedContentSkipsSourceResolution() throws {
+        let item = ImportItem(sourceURL: "https://example.com/hello", title: "Hello",
+                              published: Date(timeIntervalSince1970: 1_700_000_000),
+                              markdown: "Hi there.", images: ["https://example.com/cat.jpg"],
+                              rung: .wxr, hint: .wpPost)
+        let resolved = ResolvedContent(items: [item], homepage: nil, skippedURLs: [], problems: [])
+
+        let work = FileManager.default.temporaryDirectory
+            .appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let assetsDirectory = work.appendingPathComponent("assets", isDirectory: true)
+        let source = work.appendingPathComponent("Source", isDirectory: true)
+        let config = work.appendingPathComponent("Config", isDirectory: true)
+        for directory in [assetsDirectory, source, config] {
+            try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        }
+        defer { try? FileManager.default.removeItem(at: work) }
+        try Self.pngBytes.write(to: assetsDirectory.appendingPathComponent("cat.png"))
+        let assets = [CapturedAsset(sourceURL: "https://example.com/cat.jpg", relativePath: "cat.png")]
+
+        var steps: [ImportStep] = []
+        let report = try ImportTransform.run(
+            resolved: resolved, assets: assets, assetsDirectory: assetsDirectory,
+            sourceDirectory: source, configDirectory: config,
+            now: Date(timeIntervalSince1970: 1_700_000_000), onStep: { steps.append($0) })
+
+        // No `.resolvingContent` step — there's nothing to resolve, this content already is.
+        #expect(steps.first == .classifying(itemCount: 1))
+        #expect(report.writeProblems.isEmpty)
+        #expect(report.writtenPaths == ["src/content/blog/hello.md"])
+        // `LinkImageAsset.fileName` always prepends `link-` to the slug (see the `wpSiteGoldenRun`
+        // test's `link-second-post-1.png` etc.) — unrelated to and unaffected by this refactor.
+        #expect(report.installedImagePaths == ["public/images/link-hello-1.png"])
+        #expect(try ImportReport.load(from: config) == report)
+    }
+
+    @Test func runFromResolvedContentThrowsOnMissingSourceDirectory() {
+        let resolved = ResolvedContent(items: [], homepage: nil, skippedURLs: [], problems: [])
+        let missing = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        #expect(throws: ImportTransformError.sourceDirectoryMissing(missing.path)) {
+            try ImportTransform.run(
+                resolved: resolved, assets: [], assetsDirectory: missing,
+                sourceDirectory: missing, configDirectory: missing,
+                now: Date(), onStep: { _ in })
+        }
+    }
+
     /// The `photos` collection's required `image:` comes from the item's `.photo` hint, not from
     /// the Markdown body — so it needs the same remote-URL → local-path rewrite the body gets, or
     /// the entry ships pointing at the old site's origin and the strict CSP blocks it.
