@@ -1077,6 +1077,11 @@ test("webmention queue consumer: no-ops (does not throw) when the inbox/site ori
 test("micropub: an unauthorized request (no Authorization header) is rejected", async () => {
   const response = await fetchWorker(new Request("https://owner.example/micropub?q=config"));
   expect(response.status).toBe(401);
+  // RFC 9728 §5.1 discovery signal (#1665): points an agent at the protected-resource metadata
+  // document straight from the failed request.
+  expect(response.headers.get("www-authenticate")).toBe(
+    'DPoP resource_metadata="https://owner.example/.well-known/oauth-protected-resource"',
+  );
 });
 
 test("micropub: a valid token creates a post (201 + Location)", async () => {
@@ -2133,6 +2138,11 @@ async function createMicrosubChannel(
 test("microsub: an unauthorized request (no Authorization header) is rejected", async () => {
   const response = await fetchWorker(new Request("https://owner.example/microsub?action=channels"));
   expect(response.status).toBe(401);
+  // RFC 9728 §5.1 discovery signal (#1665): points an agent at the protected-resource metadata
+  // document straight from the failed request.
+  expect(response.headers.get("www-authenticate")).toBe(
+    'DPoP resource_metadata="https://owner.example/.well-known/oauth-protected-resource"',
+  );
 });
 
 test("microsub: a valid token creates a channel and follows a feed (200)", async () => {

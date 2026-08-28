@@ -171,7 +171,16 @@ public enum AgentReadinessCatalog {
             displayName: "Protected resource discovery",
             passHint: "AI agents can find how to access your site's protected resources.",
             failHint: "AI agents can't find how to access your site's protected resources.",
-            anglesiteProvides: false),
+            // #1665: worker.ts already served a real RFC 9728 protected-resource metadata
+            // document at /.well-known/oauth-protected-resource (#1577), but the IndieAuth-gated
+            // endpoints it points at (Micropub, Microsub, the media endpoint) didn't send the
+            // matching RFC 9728 §5.1 discovery signal — a `WWW-Authenticate` challenge naming
+            // `resource_metadata` — on their own 401s, so an agent that only knew to hit those
+            // endpoints (rather than guessing the well-known path) had no standard way to find
+            // the metadata document. #1665 closed that gap (`withResourceMetadataChallenge`),
+            // completing the same "non-404, well-formed metadata backed by a real discovery
+            // path" shape #1580's oauthDiscovery flip reasoned from.
+            anglesiteProvides: true),
         "webMcp": .init(
             displayName: "In-browser agent tools (WebMCP)",
             passHint: "AI agents browsing your site can use its in-page tools directly.",
