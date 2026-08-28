@@ -1,11 +1,13 @@
 ---
 // Astro Cactus pack (#1650): the homepage "Notes" stream — the original's short-form
 // counterpart to Posts, showing the notes themselves rather than a list of links. Reads the
-// chassis's existing `notes` collection through the same helper the `/notes/` index uses, so
-// draft handling and date resolution stay in one place.
-import { getIndexItems } from "../lib/collection-index-astro.ts";
+// chassis's existing `notes` collection through the shared helper, so draft handling and date
+// resolution stay in one place. `getRecentIndexItems` (not `getIndexItems(...).slice()`) so
+// the cap is applied to the cheap metadata *before* the expensive per-entry `render()` — this
+// section costs 3 renders whether the site has 3 notes or 3000.
+import { getRecentIndexItems } from "../lib/collection-index-astro.ts";
 
-const notes = (await getIndexItems("notes")).slice(0, 3);
+const notes = await getRecentIndexItems("notes", 3);
 ---
 
 <section class="cactus-section" aria-labelledby="cactus-notes-heading">
