@@ -25,8 +25,9 @@
      AstroPaper's orange below — the primary itself must stay one value in both schemes
      because the catalog entry's `vars` pin it (ThemeApplier rewrites `--color-primary:`
      declarations file-wide, so a dark override would be flattened on theme re-apply).
-     Same reason `--color-accent` is decorative here (wavy underlines, rules) rather than
-     a text color: at 2.6:1 on the paper ground it could never carry text. */
+     Same reason `--color-accent` is decorative here (section tick, rules) rather than a
+     text color: at 2.8:1 on the paper ground (2.6:1 on the surface) it could never
+     carry text. */
   --ap-link: var(--color-primary);
   --ap-border: #ece9e9;
   /* AstroPaper's single narrow column (the original's `max-w-3xl`). */
