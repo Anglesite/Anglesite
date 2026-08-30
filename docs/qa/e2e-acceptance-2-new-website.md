@@ -52,16 +52,17 @@ One screen (fixed 720×480 sheet; footer **Cancel / Create**):
   category. On Blank all eight built-in themes appear, each card a miniature page mock in
   the theme's colors with name + description; the first catalog theme ("Classic") is
   pre-selected.
-- **Ported packs (#1179):** **Business website** shows one card, **AstroWind** (#1649);
-  **Personal website** shows one card, **Cactus** (#1650); **Blog** shows one card,
-  **AstroPaper** (#1651); and **Organization website** shows one card, **Astroplate**
-  (#1653). All four render their committed `thumbnail.png` — a real screenshot of the built
-  pack — rather than the synthesized two-color mock, and switching to that category
-  pre-selects its flagship pack. Creating from one must produce a site whose homepage
-  matches the thumbnail's layout, not the base chassis.
-- **Empty categories:** **Portfolio** has no pack yet (#1652), so it still shows **"No
-  themes in this category yet"** with **Create disabled** — not an empty grid, not a
-  phantom selection, and nothing on disk if dismissed from that state.
+- **Ported packs** (#1179): a pack's card renders its committed `thumbnail.png` — a real
+  screenshot of the pack's homepage — instead of the synthesized two-color mock, and
+  switching to that pack's category pre-selects it. All five chooser categories now have a
+  flagship pack: **Business** → *AstroWind* (#1649), **Personal website** → *Cactus*
+  (#1650), **Blog** → *AstroPaper* (#1651), **Portfolio** → *Starfolio* (#1652),
+  **Organization website** → *Astroplate* (#1653). Creating from one must produce a site
+  whose homepage matches the thumbnail's layout, not the base chassis.
+- **Categories with no pack:** none — every non-Blank category now has a flagship pack, so
+  the empty-grid / "No themes in this category yet" state described in earlier revisions of
+  this doc no longer applies to any of them; Blank alone keeps the synthesized-card grid of
+  eight built-in themes.
 - Single click selects (accent ring); **double-click creates immediately**.
 - **Create** is the default button (Return). No name field, no domain question, no separate
   site-type step, no content step, no save panel (#1071) — the category choice *is* the

@@ -51,6 +51,72 @@ public enum LicenseMetadataEmbedder {
         return .unsupported
     }
 
+    /// Reads the license `embed(_:into:type:)` (or an equivalent writer) embedded into `data`,
+    /// read as `type` (#1672 — the drop-and-inspect flow this type's own doc comment
+    /// anticipated). Both backends write the same `xmpRights:WebStatement`/`xmpRights:UsageTerms`
+    /// fields, so this shares one read path for both.
+    ///
+    /// - Returns: `nil` for a `type` outside ``supportedTypes``, for data that fails to decode as
+    ///   that type, or for a supported file with no embedded license — never throws.
+    public static func readLicense(from data: Data, type: UTType) -> LicenseRef? {
+        guard supportedTypes.contains(type) else { return nil }
+        if imageTypes.contains(type) {
+            return readFromImage(data)
+        }
+        if type == .pdf {
+            return readFromPDF(data)
+        }
+        return nil
+    }
+
+    private static func readFromImage(_ data: Data) -> LicenseRef? {
+        guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+              CGImageSourceGetCount(source) > 0,
+              let metadata = CGImageSourceCopyMetadataAtIndex(source, 0, nil) else {
+            return nil
+        }
+        return licenseRef(from: metadata)
+    }
+
+    /// Reads the XMP packet `embedIntoPDF` writes, via `CGPDFDocument`'s catalog `/Metadata`
+    /// stream — the same location `CGContext.addDocumentMetadata(_:)` writes to. PDFKit has no
+    /// XMP accessor, so this is the only way to read it back.
+    private static func readFromPDF(_ data: Data) -> LicenseRef? {
+        guard let provider = CGDataProvider(data: data as CFData),
+              let document = CGPDFDocument(provider),
+              let catalog = document.catalog else {
+            return nil
+        }
+        var metadataStream: CGPDFStreamRef?
+        guard CGPDFDictionaryGetStream(catalog, "Metadata", &metadataStream), let stream = metadataStream else {
+            return nil
+        }
+        var format: CGPDFDataFormat = .raw
+        guard let xmpData = CGPDFStreamCopyData(stream, &format),
+              let metadata = CGImageMetadataCreateFromXMPData(xmpData) else {
+            return nil
+        }
+        return licenseRef(from: metadata)
+    }
+
+    /// Shared by both backends: `metadata` may come from an image's own metadata slot or from a
+    /// raw XMP packet parsed via `CGImageMetadataCreateFromXMPData` — either way the rights
+    /// fields live at the same path once the `xmpRights` prefix is registered against a mutable
+    /// copy (the same registration `embedIntoImage` performs, and just as harmless to repeat if
+    /// the prefix is already present).
+    private static func licenseRef(from metadata: CGImageMetadata) -> LicenseRef? {
+        guard let mutable = CGImageMetadataCreateMutableCopy(metadata) else { return nil }
+        let xmpRightsNamespace = "http://ns.adobe.com/xap/1.0/rights/" as CFString
+        _ = CGImageMetadataRegisterNamespaceForPrefix(mutable, xmpRightsNamespace, "xmpRights" as CFString, nil)
+        guard let url = CGImageMetadataCopyStringValueWithPath(mutable, nil, "xmpRights:WebStatement" as CFString) as String?,
+              !url.isEmpty else {
+            return nil
+        }
+        let rawName = CGImageMetadataCopyStringValueWithPath(mutable, nil, "xmpRights:UsageTerms" as CFString) as String?
+        let name = (rawName?.isEmpty == false) ? rawName! : url
+        return LicenseRef(url: url, name: name)
+    }
+
     /// UTTypes this embedder can write a license into today.
     public static let supportedTypes: Set<UTType> = imageTypes.union([.pdf])
 

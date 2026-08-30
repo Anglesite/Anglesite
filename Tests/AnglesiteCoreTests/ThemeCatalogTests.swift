@@ -60,14 +60,17 @@ struct ThemeCatalogTests {
     }
 
     @Test func defaultThemeIDUsesPreferredMappingWhenPresent() {
-        let ids = ["classic", "elegant", "warm", "bold", "community", "astrowind", "cactus", "astropaper", "astroplate"]
+        let ids = [
+            "classic", "elegant", "warm", "bold", "community",
+            "astrowind", "starfolio", "cactus", "astropaper", "astroplate",
+        ]
         let catalog = ThemeCatalog(themes: ids.map {
             Theme(id: $0, name: $0, blurb: "", swatch: [], cssVars: [:])
         })
         #expect(catalog.defaultThemeID(for: .business) == "astrowind")
         #expect(catalog.defaultThemeID(for: .personal) == "cactus")
         #expect(catalog.defaultThemeID(for: .blog) == "astropaper")
-        #expect(catalog.defaultThemeID(for: .portfolio) == "bold")
+        #expect(catalog.defaultThemeID(for: .portfolio) == "starfolio")
         #expect(catalog.defaultThemeID(for: .organization) == "astroplate")
         #expect(catalog.defaultThemeID(for: .community) == "community")
     }
@@ -97,7 +100,7 @@ struct ThemeCatalogTests {
     // DRIFT GUARD: decode the REAL bundled themes.json from the in-repo template.
     @Test func realThemesFileParsesToEightCompleteThemes() throws {
         let themes = try ThemeCatalog.parse(themesJSON: Data(contentsOf: Self.realThemesURL()))
-        #expect(themes.count == 12, "expected 8 built-in themes + 4 ported packs (astrowind, cactus, astropaper, astroplate)")
+        #expect(themes.count == 13, "expected 8 built-in themes + 5 ported packs (astrowind, starfolio, cactus, astropaper, astroplate)")
         // A duplicate id would silently collide in theme(id:)'s first{} lookup (and in the
         // template's Object.fromEntries) — enforce uniqueness at the source.
         let ids = themes.map(\.id)
@@ -113,6 +116,23 @@ struct ThemeCatalogTests {
         }
     }
 
+    // DRIFT GUARD (#1652): the Portfolio category's flagship pack entry, complete, in the real
+    // catalog. The chooser pre-selects this id when Portfolio is picked and renders the entry's
+    // committed thumbnail on the card, so a renamed id or a dropped pack/thumbnail/credit field
+    // silently degrades the category to "first theme in the filtered list" with a synthesized card.
+    @Test func realCatalogCarriesPortfolioFlagshipPack() throws {
+        let themes = try ThemeCatalog.parse(themesJSON: Data(contentsOf: Self.realThemesURL()))
+        let catalog = ThemeCatalog(themes: themes)
+        #expect(catalog.defaultThemeID(for: .portfolio) == "starfolio")
+        let starfolio = try #require(catalog.theme(id: "starfolio"))
+        #expect(starfolio.category == "portfolio")
+        #expect(starfolio.pack == "starfolio")
+        #expect(starfolio.thumbnail == "packs/starfolio/thumbnail.png")
+        #expect(starfolio.credit?.license == "MIT")
+        #expect(starfolio.credit?.name.isEmpty == false)
+        #expect(starfolio.credit?.url.isEmpty == false)
+    }
+
     // DRIFT GUARD: every category that has a ported pack must have its flagship wired up —
     // `defaultThemeID(for:)` resolves to a real catalog entry that actually carries `pack`,
     // `category`, `thumbnail`, and `credit`, so the chooser's per-category pre-selection can
@@ -121,7 +141,7 @@ struct ThemeCatalogTests {
         let catalog = ThemeCatalog(themes: try ThemeCatalog.parse(themesJSON: Data(contentsOf: Self.realThemesURL())))
         for (type, category) in [
             (SiteType.business, "business"), (SiteType.personal, "personal"), (SiteType.blog, "blog"),
-            (SiteType.organization, "organization"),
+            (SiteType.portfolio, "portfolio"), (SiteType.organization, "organization"),
         ] {
             let theme = try #require(catalog.theme(id: catalog.defaultThemeID(for: type)))
             #expect(theme.category == category, "\(type) preselects \(theme.id), category \(theme.category ?? "nil")")

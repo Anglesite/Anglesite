@@ -244,6 +244,49 @@ final class WYSIWYGCanvasController {
         await submit(.insertBlock(parentId: rootParentID, slot: "main", index: model.rootIds.count, newId: newId, block: content))
     }
 
+    /// Submits an `insertBlock` op and selects the newly-inserted block on success — the drop
+    /// handler's own selection-on-drop entry point (#1672's resolved default 1: "a controller
+    /// method rather than a direct field write, matching how `deleteSelectedBlock()` owns
+    /// selection changes today"). Leaves `selectedBlockId` untouched on rejection: there's no new
+    /// block to select if the op never landed.
+    @discardableResult
+    func insertBlockAndSelect(
+        parentId: ParentRef, slot: String, index: Int, newId: BlockId, block: BlockNodeContent
+    ) async -> OpResult {
+        let result = await submit(.insertBlock(parentId: parentId, slot: slot, index: index, newId: newId, block: block))
+        if case .applied = result {
+            selectedBlockId = newId
+            pushSelectionToEngine(newId)
+        }
+        return result
+    }
+
+    /// Pushes a native-initiated selection into the JS engine's own `selection` state (#1672
+    /// final review, Finding 4). Every other place `selectedBlockId` changes today either mirrors
+    /// a JS-originated event (`PreviewView`'s `selection-changed`/`focus-inspector` bridge
+    /// messages) or is itself preceded by JS already updating its own selection first — the
+    /// `contextmenu` handler in `mount.ts` calls `engine.selection.select(blockId)` *before*
+    /// posting the `context-menu` message, so `WYSIWYGBlockContextMenu`'s own
+    /// `selectedBlockId = context.blockId` writes just mirror what JS already did.
+    /// `insertBlockAndSelect` above is the first native-initiated selection with no such
+    /// JS-side counterpart to follow it (a Finder/Photos drop, not a click JS ever saw): without
+    /// this, the inspector would show the newly-dropped block selected while the canvas's own
+    /// visual selection handles, and JS-side keyboard handling (`keyboard-nav.ts`, which reads
+    /// `engine.selection.current` directly, not this native mirror), silently stayed on whatever
+    /// was selected before the drop — or nothing, most commonly, since a drop doesn't require an
+    /// existing selection.
+    ///
+    /// Reuses `applyFormat(_:href:)`'s existing bridge shape rather than adding a new one:
+    /// `SelectionState.select(_:)` (`JS/wysiwyg-engine/src/selection.ts`) already exists and is
+    /// exposed on the global `window.__anglesiteWysiwygEngine` `mount.ts` sets up, so this needs
+    /// no JS/TypeScript engine change. Calling it fires the engine's own `selection-changed`
+    /// event, which round-trips back through the bridge to `selectedBlockId = newId` again — a
+    /// harmless no-op since it's already that value. Fire-and-forget/best-effort like
+    /// `applyFormat`: a `nil` `webView` or an unmounted engine (`?.`) no-ops harmlessly.
+    private func pushSelectionToEngine(_ blockId: BlockId) {
+        webView?.evaluateJavaScript("window.__anglesiteWysiwygEngine?.selection.select(\(Self.jsStringLiteral(blockId)))")
+    }
+
     /// The Format menu's Strong/Emphasis/Add Link entry point (#1225 Task 10) — posts into the
     /// mounted `RichTextEditor` (`JS/wysiwyg-engine/src/rich-text.ts`) via the same global the
     /// build's `mount.ts` exposes it under. `command` is `"strong"`/`"em"`/`"link"`; `⌘K` (inline

@@ -1,0 +1,82 @@
+---
+// Starfolio pack (#1652): the project grid — the original's `projects` section, bordered
+// rounded cards with a title, a date, a short description, and a row of tag badges. The
+// upstream card also carries a screenshot or autoplaying video per project; those need image
+// assets the chassis has no home for, so the placeholder cards ship text-only and the owner
+// adds media in the app.
+---
+
+<section id="projects" class="sf-section" aria-labelledby="projects-heading">
+  <h2 id="projects-heading">Projects</h2>
+  <ul class="sf-cards">
+    <li>
+      <h3>Project one</h3>
+      <p class="sf-meta">2025</p>
+      <p>What it does, who it is for, and why you built it.</p>
+      <p class="sf-tags"><span>TypeScript</span><span>Astro</span></p>
+    </li>
+    <li>
+      <h3>Project two</h3>
+      <p class="sf-meta">2024</p>
+      <p>The problem it solves, in one sentence a stranger would understand.</p>
+      <p class="sf-tags"><span>Swift</span><span>SwiftUI</span></p>
+    </li>
+    <li>
+      <h3>Project three</h3>
+      <p class="sf-meta">2024</p>
+      <p>Something you are proud of — a tool, a talk, an experiment.</p>
+      <p class="sf-tags"><span>Open source</span></p>
+    </li>
+    <li>
+      <h3>Project four</h3>
+      <p class="sf-meta">2023</p>
+      <p>Replace or delete these cards as your own work fills the grid.</p>
+      <p class="sf-tags"><span>Design</span></p>
+    </li>
+  </ul>
+</section>
+
+<style>
+  .sf-cards {
+    list-style: none;
+    display: grid;
+    /* min(100%, …) keeps the minimum from overflowing narrow phones; 17rem settles the cards
+       into two columns inside the port's 44rem reading column. */
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+    gap: calc(var(--spacing-unit) * 4);
+  }
+
+  li {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 2);
+    padding: calc(var(--spacing-unit) * 5);
+    border: 1px solid var(--sf-border);
+    border-radius: var(--radius-lg);
+  }
+
+  h3 {
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  li p {
+    font-size: 0.9375rem;
+    color: var(--color-text-muted);
+  }
+
+  .sf-tags {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 2);
+    margin-block-start: auto;
+  }
+
+  .sf-tags span {
+    padding: calc(var(--spacing-unit) * 0.5) calc(var(--spacing-unit) * 2);
+    border: 1px solid var(--sf-border);
+    border-radius: var(--radius-sm);
+    font-size: 0.75rem;
+    color: var(--color-text);
+  }
+</style>

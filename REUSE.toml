@@ -67,6 +67,15 @@ precedence = "override"
 SPDX-FileCopyrightText = "2023 onWidget"
 SPDX-License-Identifier = "MIT"
 
+# Theme pack ported from Starfolio (#1652). Same arrangement as the AstroWind block above: a
+# from-scratch vanilla-CSS adaptation of an MIT-licensed design, carrying the original's
+# license and attribution (the pack's own LICENSE file holds the full text).
+[[annotations]]
+path = "Resources/Template/packs/starfolio/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2026 Starfolio"
+SPDX-License-Identifier = "MIT"
+
 # Theme pack ported from Astro Cactus (#1650), same arrangement as the AstroWind pack above.
 [[annotations]]
 path = "Resources/Template/packs/cactus/**"

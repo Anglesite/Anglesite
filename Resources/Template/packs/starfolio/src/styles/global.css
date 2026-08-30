@@ -1,0 +1,346 @@
+/* Starfolio pack (#1652) — full global.css replacement, per the port contract
+   (docs/superpowers/specs/2026-07-31-curated-theme-ports-design.md §2). Adapted from
+   Starfolio (https://github.com/webrating/starfolio, MIT © Starfolio) — the design,
+   rebuilt on the chassis's vanilla-CSS token system; none of the original's Tailwind,
+   shadcn/ui, Radix, or React comes along. Pack-internal extras use the `--sf-` prefix
+   (ThemeApplier never rewrites them).
+
+   The original's personality in three moves: a narrow single reading column (its
+   `max-w-2xl`), an achromatic neutral palette (shadcn's "neutral" scale — no brand hue
+   anywhere), and *understated* section headings (`text-xl font-bold`, barely larger than
+   body copy) so the content, not the chrome, carries the page. */
+
+:root {
+  /* Achromatic by design: the original's shadcn "neutral" palette has no chromatic accent
+     at all — `primary` is near-black ink and `accent` is a hover surface. `--color-accent`
+     therefore carries the scale's mid grey, used only for decorative rules, rings, and
+     borders (never as text), so its 4.35:1 on --color-surface is not a contrast concern. */
+  --color-primary: #171717;
+  --color-accent: #737373;
+  --color-background: #ffffff;
+  --color-surface: #f5f5f5;
+  --color-text: #0a0a0a;
+  --color-text-muted: #666666;
+  --font-heading: system-ui, -apple-system, sans-serif;
+  --font-body: system-ui, -apple-system, sans-serif;
+  --spacing-unit: 0.25rem;
+  /* The original's `--radius: 0.625rem` base and shadcn's derived sm/md/lg steps. */
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 0.875rem;
+  color-scheme: light dark;
+  /* Starfolio's "ink": near-black in light, near-white in dark — the original's `primary`,
+     which flips between schemes. It cannot be `--color-primary`, because the catalog entry's
+     `vars` pin that one and ThemeApplier rewrites `--color-primary:` declarations file-wide,
+     so a dark override would be flattened on theme re-apply. Everything that needs the
+     flipping ink (links, solid buttons, the skip link) reads these two instead. */
+  --sf-ink: #171717;
+  --sf-ink-contrast: #ffffff;
+  --sf-border: #e5e5e5;
+  /* Dates and other tabular figures, as in the original's Geist Mono pairing. No webfont
+     pipeline rides along, so this is the platform mono stack. */
+  --sf-mono: ui-monospace, "SF Mono", "Cascadia Mono", "Roboto Mono", Menlo, monospace;
+}
+
+/* Dark palette. Only tokens *outside* the catalog entry's `vars` may differ per scheme
+   (see the --sf-ink note above). All pairs meet WCAG AA on --color-background:
+   text 18.1:1, muted 7.5:1 (6.8:1 on surface), links 18.1:1. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #111111;
+    --color-surface: #1c1c1c;
+    --color-text: #fafafa;
+    --color-text-muted: #a3a3a3;
+    --sf-ink: #fafafa;
+    --sf-ink-contrast: #111111;
+    --sf-border: #2a2a2a;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-body);
+  color: var(--color-text);
+  background-color: var(--color-background);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  /* Room for the fixed dock nav (SiteDock.astro) so it never covers the end of the page. */
+  padding-block-end: calc(var(--spacing-unit) * 24);
+}
+
+/* Starfolio's typographic personality: tightly-tracked semibold headings on a *small*
+   scale — its section headings are `text-xl`, only a step above body copy. The hero is the
+   one place the type gets large. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 600;
+  letter-spacing: -0.025em;
+  line-height: 1.25;
+}
+
+h2 {
+  font-size: 1.25rem;
+  font-weight: 700;
+}
+
+a {
+  color: var(--sf-ink);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+
+:focus-visible {
+  outline: 2px solid var(--sf-ink);
+  outline-offset: 2px;
+}
+
+/* First focusable element on every page (BaseLayout). Visually hidden until it receives
+   keyboard focus, then shown as a small pill over the top-left corner. Reads the flipping
+   ink pair, not --color-primary: a fixed near-black pill would vanish into the dark
+   background. */
+.skip-link {
+  position: absolute;
+  inset-block-start: calc(var(--spacing-unit) * 2);
+  inset-inline-start: calc(var(--spacing-unit) * 2);
+  z-index: 100;
+  padding: calc(var(--spacing-unit) * 2) calc(var(--spacing-unit) * 4);
+  background-color: var(--sf-ink);
+  color: var(--sf-ink-contrast);
+  border-radius: var(--radius-sm);
+  transform: translateY(calc(-100% - var(--spacing-unit) * 4));
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+/* The original's narrow single reading column (`max-w-2xl`), not the chassis's 72rem —
+   this is the most visible thing the port carries over. */
+main {
+  flex: 1;
+  width: 100%;
+  max-width: 44rem;
+  margin-inline: auto;
+  padding-inline: calc(var(--spacing-unit) * 6);
+}
+
+/* The skip link's target: it takes programmatic focus (tabindex="-1") so assistive tech
+   follows the jump, but a focus ring around the whole content region is just noise. */
+main:focus {
+  outline: none;
+}
+
+/* Homepage hero. The `.hero` class and its `<section class="hero">` open tag are
+   load-bearing (HeroImage.heroOpenLine — the app inserts the site logo and generated hero
+   image right after it, making them the section's *first* children), so the two-column
+   "intro left, portrait right" split is done with `row-reverse`: the text block is last in
+   the DOM and therefore first visually, and any injected image lands on the trailing edge.
+   Narrow screens stack in DOM order, which puts the portrait above the intro — the same
+   order the original uses on mobile. */
+.hero {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: calc(var(--spacing-unit) * 6);
+  padding-block: calc(var(--spacing-unit) * 16) calc(var(--spacing-unit) * 10);
+}
+
+@media (min-width: 48rem) {
+  .hero {
+    flex-direction: row-reverse;
+    align-items: center;
+    justify-content: space-between;
+    gap: calc(var(--spacing-unit) * 10);
+  }
+}
+
+/* Site logo / generated hero image, rendered as the original's ringed circular portrait. */
+.site-logo,
+.hero-image {
+  flex: none;
+  width: 6rem;
+  height: 6rem;
+  border-radius: 50%;
+  object-fit: cover;
+  box-shadow: 0 0 0 4px var(--color-surface), 0 0 0 5px var(--color-accent);
+}
+
+@media (min-width: 48rem) {
+  .site-logo,
+  .hero-image {
+    width: 8rem;
+    height: 8rem;
+  }
+}
+
+.hero h1 {
+  font-size: clamp(1.875rem, 5vw, 3rem);
+  letter-spacing: -0.04em;
+  margin-block-end: calc(var(--spacing-unit) * 2);
+}
+
+.hero p {
+  font-size: 1.125rem;
+  color: var(--color-text-muted);
+  max-width: 34rem;
+}
+
+/* Hero call-to-action row (the sentinel paragraph's sibling) — the original's small
+   ink/outline button pair rather than another line of muted prose. Selector is qualified
+   with `.hero` so it outranks `.hero p` above, which would otherwise win on specificity
+   and restore the muted-prose type size. */
+.hero .sf-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: calc(var(--spacing-unit) * 3);
+  margin-block-start: calc(var(--spacing-unit) * 6);
+  font-size: 1rem;
+}
+
+.sf-btn {
+  display: inline-block;
+  padding: calc(var(--spacing-unit) * 2) calc(var(--spacing-unit) * 4);
+  border: 1px solid var(--sf-border);
+  border-radius: var(--radius-md);
+  font-size: 0.9375rem;
+  font-weight: 500;
+  color: var(--color-text);
+  background-color: var(--color-background);
+}
+
+.sf-btn:hover {
+  text-decoration: none;
+  background-color: var(--color-surface);
+}
+
+.sf-btn-primary {
+  border-color: var(--sf-ink);
+  background-color: var(--sf-ink);
+  color: var(--sf-ink-contrast);
+}
+
+.sf-btn-primary:hover {
+  background-color: var(--sf-ink);
+  filter: brightness(1.25);
+}
+
+/* Homepage section rhythm — the original's uniform `gap-14` between one-page sections. */
+.sf-section {
+  padding-block-start: calc(var(--spacing-unit) * 14);
+}
+
+.sf-section > h2 {
+  margin-block-end: calc(var(--spacing-unit) * 4);
+}
+
+/* Dates and other tabular figures, right-aligned against a row's title (the original's
+   work/education rows). */
+.sf-meta {
+  font-family: var(--sf-mono);
+  font-size: 0.8125rem;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text-muted);
+  white-space: nowrap;
+}
+
+/* Embed cards (#682). Global rather than scoped: the remark plugin injects this markup as an
+   HTML string, which Astro's scoped-style attributes never reach. */
+.embed-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing-unit) * 2);
+  margin-block: calc(var(--spacing-unit) * 6);
+  padding: calc(var(--spacing-unit) * 4);
+  border: 1px solid var(--sf-border);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-surface);
+}
+
+.embed-card__author {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing-unit) * 2);
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-text);
+}
+
+.embed-card__avatar {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.embed-card__handle {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.embed-card__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.embed-card__media,
+.embed-card__video {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+
+.embed-card__video {
+  aspect-ratio: 16 / 9;
+  border: 0;
+}
+
+.embed-card__play {
+  font-size: 1.5rem;
+  color: var(--sf-ink);
+}
+
+.embed-card__permalink {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+/* A video card's permalink wraps the thumbnail and the play glyph, so the whole thing is one
+   click target. It stacks its children the way the card itself does. */
+.embed-card__permalink--thumbnail {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing-unit) * 2);
+  text-decoration: none;
+}
+
+/* Neutralize animation for visitors who ask for reduced motion — including anything
+   integrations or future components add on top of this sheet. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

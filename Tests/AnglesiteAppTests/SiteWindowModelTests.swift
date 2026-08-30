@@ -1425,6 +1425,74 @@ extension SiteWindowModelTests {
         #expect(model.inspectorSelection == nil)
     }
 
+    @Test("inspectorSelection memoizes the WYSIWYGInspectorModel per blockId+src, rebuilding only when either changes (#1672 final review)")
+    func inspectorSelectionMemoizesWYSIWYGInspectorModel() async throws {
+        let (root, packageURL, _) = try makeSitePackage()
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        // Two real `img` nodes, seeded directly in the fetched page model (rather than inserted
+        // through a submitted op) — `enterEditMode` wires a real `SidecarWYSIWYGHostTransport`,
+        // and `FakeGetPageModelTransport` only answers `get_page_model`, not `apply_edit`, so a
+        // submitted op would just be rejected. Seeding both blocks up front lets this test drive
+        // the cache purely by moving `selectedBlockId` — the same direct-write pattern the
+        // `applyNavigatorSelection...ClearsStaleWYSIWYGSelection` tests above already use.
+        let pageModel = PageModel(
+            version: "sha256:test00000000", path: "src/pages/index.astro",
+            tree: .init(
+                id: "root", kind: .fragment, tag: nil, attrs: [], span: .init(start: 0, end: 0),
+                loc: nil, text: nil,
+                children: [
+                    .init(
+                        id: "b1", kind: .element, tag: "img",
+                        attrs: [.init(name: "src", value: "/images/test.png")],
+                        span: .init(start: 0, end: 0), loc: nil, text: nil, children: [], block: nil),
+                    .init(
+                        id: "b2", kind: .element, tag: "img",
+                        attrs: [.init(name: "src", value: "/images/other.png")],
+                        span: .init(start: 0, end: 0), loc: nil, text: nil, children: [], block: nil),
+                ],
+                block: nil))
+        let client = try await makeFakeGetPageModelClient(pageModel: pageModel)
+        let model = SiteWindowModel(
+            contentGraph: SiteContentGraph(),
+            knowledgeIndex: SiteKnowledgeIndex(),
+            semanticRanker: nil,
+            conventionsEngine: ProjectConventionsEngine(),
+            runtimeFactory: FakeGetPageModelSiteRuntimeFactory(mcpClient: client),
+            contentIndexerStore: ContentIndexerStore()
+        )
+        model.site = SiteStore.Site(
+            id: "site-a", name: "Test", packageURL: packageURL,
+            isValid: true, missingSentinels: [], lastSeen: Date(), bookmarkData: nil
+        )
+
+        await model.preview.enterEditMode(path: "src/pages/index.astro", undoManager: nil)
+        model.preview.wysiwygCanvas?.selectedBlockId = "b1"
+
+        guard case .wysiwygBlock(let first) = model.inspectorSelection else {
+            Issue.record("expected .wysiwygBlock while a block is selected")
+            return
+        }
+        // A second access with nothing changed must reuse the exact same instance — this is what
+        // stops the license section's file read + XMP parse from re-running on every render pass.
+        guard case .wysiwygBlock(let second) = model.inspectorSelection else {
+            Issue.record("expected .wysiwygBlock on the second access")
+            return
+        }
+        #expect(first === second)
+
+        // Selecting a different block (a different blockId AND a different src, exactly like the
+        // cache-key tuple's two independent fields) must rebuild rather than keep serving the
+        // first block's model.
+        model.preview.wysiwygCanvas?.selectedBlockId = "b2"
+
+        guard case .wysiwygBlock(let third) = model.inspectorSelection else {
+            Issue.record("expected .wysiwygBlock after selecting a different block")
+            return
+        }
+        #expect(third !== first)
+    }
+
     @Test("applyNavigatorSelection's .route branch clears a stale WYSIWYG block selection, so it can't shadow the new page context (#1588 Task 8 follow-up)")
     func applyNavigatorSelectionRouteClearsStaleWYSIWYGSelection() async throws {
         let (root, packageURL, package) = try makeSitePackage()

@@ -1,0 +1,45 @@
+---
+// Starfolio pack (#1652): the page's closing band. Deliberately a <div>, not a <footer> — the
+// slotted Hcard already renders the page's one body-level <footer class="site-identity"> (the
+// single contentinfo landmark; see Hcard.astro's own comment), and this wrapper only holds it
+// and the Rights line to the same narrow reading column the rest of the page uses. The chassis
+// components are slotted, so their styling below needs :global().
+---
+
+<div class="sf-footer">
+  <div class="sf-footer-inner">
+    <slot />
+  </div>
+</div>
+
+<style>
+  .sf-footer {
+    margin-block-start: calc(var(--spacing-unit) * 20);
+    border-top: 1px solid var(--sf-border);
+  }
+
+  .sf-footer-inner {
+    /* Matches main's column so the footer text lines up with the content above it. */
+    max-width: 44rem;
+    margin-inline: auto;
+    padding: calc(var(--spacing-unit) * 8) calc(var(--spacing-unit) * 6);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 3);
+    font-size: 0.875rem;
+    color: var(--color-text-muted);
+  }
+
+  .sf-footer-inner :global(.site-identity) {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 2);
+  }
+
+  .sf-footer-inner :global(.h-card .p-name) {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+  }
+</style>

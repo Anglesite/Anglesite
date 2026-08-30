@@ -116,6 +116,26 @@
     }
   },
   {
+    "id": "starfolio",
+    "displayName": "Starfolio",
+    "description": "Understated one-page portfolio: bio, work, projects, writing",
+    "bestFor": ["developer", "designer", "freelancer"],
+    "vars": {
+      "color-primary": "#171717",
+      "color-accent": "#737373",
+      "font-heading": "system-ui, -apple-system, sans-serif",
+      "font-body": "system-ui, -apple-system, sans-serif"
+    },
+    "category": "portfolio",
+    "pack": "starfolio",
+    "thumbnail": "packs/starfolio/thumbnail.png",
+    "credit": {
+      "name": "Starfolio",
+      "url": "https://github.com/webrating/starfolio",
+      "license": "MIT"
+    }
+  },
+  {
     "id": "cactus",
     "displayName": "Cactus",
     "description": "Minimal personal site with posts, notes, and a now page",

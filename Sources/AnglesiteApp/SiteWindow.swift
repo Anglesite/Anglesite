@@ -1611,9 +1611,29 @@ struct SiteWindow: View {
                 guard let canvas = model.preview.wysiwygCanvas, let webView = model.preview.webView,
                       let siteDirectory = model.preview.openSiteDirectory
                 else { return false }
+                let route = model.preview.activeRoute ?? "/"
                 Task {
                     let logCenter = LogCenter.shared
-                    guard let bytes = await WYSIWYGImageDropHandler.loadImageBytes(from: providers) else { return }
+                    guard var bytes = await WYSIWYGImageDropHandler.loadImageBytes(from: providers) else { return }
+
+                    // #1671: embed the last-used file license (mirroring `Insert ▸ Image…`) before
+                    // `ingest` writes the copy — never a picker at drop time, and never anything
+                    // when no selection was persisted, per #999 §4's resolved defaults.
+                    let policy = (try? LicensingStore(sourceDirectory: siteDirectory).load()) ?? LicensingPolicy()
+                    let license = WYSIWYGDropLicenseResolver.resolve(
+                        policy: policy, route: route, lastUsed: AppSettings.shared.lastUsedFileLicenseSelection)
+                    if let license, let type = WYSIWYGImageAssetIngestor.sniffedUTType(bytes) {
+                        do {
+                            if case .embedded(let embedded) = try LicenseMetadataEmbedder.embed(license, into: bytes, type: type) {
+                                bytes = embedded
+                            }
+                        } catch {
+                            await logCenter.append(
+                                source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr,
+                                text: "failed to embed license metadata into dropped image: \(error.localizedDescription)")
+                        }
+                    }
+
                     let assetPath: String?
                     do {
                         assetPath = try WYSIWYGImageAssetIngestor.ingest(bytes: bytes, siteDirectory: siteDirectory)
@@ -1631,7 +1651,7 @@ struct SiteWindow: View {
                     let content = BlockNodeContent(
                         kind: .astro, componentName: "img", props: ["src": .string(assetPath), "alt": .string("")],
                         slots: [:], sourceSpan: [0, 0])
-                    await canvas.submit(.insertBlock(parentId: target.parentId, slot: target.slot, index: target.index, newId: newId, block: content))
+                    await canvas.insertBlockAndSelect(parentId: target.parentId, slot: target.slot, index: target.index, newId: newId, block: content)
                 }
                 return true
             }

@@ -1,0 +1,83 @@
+---
+// Starfolio pack (#1652): the floating bottom dock — the original's one piece of persistent
+// chrome (`NavbarIsland`), rebuilt as static markup. Upstream it is a React island wrapping
+// a magicui `Dock` with Radix tooltips and icon buttons; none of that comes along, so this is
+// a plain <nav> of text links in a pinned, blurred pill.
+//
+// The slot receives whatever BaseLayout places at the `<!-- anglesite:nav -->` anchor (the
+// menu integration's injected <Nav />, which brings its own <nav class="site-nav">), so an
+// owner's configured menu items dock alongside the built-in links instead of floating above
+// the page. The wrapper is a <div>, not a <nav>, so the two never nest as landmarks.
+import { readConfig } from "../../scripts/config";
+
+const siteName = readConfig("SITE_NAME") ?? "Home";
+---
+
+<div class="sf-dock-wrap">
+  <div class="sf-dock">
+    <nav aria-label="Site">
+      <a class="sf-dock-brand" href="/">{siteName}</a>
+      <a href="/about/">About</a>
+      <a href="/blog/">Blog</a>
+      <a href="/search/">Search</a>
+    </nav>
+    <slot />
+  </div>
+</div>
+
+<style>
+  /* Pinned to the bottom of the viewport and centred. The wrapper spans the viewport but is
+     click-through, so only the pill itself intercepts pointer events over the page. */
+  .sf-dock-wrap {
+    position: fixed;
+    inset-inline: 0;
+    inset-block-end: calc(var(--spacing-unit) * 4);
+    z-index: 30;
+    display: flex;
+    justify-content: center;
+    padding-inline: calc(var(--spacing-unit) * 4);
+    pointer-events: none;
+  }
+
+  .sf-dock {
+    pointer-events: auto;
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    align-items: center;
+    gap: calc(var(--spacing-unit) * 2) calc(var(--spacing-unit) * 5);
+    max-width: 100%;
+    padding: calc(var(--spacing-unit) * 2) calc(var(--spacing-unit) * 5);
+    border: 1px solid var(--sf-border);
+    border-radius: var(--radius-lg);
+    background-color: color-mix(in srgb, var(--color-background) 85%, transparent);
+    -webkit-backdrop-filter: blur(16px);
+    backdrop-filter: blur(16px);
+    box-shadow: 0 8px 30px -12px rgb(0 0 0 / 25%);
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: calc(var(--spacing-unit) * 2) calc(var(--spacing-unit) * 5);
+  }
+
+  nav a {
+    font-size: 0.875rem;
+    font-weight: 500;
+    color: var(--color-text-muted);
+  }
+
+  nav a:hover {
+    color: var(--color-text);
+    text-decoration: none;
+  }
+
+  .sf-dock-brand {
+    font-family: var(--font-heading);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--color-text);
+  }
+</style>

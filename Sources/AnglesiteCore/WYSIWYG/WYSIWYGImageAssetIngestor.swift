@@ -1,4 +1,7 @@
 import Foundation
+#if canImport(UniformTypeIdentifiers)
+import UniformTypeIdentifiers
+#endif
 
 /// Writes a Finder/Photos-dragged image's raw bytes into the site's `public/images/` (design doc
 /// §4: "Finder/Photos drag-in → asset ingestion + image block in one gesture"), returning the
@@ -19,11 +22,41 @@ public enum WYSIWYGImageAssetIngestor {
             case .webp: "webp"
             }
         }
+
+        #if canImport(UniformTypeIdentifiers)
+        /// `nil` only if the system UTI database can't resolve `"webp"`, which doesn't happen on
+        /// any supported macOS version — jpeg/png/gif always resolve via their standard `UTType`.
+        var utType: UTType? {
+            switch self {
+            case .jpeg: .jpeg
+            case .png: .png
+            case .gif: .gif
+            case .webp: UTType(filenameExtension: fileExtension)
+            }
+        }
+        #endif
     }
 
     /// `LogCenter` source string for the WYSIWYG drop pipeline — shared with the app-side
     /// `WYSIWYGImageDropHandler` so one drop's whole story reads as a single run in the debug pane.
     public static let logSource = "wysiwyg-drop"
+
+    #if canImport(UniformTypeIdentifiers)
+    /// The dropped bytes' sniffed image format as a `UTType`, or `nil` for unrecognized bytes.
+    ///
+    /// A drop has no filename/extension to derive a `UTType` from the way `Insert ▸ Image…`'s
+    /// `NSOpenPanel` selection does (a Photos drag in particular has no file URL at all), so a
+    /// caller that needs a `UTType` — e.g. to pass to `LicenseMetadataEmbedder.embed(_:into:type:)`
+    /// before calling ``ingest(bytes:siteDirectory:fileManager:logCenter:)`` — sniffs it here
+    /// first, ahead of and independent from `ingest`'s own internal sniff. `UniformTypeIdentifiers`
+    /// is Darwin-only, so this is unavailable on the portable (Linux) build of `AnglesiteCore`.
+    /// - Parameter bytes: The dropped image bytes.
+    /// - Returns: The sniffed format's `UTType`, or `nil` when the bytes match no known image
+    ///   signature.
+    public static func sniffedUTType(_ bytes: Data) -> UTType? {
+        sniff(bytes)?.utType
+    }
+    #endif
 
     /// Returns `nil` for unrecognized bytes — callers treat that as "not a droppable image,
     /// ignore the drop" rather than a thrown error. That `nil` is logged to `logCenter` first (the
