@@ -2590,13 +2590,16 @@ test("handleMcp: 404 when experimental.mcp is disabled", async () => {
   expect(response.status).toBe(404);
 });
 
-/** A JSON-RPC `tools/call` POST to `/mcp` — the only shape the rate limiter meters. */
+/** A JSON-RPC `tools/call` POST to `/mcp` — the only shape the rate limiter meters. `baseUrl`
+ *  defaults to the read-only tools' fixture origin; owner-tool tests pass `https://owner.example`
+ *  to match the origin `mintAccessToken`'s issued tokens are scoped to. */
 function mcpToolCallRequest(
   name: string,
   args: Record<string, unknown> = {},
   extraHeaders: Record<string, string> = {},
+  baseUrl = "https://example.com",
 ): Request {
-  return new Request("https://example.com/mcp", {
+  return new Request(`${baseUrl}/mcp`, {
     method: "POST",
     headers: {
       "content-type": "application/json",
@@ -2727,23 +2730,18 @@ test("mcpRateLimitKey: distinct IPs produce distinct keys with the mcp-tool-call
 });
 
 /**
- * The installed `@modelcontextprotocol/server@2.0.0` only answers a bare JSON-RPC POST (no
- * `_meta` protocol-envelope claim — every real MCP client in the field today, since the 2026-era
- * envelope isn't yet emitted by any client) over its "legacy" 2025-era code path, which always
- * frames the body as SSE (`event: message\ndata: {...}`) regardless of the handler's
- * `responseMode` option — that option only affects the modern per-request-envelope path. Verified
- * directly against the installed package (see task-9-report.md); this parses that one `data:`
- * line rather than assuming a plain JSON body.
+ * `@dwk/mcp`'s `createMcp` (#1578) answers every JSON-RPC POST with a plain `application/json`
+ * body — no SSE framing, unlike phase 1's Cloudflare-`agents`-backed engine this replaced. Parses
+ * both a success (`result`) and an error (`error`, e.g. `InsufficientScope`) response.
  */
-function parseSseJsonRpcResult(body: string): {
+function parseJsonRpcResult(body: string): {
   result?: { tools?: Array<{ name: string }>; content?: Array<{ type: string; text: string }> };
+  error?: { code: number; message: string };
 } {
-  const dataLine = body.split("\n").find((line) => line.startsWith("data: "));
-  if (!dataLine) throw new Error(`Expected an SSE "data:" line in MCP response body, got: ${body}`);
-  return JSON.parse(dataLine.slice("data: ".length));
+  return JSON.parse(body);
 }
 
-/** Drives one `tools/call` all the way through `createMcpHandler` and returns the joined text of
+/** Drives one `tools/call` all the way through the real dispatcher and returns the joined text of
  *  the tool's `content` blocks — the real integration path `tools/list` alone never exercises. */
 async function callMcpTool(
   handleMcp: ReturnType<typeof createHandleMcp>,
@@ -2753,7 +2751,7 @@ async function callMcpTool(
 ): Promise<string> {
   const response = await handleMcp(mcpToolCallRequest(name, args), env, createExecutionContext());
   expect(response.status).toBe(200);
-  const body = parseSseJsonRpcResult(await response.text());
+  const body = parseJsonRpcResult(await response.text());
   return (body.result?.content ?? []).map((c) => c.text).join("\n");
 }
 
@@ -2768,9 +2766,149 @@ test("handleMcp: enabled with a bound ASSETS responds to a tools/list JSON-RPC r
   });
   const response = await handleMcp(request, env, createExecutionContext());
   expect(response.status).toBe(200);
-  const body = parseSseJsonRpcResult(await response.text());
+  const body = parseJsonRpcResult(await response.text());
   const names = (body.result?.tools ?? []).map((t) => t.name);
   expect(names).toEqual(expect.arrayContaining(["search_posts", "fetch_page_content", "list_feeds"]));
+});
+
+test("handleMcp: tools/list omits owner tools when Micropub isn't provisioned", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: [] };
+  const handleMcp = createHandleMcp(config);
+  const { MICROPUB_DB: _unusedDB, MEDIA: _unusedMedia, ...envWithoutMicropub } = testEnv;
+  const env = { ...envWithoutMicropub, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const request = new Request("https://example.com/mcp", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+  });
+  const response = await handleMcp(request, env as WorkerEnv, createExecutionContext());
+  const body = parseJsonRpcResult(await response.text());
+  const names = (body.result?.tools ?? []).map((t) => t.name);
+  expect(names).toEqual(["search_posts", "fetch_page_content", "list_feeds"]);
+});
+
+test("handleMcp: micropub_publish with no bearer token at all is rejected as insufficient scope", async () => {
+  // No token means zero granted scopes (`optionalDpopAuthenticator`), not a 401 — matching
+  // `ToolRegistry`'s "scope check, never a perimeter check" design: an anonymous call and a
+  // present-but-wrong-scope call are indistinguishable from the registry's point of view, both
+  // rejected the same way tools/call. Only a *present-but-invalid* token gets a real 401 (see
+  // the replay test below).
+  const config: McpConfigArtifact = { enabled: true, feedPaths: [] };
+  const handleMcp = createHandleMcp(config);
+  const env = { ...testEnv, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const request = mcpToolCallRequest(
+    "micropub_publish",
+    { type: "h-entry", properties: { content: ["hi"] } },
+    {},
+    "https://owner.example",
+  );
+  const response = await handleMcp(request, env, createExecutionContext());
+  expect(response.status).toBe(200);
+  const body = parseJsonRpcResult(await response.text());
+  expect(body.error?.message).toContain('requires the "create" scope');
+});
+
+test("handleMcp: micropub_publish rejects a token without the create scope", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: [] };
+  const handleMcp = createHandleMcp(config);
+  const env = { ...testEnv, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const { token, keyPair } = await mintAccessToken("read");
+  const url = "https://owner.example/mcp";
+  const request = new Request(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `DPoP ${token}`,
+      DPoP: await dpopProof(url, "POST", keyPair, token),
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "micropub_publish", arguments: { type: "h-entry", properties: { content: ["hi"] } } },
+    }),
+  });
+  const response = await handleMcp(request, env, createExecutionContext());
+  expect(response.status).toBe(200);
+  const body = parseJsonRpcResult(await response.text());
+  expect(body.error?.message).toContain('requires the "create" scope');
+});
+
+test("handleMcp: micropub_publish with a valid create-scoped token publishes a post", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: [] };
+  const handleMcp = createHandleMcp(config);
+  const env = { ...testEnv, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const { token, keyPair } = await mintAccessToken("create");
+  const url = "https://owner.example/mcp";
+  const request = new Request(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `DPoP ${token}`,
+      DPoP: await dpopProof(url, "POST", keyPair, token),
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: "micropub_publish",
+        arguments: { type: ["h-entry"], properties: { content: ["Published from an MCP client"] } },
+      },
+    }),
+  });
+  const response = await handleMcp(request, env, createExecutionContext());
+  expect(response.status).toBe(200);
+  const body = parseJsonRpcResult(await response.text());
+  expect(body.error).toBeUndefined();
+  const text = (body.result?.content ?? []).map((c) => c.text).join("\n");
+  expect(text).toContain("https://owner.example/notes/");
+});
+
+test("handleMcp: a replayed DPoP proof is rejected on a second /mcp call", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: [] };
+  const handleMcp = createHandleMcp(config);
+  const env = { ...testEnv, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const { token, keyPair } = await mintAccessToken("create");
+  const url = "https://owner.example/mcp";
+  const proof = await dpopProof(url, "POST", keyPair, token);
+  const makeRequest = () =>
+    new Request(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `DPoP ${token}`, DPoP: proof },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list", params: {} }),
+    });
+  const first = await handleMcp(makeRequest(), env, createExecutionContext());
+  expect(first.status).toBe(200);
+  const second = await handleMcp(makeRequest(), env, createExecutionContext());
+  expect(second.status).toBe(401);
+});
+
+test("handleMcp: micropub_media_upload with a valid media-scoped token stores the file", async () => {
+  const config: McpConfigArtifact = { enabled: true, feedPaths: [] };
+  const handleMcp = createHandleMcp(config);
+  const env = { ...testEnv, SOCIAL_KV: makeFakeKV(), ASSETS: makeFakeAssets({}) };
+  const { token, keyPair } = await mintAccessToken("media");
+  const url = "https://owner.example/mcp";
+  const contentBase64 = btoa("not really a jpeg, just test bytes");
+  const request = new Request(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `DPoP ${token}`,
+      DPoP: await dpopProof(url, "POST", keyPair, token),
+    },
+    body: JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name: "micropub_media_upload", arguments: { contentBase64, contentType: "image/jpeg" } },
+    }),
+  });
+  const response = await handleMcp(request, env, createExecutionContext());
+  expect(response.status).toBe(200);
+  const body = parseJsonRpcResult(await response.text());
+  expect(body.error).toBeUndefined();
 });
 
 test("tools/call fetch_page_content: serves the .md mirror when one exists", async () => {
