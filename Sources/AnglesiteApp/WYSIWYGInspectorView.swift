@@ -125,15 +125,22 @@ struct WYSIWYGInspectorView: View {
                         Text("No license embedded")
                             .foregroundStyle(.secondary)
                     }
+                    // The binding's type is deliberately `String?`, not a fallback to
+                    // `entries[0].id`: with no license embedded, `get` returning
+                    // `entries[0].id` ("cc0-1.0") made SwiftUI believe CC0 was already selected
+                    // — since `Picker` only calls `set` when the tag actually changes, tapping
+                    // "CC0 1.0" from that state was a silent no-op (final review, #1672). `nil`
+                    // matches none of the `ForEach` tags below, so the picker starts unselected
+                    // and any tap genuinely changes the selection.
                     Picker("Change to", selection: Binding(
-                        get: { LicenseCatalog.entry(for: current)?.id ?? LicenseCatalog.entries[0].id },
+                        get: { LicenseCatalog.entry(for: current)?.id },
                         set: { id in
-                            guard let entry = LicenseCatalog.entries.first(where: { $0.id == id }) else { return }
+                            guard let id, let entry = LicenseCatalog.entries.first(where: { $0.id == id }) else { return }
                             model.setEmbeddedLicense(entry.ref)
                         })
                     ) {
                         ForEach(LicenseCatalog.entries) { entry in
-                            Text(entry.name).tag(entry.id)
+                            Text(entry.name).tag(Optional(entry.id))
                         }
                     }
                 }

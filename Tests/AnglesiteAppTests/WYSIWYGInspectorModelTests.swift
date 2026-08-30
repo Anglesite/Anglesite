@@ -146,6 +146,9 @@ struct WYSIWYGInspectorModelTests {
             return
         }
         #expect(current == license)
+        // A license rewrite only touches the file's own metadata — the block's `src` prop, and
+        // therefore what the page renders, must be untouched (resolved default 4).
+        #expect(controller.model.blocks[blockId]?.props["src"] == .string("/images/test.png"))
     }
 
     @Test("licenseSectionState is nil when the route's collection suppresses file embedding")

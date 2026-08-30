@@ -919,6 +919,9 @@
     "Change Logo…" : {
 
     },
+    "Change to" : {
+
+    },
     "Changing your Fediverse handle" : {
 
     },
@@ -2520,6 +2523,9 @@
     "No issues found." : {
 
     },
+    "No license embedded" : {
+
+    },
     "No matches" : {
 
     },
@@ -3945,7 +3951,16 @@
     "This file appears unused and will be permanently removed." : {
 
     },
+    "This file format doesn't support an embedded license." : {
+
+    },
     "This file has been customized. An update is available with changes it doesn't include yet." : {
+
+    },
+    "This image isn't stored in the site, so its license can't be read or changed here." : {
+
+    },
+    "This image's file is missing from the site." : {
 
     },
     "This is how people find and follow you across social networks. Once someone follows you it can't change without losing them." : {

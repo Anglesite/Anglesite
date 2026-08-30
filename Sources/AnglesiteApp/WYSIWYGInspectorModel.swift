@@ -10,6 +10,12 @@ import AnglesiteCore
 @MainActor
 @Observable
 final class WYSIWYGInspectorModel {
+    /// `LogCenter` source string for `setEmbeddedLicense`'s rejection paths — mirrors
+    /// `WYSIWYGImageAssetIngestor.logSource`'s doc comment style, a separate source from that
+    /// type's `"wysiwyg-drop"` since this is the inspector's own rewrite path, not the drop
+    /// pipeline.
+    private static let logSource = "wysiwyg-license"
+
     let controller: WYSIWYGCanvasController
     let blockId: BlockId
     private let sourceDirectory: URL?
@@ -83,15 +89,37 @@ final class WYSIWYGInspectorModel {
     /// `AppSettings.shared.lastUsedFileLicenseSelection` is deliberately not updated (resolved
     /// default 7 — that value is the attach-time picker's memory, not this one-off correction's).
     /// A no-op if the section isn't currently `.editable` or the write fails (defensive; the view
-    /// only calls this when it's already showing the editable state).
+    /// only calls this when it's already showing the editable state). Every rejection path logs
+    /// to `LogCenter` (this repo's "logs are sacred" convention, `AGENTS.md` / `CLAUDE.md`) so a
+    /// failed rewrite is diagnosable from the debug pane rather than a silent no-op — mirrors
+    /// `WYSIWYGImageAssetIngestor.ingest`'s fire-and-forget `Task { await logCenter.append(...) }`
+    /// pattern, needed here too since this stays a synchronous method (its call site in
+    /// `WYSIWYGInspectorView` isn't async).
     func setEmbeddedLicense(_ license: LicenseRef) {
-        guard case .editable(_, let fileURL, let type) = licenseSectionState,
-              let data = try? Data(contentsOf: fileURL),
-              let result = try? LicenseMetadataEmbedder.embed(license, into: data, type: type),
+        guard case .editable(_, let fileURL, let type) = licenseSectionState else { return }
+        guard let data = try? Data(contentsOf: fileURL) else {
+            log("couldn't read \(fileURL.lastPathComponent) to embed a license into it")
+            return
+        }
+        guard let result = try? LicenseMetadataEmbedder.embed(license, into: data, type: type),
               case .embedded(let newData) = result
-        else { return }
-        try? newData.write(to: fileURL, options: .atomic)
+        else {
+            log("embedding a license into \(fileURL.lastPathComponent) failed")
+            return
+        }
+        do {
+            try newData.write(to: fileURL, options: .atomic)
+        } catch {
+            log("writing the license-embedded copy of \(fileURL.lastPathComponent) back failed: \(error)")
+            return
+        }
         refreshLicenseSection()
+    }
+
+    private func log(_ text: String) {
+        Task {
+            await LogCenter.shared.append(source: Self.logSource, stream: .stderr, text: text)
+        }
     }
 
     private func refreshLicenseSection() {
