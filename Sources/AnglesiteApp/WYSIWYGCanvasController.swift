@@ -244,6 +244,22 @@ final class WYSIWYGCanvasController {
         await submit(.insertBlock(parentId: rootParentID, slot: "main", index: model.rootIds.count, newId: newId, block: content))
     }
 
+    /// Submits an `insertBlock` op and selects the newly-inserted block on success — the drop
+    /// handler's own selection-on-drop entry point (#1672's resolved default 1: "a controller
+    /// method rather than a direct field write, matching how `deleteSelectedBlock()` owns
+    /// selection changes today"). Leaves `selectedBlockId` untouched on rejection: there's no new
+    /// block to select if the op never landed.
+    @discardableResult
+    func insertBlockAndSelect(
+        parentId: ParentRef, slot: String, index: Int, newId: BlockId, block: BlockNodeContent
+    ) async -> OpResult {
+        let result = await submit(.insertBlock(parentId: parentId, slot: slot, index: index, newId: newId, block: block))
+        if case .applied = result {
+            selectedBlockId = newId
+        }
+        return result
+    }
+
     /// The Format menu's Strong/Emphasis/Add Link entry point (#1225 Task 10) — posts into the
     /// mounted `RichTextEditor` (`JS/wysiwyg-engine/src/rich-text.ts`) via the same global the
     /// build's `mount.ts` exposes it under. `command` is `"strong"`/`"em"`/`"link"`; `⌘K` (inline
