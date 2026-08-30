@@ -116,6 +116,46 @@
     }
   },
   {
+    "id": "cactus",
+    "displayName": "Cactus",
+    "description": "Minimal personal site with posts, notes, and a now page",
+    "bestFor": ["personal", "writing", "developers"],
+    "vars": {
+      "color-primary": "#0d754d",
+      "color-accent": "#9c4f2b",
+      "font-heading": "system-ui, -apple-system, sans-serif",
+      "font-body": "system-ui, -apple-system, sans-serif"
+    },
+    "category": "personal",
+    "pack": "cactus",
+    "thumbnail": "packs/cactus/thumbnail.png",
+    "credit": {
+      "name": "Astro Cactus by Chris Williams",
+      "url": "https://github.com/chrismwilliams/astro-theme-cactus",
+      "license": "MIT"
+    }
+  },
+  {
+    "id": "astropaper",
+    "displayName": "AstroPaper",
+    "description": "Type-forward blog: one narrow column, monospace, minimal chrome",
+    "bestFor": ["blog", "writing", "newsletter"],
+    "vars": {
+      "color-primary": "#006cac",
+      "color-accent": "#ff6b01",
+      "font-heading": "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+      "font-body": "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace"
+    },
+    "category": "blog",
+    "pack": "astropaper",
+    "thumbnail": "packs/astropaper/thumbnail.png",
+    "credit": {
+      "name": "AstroPaper by Sat Naing",
+      "url": "https://github.com/satnaing/astro-paper",
+      "license": "MIT"
+    }
+  },
+  {
     "id": "astroplate",
     "displayName": "Astroplate",
     "description": "Community-first site with member quotes, mission, and news",

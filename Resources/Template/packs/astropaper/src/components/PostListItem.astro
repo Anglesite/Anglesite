@@ -1,0 +1,33 @@
+---
+// AstroPaper pack (#1651): one row of the post list — the original's card shape (title
+// link, quiet date line, summary), used by both the homepage's "Recent Posts" section
+// and the /blog/ archive. Props are plain values rather than a CollectionEntry so the
+// component stays usable from any collection route without importing `astro:content`.
+import DraftBadge from "./DraftBadge.astro";
+
+interface Props {
+  /** Heading level for the title, so the list nests correctly under whatever
+      section heading the page above it renders (h2 under an h1 page title,
+      h3 under an h2 section title). */
+  as?: "h2" | "h3";
+  href: string;
+  title: string;
+  pubDate: Date;
+  description?: string;
+  draft?: boolean;
+}
+
+const { as: Heading = "h3", href, title, pubDate, description, draft } = Astro.props;
+// Pin the locale + UTC so static output is deterministic (same as BlogPost.astro).
+const iso = pubDate.toISOString();
+const human = pubDate.toLocaleDateString("en-US", {
+  year: "numeric", month: "long", day: "numeric", timeZone: "UTC",
+});
+---
+
+<li>
+  <DraftBadge draft={draft} />
+  <Heading class="ap-post-title"><a href={href}>{title}</a></Heading>
+  <time class="ap-post-meta" datetime={iso}>{human}</time>
+  {description && <p class="ap-post-summary">{description}</p>}
+</li>

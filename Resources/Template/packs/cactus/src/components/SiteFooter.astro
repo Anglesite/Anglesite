@@ -1,0 +1,56 @@
+---
+// Astro Cactus pack (#1650): the footer rule and its quiet meta row. Deliberately a <div>,
+// not a <footer> — the slotted Hcard already renders the page's one body-level
+// <footer class="site-identity"> (the single contentinfo landmark; see Hcard.astro's own
+// comment), and this wrapper only gives it and the Rights line the pack's treatment. The
+// chassis components are slotted, so their styling below needs :global().
+---
+
+<div class="cactus-footer">
+  <div class="cactus-footer-inner">
+    <slot />
+    <nav aria-label="Footer">
+      <a href="/rss.xml">RSS</a>
+      <a href="/blogroll/">Blogroll</a>
+      <a href="/search/">Search</a>
+    </nav>
+  </div>
+</div>
+
+<style>
+  .cactus-footer {
+    margin-block-start: calc(var(--spacing-unit) * 24);
+    border-top: 1px solid var(--cactus-rule);
+  }
+
+  .cactus-footer-inner {
+    max-width: var(--cactus-measure);
+    margin-inline: auto;
+    padding: calc(var(--spacing-unit) * 8) calc(var(--spacing-unit) * 6) calc(var(--spacing-unit) * 12);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 4);
+    font-family: var(--cactus-mono);
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+  }
+
+  .cactus-footer-inner :global(.site-identity) {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 1);
+  }
+
+  .cactus-footer-inner :global(.h-card .p-name) {
+    font-family: var(--font-heading);
+    font-size: 0.9375rem;
+    font-weight: 700;
+    color: var(--color-text);
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 4);
+  }
+</style>

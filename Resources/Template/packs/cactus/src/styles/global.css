@@ -1,0 +1,365 @@
+/* Astro Cactus pack (#1650) — full global.css replacement, per the port contract
+   (docs/superpowers/specs/2026-07-31-curated-theme-ports-design.md §2). Adapted from
+   Astro Cactus (https://github.com/chrismwilliams/astro-theme-cactus, MIT © Chris
+   Williams) — the design, rebuilt on the chassis's vanilla-CSS token system; none of the
+   original's Tailwind comes along. Pack-internal extras use the `--cactus-` prefix
+   (ThemeApplier only rewrites the 12 base tokens, so these are never touched). */
+
+:root {
+  /* Cactus's signature green, darkened from the original's hsl(157 79% 32%) so link text
+     clears WCAG AA on the surface fill too (5.1:1), not just on the page background. */
+  --color-primary: #0d754d;
+  --color-accent: #9c4f2b;
+  --color-background: #fafafa;
+  --color-surface: #f1f2ef;
+  --color-text: #433d3d;
+  --color-text-muted: #6b6461;
+  --font-heading: system-ui, -apple-system, sans-serif;
+  --font-body: system-ui, -apple-system, sans-serif;
+  --spacing-unit: 0.25rem;
+  --radius-sm: 0.25rem;
+  --radius-md: 0.375rem;
+  --radius-lg: 0.5rem;
+  color-scheme: light dark;
+
+  /* Text links and the accent ink. Both read from the brand tokens in light mode and swap
+     to lighter values in dark mode below — `--color-primary`/`--color-accent` themselves
+     must stay one value per scheme because the catalog entry's `vars` pin them
+     (ThemeApplier rewrites `--color-primary:` declarations file-wide, so a dark override
+     would be flattened on theme re-apply). */
+  --cactus-link: var(--color-primary);
+  --cactus-accent-ink: var(--color-accent);
+  --cactus-rule: #e2e2de;
+  /* Cactus's meta voice: dates, nav, and the note stream's timestamps are monospaced. */
+  --cactus-mono: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  /* The single-column measure the whole theme hangs off — narrow on purpose. */
+  --cactus-measure: 48rem;
+}
+
+/* Dark palette. Only tokens *outside* the catalog entry's `vars` may differ per scheme (see
+   the --cactus-link note above). Split across two selectors so the toggle wins in both
+   directions: system-dark applies unless the visitor explicitly picked light, and an
+   explicit dark pick applies regardless of the system setting. All pairs meet WCAG AA on
+   --color-background: text 11.1:1, muted 6.1:1 (5.4:1 on surface), links 10.1:1. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --color-background: #0f141a;
+    --color-surface: #182029;
+    --color-text: #c4c9d4;
+    --color-text-muted: #8b95a5;
+    --cactus-link: #4fd6a0;
+    --cactus-accent-ink: #e2a17a;
+    --cactus-rule: #26303c;
+    color-scheme: dark;
+  }
+}
+
+:root[data-theme="dark"] {
+  --color-background: #0f141a;
+  --color-surface: #182029;
+  --color-text: #c4c9d4;
+  --color-text-muted: #8b95a5;
+  --cactus-link: #4fd6a0;
+  --cactus-accent-ink: #e2a17a;
+  --cactus-rule: #26303c;
+  color-scheme: dark;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-body);
+  color: var(--color-text);
+  background-color: var(--color-background);
+  /* Cactus reads long-form: a looser measure-relative rhythm than the chassis default. */
+  line-height: 1.75;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Cactus's typographic personality: quiet, tightly-set headings that never shout over the
+   prose they introduce. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  line-height: 1.25;
+  letter-spacing: -0.01em;
+  text-wrap: balance;
+}
+
+a {
+  color: var(--cactus-link);
+  text-decoration: none;
+}
+
+/* The original's link treatment: underline appears on hover, offset clear of descenders. */
+a:hover {
+  text-decoration: underline;
+  text-underline-offset: 0.25em;
+}
+
+:focus-visible {
+  outline: 2px solid var(--cactus-link);
+  outline-offset: 2px;
+}
+
+/* First focusable element on every page (BaseLayout). Visually hidden until it receives
+   keyboard focus, then shown as a small pill over the top-left corner. */
+.skip-link {
+  position: absolute;
+  inset-block-start: calc(var(--spacing-unit) * 2);
+  inset-inline-start: calc(var(--spacing-unit) * 2);
+  z-index: 100;
+  padding: calc(var(--spacing-unit) * 2) calc(var(--spacing-unit) * 4);
+  background-color: var(--color-primary);
+  color: #ffffff;
+  border-radius: var(--radius-sm);
+  transform: translateY(calc(-100% - var(--spacing-unit) * 4));
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+/* The single narrow column — the whole point of the Cactus layout. The block padding is on
+   `main` rather than per-page so every route (post, index, about) opens with the same
+   generous space under the header; `.hero` trims its own top padding to match. */
+main {
+  flex: 1;
+  width: 100%;
+  max-width: var(--cactus-measure);
+  margin-inline: auto;
+  padding-block-start: calc(var(--spacing-unit) * 8);
+  padding-inline: calc(var(--spacing-unit) * 6);
+}
+
+/* The skip link's target: it takes programmatic focus (tabindex="-1") so assistive tech
+   follows the jump, but a focus ring around the whole content region is just noise. */
+main:focus {
+  outline: none;
+}
+
+/* Homepage hero. The `.hero` class and its `<section class="hero">` open tag are
+   load-bearing (HeroImage.heroOpenLine — the app inserts the site logo and generated hero
+   image right after it), so the Cactus treatment hangs entirely off this class. Left-
+   aligned and unadorned: the original opens on a short greeting, not a banner. */
+.hero {
+  padding-block: calc(var(--spacing-unit) * 8) calc(var(--spacing-unit) * 10);
+}
+
+.site-logo {
+  display: block;
+  width: min(9rem, 40vw);
+  max-height: 5rem;
+  object-fit: contain;
+  margin-block-end: calc(var(--spacing-unit) * 6);
+}
+
+.hero h1 {
+  font-size: clamp(2rem, 5vw, 2.75rem);
+  margin-block-end: calc(var(--spacing-unit) * 4);
+}
+
+.hero p {
+  font-size: 1.125rem;
+  color: var(--color-text-muted);
+  max-width: 38rem;
+}
+
+/* Plain Markdown pages (about.md, now.md, and anything else a site owner adds under
+   src/pages/) render their body straight into <main> with no wrapper element, so their
+   reading rhythm has to come from `main`'s own children. Listed element-by-element rather
+   than as a `* + *` owl so component-built pages, which set their own section spacing,
+   are left alone. */
+main > h1 {
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  margin-block-end: calc(var(--spacing-unit) * 4);
+}
+
+main > h2,
+main > h3 {
+  margin-block-start: calc(var(--spacing-unit) * 10);
+  margin-block-end: calc(var(--spacing-unit) * 3);
+}
+
+main > p:not(:first-child),
+main > ul:not(:first-child),
+main > ol:not(:first-child),
+main > blockquote,
+main > pre {
+  margin-block-start: calc(var(--spacing-unit) * 5);
+}
+
+main > ul,
+main > ol {
+  padding-inline-start: calc(var(--spacing-unit) * 6);
+}
+
+/* Post/entry pages (BlogPost.astro and the entry layouts that share its markup): the chassis
+   stacks the title, summary, permalink/date, and body as bare siblings, so the pack gives that
+   stack its own rhythm rather than forking the layout. Scoped to `article.h-entry` so it never
+   reaches the `<li class="h-entry">` rows on a collection index. */
+article.h-entry > .p-name {
+  font-size: clamp(1.75rem, 4vw, 2.25rem);
+  margin-block-end: calc(var(--spacing-unit) * 3);
+}
+
+article.h-entry > .p-summary {
+  color: var(--color-text-muted);
+  margin-block-end: calc(var(--spacing-unit) * 2);
+}
+
+article.h-entry > .u-url {
+  display: inline-block;
+  margin-block-end: calc(var(--spacing-unit) * 8);
+}
+
+/* Reading view for a post/entry body (BlogPost.astro's .e-content, and the entry layouts
+   that share its markup). Styled here rather than by overriding BlogPost.astro — the pack
+   changes how a post *reads*, not how it's structured. */
+.e-content > * + * {
+  margin-block-start: calc(var(--spacing-unit) * 5);
+}
+
+.e-content h2,
+.e-content h3 {
+  margin-block-start: calc(var(--spacing-unit) * 10);
+}
+
+.e-content ul,
+.e-content ol {
+  padding-inline-start: calc(var(--spacing-unit) * 6);
+}
+
+.e-content blockquote {
+  padding-inline-start: calc(var(--spacing-unit) * 5);
+  border-inline-start: 3px solid var(--cactus-accent-ink);
+  color: var(--color-text-muted);
+  font-style: italic;
+}
+
+.e-content code {
+  font-family: var(--cactus-mono);
+  font-size: 0.9375em;
+}
+
+.e-content pre {
+  overflow-x: auto;
+  padding: calc(var(--spacing-unit) * 4);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.e-content img {
+  max-width: 100%;
+  height: auto;
+  border-radius: var(--radius-md);
+}
+
+/* Dates and other metadata, wherever the chassis emits them. */
+time,
+.dt-published {
+  font-family: var(--cactus-mono);
+  font-size: 0.8125rem;
+  color: var(--color-text-muted);
+}
+
+/* Embed cards (#682). Global rather than scoped: the remark plugin injects this markup as an
+   HTML string, which Astro's scoped-style attributes never reach. */
+.embed-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing-unit) * 2);
+  margin-block: calc(var(--spacing-unit) * 6);
+  padding: calc(var(--spacing-unit) * 4);
+  border: 1px solid var(--cactus-rule);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.embed-card__author {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing-unit) * 2);
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-text);
+}
+
+.embed-card__avatar {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.embed-card__handle {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.embed-card__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.embed-card__media,
+.embed-card__video {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+
+.embed-card__video {
+  aspect-ratio: 16 / 9;
+  border: 0;
+}
+
+.embed-card__play {
+  font-size: 1.5rem;
+  color: var(--cactus-link);
+}
+
+.embed-card__permalink {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+/* A video card's permalink wraps the thumbnail and the play glyph, so the whole thing is one
+   click target. It stacks its children the way the card itself does. */
+.embed-card__permalink--thumbnail {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing-unit) * 2);
+  text-decoration: none;
+}
+
+/* Neutralize animation for visitors who ask for reduced motion — including anything
+   integrations or future components add on top of this sheet. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

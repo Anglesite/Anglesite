@@ -137,9 +137,14 @@ public enum AgentReadinessCatalog {
             anglesiteProvides: true),
         "webBotAuth": .init(
             displayName: "Verified bot access",
-            passHint: "Your site can cryptographically verify trusted AI agents.",
-            failHint: "Your site can't yet verify trusted AI agents cryptographically (Web Bot Auth).",
-            anglesiteProvides: false),
+            passHint: "Your site publishes a Web Bot Auth key directory.",
+            failHint: "Your site doesn't publish a Web Bot Auth key directory.",
+            // #1581: this check looks for a directory at .well-known/http-message-signatures-
+            // directory, which is published by whoever *signs* outbound requests (RFC 9421) — not
+            // by a site verifying inbound bot traffic (Cloudflare's separate Verified Bots feature
+            // already does that at the edge). Anglesite sites don't sign outbound requests today,
+            // so edge-artifacts.ts publishes an empty, spec-valid JWKS purely so the path resolves.
+            anglesiteProvides: true),
         "agentSkills": .init(
             displayName: "Agent Skills manifest",
             passHint: "Your site publishes a manifest of tasks AI agents can perform for visitors.",
