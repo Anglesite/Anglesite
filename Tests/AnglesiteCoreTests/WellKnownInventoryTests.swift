@@ -257,16 +257,20 @@ struct WellKnownInventoryTests {
         #expect(rows[0].owner == "user-static")
     }
 
-    @Test("marker-shaped content at a different suffix is not misclassified as the http-message-signatures-directory generator")
-    func httpMessageSignaturesDirectoryMarkerElsewhereStaysUserStatic() throws {
+    @Test("marker-shaped content at a different suffix is still recognized as the http-message-signatures-directory generator")
+    func httpMessageSignaturesDirectoryMarkerElsewhereClassifiesAsGenerated() throws {
         let wellKnown = try makeWellKnownDirectory()
         defer { try? FileManager.default.removeItem(at: wellKnown.deletingLastPathComponent()) }
         let content = "{\"__marker\": \"\(GeneratedEndpoints.httpMessageSignaturesDirectoryMarker)\", \"keys\": []}"
         try content.write(to: wellKnown.appendingPathComponent("some-other-file"), atomically: true, encoding: .utf8)
 
+        // Matches `well-known.ts`'s `isGeneratedArtifact`, which applies the same marker check
+        // with no path scoping — the marker value alone is unambiguous, so the Swift and
+        // TypeScript inventories must agree here.
         let (rows, _) = WellKnownInventory.scanUserStatic(wellKnownDirectory: wellKnown)
         #expect(rows.count == 1)
-        #expect(rows[0].delivery == .userStatic)
+        #expect(rows[0].delivery == .generated)
+        #expect(rows[0].owner == "generator:http-message-signatures-directory")
     }
 
     @Test(

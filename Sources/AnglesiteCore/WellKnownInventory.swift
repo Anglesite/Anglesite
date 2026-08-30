@@ -554,7 +554,9 @@ public enum GeneratedEndpoints {
     /// suffix (`isAgentSkillsIndexOwned`), whose marker line appears anywhere in `content` at an
     /// `agent-skills/*/SKILL.md` suffix, or `nil` when `content` is `nil` or matches none of the
     /// above. `suffix` scopes the DID-shape, index, and SKILL.md checks to their own paths — a
-    /// matching-shaped file elsewhere under `.well-known/` is not that generator's concern.
+    /// matching-shaped file elsewhere under `.well-known/` is not that generator's concern. The
+    /// two `__marker`-field checks (`mcp/server-card.json`, `http-message-signatures-directory`)
+    /// are deliberately *not* suffix-scoped, since their marker values are already unambiguous.
     static func matching(content: String?, suffix: String) -> Descriptor? {
         guard let content else { return nil }
         if content.split(separator: "\n", maxSplits: 1, omittingEmptySubsequences: false).first == securityTxtMarker[...] {
@@ -572,7 +574,10 @@ public enum GeneratedEndpoints {
         if isMcpServerCardMarkerOwned(content) {
             return mcpServerCard
         }
-        if suffix == "http-message-signatures-directory", isHttpMessageSignaturesDirectoryMarkerOwned(content) {
+        // Same reasoning as `isMcpServerCardMarkerOwned` above, and likewise unscoped in
+        // `well-known.ts`'s `isGeneratedArtifact` — keeping this one suffix-scoped would let the
+        // Swift and TypeScript inventories disagree on the same file.
+        if isHttpMessageSignaturesDirectoryMarkerOwned(content) {
             return httpMessageSignaturesDirectory
         }
         if isStandardSitePublicationURI(content) {
