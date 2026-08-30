@@ -95,6 +95,18 @@ export async function getIndexItems(collection: string): Promise<IndexItem[]> {
   return items.sort((a, b) => b.date.valueOf() - a.date.valueOf());
 }
 
+/// One collection's most recent entries, reverse-chronological — the capped counterpart to
+/// `getIndexItems` above, for a homepage section that shows only the newest few. Sorts and
+/// slices the cheap metadata first, then renders `Content` only for the entries that survive
+/// the cap (exactly what `getTimelineItems` does below, scoped to a single collection), so a
+/// section showing 3 notes costs 3 renders whether the site has 3 notes or 3000.
+export async function getRecentIndexItems(collection: string, limit: number): Promise<IndexItem[]> {
+  const surviving = (await mapEntryMetas(collection))
+    .sort((a, b) => b.date.valueOf() - a.date.valueOf())
+    .slice(0, limit);
+  return Promise.all(surviving.map(withContent));
+}
+
 /// Combined reverse-chronological stream across all eight feed collections (blog plus the seven
 /// micropost/titled collections) — the page-side equivalent of `feed-data.ts`'s
 /// `getCombinedItems`, capped at the same default limit. Sorts and slices metadata first, then

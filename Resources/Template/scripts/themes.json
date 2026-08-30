@@ -116,6 +116,26 @@
     }
   },
   {
+    "id": "cactus",
+    "displayName": "Cactus",
+    "description": "Minimal personal site with posts, notes, and a now page",
+    "bestFor": ["personal", "writing", "developers"],
+    "vars": {
+      "color-primary": "#0d754d",
+      "color-accent": "#9c4f2b",
+      "font-heading": "system-ui, -apple-system, sans-serif",
+      "font-body": "system-ui, -apple-system, sans-serif"
+    },
+    "category": "personal",
+    "pack": "cactus",
+    "thumbnail": "packs/cactus/thumbnail.png",
+    "credit": {
+      "name": "Astro Cactus by Chris Williams",
+      "url": "https://github.com/chrismwilliams/astro-theme-cactus",
+      "license": "MIT"
+    }
+  },
+  {
     "id": "astropaper",
     "displayName": "AstroPaper",
     "description": "Type-forward blog: one narrow column, monospace, minimal chrome",

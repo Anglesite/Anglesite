@@ -67,6 +67,13 @@ precedence = "override"
 SPDX-FileCopyrightText = "2023 onWidget"
 SPDX-License-Identifier = "MIT"
 
+# Theme pack ported from Astro Cactus (#1650), same arrangement as the AstroWind pack above.
+[[annotations]]
+path = "Resources/Template/packs/cactus/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2022 Chris Williams"
+SPDX-License-Identifier = "MIT"
+
 # Theme pack ported from AstroPaper (#1651) — same arrangement as the AstroWind pack
 # above: a from-scratch vanilla-CSS adaptation of an MIT-licensed design, carrying the
 # original's license and attribution (full text in the pack's own LICENSE file).

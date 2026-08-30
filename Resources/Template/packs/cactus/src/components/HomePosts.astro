@@ -1,0 +1,79 @@
+---
+// Astro Cactus pack (#1650): the homepage "Posts" list — the original's front page is a
+// greeting followed by the latest few posts, not a marketing stack. Reads the chassis's
+// existing `blog` collection (the port needed no schema changes), with the same
+// drafts-in-dev-only filter `blog/index.astro` uses.
+import { getCollection } from "astro:content";
+
+const posts = (
+  await getCollection("blog", ({ data }) => (import.meta.env.PROD ? !data.draft : true))
+)
+  .sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf())
+  .slice(0, 4);
+---
+
+<section class="cactus-section" aria-labelledby="cactus-posts-heading">
+  <h2 id="cactus-posts-heading">Posts</h2>
+  {
+    posts.length === 0 ? (
+      <p class="cactus-empty">
+        No posts yet. Add a Markdown file in <code>src/content/blog/</code> to get started.
+      </p>
+    ) : (
+      <ul class="cactus-list">
+        {posts.map((post) => (
+          <li>
+            <time datetime={post.data.pubDate.toISOString()}>
+              {post.data.pubDate.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}
+            </time>
+            <a href={`/blog/${post.id}/`}>{post.data.title}</a>
+          </li>
+        ))}
+      </ul>
+    )
+  }
+  <p class="cactus-more"><a href="/blog/">See all posts</a></p>
+</section>
+
+<style>
+  .cactus-section {
+    padding-block: calc(var(--spacing-unit) * 6);
+  }
+
+  h2 {
+    font-size: 1.25rem;
+    margin-block-end: calc(var(--spacing-unit) * 5);
+  }
+
+  .cactus-list {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 3);
+  }
+
+  /* The original's row rhythm: a fixed monospaced date column, then the title — collapsing
+     to stacked lines when the measure gets narrow. */
+  .cactus-list li {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    gap: calc(var(--spacing-unit) * 1) calc(var(--spacing-unit) * 4);
+  }
+
+  .cactus-list time {
+    flex: 0 0 auto;
+    min-width: 6.5rem;
+  }
+
+  .cactus-empty,
+  .cactus-more {
+    color: var(--color-text-muted);
+  }
+
+  .cactus-more {
+    margin-block-start: calc(var(--spacing-unit) * 5);
+    font-family: var(--cactus-mono);
+    font-size: 0.875rem;
+  }
+</style>

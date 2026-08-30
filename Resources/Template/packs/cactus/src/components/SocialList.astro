@@ -1,0 +1,41 @@
+---
+// Astro Cactus pack (#1650): the original's "Let's Connect" row, adapted to what the chassis
+// actually knows about a site. The owner's own identity links come from `src/data/profile.json`
+// (the same singleton Hcard.astro reads) and appear only once it exists — a brand-new site
+// shows just its subscribe links rather than placeholder profiles pointing nowhere.
+import { siteProfile, profileExists } from "../lib/profile.ts";
+
+const profile = profileExists() ? siteProfile() : undefined;
+const homepage = typeof profile?.url === "string" && profile.url.length > 0 ? profile.url : undefined;
+const email = typeof profile?.email === "string" && profile.email.length > 0 ? profile.email : undefined;
+---
+
+<section class="cactus-section" aria-labelledby="cactus-connect-heading">
+  <h2 id="cactus-connect-heading">Elsewhere</h2>
+  <ul class="cactus-links">
+    {homepage && <li><a rel="me" href={homepage}>Homepage</a></li>}
+    {email && <li><a rel="me" href={`mailto:${email}`}>Email</a></li>}
+    <li><a href="/rss.xml">RSS</a></li>
+    <li><a href="/blogroll/">Blogroll</a></li>
+  </ul>
+</section>
+
+<style>
+  .cactus-section {
+    padding-block: calc(var(--spacing-unit) * 6);
+  }
+
+  h2 {
+    font-size: 1.25rem;
+    margin-block-end: calc(var(--spacing-unit) * 5);
+  }
+
+  .cactus-links {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 2) calc(var(--spacing-unit) * 6);
+    font-family: var(--cactus-mono);
+    font-size: 0.875rem;
+  }
+</style>
