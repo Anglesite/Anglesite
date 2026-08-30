@@ -579,6 +579,68 @@ test("routing: protected-resource metadata rejects undeclared methods and mirror
   expect(await head.text()).toBe("");
 });
 
+test("RFC 9727 API catalog lists every live protocol when fully provisioned (#1659)", async () => {
+  const response = await fetchWorker(new Request("https://owner.example/.well-known/api-catalog"));
+  expect(response.status).toBe(200);
+  expect(response.headers.get("content-type")).toBe("application/linkset+json");
+  const body = (await response.json()) as { linkset: { anchor: string; "service-desc": { href: string }[] }[] };
+  expect(body.linkset.map((entry) => entry.anchor)).toStrictEqual([
+    "https://owner.example/.well-known/oauth-authorization-server",
+    "https://owner.example/webmention",
+    "https://owner.example/micropub",
+    "https://owner.example/websub",
+    "https://owner.example/users/site",
+    "https://owner.example/.well-known/webfinger",
+    "https://owner.example/.well-known/nodeinfo",
+  ]);
+  const indieauth = body.linkset[0];
+  expect(indieauth["service-desc"]).toStrictEqual([{ href: "https://indieauth.spec.indieweb.org/" }]);
+});
+
+test("RFC 9727 API catalog always lists IndieAuth even with nothing else provisioned", async () => {
+  const bareEnv = {
+    ...testEnv,
+    WEBMENTION_QUEUE: undefined,
+    MICROPUB_DB: undefined,
+    WEBSUB_QUEUE: undefined,
+    WEBSUB_DB: undefined,
+    ACTOR: undefined,
+  } as WorkerEnv;
+  const response = await worker.fetch(
+    new Request("https://owner.example/.well-known/api-catalog"),
+    bareEnv,
+    createExecutionContext(),
+  );
+  const body = (await response.json()) as { linkset: { anchor: string }[] };
+  expect(body.linkset.map((entry) => entry.anchor)).toStrictEqual([
+    "https://owner.example/.well-known/oauth-authorization-server",
+  ]);
+});
+
+test("RFC 9727 API catalog omits an unprovisioned protocol and keeps the rest", async () => {
+  const response = await worker.fetch(
+    new Request("https://owner.example/.well-known/api-catalog"),
+    { ...testEnv, MICROPUB_DB: undefined } as WorkerEnv,
+    createExecutionContext(),
+  );
+  const body = (await response.json()) as { linkset: { anchor: string }[] };
+  const anchors = body.linkset.map((entry) => entry.anchor);
+  expect(anchors).not.toContain("https://owner.example/micropub");
+  expect(anchors).toContain("https://owner.example/webmention");
+});
+
+test("routing: api-catalog rejects undeclared methods and mirrors HEAD", async () => {
+  const post = await fetchWorker(new Request("https://owner.example/.well-known/api-catalog", { method: "POST" }));
+  expect(post.status).toBe(405);
+  expect(post.headers.get("allow")).toBe("GET, HEAD");
+
+  const get = await fetchWorker(new Request("https://owner.example/.well-known/api-catalog"));
+  const head = await fetchWorker(new Request("https://owner.example/.well-known/api-catalog", { method: "HEAD" }));
+  expect(head.status).toBe(get.status);
+  expect(head.headers.get("content-type")).toBe(get.headers.get("content-type"));
+  expect(await head.text()).toBe("");
+});
+
 test("IndieAuth owner consent completes PKCE sign-in and issues a DPoP token", async () => {
   const verifier = "anglesite-indieauth-verifier-with-more-than-forty-three-characters";
   const challenge = await pkceChallenge(verifier);
@@ -1077,6 +1139,11 @@ test("webmention queue consumer: no-ops (does not throw) when the inbox/site ori
 test("micropub: an unauthorized request (no Authorization header) is rejected", async () => {
   const response = await fetchWorker(new Request("https://owner.example/micropub?q=config"));
   expect(response.status).toBe(401);
+  // RFC 9728 §5.1 discovery signal (#1665): points an agent at the protected-resource metadata
+  // document straight from the failed request.
+  expect(response.headers.get("www-authenticate")).toBe(
+    'DPoP resource_metadata="https://owner.example/.well-known/oauth-protected-resource"',
+  );
 });
 
 test("micropub: a valid token creates a post (201 + Location)", async () => {
@@ -2133,6 +2200,11 @@ async function createMicrosubChannel(
 test("microsub: an unauthorized request (no Authorization header) is rejected", async () => {
   const response = await fetchWorker(new Request("https://owner.example/microsub?action=channels"));
   expect(response.status).toBe(401);
+  // RFC 9728 §5.1 discovery signal (#1665): points an agent at the protected-resource metadata
+  // document straight from the failed request.
+  expect(response.headers.get("www-authenticate")).toBe(
+    'DPoP resource_metadata="https://owner.example/.well-known/oauth-protected-resource"',
+  );
 });
 
 test("microsub: a valid token creates a channel and follows a feed (200)", async () => {

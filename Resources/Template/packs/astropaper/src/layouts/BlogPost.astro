@@ -1,0 +1,68 @@
+---
+// AstroPaper pack (#1651) override of the chassis BlogPost: same microformats skeleton,
+// same integration anchors (share/comments/imports) and schema wiring — keep in lockstep
+// with the chassis file when it changes — restyled as the original's reading page: a
+// "Back to Posts" link, a large title, a quiet date line, then the prose column.
+//
+// BlogPost.astro — layout for an individual blog post. The post route
+// src/pages/blog/[...slug].astro renders through this layout; the Markdown body
+// fills the <slot/>, the share anchor is where the share integration injects its
+// buttons, and the comments anchor is where the giscus integration injects its
+// widget when comments are set up.
+import { Schema } from "astro-seo-schema";
+import { blogPostingSchema } from "../lib/schema.ts";
+import { ownerName } from "../lib/profile.ts";
+import { licenseFor } from "../lib/licensing-data.ts";
+import BaseLayout from "./BaseLayout.astro";
+import SyndicationLinks from "../components/SyndicationLinks.astro";
+import DraftBadge from "../components/DraftBadge.astro";
+import LicenseLink from "../components/LicenseLink.astro";
+import Interactions from "../components/Interactions.astro";
+// Imported unconditionally (like BaseLayout.astro) so the giscus and share
+// integrations, which both read config at this anchor, don't each need their
+// own copy — astro check rejects the resulting duplicate identifier.
+import { readConfig } from "../../scripts/config";
+
+interface Props {
+  title: string;
+  description?: string;
+  pubDate?: Date;
+  draft?: boolean;
+  syndication?: string[];
+  lang?: string;
+}
+
+const { title, description, pubDate, draft, syndication, lang } = Astro.props;
+// pubDate is already a Date; pin the locale + UTC so static output is deterministic.
+const iso = pubDate ? pubDate.toISOString() : undefined;
+const human = pubDate
+  ? pubDate.toLocaleDateString("en-US", { year: "numeric", month: "long", day: "numeric", timeZone: "UTC" })
+  : undefined;
+const canonical = new URL(Astro.url.pathname, Astro.site ?? Astro.url).href;
+const license = licenseFor("blog");
+const jsonLd = blogPostingSchema(
+  { title, description, pubDate },
+  { url: canonical, site: Astro.site, authorName: ownerName(), license: license?.url },
+);
+// anglesite:imports — integration component imports are injected here on setup
+---
+
+<BaseLayout title={title} description={description} license={license} lang={lang} documentPath={Astro.url.pathname} ogType="article">
+  <Schema slot="head" item={jsonLd} />
+  <p class="ap-backlink"><a href="/blog/">← Back to Posts</a></p>
+  <article class="h-entry ap-post">
+    <DraftBadge draft={draft} />
+    <h1 class="p-name">{title}</h1>
+    {description && <p class="p-summary">{description}</p>}
+    {/* The permalink (u-url) is unconditional; the dt-published time renders inside it when present. */}
+    <a class="u-url" href={Astro.url.pathname}>
+      {iso && <time class="dt-published" datetime={iso}>{human}</time>}
+    </a>
+    <div class="e-content"><slot /></div>
+    <LicenseLink license={license} />
+    <SyndicationLinks urls={syndication} />
+    <!-- anglesite:share -->
+    <Interactions canonical={canonical} />
+    <!-- anglesite:comments -->
+  </article>
+</BaseLayout>

@@ -52,14 +52,14 @@ One screen (fixed 720×480 sheet; footer **Cancel / Create**):
   category. On Blank all eight built-in themes appear, each card a miniature page mock in
   the theme's colors with name + description; the first catalog theme ("Classic") is
   pre-selected.
-- **Ported packs (#1179):** **Business website** shows one card, **AstroWind** (#1649), and
-  **Personal website** shows one card, **Cactus** (#1650). Both render their committed
-  `thumbnail.png` — a real screenshot of the built pack — rather than the synthesized
-  two-color mock, and switching to that category pre-selects its flagship pack. Creating
-  from one must produce a site whose homepage matches the thumbnail's layout, not the base
-  chassis.
-- **Empty categories:** **Blog**, **Portfolio**, and **Organization website** have no pack
-  yet (#1651–#1653), so each still shows **"No themes in this category yet"** with **Create
+- **Ported packs (#1179):** **Business website** shows one card, **AstroWind** (#1649);
+  **Personal website** shows one card, **Cactus** (#1650); and **Blog** shows one card,
+  **AstroPaper** (#1651). All three render their committed `thumbnail.png` — a real
+  screenshot of the built pack — rather than the synthesized two-color mock, and switching
+  to that category pre-selects its flagship pack. Creating from one must produce a site
+  whose homepage matches the thumbnail's layout, not the base chassis.
+- **Empty categories:** **Portfolio** and **Organization website** have no pack yet
+  (#1652–#1653), so each still shows **"No themes in this category yet"** with **Create
   disabled** — not an empty grid, not a phantom selection, and nothing on disk if dismissed
   from that state.
 - Single click selects (accent ring); **double-click creates immediately**.
@@ -90,7 +90,7 @@ Inspect `~/Sites/Untitled.anglesite/`:
 
 - `Info.plist` marker with format version 1, a stable site UUID, display name "Untitled", created date.
 - `Source/` — the Astro project: `package.json` (name `anglesite-site`), `astro.config.ts`, `src/`, `public/`, `scripts/`, `worker/`, `.site-config`.
-- `.site-config` contains: `SITE_NAME=Untitled`, `DOMAIN_CHOICE=later`, `THEME`, `CF_PROJECT_NAME=untitled`, and the real `ANGLESITE_VERSION` (not the `1.0.0` placeholder); **must not contain** `SITE_TYPE` or `TAGLINE` for this Blank-category run. *(A site created from a non-Blank category — possible only once theme packs land — must instead contain `SITE_TYPE=<category>`, e.g. `SITE_TYPE=business` (#1452).)*
+- `.site-config` contains: `SITE_NAME=Untitled`, `DOMAIN_CHOICE=later`, `THEME`, `CF_PROJECT_NAME=untitled`, and the real `ANGLESITE_VERSION` (not the `1.0.0` placeholder); **must not contain** `SITE_TYPE` or `TAGLINE` for this Blank-category run. *(A site created from a category with a ported pack — Business or Blog — must instead contain `SITE_TYPE=<category>`, e.g. `SITE_TYPE=business` (#1452), and its `Source/src/` must carry the pack's overlay: for Blog, `src/styles/global.css` starts with the AstroPaper pack header and `src/components/SiteHeader.astro` exists.)*
 - `Config/` exists beside `Source/` with the dependency baseline; `Config/` is **not** inside the git repo.
 - Excluded from the copy: `scripts/scaffold.sh`, `scripts/themes.ts`, `scripts/themes.json`, `scripts/check-pack.ts`, `scripts/build-packs.sh`, `packs/`, `scripts/*.test.ts`, `integrations/`, `node_modules/`.
 - When the package landed in the iCloud folder, any sync indicator (toolbar/inspector) showing this site as iCloud-sync-eligible is **expected, not a regression**: since #865 new sites are created inside the iCloud container, so `ICloudSyncEligibility` (#881) is now true by default rather than only for deliberately-relocated sites.

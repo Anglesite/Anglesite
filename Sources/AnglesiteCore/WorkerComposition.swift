@@ -101,6 +101,42 @@ public enum WorkerComposition {
         handler: "mcp"
     )
 
+    /// Route claim for the RFC 9727 API Catalog (#1659) — same app-owned-route rationale as
+    /// `mcpRouteClaim`: it's Anglesite's own aggregation of whichever social endpoints are
+    /// actually live, not a package any single `@dwk/workers` catalog entry publishes. Unlike
+    /// `mcpRouteClaim`/`inboxCaptureRouteClaim`, its path sits under `/.well-known/`, so it's
+    /// appended via ``withAPICatalogClaim(_:workers:)`` rather than inline in
+    /// `generateWranglerToml` — callers need it in the *owner-attributed* claim list (before
+    /// `generateWranglerToml` strips ownership) so #744's `WellKnownInventory` collision check
+    /// sees it too, not just `[assets].run_worker_first`.
+    public static let apiCatalogRouteClaim = WorkerRouteClaim(
+        path: "/.well-known/api-catalog",
+        match: .exact,
+        methods: ["GET", "HEAD"],
+        handler: "api-catalog",
+        specificationURL: URL(string: "https://www.rfc-editor.org/rfc/rfc9727")
+    )
+
+    /// Owner id attributed to `apiCatalogRouteClaim` in a `WorkerRouteClaims.OwnedClaim` — never
+    /// a real `@dwk/workers` catalog id, mirroring `WellKnownInventory`'s own `"generator:…"`
+    /// prefix convention for the same reason: naming the source without pretending it's a
+    /// catalog package.
+    public static let apiCatalogOwnerID = "app:api-catalog"
+
+    /// Appends `apiCatalogRouteClaim` to `claims` whenever the site has any active social Worker
+    /// (`!workers.isEmpty` — the same `hasSocialFeatures` gate `generateWranglerToml` computes
+    /// internally): the catalog has nothing to report until the social layer is composed at all
+    /// (#1659). Callers pass the result both to `generateWranglerToml`'s `routeClaims` (so
+    /// `[assets].run_worker_first` actually routes the path to the Worker) and to
+    /// `SocialWorkerProvisionCommand.provision`'s `wellKnownDynamicClaims` (so #744's collision
+    /// check sees it) — a single append point keeps the two from silently diverging.
+    public static func withAPICatalogClaim(
+        _ claims: [WorkerRouteClaims.OwnedClaim], workers: [WorkerDescriptor]
+    ) -> [WorkerRouteClaims.OwnedClaim] {
+        guard !workers.isEmpty else { return claims }
+        return claims + [WorkerRouteClaims.OwnedClaim(owner: apiCatalogOwnerID, claim: apiCatalogRouteClaim)]
+    }
+
     private static let validNameCharacters = CharacterSet(
         charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
     )

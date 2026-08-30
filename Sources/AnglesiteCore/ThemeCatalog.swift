@@ -62,9 +62,9 @@ public struct ThemeCatalog: Sendable {
     /// if the preferred id isn't present (keeps the drift guard meaningful).
     public func defaultThemeID(for type: SiteType) -> String {
         // Categories with a ported pack prefer their flagship pack (spec §4); the rest
-        // keep a built-in until their port lands (#1651–#1653).
+        // keep a built-in until their port lands (#1652, #1653).
         let preferred: [SiteType: String] = [
-            .business: "astrowind", .personal: "cactus", .blog: "warm",
+            .business: "astrowind", .personal: "cactus", .blog: "astropaper",
             .portfolio: "bold", .organization: "community", .community: "community",
             .blank: "classic",
         ]

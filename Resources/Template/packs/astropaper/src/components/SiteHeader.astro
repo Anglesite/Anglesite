@@ -1,0 +1,66 @@
+---
+// AstroPaper pack (#1651): the original's masthead — site title at the left, a plain
+// text nav at the right, closed by a hairline rule; no sticky bar, no backdrop blur.
+// The slot receives whatever BaseLayout places at the `<!-- anglesite:nav -->` anchor
+// (e.g. the menu integration's injected <Nav />), so integration nav items land inside
+// this header instead of floating above it.
+import { readConfig } from "../../scripts/config";
+
+const siteName = readConfig("SITE_NAME") ?? "Home";
+---
+
+<header class="ap-header">
+  <div class="ap-header-inner">
+    <a class="ap-brand" href="/">{siteName}</a>
+    <nav aria-label="Site">
+      <a href="/blog/">Posts</a>
+      <a href="/tags/">Tags</a>
+      <a href="/about/">About</a>
+      <a href="/search/">Search</a>
+    </nav>
+    <slot />
+  </div>
+</header>
+
+<style>
+  .ap-header {
+    border-bottom: 1px solid var(--ap-border);
+  }
+
+  .ap-header-inner {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 4);
+    max-width: var(--ap-measure);
+    margin-inline: auto;
+    padding: calc(var(--spacing-unit) * 5) calc(var(--spacing-unit) * 4);
+  }
+
+  .ap-brand {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.375rem;
+    color: var(--color-text);
+  }
+
+  /* AstroPaper's wavy underline, on the brand as well as the nav links. */
+  .ap-brand:hover,
+  nav a:hover {
+    text-decoration: underline wavy;
+    text-underline-offset: 0.4em;
+    text-decoration-thickness: 1px;
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 5);
+    font-size: 0.9375rem;
+  }
+
+  nav a {
+    color: var(--color-text);
+  }
+</style>

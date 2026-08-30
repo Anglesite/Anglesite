@@ -922,6 +922,26 @@ function handleOAuthProtectedResourceMetadata(request: Request): Response {
 }
 
 /**
+ * RFC 9728 §5.1: a protected resource returning `401` should point back at its own
+ * protected-resource metadata via `WWW-Authenticate`'s `resource_metadata` parameter — the
+ * mechanism an agent uses to find `/.well-known/oauth-protected-resource` straight from a failed
+ * request, without already knowing the URL. `@dwk/micropub`/`@dwk/microsub`'s own 401s don't set
+ * this header, so `handleMicropub`/`handleMicrosub` wrap their responses through this instead of
+ * patching the upstream library. Scheme is `DPoP`, not `Bearer` — matching
+ * `handleOAuthProtectedResourceMetadata`'s `dpop_bound_access_tokens_required`, since
+ * `@dwk/indieauth` never issues plain Bearer tokens. A non-401 response, or one that already
+ * carries its own `WWW-Authenticate`, passes through unchanged.
+ */
+function withResourceMetadataChallenge(response: Response, baseUrl: string): Response {
+  if (response.status !== 401 || response.headers.has("www-authenticate")) {
+    return response;
+  }
+  const headers = new Headers(response.headers);
+  headers.set("www-authenticate", `DPoP resource_metadata="${baseUrl}/.well-known/oauth-protected-resource"`);
+  return new Response(response.body, { status: response.status, statusText: response.statusText, headers });
+}
+
+/**
  * Inbound-Webmention receive endpoint (V-3.1, #359).
  *
  * Composes `@dwk/webmention`'s receiver: a form-encoded `POST` of `source` + `target` is
@@ -1087,7 +1107,7 @@ function handleMicropub(
         fanOutMicropubCreateToActivityPub(content, photos, visibility, btoTargets, baseUrl, response, env, ctx),
       );
     }
-    return response;
+    return withResourceMetadataChallenge(response, baseUrl);
   });
 }
 
@@ -1441,7 +1461,7 @@ function handleMicrosub(
     AUTH_DB: env.AUTH_DB,
     TOKEN_SIGNING_KEY: env.TOKEN_SIGNING_KEY,
   };
-  return microsub(request, microsubEnv, ctx);
+  return microsub(request, microsubEnv, ctx).then((response) => withResourceMetadataChallenge(response, baseUrl));
 }
 
 /**
@@ -1760,6 +1780,64 @@ export async function handleInbox(
   return new Response(null, { status: 202 });
 }
 
+/**
+ * RFC 9727 API Catalog (#1659) — one of Cloudflare's Agent Readiness checks (#1278/#1326).
+ * Advertises whichever of this site's agent-usable APIs are actually live as a
+ * `linkset+json` document at `/.well-known/api-catalog`. Each entry's gate mirrors the exact
+ * "actually live" binding check its own handler already performs (`handleWebmentionReceive`,
+ * `handleMicropub`, `handleWebSubHub`, `activityPubConfig`), so an un-provisioned protocol never
+ * appears here — the catalog can never advertise capability this Worker doesn't actually serve.
+ * IndieAuth is unconditional, mirroring `handleOAuthProtectedResourceMetadata`'s own reasoning:
+ * its endpoints are always live for every site.
+ */
+function handleApiCatalog(request: Request, env: WorkerEnv): Response {
+  const baseUrl = new URL(request.url).origin;
+  const serviceDesc = (href: string) => [{ href }];
+  const linkset: Record<string, unknown>[] = [
+    {
+      anchor: `${baseUrl}/.well-known/oauth-authorization-server`,
+      "service-desc": serviceDesc("https://indieauth.spec.indieweb.org/"),
+    },
+  ];
+  if (env.WEBMENTION_QUEUE) {
+    linkset.push({
+      anchor: `${baseUrl}/webmention`,
+      "service-desc": serviceDesc("https://www.w3.org/TR/webmention/"),
+    });
+  }
+  if (env.MICROPUB_DB && env.MEDIA && env.AUTH_DB && env.TOKEN_SIGNING_KEY) {
+    linkset.push({
+      anchor: `${baseUrl}/micropub`,
+      "service-desc": serviceDesc("https://www.w3.org/TR/micropub/"),
+    });
+  }
+  if (env.WEBSUB_QUEUE && env.WEBSUB_DB && websubOrigin(env)) {
+    linkset.push({
+      anchor: `${baseUrl}/websub`,
+      "service-desc": serviceDesc("https://www.w3.org/TR/websub/"),
+    });
+  }
+  if (activityPubConfig(request, env)) {
+    linkset.push(
+      {
+        anchor: `${baseUrl}/users/${ACTIVITYPUB_USERNAME}`,
+        "service-desc": serviceDesc("https://www.w3.org/TR/activitypub/"),
+      },
+      {
+        anchor: `${baseUrl}/.well-known/webfinger`,
+        "service-desc": serviceDesc("https://www.rfc-editor.org/rfc/rfc7033"),
+      },
+      {
+        anchor: `${baseUrl}/.well-known/nodeinfo`,
+        "service-desc": serviceDesc("https://nodeinfo.diaspora.software/"),
+      },
+    );
+  }
+  return new Response(JSON.stringify({ linkset }), {
+    headers: { "content-type": "application/linkset+json" },
+  });
+}
+
 /** One dynamic route this Worker serves — the handler-side mirror of a catalog route claim. */
 export interface WorkerRoute {
   /** Absolute claimed path, e.g. `"/.well-known/oauth-authorization-server"`. */
@@ -1787,6 +1865,13 @@ export const ROUTES: readonly WorkerRoute[] = [
     match: "exact",
     methods: ["GET", "HEAD"],
     handler: (request) => handleOAuthProtectedResourceMetadata(request),
+  },
+  {
+    // RFC 9727 API Catalog (#1659) — see handleApiCatalog.
+    path: "/.well-known/api-catalog",
+    match: "exact",
+    methods: ["GET", "HEAD"],
+    handler: (request, env) => handleApiCatalog(request, env),
   },
   {
     // GET renders/redirects the authorization request; POST redeems an authorization code for

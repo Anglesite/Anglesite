@@ -445,11 +445,17 @@ struct SiteOperationsTests {
         // Mirrors DeployModel.runDeploy's GUI-path wiring (#744/#746): the headless deploy path
         // (App Intents/Shortcuts/Siri, #934) must see the same active dynamic /.well-known/
         // route claims, or a static/dynamic collision that the GUI Deploy button would block
-        // could slip through here.
+        // could slip through here. Also carries the #1659 RFC 9727 API Catalog claim
+        // (`WorkerComposition.apiCatalogRouteClaim`), appended whenever any worker is active —
+        // see `withAPICatalogClaim`.
         #expect(await recorder.deployCalls == [
             .init(
                 token: "token", siteID: "s1", siteDirectory: site.sourceDirectory,
-                wellKnownDynamicClaims: [WorkerRouteClaims.OwnedClaim(owner: "webfinger", claim: webfingerRoute)]
+                wellKnownDynamicClaims: [
+                    WorkerRouteClaims.OwnedClaim(owner: "webfinger", claim: webfingerRoute),
+                    WorkerRouteClaims.OwnedClaim(
+                        owner: WorkerComposition.apiCatalogOwnerID, claim: WorkerComposition.apiCatalogRouteClaim),
+                ]
             ),
         ])
     }
