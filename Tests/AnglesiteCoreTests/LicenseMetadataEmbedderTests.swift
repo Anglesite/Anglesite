@@ -233,4 +233,43 @@ struct LicenseMetadataEmbedderTests {
             _ = try LicenseMetadataEmbedder.embed(license, into: garbage, type: .pdf)
         }
     }
+
+    @Test("readLicense returns nil for a type outside supportedTypes")
+    func readLicenseUnsupportedTypeReturnsNil() {
+        #expect(LicenseMetadataEmbedder.readLicense(from: Data(), type: .zip) == nil)
+    }
+
+    @Test("readLicense returns nil for a supported type with no embedded license")
+    func readLicenseNoLicenseReturnsNil() {
+        #expect(LicenseMetadataEmbedder.readLicense(from: pngData(), type: .png) == nil)
+    }
+
+    @Test("readLicense round-trips embed for every supported image type",
+          arguments: [UTType.jpeg, .png, .tiff, .heic])
+    func readLicenseRoundTripsImages(type: UTType) throws {
+        let result = try LicenseMetadataEmbedder.embed(license, into: imageData(type: type), type: type)
+        guard case .embedded(let embedded) = result else {
+            Issue.record("expected .embedded for \(type.identifier), got \(result)")
+            return
+        }
+        let readBack = LicenseMetadataEmbedder.readLicense(from: embedded, type: type)
+        #expect(readBack == license, "\(type.identifier) failed to round-trip")
+    }
+
+    @Test("readLicense round-trips embed for PDF")
+    func readLicenseRoundTripsPDF() throws {
+        let result = try LicenseMetadataEmbedder.embed(license, into: onePagePDFData(), type: .pdf)
+        guard case .embedded(let embedded) = result else {
+            Issue.record("expected .embedded, got \(result)")
+            return
+        }
+        #expect(LicenseMetadataEmbedder.readLicense(from: embedded, type: .pdf) == license)
+    }
+
+    @Test("readLicense returns nil for unreadable bytes rather than throwing")
+    func readLicenseUnreadableBytesReturnsNil() {
+        let garbage = Data([0x00, 0x01, 0x02])
+        #expect(LicenseMetadataEmbedder.readLicense(from: garbage, type: .png) == nil)
+        #expect(LicenseMetadataEmbedder.readLicense(from: garbage, type: .pdf) == nil)
+    }
 }
