@@ -114,5 +114,25 @@
       "url": "https://github.com/arthelokyo/astrowind",
       "license": "MIT"
     }
+  },
+  {
+    "id": "astropaper",
+    "displayName": "AstroPaper",
+    "description": "Type-forward blog: one narrow column, monospace, minimal chrome",
+    "bestFor": ["blog", "writing", "newsletter"],
+    "vars": {
+      "color-primary": "#006cac",
+      "color-accent": "#ff6b01",
+      "font-heading": "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace",
+      "font-body": "ui-monospace, SFMono-Regular, 'SF Mono', Menlo, Consolas, monospace"
+    },
+    "category": "blog",
+    "pack": "astropaper",
+    "thumbnail": "packs/astropaper/thumbnail.png",
+    "credit": {
+      "name": "AstroPaper by Sat Naing",
+      "url": "https://github.com/satnaing/astro-paper",
+      "license": "MIT"
+    }
   }
 ]

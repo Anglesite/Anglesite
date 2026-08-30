@@ -1,0 +1,41 @@
+---
+// AstroPaper pack (#1651) override of the chassis /blog/ index: the original's "Posts"
+// archive — page title, a quiet utility row (RSS, search), then the full post list in
+// the same row shape the homepage uses. Search itself is deliberately not ported (the
+// original's Fuse.js island is a runtime dependency the pack contract excludes); the
+// link points at the chassis's own /search/ page.
+import { getCollection } from "astro:content";
+import BaseLayout from "../../layouts/BaseLayout.astro";
+import PostListItem from "../../components/PostListItem.astro";
+
+const posts = (
+  await getCollection("blog", ({ data }) => (import.meta.env.PROD ? !data.draft : true))
+).sort((a, b) => b.data.pubDate.valueOf() - a.data.pubDate.valueOf());
+---
+
+<BaseLayout title="Blog" description="Read the latest posts and updates.">
+  <header class="ap-page-head">
+    <h1>Blog</h1>
+  </header>
+  <p class="ap-utility-row">
+    <a href="/blog/rss.xml">Subscribe (RSS)</a> · <a href="/search/">Search the archive</a>
+  </p>
+  {
+    posts.length === 0 ? (
+      <p>No posts yet. Add a Markdown file in <code>src/content/blog/</code> to get started.</p>
+    ) : (
+      <ul class="ap-post-list">
+        {posts.map((post) => (
+          <PostListItem
+            as="h2"
+            href={`/blog/${post.id}/`}
+            title={post.data.title}
+            pubDate={post.data.pubDate}
+            description={post.data.description}
+            draft={post.data.draft}
+          />
+        ))}
+      </ul>
+    )
+  }
+</BaseLayout>

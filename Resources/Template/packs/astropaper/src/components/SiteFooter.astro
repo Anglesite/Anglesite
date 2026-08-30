@@ -1,0 +1,59 @@
+---
+// AstroPaper pack (#1651): the original's quiet closing band — a hairline rule, the
+// site identity, and a short link row, all centered and small. Deliberately a <div>,
+// not a <footer> — the slotted Hcard already renders the page's one body-level
+// <footer class="site-identity"> (the single contentinfo landmark; see Hcard.astro's
+// own comment), and this wrapper only gives it and the Rights line the pack's
+// treatment. The chassis components are slotted, so their styling needs :global().
+---
+
+<div class="ap-footer">
+  <div class="ap-footer-inner">
+    <nav aria-label="Footer">
+      <a href="/blog/">Posts</a>
+      <a href="/blogroll/">Blogroll</a>
+      <a href="/rss.xml">RSS</a>
+    </nav>
+    <slot />
+  </div>
+</div>
+
+<style>
+  .ap-footer {
+    margin-block-start: calc(var(--spacing-unit) * 20);
+    border-top: 1px solid var(--ap-border);
+  }
+
+  .ap-footer-inner {
+    max-width: var(--ap-measure);
+    margin-inline: auto;
+    padding: calc(var(--spacing-unit) * 8) calc(var(--spacing-unit) * 4);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: calc(var(--spacing-unit) * 3);
+    text-align: center;
+    font-size: 0.8125rem;
+    color: var(--color-text-muted);
+  }
+
+  .ap-footer-inner :global(.site-identity) {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: calc(var(--spacing-unit) * 2);
+  }
+
+  .ap-footer-inner :global(.h-card .p-name) {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    color: var(--color-text);
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: center;
+    gap: calc(var(--spacing-unit) * 5);
+  }
+</style>
