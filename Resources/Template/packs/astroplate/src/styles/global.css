@@ -1,0 +1,484 @@
+/* Astroplate pack (#1653) — full global.css replacement, per the port contract
+   (docs/superpowers/specs/2026-07-31-curated-theme-ports-design.md §2). Adapted from
+   Astroplate (https://github.com/zeon-studio/astroplate, MIT © Zeon Studio) — the design,
+   rebuilt on the chassis's vanilla-CSS token system; none of the original's Tailwind
+   comes along. Pack-internal extras use the `--ap-` prefix (ThemeApplier never
+   rewrites them). Section rhythm is testimonial-first (member/donor quotes lead,
+   ahead of the mission pillars), distinct from the AstroWind pack's features-first,
+   stats-heavy order. */
+
+:root {
+  --color-primary: #1f6f5c;
+  --color-accent: #e07a5f;
+  --color-background: #ffffff;
+  --color-surface: #f4f1ea;
+  --color-text: #1c2521;
+  --color-text-muted: #55645d;
+  --font-heading: system-ui, -apple-system, sans-serif;
+  --font-body: system-ui, -apple-system, sans-serif;
+  --spacing-unit: 0.25rem;
+  --radius-sm: 0.375rem;
+  --radius-md: 0.625rem;
+  --radius-lg: 1rem;
+  color-scheme: light dark;
+  /* Text links. Light mode reads straight from the brand primary; dark mode swaps in a
+     lighter teal below — the primary itself must stay one value in both schemes because
+     the catalog entry's `vars` pin it (ThemeApplier rewrites `--color-primary:`
+     declarations file-wide, so a dark override would be flattened on theme re-apply). */
+  --ap-link: var(--color-primary);
+  --ap-border: #ded6c4;
+}
+
+/* Dark palette. Only tokens *outside* the catalog entry's `vars` may differ per scheme
+   (see the --ap-link note above). All pairs meet WCAG AA on --color-background:
+   text 14.9:1, muted 6.9:1 (6.2:1 on surface), links 6.6:1. */
+@media (prefers-color-scheme: dark) {
+  :root {
+    --color-background: #121a17;
+    --color-surface: #1b2521;
+    --color-text: #e7ece9;
+    --color-text-muted: #9caaa3;
+    --ap-link: #6fbfa6;
+    --ap-border: #2b3733;
+  }
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+  margin: 0;
+  padding: 0;
+}
+
+html {
+  font-family: var(--font-body);
+  color: var(--color-text);
+  background-color: var(--color-background);
+  line-height: 1.6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+body {
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Astroplate's typographic personality: friendly, slightly looser tracking than a
+   corporate marketing site — headings read as approachable rather than assertive. */
+h1, h2, h3, h4, h5, h6 {
+  font-family: var(--font-heading);
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  line-height: 1.2;
+}
+
+a {
+  color: var(--ap-link);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+:focus-visible {
+  outline: 2px solid var(--ap-link);
+  outline-offset: 2px;
+}
+
+/* First focusable element on every page (BaseLayout). Visually hidden until it receives
+   keyboard focus, then shown as a small pill over the top-left corner. */
+.skip-link {
+  position: absolute;
+  inset-block-start: calc(var(--spacing-unit) * 2);
+  inset-inline-start: calc(var(--spacing-unit) * 2);
+  z-index: 100;
+  padding: calc(var(--spacing-unit) * 2) calc(var(--spacing-unit) * 4);
+  background-color: var(--color-primary);
+  color: #ffffff;
+  border-radius: var(--radius-sm);
+  transform: translateY(calc(-100% - var(--spacing-unit) * 4));
+}
+
+.skip-link:focus {
+  transform: none;
+}
+
+main {
+  flex: 1;
+  width: 100%;
+  max-width: 68rem;
+  margin-inline: auto;
+  padding-inline: calc(var(--spacing-unit) * 6);
+}
+
+/* The skip link's target: it takes programmatic focus (tabindex="-1") so assistive tech
+   follows the jump, but a focus ring around the whole content region is just noise. */
+main:focus {
+  outline: none;
+}
+
+/* Homepage hero. The `.hero` class and its `<section class="hero">` open tag are
+   load-bearing (HeroImage.heroOpenLine — the app inserts the site logo and generated
+   hero image right after it), so the Astroplate treatment hangs entirely off this class.
+   Unlike AstroWind's radial glow, this is a flat warm surface band — calmer, more
+   civic-brochure than tech-marketing. */
+.hero {
+  padding-block: calc(var(--spacing-unit) * 24) calc(var(--spacing-unit) * 16);
+  text-align: center;
+  background-color: var(--color-surface);
+  border-block-end: 1px solid var(--ap-border);
+  margin-inline: calc(var(--spacing-unit) * -6);
+  padding-inline: calc(var(--spacing-unit) * 6);
+}
+
+.site-logo {
+  display: block;
+  width: min(11rem, 44vw);
+  max-height: 5.5rem;
+  object-fit: contain;
+  margin: 0 auto calc(var(--spacing-unit) * 6);
+}
+
+.hero h1 {
+  font-size: clamp(2.25rem, 5.5vw, 3.5rem);
+  margin-block-end: calc(var(--spacing-unit) * 5);
+}
+
+.hero p {
+  font-size: 1.1875rem;
+  color: var(--color-text-muted);
+  max-width: 38rem;
+  margin-inline: auto;
+}
+
+/* Hero call-to-action row (the sentinel paragraph's sibling). */
+.ap-hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: calc(var(--spacing-unit) * 3);
+  margin-block-start: calc(var(--spacing-unit) * 8);
+}
+
+/* Buttons — Astroplate's rounded-corner pair (solid primary + quiet outline), squarer
+   than AstroWind's full pill treatment. */
+.ap-btn {
+  display: inline-block;
+  padding: calc(var(--spacing-unit) * 3) calc(var(--spacing-unit) * 7);
+  border: 1px solid var(--ap-border);
+  border-radius: var(--radius-sm);
+  font-weight: 600;
+  color: var(--color-text);
+  background-color: var(--color-background);
+}
+
+.ap-btn:hover {
+  text-decoration: none;
+  border-color: var(--color-text-muted);
+}
+
+.ap-btn-primary {
+  border-color: var(--color-primary);
+  background-color: var(--color-primary);
+  color: #ffffff;
+}
+
+.ap-btn-primary:hover {
+  filter: brightness(1.08);
+}
+
+.ap-eyebrow {
+  font-size: 0.8125rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ap-link);
+  margin-block-end: calc(var(--spacing-unit) * 2);
+}
+
+/* Testimonials — the pack's lead section (testimonial-first rhythm), a static three-up
+   grid of member/donor quote cards. No slider script; the port contract rides the
+   chassis's existing dependency tree only. */
+.ap-testimonials {
+  padding-block: calc(var(--spacing-unit) * 18) calc(var(--spacing-unit) * 14);
+  text-align: center;
+}
+
+.ap-testimonials h2 {
+  font-size: clamp(1.75rem, 4vw, 2.375rem);
+  margin-block-end: calc(var(--spacing-unit) * 2);
+}
+
+.ap-testimonials > p {
+  color: var(--color-text-muted);
+  max-width: 34rem;
+  margin-inline: auto;
+  margin-block-end: calc(var(--spacing-unit) * 10);
+}
+
+.ap-quote-grid {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 17rem), 1fr));
+  gap: calc(var(--spacing-unit) * 5);
+  text-align: start;
+}
+
+.ap-quote-card {
+  padding: calc(var(--spacing-unit) * 7);
+  border: 1px solid var(--ap-border);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing-unit) * 5);
+}
+
+.ap-quote-mark {
+  font-family: Georgia, "Times New Roman", serif;
+  font-size: 2.5rem;
+  line-height: 1;
+  color: var(--color-accent);
+}
+
+.ap-quote-card blockquote {
+  color: var(--color-text);
+  flex: 1;
+}
+
+.ap-quote-attribution {
+  display: flex;
+  flex-direction: column;
+  font-size: 0.9375rem;
+}
+
+.ap-quote-name {
+  font-weight: 700;
+}
+
+.ap-quote-role {
+  color: var(--color-text-muted);
+}
+
+/* Mission pillars — the reframed "features" band: what the organization does, told as
+   three short pillars rather than a six-card benefits grid. */
+.ap-mission {
+  padding-block: calc(var(--spacing-unit) * 14);
+  border-block: 1px solid var(--ap-border);
+}
+
+.ap-mission-intro {
+  max-width: 40rem;
+  margin-block-end: calc(var(--spacing-unit) * 10);
+}
+
+.ap-mission-intro h2 {
+  font-size: clamp(1.75rem, 4vw, 2.375rem);
+  margin-block-end: calc(var(--spacing-unit) * 3);
+}
+
+.ap-mission-intro p {
+  color: var(--color-text-muted);
+}
+
+.ap-pillar-list {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 16rem), 1fr));
+  gap: calc(var(--spacing-unit) * 8);
+}
+
+.ap-pillar-list li {
+  padding-inline-start: calc(var(--spacing-unit) * 6);
+  border-inline-start: 3px solid var(--color-accent);
+}
+
+.ap-pillar-list h3 {
+  font-size: 1.1875rem;
+  margin-block-end: calc(var(--spacing-unit) * 2);
+}
+
+.ap-pillar-list p {
+  color: var(--color-text-muted);
+}
+
+/* News/updates teaser — a light-touch pointer at the blog rather than a full post list
+   (the collection itself is the source of truth; this just invites the click). */
+.ap-news {
+  padding-block: calc(var(--spacing-unit) * 14);
+}
+
+.ap-news-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: calc(var(--spacing-unit) * 4);
+  margin-block-end: calc(var(--spacing-unit) * 8);
+}
+
+.ap-news-head h2 {
+  font-size: clamp(1.75rem, 4vw, 2.375rem);
+}
+
+.ap-news-link {
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+.ap-news-grid {
+  list-style: none;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 15rem), 1fr));
+  gap: calc(var(--spacing-unit) * 5);
+}
+
+.ap-news-grid li {
+  padding: calc(var(--spacing-unit) * 6);
+  border: 1px solid var(--ap-border);
+  border-radius: var(--radius-md);
+}
+
+.ap-news-tag {
+  display: inline-block;
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--color-accent);
+  margin-block-end: calc(var(--spacing-unit) * 3);
+}
+
+.ap-news-grid h3 {
+  font-size: 1.0625rem;
+  margin-block-end: calc(var(--spacing-unit) * 2);
+}
+
+.ap-news-grid p {
+  color: var(--color-text-muted);
+  font-size: 0.9375rem;
+}
+
+/* Closing "get involved" call-to-action band. */
+.ap-cta {
+  padding-block: calc(var(--spacing-unit) * 16) calc(var(--spacing-unit) * 8);
+}
+
+.ap-cta-inner {
+  text-align: center;
+  padding: calc(var(--spacing-unit) * 14) calc(var(--spacing-unit) * 8);
+  border-radius: var(--radius-lg);
+  background-color: var(--color-primary);
+  color: #ffffff;
+}
+
+.ap-cta-inner h2 {
+  font-size: clamp(1.75rem, 4vw, 2.5rem);
+  margin-block-end: calc(var(--spacing-unit) * 3);
+}
+
+.ap-cta-inner p {
+  opacity: 0.9;
+  max-width: 34rem;
+  margin-inline: auto;
+  margin-block-end: calc(var(--spacing-unit) * 7);
+}
+
+.ap-cta-inner .ap-btn-primary {
+  border-color: #ffffff;
+  background-color: #ffffff;
+  color: var(--color-primary);
+}
+
+.ap-cta-inner .ap-btn-primary:hover {
+  filter: none;
+  background-color: color-mix(in srgb, #ffffff 90%, var(--color-primary));
+}
+
+/* Embed cards (#682). Global rather than scoped: the remark plugin injects this markup as an
+   HTML string, which Astro's scoped-style attributes never reach. */
+.embed-card {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing-unit) * 2);
+  margin-block: calc(var(--spacing-unit) * 6);
+  padding: calc(var(--spacing-unit) * 4);
+  border: 1px solid var(--color-text-muted);
+  border-radius: var(--radius-md);
+  background-color: var(--color-surface);
+}
+
+.embed-card__author {
+  display: flex;
+  align-items: center;
+  gap: calc(var(--spacing-unit) * 2);
+  font-weight: 600;
+  text-decoration: none;
+  color: var(--color-text);
+}
+
+.embed-card__avatar {
+  width: 3rem;
+  height: 3rem;
+  border-radius: 50%;
+  object-fit: cover;
+}
+
+.embed-card__handle {
+  font-weight: 400;
+  color: var(--color-text-muted);
+}
+
+.embed-card__text {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.embed-card__media,
+.embed-card__video {
+  width: 100%;
+  height: auto;
+  border-radius: var(--radius-sm);
+}
+
+.embed-card__video {
+  aspect-ratio: 16 / 9;
+  border: 0;
+}
+
+.embed-card__play {
+  font-size: 1.5rem;
+  color: var(--ap-link);
+}
+
+.embed-card__permalink {
+  font-size: 0.875rem;
+  color: var(--color-text-muted);
+}
+
+/* A video card's permalink wraps the thumbnail and the play glyph, so the whole thing is one
+   click target. It stacks its children the way the card itself does. */
+.embed-card__permalink--thumbnail {
+  display: flex;
+  flex-direction: column;
+  gap: calc(var(--spacing-unit) * 2);
+  text-decoration: none;
+}
+
+/* Neutralize animation for visitors who ask for reduced motion — including anything
+   integrations or future components add on top of this sheet. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    transition-delay: 0ms !important;
+    scroll-behavior: auto !important;
+  }
+}

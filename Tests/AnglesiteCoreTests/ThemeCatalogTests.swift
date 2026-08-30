@@ -60,7 +60,10 @@ struct ThemeCatalogTests {
     }
 
     @Test func defaultThemeIDUsesPreferredMappingWhenPresent() {
-        let ids = ["classic", "elegant", "warm", "bold", "community", "astrowind", "starfolio", "cactus", "astropaper"]
+        let ids = [
+            "classic", "elegant", "warm", "bold", "community",
+            "astrowind", "starfolio", "cactus", "astropaper", "astroplate",
+        ]
         let catalog = ThemeCatalog(themes: ids.map {
             Theme(id: $0, name: $0, blurb: "", swatch: [], cssVars: [:])
         })
@@ -68,7 +71,7 @@ struct ThemeCatalogTests {
         #expect(catalog.defaultThemeID(for: .personal) == "cactus")
         #expect(catalog.defaultThemeID(for: .blog) == "astropaper")
         #expect(catalog.defaultThemeID(for: .portfolio) == "starfolio")
-        #expect(catalog.defaultThemeID(for: .organization) == "community")
+        #expect(catalog.defaultThemeID(for: .organization) == "astroplate")
         #expect(catalog.defaultThemeID(for: .community) == "community")
     }
 
@@ -97,7 +100,7 @@ struct ThemeCatalogTests {
     // DRIFT GUARD: decode the REAL bundled themes.json from the in-repo template.
     @Test func realThemesFileParsesToEightCompleteThemes() throws {
         let themes = try ThemeCatalog.parse(themesJSON: Data(contentsOf: Self.realThemesURL()))
-        #expect(themes.count == 12, "expected 8 built-in themes + 4 ported packs (astrowind, starfolio, cactus, astropaper)")
+        #expect(themes.count == 13, "expected 8 built-in themes + 5 ported packs (astrowind, starfolio, cactus, astropaper, astroplate)")
         // A duplicate id would silently collide in theme(id:)'s first{} lookup (and in the
         // template's Object.fromEntries) — enforce uniqueness at the source.
         let ids = themes.map(\.id)
@@ -138,6 +141,7 @@ struct ThemeCatalogTests {
         let catalog = ThemeCatalog(themes: try ThemeCatalog.parse(themesJSON: Data(contentsOf: Self.realThemesURL())))
         for (type, category) in [
             (SiteType.business, "business"), (SiteType.personal, "personal"), (SiteType.blog, "blog"),
+            (SiteType.portfolio, "portfolio"), (SiteType.organization, "organization"),
         ] {
             let theme = try #require(catalog.theme(id: catalog.defaultThemeID(for: type)))
             #expect(theme.category == category, "\(type) preselects \(theme.id), category \(theme.category ?? "nil")")

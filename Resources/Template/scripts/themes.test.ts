@@ -22,6 +22,7 @@ const EXPECTED_IDS = [
   "starfolio",
   "cactus",
   "astropaper",
+  "astroplate",
 ];
 
 const REQUIRED_VARS = ["color-primary", "color-accent", "font-heading", "font-body"];

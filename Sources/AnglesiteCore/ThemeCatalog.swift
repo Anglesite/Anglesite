@@ -61,11 +61,12 @@ public struct ThemeCatalog: Sendable {
     /// App-side default theme per broad site type. Falls back to the first available theme
     /// if the preferred id isn't present (keeps the drift guard meaningful).
     public func defaultThemeID(for type: SiteType) -> String {
-        // Categories with a ported pack prefer their flagship pack (spec §4); the rest
-        // keep a built-in until their port lands (#1653).
+        // Every category with a ported pack prefers its flagship pack (spec §4); #1179's
+        // five ports all landed, so only Community (a separate creation flow, not a chooser
+        // category) still keeps a plain built-in.
         let preferred: [SiteType: String] = [
             .business: "astrowind", .personal: "cactus", .blog: "astropaper",
-            .portfolio: "starfolio", .organization: "community", .community: "community",
+            .portfolio: "starfolio", .organization: "astroplate", .community: "community",
             .blank: "classic",
         ]
         let want = preferred[type] ?? "classic"

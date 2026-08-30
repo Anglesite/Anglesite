@@ -54,14 +54,15 @@ One screen (fixed 720×480 sheet; footer **Cancel / Create**):
   pre-selected.
 - **Ported packs** (#1179): a pack's card renders its committed `thumbnail.png` — a real
   screenshot of the pack's homepage — instead of the synthesized two-color mock, and
-  switching to that pack's category pre-selects it. Currently shipped: **Business** →
-  *AstroWind* (#1649), **Personal website** → *Cactus* (#1650), **Blog** → *AstroPaper*
-  (#1651), **Portfolio** → *Starfolio* (#1652). Creating from one must produce a site whose
-  homepage matches the thumbnail's layout, not the base chassis.
-- **Categories with no pack yet:** Organization website still shows **"No themes in this
-  category yet"** with **Create disabled** — not an empty grid, not a phantom selection, and
-  nothing on disk if dismissed from that state. It drops off this list once its port lands
-  (#1653).
+  switching to that pack's category pre-selects it. All five chooser categories now have a
+  flagship pack: **Business** → *AstroWind* (#1649), **Personal website** → *Cactus*
+  (#1650), **Blog** → *AstroPaper* (#1651), **Portfolio** → *Starfolio* (#1652),
+  **Organization website** → *Astroplate* (#1653). Creating from one must produce a site
+  whose homepage matches the thumbnail's layout, not the base chassis.
+- **Categories with no pack:** none — every non-Blank category now has a flagship pack, so
+  the empty-grid / "No themes in this category yet" state described in earlier revisions of
+  this doc no longer applies to any of them; Blank alone keeps the synthesized-card grid of
+  eight built-in themes.
 - Single click selects (accent ring); **double-click creates immediately**.
 - **Create** is the default button (Return). No name field, no domain question, no separate
   site-type step, no content step, no save panel (#1071) — the category choice *is* the

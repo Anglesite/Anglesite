@@ -174,5 +174,25 @@
       "url": "https://github.com/satnaing/astro-paper",
       "license": "MIT"
     }
+  },
+  {
+    "id": "astroplate",
+    "displayName": "Astroplate",
+    "description": "Community-first site with member quotes, mission, and news",
+    "bestFor": ["nonprofit", "association", "club"],
+    "vars": {
+      "color-primary": "#1f6f5c",
+      "color-accent": "#e07a5f",
+      "font-heading": "system-ui, -apple-system, sans-serif",
+      "font-body": "system-ui, -apple-system, sans-serif"
+    },
+    "category": "organization",
+    "pack": "astroplate",
+    "thumbnail": "packs/astroplate/thumbnail.png",
+    "credit": {
+      "name": "Astroplate by Zeon Studio",
+      "url": "https://github.com/zeon-studio/astroplate",
+      "license": "MIT"
+    }
   }
 ]
