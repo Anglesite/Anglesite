@@ -26,7 +26,10 @@ const posts = (
         {posts.map((post) => (
           <li>
             <div>
-              <h3><DraftBadge draft={post.data.draft} /><a href={`/blog/${post.id}/`}>{post.data.title}</a></h3>
+              <h3>
+                <DraftBadge draft={post.data.draft} />
+                <a href={`/blog/${post.id}/`}>{post.data.title}</a>
+              </h3>
               {post.data.description && <p>{post.data.description}</p>}
             </div>
             <time class="sf-meta" datetime={post.data.pubDate.toISOString()}>
