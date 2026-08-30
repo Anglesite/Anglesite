@@ -1,0 +1,40 @@
+---
+// Starfolio pack (#1652): the skills row — the original's `skills` section, a wrapped row of
+// small bordered pills. Upstream each pill carries a technology SVG icon from a bundled icon
+// set; the icons don't come along (they are per-technology assets, and the owner's skills are
+// their own), so these are text pills.
+---
+
+<section id="skills" class="sf-section" aria-labelledby="skills-heading">
+  <h2 id="skills-heading">Skills</h2>
+  <ul class="sf-pills">
+    <li>TypeScript</li>
+    <li>JavaScript</li>
+    <li>Astro</li>
+    <li>CSS</li>
+    <li>Accessibility</li>
+    <li>Node.js</li>
+    <li>Git</li>
+    <li>Design systems</li>
+  </ul>
+</section>
+
+<style>
+  .sf-pills {
+    list-style: none;
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 2);
+  }
+
+  li {
+    display: flex;
+    align-items: center;
+    height: 2rem;
+    padding-inline: calc(var(--spacing-unit) * 4);
+    border: 1px solid var(--sf-border);
+    border-radius: var(--radius-md);
+    font-size: 0.875rem;
+    font-weight: 500;
+  }
+</style>

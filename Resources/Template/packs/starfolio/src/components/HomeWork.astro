@@ -1,0 +1,59 @@
+---
+// Starfolio pack (#1652): work history — the original's `work` section, a stack of rows with
+// the role on the left and a tabular-figures date range pinned to the right. Rebuilt without
+// the company-logo avatars (they need per-entry image assets the chassis has no home for) and
+// without the Radix accordion; the structure and rhythm are what the port carries over.
+---
+
+<section id="work" class="sf-section" aria-labelledby="work-heading">
+  <h2 id="work-heading">Work</h2>
+  <ol class="sf-rows">
+    <li>
+      <div>
+        <h3>Your most recent role</h3>
+        <p>Company or client — one line on what you were responsible for.</p>
+      </div>
+      <span class="sf-meta">2024 — Present</span>
+    </li>
+    <li>
+      <div>
+        <h3>The role before that</h3>
+        <p>Company or client — one line on what you shipped there.</p>
+      </div>
+      <span class="sf-meta">2021 — 2024</span>
+    </li>
+    <li>
+      <div>
+        <h3>Where you started</h3>
+        <p>Company or client — one line on what you learned.</p>
+      </div>
+      <span class="sf-meta">2019 — 2021</span>
+    </li>
+  </ol>
+</section>
+
+<style>
+  .sf-rows {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 6);
+  }
+
+  li {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: calc(var(--spacing-unit) * 4);
+  }
+
+  h3 {
+    font-size: 1rem;
+    font-weight: 600;
+  }
+
+  li p {
+    font-size: 0.9375rem;
+    color: var(--color-text-muted);
+  }
+</style>

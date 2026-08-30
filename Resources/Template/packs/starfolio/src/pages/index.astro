@@ -1,0 +1,37 @@
+---
+// Starfolio pack (#1652) homepage: the original's single-page portfolio rhythm — intro,
+// about, work, projects, skills, writing — with the chassis's HomepageWriter sentinels kept
+// byte-for-byte (title/description below, and the intro's <h1>/<p>). The
+// `<section class="hero">` open tag is also load-bearing: HeroImage/LogoAsset insert the site
+// logo and generated hero image right after it, where the pack's CSS renders them as the
+// original's ringed circular portrait on the trailing edge of the intro.
+import BaseLayout from "../layouts/BaseLayout.astro";
+import HomeAbout from "../components/HomeAbout.astro";
+import HomeWork from "../components/HomeWork.astro";
+import HomeProjects from "../components/HomeProjects.astro";
+import HomeSkills from "../components/HomeSkills.astro";
+import HomeWriting from "../components/HomeWriting.astro";
+// anglesite:imports — integration component imports are injected here on setup
+---
+
+<BaseLayout
+  title="Welcome — Your New Anglesite Business Website"
+  description="Your business website is ready to set up in Anglesite."
+>
+  <section class="hero">
+    <div class="sf-hero-intro">
+      <h1>Welcome</h1>
+      <p>This site is ready to customize in Anglesite. Open the app to edit your pages, add content, and publish when you're ready.</p>
+      <p class="sf-hero-actions">
+        <a class="sf-btn sf-btn-primary" href="/about/">About me</a>
+        <a class="sf-btn" href="/blog/">Read the blog</a>
+      </p>
+      <!-- anglesite:hero-cta -->
+    </div>
+  </section>
+  <HomeAbout />
+  <HomeWork />
+  <HomeProjects />
+  <HomeSkills />
+  <HomeWriting />
+</BaseLayout>
