@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import UniformTypeIdentifiers
 import AnglesiteCore
 
 /// The native inspector's model for one selected WYSIWYG block (#1588 Task 6) — the WYSIWYG
@@ -9,12 +10,36 @@ import AnglesiteCore
 @MainActor
 @Observable
 final class WYSIWYGInspectorModel {
+    /// `LogCenter` source string for `setEmbeddedLicense`'s rejection paths — mirrors
+    /// `WYSIWYGImageAssetIngestor.logSource`'s doc comment style, a separate source from that
+    /// type's `"wysiwyg-drop"` since this is the inspector's own rewrite path, not the drop
+    /// pipeline.
+    private static let logSource = "wysiwyg-license"
+
     let controller: WYSIWYGCanvasController
     let blockId: BlockId
+    private let sourceDirectory: URL?
+    private let collection: LicensableCollection?
+    private let licensingPolicy: LicensingPolicy
 
-    init(controller: WYSIWYGCanvasController, blockId: BlockId) {
+    /// What the license section (#1672) should render for the selected block right now. Stored
+    /// (not computed) and refreshed explicitly by `refreshLicenseSection()` — both on `init` and
+    /// after `setEmbeddedLicense(_:)` rewrites the file — because a license rewrite never touches
+    /// `controller.model` (the block's `src` prop is untouched), so nothing would otherwise tell
+    /// `@Observable` to re-render the section.
+    private(set) var licenseSectionState: WYSIWYGLicenseSectionState?
+
+    /// `sourceDirectory` is the open site's `Source/` directory (nil when no site is open, or in
+    /// tests that don't need the license section); `routePath` is the active preview route,
+    /// resolved to a `LicensableCollection` the same way `InsertCommands.insertImage` does.
+    /// Both default so every existing 2-arg call site keeps compiling unchanged.
+    init(controller: WYSIWYGCanvasController, blockId: BlockId, sourceDirectory: URL? = nil, routePath: String = "/") {
         self.controller = controller
         self.blockId = blockId
+        self.sourceDirectory = sourceDirectory
+        self.collection = LicensableCollection(routePath: routePath)
+        self.licensingPolicy = sourceDirectory.flatMap { try? LicensingStore(sourceDirectory: $0).load() } ?? LicensingPolicy()
+        refreshLicenseSection()
     }
 
     private var node: BlockNode? { controller.model.blocks[blockId] }
@@ -57,4 +82,85 @@ final class WYSIWYGInspectorModel {
         let previous = node?.props[name] ?? .null
         await controller.submit(.setProp(blockId: blockId, propName: name, value: value, previousValue: previous))
     }
+
+    /// Rewrites the selected block's image file in place with `license` embedded (#1672 resolved
+    /// default 4) — atomically, at the resolved `public/` path. Only the file's own metadata
+    /// changes; the block's `src` prop, and therefore what the page renders, is untouched, and
+    /// `AppSettings.shared.lastUsedFileLicenseSelection` is deliberately not updated (resolved
+    /// default 7 — that value is the attach-time picker's memory, not this one-off correction's).
+    /// A no-op if the section isn't currently `.editable` or the write fails (defensive; the view
+    /// only calls this when it's already showing the editable state). Every rejection path logs
+    /// to `LogCenter` (this repo's "logs are sacred" convention, `AGENTS.md` / `CLAUDE.md`) so a
+    /// failed rewrite is diagnosable from the debug pane rather than a silent no-op — mirrors
+    /// `WYSIWYGImageAssetIngestor.ingest`'s fire-and-forget `Task { await logCenter.append(...) }`
+    /// pattern, needed here too since this stays a synchronous method (its call site in
+    /// `WYSIWYGInspectorView` isn't async).
+    func setEmbeddedLicense(_ license: LicenseRef) {
+        guard case .editable(_, let fileURL, let type) = licenseSectionState else { return }
+        guard let data = try? Data(contentsOf: fileURL) else {
+            log("couldn't read \(fileURL.lastPathComponent) to embed a license into it")
+            return
+        }
+        guard let result = try? LicenseMetadataEmbedder.embed(license, into: data, type: type),
+              case .embedded(let newData) = result
+        else {
+            log("embedding a license into \(fileURL.lastPathComponent) failed")
+            return
+        }
+        do {
+            try newData.write(to: fileURL, options: .atomic)
+        } catch {
+            log("writing the license-embedded copy of \(fileURL.lastPathComponent) back failed: \(error)")
+            return
+        }
+        refreshLicenseSection()
+    }
+
+    private func log(_ text: String) {
+        Task {
+            await LogCenter.shared.append(source: Self.logSource, stream: .stderr, text: text)
+        }
+    }
+
+    private func refreshLicenseSection() {
+        licenseSectionState = Self.resolveLicenseSectionState(
+            node: node, sourceDirectory: sourceDirectory, collection: collection, licensingPolicy: licensingPolicy)
+    }
+
+    private static func resolveLicenseSectionState(
+        node: BlockNode?, sourceDirectory: URL?, collection: LicensableCollection?, licensingPolicy: LicensingPolicy
+    ) -> WYSIWYGLicenseSectionState? {
+        guard let node, node.componentName == "img" else { return nil }
+        guard case .string(let src)? = node.props["src"] else { return nil }
+        guard !licensingPolicy.suppressesFileEmbedding(for: collection) else { return nil }
+
+        guard let sourceDirectory, let fileURL = WYSIWYGAssetLocator.resolve(src: src, siteDirectory: sourceDirectory) else {
+            return .disabled(reason: String(localized: "This image isn't stored in the site, so its license can't be read or changed here."))
+        }
+        guard FileManager.default.fileExists(atPath: fileURL.path) else {
+            return .disabled(reason: String(localized: "This image's file is missing from the site."))
+        }
+        guard let type = UTType(filenameExtension: fileURL.pathExtension), LicenseMetadataEmbedder.supportedTypes.contains(type) else {
+            return .unsupportedFormat
+        }
+        let data = (try? Data(contentsOf: fileURL)) ?? Data()
+        return .editable(current: LicenseMetadataEmbedder.readLicense(from: data, type: type), fileURL: fileURL, type: type)
+    }
+}
+
+/// What the WYSIWYG inspector's license section should render for the selected block (#1672).
+/// `nil` from `WYSIWYGInspectorModel.licenseSectionState` means "don't show the section at all"
+/// — only an `img` block whose page/collection doesn't suppress file-level licensing gets a
+/// non-nil state here; every other block kind, and every non-asserting-collection page, are nil.
+enum WYSIWYGLicenseSectionState: Equatable {
+    /// `src` isn't a resolvable, existing file under `public/` — a remote URL, a `data:` URL, or
+    /// a file that's gone missing. Shown disabled with `reason` as the explanatory label; never
+    /// an alert.
+    case disabled(reason: String)
+    /// The file exists but its format has no metadata slot (`LicenseMetadataEmbedder.supportedTypes`
+    /// doesn't include it, e.g. WebP) — shown disabled, stating the format carries no license slot.
+    case unsupportedFormat
+    /// A real, supported file: `current` is what's embedded today (`nil` = no license embedded),
+    /// and choosing a catalog entry rewrites `fileURL` in place via `setEmbeddedLicense(_:)`.
+    case editable(current: LicenseRef?, fileURL: URL, type: UTType)
 }

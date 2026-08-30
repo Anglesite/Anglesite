@@ -366,6 +366,22 @@ final class SiteWindowModel {
     @ObservationIgnored
     var setWebsiteInspectorSuspended: ((Bool) -> Void)?
 
+    /// Memoizes the `WYSIWYGInspectorModel` `inspectorSelection` returns for a selected WYSIWYG
+    /// block, so the license section's file read + XMP parse (`WYSIWYGInspectorModel.init` →
+    /// `resolveLicenseSectionState`) doesn't re-run on every access — `SiteWindow.swift` reads
+    /// `inspectorSelection` multiple times within a single `body` evaluation, and without this a
+    /// large image's file got re-read and re-parsed several times per render pass (#1672 final
+    /// review). Keyed on `(blockId, src)` rather than `blockId` alone: `src` is re-derived from
+    /// the live block on every `inspectorSelection` access and compared against what the cached
+    /// model was built with, so an edit to the block's `src` prop through any path — not just
+    /// `setEmbeddedLicense`, which already refreshes its own `licenseSectionState` in place, but
+    /// also e.g. the inspector's own "Source" text field writing `src` directly via
+    /// `setString(_:for:)` — invalidates the cache and rebuilds against the new file instead of
+    /// silently showing a stale license section. `@ObservationIgnored`: not view-relevant state,
+    /// same as this file's other stored coordinators/caches.
+    @ObservationIgnored
+    private var cachedWYSIWYGInspectorModel: (blockId: BlockId, src: String?, model: WYSIWYGInspectorModel)?
+
     /// What the window inspector is inspecting, in precedence order. Component and collection are
     /// gated on the pane mode they belong to, so a stale value from an earlier selection can never
     /// shadow the current one after a pane toggle.
@@ -375,7 +391,20 @@ final class SiteWindowModel {
             return .component(componentEditor)
         }
         if case .preview = mainPaneMode, let canvas = preview.wysiwygCanvas, let selectedBlockId = canvas.selectedBlockId {
-            return .wysiwygBlock(WYSIWYGInspectorModel(controller: canvas, blockId: selectedBlockId))
+            let src: String?
+            if case .string(let value)? = canvas.model.blocks[selectedBlockId]?.props["src"] {
+                src = value
+            } else {
+                src = nil
+            }
+            if let cached = cachedWYSIWYGInspectorModel, cached.blockId == selectedBlockId, cached.src == src {
+                return .wysiwygBlock(cached.model)
+            }
+            let model = WYSIWYGInspectorModel(
+                controller: canvas, blockId: selectedBlockId,
+                sourceDirectory: preview.openSiteDirectory, routePath: preview.activeRoute ?? "/")
+            cachedWYSIWYGInspectorModel = (blockId: selectedBlockId, src: src, model: model)
+            return .wysiwygBlock(model)
         }
         if case .preview = mainPaneMode, let collectionInspection {
             return .collection(collectionInspection)

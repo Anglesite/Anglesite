@@ -228,6 +228,34 @@ struct WYSIWYGCanvasControllerTests {
         let insertedId = controller.model.rootIds[0]
         #expect(controller.model.blocks[insertedId]?.componentName == "p")
     }
+
+    @Test("insertBlockAndSelect selects the new block on success")
+    func insertBlockAndSelectSelectsOnSuccess() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+        let content = BlockNodeContent(kind: .astro, componentName: "img", props: [:], slots: [:], sourceSpan: [0, 0])
+
+        let result = await controller.insertBlockAndSelect(parentId: rootParentID, slot: "main", index: 0, newId: "b1", block: content)
+
+        #expect(result.isApplied)
+        #expect(controller.selectedBlockId == "b1")
+        #expect(controller.model.rootIds == ["b1"])
+    }
+
+    @Test("insertBlockAndSelect leaves selection untouched on rejection")
+    func insertBlockAndSelectLeavesSelectionOnRejection() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let transport = StubWYSIWYGHostTransport(model: initial)
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        controller.forceTargetVersion = "stale-version"
+        let content = BlockNodeContent(kind: .astro, componentName: "img", props: [:], slots: [:], sourceSpan: [0, 0])
+
+        let result = await controller.insertBlockAndSelect(parentId: rootParentID, slot: "main", index: 0, newId: "b1", block: content)
+
+        #expect(!result.isApplied)
+        #expect(controller.selectedBlockId == nil)
+    }
+
     @Test("applying an op re-runs quality gates when a context is set")
     func appliedOpTriggersQualityGates() async {
         let node = BlockNode(id: "img1", kind: .astro, componentName: "Image", props: ["src": .string("/photo.jpg")], slots: [:], sourceSpan: [0, 0])
