@@ -142,6 +142,11 @@ struct AgentReadinessScanningTests {
         #expect(AgentReadinessCatalog.checkInfo(for: "oauthDiscovery").anglesiteProvides == true)
     }
 
+    @Test("catalog marks webBotAuth as provided by the template (#1581 empty http-message-signatures-directory)")
+    func webBotAuthMarkedProvided() {
+        #expect(AgentReadinessCatalog.checkInfo(for: "webBotAuth").anglesiteProvides == true)
+    }
+
     @Test("catalog marks oauthProtectedResource as provided by the template (#1665 RFC 9728 discovery challenge)")
     func oauthProtectedResourceMarkedProvided() {
         #expect(AgentReadinessCatalog.checkInfo(for: "oauthProtectedResource").anglesiteProvides == true)
