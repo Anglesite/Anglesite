@@ -375,7 +375,9 @@ final class SiteWindowModel {
             return .component(componentEditor)
         }
         if case .preview = mainPaneMode, let canvas = preview.wysiwygCanvas, let selectedBlockId = canvas.selectedBlockId {
-            return .wysiwygBlock(WYSIWYGInspectorModel(controller: canvas, blockId: selectedBlockId))
+            return .wysiwygBlock(WYSIWYGInspectorModel(
+                controller: canvas, blockId: selectedBlockId,
+                sourceDirectory: preview.openSiteDirectory, routePath: preview.activeRoute ?? "/"))
         }
         if case .preview = mainPaneMode, let collectionInspection {
             return .collection(collectionInspection)
