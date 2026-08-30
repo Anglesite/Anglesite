@@ -66,3 +66,10 @@ path = "Resources/Template/packs/astrowind/**"
 precedence = "override"
 SPDX-FileCopyrightText = "2023 onWidget"
 SPDX-License-Identifier = "MIT"
+
+# Theme pack ported from Astroplate (#1653), same arrangement as the AstroWind pack above.
+[[annotations]]
+path = "Resources/Template/packs/astroplate/**"
+precedence = "override"
+SPDX-FileCopyrightText = "2023 Zeon Studio"
+SPDX-License-Identifier = "MIT"

@@ -19,6 +19,7 @@ const EXPECTED_IDS = [
   "coastal",
   "minimal",
   "astrowind",
+  "astroplate",
 ];
 
 const REQUIRED_VARS = ["color-primary", "color-accent", "font-heading", "font-body"];

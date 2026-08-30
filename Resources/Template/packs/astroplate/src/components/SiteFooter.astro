@@ -1,0 +1,65 @@
+---
+// Astroplate pack (#1653): footer band with a closing mission tagline above the identity
+// block. Deliberately a <div>, not a <footer> — the slotted Hcard already renders the
+// page's one body-level <footer class="site-identity"> (the single contentinfo landmark;
+// see Hcard.astro's own comment), and this wrapper only gives it and the Rights line the
+// Astroplate surface treatment. The chassis components are slotted, so their styling below
+// needs :global().
+---
+
+<div class="ap-footer">
+  <div class="ap-footer-inner">
+    <p class="ap-footer-tagline">Thank you for being part of this community.</p>
+    <slot />
+    <nav aria-label="Footer">
+      <a href="/about/">About</a>
+      <a href="/blog/">News</a>
+      <a href="/blogroll/">Blogroll</a>
+      <a href="/rss.xml">RSS</a>
+    </nav>
+  </div>
+</div>
+
+<style>
+  .ap-footer {
+    margin-block-start: calc(var(--spacing-unit) * 20);
+    border-top: 1px solid var(--ap-border);
+    background-color: var(--color-surface);
+  }
+
+  .ap-footer-inner {
+    max-width: 68rem;
+    margin-inline: auto;
+    padding: calc(var(--spacing-unit) * 10) calc(var(--spacing-unit) * 6);
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 4);
+    font-size: 0.9375rem;
+    color: var(--color-text-muted);
+  }
+
+  .ap-footer-tagline {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    font-size: 1.0625rem;
+    color: var(--color-text);
+  }
+
+  .ap-footer-inner :global(.site-identity) {
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 2);
+  }
+
+  .ap-footer-inner :global(.h-card .p-name) {
+    font-family: var(--font-heading);
+    font-weight: 700;
+    color: var(--color-text);
+  }
+
+  nav {
+    display: flex;
+    flex-wrap: wrap;
+    gap: calc(var(--spacing-unit) * 5);
+  }
+</style>
