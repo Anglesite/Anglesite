@@ -32,6 +32,10 @@ import {
   buildMcpServerCard,
   isMcpServerCardMarkerOwned,
   MCP_SERVER_CARD_MARKER,
+  planHttpMessageSignaturesDirectory,
+  buildHttpMessageSignaturesDirectory,
+  isHttpMessageSignaturesDirectoryMarkerOwned,
+  HTTP_MESSAGE_SIGNATURES_DIRECTORY_MARKER,
 } from "./edge-artifacts";
 import { standardSitePublicationURI } from "./standard-site.ts";
 import { NO_USAGE, type AIUsage, type LicensingPolicy } from "../src/lib/licensing.ts";
@@ -903,5 +907,34 @@ test("planMcpServerCard: refuses to overwrite an unmarked hand-authored file", (
 test("planMcpServerCard: regenerating over its own prior marker-owned output writes again", () => {
   const previous = buildMcpServerCard("https://old.example.com");
   const plan = planMcpServerCard({ enabled: true, siteUrl: "https://new.example.com", existingContent: previous });
+  assert.equal(plan.action.kind, "write");
+});
+
+test("buildHttpMessageSignaturesDirectory: emits a spec-valid, marker-carrying empty JWKS", () => {
+  const directory = JSON.parse(buildHttpMessageSignaturesDirectory());
+  assert.equal(directory.__marker, HTTP_MESSAGE_SIGNATURES_DIRECTORY_MARKER);
+  assert.deepEqual(directory.keys, []);
+});
+
+test("isHttpMessageSignaturesDirectoryMarkerOwned: true for its own generated output, false otherwise", () => {
+  assert.equal(isHttpMessageSignaturesDirectoryMarkerOwned(buildHttpMessageSignaturesDirectory()), true);
+  assert.equal(isHttpMessageSignaturesDirectoryMarkerOwned('{"keys":[]}'), false);
+  assert.equal(isHttpMessageSignaturesDirectoryMarkerOwned(null), false);
+});
+
+test("planHttpMessageSignaturesDirectory: writes when nothing exists yet", () => {
+  const plan = planHttpMessageSignaturesDirectory(null);
+  assert.equal(plan.action.kind, "write");
+});
+
+test("planHttpMessageSignaturesDirectory: refuses to overwrite an unmarked hand-authored file", () => {
+  const plan = planHttpMessageSignaturesDirectory('{"keys":[{"kty":"OKP"}]}');
+  assert.deepEqual(plan.action, { kind: "none" });
+  assert.match(plan.note ?? "", /refusing to overwrite/);
+});
+
+test("planHttpMessageSignaturesDirectory: regenerating over its own prior marker-owned output writes again", () => {
+  const previous = buildHttpMessageSignaturesDirectory();
+  const plan = planHttpMessageSignaturesDirectory(previous);
   assert.equal(plan.action.kind, "write");
 });

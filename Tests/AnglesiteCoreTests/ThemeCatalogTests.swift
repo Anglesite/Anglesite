@@ -60,13 +60,13 @@ struct ThemeCatalogTests {
     }
 
     @Test func defaultThemeIDUsesPreferredMappingWhenPresent() {
-        let ids = ["classic", "elegant", "warm", "bold", "community", "astrowind", "starfolio"]
+        let ids = ["classic", "elegant", "warm", "bold", "community", "astrowind", "starfolio", "astropaper"]
         let catalog = ThemeCatalog(themes: ids.map {
             Theme(id: $0, name: $0, blurb: "", swatch: [], cssVars: [:])
         })
         #expect(catalog.defaultThemeID(for: .business) == "astrowind")
         #expect(catalog.defaultThemeID(for: .personal) == "elegant")
-        #expect(catalog.defaultThemeID(for: .blog) == "warm")
+        #expect(catalog.defaultThemeID(for: .blog) == "astropaper")
         #expect(catalog.defaultThemeID(for: .portfolio) == "starfolio")
         #expect(catalog.defaultThemeID(for: .organization) == "community")
         #expect(catalog.defaultThemeID(for: .community) == "community")
@@ -97,7 +97,7 @@ struct ThemeCatalogTests {
     // DRIFT GUARD: decode the REAL bundled themes.json from the in-repo template.
     @Test func realThemesFileParsesToEightCompleteThemes() throws {
         let themes = try ThemeCatalog.parse(themesJSON: Data(contentsOf: Self.realThemesURL()))
-        #expect(themes.count == 10, "expected 8 built-in themes + 2 ported packs (astrowind, starfolio)")
+        #expect(themes.count == 11, "expected 8 built-in themes + 3 ported packs (astrowind, starfolio, astropaper)")
         // A duplicate id would silently collide in theme(id:)'s first{} lookup (and in the
         // template's Object.fromEntries) — enforce uniqueness at the source.
         let ids = themes.map(\.id)
@@ -128,6 +128,22 @@ struct ThemeCatalogTests {
         #expect(starfolio.credit?.license == "MIT")
         #expect(starfolio.credit?.name.isEmpty == false)
         #expect(starfolio.credit?.url.isEmpty == false)
+    }
+
+    // DRIFT GUARD: a pack entry's `vars` must match the palette its global.css already bakes
+    // in, so ThemeApplier's post-scaffold rewrite is a no-op reaffirmation (spec §3) rather
+    // than a silent recolor of the port. Applies each real pack theme to its own real CSS.
+    @Test func packThemeVarsMatchTheirBakedInPalette() throws {
+        let template = Self.realThemesURL().deletingLastPathComponent().deletingLastPathComponent()
+        let themes = try ThemeCatalog.parse(themesJSON: Data(contentsOf: Self.realThemesURL()))
+        let packs = themes.filter { $0.pack != nil }
+        #expect(!packs.isEmpty, "no pack entries in themes.json — this guard would vacuously pass")
+        for theme in packs {
+            let css = template.appendingPathComponent("packs/\(theme.pack!)/src/styles/global.css")
+            let before = try String(contentsOf: css, encoding: .utf8)
+            #expect(ThemeApplier.apply(theme, toCSS: before) == before,
+                    "\(theme.id): applying the catalog vars rewrites packs/\(theme.pack!)'s global.css")
+        }
     }
 
     /// Resolve the real themes.json from the in-repo template (Resources/Template/).

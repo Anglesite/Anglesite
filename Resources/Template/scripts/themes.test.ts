@@ -20,6 +20,7 @@ const EXPECTED_IDS = [
   "minimal",
   "astrowind",
   "starfolio",
+  "astropaper",
 ];
 
 const REQUIRED_VARS = ["color-primary", "color-accent", "font-heading", "font-body"];
