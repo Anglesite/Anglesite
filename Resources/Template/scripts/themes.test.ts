@@ -20,6 +20,7 @@ const EXPECTED_IDS = [
   "minimal",
   "astrowind",
   "starfolio",
+  "cactus",
   "astropaper",
 ];
 

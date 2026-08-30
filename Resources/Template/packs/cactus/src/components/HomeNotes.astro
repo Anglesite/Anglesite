@@ -1,0 +1,82 @@
+---
+// Astro Cactus pack (#1650): the homepage "Notes" stream — the original's short-form
+// counterpart to Posts, showing the notes themselves rather than a list of links. Reads the
+// chassis's existing `notes` collection through the shared helper, so draft handling and date
+// resolution stay in one place. `getRecentIndexItems` (not `getIndexItems(...).slice()`) so
+// the cap is applied to the cheap metadata *before* the expensive per-entry `render()` — this
+// section costs 3 renders whether the site has 3 notes or 3000.
+import { getRecentIndexItems } from "../lib/collection-index-astro.ts";
+
+const notes = await getRecentIndexItems("notes", 3);
+---
+
+<section class="cactus-section" aria-labelledby="cactus-notes-heading">
+  <h2 id="cactus-notes-heading">Notes</h2>
+  {
+    notes.length === 0 ? (
+      <p class="cactus-empty">
+        No notes yet. Add a Markdown file in <code>src/content/notes/</code> to get started.
+      </p>
+    ) : (
+      <ul class="cactus-notes">
+        {notes.map((note) => {
+          const Content = note.Content;
+          return (
+            <li>
+              <a href={note.permalink}>
+                <time datetime={note.date.toISOString()}>
+                  {note.date.toLocaleDateString("en-US", { year: "numeric", month: "short", day: "numeric", timeZone: "UTC" })}
+                </time>
+              </a>
+              <div class="cactus-note-body"><Content /></div>
+            </li>
+          );
+        })}
+      </ul>
+    )
+  }
+  <p class="cactus-more"><a href="/notes/">See all notes</a></p>
+</section>
+
+<style>
+  .cactus-section {
+    padding-block: calc(var(--spacing-unit) * 6);
+  }
+
+  h2 {
+    font-size: 1.25rem;
+    margin-block-end: calc(var(--spacing-unit) * 5);
+  }
+
+  .cactus-notes {
+    list-style: none;
+    display: flex;
+    flex-direction: column;
+    gap: calc(var(--spacing-unit) * 6);
+  }
+
+  /* Notes read as a quiet stream, set off from the page by a rule rather than a card. */
+  .cactus-notes li {
+    padding-inline-start: calc(var(--spacing-unit) * 4);
+    border-inline-start: 2px solid var(--cactus-rule);
+  }
+
+  .cactus-note-body {
+    margin-block-start: calc(var(--spacing-unit) * 1);
+  }
+
+  .cactus-note-body :global(> * + *) {
+    margin-block-start: calc(var(--spacing-unit) * 3);
+  }
+
+  .cactus-empty,
+  .cactus-more {
+    color: var(--color-text-muted);
+  }
+
+  .cactus-more {
+    margin-block-start: calc(var(--spacing-unit) * 5);
+    font-family: var(--cactus-mono);
+    font-size: 0.875rem;
+  }
+</style>

@@ -1,0 +1,200 @@
+---
+// Astro Cactus pack (#1650) override of the chassis BaseLayout: identical head/body machinery
+// (licensing, robots, standard.site, webmcp, experiment beacon — keep in lockstep with the
+// chassis file when it changes), plus the pack's SiteHeader/SiteFooter chrome. The
+// `anglesite:nav` anchor is slotted into SiteHeader so integration-injected nav lands inside
+// the header instead of floating above it.
+import "../styles/global.css";
+import Hcard from "../components/Hcard.astro";
+import Rights from "../components/Rights.astro";
+import SiteHeader from "../components/SiteHeader.astro";
+import SiteFooter from "../components/SiteFooter.astro";
+import { readConfig, siteLang } from "../../scripts/config";
+import { readAnglesiteConfig, pickRunningExperiment } from "../../scripts/anglesite-config";
+import { GOAL_BEACON_SCRIPT_PATH } from "../../scripts/experiments-paths.ts";
+import { licensingPolicy, siteLicense } from "../lib/licensing-data.ts";
+import { headLicense, type LicenseRef } from "../lib/licensing.ts";
+import { rslPublished } from "../lib/rsl.ts";
+import { readRobotsConfig, isNoindexed } from "../lib/robots-config.ts";
+import { standardSiteDocumentURI, standardSitePublicationURI } from "../../scripts/standard-site.ts";
+// anglesite:imports — integration component imports are injected here on setup
+
+interface Props {
+  title: string;
+  description?: string;
+  /**
+   * The license this page advertises in <head>. Omit the prop to inherit the site default
+   * (ordinary pages); pass null to advertise nothing (an entry in a non-asserting collection);
+   * pass a ref to override (an entry with its own license).
+   */
+  license?: LicenseRef | null;
+  /**
+   * The language this page declares via <html lang>. Omit to inherit the site default
+   * (siteLang()); pass an explicit BCP-47 tag to override it. An empty string is treated the
+   * same as omitted — per-page frontmatter can hold an explicit "" meaning "inherit," and that
+   * must not render <html lang="">, so this uses `||`, never `??`.
+   */
+  lang?: string;
+  /**
+   * The current page's canonical URL path (e.g. `/blog/hello-world/`), when this page has a
+   * `site.standard.document` record (#1231's post-deploy pass publishes one per eligible post).
+   * Omit for pages with no document — the index, tag pages, admin-ish routes, etc.
+   */
+  documentPath?: string;
+  /** Root-relative path to this page's social preview image (e.g. `/images/photo.jpg`), when it
+   * has one — renders `og:image`. Omit for pages with no image. */
+  image?: string;
+  /** The `og:type` this page advertises. Defaults to "website"; BlogPost overrides "article". */
+  ogType?: string;
+  /**
+   * Overrides the canonical URL this page advertises, as a root-relative path (e.g. `/pricing`).
+   * Omit for ordinary pages, which canonicalize to their own URL. Set by a scaffolded A/B-test
+   * variant page (#1270 slice 5) to point back at the control page it was duplicated from — a
+   * variant must never rank in search as a distinct page from its control.
+   */
+  canonicalPath?: string;
+}
+
+const { title, description, lang, documentPath, image, ogType = "website" } = Astro.props;
+// Standard.site (Atmosphere) verification links (#1232, increment 2 of #1230): both at-URIs are
+// computable at build time with no network call — see standard-site.ts's doc comment. Gated on
+// both `.site-config` keys `StandardSitePublishCommand` persists on first successful publish
+// (#1231); a site that has never connected a Bluesky/Atmosphere account has neither, so this
+// renders nothing and the page is byte-identical to a build before this feature existed.
+const atprotoDID = readConfig("ATPROTO_DID");
+const atprotoSiteID = readConfig("ATPROTO_SITE_ID");
+const standardSiteIdentity = atprotoDID && atprotoSiteID ? { did: atprotoDID, siteID: atprotoSiteID } : undefined;
+// Astro's built-in Markdown `layout:` frontmatter mechanism (a plain .md page under
+// src/pages/ that selects this layout via `layout: ../layouts/BaseLayout.astro`) passes
+// the page's frontmatter as a nested Astro.props.frontmatter object rather than spreading
+// it at the top level — so `title`/`description`/`lang` set in such a page's frontmatter
+// never reach the top-level props destructured above (an empty <title> is invalid HTML5,
+// caught by scripts/validate-html.ts). Fall back to it here so those pages' values still
+// apply. Blog posts and typed content-collection entries pass these as explicit top-level
+// props and are unaffected by this fallback.
+const frontmatter = (Astro.props as { frontmatter?: { title?: string; description?: string; lang?: string } })
+  .frontmatter;
+const effectiveTitle = title || frontmatter?.title || "";
+const effectiveDescription = description || frontmatter?.description;
+const effectiveLang = lang || frontmatter?.lang || siteLang();
+const license = headLicense(Astro.props.license, siteLicense());
+// Read directly by route rather than threaded as a prop (#1093) — every page renders through
+// this one layout, so the check lives in exactly one place instead of every call site.
+const noindex = isNoindexed(Astro.url.pathname, readRobotsConfig(process.cwd()));
+// #992: rslPublished (not bare rslActive) also checks the policy actually has content to
+// declare, matching whether `scripts/edge-artifacts.ts` actually wrote rsl.xml — the same
+// stronger gate `scripts/csp.ts` (the Link: header) uses, so this <link> never appears pointing
+// at an rsl.xml that wasn't actually generated (PR #1290 review).
+const rsl = rslPublished(licensingPolicy(), readConfig("SITE_URL"));
+// #1279: experimental.webmcp — off by default, so an un-opted-in site's build stays byte-
+// identical (no <script> anywhere) to a build before this feature existed. The <script> tag
+// below deliberately omits `type="module"`: with that attribute present, Astro treats a local
+// `src` as an already-resolved external reference and emits it byte-for-byte unprocessed
+// (`src="../scripts/webmcp.ts"`, unresolvable at runtime); omitting it lets Astro hoist, bundle,
+// and (per astro.config.ts's `vite.build.assetsInlineLimit`) externalize the script into a
+// single cached chunk shared by every page, re-adding `type="module"` itself in the output.
+const webmcpEnabled = readAnglesiteConfig(process.cwd()).experimental?.webmcp === true;
+// Client-side goal beacon injection (#1270 slice 2): a running experiment's own page and variant
+// page carry the beacon <script> only when its goal is "scroll"/"visible" — a pageview/route goal
+// is entirely edge-observed and needs no client script. Every other page (including a *concluded*
+// experiment's former pages, once anglesite.json no longer marks it "running") stays byte-
+// identical to a build before this feature existed. Reads `anglesite.json` directly (like
+// `webmcpEnabled` above) rather than importing the gitignored, generated `worker/experiments.json`
+// artifact — `pickRunningExperiment` is the single derivation both share, so they never disagree,
+// without this layout depending on the Worker's own prebuild step having already run first.
+const runningExperiment = pickRunningExperiment(readAnglesiteConfig(process.cwd()));
+const beaconExperiment =
+  runningExperiment && (runningExperiment.goal.kind === "scroll" || runningExperiment.goal.kind === "visible")
+    && (Astro.url.pathname === runningExperiment.page || Astro.url.pathname === runningExperiment.variant.page)
+    ? runningExperiment
+    : null;
+// Same computation BlogPost.astro/Hentry.astro use for their own JSON-LD `url` — duplicated
+// rather than threaded as a prop because every page (including ones with no per-collection
+// layout) needs a canonical link, and Astro.url/Astro.site are already in scope here.
+const { canonicalPath } = Astro.props;
+const canonical = canonicalPath
+  ? new URL(canonicalPath, Astro.site ?? Astro.url).href
+  : new URL(Astro.url.pathname, Astro.site ?? Astro.url).href;
+const ogImage = image ? new URL(image, Astro.site ?? Astro.url).href : undefined;
+// PWA_THEME_COLOR is only written to .site-config by the PWA integration (derived from the
+// site's own --color-primary) — a site without it simply renders no theme-color meta.
+const themeColor = readConfig("PWA_THEME_COLOR");
+---
+
+<!doctype html>
+<html lang={effectiveLang}>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="generator" content={Astro.generator} />
+    <meta name="color-scheme" content="light dark" />
+    {themeColor && <meta name="theme-color" content={themeColor} />}
+    {effectiveDescription && <meta name="description" content={effectiveDescription} />}
+    {noindex && <meta name="robots" content="noindex" />}
+    <title>{effectiveTitle}</title>
+    {/* Same filenames/rels as WebsiteIconAsset.headLinks (#1525) — a site owner who later
+        installs a custom icon (Settings ▸ Website Icon) overwrites these exact files in place,
+        so the swap needs no layout patch. Deliberately no SVG favicon here: WebsiteIconInstaller
+        only ever produces raster icons from an arbitrary uploaded image, and evergreen browsers
+        prefer a declared SVG icon over ICO/PNG — a static SVG default would keep shadowing a
+        site owner's custom icon in the tab forever. */}
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="icon" type="image/png" href="/favicon.png" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <link rel="canonical" href={canonical} />
+    <meta property="og:url" content={canonical} />
+    <meta property="og:type" content={ogType} />
+    {ogImage && <meta property="og:image" content={ogImage} />}
+    <link rel="alternate" type="application/rss+xml" title="RSS" href="/rss.xml" />
+    <link rel="alternate" type="application/atom+xml" title="Atom" href="/atom.xml" />
+    <link rel="alternate" type="application/feed+json" title="JSON Feed" href="/feed.json" />
+    <link rel="indieauth-metadata" href="/.well-known/oauth-authorization-server" />
+    {license && <link rel="license" href={license.url} title={license.name} />}
+    {rsl && <link rel="license" type="application/rsl+xml" href="/rsl.xml" />}
+    {readConfig("WEBMENTION_RECEIVE_ENABLED") === "true" && (
+      <link rel="webmention" href="/webmention" />
+    )}
+    {readConfig("MICROPUB_ENABLED") === "true" && (
+      <link rel="micropub" href="/micropub" />
+    )}
+    {standardSiteIdentity && (
+      <link
+        rel="site.standard.publication"
+        href={standardSitePublicationURI(standardSiteIdentity.did, standardSiteIdentity.siteID)}
+      />
+    )}
+    {standardSiteIdentity && documentPath && (
+      <link
+        rel="site.standard.document"
+        href={standardSiteDocumentURI(standardSiteIdentity.did, standardSiteIdentity.siteID, documentPath)}
+      />
+    )}
+    <slot name="head" />
+    <!-- anglesite:head-end -->
+  </head>
+  <body>
+    <a class="skip-link" href="#main">Skip to content</a>
+    <SiteHeader>
+      <!-- anglesite:nav -->
+    </SiteHeader>
+    <main id="main" tabindex="-1">
+      <slot />
+    </main>
+    <SiteFooter>
+      <Hcard />
+      <Rights license={license} />
+    </SiteFooter>
+    {webmcpEnabled && <script src="../scripts/webmcp.ts"></script>}
+    {beaconExperiment && (
+      <script
+        src={GOAL_BEACON_SCRIPT_PATH}
+        defer
+        data-experiment={beaconExperiment.id}
+        data-kind={beaconExperiment.goal.kind}
+        data-depth={beaconExperiment.goal.kind === "scroll" ? beaconExperiment.goal.depth : undefined}
+        data-selector={beaconExperiment.goal.kind === "visible" ? beaconExperiment.goal.selector : undefined}
+      ></script>
+    )}
+    <!-- anglesite:body-end -->
+  </body>
+</html>
