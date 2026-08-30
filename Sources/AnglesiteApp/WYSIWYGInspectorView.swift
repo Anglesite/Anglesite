@@ -21,6 +21,7 @@ struct WYSIWYGInspectorView: View {
                     control(for: descriptor)
                 }
             }
+            licenseSection()
         }
         .formStyle(.grouped)
         // Tab/Shift-Tab from the canvas (#1616): `KeyboardNavigation` posts the request across
@@ -98,6 +99,44 @@ struct WYSIWYGInspectorView: View {
                     get: { color },
                     set: { stringBinding.wrappedValue = CSSColor.format($0) }))
                 .labelsHidden()
+            }
+        }
+    }
+
+    /// The embedded-license section (#1672) — shown only when `model.licenseSectionState` is
+    /// non-nil (an `img` block whose page doesn't suppress file-level licensing). The picker
+    /// offers catalog licenses only, matching `InsertImageLicenseChoice` (resolved default 5:
+    /// clearing to "none" is out of scope here).
+    @ViewBuilder
+    private func licenseSection() -> some View {
+        if let state = model.licenseSectionState {
+            Section("License") {
+                switch state {
+                case .disabled(let reason):
+                    Text(reason)
+                        .foregroundStyle(.secondary)
+                case .unsupportedFormat:
+                    Text("This file format doesn't support an embedded license.")
+                        .foregroundStyle(.secondary)
+                case .editable(let current, _, _):
+                    if let current {
+                        Text(current.name)
+                    } else {
+                        Text("No license embedded")
+                            .foregroundStyle(.secondary)
+                    }
+                    Picker("Change to", selection: Binding(
+                        get: { LicenseCatalog.entry(for: current)?.id ?? LicenseCatalog.entries[0].id },
+                        set: { id in
+                            guard let entry = LicenseCatalog.entries.first(where: { $0.id == id }) else { return }
+                            model.setEmbeddedLicense(entry.ref)
+                        })
+                    ) {
+                        ForEach(LicenseCatalog.entries) { entry in
+                            Text(entry.name).tag(entry.id)
+                        }
+                    }
+                }
             }
         }
     }
