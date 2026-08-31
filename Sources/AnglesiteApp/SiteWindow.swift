@@ -1435,8 +1435,9 @@ struct SiteWindow: View {
 
     @ViewBuilder
     private func mainPane(for site: SiteStore.Site) -> some View {
-        // The Preview/Editor/Graph switcher lives in the toolbar (`id: "panes"`, .principal) and
-        // the View menu (⌘1–3) — no in-content picker row (#519).
+        // Editor and Graph are drill-in takeovers (opening a file, or Website ▸ Graph…), each with
+        // its own Done control back to the canvas via View ▸ Preview (⌘1) — no in-content picker
+        // row (#519, #714 v2 slice 2).
         mainPaneContent(for: site)
     }
 

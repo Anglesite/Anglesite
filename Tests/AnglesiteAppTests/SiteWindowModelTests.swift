@@ -44,7 +44,7 @@ struct SiteWindowModelTests {
     func constructs() {
         let model = makeModel()
         #expect(model.site == nil)
-        #expect(model.paneSelection == 0)
+        #expect(model.mainPaneMode == .preview)
     }
 
     @Test("returnToCanvas switches the main pane back to Preview from a takeover")
@@ -1233,12 +1233,6 @@ extension SiteWindowModelTests {
         while model.mainPaneMode != .cleanup { await Task.yield() }
         #expect(model.activeEditor == nil)
         #expect(model.inspectorContext == nil)
-        // PR #723 review: paneSelection previously fell through to 0 (Preview) for `.cleanup`,
-        // so the toolbar pane Picker (tags 0/1/2 only) and the View-menu Preview/Editor/Graph
-        // Toggles all misread Cleanup as Preview being selected — silently breaking ⌘1 from the
-        // Cleanup pane (its Toggle read as already-on, so toggling it off was a no-op). 3 is
-        // deliberately out of the Picker's/Toggles' 0–2 range so nothing shows selected instead.
-        #expect(model.paneSelection == 3)
     }
 
     /// Mirrors `revealCitationInGraphSkipsRevealWhenShowGraphAborts`'s real external-conflict
@@ -1307,9 +1301,6 @@ extension SiteWindowModelTests {
         while model.mainPaneMode != .reader { await Task.yield() }
         #expect(model.activeEditor == nil)
         #expect(model.inspectorContext == nil)
-        // Same "out of the Picker's 0–2 range" reasoning as Cleanup's 3 (#723) — Reader has no
-        // toolbar/View-menu segment of its own either.
-        #expect(model.paneSelection == 4)
     }
 
     /// Mirrors `presentCleanupAbortsOnEditorConflict` for `presentReader()`.

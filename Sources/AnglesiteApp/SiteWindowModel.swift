@@ -501,32 +501,6 @@ final class SiteWindowModel {
         activeEditor?.file
     }
 
-    var paneSelection: Int {
-        if case .editor = mainPaneMode { return 1 }
-        if case .graph = mainPaneMode { return 2 }
-        // Cleanup has no toolbar/View-menu segment of its own (Site ▸ Cleanup… is the only way
-        // in) — an out-of-range value so the pane Picker and the Preview/Editor/Graph Toggles
-        // all correctly read as unselected instead of Cleanup falsely appearing as Preview (#723
-        // review).
-        if case .cleanup = mainPaneMode { return 3 }
-        // Same reasoning as Cleanup above: Reader has no toolbar/View-menu segment (Website ▸
-        // Reader… is the only way in).
-        if case .reader = mainPaneMode { return 4 }
-        return 0
-    }
-
-    func setPaneSelection(_ value: Int) {
-        if value == 0 {
-            // Switching to Preview auto-saves the open editor (abort on an unresolved conflict).
-            // The flush is async (off-main IO), so do it in a Task and only switch on success.
-            Task { if await leaveCurrentEditor() { mainPaneMode = .preview } }
-        } else if value == 1, let file = activeEditorFile {
-            mainPaneMode = .editor(file)
-        } else if value == 2 {
-            Task { await showGraph() }
-        }
-    }
-
     /// Returns the main pane to the canvas (View ▸ Preview, ⌘1) — the one way back from any
     /// drill-in takeover (Editor, Graph, Cleanup) via each one's Done control (#714 v2 slice 2).
     /// Async because leaving a dirty text/plist editor autosaves off-main first; an unresolved
@@ -534,9 +508,8 @@ final class SiteWindowModel {
     /// caller. A no-op when there's nothing to flush: `leaveCurrentEditor()` itself reads `true`
     /// immediately whenever `mainPaneMode` isn't `.editor` (Graph/Cleanup have nothing to save).
     ///
-    /// Deliberately leaves `activeEditor` untouched — same behavior as this method's prior form,
-    /// `setPaneSelection(0)`'s Preview branch: a file that was open stays loaded in memory so
-    /// reopening it from the navigator resumes it instead of reloading from disk.
+    /// Deliberately leaves `activeEditor` untouched: a file that was open stays loaded in memory
+    /// so reopening it from the navigator resumes it instead of reloading from disk.
     func returnToCanvas() {
         Task { if await leaveCurrentEditor() { mainPaneMode = .preview } }
     }
@@ -718,9 +691,9 @@ final class SiteWindowModel {
     /// nothing — when the path doesn't match any node in the current snapshot, so the caller
     /// (`ChatView`'s citation click handler) can fall back to opening the file directly.
     ///
-    /// The pane switch and selection happen asynchronously (matching `setPaneSelection`'s
-    /// existing fire-and-forget `Task { await showGraph() }` pattern) — the `Bool` this returns
-    /// reflects only whether a matching node was found, not whether the navigation has finished.
+    /// The pane switch and selection happen asynchronously (a fire-and-forget
+    /// `Task { await showGraph() }`) — the `Bool` this returns reflects only whether a matching
+    /// node was found, not whether the navigation has finished.
     @discardableResult
     func revealCitationInGraph(_ path: String) -> Bool {
         guard let node = graphExplorer.snapshot.nodes.first(where: { $0.filePath == path }) else {

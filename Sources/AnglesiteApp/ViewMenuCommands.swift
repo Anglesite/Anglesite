@@ -23,7 +23,7 @@ extension FocusedValues {
     }
 }
 
-/// View-menu commands for the focused site window: main-pane switching (⌘1–3) and the side-panel
+/// View-menu commands for the focused site window: returning to the canvas (⌘1) and the side-panel
 /// toggles (#512). Declared before `PreviewNavigationCommands` so these sit above it in the View
 /// menu.
 struct ViewMenuCommands: Commands {
@@ -32,19 +32,17 @@ struct ViewMenuCommands: Commands {
 
     var body: some Commands {
         CommandGroup(after: .toolbar) {
-            // Toggles (not Buttons) so the active pane gets a menu checkmark; setting an already-on
-            // pane to false is a no-op, giving radio behavior.
-            Toggle("Preview", isOn: paneBinding(0))
-                .keyboardShortcut("1")
-                .disabled(model == nil)
-
-            Toggle("Editor", isOn: paneBinding(1))
-                .keyboardShortcut("2")
-                .disabled(model?.activeEditorFile == nil)
-
-            Toggle("Graph", isOn: paneBinding(2))
-                .keyboardShortcut("3")
-                .disabled(model?.canShowGraph != true)
+            // A Toggle (not a Button) so the menu still shows a checkmark once the canvas is
+            // showing; setting it off is a no-op, matching the old three-way group's radio
+            // behavior for its own Preview entry. Editor/Graph retired with the `panes` toolbar
+            // control (#714 v2 slice 2): both are drill-in takeovers now — opening a file, or
+            // Website ▸ Graph… — each with its own Done control back to here.
+            Toggle("Preview", isOn: Binding(
+                get: { model?.mainPaneMode == .preview },
+                set: { isOn in if isOn { model?.returnToCanvas() } }
+            ))
+            .keyboardShortcut("1")
+            .disabled(model == nil)
 
             Divider()
 
@@ -93,12 +91,5 @@ struct ViewMenuCommands: Commands {
 
             Divider()
         }
-    }
-
-    private func paneBinding(_ index: Int) -> Binding<Bool> {
-        Binding(
-            get: { model?.paneSelection == index },
-            set: { isOn in if isOn { model?.setPaneSelection(index) } }
-        )
     }
 }
