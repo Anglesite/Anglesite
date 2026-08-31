@@ -561,6 +561,7 @@ struct SiteWindow: View {
                 .help("Explore pages, layouts, components, collections, and assets")
                 .accessibilityIdentifier(AXID.toolbar(.graph))
             }
+            .defaultCustomization(.hidden)
 
             // iCloud sync status (#881): renders nothing for a package that isn't in iCloud
             // Drive (`SyncStatusView` is an `EmptyView` when `!model.sync.isEligible`), so this
@@ -593,6 +594,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.backup))
             }
+            .defaultCustomization(.hidden)
 
             ToolbarItem(id: SiteToolbarItemID.audit.rawValue, placement: .primaryAction) {
                 Button {
@@ -612,6 +614,7 @@ struct SiteWindow: View {
                         : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.audit))
             }
+            .defaultCustomization(.hidden)
 
             ToolbarItem(id: SiteToolbarItemID.openInBrowser.rawValue, placement: .primaryAction) {
                 Button {
