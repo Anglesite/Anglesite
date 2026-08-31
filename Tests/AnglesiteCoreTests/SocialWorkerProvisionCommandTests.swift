@@ -57,20 +57,20 @@ struct SocialWorkerProvisionCommandTests {
             return
         }
         let d1CreateCall = try #require(capturedArguments.first { $0.first == "d1" && $0.dropFirst().first == "create" })
-        #expect(d1CreateCall.count == 4, "expected exactly [\"d1\", \"create\", <name>, \"--json\"], got \(d1CreateCall)")
+        #expect(d1CreateCall.count == 3, "expected exactly [\"d1\", \"create\", <name>], got \(d1CreateCall)")
         let name = d1CreateCall[2]
         #expect(!name.isEmpty, "the database name positional must never be empty")
         #expect(name == "my-site-social")
-        #expect(d1CreateCall == ["d1", "create", "my-site-social", "--json"])
+        #expect(d1CreateCall == ["d1", "create", "my-site-social"])
     }
 
     @Test("provisions V-2 D1 and KV, writes wrangler.toml, then deploys through DeployCommand seam")
     func provisionsV2Worker() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
-            ["kv", "namespace", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"id":"kv-id"}}"#, stderr: "", exitCode: 0),
-            ["queues", "create", "my-site-webmention", "--json"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
+            ["kv", "namespace", "create", "my-site-social"]: .init(stdout: #"{"result":{"id":"kv-id"}}"#, stderr: "", exitCode: 0),
+            ["queues", "create", "my-site-webmention"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])
         let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
@@ -91,9 +91,9 @@ struct SocialWorkerProvisionCommandTests {
         #expect(resources.r2BucketName == nil)
         #expect(resources.queueName == "my-site-webmention")
         #expect(await recorder.arguments == [
-            ["d1", "create", "my-site-social", "--json"],
-            ["kv", "namespace", "create", "my-site-social", "--json"],
-            ["queues", "create", "my-site-webmention", "--json"],
+            ["d1", "create", "my-site-social"],
+            ["kv", "namespace", "create", "my-site-social"],
+            ["queues", "create", "my-site-webmention"],
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"],
         ])
         #expect(await recorder.environments.allSatisfy { $0["CLOUDFLARE_API_TOKEN"] == "token" })
@@ -112,7 +112,7 @@ struct SocialWorkerProvisionCommandTests {
     func runningExperimentProvisionsD1() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "EXPERIMENTS_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])
         let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
@@ -134,7 +134,7 @@ struct SocialWorkerProvisionCommandTests {
         }
         #expect(resources.d1DatabaseID == "d1-id")
         #expect(await recorder.arguments == [
-            ["d1", "create", "my-site-social", "--json"],
+            ["d1", "create", "my-site-social"],
             ["d1", "migrations", "apply", "EXPERIMENTS_DB", "--remote"],
         ])
         let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
@@ -165,7 +165,7 @@ struct SocialWorkerProvisionCommandTests {
     func mcpEnabledProvisionsSocialKV() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["kv", "namespace", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"id":"kv-id"}}"#, stderr: "", exitCode: 0),
+            ["kv", "namespace", "create", "my-site-social"]: .init(stdout: #"{"result":{"id":"kv-id"}}"#, stderr: "", exitCode: 0),
         ])
         let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
         let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, runner: recorder.runner, deployer: deployer.deployer)
@@ -257,9 +257,9 @@ struct SocialWorkerProvisionCommandTests {
     func forwardsWellKnownDynamicClaimsToDeployer() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
-            ["kv", "namespace", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"id":"kv-id"}}"#, stderr: "", exitCode: 0),
-            ["queues", "create", "my-site-webmention", "--json"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
+            ["kv", "namespace", "create", "my-site-social"]: .init(stdout: #"{"result":{"id":"kv-id"}}"#, stderr: "", exitCode: 0),
+            ["queues", "create", "my-site-webmention"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])
         let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
@@ -285,11 +285,11 @@ struct SocialWorkerProvisionCommandTests {
     func provisionsR2ForMicropub() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"uuid":"d1-id"}"#, stderr: "", exitCode: 0),
-            ["kv", "namespace", "create", "my-site-social", "--json"]: .init(stdout: #"{"id":"kv-id"}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"uuid":"d1-id"}"#, stderr: "", exitCode: 0),
+            ["kv", "namespace", "create", "my-site-social"]: .init(stdout: #"{"id":"kv-id"}"#, stderr: "", exitCode: 0),
             ["r2", "bucket", "create", "my-site-media"]: .init(stdout: "Created bucket my-site-media", stderr: "", exitCode: 0),
-            ["queues", "create", "my-site-webmention", "--json"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
-            ["queues", "create", "my-site-websub", "--json"]: .init(stdout: #"{"result":{"queue_name":"my-site-websub"}}"#, stderr: "", exitCode: 0),
+            ["queues", "create", "my-site-webmention"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
+            ["queues", "create", "my-site-websub"]: .init(stdout: #"{"result":{"queue_name":"my-site-websub"}}"#, stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])
         let command = SocialWorkerProvisionCommand(
@@ -321,7 +321,7 @@ struct SocialWorkerProvisionCommandTests {
     func provisionsInboxCapture() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["kv", "namespace", "create", "my-site-inbox", "--json"]: .init(stdout: #"{"result":{"id":"inbox-kv-id"}}"#, stderr: "", exitCode: 0),
+            ["kv", "namespace", "create", "my-site-inbox"]: .init(stdout: #"{"result":{"id":"inbox-kv-id"}}"#, stderr: "", exitCode: 0),
         ])
         let command = SocialWorkerProvisionCommand(
             tokenSource: { "token" },
@@ -342,7 +342,7 @@ struct SocialWorkerProvisionCommandTests {
         #expect(resources.inboxKVNamespaceID == "inbox-kv-id")
         #expect(resources.inboxAccountID == "acct-1")
         #expect(await recorder.arguments == [
-            ["kv", "namespace", "create", "my-site-inbox", "--json"],
+            ["kv", "namespace", "create", "my-site-inbox"],
         ])
 
         let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
@@ -354,7 +354,7 @@ struct SocialWorkerProvisionCommandTests {
     func provisionsInboxCaptureWithForwardEmail() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["kv", "namespace", "create", "my-site-inbox", "--json"]: .init(stdout: #"{"result":{"id":"inbox-kv-id"}}"#, stderr: "", exitCode: 0),
+            ["kv", "namespace", "create", "my-site-inbox"]: .init(stdout: #"{"result":{"id":"inbox-kv-id"}}"#, stderr: "", exitCode: 0),
         ])
         let command = SocialWorkerProvisionCommand(
             tokenSource: { "token" },
@@ -506,7 +506,7 @@ struct SocialWorkerProvisionCommandTests {
     func inboxCapturePartialFailure() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["kv", "namespace", "create", "my-site-inbox", "--json"]: .init(stdout: "KV failed", stderr: "", exitCode: 1),
+            ["kv", "namespace", "create", "my-site-inbox"]: .init(stdout: "KV failed", stderr: "", exitCode: 1),
         ])
         let command = SocialWorkerProvisionCommand(
             tokenSource: { "token" },
@@ -533,7 +533,7 @@ struct SocialWorkerProvisionCommandTests {
     func provisionsMicropubWithIndieauth() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
             ["r2", "bucket", "create", "my-site-media"]: .init(stdout: "Created bucket my-site-media", stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])
@@ -856,8 +856,8 @@ struct SocialWorkerProvisionCommandTests {
     func partialFailureReportsResources() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"uuid":"d1-id"}"#, stderr: "", exitCode: 0),
-            ["kv", "namespace", "create", "my-site-social", "--json"]: .init(stdout: "KV failed", stderr: "", exitCode: 1),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"uuid":"d1-id"}"#, stderr: "", exitCode: 0),
+            ["kv", "namespace", "create", "my-site-social"]: .init(stdout: "KV failed", stderr: "", exitCode: 1),
         ])
         let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
         let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, runner: recorder.runner, deployer: deployer.deployer)
@@ -882,9 +882,9 @@ struct SocialWorkerProvisionCommandTests {
     func deployFailureReportsResources() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"uuid":"d1-id"}"#, stderr: "", exitCode: 0),
-            ["kv", "namespace", "create", "my-site-social", "--json"]: .init(stdout: #"{"id":"kv-id"}"#, stderr: "", exitCode: 0),
-            ["queues", "create", "my-site-webmention", "--json"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"uuid":"d1-id"}"#, stderr: "", exitCode: 0),
+            ["kv", "namespace", "create", "my-site-social"]: .init(stdout: #"{"id":"kv-id"}"#, stderr: "", exitCode: 0),
+            ["queues", "create", "my-site-webmention"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])
         let command = SocialWorkerProvisionCommand(
@@ -915,9 +915,9 @@ struct SocialWorkerProvisionCommandTests {
     func workerNameConflictPropagates() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
-            ["kv", "namespace", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"id":"kv-id"}}"#, stderr: "", exitCode: 0),
-            ["queues", "create", "my-site-webmention", "--json"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
+            ["kv", "namespace", "create", "my-site-social"]: .init(stdout: #"{"result":{"id":"kv-id"}}"#, stderr: "", exitCode: 0),
+            ["queues", "create", "my-site-webmention"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])
         let deployer = DeployRecorder(result: .workerNameConflict(name: "taken-name"))
@@ -940,9 +940,9 @@ struct SocialWorkerProvisionCommandTests {
     func migrationFailureStopsDeploy() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"uuid":"d1-id"}"#, stderr: "", exitCode: 0),
-            ["kv", "namespace", "create", "my-site-social", "--json"]: .init(stdout: #"{"id":"kv-id"}"#, stderr: "", exitCode: 0),
-            ["queues", "create", "my-site-webmention", "--json"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"uuid":"d1-id"}"#, stderr: "", exitCode: 0),
+            ["kv", "namespace", "create", "my-site-social"]: .init(stdout: #"{"id":"kv-id"}"#, stderr: "", exitCode: 0),
+            ["queues", "create", "my-site-webmention"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migration failed", stderr: "", exitCode: 1),
         ])
         let deployer = DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1))
@@ -1127,7 +1127,7 @@ struct SocialWorkerProvisionCommandTests {
             return
         }
         #expect(resources.queueName == "my-site-webmention")
-        #expect(calledArguments.contains(["queues", "create", "my-site-webmention", "--json"]))
+        #expect(calledArguments.contains(["queues", "create", "my-site-webmention"]))
     }
 
     @Test("an already-provisioned queue is not re-created")
@@ -1252,7 +1252,7 @@ struct SocialWorkerProvisionCommandTests {
     func micropubWritesEnabledFlag() async throws {
         let siteDirectory = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
             ["r2", "bucket", "create", "my-site-media"]: .init(stdout: "Created bucket my-site-media", stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])
@@ -1275,7 +1275,7 @@ struct SocialWorkerProvisionCommandTests {
     func micropubDeactivationReconcilesFlagToFalse() async throws {
         let siteDirectory = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
             ["r2", "bucket", "create", "my-site-media"]: .init(stdout: "Created bucket my-site-media", stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])
@@ -1357,8 +1357,8 @@ struct SocialWorkerProvisionCommandTests {
         }
         #expect(resources.websubQueueName == "my-site-websub")
         #expect(resources.queueName == nil, "no webmention worker, so no webmention queue")
-        #expect(calledArguments.contains(["queues", "create", "my-site-websub", "--json"]))
-        #expect(!calledArguments.contains(["queues", "create", "my-site-webmention", "--json"]))
+        #expect(calledArguments.contains(["queues", "create", "my-site-websub"]))
+        #expect(!calledArguments.contains(["queues", "create", "my-site-webmention"]))
     }
 
     @Test("webmention and websub active together create both queues under one acknowledgment")
@@ -1369,10 +1369,10 @@ struct SocialWorkerProvisionCommandTests {
             tokenSource: { "tok" },
             runner: { _, arguments, _, _ in
                 calledArguments.append(arguments)
-                if arguments == ["queues", "create", "my-site-webmention", "--json"] {
+                if arguments == ["queues", "create", "my-site-webmention"] {
                     return .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0)
                 }
-                if arguments == ["queues", "create", "my-site-websub", "--json"] {
+                if arguments == ["queues", "create", "my-site-websub"] {
                     return .init(stdout: #"{"result":{"queue_name":"my-site-websub"}}"#, stderr: "", exitCode: 0)
                 }
                 return .init(stdout: "", stderr: "", exitCode: 0)
@@ -1512,7 +1512,7 @@ struct SocialWorkerProvisionCommandTests {
             return
         }
         #expect(resources.microsubQueueName == "my-site-microsub")
-        #expect(calledArguments.contains(["queues", "create", "my-site-microsub", "--json"]))
+        #expect(calledArguments.contains(["queues", "create", "my-site-microsub"]))
     }
 
     @Test("an already-provisioned microsub queue is not re-created")
@@ -1642,11 +1642,11 @@ struct SocialWorkerProvisionCommandTests {
     func provisionsSolidPodBlobsBucket() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
-            ["kv", "namespace", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"id":"kv-id"}}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
+            ["kv", "namespace", "create", "my-site-social"]: .init(stdout: #"{"result":{"id":"kv-id"}}"#, stderr: "", exitCode: 0),
             ["r2", "bucket", "create", "my-site-media"]: .init(stdout: "Created bucket my-site-media", stderr: "", exitCode: 0),
             ["r2", "bucket", "create", "my-site-pod-blobs"]: .init(stdout: "Created bucket my-site-pod-blobs", stderr: "", exitCode: 0),
-            ["queues", "create", "my-site-webmention", "--json"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
+            ["queues", "create", "my-site-webmention"]: .init(stdout: #"{"result":{"queue_name":"my-site-webmention"}}"#, stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])
         let command = SocialWorkerProvisionCommand(
@@ -1682,7 +1682,7 @@ struct SocialWorkerProvisionCommandTests {
     func pushesSolidOidcAndWebdavSecrets() async throws {
         let site = try temporaryDirectory()
         let recorder = WranglerRecorder([
-            ["d1", "create", "my-site-social", "--json"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
+            ["d1", "create", "my-site-social"]: .init(stdout: #"{"result":{"uuid":"d1-id"}}"#, stderr: "", exitCode: 0),
             ["r2", "bucket", "create", "my-site-pod-blobs"]: .init(stdout: "Created bucket my-site-pod-blobs", stderr: "", exitCode: 0),
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])

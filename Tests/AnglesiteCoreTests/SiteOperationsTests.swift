@@ -167,8 +167,8 @@ struct SiteOperationsTests {
             return
         }
         #expect(await recorder.arguments == [
-            ["d1", "create", "blue-bottle-cafe-social", "--json"],
-            ["kv", "namespace", "create", "blue-bottle-cafe-social", "--json"],
+            ["d1", "create", "blue-bottle-cafe-social"],
+            ["kv", "namespace", "create", "blue-bottle-cafe-social"],
         ])
         #expect(await recorder.deployCalls.isEmpty)
         #expect(resources.d1DatabaseID == "d1-id")
@@ -198,8 +198,8 @@ struct SiteOperationsTests {
             return
         }
         let arguments = await recorder.arguments
-        #expect(arguments.contains(["d1", "create", "blue-bottle-cafe-social", "--json"]))
-        #expect(arguments.contains(["kv", "namespace", "create", "blue-bottle-cafe-social", "--json"]))
+        #expect(arguments.contains(["d1", "create", "blue-bottle-cafe-social"]))
+        #expect(arguments.contains(["kv", "namespace", "create", "blue-bottle-cafe-social"]))
         #expect(!arguments.contains(["d1", "migrations", "apply", "AUTH_DB", "--remote"]))
         let toml = try String(
             contentsOf: package.appendingPathComponent("Source/wrangler.toml"), encoding: .utf8)
@@ -406,8 +406,8 @@ struct SiteOperationsTests {
             return
         }
         #expect(await recorder.arguments == [
-            ["d1", "create", "renamed-worker-social", "--json"],
-            ["kv", "namespace", "create", "renamed-worker-social", "--json"],
+            ["d1", "create", "renamed-worker-social"],
+            ["kv", "namespace", "create", "renamed-worker-social"],
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"],
         ])
     }
