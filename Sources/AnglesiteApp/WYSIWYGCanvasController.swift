@@ -233,22 +233,27 @@ final class WYSIWYGCanvasController {
         }
     }
 
-    /// The Insert menu's Component submenu (#1225 Task 12) — appends a brand-new block built
-    /// from a palette entry at the page root. Unlike `duplicateSelectedBlock()`, this always
-    /// inserts unconditionally at the root regardless of `selectedBlockId`: there's no existing
-    /// block to guard against misplacing, since the whole point is adding a *new* one from the
-    /// palette, not acting on the current selection.
+    /// The shared insert entry point for the block palette panel, the Insert ▸ Component menu,
+    /// and the toolbar's `+` menu — appends a brand-new block built from a palette entry at the
+    /// page root. Unlike `duplicateSelectedBlock()`, this always inserts unconditionally at the
+    /// root regardless of `selectedBlockId`: there's no existing block to guard against
+    /// misplacing, since the whole point is adding a *new* one from the palette, not acting on
+    /// the current selection. Routes through `insertBlockAndSelect` so the new block is selected
+    /// and pushed to the engine on success — without this, a block inserted below the visible
+    /// viewport landed with no visible feedback at all (#714 v2 slice 4 final review).
     func insertBlock(_ entry: WYSIWYGBlockPaletteEntry) async {
         let newId = UUID().uuidString
         let content = BlockNodeContent(kind: entry.kind, componentName: entry.componentName, props: [:], slots: [:], sourceSpan: [0, 0])
-        await submit(.insertBlock(parentId: rootParentID, slot: "main", index: model.rootIds.count, newId: newId, block: content))
+        await insertBlockAndSelect(parentId: rootParentID, slot: "main", index: model.rootIds.count, newId: newId, block: content)
     }
 
-    /// Submits an `insertBlock` op and selects the newly-inserted block on success — the drop
-    /// handler's own selection-on-drop entry point (#1672's resolved default 1: "a controller
-    /// method rather than a direct field write, matching how `deleteSelectedBlock()` owns
-    /// selection changes today"). Leaves `selectedBlockId` untouched on rejection: there's no new
-    /// block to select if the op never landed.
+    /// Submits an `insertBlock` op and selects the newly-inserted block on success — originally
+    /// the drop handler's own selection-on-drop entry point (#1672's resolved default 1: "a
+    /// controller method rather than a direct field write, matching how `deleteSelectedBlock()`
+    /// owns selection changes today"), and now also `insertBlock(_:)`'s shared path so every
+    /// insert-from-palette surface gets the same selection feedback a drop already had. Leaves
+    /// `selectedBlockId` untouched on rejection: there's no new block to select if the op never
+    /// landed.
     @discardableResult
     func insertBlockAndSelect(
         parentId: ParentRef, slot: String, index: Int, newId: BlockId, block: BlockNodeContent
@@ -269,12 +274,12 @@ final class WYSIWYGCanvasController {
     /// posting the `context-menu` message, so `WYSIWYGBlockContextMenu`'s own
     /// `selectedBlockId = context.blockId` writes just mirror what JS already did.
     /// `insertBlockAndSelect` above is the first native-initiated selection with no such
-    /// JS-side counterpart to follow it (a Finder/Photos drop, not a click JS ever saw): without
-    /// this, the inspector would show the newly-dropped block selected while the canvas's own
-    /// visual selection handles, and JS-side keyboard handling (`keyboard-nav.ts`, which reads
-    /// `engine.selection.current` directly, not this native mirror), silently stayed on whatever
-    /// was selected before the drop — or nothing, most commonly, since a drop doesn't require an
-    /// existing selection.
+    /// JS-side counterpart to follow it — a Finder/Photos drop, or a palette/menu/toolbar insert,
+    /// none of which are a click JS ever saw: without this, the inspector would show the newly
+    /// inserted block selected while the canvas's own visual selection handles, and JS-side
+    /// keyboard handling (`keyboard-nav.ts`, which reads `engine.selection.current` directly, not
+    /// this native mirror), silently stayed on whatever was selected before — or nothing, most
+    /// commonly, since none of these require an existing selection.
     ///
     /// Reuses `applyFormat(_:href:)`'s existing bridge shape rather than adding a new one:
     /// `SelectionState.select(_:)` (`JS/wysiwyg-engine/src/selection.ts`) already exists and is
