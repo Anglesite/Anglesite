@@ -9,7 +9,6 @@ import Foundation
 /// Lives in AnglesiteCore (not the app target) solely so CI's SwiftPM test suites can enforce the
 /// freeze; hosted app-target tests don't run on CI (see CLAUDE.md "Build").
 public enum SiteToolbarItemID: String, CaseIterable, Sendable {
-    case panes
     case graph
     case backup
     case audit

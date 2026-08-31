@@ -536,24 +536,6 @@ struct SiteWindow: View {
         // Curated default ≈8 items; episodic setup/maintenance actions ship hidden and live in
         // the palette (View ▸ Customize Toolbar…, added in #510).
         .toolbar(id: "site") {
-            // Fixed center, not movable/removable: the pane switcher is navigation, not a command
-            // (Finder/Freeform convention). Replaces the old Picker row above the main pane.
-            ToolbarItem(id: SiteToolbarItemID.panes.rawValue, placement: .principal) {
-                Picker("View", selection: Binding(
-                    get: { model.paneSelection },
-                    set: { model.setPaneSelection($0) }
-                )) {
-                    Text("Preview").tag(0)
-                    if model.activeEditorFile != nil { Text("Editor").tag(1) }
-                    Text("Graph").tag(2)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .help("Switch between Preview, Editor, and Graph")
-                .accessibilityIdentifier(AXID.toolbar(.panes))
-            }
-            .customizationBehavior(.disabled)
-
             ToolbarItem(id: SiteToolbarItemID.graph.rawValue, placement: .primaryAction) {
                 Button {
                     Task { await model.showGraph() }
