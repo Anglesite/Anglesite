@@ -215,6 +215,30 @@ struct SiteWindow: View {
         }
     }
 
+    /// The Page-menu / toolbar `+` menu's shared new-content action set — `nil` until a site
+    /// loads, then cached for the window's lifetime (`model.site` is only ever assigned, never
+    /// reset to nil). `@State`-backed rather than a computed property so the five wrapped
+    /// closures are built once, not re-allocated on every `body` evaluation; `refreshNewContentActions()`
+    /// populates it via `.onChange` below the moment a site becomes available. Both call sites
+    /// read this instead of building their own closures, so a future action that grows beyond a
+    /// one-liner (like `newLinkPost` already is) can't drift between the two (#714 v2 slice 3
+    /// follow-up).
+    @State private var newContentActions: NewContentActions?
+
+    private func refreshNewContentActions() {
+        guard model.site != nil, newContentActions == nil else { return }
+        newContentActions = NewContentActions(
+            newPage: { model.newPagePresented = true },
+            newCollection: { model.newCollectionPresented = true },
+            newPost: { model.newPostPresented = true },
+            newComponent: { model.newComponentPresented = true },
+            newLinkPost: {
+                model.quickCaptureURL = QuickCapture.clipboardURLString()
+                model.quickCapturePresented = true
+            }
+        )
+    }
+
     /// Publishes all `focusedSceneValue`s onto `content`. Factored out of `body` as its own
     /// function (rather than inlined into one long modifier chain) so the type checker solves it
     /// as an independent unit — `navigatorSelectionActions(for:)` pushed the combined `body`
@@ -233,16 +257,7 @@ struct SiteWindow: View {
             // stays disabled even with the site window frontmost (same trap documented for
             // `\.preview` below).
             .focusedSceneValue(\.siteID, model.site?.id ?? siteID)
-            .focusedSceneValue(\.newContentActions, model.site == nil ? nil : NewContentActions(
-                newPage: { model.newPagePresented = true },
-                newCollection: { model.newCollectionPresented = true },
-                newPost: { model.newPostPresented = true },
-                newComponent: { model.newComponentPresented = true },
-                newLinkPost: {
-                    model.quickCaptureURL = QuickCapture.clipboardURLString()
-                    model.quickCapturePresented = true
-                }
-            ))
+            .focusedSceneValue(\.newContentActions, newContentActions)
             .focusedSceneValue(\.navigatorSelectionActions, navigatorSelectionActions(for: model))
             // `focusedSceneValue` (not `focusedValue`): publishes while this site window is the
             // active scene, regardless of where keyboard focus sits. The preview pane is a
@@ -264,6 +279,7 @@ struct SiteWindow: View {
                 isWebsiteShown: inspectorShown && activeInspector == .website,
                 toggleWebsite: { toggleWebsiteInspector() }
             ))
+            .onChange(of: model.site?.id, initial: true) { _, _ in refreshNewContentActions() }
     }
 
     /// Shows the selection inspector, switching away from the website inspector if that's active;
@@ -534,17 +550,23 @@ struct SiteWindow: View {
         // by SiteToolbarItemIDTests in AnglesiteCoreTests). Items must also be
         // unconditional (no `if let` wrappers): identity-swapping or appearing/vanishing items
         // fight the customization palette, so state-dependent items render disabled instead.
-        // Curated default ≈8 items; episodic setup/maintenance actions ship hidden and live in
-        // the palette (View ▸ Customize Toolbar…, added in #510).
+        // Curated default ≈9 items (sync/securityReports often render empty); episodic
+        // setup/maintenance actions ship hidden and live in the palette (View ▸ Customize
+        // Toolbar…, added in #510).
         .toolbar(id: "site") {
-            ToolbarItem(id: SiteToolbarItemID.graph.rawValue, placement: .primaryAction) {
-                Button {
-                    Task { await model.showGraph() }
+            // Leading, per Pages/Freeform convention for the content-creation `+` menu (#714 v2
+            // slice 3). Content-only for now — a Blocks section joins once the WYSIWYG palette's
+            // insert actions exist (slice 4, tracked separately so this menu isn't blocked on it).
+            ToolbarItem(id: SiteToolbarItemID.insert.rawValue, placement: .primaryAction) {
+                Menu {
+                    Button("New Page…") { newContentActions?.newPage() }
+                    Button("New Post…") { newContentActions?.newPost() }
+                    Button("New Collection Entry…") { newContentActions?.newCollection() }
                 } label: {
-                    Label("Site Graph", systemImage: "point.3.connected.trianglepath.dotted")
+                    Label("Insert", systemImage: "plus")
                 }
-                .help("Explore pages, layouts, components, collections, and assets")
-                .accessibilityIdentifier(AXID.toolbar(.graph))
+                .help("Add a new page, post, or collection entry")
+                .accessibilityIdentifier(AXID.toolbar(.insert))
             }
 
             // iCloud sync status (#881): renders nothing for a package that isn't in iCloud
@@ -566,6 +588,30 @@ struct SiteWindow: View {
                 .accessibilityIdentifier(AXID.toolbar(.securityReports))
             }
 
+            ToolbarItem(id: SiteToolbarItemID.openInBrowser.rawValue, placement: .primaryAction) {
+                Button {
+                    model.openPreviewInBrowser()
+                } label: {
+                    Label("Open in browser", systemImage: "arrow.up.forward.app")
+                }
+                .disabled(!model.canOpenPreviewInBrowser)
+                .help("Open the live preview in your default browser")
+                .accessibilityIdentifier(AXID.toolbar(.openInBrowser))
+            }
+
+            // — Palette-only items (View ▸ Customize Toolbar…) —
+
+            ToolbarItem(id: SiteToolbarItemID.graph.rawValue, placement: .primaryAction) {
+                Button {
+                    Task { await model.showGraph() }
+                } label: {
+                    Label("Site Graph", systemImage: "point.3.connected.trianglepath.dotted")
+                }
+                .help("Explore pages, layouts, components, collections, and assets")
+                .accessibilityIdentifier(AXID.toolbar(.graph))
+            }
+            .defaultCustomization(SiteToolbarItemID.graph.isDefaultVisible ? .visible : .hidden)
+
             ToolbarItem(id: SiteToolbarItemID.backup.rawValue, placement: .primaryAction) {
                 Button {
                     model.backupSite()
@@ -578,6 +624,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.backup))
             }
+            .defaultCustomization(SiteToolbarItemID.backup.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.audit.rawValue, placement: .primaryAction) {
                 Button {
@@ -597,19 +644,7 @@ struct SiteWindow: View {
                         : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.audit))
             }
-
-            ToolbarItem(id: SiteToolbarItemID.openInBrowser.rawValue, placement: .primaryAction) {
-                Button {
-                    model.openPreviewInBrowser()
-                } label: {
-                    Label("Open in browser", systemImage: "arrow.up.forward.app")
-                }
-                .disabled(!model.canOpenPreviewInBrowser)
-                .help("Open the live preview in your default browser")
-                .accessibilityIdentifier(AXID.toolbar(.openInBrowser))
-            }
-
-            // — Palette-only items (View ▸ Customize Toolbar…) —
+            .defaultCustomization(SiteToolbarItemID.audit.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.harden.rawValue, placement: .primaryAction) {
                 Button {
@@ -627,7 +662,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.harden))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.harden.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.aiSearch.rawValue, placement: .primaryAction) {
                 Button {
@@ -645,7 +680,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.aiSearch))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.aiSearch.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.domainConfigAudit.rawValue, placement: .primaryAction) {
                 Button {
@@ -663,7 +698,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.domainConfigAudit))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.domainConfigAudit.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.agentReadiness.rawValue, placement: .primaryAction) {
                 Button {
@@ -681,7 +716,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.agentReadiness))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.agentReadiness.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.onionRouting.rawValue, placement: .primaryAction) {
                 Button {
@@ -695,7 +730,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.onionRouting))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.onionRouting.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.domain.rawValue, placement: .primaryAction) {
                 Button {
@@ -707,7 +742,7 @@ struct SiteWindow: View {
                 .help("View and manage this domain's DNS records")
                 .accessibilityIdentifier(AXID.toolbar(.domain))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.domain.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.integration.rawValue, placement: .primaryAction) {
                 Button {
@@ -719,7 +754,7 @@ struct SiteWindow: View {
                 .help("Set up a third-party integration for this site")
                 .accessibilityIdentifier(AXID.toolbar(.integration))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.integration.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.siriReadiness.rawValue, placement: .primaryAction) {
                 Button {
@@ -731,7 +766,7 @@ struct SiteWindow: View {
                 .help("Check whether Siri workflows are ready for this site")
                 .accessibilityIdentifier(AXID.toolbar(.siriReadiness))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.siriReadiness.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.relatedPages.rawValue, placement: .primaryAction) {
                 Button {
@@ -743,7 +778,7 @@ struct SiteWindow: View {
                 .help(model.relatedPagesPresented ? "Hide related pages" : "Show related pages")
                 .accessibilityIdentifier(AXID.toolbar(.relatedPages))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.relatedPages.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.styleGuide.rawValue, placement: .primaryAction) {
                 Button {
@@ -754,7 +789,7 @@ struct SiteWindow: View {
                 .help("See and edit this site's learned writing, image, and naming conventions")
                 .accessibilityIdentifier(AXID.toolbar(.styleGuide))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.styleGuide.isDefaultVisible ? .visible : .hidden)
 
             // One stable item whose label/action reflects publish state — two swapping items
             // would break saved customizations.
@@ -778,7 +813,7 @@ struct SiteWindow: View {
                     .accessibilityIdentifier(AXID.toolbar(.github))
                 }
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.github.isDefaultVisible ? .visible : .hidden)
 
             // — Default trailing cluster —
 
@@ -826,18 +861,8 @@ struct SiteWindow: View {
                 // recreate the duplicate-shortcut ambiguity #509 removed for ⌘S.
             }
 
-            // Far trailing, adjacent to the inspector panel it controls (Pages/Freeform convention).
-            ToolbarItem(id: SiteToolbarItemID.inspector.rawValue, placement: .primaryAction) {
-                Button {
-                    toggleSelectionInspector()
-                } label: {
-                    Label("Inspector", systemImage: "sidebar.right")
-                }
-                .disabled(model.inspectorSelection == nil)
-                .help("Show or hide the inspector")
-                .accessibilityIdentifier(AXID.toolbar(.inspector))
-            }
-
+            // Moved ahead of the two inspector toggles (#714 v2 slice 3 final review) so
+            // websiteInspector/inspector are genuinely last, per spec §4.
             // Unconditional per the file's own toolbar-customization rule above: disabled (not
             // hidden) outside Site ▸ Edit Page, so Customize Toolbar always shows it (#1588 Task 20).
             ToolbarItem(id: SiteToolbarItemID.wysiwygPalette.rawValue, placement: .primaryAction) {
@@ -849,6 +874,31 @@ struct SiteWindow: View {
                 .disabled(!model.preview.isEditModeEnabled)
                 .help("Show or hide the block palette")
                 .accessibilityIdentifier(AXID.toolbar(.wysiwygPalette))
+            }
+
+            // Far trailing, immediately before the selection inspector toggle (#714 v2 slice 3) —
+            // the Website inspector (Document analog) is always available, unlike `inspector`
+            // (Format analog) which disables with no selection, so this item never disables.
+            ToolbarItem(id: SiteToolbarItemID.websiteInspector.rawValue, placement: .primaryAction) {
+                Button {
+                    toggleWebsiteInspector()
+                } label: {
+                    Label("Website Inspector", systemImage: "globe")
+                }
+                .help("Show or hide the website inspector")
+                .accessibilityIdentifier(AXID.toolbar(.websiteInspector))
+            }
+
+            // Far trailing, adjacent to the inspector panel it controls (Pages/Freeform convention).
+            ToolbarItem(id: SiteToolbarItemID.inspector.rawValue, placement: .primaryAction) {
+                Button {
+                    toggleSelectionInspector()
+                } label: {
+                    Label("Inspector", systemImage: "sidebar.right")
+                }
+                .disabled(model.inspectorSelection == nil)
+                .help("Show or hide the inspector")
+                .accessibilityIdentifier(AXID.toolbar(.inspector))
             }
         }
         // Trailing search field (#520). Not a `.toolbar(id:)` item: `.searchable` mints its own
