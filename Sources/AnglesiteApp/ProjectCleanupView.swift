@@ -20,7 +20,9 @@ struct ProjectCleanupView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MainPaneTakeoverHeader(title: "Cleanup", systemImage: "trash", onDone: onDone)
+            MainPaneTakeoverHeader(systemImage: "trash", onDone: onDone) {
+                Text("Cleanup")
+            }
             Divider()
             List {
                 cleanupContent

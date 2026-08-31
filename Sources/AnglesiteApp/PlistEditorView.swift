@@ -107,7 +107,9 @@ struct PlistEditorView: View {
     }
 
     private var header: some View {
-        MainPaneTakeoverHeader(title: "Settings", systemImage: "gearshape", onDone: onDone) {
+        MainPaneTakeoverHeader(systemImage: "gearshape", onDone: onDone) {
+            Text("Settings")
+        } accessory: {
             if model.hasAnyUnsavedEdits {
                 Circle().fill(.secondary).frame(width: 7, height: 7)
                     .help("Unsaved changes")

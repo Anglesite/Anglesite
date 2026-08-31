@@ -11,8 +11,9 @@ struct SiteGraphExplorerView: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            MainPaneTakeoverHeader(
-                title: "Site Graph", systemImage: "point.3.connected.trianglepath.dotted", onDone: onDone)
+            MainPaneTakeoverHeader(systemImage: "point.3.connected.trianglepath.dotted", onDone: onDone) {
+                Text("Site Graph")
+            }
             Divider()
             HSplitView {
                 SiteGraphTree(model: model)
