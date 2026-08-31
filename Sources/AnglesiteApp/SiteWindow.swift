@@ -555,13 +555,25 @@ struct SiteWindow: View {
         // Toolbar…, added in #510).
         .toolbar(id: "site") {
             // Leading, per Pages/Freeform convention for the content-creation `+` menu (#714 v2
-            // slice 3). Content-only for now — a Blocks section joins once the WYSIWYG palette's
-            // insert actions exist (slice 4, tracked separately so this menu isn't blocked on it).
+            // slice 3). The Blocks section (#714 v2 slice 4) reuses the exact same
+            // `WYSIWYGCanvasController.blockPalette`/`insertBlock(_:)` pair the block palette
+            // panel and Insert ▸ Component already call — see `InsertCommands.swift`'s identical
+            // `if let canvas = wysiwygCanvas { ... }` shape, the shared action layer spec §4 asks
+            // for. Present only in WYSIWYG edit mode, same gating as the Block Palette toggle.
             ToolbarItem(id: SiteToolbarItemID.insert.rawValue, placement: .primaryAction) {
                 Menu {
                     Button("New Page…") { newContentActions?.newPage() }
                     Button("New Post…") { newContentActions?.newPost() }
                     Button("New Collection Entry…") { newContentActions?.newCollection() }
+                    if let canvas = model.preview.wysiwygCanvas {
+                        Section("Blocks") {
+                            ForEach(canvas.blockPalette) { entry in
+                                Button(entry.displayName) {
+                                    Task { await canvas.insertBlock(entry) }
+                                }
+                            }
+                        }
+                    }
                 } label: {
                     Label("Insert", systemImage: "plus")
                 }
