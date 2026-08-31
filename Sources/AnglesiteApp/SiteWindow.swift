@@ -471,7 +471,7 @@ struct SiteWindow: View {
                         // just anchored on the leading edge since this is a palette next to the
                         // canvas rather than an auxiliary content panel.
                         if showWYSIWYGPalette, model.preview.isEditModeEnabled {
-                            WYSIWYGPaletteView(entries: WYSIWYGCanvasController.stubBlockPalette) { entry in
+                            WYSIWYGPaletteView(entries: model.preview.wysiwygCanvas?.blockPalette ?? []) { entry in
                                 Task { await model.preview.wysiwygCanvas?.insertBlock(entry) }
                             }
                             .frame(width: 220)
@@ -559,7 +559,8 @@ struct SiteWindow: View {
             // `WYSIWYGCanvasController.blockPalette`/`insertBlock(_:)` pair the block palette
             // panel and Insert ▸ Component already call — see `InsertCommands.swift`'s identical
             // `if let canvas = wysiwygCanvas { ... }` shape, the shared action layer spec §4 asks
-            // for. Present only in WYSIWYG edit mode, same gating as the Block Palette toggle.
+            // for. Present only in WYSIWYG edit mode (unlike the Block Palette toggle, this
+            // doesn't also depend on the palette panel's own visibility).
             ToolbarItem(id: SiteToolbarItemID.insert.rawValue, placement: .primaryAction) {
                 Menu {
                     Button("New Page…") { newContentActions?.newPage() }
@@ -577,7 +578,7 @@ struct SiteWindow: View {
                 } label: {
                     Label("Insert", systemImage: "plus")
                 }
-                .help("Add a new page, post, or collection entry")
+                .help("Add a new page, post, collection entry, or block")
                 .accessibilityIdentifier(AXID.toolbar(.insert))
             }
 
