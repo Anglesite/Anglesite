@@ -1329,12 +1329,13 @@ final class PlistEditorModel {
 
     // MARK: - Publishing (#1682)
 
-    /// The stored `deployTarget`, normalized through the same mapping the deploy path uses, so an
-    /// absent, empty, or unrecognized declaration reads as Cloudflare here exactly as it does in
-    /// `DeployCommand`.
+    /// The stored `deployTarget`, normalized through `DeployTargetSelection.canonicalID(forDeclared:)`
+    /// — the same policy `DeployCommand`'s resolver goes through — so an absent, empty, or
+    /// unrecognized declaration reads as Cloudflare here for exactly the reason it deploys through
+    /// Cloudflare there, rather than because a second copy of that rule happens to agree.
     private static func loadDeployTargetID(sourceDirectory: URL) -> String {
-        let declared = (try? DomainConfigStore(sourceDirectory: sourceDirectory).load())?.deployTarget ?? ""
-        return DeployTargetSelection.selectableIDs.contains(declared) ? declared : CloudflareDeployTarget.id
+        let declared = (try? DomainConfigStore(sourceDirectory: sourceDirectory).load())?.deployTarget
+        return DeployTargetSelection.canonicalID(forDeclared: declared)
     }
 
     /// Persists where this site publishes to `anglesite.json`'s `deployTarget` (#1682). Writes

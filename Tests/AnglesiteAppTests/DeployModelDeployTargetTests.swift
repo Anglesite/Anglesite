@@ -100,4 +100,63 @@ struct DeployModelDeployTargetTests {
         #expect(executor.ran(.wrangler))
         #expect(!executor.ran(.githubPagesPublish))
     }
+
+    /// A deploy attempt must resolve its target exactly once (#1682 review). `runDeploy` reads the
+    /// target up front to build `SocialWorkerProvisionCommand`'s Cloudflare-only closures, and
+    /// `DeployCommand.deploy` reads it again for its own authorize-then-publish pair — with
+    /// several `await`s in between and a production resolver that re-reads `anglesite.json` from
+    /// disk every time. If those stayed two independent reads, an owner flipping Website Settings
+    /// ▸ Publishing mid-deploy could have the two halves of one attempt disagree about where the
+    /// site publishes.
+    ///
+    /// The resolver here rewrites the declaration on its *first* call, so a second read would
+    /// necessarily come back as GitHub Pages: reaching the Cloudflare publish step (and only one
+    /// resolution) is the proof that the attempt is pinned to a single target.
+    @Test("a deploy attempt resolves its target once, even if the declaration changes mid-deploy")
+    func targetIsResolvedOncePerAttempt() async throws {
+        let executor = RecordingDeployExecutor()
+        let resolutions = Counter()
+        let directory = try makeSiteDirectory(deployTarget: nil)
+        let command = DeployCommand(
+            targetResolver: { resolvedDirectory -> any DeployTarget in
+                let target = DeployTargetSelection.target(sourceDirectory: resolvedDirectory)
+                if resolutions.increment() == 1 {
+                    // Stands in for the owner switching the Publishing picker while this attempt
+                    // is in flight — the picker writes through immediately, with no in-flight guard.
+                    DomainConfigStore.update(sourceDirectory: resolvedDirectory) {
+                        $0.deployTarget = GitHubPagesDeployTarget.id
+                    }
+                }
+                if target is GitHubPagesDeployTarget { return GitHubPagesDeployTarget(tokenSource: { "gh-token" }) }
+                return CloudflareDeployTarget(tokenSource: { "cf-token" })
+            },
+            executor: executor)
+        let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
+
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        while model.isRunning { await Task.yield() }
+
+        #expect(resolutions.value == 1, "the attempt re-read the declaration \(resolutions.value) times")
+        #expect(executor.ran(.wrangler), "the attempt must publish through the target it started with")
+        #expect(!executor.ran(.githubPagesPublish))
+    }
+}
+
+/// A thread-safe call counter — the resolver runs off the MainActor, so a plain `var` capture
+/// wouldn't compile under strict concurrency.
+private final class Counter: @unchecked Sendable {
+    private let lock = NSLock()
+    private var count = 0
+
+    /// - Returns: the call ordinal, 1 for the first call.
+    @discardableResult func increment() -> Int {
+        lock.lock(); defer { lock.unlock() }
+        count += 1
+        return count
+    }
+
+    var value: Int {
+        lock.lock(); defer { lock.unlock() }
+        return count
+    }
 }

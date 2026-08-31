@@ -65,6 +65,38 @@ struct DeployTargetSelectionTests {
         #expect(DeployTargetSelection.target(forID: "") is CloudflareDeployTarget)
     }
 
+    // MARK: Canonical identifier
+
+    @Test("canonicalID normalizes every unrecognized declaration to Cloudflare")
+    func canonicalIDNormalizesUnrecognizedDeclarations() {
+        #expect(DeployTargetSelection.canonicalID(forDeclared: GitHubPagesDeployTarget.id) == GitHubPagesDeployTarget.id)
+        #expect(DeployTargetSelection.canonicalID(forDeclared: CloudflareDeployTarget.id) == CloudflareDeployTarget.id)
+        #expect(DeployTargetSelection.canonicalID(forDeclared: nil) == CloudflareDeployTarget.id)
+        #expect(DeployTargetSelection.canonicalID(forDeclared: "") == CloudflareDeployTarget.id)
+        #expect(DeployTargetSelection.canonicalID(forDeclared: "netlify-from-a-future-app-version") == CloudflareDeployTarget.id)
+    }
+
+    /// The picker reads `canonicalID(forDeclared:)` and the deploy path reads `target(forID:)`; if
+    /// those two ever disagreed, Settings could show a host the site wouldn't really deploy to.
+    /// Pinning the agreement here is what lets a third conformer be added by touching one switch.
+    @Test("canonicalID and target(forID:) name the same conformer for every declaration")
+    func canonicalIDAgreesWithTargetSelection() {
+        let declarations: [String?] = [
+            nil, "", CloudflareDeployTarget.id, GitHubPagesDeployTarget.id,
+            "netlify-from-a-future-app-version", "GitHubPages", " githubPages "
+        ]
+        for declared in declarations {
+            let canonical = DeployTargetSelection.canonicalID(forDeclared: declared)
+            #expect(
+                DeployTargetSelection.selectableIDs.contains(canonical),
+                "canonicalID must only ever return an offerable identifier, got \(canonical)")
+            #expect(
+                type(of: DeployTargetSelection.target(forID: declared))
+                    == type(of: DeployTargetSelection.target(forID: canonical)),
+                "\(declared ?? "nil") canonicalizes to \(canonical) but selects a different conformer")
+        }
+    }
+
     // MARK: Site directory → conformer
 
     @Test("a site declaring githubPages in anglesite.json resolves to the GitHub Pages conformer")
@@ -115,6 +147,30 @@ struct DeployTargetSelectionTests {
         #expect(
             command.target(for: siteDirectory) is CloudflareDeployTarget,
             "a caller that pinned a target (SocialWorkerProvisionCommand's Cloudflare-only deploy, and every test) must not be re-resolved out from under it")
+    }
+
+    /// The seam `DeployModel.runDeploy` uses to freeze one attempt's selection: it resolves the
+    /// site's target once, then pins it so the Cloudflare-only closures it builds and `deploy()`'s
+    /// own authorize-then-publish pair can't be resolved against different reads of a file the
+    /// owner can edit mid-deploy.
+    @Test("pinning(target:) freezes the selection while keeping the command's executor")
+    func pinningFreezesTheSelection() async throws {
+        let siteDirectory = try makeSiteDirectory()
+        defer { try? FileManager.default.removeItem(at: siteDirectory) }
+        try writeDeployTarget(GitHubPagesDeployTarget.id, to: siteDirectory)
+        let executor = FakeExecutor()
+        let command = DeployCommand(executor: executor)
+            .pinning(target: CloudflareDeployTarget(tokenSource: { "cf-token" }))
+
+        #expect(command.target(for: siteDirectory) is CloudflareDeployTarget)
+        // The injected executor survived the copy — a `pinning` that dropped it would silently
+        // fall back to `HostDeployExecutor` and try to spawn a real subprocess here.
+        let result = await command.deploy(siteID: "s", siteDirectory: siteDirectory)
+        guard case .succeeded = result else {
+            Issue.record("expected .succeeded, got \(result)"); return
+        }
+        #expect(executor.ran(.wrangler))
+        #expect(!executor.ran(.githubPagesPublish))
     }
 
     // MARK: End-to-end through deploy()

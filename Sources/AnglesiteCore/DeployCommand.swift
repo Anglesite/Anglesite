@@ -108,10 +108,12 @@ public actor DeployCommand {
 
     /// How this command picks the target it publishes through — by default, whatever the site
     /// itself declares in `Source/anglesite.json` (`DeployTargetSelection.fromSiteConfig`, #1682),
-    /// which is Cloudflare for every site that predates the `deployTarget` field. `nonisolated`
-    /// and public so callers that need to build a parallel command with the same selection (e.g.
-    /// `DeployModel.runDeploy` swapping in a container executor) can forward it.
-    public nonisolated let targetResolver: DeployTargetSelection.Resolver
+    /// which is Cloudflare for every site that predates the `deployTarget` field.
+    ///
+    /// Deliberately *not* exposed: a caller that needs the selection reads it once through
+    /// ``target(for:)`` and freezes it with ``pinning(target:)``, so it can't end up performing a
+    /// second, independent resolution that disagrees with this command's own.
+    private nonisolated let targetResolver: DeployTargetSelection.Resolver
     private let executor: any DeployExecutor
 
     /// The target `deploy(siteID:siteDirectory:…)` would publish `siteDirectory` through.
@@ -144,6 +146,24 @@ public actor DeployCommand {
     /// Cloudflare-only publish — and for tests driving a scripted conformer.
     public init(target: any DeployTarget, executor: any DeployExecutor = HostDeployExecutor()) {
         self.init(targetResolver: { _ in target }, executor: executor)
+    }
+
+    /// This command with its selection frozen to `target`, keeping its executor.
+    ///
+    /// For an orchestrator that needs the concrete conformer *before* calling
+    /// `deploy(siteID:siteDirectory:…)` — see `DeployModel.runDeploy`, which downcasts to
+    /// `CloudflareDeployTarget` to build `SocialWorkerProvisionCommand`'s two Cloudflare-only
+    /// closures. Resolving once and pinning the result is what makes that method's "read once, so
+    /// authorization and the publish hand-off can't disagree" guarantee hold across the *outer*
+    /// call too: without it the orchestrator's read and the deploy's own read are two independent
+    /// disk reads separated by several `await`s, and an owner flipping Website Settings ▸
+    /// Publishing in between would leave the closures resolved against a different target than
+    /// the one this command publishes through.
+    ///
+    /// - Parameter target: The conformer to publish every site through, normally the result of
+    ///   ``target(for:)`` for the site this attempt is about to deploy.
+    public nonisolated func pinning(target: any DeployTarget) -> DeployCommand {
+        DeployCommand(target: target, executor: executor)
     }
 
     /// Run a deploy for `siteID`. Returns once the target's publish step has resolved (or before,

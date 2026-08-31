@@ -33,9 +33,30 @@ public enum DeployTargetSelection {
     ///   with their production defaults — the Keychain-backed credential sources — so a test
     ///   wanting literal credentials constructs its own instead of calling this.
     public static func target(forID id: String?) -> any DeployTarget {
-        switch id {
+        switch canonicalID(forDeclared: id) {
         case GitHubPagesDeployTarget.id: return GitHubPagesDeployTarget()
         default: return CloudflareDeployTarget()
+        }
+    }
+
+    /// The identifier a declared value actually resolves to — the one place that owns *which
+    /// identifiers this app version recognizes*.
+    ///
+    /// ``target(forID:)`` and the Settings picker's read-back
+    /// (`PlistEditorModel.loadDeployTargetID`) both delegate here rather than each re-deriving the
+    /// "unrecognized → Cloudflare" rule from ``selectableIDs``. Two hand-synchronized copies of
+    /// that rule could drift the moment a third conformer lands — and a drifted picker would show
+    /// a host the deploy path wouldn't really resolve to, the exact inconsistency this type's
+    /// contract promises can't happen.
+    ///
+    /// - Parameter id: The raw declared identifier from `anglesite.json`, `nil` included.
+    /// - Returns: The recognized identifier — ``GitHubPagesDeployTarget/id`` only for an exact
+    ///   match, ``CloudflareDeployTarget/id`` for everything else. Always a member of
+    ///   ``selectableIDs``, so a caller can hand the result straight to a picker.
+    public static func canonicalID(forDeclared id: String?) -> String {
+        switch id {
+        case GitHubPagesDeployTarget.id: return GitHubPagesDeployTarget.id
+        default: return CloudflareDeployTarget.id
         }
     }
 
@@ -57,7 +78,8 @@ public enum DeployTargetSelection {
         target(sourceDirectory: siteDirectory)
     }
 
-    /// The targets the Settings picker offers, in display order. Not every string
+    /// The targets the Settings picker offers, in display order — every value
+    /// ``canonicalID(forDeclared:)`` can return, and nothing else. Not every string
     /// ``target(forID:)`` tolerates is offerable — a value from a future app version stays
     /// readable (and keeps deploying through Cloudflare) without this app version claiming it can
     /// write it back.
