@@ -215,6 +215,30 @@ struct SiteWindow: View {
         }
     }
 
+    /// The Page-menu / toolbar `+` menu's shared new-content action set — `nil` until a site
+    /// loads, then cached for the window's lifetime (`model.site` is only ever assigned, never
+    /// reset to nil). `@State`-backed rather than a computed property so the five wrapped
+    /// closures are built once, not re-allocated on every `body` evaluation; `refreshNewContentActions()`
+    /// populates it via `.onChange` below the moment a site becomes available. Both call sites
+    /// read this instead of building their own closures, so a future action that grows beyond a
+    /// one-liner (like `newLinkPost` already is) can't drift between the two (#714 v2 slice 3
+    /// follow-up).
+    @State private var newContentActions: NewContentActions?
+
+    private func refreshNewContentActions() {
+        guard model.site != nil, newContentActions == nil else { return }
+        newContentActions = NewContentActions(
+            newPage: { model.newPagePresented = true },
+            newCollection: { model.newCollectionPresented = true },
+            newPost: { model.newPostPresented = true },
+            newComponent: { model.newComponentPresented = true },
+            newLinkPost: {
+                model.quickCaptureURL = QuickCapture.clipboardURLString()
+                model.quickCapturePresented = true
+            }
+        )
+    }
+
     /// Publishes all `focusedSceneValue`s onto `content`. Factored out of `body` as its own
     /// function (rather than inlined into one long modifier chain) so the type checker solves it
     /// as an independent unit — `navigatorSelectionActions(for:)` pushed the combined `body`
@@ -233,16 +257,7 @@ struct SiteWindow: View {
             // stays disabled even with the site window frontmost (same trap documented for
             // `\.preview` below).
             .focusedSceneValue(\.siteID, model.site?.id ?? siteID)
-            .focusedSceneValue(\.newContentActions, model.site == nil ? nil : NewContentActions(
-                newPage: { model.newPagePresented = true },
-                newCollection: { model.newCollectionPresented = true },
-                newPost: { model.newPostPresented = true },
-                newComponent: { model.newComponentPresented = true },
-                newLinkPost: {
-                    model.quickCaptureURL = QuickCapture.clipboardURLString()
-                    model.quickCapturePresented = true
-                }
-            ))
+            .focusedSceneValue(\.newContentActions, newContentActions)
             .focusedSceneValue(\.navigatorSelectionActions, navigatorSelectionActions(for: model))
             // `focusedSceneValue` (not `focusedValue`): publishes while this site window is the
             // active scene, regardless of where keyboard focus sits. The preview pane is a
@@ -264,6 +279,7 @@ struct SiteWindow: View {
                 isWebsiteShown: inspectorShown && activeInspector == .website,
                 toggleWebsite: { toggleWebsiteInspector() }
             ))
+            .onChange(of: model.site?.id, initial: true) { _, _ in refreshNewContentActions() }
     }
 
     /// Shows the selection inspector, switching away from the website inspector if that's active;
@@ -543,9 +559,9 @@ struct SiteWindow: View {
             // insert actions exist (slice 4, tracked separately so this menu isn't blocked on it).
             ToolbarItem(id: SiteToolbarItemID.insert.rawValue, placement: .primaryAction) {
                 Menu {
-                    Button("New Page…") { model.newPagePresented = true }
-                    Button("New Post…") { model.newPostPresented = true }
-                    Button("New Collection Entry…") { model.newCollectionPresented = true }
+                    Button("New Page…") { newContentActions?.newPage() }
+                    Button("New Post…") { newContentActions?.newPost() }
+                    Button("New Collection Entry…") { newContentActions?.newCollection() }
                 } label: {
                     Label("Insert", systemImage: "plus")
                 }
