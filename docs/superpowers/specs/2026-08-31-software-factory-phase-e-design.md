@@ -45,8 +45,9 @@ No other branch in any routine changes.
 
 ## 3. Gap issue: label, shape, and routing
 
-**Label:** `🏭 Factory gap`, description "A doc/test-seam/abstraction gap that beat a factory
-run — filed by Stage 5, routes through normal intake like any other issue", color `E99695`.
+**Label:** `🏭 Factory gap`, description "Doc/test-seam/abstraction gap that beat a factory
+run — filed by Stage 5, routes via intake" (GitHub caps label descriptions at 100 characters;
+this is 93), color `E99695`.
 Checked against the full existing label palette to avoid a color collision (`docs` uses
 `0075ca`, the two `Blocked` labels share `B60205`, `Needs split` is `D93F0B`, `Needs repro` is
 `FEF2C0`) — `E99695` is unused and reads as "actionable, needs attention" without being

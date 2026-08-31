@@ -59,8 +59,10 @@ change.
 gh label create "🏭 Factory gap" \
   --repo Anglesite/Anglesite \
   --color E99695 \
-  --description "A doc/test-seam/abstraction gap that beat a factory run — filed by Stage 5, routes through normal intake like any other issue"
+  --description "Doc/test-seam/abstraction gap that beat a factory run — filed by Stage 5, routes via intake"
 ```
+
+(GitHub caps label descriptions at 100 characters; this one is 93.)
 
 - [ ] **Step 2: Verify**
 
