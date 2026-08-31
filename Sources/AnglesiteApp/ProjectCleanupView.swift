@@ -1,7 +1,7 @@
 import SwiftUI
 import AnglesiteCore
 
-/// Main-pane Cleanup surface (Site ▸ Cleanup…). Same rows and actions the sidebar Cleanup
+/// Main-pane Cleanup surface (Website ▸ Cleanup…). Same rows and actions the sidebar Cleanup
 /// section had before #714 moved it out of the visitor-facing navigator — opening the pane
 /// auto-scans instead of waiting on a first-run "Scan" button, since there's no longer other
 /// navigator content to sit alongside.

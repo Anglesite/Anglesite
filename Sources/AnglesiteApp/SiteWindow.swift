@@ -525,8 +525,9 @@ struct SiteWindow: View {
         // Titlebar edited-dot (#1588 Task 17): reflects uncommitted in-memory WYSIWYG ops against
         // the stub backend, not a real git-dirty state — see `WindowEditedStateBridge`'s doc comment.
         .background(WindowEditedStateBridge(isEdited: model.preview.wysiwygCanvas?.hasUncommittedOps ?? false))
-        // Leading title, free center — the document-style layout (Pages/Freeform) that makes room
-        // for the .principal pane switcher.
+        // Leading title, free center — the document-style layout (Pages/Freeform). No `.principal`
+        // item occupies that center anymore: Editor/Graph/Cleanup are drill-in takeovers reached
+        // by opening a file or a Website-menu command, not a toolbar-centered mode switch.
         .toolbarRole(.editor)
         // Customizable toolbar (#519): every item has a STABLE id — saved customizations key off
         // these strings, so renaming one silently discards users' layouts (the id set is frozen

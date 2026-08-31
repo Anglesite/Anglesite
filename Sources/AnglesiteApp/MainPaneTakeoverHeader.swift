@@ -7,7 +7,7 @@ import SwiftUI
 /// this is the explicit, discoverable equivalent for a takeover reached with no page selection in
 /// play — opening a file directly, Website ▸ Graph…, or Website ▸ Cleanup….
 struct MainPaneTakeoverHeader<Accessory: View>: View {
-    let title: String
+    let title: LocalizedStringKey
     let systemImage: String
     let onDone: () -> Void
     @ViewBuilder var accessory: () -> Accessory
@@ -26,7 +26,7 @@ struct MainPaneTakeoverHeader<Accessory: View>: View {
 }
 
 extension MainPaneTakeoverHeader where Accessory == EmptyView {
-    init(title: String, systemImage: String, onDone: @escaping () -> Void) {
+    init(title: LocalizedStringKey, systemImage: String, onDone: @escaping () -> Void) {
         self.init(title: title, systemImage: systemImage, onDone: onDone) { EmptyView() }
     }
 }

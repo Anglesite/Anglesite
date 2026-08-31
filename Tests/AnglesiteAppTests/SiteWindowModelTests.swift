@@ -1280,7 +1280,7 @@ extension SiteWindowModelTests {
     }
 
     /// Mirrors `presentCleanupSwitchesPane` for `presentReader()` (V-4.3, #365) — same
-    /// leave-current-surface-first guard, same out-of-range `paneSelection` reasoning.
+    /// leave-current-surface-first guard.
     @Test("presentReader switches the main pane to Reader, clearing any open editor/inspector")
     func presentReaderSwitchesPane() async throws {
         let (root, packageURL, package) = try makeSitePackage()

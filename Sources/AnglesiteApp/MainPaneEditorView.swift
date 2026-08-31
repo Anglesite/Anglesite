@@ -106,7 +106,7 @@ struct MainPaneEditorView: View {
     }
 
     private var header: some View {
-        MainPaneTakeoverHeader(title: model.file.name, systemImage: "doc.text", onDone: onDone) {
+        MainPaneTakeoverHeader(title: LocalizedStringKey(model.file.name), systemImage: "doc.text", onDone: onDone) {
             if model.isDirty {
                 Circle().fill(.secondary).frame(width: 7, height: 7)
                     .help("Unsaved changes")

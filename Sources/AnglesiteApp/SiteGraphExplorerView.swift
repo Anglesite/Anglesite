@@ -49,8 +49,6 @@ private struct SiteGraphToolbar: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                Label("Site Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.headline)
                 Text(model.visibleSummary)
                     .font(.caption)
                     .foregroundStyle(.secondary)
