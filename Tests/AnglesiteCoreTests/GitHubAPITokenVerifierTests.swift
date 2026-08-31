@@ -89,4 +89,9 @@ struct GitHubAPITokenVerifierTests {
             return
         }
     }
+
+    @Test("invalidToken's recipe copy includes the Pages permission needed for GitHub Pages publishing (#1015 slice 2c)")
+    func invalidTokenMessageMentionsPages() {
+        #expect(GitHubTokenVerifyError.invalidToken.userMessage.contains("Pages: Read and write"))
+    }
 }
