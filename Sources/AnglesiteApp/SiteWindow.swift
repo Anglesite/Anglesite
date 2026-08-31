@@ -215,12 +215,19 @@ struct SiteWindow: View {
         }
     }
 
-    /// The Page-menu / toolbar `+` menu's shared new-content action set — `nil` while no site is
-    /// loaded. Both call sites read this property rather than building their own closures, so a
-    /// future action that grows beyond a one-liner (like `newLinkPost` already is) can't drift
-    /// between the two (#714 v2 slice 3 follow-up).
-    private var newContentActions: NewContentActions? {
-        model.site == nil ? nil : NewContentActions(
+    /// The Page-menu / toolbar `+` menu's shared new-content action set — `nil` until a site
+    /// loads, then cached for the window's lifetime (`model.site` is only ever assigned, never
+    /// reset to nil). `@State`-backed rather than a computed property so the five wrapped
+    /// closures are built once, not re-allocated on every `body` evaluation; `refreshNewContentActions()`
+    /// populates it via `.onChange` below the moment a site becomes available. Both call sites
+    /// read this instead of building their own closures, so a future action that grows beyond a
+    /// one-liner (like `newLinkPost` already is) can't drift between the two (#714 v2 slice 3
+    /// follow-up).
+    @State private var newContentActions: NewContentActions?
+
+    private func refreshNewContentActions() {
+        guard model.site != nil, newContentActions == nil else { return }
+        newContentActions = NewContentActions(
             newPage: { model.newPagePresented = true },
             newCollection: { model.newCollectionPresented = true },
             newPost: { model.newPostPresented = true },
@@ -272,6 +279,7 @@ struct SiteWindow: View {
                 isWebsiteShown: inspectorShown && activeInspector == .website,
                 toggleWebsite: { toggleWebsiteInspector() }
             ))
+            .onChange(of: model.site?.id, initial: true) { _, _ in refreshNewContentActions() }
     }
 
     /// Shows the selection inspector, switching away from the website inspector if that's active;
