@@ -113,5 +113,14 @@ Guardrails — follow strictly:
 
 ## Creating the routine
 
-To be filled in by whoever runs Task 6 below: date created, and confirmation the live task's
-content matches this file verbatim.
+Created **2026-08-31** via `mcp__scheduled-tasks__create_scheduled_task` with `taskId:
+"anglesite-factory-metrics"`, the Description and Prompt text above verbatim, and
+`cronExpression: "15 3 * * 1"` (weekly, Monday 03:15 local).
+
+Verified live via `mcp__scheduled-tasks__list_scheduled_tasks`: the `anglesite-factory-metrics`
+entry is `enabled: true`, `cronExpression: "15 3 * * 1"`, with `nextRunAt` on 2026-09-07 (within
+the coming week). The task's `path`
+(`/Users/dwk/.claude/scheduled-tasks/anglesite-factory-metrics/SKILL.md`) was read and its body
+(after the YAML frontmatter, which carries the same Description) diffed byte-for-byte against
+the Prompt block above — identical, aside from the live file's trailing newline being stripped
+(an artifact of how the file was written, not a content difference).
