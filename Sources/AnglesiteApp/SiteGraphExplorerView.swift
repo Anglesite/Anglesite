@@ -4,32 +4,43 @@ import AnglesiteCore
 struct SiteGraphExplorerView: View {
     @Bindable var model: SiteGraphExplorerModel
     let onOpenFile: (SiteGraphNode) -> Void
+    /// Returns the main pane to the canvas (#714 v2 slice 2's Done chrome) — Graph is a
+    /// menu-invoked takeover (Website ▸ Graph…), not a peer toolbar pane, so this is its only way
+    /// back besides picking a page in the navigator.
+    var onDone: () -> Void = {}
 
     var body: some View {
-        HSplitView {
-            SiteGraphTree(model: model)
-                .frame(minWidth: 220, idealWidth: 260, maxWidth: 340)
-
-            VStack(spacing: 0) {
-                SiteGraphToolbar(model: model)
-                Divider()
-                SiteGraphCanvas(
-                    nodes: model.filteredNodes,
-                    edges: model.filteredEdges,
-                    referenceCounts: model.visibleReferenceCounts,
-                    selectedNodeID: model.selectedNodeID,
-                    onSelect: { model.selectedNodeID = $0 }
-                )
+        VStack(spacing: 0) {
+            MainPaneTakeoverHeader(systemImage: "point.3.connected.trianglepath.dotted", onDone: onDone) {
+                Text("Site Graph")
             }
-            .frame(minWidth: 520)
+            Divider()
+            HSplitView {
+                SiteGraphTree(model: model)
+                    .frame(minWidth: 220, idealWidth: 260, maxWidth: 340)
 
-            SiteGraphInspector(
-                model: model,
-                onOpenFile: onOpenFile
-            )
-            .frame(minWidth: 280, idealWidth: 320, maxWidth: 420)
+                VStack(spacing: 0) {
+                    SiteGraphToolbar(model: model)
+                    Divider()
+                    SiteGraphCanvas(
+                        nodes: model.filteredNodes,
+                        edges: model.filteredEdges,
+                        referenceCounts: model.visibleReferenceCounts,
+                        selectedNodeID: model.selectedNodeID,
+                        onSelect: { model.selectedNodeID = $0 }
+                    )
+                }
+                .frame(minWidth: 520)
+
+                SiteGraphInspector(
+                    model: model,
+                    onOpenFile: onOpenFile
+                )
+                .frame(minWidth: 280, idealWidth: 320, maxWidth: 420)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .background(Color(NSColor.windowBackgroundColor))
         }
-        .background(Color(NSColor.windowBackgroundColor))
     }
 }
 
@@ -39,8 +50,6 @@ private struct SiteGraphToolbar: View {
     var body: some View {
         VStack(spacing: 8) {
             HStack(spacing: 8) {
-                Label("Site Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                    .font(.headline)
                 Text(model.visibleSummary)
                     .font(.caption)
                     .foregroundStyle(.secondary)

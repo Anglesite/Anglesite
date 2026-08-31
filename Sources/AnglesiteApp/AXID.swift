@@ -28,6 +28,16 @@ enum AXID {
     /// reads its accessibility label to learn which sheet is frontmost.
     static let sheetHeader = "sheet.header"
 
+    // MARK: Main-pane takeover header (#714 v2 slice 2)
+
+    /// The title group `MainPaneTakeoverHeader` renders for every takeover (Editor/Settings,
+    /// Graph, Cleanup) — same one-shared-id-per-family convention as `sheetHeader` above:
+    /// automation reads its label to learn which takeover is frontmost.
+    static let mainPaneTakeoverHeader = "mainPaneTakeover.header"
+    /// `MainPaneTakeoverHeader`'s Done control — a stable, non-localized way to drive "return to
+    /// canvas" without depending on the (localized) "Done" label.
+    static let mainPaneTakeoverDone = "mainPaneTakeover.done"
+
     // MARK: Debug pane
 
     static let debugSourceFilter = "debug.sourceFilter"
@@ -44,6 +54,7 @@ enum AXID {
     static let allStatic: [String] = [
         navigatorList, navigatorRenameField,
         sheetHeader,
+        mainPaneTakeoverHeader, mainPaneTakeoverDone,
         debugSourceFilter, debugStreamFilter, debugSearchField,
         debugPauseToggle, debugAutoScrollToggle,
         debugClearButton, debugCopyButton, debugSaveButton,

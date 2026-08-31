@@ -44,7 +44,59 @@ struct SiteWindowModelTests {
     func constructs() {
         let model = makeModel()
         #expect(model.site == nil)
-        #expect(model.paneSelection == 0)
+        #expect(model.mainPaneMode == .preview)
+    }
+
+    @Test("returnToCanvas switches the main pane back to Preview from a takeover")
+    func returnToCanvasSwitchesToPreview() async throws {
+        let model = makeModel()
+        model.mainPaneMode = .cleanup
+
+        model.returnToCanvas()
+
+        while model.mainPaneMode != .preview { await Task.yield() }
+        #expect(model.mainPaneMode == .preview)
+    }
+
+    /// Mirrors `presentCleanupAbortsOnEditorConflict`'s fixture: a dirty editor whose file changed
+    /// on disk under it makes `flushBeforeLeaving()` (invoked via `leaveCurrentEditor()`) return
+    /// `false`, so `returnToCanvas()` should abort before touching `mainPaneMode`. This exact guard
+    /// was previously only reachable through the untested `setPaneSelection(0)` branch — closing a
+    /// real coverage gap, not just moving existing coverage.
+    @Test("returnToCanvas doesn't switch panes when leaveCurrentEditor aborts on an editor conflict")
+    func returnToCanvasAbortsOnEditorConflict() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let model = makeModel()
+        let editedFile = root.appendingPathComponent("conflict.txt")
+        try Data("original".utf8).write(to: editedFile)
+        let fileRef = FileRef(url: editedFile, group: .components, name: "conflict.txt")
+        let editorModel = FileEditorModel(file: fileRef)
+        await editorModel.load()
+        editorModel.text = "dirty edit"
+        try Data("changed on disk".utf8).write(to: editedFile)
+        try FileManager.default.setAttributes(
+            [.modificationDate: Date().addingTimeInterval(2)], ofItemAtPath: editedFile.path
+        )
+        model.mainPaneMode = .editor(fileRef)
+        model.activeEditor = .text(editorModel)
+
+        model.returnToCanvas()
+
+        var iterations = 0
+        while editorModel.conflictDiskContents == nil, iterations < 10_000 {
+            await Task.yield()
+            iterations += 1
+        }
+        guard editorModel.conflictDiskContents != nil else {
+            Issue.record("flushBeforeLeaving never surfaced the external conflict")
+            return
+        }
+
+        #expect(model.mainPaneMode == .editor(fileRef))
+        #expect(model.activeEditor != nil)
     }
 
     @Test("close retains its sudden-termination lease until a dirty editor is saved")
@@ -1181,12 +1233,6 @@ extension SiteWindowModelTests {
         while model.mainPaneMode != .cleanup { await Task.yield() }
         #expect(model.activeEditor == nil)
         #expect(model.inspectorContext == nil)
-        // PR #723 review: paneSelection previously fell through to 0 (Preview) for `.cleanup`,
-        // so the toolbar pane Picker (tags 0/1/2 only) and the View-menu Preview/Editor/Graph
-        // Toggles all misread Cleanup as Preview being selected — silently breaking ⌘1 from the
-        // Cleanup pane (its Toggle read as already-on, so toggling it off was a no-op). 3 is
-        // deliberately out of the Picker's/Toggles' 0–2 range so nothing shows selected instead.
-        #expect(model.paneSelection == 3)
     }
 
     /// Mirrors `revealCitationInGraphSkipsRevealWhenShowGraphAborts`'s real external-conflict
@@ -1234,7 +1280,7 @@ extension SiteWindowModelTests {
     }
 
     /// Mirrors `presentCleanupSwitchesPane` for `presentReader()` (V-4.3, #365) — same
-    /// leave-current-surface-first guard, same out-of-range `paneSelection` reasoning.
+    /// leave-current-surface-first guard.
     @Test("presentReader switches the main pane to Reader, clearing any open editor/inspector")
     func presentReaderSwitchesPane() async throws {
         let (root, packageURL, package) = try makeSitePackage()
@@ -1255,9 +1301,6 @@ extension SiteWindowModelTests {
         while model.mainPaneMode != .reader { await Task.yield() }
         #expect(model.activeEditor == nil)
         #expect(model.inspectorContext == nil)
-        // Same "out of the Picker's 0–2 range" reasoning as Cleanup's 3 (#723) — Reader has no
-        // toolbar/View-menu segment of its own either.
-        #expect(model.paneSelection == 4)
     }
 
     /// Mirrors `presentCleanupAbortsOnEditorConflict` for `presentReader()`.

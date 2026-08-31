@@ -56,6 +56,9 @@ struct WebsiteCommands: Commands {
             Button("Cleanup…") { model?.presentCleanup() }
                 .disabled(model == nil)
 
+            Button("Graph…") { Task { await model?.showGraph() } }
+                .disabled(model?.canShowGraph != true)
+
             Button("Reader…") { model?.presentReader() }
                 .disabled(model == nil)
 

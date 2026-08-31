@@ -18,6 +18,8 @@ struct MainPaneEditorView: View {
     /// Bubbles the component harness canvas's webview up to the window (for the inspector's
     /// scrub preview). nil when unused (previews/tests).
     var onCanvasWebView: ((WKWebView?) -> Void)? = nil
+    /// Returns the main pane to the canvas (#714 v2 slice 2's Done chrome).
+    var onDone: () -> Void = {}
     @Environment(\.controlActiveState) private var controlActiveState
     @FocusState private var isPlainTextEditorFocused: Bool
 
@@ -104,18 +106,16 @@ struct MainPaneEditorView: View {
     }
 
     private var header: some View {
-        HStack {
-            Label(model.file.name, systemImage: "doc.text")
-                .font(.headline)
+        MainPaneTakeoverHeader(systemImage: "doc.text", onDone: onDone) {
+            Text(verbatim: model.file.name)
+        } accessory: {
             if model.isDirty {
                 Circle().fill(.secondary).frame(width: 7, height: 7)
                     .help("Unsaved changes")
             }
-            Spacer()
             Button("Save") { Task { await model.save() } }
                 .disabled(!model.isDirty)
         }
-        .padding(.horizontal, 12).padding(.vertical, 8)
     }
 
     /// Read-only presentation: the get reflects model state, the set is a no-op. Conflict resolution
