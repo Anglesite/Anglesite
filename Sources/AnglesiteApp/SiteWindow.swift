@@ -1490,14 +1490,17 @@ struct SiteWindow: View {
                 previewPane(for: site)
             }
         case .graph:
-            SiteGraphExplorerView(model: model.graphExplorer) { node in
-                model.openGraphNode(node, site: site)
-            }
+            SiteGraphExplorerView(
+                model: model.graphExplorer,
+                onOpenFile: { node in model.openGraphNode(node, site: site) },
+                onDone: { model.returnToCanvas() }
+            )
         case .cleanup:
             ProjectCleanupView(
                 cleanup: model.cleanup,
                 onOpen: { model.openCleanupCandidate($0) },
-                onDelete: { await model.deleteCleanupCandidate($0) }
+                onDelete: { await model.deleteCleanupCandidate($0) },
+                onDone: { model.returnToCanvas() }
             )
         case .reader:
             MicrosubReaderView(reader: model.reader)
