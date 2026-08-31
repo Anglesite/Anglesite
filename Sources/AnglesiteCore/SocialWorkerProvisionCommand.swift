@@ -277,7 +277,7 @@ public actor SocialWorkerProvisionCommand {
                 let name = "\(siteName)-social"
                 let result = await runWrangler(
                     siteDirectory: siteDirectory,
-                    arguments: ["d1", "create", name, "--json"],
+                    arguments: ["d1", "create", name],
                     environment: environment,
                     source: source,
                     resources: resources
@@ -304,7 +304,7 @@ public actor SocialWorkerProvisionCommand {
                 let name = "\(siteName)-social"
                 let result = await runWrangler(
                     siteDirectory: siteDirectory,
-                    arguments: ["kv", "namespace", "create", name, "--json"],
+                    arguments: ["kv", "namespace", "create", name],
                     environment: environment,
                     source: source,
                     resources: resources
@@ -382,7 +382,7 @@ public actor SocialWorkerProvisionCommand {
                 let name = "\(siteName)-inbox"
                 let result = await runWrangler(
                     siteDirectory: siteDirectory,
-                    arguments: ["kv", "namespace", "create", name, "--json"],
+                    arguments: ["kv", "namespace", "create", name],
                     environment: environment,
                     source: source,
                     resources: resources
@@ -494,7 +494,7 @@ public actor SocialWorkerProvisionCommand {
             let name = "\(siteName)-webmention"
             let result = await runWrangler(
                 siteDirectory: siteDirectory,
-                arguments: ["queues", "create", name, "--json"],
+                arguments: ["queues", "create", name],
                 environment: environment,
                 source: source,
                 resources: resources
@@ -522,7 +522,7 @@ public actor SocialWorkerProvisionCommand {
             let name = "\(siteName)-websub"
             let result = await runWrangler(
                 siteDirectory: siteDirectory,
-                arguments: ["queues", "create", name, "--json"],
+                arguments: ["queues", "create", name],
                 environment: environment,
                 source: source,
                 resources: resources
@@ -550,7 +550,7 @@ public actor SocialWorkerProvisionCommand {
             let name = "\(siteName)-microsub"
             let result = await runWrangler(
                 siteDirectory: siteDirectory,
-                arguments: ["queues", "create", name, "--json"],
+                arguments: ["queues", "create", name],
                 environment: environment,
                 source: source,
                 resources: resources
