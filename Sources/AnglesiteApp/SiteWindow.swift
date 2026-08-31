@@ -826,6 +826,19 @@ struct SiteWindow: View {
                 // recreate the duplicate-shortcut ambiguity #509 removed for ⌘S.
             }
 
+            // Far trailing, immediately before the selection inspector toggle (#714 v2 slice 3) —
+            // the Website inspector (Document analog) is always available, unlike `inspector`
+            // (Format analog) which disables with no selection, so this item never disables.
+            ToolbarItem(id: SiteToolbarItemID.websiteInspector.rawValue, placement: .primaryAction) {
+                Button {
+                    toggleWebsiteInspector()
+                } label: {
+                    Label("Website Inspector", systemImage: "globe")
+                }
+                .help("Show or hide the website inspector")
+                .accessibilityIdentifier(AXID.toolbar(.websiteInspector))
+            }
+
             // Far trailing, adjacent to the inspector panel it controls (Pages/Freeform convention).
             ToolbarItem(id: SiteToolbarItemID.inspector.rawValue, placement: .primaryAction) {
                 Button {
