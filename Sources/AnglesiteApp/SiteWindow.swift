@@ -534,8 +534,9 @@ struct SiteWindow: View {
         // by SiteToolbarItemIDTests in AnglesiteCoreTests). Items must also be
         // unconditional (no `if let` wrappers): identity-swapping or appearing/vanishing items
         // fight the customization palette, so state-dependent items render disabled instead.
-        // Curated default ≈8 items; episodic setup/maintenance actions ship hidden and live in
-        // the palette (View ▸ Customize Toolbar…, added in #510).
+        // Curated default ≈9 items (sync/securityReports often render empty); episodic
+        // setup/maintenance actions ship hidden and live in the palette (View ▸ Customize
+        // Toolbar…, added in #510).
         .toolbar(id: "site") {
             // Leading, per Pages/Freeform convention for the content-creation `+` menu (#714 v2
             // slice 3). Content-only for now — a Blocks section joins once the WYSIWYG palette's
@@ -551,17 +552,6 @@ struct SiteWindow: View {
                 .help("Add a new page, post, or collection entry")
                 .accessibilityIdentifier(AXID.toolbar(.insert))
             }
-
-            ToolbarItem(id: SiteToolbarItemID.graph.rawValue, placement: .primaryAction) {
-                Button {
-                    Task { await model.showGraph() }
-                } label: {
-                    Label("Site Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                }
-                .help("Explore pages, layouts, components, collections, and assets")
-                .accessibilityIdentifier(AXID.toolbar(.graph))
-            }
-            .defaultCustomization(.hidden)
 
             // iCloud sync status (#881): renders nothing for a package that isn't in iCloud
             // Drive (`SyncStatusView` is an `EmptyView` when `!model.sync.isEligible`), so this
@@ -581,6 +571,30 @@ struct SiteWindow: View {
                 )
                 .accessibilityIdentifier(AXID.toolbar(.securityReports))
             }
+
+            ToolbarItem(id: SiteToolbarItemID.openInBrowser.rawValue, placement: .primaryAction) {
+                Button {
+                    model.openPreviewInBrowser()
+                } label: {
+                    Label("Open in browser", systemImage: "arrow.up.forward.app")
+                }
+                .disabled(!model.canOpenPreviewInBrowser)
+                .help("Open the live preview in your default browser")
+                .accessibilityIdentifier(AXID.toolbar(.openInBrowser))
+            }
+
+            // — Palette-only items (View ▸ Customize Toolbar…) —
+
+            ToolbarItem(id: SiteToolbarItemID.graph.rawValue, placement: .primaryAction) {
+                Button {
+                    Task { await model.showGraph() }
+                } label: {
+                    Label("Site Graph", systemImage: "point.3.connected.trianglepath.dotted")
+                }
+                .help("Explore pages, layouts, components, collections, and assets")
+                .accessibilityIdentifier(AXID.toolbar(.graph))
+            }
+            .defaultCustomization(.hidden)
 
             ToolbarItem(id: SiteToolbarItemID.backup.rawValue, placement: .primaryAction) {
                 Button {
@@ -615,19 +629,6 @@ struct SiteWindow: View {
                 .accessibilityIdentifier(AXID.toolbar(.audit))
             }
             .defaultCustomization(.hidden)
-
-            ToolbarItem(id: SiteToolbarItemID.openInBrowser.rawValue, placement: .primaryAction) {
-                Button {
-                    model.openPreviewInBrowser()
-                } label: {
-                    Label("Open in browser", systemImage: "arrow.up.forward.app")
-                }
-                .disabled(!model.canOpenPreviewInBrowser)
-                .help("Open the live preview in your default browser")
-                .accessibilityIdentifier(AXID.toolbar(.openInBrowser))
-            }
-
-            // — Palette-only items (View ▸ Customize Toolbar…) —
 
             ToolbarItem(id: SiteToolbarItemID.harden.rawValue, placement: .primaryAction) {
                 Button {
@@ -844,6 +845,21 @@ struct SiteWindow: View {
                 // recreate the duplicate-shortcut ambiguity #509 removed for ⌘S.
             }
 
+            // Moved ahead of the two inspector toggles (#714 v2 slice 3 final review) so
+            // websiteInspector/inspector are genuinely last, per spec §4.
+            // Unconditional per the file's own toolbar-customization rule above: disabled (not
+            // hidden) outside Site ▸ Edit Page, so Customize Toolbar always shows it (#1588 Task 20).
+            ToolbarItem(id: SiteToolbarItemID.wysiwygPalette.rawValue, placement: .primaryAction) {
+                Button {
+                    showWYSIWYGPalette.toggle()
+                } label: {
+                    Label("Block Palette", systemImage: "square.grid.2x2")
+                }
+                .disabled(!model.preview.isEditModeEnabled)
+                .help("Show or hide the block palette")
+                .accessibilityIdentifier(AXID.toolbar(.wysiwygPalette))
+            }
+
             // Far trailing, immediately before the selection inspector toggle (#714 v2 slice 3) —
             // the Website inspector (Document analog) is always available, unlike `inspector`
             // (Format analog) which disables with no selection, so this item never disables.
@@ -867,19 +883,6 @@ struct SiteWindow: View {
                 .disabled(model.inspectorSelection == nil)
                 .help("Show or hide the inspector")
                 .accessibilityIdentifier(AXID.toolbar(.inspector))
-            }
-
-            // Unconditional per the file's own toolbar-customization rule above: disabled (not
-            // hidden) outside Site ▸ Edit Page, so Customize Toolbar always shows it (#1588 Task 20).
-            ToolbarItem(id: SiteToolbarItemID.wysiwygPalette.rawValue, placement: .primaryAction) {
-                Button {
-                    showWYSIWYGPalette.toggle()
-                } label: {
-                    Label("Block Palette", systemImage: "square.grid.2x2")
-                }
-                .disabled(!model.preview.isEditModeEnabled)
-                .help("Show or hide the block palette")
-                .accessibilityIdentifier(AXID.toolbar(.wysiwygPalette))
             }
         }
         // Trailing search field (#520). Not a `.toolbar(id:)` item: `.searchable` mints its own
