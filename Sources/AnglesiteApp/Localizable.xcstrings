@@ -3000,6 +3000,9 @@
     "Published to GitHub" : {
 
     },
+    "Publishes To" : {
+
+    },
     "Publishing" : {
 
     },
@@ -3898,6 +3901,9 @@
 
     },
     "The domain must be managed in Cloudflare. Your API token needs Zone DNS Read and Edit permissions." : {
+
+    },
+    "The host your next publish goes to. Whatever you published before stays online until you publish again. GitHub Pages publishes with the GitHub token in Settings → Advanced → Credentials." : {
 
     },
     "The license offered for your content. Anglesite never picks one for you — until you choose, your site says all rights reserved." : {

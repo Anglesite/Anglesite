@@ -106,24 +106,44 @@ public actor DeployCommand {
     /// failed/blocked deploy. Only fired by `CloudflareDeployTarget`.
     public typealias MarkdownForAgentsObserver = @Sendable (MarkdownForAgentsCommand.Result) -> Void
 
-    /// The deploy target this command publishes through — `CloudflareDeployTarget` by default, so
-    /// every existing call site keeps deploying through Cloudflare unchanged. `nonisolated` and
-    /// public so callers that need to build a parallel command with the same target (e.g.
-    /// `DeployModel.runDeploy` swapping in a container executor) can forward it, and so a caller
-    /// that knows it's Cloudflare can downcast to reach `CloudflareDeployTarget`'s own exposed
-    /// seams (`tokenSource`, `workerScriptNamesSource`, …) for a companion command.
-    public nonisolated let target: any DeployTarget
+    /// How this command picks the target it publishes through — by default, whatever the site
+    /// itself declares in `Source/anglesite.json` (`DeployTargetSelection.fromSiteConfig`, #1682),
+    /// which is Cloudflare for every site that predates the `deployTarget` field. `nonisolated`
+    /// and public so callers that need to build a parallel command with the same selection (e.g.
+    /// `DeployModel.runDeploy` swapping in a container executor) can forward it.
+    public nonisolated let targetResolver: DeployTargetSelection.Resolver
     private let executor: any DeployExecutor
 
+    /// The target `deploy(siteID:siteDirectory:…)` would publish `siteDirectory` through.
+    ///
+    /// Public so a caller that needs the concrete conformer for a companion command can downcast
+    /// to reach its own exposed seams (`CloudflareDeployTarget.tokenSource`,
+    /// `workerScriptNamesSource`, …) — see `DeployModel.runDeploy`'s
+    /// `SocialWorkerProvisionCommand` wiring.
+    ///
+    /// - Parameter siteDirectory: The site's `Source/` directory, the same value `deploy` takes.
+    /// - Returns: The conformer this command would publish that site through — freshly built on
+    ///   each call, since the default resolver reads the site's declaration from disk.
+    public nonisolated func target(for siteDirectory: URL) -> any DeployTarget {
+        targetResolver(siteDirectory)
+    }
+
     /// Both dependencies are injectable seams with production defaults, so tests can drive a full
-    /// deploy — target authorization, every shared step — with a scripted target and a scripted
-    /// executor, never touching the network or spawning a process.
+    /// deploy — target selection, target authorization, every shared step — with a scripted
+    /// resolver and a scripted executor, never touching the network or spawning a process.
     public init(
-        target: any DeployTarget = CloudflareDeployTarget(),
+        targetResolver: @escaping DeployTargetSelection.Resolver = DeployTargetSelection.fromSiteConfig,
         executor: any DeployExecutor = HostDeployExecutor()
     ) {
-        self.target = target
+        self.targetResolver = targetResolver
         self.executor = executor
+    }
+
+    /// Pins one target for every site this command deploys, bypassing the site's own declaration.
+    /// For a caller whose deploy is target-specific by construction — `SocialWorkerProvisionCommand`'s
+    /// Cloudflare-only publish — and for tests driving a scripted conformer.
+    public init(target: any DeployTarget, executor: any DeployExecutor = HostDeployExecutor()) {
+        self.init(targetResolver: { _ in target }, executor: executor)
     }
 
     /// Run a deploy for `siteID`. Returns once the target's publish step has resolved (or before,
@@ -152,6 +172,11 @@ public actor DeployCommand {
         onMarkdownForAgents: MarkdownForAgentsObserver? = nil,
         onProgress: ProgressHandler? = nil
     ) async -> Result {
+        // Which host this site publishes to (#1682) — read once, here, so authorization and the
+        // publish hand-off below can't disagree about the target even if the site's declaration
+        // changes mid-deploy.
+        let target = targetResolver(siteDirectory)
+
         // Pre-build gate: the target resolves its credential and runs any fail-fast checks
         // against current deployed state, so a deploy that can't succeed never spends time on a
         // build or scan. The credential comes back opaque here — only the target that produced it

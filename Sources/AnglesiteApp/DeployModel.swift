@@ -769,7 +769,7 @@ final class DeployModel {
         let containerSecretRunner: SocialWorkerProvisionCommand.SecretRunner?
         if let cc = containerControl {
             activeCommand = DeployCommand(
-                target: command.target,
+                targetResolver: command.targetResolver,
                 executor: ContainerDeployExecutor(
                     control: cc.control,
                     siteID: cc.siteID,
@@ -890,10 +890,13 @@ final class DeployModel {
 
         // Both closures below only make sense against a Cloudflare target — `SocialWorkerProvisionCommand`
         // is itself entirely a Cloudflare Workers concept (out of scope to generalize in #1015
-        // slice 1). `cloudflareTarget` is `nil` only if `command.target` were ever something else;
-        // today it's always `CloudflareDeployTarget` (the default), so the closures behave exactly
-        // as before.
-        let cloudflareTarget = command.target as? CloudflareDeployTarget
+        // slice 1). Since #1682 the target is resolved per site from `anglesite.json`, so
+        // `cloudflareTarget` really is `nil` for a site that publishes to GitHub Pages: both
+        // closures then return `nil`/`[]` and `provision()` reports a missing Cloudflare token
+        // rather than trapping. Making that degrade *legible* to the owner (and unreachable
+        // through the Workers UI in the first place) is #1683's capability gating, deliberately
+        // not this slice.
+        let cloudflareTarget = command.target(for: siteDirectory) as? CloudflareDeployTarget
         let socialCommand = SocialWorkerProvisionCommand(
             tokenSource: {
                 guard let cloudflareTarget else { return nil }

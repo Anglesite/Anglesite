@@ -302,6 +302,55 @@ struct PlistEditorView: View {
                     .foregroundStyle(.orange)
                     .font(.callout)
             }
+            publishingSection
+        }
+    }
+
+    /// Where this site publishes (#1682) — the first setting that makes `anglesite.json`'s
+    /// `deployTarget` a real choice rather than a field only a hand edit could reach. Lives in the
+    /// Website tab rather than a tab of its own: it's one declared property of the site, alongside
+    /// its title and language, not a workspace of its own.
+    private var publishingSection: some View {
+        SettingsBox(title: "Publishing") {
+            Grid(alignment: .leading, horizontalSpacing: 12, verticalSpacing: 8) {
+                GridRow(alignment: .top) {
+                    Text("Publishes To")
+                        .frame(minWidth: 160, alignment: .leading)
+                        .padding(.top, 3)
+                    VStack(alignment: .leading, spacing: 2) {
+                        // `labelsHidden` hides the title visually (the grid's own leading cell is
+                        // the visible label) while keeping it as the control's accessibility
+                        // label, same as the analytics toggle above.
+                        Picker("Publishes To", selection: deployTargetBinding) {
+                            ForEach(DeployTargetSelection.selectableIDs, id: \.self) { id in
+                                Text(Self.deployTargetName(id)).tag(id)
+                            }
+                        }
+                        .labelsHidden()
+                        .frame(minWidth: 220, alignment: .leading)
+                        Text("The host your next publish goes to. Whatever you published before stays online until you publish again. GitHub Pages publishes with the GitHub token in Settings → Advanced → Credentials.")
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
+            }
+        }
+    }
+
+    /// The picker's selection — reads the normalized identifier the model loaded, writes through
+    /// `setDeployTarget` so the choice persists to `anglesite.json` the moment it's made.
+    private var deployTargetBinding: Binding<String> {
+        Binding(get: { model.deployTargetID }, set: { model.setDeployTarget($0) })
+    }
+
+    /// The owner-facing name of a deploy target. Product names, so they read the same in every
+    /// localization; the identifiers themselves (`"cloudflare"`, `"githubPages"`) are what's
+    /// persisted and never shown.
+    private static func deployTargetName(_ id: String) -> String {
+        switch id {
+        case GitHubPagesDeployTarget.id: return "GitHub Pages"
+        default: return "Cloudflare"
         }
     }
 
