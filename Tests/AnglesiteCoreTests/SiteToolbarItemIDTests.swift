@@ -42,4 +42,42 @@ struct SiteToolbarItemIDTests {
     @Test func panesIsRetiredNotReused() {
         #expect(!SiteToolbarItemID.allCases.map(\.rawValue).contains("panes"))
     }
+
+    /// Pins the toolbar's curated default/hidden split (#714 v2 slice 3 review) so a future PR
+    /// that drops or forgets a `SiteWindow` `.defaultCustomization(_:)` modifier — or misclassifies
+    /// a new case in `isDefaultVisible` — gets caught here instead of silently un-curating the
+    /// toolbar. `SiteWindow` derives its per-item modifier from `isDefaultVisible`; this test does
+    /// not exercise the view, only the property that drives it.
+    @Test func defaultVisibleSetIsFrozen() {
+        let defaultVisible = SiteToolbarItemID.allCases.filter(\.isDefaultVisible).map(\.rawValue)
+        let hidden = SiteToolbarItemID.allCases.filter { !$0.isDefaultVisible }.map(\.rawValue)
+
+        #expect(defaultVisible == [
+            "openInBrowser",
+            "deploy",
+            "chat",
+            "inspector",
+            "wysiwygPalette",
+            "sync",
+            "securityReports",
+            "insert",
+            "websiteInspector",
+        ])
+        #expect(hidden == [
+            "graph",
+            "backup",
+            "audit",
+            "harden",
+            "domainConfigAudit",
+            "agentReadiness",
+            "onionRouting",
+            "aiSearch",
+            "domain",
+            "integration",
+            "siriReadiness",
+            "relatedPages",
+            "github",
+            "styleGuide",
+        ])
+    }
 }

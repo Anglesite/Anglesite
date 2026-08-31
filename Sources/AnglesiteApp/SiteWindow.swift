@@ -594,7 +594,7 @@ struct SiteWindow: View {
                 .help("Explore pages, layouts, components, collections, and assets")
                 .accessibilityIdentifier(AXID.toolbar(.graph))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.graph.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.backup.rawValue, placement: .primaryAction) {
                 Button {
@@ -608,7 +608,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.backup))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.backup.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.audit.rawValue, placement: .primaryAction) {
                 Button {
@@ -628,7 +628,7 @@ struct SiteWindow: View {
                         : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.audit))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.audit.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.harden.rawValue, placement: .primaryAction) {
                 Button {
@@ -646,7 +646,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.harden))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.harden.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.aiSearch.rawValue, placement: .primaryAction) {
                 Button {
@@ -664,7 +664,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.aiSearch))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.aiSearch.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.domainConfigAudit.rawValue, placement: .primaryAction) {
                 Button {
@@ -682,7 +682,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.domainConfigAudit))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.domainConfigAudit.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.agentReadiness.rawValue, placement: .primaryAction) {
                 Button {
@@ -700,7 +700,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.agentReadiness))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.agentReadiness.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.onionRouting.rawValue, placement: .primaryAction) {
                 Button {
@@ -714,7 +714,7 @@ struct SiteWindow: View {
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.onionRouting))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.onionRouting.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.domain.rawValue, placement: .primaryAction) {
                 Button {
@@ -726,7 +726,7 @@ struct SiteWindow: View {
                 .help("View and manage this domain's DNS records")
                 .accessibilityIdentifier(AXID.toolbar(.domain))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.domain.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.integration.rawValue, placement: .primaryAction) {
                 Button {
@@ -738,7 +738,7 @@ struct SiteWindow: View {
                 .help("Set up a third-party integration for this site")
                 .accessibilityIdentifier(AXID.toolbar(.integration))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.integration.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.siriReadiness.rawValue, placement: .primaryAction) {
                 Button {
@@ -750,7 +750,7 @@ struct SiteWindow: View {
                 .help("Check whether Siri workflows are ready for this site")
                 .accessibilityIdentifier(AXID.toolbar(.siriReadiness))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.siriReadiness.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.relatedPages.rawValue, placement: .primaryAction) {
                 Button {
@@ -762,7 +762,7 @@ struct SiteWindow: View {
                 .help(model.relatedPagesPresented ? "Hide related pages" : "Show related pages")
                 .accessibilityIdentifier(AXID.toolbar(.relatedPages))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.relatedPages.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.styleGuide.rawValue, placement: .primaryAction) {
                 Button {
@@ -773,7 +773,7 @@ struct SiteWindow: View {
                 .help("See and edit this site's learned writing, image, and naming conventions")
                 .accessibilityIdentifier(AXID.toolbar(.styleGuide))
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.styleGuide.isDefaultVisible ? .visible : .hidden)
 
             // One stable item whose label/action reflects publish state — two swapping items
             // would break saved customizations.
@@ -797,7 +797,7 @@ struct SiteWindow: View {
                     .accessibilityIdentifier(AXID.toolbar(.github))
                 }
             }
-            .defaultCustomization(.hidden)
+            .defaultCustomization(SiteToolbarItemID.github.isDefaultVisible ? .visible : .hidden)
 
             // — Default trailing cluster —
 
