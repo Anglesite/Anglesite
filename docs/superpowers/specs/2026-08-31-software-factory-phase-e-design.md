@@ -96,14 +96,17 @@ diagnose`, `anglesite-fix-dispatcher`) per their own "this file is the master co
 Each gets one new step inserted immediately before its existing `🏭 Blocked: human` label-add,
 at each of the three hook points in §2's table:
 
-> **Stage 5 (mandatory).** Before adding `🏭 Blocked: human`, file a gap issue:
+> **Stage 5 (mandatory).** Before adding `🏭 Blocked: human`, file a gap issue. The body (per
+> §3's template) contains literal backticks and a `---` fence — write it to a temporary file
+> first and pass it with `--body-file <path>`, never inlined in a double-quoted `--body "..."`
+> argument, which a shell would misinterpret as command substitution:
 > `gh issue create --repo Anglesite/Anglesite --title "Factory gap: <short description> (from
-> #<N>)" --label "🏭 Factory gap" --body "<body per the template in the Phase E design doc,
-> docs/superpowers/specs/2026-08-31-software-factory-phase-e-design.md §3>"`. Use what you
-> already know about this run (the attempt(s) that failed, any partial output, any PR links)
-> to fill in "What was attempted" and "What was missing" — do not leave either generic. Then
-> append a link to the new gap issue to the failure comment you're about to post on #<N>
-> (do not skip the existing failure comment — both happen).
+> #<N>)" --label "🏭 Factory gap" --body-file <path>`, where the file's content follows the
+> template in this design doc's §3. Use what you already know about this run (the attempt(s)
+> that failed, any partial output, any PR links) to fill in "What was attempted" and "What was
+> missing" — do not leave either generic. Then append a link to the new gap issue to the
+> failure comment you're about to post on #<N> (do not skip the existing failure comment —
+> both happen).
 
 After editing, both live scheduled tasks are updated via
 `mcp__scheduled-tasks__update_scheduled_task` to match the doc verbatim, same as every prior

@@ -1,5 +1,17 @@
 # Software Factory Phase E Implementation Plan
 
+> **Status: executed and superseded — do not re-run literally.** This plan is the historical
+> record of what was executed (all 8 tasks completed, then a final whole-branch review found
+> and fixed several bugs its own text still shows uncorrected: Task 4's step 1 comment-lookup
+> returns a GraphQL id where step 6's REST PATCH needs a numeric one; Task 4's step 2 PR
+> searches are unquoted/partial, not exact-phrase; and both Task 4's report-publish step and
+> the routine-doc edits in Tasks 2/3 inline a backtick-bearing body into a double-quoted
+> `--body "..."` argument, a shell command-substitution hazard). The actual shipped routine
+> docs (`docs/issue-factory-metrics-routine.md`, `docs/issue-repro-diagnose-routine.md`,
+> `docs/issue-fix-dispatcher-routine.md`) and the design doc's §3 are the corrected source of
+> truth — this file is left as-written to preserve an accurate record of what was actually
+> instructed at each step, not touched up after the fact.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give every factory routine a mandatory "file a gap issue" step when it genuinely
