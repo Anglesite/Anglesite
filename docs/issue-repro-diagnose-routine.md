@@ -141,8 +141,11 @@ Your job this run:
      (`gh issue edit <N> --repo Anglesite/Anglesite --remove-label "🛠️ In Progress"`). If this
      was attempt 2, this is a mandatory Stage-5 case (software factory Phase E, epic #1256):
      before changing any label, file a gap issue —
-     `gh issue create --repo Anglesite/Anglesite --title "Factory gap: <short description> (from #<N>)" --label "🏭 Factory gap" --body "<body>"`
-     where `<body>` is exactly:
+     the body template below contains literal backticks, which a shell would misinterpret as
+     command substitution inside a double-quoted `--body "..."` argument — write the body to
+     a temporary file first and pass it with `--body-file <path>` instead of inlining it:
+     `gh issue create --repo Anglesite/Anglesite --title "Factory gap: <short description> (from #<N>)" --label "🏭 Factory gap" --body-file <path>`
+     where the file's content is exactly:
      ```
      ## What was attempted
      Stage 1 (Reproduce), 2 attempts against issue #<N>. Attempt <k> ended without a
@@ -215,8 +218,11 @@ Your job this run:
      `🛠️ In Progress`. If this was attempt 2 (this run's attempt number from step 2), this is
      a mandatory Stage-5 case (software factory Phase E, epic #1256): before changing any
      label, file a gap issue —
-     `gh issue create --repo Anglesite/Anglesite --title "Factory gap: <short description> (from #<N>)" --label "🏭 Factory gap" --body "<body>"`
-     where `<body>` is exactly:
+     the body template below contains literal backticks, which a shell would misinterpret as
+     command substitution inside a double-quoted `--body "..."` argument — write the body to
+     a temporary file first and pass it with `--body-file <path>` instead of inlining it:
+     `gh issue create --repo Anglesite/Anglesite --title "Factory gap: <short description> (from #<N>)" --label "🏭 Factory gap" --body-file <path>`
+     where the file's content is exactly:
      ```
      ## What was attempted
      Stage 2 (Diagnose) against issue #<N>, across 2 attempts (repro succeeded both times;
@@ -255,10 +261,15 @@ Guardrails — follow strictly:
   (step 2's already-attempted-twice branch; step 5's `TIER_4_ESCALATION`/
   `ENVIRONMENT_ESCALATION` branch and its no-markers-at-attempt-2 branch; step 7's
   `DIAGNOSIS_FAILED`-at-attempt-2 branch) — these three `🏭` state labels must stay mutually
-  exclusive.
+  exclusive. Exception: steps 5 and 7's mandatory Stage-5 gap-issue filing opens a brand-new
+  issue that carries only the pre-existing `🏭 Factory gap` label — that's not "touching" the
+  current issue under repro/diagnose, it's Stage 5's own separate, explicitly required action.
 - Only process one issue per run (step 1).
-- Do not create a new test target, new `🎯`/`🏭` label, or modify anything outside GitHub
-  issue state and your own throwaway worktree.
+- Do not define a brand-new label (i.e. invent a label name not already in the repo's label
+  set) or a new test target, and do not modify anything outside GitHub issue state and your
+  own throwaway worktree. (This does not forbid *applying* the pre-existing `🏭 Factory gap`
+  label via Stage 5 — that label already exists in the repo; this guardrail is about never
+  inventing a new one.)
 ```
 
 ## Creating the routine
