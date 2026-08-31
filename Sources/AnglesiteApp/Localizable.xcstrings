@@ -428,6 +428,9 @@
     "Add a link back to **%@**" : {
 
     },
+    "Add a new page, post, or collection entry" : {
+
+    },
     "Add a store to ${site}" : {
 
     },
@@ -2397,6 +2400,9 @@
     "New Collection" : {
 
     },
+    "New Collection Entry…" : {
+
+    },
     "New Collection…" : {
 
     },
@@ -3602,6 +3608,9 @@
     "Show or hide the page inspector" : {
 
     },
+    "Show or hide the website inspector" : {
+
+    },
     "Show related pages" : {
 
     },
@@ -4268,6 +4277,9 @@
 
     },
     "Website (e.g. https://example.com)" : {
+
+    },
+    "Website Inspector" : {
 
     },
     "Website Settings…" : {
