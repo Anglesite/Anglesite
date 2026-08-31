@@ -92,8 +92,30 @@ Your job this run:
    (if that search syntax doesn't return reliable results, fall back to
    `gh pr list --repo Anglesite/Anglesite --state closed --search "Opened by the software factory (Phase C)" --json number,url,closingIssuesReferences --jq '.[] | select(.closingIssuesReferences[]?.number == <N>) | select(.state != "MERGED")'`)
    Count the results.
-   - If 2 or more: do **not** claim. Post a comment on #<N> summarizing both prior attempts
-     (link both PR URLs) and explaining the cap is reached, then
+   - If 2 or more: do **not** claim. This is a mandatory Stage-5 case (software factory Phase
+     E, epic #1256): before changing any label, file a gap issue —
+     `gh issue create --repo Anglesite/Anglesite --title "Factory gap: <short description> (from #<N>)" --label "🏭 Factory gap" --body "<body>"`
+     where `<body>` is exactly:
+     ```
+     ## What was attempted
+     2 fix-session attempts against issue #<N>: <PR URL 1> and <PR URL 2>, both closed
+     unmerged.
+
+     ## What was missing
+     <name the concrete gap from what's visible in each PR's history/comments/CI — a missing
+     test seam, an opaque abstraction the fix session couldn't safely change, a scope the
+     Tier-1 allowlist doesn't cover, a flaky/blocking CI lane. Be specific to this run; do not
+     write a generic placeholder.>
+
+     ## Proposed fix
+     <a first-pass suggestion, explicitly a guess, not a mandate>
+
+     ---
+     Filed by the software factory's Stage-5 feedback loop against #<N>.
+     ```
+     Post a comment on #<N> summarizing both prior attempts (link both PR URLs), explaining
+     the cap is reached, and linking the new gap issue (`Gap issue: #<the new issue's
+     number>`). Then run
      `gh issue edit <N> --repo Anglesite/Anglesite --add-label "🏭 Blocked: human"`. Stop.
    - Otherwise: this is attempt `count + 1`.
 
