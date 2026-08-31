@@ -527,6 +527,20 @@ final class SiteWindowModel {
         }
     }
 
+    /// Returns the main pane to the canvas (View ▸ Preview, ⌘1) — the one way back from any
+    /// drill-in takeover (Editor, Graph, Cleanup) via each one's Done control (#714 v2 slice 2).
+    /// Async because leaving a dirty text/plist editor autosaves off-main first; an unresolved
+    /// external conflict aborts the switch, same contract `leaveCurrentEditor()` gives every other
+    /// caller. A no-op when there's nothing to flush: `leaveCurrentEditor()` itself reads `true`
+    /// immediately whenever `mainPaneMode` isn't `.editor` (Graph/Cleanup have nothing to save).
+    ///
+    /// Deliberately leaves `activeEditor` untouched — same behavior as this method's prior form,
+    /// `setPaneSelection(0)`'s Preview branch: a file that was open stays loaded in memory so
+    /// reopening it from the navigator resumes it instead of reloading from disk.
+    func returnToCanvas() {
+        Task { if await leaveCurrentEditor() { mainPaneMode = .preview } }
+    }
+
     /// Returns whether the pane actually switched to Graph — `false` when `leaveCurrentEditor()`/
     /// `leaveCurrentInspector()` aborted (e.g. an external-change conflict dialog is now showing),
     /// so callers that queue follow-up work (like `revealCitationInGraph`) can skip it rather than
