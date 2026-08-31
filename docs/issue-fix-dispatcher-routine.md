@@ -5,7 +5,7 @@ factory epic (#1256, Phase C #1261). Design:
 `docs/superpowers/specs/2026-08-10-phase-c-fix-dispatcher-design.md`.
 
 This routine is **not** version-controlled config — it runs as a **local Claude Code
-scheduled task on the owner's second Mac** (Claude Code's schedule/cron tooling), migrated
+scheduled task on the owner's Mac** (Claude Code's schedule/cron tooling), migrated
 from the original claude.ai Cloud Routine — see "Operational update (2026-08-15)" below.
 This file is the **master copy** of what it's configured to do; if the routine is ever
 recreated on any surface, copy the config and prompt below verbatim.
@@ -22,7 +22,9 @@ recreated on any surface, copy the config and prompt below verbatim.
   a decoupled fix session per claim via a local one-shot scheduled task — bounded by a
   concurrency cap of 3 and a per-issue attempt cap of 2 (software factory Phase C, epic
   #1256), with mandatory Stage-5 gap-issue filing on attempt-cap exhaustion (software
-  factory Phase E, epic #1256, issue #1263).
+  factory Phase E, epic #1256, issue #1263). (The live task's own short `description` field,
+  shown in the scheduled-tasks sidebar, is just `Fixes 🏭 Ready Issues` — this paragraph is
+  the fuller behavioral summary for this doc, not a verbatim copy of that field.)
 - **Execution mode:** local Claude Code scheduled task on the owner's Mac
   (`mcp__scheduled-tasks__*`) — migrated from the original claude.ai Cloud Routine; see
   "Operational update (2026-08-15)" below
@@ -174,8 +176,11 @@ Your job this run:
    a closing keyword. Count the results.
    - If 2 or more: do **not** claim. This is a mandatory Stage-5 case (software factory Phase
      E, epic #1256): before changing any label, file a gap issue —
-     `gh issue create --repo Anglesite/Anglesite --title "Factory gap: <short description> (from #<N>)" --label "🏭 Factory gap" --body "<body>"`
-     where `<body>` is exactly:
+     the body template below contains literal backticks, which a shell would misinterpret as
+     command substitution inside a double-quoted `--body "..."` argument — write the body to
+     a temporary file first and pass it with `--body-file <path>` instead of inlining it:
+     `gh issue create --repo Anglesite/Anglesite --title "Factory gap: <short description> (from #<N>)" --label "🏭 Factory gap" --body-file <path>`
+     where the file's content is exactly:
      ```
      ## What was attempted
      2 fix-session attempts against issue #<N>: <PR URL 1> and <PR URL 2>, both closed
@@ -388,7 +393,7 @@ Guardrails — follow strictly:
 
 The Cloud routine documented below was retired: `trig_01FVQNJsVAnUC6mDha4HbXd3` now returns
 404 from the RemoteTrigger API and no longer appears on claude.ai/code/routines. The
-dispatcher runs instead as a **local Claude Code scheduled task on the owner's second Mac**
+dispatcher runs instead as a **local Claude Code scheduled task on the owner's Mac**
 (owner-confirmed 2026-08-15), with the prompt and parameters above believed unchanged at the
 time — hourly on the hour, concurrency cap 3, per-issue attempt cap 2, Tier-1 allowlist,
 `claude-sonnet-5`. This file remains the master copy of that configuration.
@@ -422,17 +427,22 @@ locally with Xcode available, unlike the Tier-1-only Cloud-era assumption), an `
 disambiguation note, and a bounded (3-attempt) self-verify loop for the PR footer marker.
 
 The Config and Prompt sections above have been fully re-synced from the live task's actual
-current prompt (captured via `mcp__scheduled-tasks__list_scheduled_tasks`'s `path` field and
-read directly, not hand-transcribed) as of this update, with Phase E's Stage-5 gap-issue
-filing (step 5's attempt-cap-exhaustion branch) applied on top of that corrected baseline.
-The 2026-08-15 entry above is left in place as the historical record of the Cloud → local
-migration itself, with a correction note pointing here.
+current prompt (captured by reading the live task's `SKILL.md` file directly, located via
+`mcp__scheduled-tasks__list_scheduled_tasks`'s `path` field, not hand-transcribed) as of this
+update, with Phase E's Stage-5 gap-issue filing (step 5's attempt-cap-exhaustion branch)
+applied on top of that corrected baseline. The 2026-08-15 entry above is left in place as the
+historical record of the Cloud → local migration itself, with a correction note pointing
+here.
 
 **Lesson for future syncs:** this doc's own "master copy" convention only holds if every
 live edit is mirrored back into it. This gap happened because past fixes (the reaper, the
 search-quoting fix, the scope expansion) were applied directly to the live task without a
 matching commit to this file. Anyone editing the live `anglesite-fix-dispatcher` task going
-forward should update this doc in the same change, not after the fact.
+forward should update this doc in the same change, not after the fact. Also watch for this
+doc's own nested Stage-5 example fence (indented 5 spaces) when copying the Prompt block
+elsewhere — a naive fence-scan that ignores indentation will mistake it for the block's outer
+boundary, exactly the corruption this reconciliation itself hit and fixed (see the splice
+script bug recorded in this branch's Task 5a report).
 
 ## Creating the routine (retired Cloud instance)
 
