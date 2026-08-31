@@ -36,4 +36,10 @@ public enum SiteToolbarItemID: String, CaseIterable, Sendable {
     case sync
     /// Open GitHub security advisories + Dependabot alerts badge (#975).
     case securityReports
+    /// The `+` content-creation menu (#714 v2 slice 3): New Page…/New Post…/New Collection
+    /// Entry…, joined later by a Blocks section (slice 4).
+    case insert
+    /// Toggles the Website inspector (Document analog, #714 v2 slice 1/3) — mutually exclusive
+    /// with `inspector` (the selection/Format-analog inspector).
+    case websiteInspector
 }
