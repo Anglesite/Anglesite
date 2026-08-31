@@ -53,10 +53,12 @@ Your job this run:
 
 1. List untriaged open issues:
    `gh issue list --repo Anglesite/Anglesite --state open --json number,title,body,labels,createdAt --limit 200`
-   Filter out any issue that already has ANY of these: a label starting with "🏭",
-   "➕ Duplicate", "🎢 Epic", "❌ Won't Fix", "🚫 Blocked", "🛠️ In Progress",
-   "✅ Manual QA". Sort the remainder oldest-created-first. Take at most the first 10 — if
-   more remain untriaged, they'll be picked up on the next hourly run.
+   Filter out any issue that already has ANY of these: a label starting with "🏭" other than
+   exactly "🏭 Factory gap" (that one label is deliberately NOT filtered — it marks a
+   software-factory Stage-5 gap issue that still needs normal Stage-0 triage, per software
+   factory Phase E, epic #1256), "➕ Duplicate", "🎢 Epic", "❌ Won't Fix", "🚫 Blocked",
+   "🛠️ In Progress", "✅ Manual QA". Sort the remainder oldest-created-first. Take at most the
+   first 10 — if more remain untriaged, they'll be picked up on the next hourly run.
 
 2. For each of those issues, in order:
 
@@ -120,7 +122,10 @@ Your job this run:
      and comments only.
    - Never close an issue, never delete a label, never remove a label you didn't just add
      this run, and never touch an issue that already carries `🛠️ In Progress`,
-     `✅ Manual QA`, or any `🏭` label — those are already past this stage.
+     `✅ Manual QA`, or any `🏭` label — those are already past this stage. Exception: an
+     issue carrying exactly `🏭 Factory gap` and no other `🏭` label has NOT been through this
+     stage yet — triage it normally (steps 2a-2g apply in full), and it may end up with any
+     `🏭` state label alongside its existing `🏭 Factory gap` label.
    - Do not open, comment on, or modify anything outside GitHub issues (no PRs, no
      discussions, no wiki, no repo settings).
 
@@ -165,3 +170,21 @@ tracked as a possible follow-up, not a blocker for this dry run.
   explained. This is a known limitation, not fixed in Phase A. To check for it manually: look
   for open issues carrying a `🏭` label with zero triage comments
   (`gh issue list --repo Anglesite/Anglesite --state open --label "🏭 Ready,🏭 Needs repro,🏭 Blocked: human" --json number,comments --jq '.[] | select((.comments | length) == 0)'`).
+
+## Operational update — 2026-08-31 (software factory Phase E, #1263)
+
+A final whole-branch code review of Phase E flagged a Critical finding against this routine:
+the Stage 5 gap-filing mechanism (documented in this repo's other routine docs) files new
+issues carrying the `🏭 Factory gap` label, but this routine's Step 1 candidate filter
+excluded ANY issue with a label starting with `🏭` — including that one. Because Stage-5 gap
+issues never get a normal `🏭` state label from any other routine either, this made every
+filed gap issue permanently invisible to intake triage the moment it was created, silently
+defeating the "gaps get fixed like any other work" design goal.
+
+Fixed by adding a single exemption: Step 1's filter and the Step 3 guardrail now both exclude
+`🏭 Factory gap` from the "any `🏭` label" exclusion, so an issue carrying only that label is
+treated as untriaged and goes through Stage 0 normally — ending up with `🏭 Factory gap` plus
+whichever real `🏭` state label (`🏭 Ready`, `🏭 Needs repro`, or `🏭 Blocked: human`) the
+triage step assigns. This is a documentation-only fix in this file; the live routine config in
+Claude Routines must still be updated separately (via `RemoteTrigger action:"update"`) to match
+before the corrected filter takes effect on a live run.

@@ -139,10 +139,36 @@ Your job this run:
    - If the subagent ended without any of these three markers (crashed, ran out of turns,
      produced no comment): treat this as a failed attempt. Remove `🛠️ In Progress`
      (`gh issue edit <N> --repo Anglesite/Anglesite --remove-label "🛠️ In Progress"`). If this
-     was attempt 2, post a comment explaining the run failed to produce a report, then run
+     was attempt 2, this is a mandatory Stage-5 case (software factory Phase E, epic #1256):
+     before changing any label, file a gap issue —
+     the body template below contains literal backticks, which a shell would misinterpret as
+     command substitution inside a double-quoted `--body "..."` argument — write the body to
+     a temporary file first and pass it with `--body-file <path>` instead of inlining it:
+     `gh issue create --repo Anglesite/Anglesite --title "Factory gap: <short description> (from #<N>)" --label "🏭 Factory gap" --body-file <path>`
+     where the file's content is exactly:
+     ```
+     ## What was attempted
+     Stage 1 (Reproduce), 2 attempts against issue #<N>. Attempt <k> ended without a
+     `## Stage 1 — Reproduce report` or `## Stage 1 — Escalation` comment, or any recognizable
+     outcome marker.
+
+     ## What was missing
+     <name the concrete gap from what you can observe about this run — a crash, an unbounded
+     loop, a tool failure, an issue body too ambiguous to act on. Be specific to this run; do
+     not write a generic placeholder.>
+
+     ## Proposed fix
+     <a first-pass suggestion, explicitly a guess, not a mandate>
+
+     ---
+     Filed by the software factory's Stage-5 feedback loop against #<N>.
+     ```
+     Post the failure comment as before, explaining the run failed to produce a report, and
+     add one more line to it: `Gap issue: #<the new issue's number>`. Then run
      `gh issue edit <N> --repo Anglesite/Anglesite --remove-label "🏭 Needs repro" --add-label
-     "🏭 Blocked: human"`; if attempt 1, leave the issue as `🏭 Needs repro` for a future run
-     to retry (no further label change). Stop.
+     "🏭 Blocked: human"`. If this was attempt 1 instead, leave the issue as `🏭 Needs repro`
+     for a future run to retry — no label change and no gap issue (only attempt-2 exhaustion
+     is a Stage-5 case). Stop.
 
 6. Spawn a second, independent Stage 2 (Diagnose) subagent via the Agent/Task tool, giving it
    only this instruction (again: do not paste Stage 1's reasoning — only the issue number):
@@ -189,11 +215,35 @@ Your job this run:
      `🏭 Ready` and remove the claim:
      `gh issue edit <N> --repo Anglesite/Anglesite --remove-label "🏭 Needs repro" --add-label "🏭 Ready" --remove-label "🛠️ In Progress"`.
    - If **DIAGNOSIS_FAILED** or no marker at all: this counts as a failed attempt. Remove
-     `🛠️ In Progress`. If this was attempt 2 (this run's attempt number from step 2), post a
-     comment stating the repro succeeded but diagnosis didn't, across 2 attempts, then run
+     `🛠️ In Progress`. If this was attempt 2 (this run's attempt number from step 2), this is
+     a mandatory Stage-5 case (software factory Phase E, epic #1256): before changing any
+     label, file a gap issue —
+     the body template below contains literal backticks, which a shell would misinterpret as
+     command substitution inside a double-quoted `--body "..."` argument — write the body to
+     a temporary file first and pass it with `--body-file <path>` instead of inlining it:
+     `gh issue create --repo Anglesite/Anglesite --title "Factory gap: <short description> (from #<N>)" --label "🏭 Factory gap" --body-file <path>`
+     where the file's content is exactly:
+     ```
+     ## What was attempted
+     Stage 2 (Diagnose) against issue #<N>, across 2 attempts (repro succeeded both times;
+     diagnosis did not). Attempt <k> ended with `DIAGNOSIS_FAILED` or no marker at all.
+
+     ## What was missing
+     <name the concrete gap — e.g. instrumentation the diagnose agent couldn't reach, a root
+     cause genuinely outside its confidence, missing context in the Stage 1 report it was
+     handed. Be specific to this run; do not write a generic placeholder.>
+
+     ## Proposed fix
+     <a first-pass suggestion, explicitly a guess, not a mandate>
+
+     ---
+     Filed by the software factory's Stage-5 feedback loop against #<N>.
+     ```
+     Post the comment stating the repro succeeded but diagnosis didn't as before, and add one
+     more line to it: `Gap issue: #<the new issue's number>`. Then run
      `gh issue edit <N> --repo Anglesite/Anglesite --remove-label "🏭 Needs repro" --add-label
-     "🏭 Blocked: human"`. If this was attempt 1, leave `🏭 Needs repro` in place for a future
-     run (no further label change).
+     "🏭 Blocked: human"`. If this was attempt 1 instead, leave `🏭 Needs repro` in place for a
+     future run — no label change and no gap issue.
 
 8. Output a short plain-text summary: which issue (if any) you processed, which attempt
    number it was, and the outcome (Ready / Blocked: human / left for retry / no issues
@@ -211,10 +261,15 @@ Guardrails — follow strictly:
   (step 2's already-attempted-twice branch; step 5's `TIER_4_ESCALATION`/
   `ENVIRONMENT_ESCALATION` branch and its no-markers-at-attempt-2 branch; step 7's
   `DIAGNOSIS_FAILED`-at-attempt-2 branch) — these three `🏭` state labels must stay mutually
-  exclusive.
+  exclusive. Exception: steps 5 and 7's mandatory Stage-5 gap-issue filing opens a brand-new
+  issue that carries only the pre-existing `🏭 Factory gap` label — that's not "touching" the
+  current issue under repro/diagnose, it's Stage 5's own separate, explicitly required action.
 - Only process one issue per run (step 1).
-- Do not create a new test target, new `🎯`/`🏭` label, or modify anything outside GitHub
-  issue state and your own throwaway worktree.
+- Do not define a brand-new label (i.e. invent a label name not already in the repo's label
+  set) or a new test target, and do not modify anything outside GitHub issue state and your
+  own throwaway worktree. (This does not forbid *applying* the pre-existing `🏭 Factory gap`
+  label via Stage 5 — that label already exists in the repo; this guardrail is about never
+  inventing a new one.)
 ```
 
 ## Creating the routine
