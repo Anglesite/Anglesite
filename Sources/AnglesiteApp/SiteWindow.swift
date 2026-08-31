@@ -1453,7 +1453,8 @@ struct SiteWindow: View {
                 MainPaneEditorView(
                     model: editorModel,
                     componentEditor: model.componentEditor,
-                    onCanvasWebView: { componentCanvasWebView = $0 }
+                    onCanvasWebView: { componentCanvasWebView = $0 },
+                    onDone: { model.returnToCanvas() }
                 )
                     // Re-fires on file change AND on the dev server becoming ready (nil→non-nil
                     // readyURL) — the same identity the old view-local LoadKey watched — so the
@@ -1482,7 +1483,7 @@ struct SiteWindow: View {
                         await model.ensureComponentEditorLoaded()
                     }
             } else if case .plist(let plistEditorModel) = model.activeEditor {
-                PlistEditorView(model: plistEditorModel) { title in
+                PlistEditorView(model: plistEditorModel, onDone: { model.returnToCanvas() }) { title in
                     Task { await model.saveWebsiteTitle(title) }
                 }
             } else {

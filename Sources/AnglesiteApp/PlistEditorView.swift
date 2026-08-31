@@ -33,6 +33,8 @@ enum SettingsTab: String, CaseIterable, Identifiable {
 
 struct PlistEditorView: View {
     @Bindable var model: PlistEditorModel
+    /// Returns the main pane to the canvas (#714 v2 slice 2's Done chrome).
+    var onDone: () -> Void = {}
     let onWebsiteTitleSaved: (String) -> Void
 
     @Environment(\.controlActiveState) private var controlActiveState
@@ -105,17 +107,12 @@ struct PlistEditorView: View {
     }
 
     private var header: some View {
-        HStack {
-            Label("Settings", systemImage: "gearshape")
-                .font(.headline)
+        MainPaneTakeoverHeader(title: "Settings", systemImage: "gearshape", onDone: onDone) {
             if model.hasAnyUnsavedEdits {
                 Circle().fill(.secondary).frame(width: 7, height: 7)
                     .help("Unsaved changes")
             }
-            Spacer()
         }
-        .padding(.horizontal, 12)
-        .padding(.vertical, 8)
     }
 
     private var tabBar: some View {
