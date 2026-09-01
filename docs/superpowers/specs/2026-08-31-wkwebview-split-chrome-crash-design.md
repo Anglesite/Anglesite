@@ -2,7 +2,17 @@
 
 **Date:** 2026-08-31
 **Issue:** #1699 (architecture discussion), spun out of #1696 (Component Editor repro)
-**Status:** Approved direction; Stage 0 pending human verification
+**Status:** Approved direction; Stage 0 **failed** (2026-08-31): macOS 27 Beta 8
+(26A5425a) still crashes — 5/5 runs of the #1696 repro, every crash report carrying
+the identical `SplitViewChildController.hostingView(_:didUpdateMinSize:maxSize:)` →
+`_postWindowNeedsUpdateConstraints` fingerprint. Stages 1 and 2 are active.
+
+Two side findings from the Stage 0 pass, tracked separately from this design:
+Beta 7's saved toolbar customization (`"NSToolbar Configuration site"`, containing
+SwiftUI-internal item identifiers) crashes the app at launch under Beta 8's
+`AppKitToolbarStrategy.applyItemCustomizations`; and window restore runs
+`DeployModel.hasUsableToken()`'s synchronous `SecItemCopyMatching` on the main
+thread, wedging the whole app behind the keychain authorization prompt.
 
 ## Problem
 
