@@ -35,6 +35,14 @@ final class PlistEditorModel {
     private(set) var rumSummary: RUMAnalyticsSummary?
     private(set) var rumSummaryError: String?
     private(set) var hasWebsiteIcons = false
+    /// Where this site publishes — `anglesite.json`'s `deployTarget` (#1682), as one of
+    /// `DeployTargetSelection.selectableIDs`. Always a value the deploy path would actually act
+    /// on: a `nil` or unrecognized declaration loads as `CloudflareDeployTarget.id`, the same
+    /// resolution `DeployTargetSelection` applies, so the picker can never show a host the site
+    /// wouldn't really deploy to. Persisted immediately by `setDeployTarget(_:)` rather than
+    /// through the tab's dirty-tracked save aggregation — it's a single declared choice with no
+    /// partially-typed intermediate state to protect, matching the Workers tab's toggles.
+    private(set) var deployTargetID = CloudflareDeployTarget.id
     var analyticsSettings = WebsiteAnalyticsAsset.Settings() {
         didSet {
             if oldValue.customHeadTag != analyticsSettings.customHeadTag {
@@ -335,6 +343,7 @@ final class PlistEditorModel {
             lastModified = loaded.modificationDate
             loadError = nil
             hasWebsiteIcons = WebsiteIconInstaller.hasInstalledIcons(in: sourceDirectory)
+            deployTargetID = Self.loadDeployTargetID(sourceDirectory: sourceDirectory)
             let (analytics, config) = try Self.loadAnalyticsSettings(sourceDirectory: sourceDirectory)
             analyticsSettings = analytics
             savedAnalyticsSettings = analytics
@@ -1361,6 +1370,29 @@ final class PlistEditorModel {
             email.inboxForwardAddress = trimmed
             config.email = email
         }
+    }
+
+    // MARK: - Publishing (#1682)
+
+    /// The stored `deployTarget`, normalized through `DeployTargetSelection.canonicalID(forDeclared:)`
+    /// — the same policy `DeployCommand`'s resolver goes through — so an absent, empty, or
+    /// unrecognized declaration reads as Cloudflare here for exactly the reason it deploys through
+    /// Cloudflare there, rather than because a second copy of that rule happens to agree.
+    private static func loadDeployTargetID(sourceDirectory: URL) -> String {
+        let declared = (try? DomainConfigStore(sourceDirectory: sourceDirectory).load())?.deployTarget
+        return DeployTargetSelection.canonicalID(forDeclared: declared)
+    }
+
+    /// Persists where this site publishes to `anglesite.json`'s `deployTarget` (#1682). Writes
+    /// the Cloudflare identifier explicitly rather than clearing the key when the owner switches
+    /// back: `DomainConfigStore.save`'s merge only preserves keys the caller doesn't mention, and
+    /// an explicit declaration is what makes the choice legible in the git history `Source/` is
+    /// the source of truth for. Ignores an identifier this app version can't act on, so the
+    /// picker and the deploy path can never disagree.
+    func setDeployTarget(_ id: String) {
+        guard DeployTargetSelection.selectableIDs.contains(id), id != deployTargetID else { return }
+        deployTargetID = id
+        DomainConfigStore.update(sourceDirectory: sourceDirectory) { $0.deployTarget = id }
     }
 
     /// Loads what the Social tab shows: persisted `SiteSettings` (for the Atmosphere toggle) and

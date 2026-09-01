@@ -760,6 +760,17 @@ final class DeployModel {
         // back when the sheet was first presented.
         let containerControl = await containerControlProvider()
 
+        // Where this site publishes (#1682) — resolved exactly once per deploy attempt, right
+        // here, and then *pinned* into `activeCommand` below so every consumer downstream (the
+        // `SocialWorkerProvisionCommand` closures built from the Cloudflare downcast, and
+        // `DeployCommand.deploy`'s own authorize-then-publish pair) provably sees the same
+        // conformer. The production resolver re-reads `anglesite.json` on every call and several
+        // `await`s separate those consumers, so two independent reads could genuinely disagree if
+        // the owner flipped Website Settings ▸ Publishing mid-deploy. Resolved at attempt time
+        // rather than threaded in from `deploy(…)`, for the same reason `containerControl` is
+        // (#823): a token-prompt/rename retry re-enters here and picks up the current declaration.
+        let resolvedTarget = command.target(for: siteDirectory)
+
         // Select the executor: in-container when the runtime is a started container;
         // explicit unavailable result otherwise. The token source always comes from the
         // injected `command` so the test-injection path (a fully pre-built
@@ -769,7 +780,7 @@ final class DeployModel {
         let containerSecretRunner: SocialWorkerProvisionCommand.SecretRunner?
         if let cc = containerControl {
             activeCommand = DeployCommand(
-                target: command.target,
+                target: resolvedTarget,
                 executor: ContainerDeployExecutor(
                     control: cc.control,
                     siteID: cc.siteID,
@@ -780,7 +791,7 @@ final class DeployModel {
             containerRunner = containerCommandRunner.runner
             containerSecretRunner = containerCommandRunner.secretRunner
         } else {
-            activeCommand = command
+            activeCommand = command.pinning(target: resolvedTarget)
             containerRunner = nil
             containerSecretRunner = nil
         }
@@ -890,10 +901,18 @@ final class DeployModel {
 
         // Both closures below only make sense against a Cloudflare target — `SocialWorkerProvisionCommand`
         // is itself entirely a Cloudflare Workers concept (out of scope to generalize in #1015
-        // slice 1). `cloudflareTarget` is `nil` only if `command.target` were ever something else;
-        // today it's always `CloudflareDeployTarget` (the default), so the closures behave exactly
-        // as before.
-        let cloudflareTarget = command.target as? CloudflareDeployTarget
+        // slice 1). Since #1682 the target is resolved per site from `anglesite.json`, so
+        // `cloudflareTarget` really is `nil` for a site that publishes to GitHub Pages: both
+        // closures then return `nil`/`[]` and `provision()` reports a missing Cloudflare token
+        // rather than trapping. Making that degrade *legible* to the owner (and unreachable
+        // through the Workers UI in the first place) is #1683's capability gating, deliberately
+        // not this slice.
+        //
+        // `resolvedTarget`, not a fresh `target(for:)` read: `activeCommand` is pinned to this
+        // same conformer, so what these closures authorize against and what `deploy(…)` publishes
+        // through are the same object rather than two reads of a file the owner can edit between
+        // them.
+        let cloudflareTarget = resolvedTarget as? CloudflareDeployTarget
         let socialCommand = SocialWorkerProvisionCommand(
             tokenSource: {
                 guard let cloudflareTarget else { return nil }

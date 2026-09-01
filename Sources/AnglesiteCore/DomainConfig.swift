@@ -24,9 +24,10 @@ public struct DomainConfig: Equatable, Sendable {
     public var experiments: Experiments?
     /// The publish destination this site uses (#1015) — an open string (not a closed `enum`),
     /// matching `Domain.choice`'s precedent, so an unrecognized future value degrades gracefully
-    /// for a reader that predates it. `nil` means "cloudflare," the only target that exists today
-    /// — nothing reads this field to select a `DeployTarget` conformer yet (that's a later
-    /// slice); it exists so that slice needs no schema migration when it lands.
+    /// for a reader that predates it. `nil` means "cloudflare": `DeployTargetSelection` reads
+    /// this field to pick the `DeployTarget` conformer a deploy publishes through (#1682), and
+    /// resolves `nil` — every site that predates the field — to Cloudflare, so no site needed a
+    /// migration when selection landed.
     public var deployTarget: String?
     /// The dedicated public repo a `GitHubPagesDeployTarget` publishes built output to (#1015
     /// slice 2a) — always a separate repo from wherever `Source/` itself might be backed up, so
