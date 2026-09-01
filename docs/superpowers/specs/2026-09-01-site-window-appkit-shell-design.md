@@ -5,7 +5,23 @@
 **Parent spec:** `2026-08-31-wkwebview-split-chrome-crash-design.md` (evidence trail: Stage 0
 5/5 on Beta 8, Stage 2 firewall falsified, takeover-swap-alone exonerated, `.inspector()`
 presentation concurrent with detail-column changes identified as prime suspect)
-**Status:** Draft for owner review
+**Status:** Approved 2026-09-01; **slice 1 landed and gate PASSED** (2026-09-01):
+
+- Shell chrome, macOS 27 Beta 8 (26A5425a), "Slice 6 Smoke Test" site: the #1696 repro
+  (Graph → filter `Hcard` → select node → Open File) ran **5/5 ALIVE** with the Component
+  Editor verifiably mounted per run (AX header `Hcard.astro`; plus a sixth interactive run,
+  6/6 total). Zero crash reports across all shell launches this session (19 total).
+- **Same-day, same-site, same-OS legacy control:** flag off, identical trigger — DEAD in 4s
+  with the exact `SplitViewChildController.hostingView(_:didUpdateMinSize:maxSize:)` →
+  `_postWindowNeedsUpdateConstraints` fingerprint (`Anglesite-2026-09-01-133244.ips`).
+  Only the chrome differed.
+- Sanity pass (menu-driven): sidebar show/hide, website-inspector show/hide (the #1126
+  trigger class), chat toggle — app alive throughout; inspector column tracks 1→2→1 in AX.
+- **Gate findings for slice 2/3:** (a) stock SwiftUI `SidebarCommands` menu title desyncs
+  under the shell (toggle works via `toggleSidebar:`, label inverts) — own the menu item or
+  bridge its state; (b) graph canvas node buttons expose no accessibility label (pre-existing;
+  made AX automation hard) — add labels; (c) the harness lesson: AX BFS over the full window
+  is minutes-slow — automation must use scoped paths (`docs/superpowers/plans/` harness v3).
 
 ## Goal
 
