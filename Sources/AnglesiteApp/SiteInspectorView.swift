@@ -21,7 +21,10 @@ struct SiteInspectorView: View {
     var canvasWebView: WKWebView?
     /// Dev-server origin for the collection form's feed preview links; nil until the server is up.
     var previewBaseURL: URL?
-    @SceneStorage("siteInspector.tab") private var tab: SiteInspectorTab = .metadata
+    /// Hoisted to `SiteWindow` (#1699 slice 1): `@SceneStorage` does not resolve inside an
+    /// `NSHostingController`, so the shell-hosted inspector must receive the persisted tab
+    /// from the scene-owning window instead of reading scene storage itself.
+    @Binding var tab: SiteInspectorTab
 
     var body: some View {
         VStack(spacing: 0) {

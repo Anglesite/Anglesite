@@ -32,6 +32,11 @@ struct SiteWindow: View {
     /// 1): the existing per-selection inspector, or the new Website inspector. Mutually exclusive
     /// — switching one on switches the other off. Persisted per window like `inspectorShown`.
     @SceneStorage("siteInspector.active") private var activeInspector: ActiveSiteInspector = .selection
+    /// Hoisted from `SiteInspectorView`/`WebsiteInspectorView` (#1699 slice 1): scene storage
+    /// must live in the scene-owning window once those views are hosted inside the AppKit
+    /// shell's `NSHostingController` columns. Keys unchanged, so existing scenes restore.
+    @SceneStorage("siteInspector.tab") private var siteInspectorTab: SiteInspectorTab = .metadata
+    @SceneStorage("websiteInspector.tab") private var websiteInspectorTab: SiteInspectorTab = .metadata
     /// Suppresses exactly one stale `inspectorPresented` write-back scheduled under the inspector
     /// kind active BEFORE a switch (#714 v2 slice 1 fix round 1, Important 1 — reopens #968/#969
     /// through the new activation seam). SwiftUI's automatic `isPresented = false` collapse
@@ -1418,7 +1423,8 @@ struct SiteWindow: View {
                 SiteInspectorView(
                     selection: selection,
                     canvasWebView: componentCanvasWebView,
-                    previewBaseURL: model.preview.readyURL
+                    previewBaseURL: model.preview.readyURL,
+                    tab: $siteInspectorTab
                 )
             }
         case .website:
@@ -1467,7 +1473,8 @@ struct SiteWindow: View {
                     WebsiteInspectorView(
                         model: websiteModel,
                         openStylesheet: { model.openFile($0) },
-                        openMoreSettings: { model.openWebsiteSettings() }
+                        openMoreSettings: { model.openWebsiteSettings() },
+                        tab: $websiteInspectorTab
                     )
                     // A site swap replaces the model instance (`handleSiteChanged()` tears the old
                     // one down and rebuilds against the new package). Keying on the package URL
