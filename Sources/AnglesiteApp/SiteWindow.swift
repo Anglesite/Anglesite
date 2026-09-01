@@ -392,8 +392,6 @@ struct SiteWindow: View {
 
     @ViewBuilder
     private func siteUI(for site: SiteStore.Site) -> some View {
-        @Bindable var bindableModel = model
-
         // Shared with `SiteSearchFieldModifier` below (#1126): search-field activation is
         // another "substantial toolbar re-layout while the inspector is presented" trigger for
         // the same macOS 27 beta AppKit constraint-update storm as the pane-switch case, so it
@@ -425,39 +423,90 @@ struct SiteWindow: View {
             }
         )
 
+        windowModifiers(
+            over: Group {
+                if SiteShellFlag.isEnabled {
+                    shellChrome(for: site, inspectorPresented: inspectorPresented)
+                } else {
+                    legacyChrome(for: site, inspectorPresented: inspectorPresented)
+                }
+            },
+            for: site,
+            inspectorPresented: inspectorPresented
+        )
+    }
+
+    /// Sidebar column content, shared verbatim by the legacy `NavigationSplitView` and the
+    /// AppKit shell (#1699 slice 1). `navigationSplitViewColumnWidth` stays at the legacy
+    /// call site — the shell expresses the same limits as `NSSplitViewItem` thicknesses.
+    @ViewBuilder
+    private func sidebarColumn(for site: SiteStore.Site) -> some View {
+        if let navigator = model.navigator {
+            SiteNavigatorView(
+                model: navigator,
+                canvasHasKeyboardFocus: model.preview.wysiwygCanvas?.hasKeyboardFocus == true,
+                onDeleteRequested: { item in
+                    contentDeleteTitle = "Delete “\(item.title)”?"
+                    model.deleteConfirmation = item
+                },
+                onDuplicateRequested: { item in
+                    Task { await model.duplicate(id: item.id) }
+                },
+                onRepurposeRequested: { item in
+                    Task { await model.presentRepurpose(postRowID: item.id) }
+                },
+                onPublishRequested: { item in
+                    Task { await model.publish(id: item.id) }
+                },
+                onUnpublishRequested: { item in
+                    Task { await model.unpublish(id: item.id) }
+                }
+            )
+                .onChange(of: navigator.selection) { _, newID in
+                    model.applyNavigatorSelection(newID)
+                }
+        } else {
+            ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
+        }
+    }
+
+    /// The legacy SwiftUI chrome — exactly the pre-#1699 structure, now fed by the shared
+    /// column builders. Removed in slice 3.
+    private func legacyChrome(for site: SiteStore.Site, inspectorPresented: Binding<Bool>) -> some View {
         NavigationSplitView(columnVisibility: Binding(
             get: { sidebarVisible ? .all : .detailOnly },
             set: { sidebarVisible = ($0 != .detailOnly) }
         )) {
-            if let navigator = model.navigator {
-                SiteNavigatorView(
-                    model: navigator,
-                    canvasHasKeyboardFocus: model.preview.wysiwygCanvas?.hasKeyboardFocus == true,
-                    onDeleteRequested: { item in
-                        contentDeleteTitle = "Delete “\(item.title)”?"
-                        model.deleteConfirmation = item
-                    },
-                    onDuplicateRequested: { item in
-                        Task { await model.duplicate(id: item.id) }
-                    },
-                    onRepurposeRequested: { item in
-                        Task { await model.presentRepurpose(postRowID: item.id) }
-                    },
-                    onPublishRequested: { item in
-                        Task { await model.publish(id: item.id) }
-                    },
-                    onUnpublishRequested: { item in
-                        Task { await model.unpublish(id: item.id) }
-                    }
-                )
-                    .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
-                    .onChange(of: navigator.selection) { _, newID in
-                        model.applyNavigatorSelection(newID)
-                    }
-            } else {
-                ProgressView().frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            sidebarColumn(for: site)
+                .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 360)
         } detail: {
+            detailColumn(for: site)
+        }
+        .inspector(isPresented: inspectorPresented) {
+            inspectorContent
+                .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
+        }
+    }
+
+    /// The AppKit shell chrome (#1699 Stage 3 slice 1) — same columns, negotiation-free by
+    /// construction; see `SiteShellSplitController`'s doc comment.
+    private func shellChrome(for site: SiteStore.Site, inspectorPresented: Binding<Bool>) -> some View {
+        SiteShellView(
+            sidebarVisible: $sidebarVisible,
+            inspectorPresented: inspectorPresented
+        ) {
+            sidebarColumn(for: site)
+        } content: {
+            detailColumn(for: site)
+        } inspector: {
+            inspectorContent
+        }
+    }
+
+    /// Detail column content — banner, palette │ main pane │ chat │ related-pages, drawers —
+    /// shared verbatim by both chromes (#1699 slice 1).
+    @ViewBuilder
+    private func detailColumn(for site: SiteStore.Site) -> some View {
             ZStack(alignment: .bottom) {
                 VStack(spacing: 0) {
                     // Non-blocking conflict banner (#881): docked above the content, never a
@@ -529,13 +578,22 @@ struct SiteWindow: View {
                         .shadow(radius: 8, y: -2)
                 }
             }
-        }
-        .animation(.easeInOut(duration: 0.18), value: model.deploy.drawerPresented)
-        .animation(.easeInOut(duration: 0.18), value: model.backup.drawerPresented)
-        .inspector(isPresented: inspectorPresented) {
-            inspectorContent
-                .inspectorColumnWidth(min: 260, ideal: 300, max: 420)
-        }
+            // Moved inside the column (#1699 slice 1): `.animation(value:)` on an ancestor
+            // does not cross an `NSHostingController` boundary, so on a shell ancestor the
+            // drawer transitions would stop animating. Inside the column it serves both
+            // chromes.
+            .animation(.easeInOut(duration: 0.18), value: model.deploy.drawerPresented)
+            .animation(.easeInOut(duration: 0.18), value: model.backup.drawerPresented)
+    }
+
+    /// Everything the window attaches after the chrome — titles, toolbar, search, sheets,
+    /// drop targets, overlays — shared by both chromes (#1699 slice 1). Split out of
+    /// `siteUI(for:)` so the chrome branch stays inside the type-checking budget.
+    private func windowModifiers(
+        over chrome: some View, for site: SiteStore.Site, inspectorPresented: Binding<Bool>
+    ) -> some View {
+        @Bindable var bindableModel = model
+        return chrome
         .navigationTitle(model.preview.editingPageTitle ?? site.name)
         .navigationSubtitle(model.preview.readyURL?.absoluteString ?? "")
         // Titlebar proxy icon (#521): ⌘-click shows the package's path, and the icon drags as the
