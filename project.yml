@@ -130,14 +130,6 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         COMBINE_HIDPI_IMAGES: YES
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) ANGLESITE_MAS"
-        # #541: weak-link FoundationModels so a beta Xcode SDK ahead of the installed macOS beta
-        # seed (a symbol the SDK added but the OS doesn't export yet) can't abort dyld at launch.
-        # #1495 adds the _CoreSpotlight_FoundationModels cross-import overlay (see Package.swift's
-        # disableFoundationModelsAutolink) — its hard autolink hint is suppressed in AnglesiteCore,
-        # so this app link (which pulls FoundationModelAssistant.o and with it the overlay's
-        # SpotlightSearchTool symbols) must request the framework explicitly, weak for the same
-        # SDK-ahead-of-OS reason as FoundationModels itself.
-        OTHER_LDFLAGS: "$(inherited) -weak_framework FoundationModels -weak_framework _CoreSpotlight_FoundationModels"
       configs:
         Debug:
           # #775 workaround: punch the com.apple.NetworkSharing mach look-up back
@@ -252,13 +244,6 @@ targets:
         SWIFT_VERSION: "5.10"
         CURRENT_PROJECT_VERSION: 1
         MARKETING_VERSION: "0.1.0"
-        # #1495: this target links AnglesiteCore (FoundationModelAssistant.swift) but, unlike the
-        # Anglesite/Mac target, never got #541's weak-link — confirmed hard-linking FoundationModels
-        # via otool -l on a built product. Same SDK-ahead-of-installed-OS-seed risk during the
-        # Xcode 27 / iOS 27 beta cycle. _CoreSpotlight_FoundationModels isn't observed linked here
-        # (the SpotlightSearchTool call site appears macOS-gated), so it's omitted rather than
-        # weak-linking a framework this target doesn't reference.
-        OTHER_LDFLAGS: "$(inherited) -weak_framework FoundationModels"
       configs:
         Debug:
           CODE_SIGN_ENTITLEMENTS: $(ANGLESITE_MOBILE_DEBUG_ENTITLEMENTS)
@@ -356,13 +341,6 @@ targets:
         # host app, so its Core-layer bookmark-resolution code should take the ANGLESITE_MAS
         # branch, not the DevID/test fallback.
         SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) ANGLESITE_MAS"
-        # #1495: this target links AnglesiteCore (FoundationModelAssistant.swift) the same way the
-        # Anglesite/AnglesiteRemote targets above do, and hits the identical hard-link — confirmed
-        # via a failed Debug link ("symbol(s) not found for architecture arm64" across both
-        # FoundationModels and the _CoreSpotlight_FoundationModels overlay). Same SDK-ahead-of-
-        # installed-OS-seed risk during the Xcode 27 beta cycle. Mirrors AnglesiteRemote's matching
-        # OTHER_LDFLAGS above.
-        OTHER_LDFLAGS: "$(inherited) -weak_framework FoundationModels -weak_framework _CoreSpotlight_FoundationModels"
       configs:
         Debug:
           # See the AnglesiteRemote target's matching comment on this indirection pattern.
@@ -476,13 +454,6 @@ targets:
         SKIP_INSTALL: YES
         # Embedded helper apps live under the parent's Contents/Library/LoginItems/ —
         # SMAppService.agent's documented discovery location.
-        # #1495: this target links AnglesiteCore (FoundationModelAssistant.swift) the same way the
-        # Anglesite/Mac target above does, but never got #541's weak-link — confirmed hard-linking
-        # both FoundationModels and the _CoreSpotlight_FoundationModels overlay via otool -l on a
-        # built product. Since this is an SMAppService.agent login item that can run with the main
-        # app window closed, a dyld abort here is a silent background-process death, not even a
-        # visible crash dialog. Mirrors the Anglesite target's matching OTHER_LDFLAGS above.
-        OTHER_LDFLAGS: "$(inherited) -weak_framework FoundationModels -weak_framework _CoreSpotlight_FoundationModels"
       configs:
         Debug:
           # #1208 P2: keychain-access-groups requires a real provisioning profile even under
