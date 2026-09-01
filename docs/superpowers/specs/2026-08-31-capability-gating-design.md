@@ -38,7 +38,10 @@ Inbox Capture toggle/status/error text.
 
 **Membership:** #1015's body lists membership alongside inbox capture and the worker catalog as a
 Workers-only feature, but a repo-wide search found no membership implementation in `Sources/` —
-it doesn't exist yet. This design does not invent gating for code that isn't there. It defines a
+it doesn't exist yet. (A grep for "membership" does turn up `CommunityMembershipClient`,
+`CommunityMember`, and `CommunityMemberCommitter` — ActivityPub follower/community membership, an
+unrelated concept from the paid-membership/patronage feature #1015 means here.) This design does
+not invent gating for code that isn't there. It defines a
 mechanism (`DeployTargetCapabilities.supportsWorkers`) that any future Workers-only feature checks
 the same way the worker catalog and Inbox Capture will; membership gets no special-casing when it
 ships, it just calls the same check.
@@ -77,8 +80,13 @@ public enum DeployTargetKind: Sendable, Equatable {
     /// that exists today") and its forward-compatibility precedent — an unrecognized future
     /// value degrades to the safe default for a reader that predates it, rather than crashing or
     /// silently gating a target this code doesn't know about.
-    public init(rawValue: String?) {
-        self = rawValue == GitHubPagesDeployTarget.id ? .githubPages : .cloudflare
+    ///
+    /// Named `deployTarget:`, not `rawValue:` — this type deliberately won't conform to
+    /// `RawRepresentable` (the mapping is lossy and this initializer isn't failable), so a label
+    /// that borrows `RawRepresentable`'s vocabulary would invite a reader to reach for
+    /// `.rawValue` or try to conform it later and be surprised.
+    public init(deployTarget: String?) {
+        self = deployTarget == GitHubPagesDeployTarget.id ? .githubPages : .cloudflare
     }
 }
 ```
@@ -113,7 +121,7 @@ computed property following the same pattern:
 
 ```swift
 var deployTargetKind: DeployTargetKind {
-    DeployTargetKind(rawValue: (try? DomainConfigStore(sourceDirectory: sourceDirectory).load())?.deployTarget)
+    DeployTargetKind(deployTarget: (try? DomainConfigStore(sourceDirectory: sourceDirectory).load())?.deployTarget)
 }
 ```
 
@@ -140,9 +148,9 @@ link to it; that's a follow-up to this design, not a blocker for it.
 ### Action-layer gating, not just visual
 
 Hiding the controls is necessary but not sufficient — `PlistEditorModel.setInboxCaptureEnabled`
-and the worker-catalog provisioning entry point must also guard on
-`DeployTargetCapabilities.supportsWorkers(for:)` at the top and set `inboxCaptureError`/
-`workersError` to the same explanation text (rather than proceeding into
+and the worker-catalog provisioning entry point, `setWorkerActive(_ workerID: String, isOn: Bool)`,
+must also guard on `DeployTargetCapabilities.supportsWorkers(for:)` at the top and set
+`inboxCaptureError`/`workersError` to the same explanation text (rather than proceeding into
 `SocialWorkerProvisionCommand`) if somehow invoked anyway. This is defense in depth, not the
 primary mechanism — the view won't expose the control once gated — but it matches the existing
 non-bypassable-gate posture the codebase already applies to `PreDeployCheck`: a well-behaved
@@ -171,13 +179,17 @@ gated state reuses them with the explanation copy above instead of a network-fai
   `deployTarget: "githubPages"` sets `inboxCaptureError` to the explanation text and never invokes
   the provisioning closures (inject a fake that fails the test if called, matching the existing
   fake-injection pattern in `DeployModel`'s test suite).
+- `PlistEditorModel` test: `setWorkerActive(_:isOn:)` on the same `githubPages`-declared site sets
+  `workersError` to the explanation text and never persists the toggle or invokes provisioning —
+  the matching action-layer case for the worker-catalog entry point, so a stale view still bound
+  to a worker row can't reach it either.
 - Manual QA per `docs/mac-assed-app-spec.md`: open Site Settings on a site with
   `deployTarget: "githubPages"` in `anglesite.json`, confirm the `.workers` tab is present in the
   tab list, and its body shows the explanation instead of the catalog/toggle.
 
 ## Migration / compatibility
 
-None needed. `DeployTargetKind(rawValue:)` resolves `nil` (every existing site's current state)
+None needed. `DeployTargetKind(deployTarget:)` resolves `nil` (every existing site's current state)
 to `.cloudflare`, so `supportsWorkers` stays `true` and the gated view never appears for a site
 that hasn't opted into a non-Cloudflare target — zero behavior change until target selection
 (a separate slice) actually lets a site choose GitHub Pages.
