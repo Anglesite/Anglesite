@@ -1160,6 +1160,9 @@
     "Computed" : {
 
     },
+    "Conclude this test" : {
+
+    },
     "Condition, e.g. (min-width: 768px)" : {
 
     },
@@ -1682,6 +1685,9 @@
     "Enable Tor Browser access for this site via Cloudflare's zone-level setting" : {
 
     },
+    "End test early" : {
+
+    },
     "Enforce" : {
 
     },
@@ -2154,6 +2160,9 @@
 
     },
     "Keep it at your current registrar — you'll add it to Cloudflare and point its nameservers there. We'll connect it automatically on your next Publish once that's done." : {
+
+    },
+    "Keep the original" : {
 
     },
     "Keep which version" : {
@@ -2959,6 +2968,9 @@
 
     },
     "Project Style Guide" : {
+
+    },
+    "Promote the variant" : {
 
     },
     "Props" : {
@@ -4331,6 +4343,9 @@
 
     },
     "What this website is about, in a sentence" : {
+
+    },
+    "What we've learned" : {
 
     },
     "What's New in Anglesite" : {

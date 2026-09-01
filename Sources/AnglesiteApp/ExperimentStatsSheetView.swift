@@ -33,7 +33,7 @@ struct ExperimentStatsSheetView: View {
                 case .starting:
                     ProgressView("Starting your test…")
                 case .running(let experiment):
-                    ExperimentRunningStatusView(experiment: experiment)
+                    ExperimentRunningStatusView(model: model, experiment: experiment, deploySite: deploySite)
                 }
             }
             .formStyle(.grouped)
@@ -55,8 +55,10 @@ struct ExperimentStatsSheetView: View {
                         // test is live that never published (#1518 review, I4). `.starting` always
                         // ends: `start(unavailableReason:deploy:)` refuses to enter it unless the
                         // deploy will really run, and `observeDeployPhase(_:)` now handles every
-                        // non-`.running` phase.
-                        .disabled(model.step == .starting)
+                        // non-`.running` phase. `isConcluding` covers the same hazard for
+                        // `confirmConclude(deploy:)` (#1270 slice 6): dismissing mid-conclude would
+                        // race its `step = .manual` transition against this sheet's own teardown.
+                        .disabled(model.step == .starting || model.isConcluding)
                 }
             }
         }

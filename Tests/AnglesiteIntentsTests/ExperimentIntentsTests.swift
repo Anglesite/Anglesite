@@ -77,6 +77,21 @@ extension AppIntentsTests {
             #expect(dialog.contains("don't see a running experiment"))
         }
 
+        @Test("AnalyzeExperimentIntent's zero-argument path mentions the last concluded test when there's no running one")
+        func zeroArgumentPathMentionsLastConcludedTest() async {
+            let outcome = ExperimentHistoryStore.Outcome(
+                experimentID: "hero-headline", name: "Hero headline", decision: .promote,
+                variantName: "New headline", controlVisitors: 1000, controlConversions: 50,
+                variantVisitors: 1000, variantConversions: 120, startedAt: "2026-08-01",
+                concludedAt: "2026-08-20")
+            let fake = FakeExperimentResultsService(prefill: nil, concludedOutcome: outcome)
+            let intent = AnalyzeExperimentIntent()
+            let dialog = await intent.performForTesting(service: fake)
+            #expect(dialog.contains("Hero headline"))
+            #expect(dialog.contains("2026-08-20"))
+            #expect(dialog.contains("promoted the variant"))
+        }
+
         @Test("AnalyzeExperimentIntent takes the manual path — and never consults the service — once any count is supplied")
         func manualPathNeverConsultsService() async {
             var intent = AnalyzeExperimentIntent()
@@ -106,5 +121,7 @@ extension AppIntentsTests {
 
 private struct FakeExperimentResultsService: ExperimentResultsService {
     let prefill: ExperimentResultsSync.Prefill?
+    var concludedOutcome: ExperimentHistoryStore.Outcome? = nil
     func prefillForRunningExperiment() async -> ExperimentResultsSync.Prefill? { prefill }
+    func mostRecentConcludedOutcome() async -> ExperimentHistoryStore.Outcome? { concludedOutcome }
 }
