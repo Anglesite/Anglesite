@@ -177,6 +177,10 @@ final class DeployModel {
     private var inFlight: Task<Void, Never>?
     private let suddenTerminationController: SuddenTerminationController
     private let tokenAvailabilityOverride: (() -> Bool)?
+    /// How long `tokenAvailability()` waits for the Keychain before treating the answer as
+    /// unknown and deferring (#1705). Injectable only so tests don't have to spend the real
+    /// two seconds; production never passes it.
+    private let tokenProbeTimeout: Duration
     /// Site to retry once the user takes the action a parked deploy is waiting on — either
     /// signing in to Cloudflare via OAuth (`signInWithCloudflare`) or renaming a taken Worker name
     /// (`renameWorkerAndRetry`). `nil` outside both prompt flows. Carries the container control
@@ -212,6 +216,7 @@ final class DeployModel {
         summarizer: any DeployFailureSummarizing = DeploySummarizerFactory.makeDefault(),
         suddenTerminationController: SuddenTerminationController = .shared,
         tokenAvailabilityOverride: (() -> Bool)? = nil,
+        tokenProbeTimeout: Duration = CloudflareTokenAvailability.defaultTimeout,
         contentGraph: SiteContentGraph = SiteContentGraph(),
         workerCatalog: @escaping @Sendable () async -> [WorkerDescriptor] = { [] }
     ) {
@@ -229,6 +234,7 @@ final class DeployModel {
         self.summarizer = summarizer
         self.suddenTerminationController = suddenTerminationController
         self.tokenAvailabilityOverride = tokenAvailabilityOverride
+        self.tokenProbeTimeout = tokenProbeTimeout
         self.contentGraph = contentGraph
         self.workerCatalog = workerCatalog
     }
@@ -346,7 +352,17 @@ final class DeployModel {
     ) async -> InvisiblePublishQueue.Result {
         guard !isRunning else { return .deferred(reason: "another site operation is running") }
         guard !awaitingUserAction else { return .deferred(reason: "a deploy prompt is waiting for a response") }
-        guard hasUsableToken() else { return .deferred(reason: "Cloudflare credentials are not configured") }
+        switch await tokenAvailability() {
+        case .available:
+            break
+        case .unavailable:
+            return .deferred(reason: "Cloudflare credentials are not configured")
+        case .undetermined:
+            // The Keychain is busy — almost always an unanswered authorization panel. Deliberately
+            // not reported as "not configured": a credential may well be stored, and the queue's
+            // pending marker has to survive so the publish happens once the panel is answered.
+            return .deferred(reason: "the system keychain hasn't answered — it may be waiting on an authorization prompt")
+        }
         guard hasChosenLicense(siteDirectory: siteDirectory) else {
             return .deferred(reason: "a content license hasn't been chosen yet")
         }
@@ -670,32 +686,38 @@ final class DeployModel {
     }
 
     /// True if the env var, a stored OAuth credential, or the legacy pasted-token slot currently
-    /// holds a usable Cloudflare credential. Keychain errors are treated as "no token" — the
-    /// user can recover by signing in again. A stored OAuth credential counts as usable unless
-    /// it's *definitely* unrefreshable (expired with no refresh token, e.g. because Cloudflare's
-    /// OAuth doesn't issue one for this client) — in that dead-end case this falls through to the
-    /// next check instead, so the sign-in sheet re-presents rather than deploys failing forever
-    /// with a generic "no token" error. An expired credential that still has a refresh token is
-    /// left to `CloudflareDeployTarget.keychainTokenSource` to actually refresh (this is a presence check
-    /// only — no refresh attempted here, since it's synchronous).
+    /// holds a usable Cloudflare credential. The rule itself lives in
+    /// ``CloudflareTokenAvailability`` so this and `tokenAvailability()` below can never drift:
+    /// Keychain errors read as "no token" (the user recovers by signing in again), and a stored
+    /// OAuth credential counts as usable unless it's *definitely* unrefreshable — an expired one
+    /// that still has a refresh token is left to `CloudflareDeployTarget.keychainTokenSource` to
+    /// actually refresh, since this is a presence check only.
+    ///
+    /// - Important: this **blocks** — on macOS the Keychain read can park in securityd's
+    ///   authorization panel. Only the foreground, user-initiated entry points call it, where the
+    ///   window is already on screen and the panel is both visible and expected. Background and
+    ///   window-restore paths must use `tokenAvailability()` instead (#1705).
     private func hasUsableToken() -> Bool {
         if let tokenAvailabilityOverride {
             return tokenAvailabilityOverride()
         }
-        if let env = ProcessInfo.processInfo.environment["CLOUDFLARE_API_TOKEN"], !env.isEmpty {
-            return true
+        return CloudflareTokenAvailability.evaluate(secretStore: keychain)
+    }
+
+    /// The same check as `hasUsableToken()`, run off the main actor and given up on after
+    /// `tokenProbeTimeout` (#1705).
+    ///
+    /// `SecItemCopyMatching` blocks and can present securityd's authorization panel — reliably so
+    /// on an ad-hoc-signed Debug build, where every rebuild's fresh code signature invalidates the
+    /// item's ACL. Called synchronously from the main actor at window restore, that stopped the
+    /// whole app rendering: no window, no beachball, nothing to click. Reporting `.undetermined`
+    /// rather than guessing keeps the invisible publish's pending marker intact, so the queue
+    /// simply retries once the panel is answered.
+    private func tokenAvailability() async -> CloudflareTokenAvailability.Outcome {
+        if let tokenAvailabilityOverride {
+            return tokenAvailabilityOverride() ? .available : .unavailable
         }
-        if let credential = try? keychain.readCloudflareOAuthCredential() {
-            let isDefinitelyUnrefreshable = credential.refreshToken == nil
-                && (credential.expiresAt.map { $0 <= Date() } ?? false)
-            if !isDefinitelyUnrefreshable {
-                return true
-            }
-        }
-        if let stored = (try? keychain.readCloudflareToken()) ?? nil, !stored.isEmpty {
-            return true
-        }
-        return false
+        return await CloudflareTokenAvailability.probe(secretStore: keychain, timeout: tokenProbeTimeout)
     }
 
     /// Whether `siteDirectory`'s `licensing.json` records an explicit license choice (#999). A
