@@ -46,7 +46,10 @@ jobs:
             build-mode: manual
             runs-on: macos-26
     runs-on: ${{ matrix.runs-on }}
-    timeout-minutes: ${{ matrix.language == 'swift' && 45 || 10 }}
+    # Swift's portable-target build + CodeQL analysis has been landing at 42-46 minutes as the
+    # portable targets grow, so 45 was too tight — three consecutive runs on #1680 timed out
+    # mid-"Perform CodeQL Analysis" at 45m18s-45m43s (#1710). 60 gives real headroom.
+    timeout-minutes: ${{ matrix.language == 'swift' && 60 || 10 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
