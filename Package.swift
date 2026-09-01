@@ -13,35 +13,6 @@ let strictConcurrency: [SwiftSetting] = [
     .enableUpcomingFeature("StrictConcurrency")
 ]
 
-// #541: an Xcode 27 beta SDK can add symbols (e.g. FoundationModels' `Attachment(imageURL:orientation:)`)
-// that the installed macOS 27 beta seed doesn't yet export. Without this, dyld aborts at process
-// launch for *any* binary that transitively links AnglesiteCore — including every `swift test`
-// bundle — since the missing symbol is resolved eagerly at load time. Weak-linking the framework
-// defers that resolution: the binary launches, and only the (narrow, vision-only) code path that
-// actually calls the missing symbol would fail if invoked on a mismatched OS/SDK pair.
-// `.when(platforms: [.macOS])`: `-weak_framework` is a Darwin ld option — ld.gold on the Linux
-// CI leg rejects it, and AnglesiteBridgeCoreTests (which carries this setting) is in the
-// off-Darwin portable target set, so the flag must never reach a non-Darwin link.
-//
-// #1495: FoundationModelAssistant's SpotlightSearchTool path imports CoreSpotlight alongside
-// FoundationModels in the same file, which triggers Swift's `_CoreSpotlight_FoundationModels`
-// cross-import overlay — a second macOS-27-only framework with the identical SDK-ahead-of-OS
-// exposure as FoundationModels itself (confirmed live during #855's CI work, commit 50c8875c on
-// claude/issue-855-xcode27-lane). compiler(>=6.4) guards it because the overlay doesn't exist in
-// pre-Xcode-27 SDKs, so an older toolchain would fail to find the framework to weak-link.
-let weakLinkFoundationModels: [LinkerSetting] = {
-    var frameworks = ["FoundationModels"]
-    #if compiler(>=6.4)
-    frameworks.append("_CoreSpotlight_FoundationModels")
-    #endif
-    return [
-        .unsafeFlags(
-            frameworks.flatMap { ["-Xlinker", "-weak_framework", "-Xlinker", $0] },
-            .when(platforms: [.macOS])
-        )
-    ]
-}()
-
 // Anywhere runtime (#1208): stasel/WebRTC vends a real dynamic .xcframework (unlike the
 // source packages above), and SwiftPM's build system places its resolved WebRTC.framework
 // directly in .build/<config>/Products/<config>/ — a *sibling* of a flat executable product,
@@ -57,25 +28,6 @@ let webRTCTestRPath: [LinkerSetting] = [
         ["-Xlinker", "-rpath", "-Xlinker", "@loader_path/../../.."],
         .when(platforms: [.macOS])
     )
-]
-
-// AnglesiteCore and AnglesiteAppCore (ChatView.swift) `import` FoundationModels. Swift embeds a *hard*
-// `-framework FoundationModels` autolink hint in its compiled object code, which wins over the
-// app target's explicit `-weak_framework FoundationModels` (project.yml) when the final app
-// binary is linked — so the app still hard-links FoundationModels despite that flag. Disabling
-// the autolink hint at the source makes the app target's weak-link flag the only (and effective)
-// link request. See #541.
-//
-// #1495: FoundationModelAssistant.swift's SpotlightSearchTool path also autolinks the
-// `_CoreSpotlight_FoundationModels` cross-import overlay (see weakLinkFoundationModels above) —
-// suppress its hard autolink hint the same way. Nothing references the overlay's API outside
-// that one call site (repo-wide grep), so dropping the hint is behavior-neutral; on pre-Xcode-27
-// SDKs the overlay doesn't exist and the flag is inert.
-let disableFoundationModelsAutolink: [SwiftSetting] = [
-    .unsafeFlags([
-        "-Xfrontend", "-disable-autolink-framework", "-Xfrontend", "FoundationModels",
-        "-Xfrontend", "-disable-autolink-framework", "-Xfrontend", "_CoreSpotlight_FoundationModels",
-    ])
 ]
 
 // AnglesiteContainer imports apple/containerization — a Swift 6.2, macOS-15+ package that pulls in
@@ -135,7 +87,7 @@ var packageTargets: [Target] = [
         name: "AnglesiteCore",
         dependencies: anglesiteCoreDependencies,
         path: "Sources/AnglesiteCore",
-        swiftSettings: strictConcurrency + disableFoundationModelsAutolink
+        swiftSettings: strictConcurrency
     ),
     // Webview-agnostic message schema + overlay-bundle lookup (cross-platform port design §6
     // "AnglesiteBridgeCore split") — no WebKit import, so it's portable off-Darwin. Each
@@ -175,8 +127,7 @@ var packageTargets: [Target] = [
         name: "AnglesiteLANHost",
         dependencies: ["AnglesiteCore"],
         path: "Sources/AnglesiteLANHost",
-        swiftSettings: strictConcurrency,
-        linkerSettings: weakLinkFoundationModels
+        swiftSettings: strictConcurrency
     ),
     // Test-only support shared across the test targets (e.g. the e2e prerequisite probes used by
     // both AnglesiteCoreTests and AnglesiteBridgeTests). Not exposed as a `.library` product, so
@@ -209,8 +160,7 @@ var packageTargets: [Target] = [
         // and byte-for-byte file contents in the test bundle, matching the convention other
         // targets in this file use for their own `Fixtures/` (see AnglesiteBridgeCoreTests below).
         resources: [.copy("Fixtures")],
-        swiftSettings: strictConcurrency,
-        linkerSettings: weakLinkFoundationModels
+        swiftSettings: strictConcurrency
     ),
     // Glibc-safe subset of what used to live in AnglesiteCoreTests (#1284): rather than
     // purity-sweep the whole ~300-file AnglesiteCoreTests target (most of it touches Darwin-only
@@ -223,8 +173,7 @@ var packageTargets: [Target] = [
         name: "AnglesiteCorePortableTests",
         dependencies: ["AnglesiteCore"],
         path: "Tests/AnglesiteCorePortableTests",
-        swiftSettings: strictConcurrency,
-        linkerSettings: weakLinkFoundationModels
+        swiftSettings: strictConcurrency
     ),
     .testTarget(
         name: "AnglesiteBridgeCoreTests",
@@ -236,26 +185,19 @@ var packageTargets: [Target] = [
         // has at least one real declared resource, so Fixtures/placeholder.txt exists purely
         // to trigger it (Tests/AnglesiteBridgeCoreTests/Fixtures/placeholder.txt).
         resources: [.copy("Fixtures")],
-        swiftSettings: strictConcurrency,
-        // Depends on AnglesiteCore, so the bundle needs the same #541 weak link as its siblings —
-        // without it dyld can't load the bundle on an SDK/OS mangling-skewed Xcode 27 beta host.
-        linkerSettings: weakLinkFoundationModels
+        swiftSettings: strictConcurrency
     ),
     .testTarget(
         name: "AnglesiteBridgeTests",
         dependencies: ["AnglesiteBridge", "AnglesiteTestSupport"],
         path: "Tests/AnglesiteBridgeTests",
-        swiftSettings: strictConcurrency,
-        linkerSettings: weakLinkFoundationModels
+        swiftSettings: strictConcurrency
     ),
     .testTarget(
         name: "AnglesiteIOSTests",
         dependencies: ["AnglesiteIOS", "AnglesiteSiteModel", "AnglesiteCore"],
         path: "Tests/AnglesiteIOSTests",
-        swiftSettings: strictConcurrency,
-        // Transitively depends on AnglesiteCore (via AnglesiteIOS), so it needs the same #541
-        // weak-link workaround as AnglesiteBridgeTests/AnglesiteBridgeCoreTests above.
-        linkerSettings: weakLinkFoundationModels
+        swiftSettings: strictConcurrency
     )
 ]
 
@@ -298,8 +240,7 @@ if includeContainer {
                 .product(name: "Containerization", package: "containerization")
             ],
             path: "Sources/AnglesiteContainerProbe",
-            swiftSettings: strictConcurrency,
-            linkerSettings: weakLinkFoundationModels
+            swiftSettings: strictConcurrency
         )
     )
     // The actual Anywhere-runtime helper CLI (#1208 P1, Task 7): links AnglesiteContainer
@@ -319,8 +260,7 @@ if includeContainer {
             name: "anglesite-remote-helper",
             dependencies: ["AnglesiteRemote", "AnglesiteCore", "AnglesiteContainer", "AnglesiteP2P"],
             path: "Sources/anglesite-remote-helper",
-            swiftSettings: strictConcurrency,
-            linkerSettings: weakLinkFoundationModels
+            swiftSettings: strictConcurrency
         )
     )
 }
@@ -342,10 +282,7 @@ packageTargets.append(
         ],
         path: "Sources/AnglesiteApp",
         exclude: ["AnglesiteApp.swift", "LiveSiteRuntimeFactory.swift"],
-        // #541: ChatView.swift imports FoundationModels, so without this its object code embeds a
-        // hard `-framework FoundationModels` autolink hint that overrides the test bundle's
-        // weak-link flag below (same mechanism as AnglesiteCore's setting).
-        swiftSettings: strictConcurrency + [.define("ANGLESITE_MAS")] + disableFoundationModelsAutolink
+        swiftSettings: strictConcurrency + [.define("ANGLESITE_MAS")]
     )
 )
 packageTargets.append(
@@ -353,8 +290,7 @@ packageTargets.append(
         name: "AnglesiteAppTests",
         dependencies: ["AnglesiteAppCore", "AnglesiteTestSupport"],
         path: "Tests/AnglesiteAppTests",
-        swiftSettings: strictConcurrency,
-        linkerSettings: weakLinkFoundationModels
+        swiftSettings: strictConcurrency
     )
 )
 packageTargets.append(
@@ -364,8 +300,7 @@ packageTargets.append(
         // is tested against; see the note on `AnglesiteIntents`' own dependency on it.
         dependencies: ["AnglesiteIntents", "AnglesiteCore", "AnglesiteSiteModel", "AnglesiteIOS"],
         path: "Tests/AnglesiteIntentsTests",
-        swiftSettings: strictConcurrency,
-        linkerSettings: weakLinkFoundationModels
+        swiftSettings: strictConcurrency
     )
 )
 #endif
@@ -388,8 +323,7 @@ if includeContainer && ProcessInfo.processInfo.environment["ANGLESITE_CONTAINER_
                 .product(name: "ContainerizationExtras", package: "containerization")
             ],
             path: "Tests/AnglesiteContainerLocalTests",
-            swiftSettings: strictConcurrency,
-            linkerSettings: weakLinkFoundationModels
+            swiftSettings: strictConcurrency
         )
     )
 }
@@ -408,23 +342,18 @@ packageTargets.append(contentsOf: [
         path: "Sources/AnglesiteP2P",
         swiftSettings: strictConcurrency
     ),
-    // Both final-link products below transitively depend on AnglesiteCore (via AnglesiteP2P),
-    // so they need the same #541 weak-link workaround as AnglesiteLANHost/AnglesiteCoreTests/etc:
-    // an Xcode 27 beta SDK can add symbols the installed macOS 27 beta runtime doesn't export yet,
-    // and dyld resolves FoundationModels eagerly at load time without this.
     .executableTarget(
         name: "anglesite-p2p-demo",
         dependencies: ["AnglesiteP2P"],
         path: "Sources/anglesite-p2p-demo",
-        swiftSettings: strictConcurrency,
-        linkerSettings: weakLinkFoundationModels
+        swiftSettings: strictConcurrency
     ),
     .testTarget(
         name: "AnglesiteP2PTests",
         dependencies: ["AnglesiteP2P"],
         path: "Tests/AnglesiteP2PTests",
         swiftSettings: strictConcurrency,
-        linkerSettings: weakLinkFoundationModels + webRTCTestRPath
+        linkerSettings: webRTCTestRPath
     ),
     // Anywhere runtime P1 (#1208): the Mac helper's implementation library —
     // LoginItemRegistering today, RemoteSessionRegistry/RemoteContainerSession/etc. added by
@@ -451,7 +380,7 @@ packageTargets.append(contentsOf: [
         dependencies: ["AnglesiteRemote", "AnglesiteCore"],
         path: "Tests/AnglesiteRemoteTests",
         swiftSettings: strictConcurrency,
-        linkerSettings: weakLinkFoundationModels + webRTCTestRPath
+        linkerSettings: webRTCTestRPath
     ),
 ])
 #endif
