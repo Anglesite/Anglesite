@@ -6,10 +6,11 @@ import AnglesiteCore
 struct SiteNavigatorView: View {
     @Bindable var model: SiteNavigatorModel
     /// True while the WYSIWYG canvas holds real keyboard focus elsewhere in the window (#1423) —
-    /// while true, this view's `.onDeleteCommand` is withheld so exactly one `.onDeleteCommand` is
-    /// attached to the window's tree at a time. See `SiteWindow.previewPane(for:)`'s matching
-    /// canvas-side gate and `onDeleteCommand(active:perform:)`'s doc comment (`PreviewView.swift`)
-    /// for why two simultaneously-attached handlers made AppKit's Edit ▸ Delete menu unreliable.
+    /// while true, this view's `.onDeleteCommand` AND its `.background`-attached ⌘⌫ Button (#1715)
+    /// are both withheld, so nothing here competes with the canvas's own delete/text-editing
+    /// handling for the keystroke. See `SiteWindow.previewPane(for:)`'s matching canvas-side gate
+    /// and `onDeleteCommand(active:perform:)`'s doc comment (`PreviewView.swift`) for why two
+    /// simultaneously-attached handlers made AppKit's Edit ▸ Delete menu unreliable.
     var canvasHasKeyboardFocus: Bool = false
     var onDeleteRequested: (NavigatorItem) -> Void
     var onDuplicateRequested: (NavigatorItem) -> Void
@@ -63,14 +64,25 @@ struct SiteNavigatorView: View {
         .background {
             // ⌘⌫ as a second key equivalent for the same delete action (#989) — a view-level key
             // command, not a Commands-scene item, so it doesn't add another Edit-menu row.
-            Button("") {
-                if let item = model.deletableSelection() {
-                    onDeleteRequested(item)
+            // Gated on `canvasHasKeyboardFocus` (#1715) exactly like `.onDeleteCommand` above: this
+            // predates that gate (#989 shipped before #1423) and was never updated to respect it,
+            // so ⌘⌫ typed into the WYSIWYG canvas — e.g. mid-edit in a contentEditable title —
+            // always deleted the Navigator's selected item instead of editing text, regardless of
+            // where real keyboard focus was. `.disabled` alone isn't enough: a disabled Button
+            // still claims its shortcut and no-ops, which would swallow ⌘⌫ instead of letting it
+            // fall through to the canvas's own text editing. Not attaching the modifier at all
+            // (same conditional-attachment shape as `onDeleteCommand(active:perform:)`,
+            // `PreviewView.swift`) is what actually frees the keystroke.
+            if !canvasHasKeyboardFocus {
+                Button("") {
+                    if let item = model.deletableSelection() {
+                        onDeleteRequested(item)
+                    }
                 }
+                .keyboardShortcut(.delete, modifiers: [.command])
+                .hidden()
+                .accessibilityHidden(true)
             }
-            .keyboardShortcut(.delete, modifiers: [.command])
-            .hidden()
-            .accessibilityHidden(true)
         }
         .alert(
             "Rename failed",
