@@ -7,6 +7,27 @@
 the identical `SplitViewChildController.hostingView(_:didUpdateMinSize:maxSize:)` →
 `_postWindowNeedsUpdateConstraints` fingerprint. Stages 1 and 2 are active.
 
+**Stage 2 verdict (2026-08-31, same day): FALSIFIED.** The firewall was built
+exactly as specified (container `NSView`, frame-based hosting, no intrinsic size,
+pure-function `sizeThatFits`; presence in the running binary verified — 30
+`WebViewLayoutFirewall` symbols in `Anglesite.debug.dylib`), and the #1696 repro
+still crashed 5/5 with the identical `SplitViewChildController` fingerprint.
+Implementation and adoption were reverted per this doc's no-variant-iterating
+contract (commits `9be5288c`/`45355095`, reverted in `a364c836`/`1ffa8bf2` — kept
+in history as the falsification record).
+
+**What the falsification sharpens:** with the platform view's sizing metrics fully
+pinned at both the AppKit and SwiftUI layers, the loop still runs — so the
+negotiation feedback is internal to `NavigationSplitView`/`.inspector()`'s own
+`NSHostingView` ↔ `SplitViewChildController` machinery during the detail-column
+swap, and the representable's metrics were never the food. Whether the WKWebView
+matters *at all* is now an open question: the discriminating diagnostic (same
+Graph → Open File takeover into the plain `TextEditor` path — e.g. a `.ts` node —
+zero WKWebView involved) is queued but needs an unlocked GUI session. If that
+crashes too, this issue's WKWebView framing is wrong and the Stage 3 discussion is
+about the takeover swap itself; if it survives, WKWebView's process-backed layer
+timing is implicated as the trigger. Run it before scoping Stage 3.
+
 Two side findings from the Stage 0 pass, tracked separately from this design:
 Beta 7's saved toolbar customization (`"NSToolbar Configuration site"`, containing
 SwiftUI-internal item identifiers) crashes the app at launch under Beta 8's
