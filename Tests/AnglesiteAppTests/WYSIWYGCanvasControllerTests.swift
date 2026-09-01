@@ -216,7 +216,7 @@ struct WYSIWYGCanvasControllerTests {
         #expect(WYSIWYGCanvasController.unmountScript == "window.__anglesiteWysiwygMount?.unmount?.()")
     }
 
-    @Test("insertBlock inserts the palette entry's component at the page root")
+    @Test("insertBlock inserts the palette entry's component at the page root and selects it")
     func insertBlockFromPalette() async {
         let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
         let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
@@ -227,6 +227,7 @@ struct WYSIWYGCanvasControllerTests {
         #expect(controller.model.rootIds.count == 1)
         let insertedId = controller.model.rootIds[0]
         #expect(controller.model.blocks[insertedId]?.componentName == "p")
+        #expect(controller.selectedBlockId == insertedId)
     }
 
     @Test("insertBlockAndSelect selects the new block on success")
