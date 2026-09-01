@@ -4354,10 +4354,16 @@
     "Words or phrases to avoid" : {
 
     },
+    "Worker features aren't available for this site — it publishes to GitHub Pages, which doesn't run Cloudflare Workers. Switch its publishing destination back to Cloudflare to use them." : {
+
+    },
     "Worker name" : {
 
     },
     "Worker name already in use" : {
+
+    },
+    "Workers Unavailable" : {
 
     },
     "Workers are unavailable for this site — its package configuration folder couldn't be found." : {

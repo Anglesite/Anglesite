@@ -956,7 +956,31 @@ struct PlistEditorView: View {
         )
     }
 
+    /// The Workers tab stays in the tab list on every site, including hosts that can't run
+    /// Workers (#1683) — a tab that vanishes teaches the owner nothing, and leaves them hunting
+    /// for a feature they read about. Only its *body* changes: the catalog and Inbox Capture are
+    /// replaced by the reason they're missing, in the place the owner went looking for them.
+    @ViewBuilder
     private var workersTab: some View {
+        if model.supportsWorkers {
+            workersCatalogTab
+        } else {
+            workersUnavailableTab
+        }
+    }
+
+    private var workersUnavailableTab: some View {
+        ContentUnavailableView {
+            Label("Workers Unavailable", systemImage: "bolt.slash")
+        } description: {
+            // Already localized by `String(localized:)`, so this takes `Text`'s verbatim
+            // `StringProtocol` overload rather than the `LocalizedStringKey` one.
+            Text(PlistEditorModel.workersUnavailableExplanation)
+        }
+        .frame(maxWidth: .infinity, alignment: .top)
+    }
+
+    private var workersCatalogTab: some View {
         VStack(alignment: .leading, spacing: 14) {
             HStack(spacing: 8) {
                 Button {
