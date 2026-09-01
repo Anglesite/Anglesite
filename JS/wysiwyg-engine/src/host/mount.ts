@@ -5,7 +5,7 @@ import { KeyboardNavigation } from "../keyboard-nav.js";
 import { AccessibilityAnnotator } from "../accessibility.js";
 import { NativeHostTransport } from "./native-host-transport.js";
 import { DragReorderController, computeDropTarget } from "../drag-drop.js";
-import { computeHandleRect } from "../selection.js";
+import { computeHandleRect, findBlockElement } from "../selection.js";
 import { BLOCK_ID_ATTR } from "../hit-test.js";
 import { ROOT_PARENT_ID } from "../types.js";
 import type { BlockId, BlockModel } from "../types.js";
@@ -27,7 +27,7 @@ declare global {
     __anglesiteWysiwygKeyboardNav?: KeyboardNavigation;
     __anglesiteWysiwygAccessibility?: AccessibilityAnnotator;
     __anglesiteWysiwygMount?: {
-      mount: (initialModel: BlockModel, displayNames?: Record<string, string>) => WysiwygEngine;
+      mount: (initialModel: BlockModel, displayNames?: Record<string, string>, selectedBlockId?: BlockId | null) => WysiwygEngine;
       unmount: () => void;
       dropTargetAt: (x: number, y: number) => { parentId: string; slot: string; index: number };
     };
@@ -60,6 +60,28 @@ function wireSelection(engine: WysiwygEngine): () => void {
     document.removeEventListener("click", onClick);
     unsubscribe();
   };
+}
+
+/**
+ * Scrolls the selected block's element into view on every selection change (#1700 — the scroll
+ * half of #1697/#1698's native-initiated selection, deliberately left out of that fix pending its
+ * own investigation into timing). `block: "nearest"`/`inline: "nearest"` makes this a no-op when
+ * the element is already visible, so an ordinary click-to-select (the block is on-screen by
+ * definition — the owner just clicked it) never fights the owner's existing scroll position; only
+ * a selection that lands off-screen — a block inserted below the fold, or keyboard nav walking past
+ * the viewport edge — actually moves the page. A missing element (selection cleared, or the DOM
+ * hasn't caught up with a very recent insert yet) is a harmless no-op via the optional chain, same
+ * as every other `findBlockElement` caller in this file.
+ */
+function wireScrollIntoView(engine: WysiwygEngine): () => void {
+  return engine.onEvent((event) => {
+    if (event.type !== "selection-changed" || !event.blockId) return;
+    // `?.` on the method itself, not just the element: jsdom (this file's own test environment)
+    // has no layout engine and doesn't implement `Element.scrollIntoView` at all, unlike every
+    // real browser engine (including WebKit/WKWebView, this code's actual runtime) — see
+    // mount-scroll.test.ts's header comment for the confirmed jsdom gap.
+    findBlockElement(event.blockId)?.scrollIntoView?.({ block: "nearest", inline: "nearest" });
+  });
 }
 
 /**
@@ -213,9 +235,10 @@ function renderDropIndicator(): { update: (target: DropTarget | null) => void; d
 // window globals mount() sets) — mirrors no existing precedent in this file because mount.ts had
 // no internal functions worth unit-testing before this task; kept to the functions that need it
 // rather than exporting everything.
-export const __testables = { wireSelection, renderSelectionHandle, renderDropIndicator };
+export const __testables = { wireSelection, wireScrollIntoView, renderSelectionHandle, renderDropIndicator };
 
 let disposeSelection: (() => void) | null = null;
+let disposeScroll: (() => void) | null = null;
 let disposeHandle: (() => void) | null = null;
 let dropIndicator: { update: (target: DropTarget | null) => void; dispose: () => void } | null = null;
 let dragReorder: DragReorderController | null = null;
@@ -227,6 +250,8 @@ let dragReorder: DragReorderController | null = null;
 function disposeMounted(): void {
   disposeSelection?.();
   disposeSelection = null;
+  disposeScroll?.();
+  disposeScroll = null;
   disposeHandle?.();
   disposeHandle = null;
   // Tears down `dragReorder`'s own `pointermove`/`pointerup` document listeners (drag-drop.ts).
@@ -256,7 +281,7 @@ function disposeMounted(): void {
 // WysiwygEngine needs an initialModel, which is only known once the native host has fetched one —
 // so this just exposes a `mount()` entry point the Swift host calls via `evaluateJavaScript`.
 window.__anglesiteWysiwygMount = {
-  mount(initialModel: BlockModel, displayNames: Record<string, string> = {}): WysiwygEngine {
+  mount(initialModel: BlockModel, displayNames: Record<string, string> = {}, selectedBlockId: BlockId | null = null): WysiwygEngine {
     // Idempotent: dispose any already-mounted engine/RichTextEditor/QualityGateChips first (#1225
     // final-review round 2, Finding B) — see the original comment on this behavior for why.
     disposeMounted();
@@ -289,11 +314,22 @@ window.__anglesiteWysiwygMount = {
     // stream. A second, keyboard-specific posting subscription here would just double-post on
     // every keyboard-driven selection change; keeping one funnel is both simpler and correct.
     disposeSelection = wireSelection(engine);
+    disposeScroll = wireScrollIntoView(engine);
     dropIndicator = renderDropIndicator();
     // Real callback, not a no-op: `DragReorderController` already computes the live drop target on
     // every `pointermove` and hands it to `onIndicator` precisely so a host can draw it.
     dragReorder = new DragReorderController(engine, (target) => dropIndicator?.update(target), document);
     disposeHandle = renderSelectionHandle(engine, dragReorder);
+    // Restores native's own selection (`WYSIWYGCanvasController.selectedBlockId`) into this *new*
+    // engine's fresh `SelectionState`, now that every selection-reacting listener above is already
+    // wired — a real navigation (an HMR reload, ⌘R, a route change) discards the previous engine
+    // entirely, so without this every one of those listeners (the drag handle, `AccessibilityAnnotator`,
+    // `wireScrollIntoView` above) would silently sit on an unselected canvas even though native still
+    // thinks a block is selected. Safe to call unconditionally: `initialModel` is native's own current
+    // model, captured after the op that set `selectedBlockId` already applied
+    // (`WYSIWYGCanvasController.mountScript(for:displayNames:selectedBlockId:)`'s doc comment), so a
+    // non-null `selectedBlockId` is guaranteed to name a block this model actually has.
+    engine.selection.select(selectedBlockId);
     return engine;
   },
   // The counterpart to `mount` — called by `WYSIWYGCanvasController.unmountEngine()` (#1225

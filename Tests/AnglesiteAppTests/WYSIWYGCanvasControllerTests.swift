@@ -189,7 +189,7 @@ struct WYSIWYGCanvasControllerTests {
         let model = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["b1"], blocks: ["b1": node])
         let displayNames = ["p": "Paragraph"]
 
-        let script = WYSIWYGCanvasController.mountScript(for: model, displayNames: displayNames)
+        let script = WYSIWYGCanvasController.mountScript(for: model, displayNames: displayNames, selectedBlockId: "b1")
 
         let prefix = "window.__anglesiteWysiwygMount?.mount("
         #expect(script.hasPrefix(prefix))
@@ -200,15 +200,38 @@ struct WYSIWYGCanvasControllerTests {
         // this test, round-trip both JSON blobs back through their types instead of string-comparing
         // against a freshly-encoded reference. `mount.ts`'s wrapper is the only place a bare ", "
         // (comma-space) can appear in this string — the default `JSONEncoder` output has no
-        // whitespace around any of its own commas — so splitting on it isolates the two arguments.
+        // whitespace around any of its own commas, and `jsStringLiteral`'s own escaping never
+        // produces one either — so splitting on it isolates the three arguments in order.
         let inner = script.dropFirst(prefix.count).dropLast()
-        let separator = try #require(inner.range(of: ", "), "expected a ', ' separator between the two JSON arguments")
-        let modelJSON = String(inner[inner.startIndex..<separator.lowerBound])
-        let namesJSON = String(inner[separator.upperBound...])
+        let firstSeparator = try #require(inner.range(of: ", "), "expected a ', ' separator before the display-names argument")
+        let modelJSON = String(inner[inner.startIndex..<firstSeparator.lowerBound])
+        let rest = inner[firstSeparator.upperBound...]
+        let secondSeparator = try #require(rest.range(of: ", "), "expected a ', ' separator before the selectedBlockId argument")
+        let namesJSON = String(rest[rest.startIndex..<secondSeparator.lowerBound])
+        let selectedBlockIdJSON = String(rest[secondSeparator.upperBound...])
         let decodedModel = try JSONDecoder().decode(BlockModel.self, from: Data(modelJSON.utf8))
         let decodedNames = try JSONDecoder().decode([String: String].self, from: Data(namesJSON.utf8))
         #expect(decodedModel == model)
         #expect(decodedNames == displayNames)
+        #expect(selectedBlockIdJSON == "\"b1\"")
+    }
+
+    @Test("mountScript(for:displayNames:selectedBlockId:) passes null when nothing is selected")
+    func mountScriptNullSelectionWhenNoneGiven() {
+        let model = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+
+        let script = WYSIWYGCanvasController.mountScript(for: model, displayNames: [:])
+
+        #expect(script.hasSuffix(", null)"))
+    }
+
+    @Test("mountScript(for:displayNames:selectedBlockId:) passes the selected block id as a JS string literal")
+    func mountScriptEncodesSelectedBlockId() {
+        let model = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+
+        let script = WYSIWYGCanvasController.mountScript(for: model, displayNames: [:], selectedBlockId: "b1")
+
+        #expect(script.hasSuffix(", \"b1\")"))
     }
 
     @Test("unmountScript is the literal unmount() call")

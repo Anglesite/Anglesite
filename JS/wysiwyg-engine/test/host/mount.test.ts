@@ -150,6 +150,33 @@ describe("wysiwyg engine host mount entry point (#1225)", () => {
    * `engine.hitTest()` resolve it naturally. Following that file's own documented workaround, stub
    * `elementFromPoint` directly so `hitTest()` resolves to the fixture block.
    */
+  /**
+   * #1700: restores native's `selectedBlockId` into the freshly-mounted engine's `SelectionState`.
+   * Without this, a real navigation (an HMR reload, ⌘R, a route change) — which discards the
+   * previous engine and mounts a brand new one with an empty selection — would silently drop the
+   * selection `WYSIWYGCanvasController.insertBlockAndSelect` (#1697/#1698) pushed into the engine
+   * that existed a moment before the reload, leaving the canvas unselected even though native still
+   * thinks a block is selected.
+   */
+  it("mount() restores the given selectedBlockId into the fresh engine's selection", () => {
+    const oneBlockModel: BlockModel = {
+      path: "src/pages/index.astro",
+      version: "v0",
+      rootIds: ["b1"],
+      blocks: { b1: { id: "b1", kind: "text", componentName: "p", props: {}, slots: {}, sourceSpan: [0, 0], richText: [] } },
+    };
+
+    const engine = window.__anglesiteWysiwygMount!.mount(oneBlockModel, {}, "b1");
+
+    expect(engine.selection.current).toBe("b1");
+  });
+
+  it("mount() with no selectedBlockId argument leaves the fresh engine unselected", () => {
+    const engine = window.__anglesiteWysiwygMount!.mount(model, {});
+
+    expect(engine.selection.current).toBeNull();
+  });
+
   it("contextmenu updates engine.selection to the right-clicked block", () => {
     const oneBlockModel: BlockModel = {
       path: "src/pages/index.astro",
