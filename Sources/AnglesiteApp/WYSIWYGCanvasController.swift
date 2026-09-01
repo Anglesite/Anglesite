@@ -323,7 +323,7 @@ final class WYSIWYGCanvasController {
     /// Edit Page menu item against an already-`.ready` preview) always has a loaded page.
     func mountEngine() {
         guard let webView else { return }
-        webView.evaluateJavaScript(Self.mountScript(for: model, displayNames: blockDisplayNames))
+        webView.evaluateJavaScript(Self.mountScript(for: model, displayNames: blockDisplayNames, selectedBlockId: selectedBlockId))
     }
 
     /// The `unmount()` counterpart — disposes the mounted engine/rich-text-editor and clears their
@@ -336,20 +336,41 @@ final class WYSIWYGCanvasController {
         webView.evaluateJavaScript(Self.unmountScript)
     }
 
-    /// Builds the `mount(...)` `evaluateJavaScript` string for `model` and `displayNames` — factored
-    /// out of `mountEngine()` so it's testable without a real `WKWebView`. `displayNames` maps
-    /// `componentName` -> the owner-facing name VoiceOver announces for that block
-    /// (`AccessibilityAnnotator`'s `displayName(_:)` on the JS side falls back to the raw
-    /// `componentName` for anything not in this map — see `blockPalette`'s own doc comment for why the
-    /// map is still a small interim stand-in). Returns a no-op script if either fails to encode
-    /// (unreachable in practice — both are plain `Codable`/`Encodable` values).
-    static func mountScript(for model: BlockModel, displayNames: [String: String]) -> String {
+    /// Builds the `mount(...)` `evaluateJavaScript` string for `model`, `displayNames`, and the
+    /// native-tracked `selectedBlockId` — factored out of `mountEngine()` so it's testable without a
+    /// real `WKWebView`. `displayNames` maps `componentName` -> the owner-facing name VoiceOver
+    /// announces for that block (`AccessibilityAnnotator`'s `displayName(_:)` on the JS side falls
+    /// back to the raw `componentName` for anything not in this map — see `blockPalette`'s own doc
+    /// comment for why the map is still a small interim stand-in).
+    ///
+    /// `selectedBlockId` closes the gap that left `insertBlockAndSelect`'s `pushSelectionToEngine`
+    /// call (#1697/#1698) silently lost on any page longer than the viewport: a real navigation
+    /// (`PreviewView.Coordinator.webView(_:didFinish:)`'s doc comment — an HMR reload the astro dev
+    /// server triggers after the op's file write, a route change, ⌘R) discards all page-injected JS
+    /// state and re-mounts a *brand new* engine with a fresh, empty `SelectionState`, independently of
+    /// whether native pushed a selection into the *previous* engine instance moments earlier. Without
+    /// this, the newly-inserted block's DOM element usually doesn't even exist yet at the moment
+    /// `pushSelectionToEngine` fires (the dev-server rebuild+reload race), and even on the rare beat
+    /// it does, that selection is wiped the instant the reload's `mountEngine()` call replaces the
+    /// engine. Passing the *current* `model` and `selectedBlockId` together here is what makes this
+    /// reliable instead of racy: by the time a reload's `didFinish` calls `mountEngine()`, native's
+    /// `model` already reflects the op (`sendAndApply` updates it synchronously on `.applied`, well
+    /// before any dev-server reload lands), so the freshly-mounted engine's `initialModel` is
+    /// guaranteed to contain `selectedBlockId` — `mount.ts`'s `mount()` can safely call
+    /// `engine.selection.select(selectedBlockId)` immediately, and `wireScrollIntoView`
+    /// (`host/mount.ts`) reacts to that exactly like any other selection change.
+    ///
+    /// Returns a no-op script if any part fails to encode (unreachable in practice — `model` and
+    /// `displayNames` are plain `Codable`/`Encodable` values, and `selectedBlockId` is a plain
+    /// `String?`).
+    static func mountScript(for model: BlockModel, displayNames: [String: String], selectedBlockId: BlockId? = nil) -> String {
         guard let modelData = try? JSONEncoder().encode(model), let modelJSON = String(data: modelData, encoding: .utf8),
               let namesData = try? JSONEncoder().encode(displayNames), let namesJSON = String(data: namesData, encoding: .utf8)
         else {
             return ""
         }
-        return "window.__anglesiteWysiwygMount?.mount(\(modelJSON), \(namesJSON))"
+        let selectedJSON = selectedBlockId.map(jsStringLiteral) ?? "null"
+        return "window.__anglesiteWysiwygMount?.mount(\(modelJSON), \(namesJSON), \(selectedJSON))"
     }
 
     /// `componentName -> displayName` built from `blockPalette` — the interim manifest stand-in
