@@ -193,9 +193,7 @@ struct ComponentEditorCanvasPane: View {
 /// through `editRouter` when the site window has wired one up;
 /// falls back to `LoggingEditRouter()` — logs to the Debug pane instead of
 /// applying — when it hasn't (dev server not started yet, or a context that
-/// intentionally has no write capability). Hosted inside a `WebViewLayoutFirewall`
-/// (not returned bare) — see that type's doc comment for the #1699
-/// constraint-storm rationale.
+/// intentionally has no write capability).
 private struct ComponentCanvasView: NSViewRepresentable {
     let url: URL
     var editRouter: EditRouter?
@@ -215,7 +213,7 @@ private struct ComponentCanvasView: NSViewRepresentable {
         var pendingReload: Task<Void, Never>?
     }
 
-    func makeNSView(context: Context) -> WebViewLayoutFirewall {
+    func makeNSView(context: Context) -> WKWebView {
         let onSelection = self.onSelection
         let onComputedStyles = self.onComputedStyles
         let handler = AnglesiteScriptHandler(
@@ -229,17 +227,13 @@ private struct ComponentCanvasView: NSViewRepresentable {
         webView.load(URLRequest(url: url))
         context.coordinator.loadedURL = url
         onWebView(webView)
-        // #1699 Stage 2: the webview must not be the representable's NSViewType — mounting a
-        // bare WKWebView during a detail-column swap feeds the macOS 27 beta
-        // SplitViewChildController negotiation storm. See WebViewLayoutFirewall's doc comment.
-        return WebViewLayoutFirewall(webView: webView)
+        return webView
     }
 
-    func updateNSView(_ container: WebViewLayoutFirewall, context: Context) {
+    func updateNSView(_ webView: WKWebView, context: Context) {
         guard context.coordinator.loadedURL != url else { return }
         let targetURL = url
         let coordinator = context.coordinator
-        let webView = container.webView
         coordinator.pendingReload?.cancel()
         coordinator.pendingReload = Task { @MainActor in
             try? await Task.sleep(for: .milliseconds(300))
@@ -248,13 +242,5 @@ private struct ComponentCanvasView: NSViewRepresentable {
             coordinator.pendingReload = nil
             webView.load(URLRequest(url: targetURL))
         }
-    }
-
-    func sizeThatFits(
-        _ proposal: ProposedViewSize, nsView: WebViewLayoutFirewall, context: Context
-    ) -> CGSize? {
-        // Never return nil: nil falls back to SwiftUI measuring the platform view, which is
-        // exactly the varying-answer path the firewall exists to bypass (#1699 Stage 2).
-        WebViewLayoutFirewall.sizeResponse(width: proposal.width, height: proposal.height)
     }
 }
