@@ -55,6 +55,7 @@ int main(void)
     if (network == NULL) {
         printf("RESULT: FAIL vmnet_network_create returned NULL (status=%d; VMNET_MEM_FAILURE=1002)\n",
                (int)status);
+        CFRelease(config);
         return 1;
     }
 
