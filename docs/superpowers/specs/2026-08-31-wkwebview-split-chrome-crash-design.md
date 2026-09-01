@@ -28,6 +28,24 @@ crashes too, this issue's WKWebView framing is wrong and the Stage 3 discussion 
 about the takeover swap itself; if it survives, WKWebView's process-backed layer
 timing is implicated as the trigger. Run it before scoping Stage 3.
 
+**Diagnostic verdict (2026-09-01): the takeover swap alone is exonerated.** The
+same Graph → Open File flow into the plain-text editor (`goal-beacon.build.test.ts`,
+zero WKWebView) opened cleanly 2/2 (screenshot-verified, no crash reports). What
+distinguishes the crashing component path from the surviving text path is that it
+does three things at once: the pane swap, the **window `.inspector()` presentation**
+(`ensureComponentEditorLoaded()`'s synchronous prefix flips `inspectorSelection`
+nil → `.component`), and the WKWebView canvas mount. Together with the Stage 2
+falsification (webview sizing metrics irrelevant), the code's own record of a
+website-inspector variant of this class (`clearInspectorThenSwitchPane`'s doc
+comment: panel presented over the `.plist` editor, ⌘3 aborts), and the external
+forum report of `.inspector()` crashing with no webview involved, the prime suspect
+is now **`.inspector()` column presentation concurrent with detail-column content
+changes** — the webview at most amplifies in-window layout work inside that
+vulnerability window. Stage 3 scoping should weigh an inspector-decoupling
+experiment (host the component Metadata/Style panes as an in-detail trailing pane,
+the crash-free `DesignInterviewPanel` `HSplitView` shape, instead of the window
+`.inspector()`) before committing to a full shell rewrite.
+
 Two side findings from the Stage 0 pass, tracked separately from this design:
 Beta 7's saved toolbar customization (`"NSToolbar Configuration site"`, containing
 SwiftUI-internal item identifiers) crashes the app at launch under Beta 8's
