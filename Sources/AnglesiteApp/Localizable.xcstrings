@@ -428,6 +428,9 @@
     "Add a link back to **%@**" : {
 
     },
+    "Add a new page, post, collection entry, or block" : {
+
+    },
     "Add a new page, post, or collection entry" : {
 
     },
@@ -781,6 +784,9 @@
 
     },
     "Blockquote" : {
+
+    },
+    "Blocks" : {
 
     },
     "Blog" : {
