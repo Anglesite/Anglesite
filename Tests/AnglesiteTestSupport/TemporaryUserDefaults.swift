@@ -7,7 +7,7 @@ import Foundation
 /// running test.
 ///
 /// Call `cleanup()` once the suite is no longer needed — from a `deinit` on a class-based suite,
-/// a `defer`, or via ``withTemporaryUserDefaults(label:_:)``.
+/// a `defer`, or via ``withTemporaryUserDefaults(label:_:)-6ym9d``.
 ///
 /// ## Why this isn't just `UserDefaults(suiteName: "test-anglesite-<UUID>")`
 ///
@@ -101,7 +101,7 @@ public func withTemporaryUserDefaults<T>(
     return try body(scratch.defaults)
 }
 
-/// Async variant of ``withTemporaryUserDefaults(label:_:)-1``.
+/// Async variant of ``withTemporaryUserDefaults(label:_:)-6ym9d``.
 public func withTemporaryUserDefaults<T>(
     label: String? = nil, _ body: (UserDefaults) async throws -> T
 ) async rethrows -> T {
