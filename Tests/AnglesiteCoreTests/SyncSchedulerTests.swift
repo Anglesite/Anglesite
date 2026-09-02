@@ -2,6 +2,7 @@
 import Testing
 import Foundation
 import AnglesiteSiteModel
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 /// `SyncScheduler` (#881) owns *when* a site's `SyncEngine` runs: pull on open/bundle-change,
@@ -43,20 +44,6 @@ import AnglesiteSiteModel
 
         func set(pullResult: SyncEngine.PullResult) { self.pullResult = pullResult }
         func set(pushResult: SyncEngine.PushResult) { self.pushResult = pushResult }
-    }
-
-    /// A manually-triggered stand-in for `SyncScheduler`'s debounce timer — mirrors
-    /// `InvisiblePublishQueueTests.ManualDebounceGate` (#762's lesson: don't race a real timer
-    /// against actor scheduling under CI load).
-    private actor ManualDebounceGate {
-        private var continuations: [CheckedContinuation<Void, Never>] = []
-        func sleep() async { await withCheckedContinuation { continuations.append($0) } }
-        func armedCount() -> Int { continuations.count }
-        func release() {
-            let pending = continuations
-            continuations.removeAll()
-            pending.forEach { $0.resume() }
-        }
     }
 
     private func makePackage(name: String = "Test") throws -> AnglesitePackage {
@@ -143,19 +130,19 @@ import AnglesiteSiteModel
         let gate = ManualDebounceGate()
         let scheduler = SyncScheduler(
             package: package, engine: engine, pushDebounce: .milliseconds(250),
-            sleep: { _ in await gate.sleep() })
+            sleep: { _ in try await gate.sleep() })
 
         await scheduler.backupCompleted()
         await scheduler.deployCompleted()
-        // `ManualDebounceGate` doesn't model cancellation (like `InvisiblePublishQueueTests`'
-        // own gate of the same name): `pushDebounceTask?.cancel()` in `schedulePush()` cancels
-        // the *Task*, but our fake `sleep` isn't cancellation-aware the way the production
-        // `Task.sleep(for:)` seam is, so the first trigger's debounce still arms a (now-stale)
-        // gate continuation alongside the second's. Both triggers land before either "elapses",
-        // so exactly 2 continuations arm here regardless of scheduling order; release both and
-        // assert the actual push still only fires once — `beginPush()`'s `pushTask == nil` guard
-        // is what does the real coalescing, not the cancellation.
-        try await waitUntil { await gate.armedCount() == 2 }
+        // `schedulePush()` cancels the first trigger's debounce `Task` before arming the
+        // second's, and the shared `ManualDebounceGate` models that cancellation (unlike this
+        // suite's old file-private gate), so wait for the steady state — first cancelled,
+        // second armed — rather than for both to be simultaneously armed.
+        try await waitUntil {
+            let armed = await gate.armedCount()
+            let cancelled = await gate.cancelledCount()
+            return armed == 1 && cancelled == 1
+        }
         await gate.release()
 
         try await waitUntil { await engine.pushCount == 1 }
@@ -180,7 +167,7 @@ import AnglesiteSiteModel
         let gate = ManualDebounceGate()
         let scheduler = SyncScheduler(
             package: package, engine: engine, pushDebounce: .milliseconds(10),
-            sleep: { _ in await gate.sleep() })
+            sleep: { _ in try await gate.sleep() })
 
         await scheduler.backupCompleted()
         try await waitUntil { await gate.armedCount() == 1 }
@@ -367,20 +354,15 @@ import AnglesiteSiteModel
         let gate = ManualDebounceGate()
         let scheduler = SyncScheduler(
             package: package, engine: engine, pushDebounce: .milliseconds(250),
-            sleep: { _ in
-                await gate.sleep()
-                // Production's `Task.sleep(for:)` throws `CancellationError` once the debounce
-                // Task is cancelled; `ManualDebounceGate` alone doesn't model cancellation (see
-                // `pushTriggersCoalesce`'s note), so mirror that half of the real seam explicitly.
-                // Without it the fake sleep would return normally after `stop()` and `beginPush()`
-                // would still fire — testing the gate rather than `stop()`.
-                try Task.checkCancellation()
-            })
+            sleep: { _ in try await gate.sleep() })
 
         await scheduler.backupCompleted()
         try await waitUntil { await gate.armedCount() == 1 }
         await scheduler.stop()
-        await gate.release()
+        // The shared `ManualDebounceGate` models cancellation, so `stop()`'s
+        // `pushDebounceTask?.cancel()` alone tears down the parked timer — wait for that to
+        // land (rather than racing a `release()` against it) before asserting nothing fired.
+        try await waitUntil { await gate.cancelledCount() == 1 }
 
         // Negative assertion, so there's no state to wait *for*: settle briefly and assert nothing
         // happened, exactly as `idleSchedulerTouchesNothing` does.
@@ -431,21 +413,6 @@ import AnglesiteSiteModel
         private var items: [SyncScheduler.Status] = []
         func record(_ s: SyncScheduler.Status) { lock.lock(); items.append(s); lock.unlock() }
         func statuses() -> [SyncScheduler.Status] { lock.lock(); defer { lock.unlock() }; return items }
-    }
-
-    private func waitUntil(
-        timeout: Duration = .seconds(10),
-        condition: @escaping @Sendable () async -> Bool
-    ) async throws {
-        let clock = ContinuousClock()
-        let deadline = clock.now.advanced(by: timeout)
-        while !(await condition()) {
-            guard clock.now < deadline else {
-                Issue.record("timed out waiting for sync scheduler state")
-                return
-            }
-            try await Task.sleep(for: .milliseconds(10))
-        }
     }
 }
 #endif

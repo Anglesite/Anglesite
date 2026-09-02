@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteP2P
 
 @Suite struct HMRRelayTests {
@@ -60,46 +61,21 @@ import Foundation
         }
     }
 
-    /// Resumes a waiter once `record()` has been called `target` times. Lets a test wait for a
-    /// property ("N misses have happened") instead of guessing a wall-clock delay — CI's shared
-    /// runners see multi-second scheduling delays under load (observed 1.0–2.3s), so a fixed short
-    /// sleep is a flake, not a bound.
+    /// Tracks how many times `record()` has been called, for a test to poll for a property
+    /// ("N misses have happened") instead of guessing a wall-clock delay — CI's shared runners see
+    /// multi-second scheduling delays under load (observed 1.0–2.3s), so a fixed short sleep is a
+    /// flake, not a bound. Driven via the shared `waitUntil` poller.
     private actor MissSignal {
         private let target: Int
         private var count = 0
-        private var continuation: CheckedContinuation<Void, Never>?
 
         init(target: Int) {
             self.target = target
         }
 
-        func record() {
-            count += 1
-            guard count >= target, let continuation else { return }
-            continuation.resume()
-            self.continuation = nil
-        }
+        func record() { count += 1 }
 
-        /// Suspends until `target` calls to `record()` have happened, or returns immediately if
-        /// that already occurred. Callers race this against their own generous timeout — this
-        /// method has no timeout of its own.
-        func wait() async {
-            guard count < target else { return }
-            await withCheckedContinuation { continuation = $0 }
-        }
-    }
-
-    /// Races `body` against a `timeout` sleep and returns as soon as either finishes — the
-    /// event-driven counterpart to a fixed `Task.sleep`. `body` is expected to be a `MissSignal`
-    /// wait (or similar); if `timeout` wins, `body`'s condition is simply left unmet and the
-    /// caller's own assertion (e.g. a miss counter) reports the failure.
-    private func waitUntil(timeout: Duration, _ body: @Sendable @escaping () async -> Void) async {
-        await withTaskGroup(of: Void.self) { group in
-            group.addTask { await body() }
-            group.addTask { try? await Task.sleep(for: timeout) }
-            await group.next()
-            group.cancelAll()
-        }
+        var reached: Bool { count >= target }
     }
 
     @Test func heartbeatAnswersInboundPingWithPong() async throws {
@@ -131,7 +107,7 @@ import Foundation
         let pair = InProcessP2PPair.make()
         let signal = MissSignal(target: 2)
 
-        await confirmation(expectedCount: 2...) { confirmed in
+        try await confirmation(expectedCount: 2...) { confirmed in
             let heartbeat = ControlHeartbeat(
                 connection: pair.a,
                 interval: .milliseconds(20),
@@ -145,7 +121,7 @@ import Foundation
             // bounded rather than sleeping a fixed guess — `.timeLimit` above is the hang guard
             // if this never resolves.
             let heartbeatTask = Task { await heartbeat.run() }
-            await waitUntil(timeout: .seconds(30)) { await signal.wait() }
+            try await waitUntil("2 misses to accumulate", timeout: .seconds(30)) { await signal.reached }
             heartbeatTask.cancel()
         }
     }
@@ -172,7 +148,7 @@ import Foundation
         // Deliberately no responder wired to `pair.b`. Wait for the property (the first miss
         // happened), generously bounded rather than sleeping a fixed guess — a loaded CI runner
         // can delay scheduling well past a 20ms interval (observed 1.0–2.3s in practice).
-        await waitUntil(timeout: .seconds(15)) { await firstMiss.wait() }
+        try await waitUntil("the first miss", timeout: .seconds(15)) { await firstMiss.reached }
         #expect((counter.latest ?? 0) >= 1)
 
         await pair.a.close()

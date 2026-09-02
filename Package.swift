@@ -350,7 +350,7 @@ packageTargets.append(contentsOf: [
     ),
     .testTarget(
         name: "AnglesiteP2PTests",
-        dependencies: ["AnglesiteP2P"],
+        dependencies: ["AnglesiteP2P", "AnglesiteTestSupport"],
         path: "Tests/AnglesiteP2PTests",
         swiftSettings: strictConcurrency,
         linkerSettings: webRTCTestRPath
