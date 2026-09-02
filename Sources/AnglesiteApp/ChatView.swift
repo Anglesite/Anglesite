@@ -49,11 +49,22 @@ struct ChatView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Spacer()
+                    // #1739: Esc keeps the outside edits; Return is deliberately unbound.
+                    // This is the canonical rationale for the app's hand-rolled confirmation
+                    // sheets (`DomainSheetView`'s delete-record footer points here): the
+                    // action is unrecoverable — a forced undo overwrites uncommitted outside
+                    // edits git has no record of — so Cancel is the safe choice, and a sheet
+                    // button holds exactly one key equivalent (stacking `.defaultAction` +
+                    // `.cancelAction` keeps only the first; `.onExitCommand` never fires with
+                    // no focused control), so Cancel can't take Return without losing Esc.
+                    // Hence no `.borderedProminent` either: on macOS that reads as "Return
+                    // presses this". To make the action the Return default instead, give it
+                    // `.keyboardShortcut(.defaultAction)` (#1738's shape).
                     Button("Cancel") { model.dismissConflictPrompt() }
+                        .keyboardShortcut(.cancelAction)
                     Button("Undo anyway", role: .destructive) {
                         Task { await model.confirmConflictUndo() }
                     }
-                    .buttonStyle(.borderedProminent)
                 }
             }
             .padding(20)
