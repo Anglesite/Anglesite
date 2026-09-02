@@ -14,6 +14,7 @@ import Foundation
 /// - `read` returns `nil` (not an error) when no entry exists.
 /// - `write("")` deletes the entry, so an empty write round-trips as `read → nil`.
 /// - `delete` of a missing entry is a no-op, not an error.
+/// - `withoutUserInteraction` never blocks on a user prompt; a read that would need one throws.
 /// - Values are secrets: implementations and callers must never log them.
 public protocol SecretStore: Sendable {
     /// Returns the stored secret for `account`, or `nil` if no entry exists.
@@ -22,6 +23,20 @@ public protocol SecretStore: Sendable {
     func write(_ value: String, account: String) throws
     /// Removes the stored entry for `account`. No-op if no entry exists.
     func delete(account: String) throws
+    /// The same store, addressing the same entries, whose operations never wait on the user.
+    ///
+    /// Background work — anything the user didn't just click — must read secrets through this
+    /// face (#1717): where the platform store would otherwise raise an authorization dialog (the
+    /// macOS login-keychain "Anglesite wants to use your confidential information…" prompt, for an
+    /// item this binary isn't on the ACL of), the operation fails instead, and the caller treats
+    /// that as "not readable right now", not as "no secret". A store that can never prompt returns
+    /// `self` — the protocol extension's default.
+    var withoutUserInteraction: any SecretStore { get }
+}
+
+public extension SecretStore {
+    /// Default for stores that never prompt: the same store.
+    var withoutUserInteraction: any SecretStore { self }
 }
 
 /// Well-known account keys, shared across platform stores so the Settings UI, deploy path,
