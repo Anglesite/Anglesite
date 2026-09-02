@@ -355,6 +355,20 @@ func performWYSIWYGPaletteDrop(
 /// `wysiwygCanvas` is still read fresh on each focus change (not captured) since edit mode can
 /// toggle on/off while this sentinel stays mounted for the pane's whole lifetime.
 ///
+/// Scope note: like `SentinelView`'s existing contract, `focused` here means "the window's first
+/// responder's visible rect lies inside the preview pane's frame" — ANY responder focus landing
+/// there (e.g. clicking a plain link or video, not just a `contentEditable` quick-edit), not
+/// narrowly "actively editing text". So `SiteNavigatorView`'s ⌘⌫ now goes inert whenever the
+/// preview pane has any kind of focus, with nothing else picking up the keystroke in that case —
+/// not just while text is actually being edited. Accepted as-is: it's the same "one focus-scoped
+/// command" shape ⌘D Duplicate already uses (`WYSIWYGCanvasController.swift`,
+/// `SiteWindow.navigatorSelectionActions(for:)`) — Delete belongs to whichever surface currently
+/// holds focus, and the preview pane holding ANY focus, editable or not, is reason enough not to
+/// have a sidebar shortcut reach past it and delete the Navigator's selection. It also isn't a new
+/// imprecision this PR introduces: the pre-#1715 canvas-only sentinel had the exact same "any
+/// responder in the pane" scope while edit mode was on — this widens the window it applies in
+/// (always, not just during edit mode), not the check itself.
+///
 /// Reuses `SentinelView` (`MarkdownTextView.swift`) rather than re-deriving the same mechanism:
 /// `PreviewView` wraps a raw `WKWebView` directly as its `NSViewRepresentable.NSViewType` (Task 8
 /// mounted the canvas onto the existing preview pane, not a purpose-built SwiftUI-native host), so
