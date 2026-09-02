@@ -131,6 +131,15 @@ struct ContentScaffoldTests {
                 == ContentScaffold.renderPost(title: "T", now: date))
     }
 
+    @Test("renderPost with an empty declared-field list falls back to the legacy shape, not an empty frontmatter block")
+    func renderPostEmptyFieldsIsLegacyShape() {
+        let date = Date(timeIntervalSince1970: 1_750_000_000)
+        let out = ContentScaffold.renderPost(title: "T", now: date, declaredFields: [])
+        #expect(out == ContentScaffold.renderPost(title: "T", now: date))
+        #expect(out.contains("title: \"T\""))
+        #expect(!out.hasPrefix("---\n\n---"))
+    }
+
     @Test("escapeYAML escapes newlines, carriage returns, tabs, and other control characters")
     func escapeYAMLEscapesControlChars() {
         #expect(ContentScaffold.escapeYAML("a\nb") == "a\\nb")

@@ -52,11 +52,17 @@ public enum FrontmatterSchemaReader {
     /// Extracts collection-name → field-name lists from content-config source text. Split out
     /// from ``read(siteDirectory:)`` so the text scan is unit-testable without a site on disk.
     /// Collections whose declaration doesn't match the template's `defineCollection` +
-    /// `z.object({...})` shape are omitted (left out rather than guessed).
+    /// `z.object({...})` shape are omitted (left out rather than guessed) — and so is one whose
+    /// `z.object` block yields no field names at all, e.g. `z.object({ ...sharedFields })`
+    /// composed entirely from spreads: reporting `[]` would claim the schema has no fields, which
+    /// is a guess, not a reading. Every entry in the result is therefore non-empty, so a `[name]`
+    /// lookup answers "was this schema read?" with a plain `nil` check (#1716).
     public static func collections(fromContentConfig source: String) -> [String: [String]] {
         var result: [String: [String]] = [:]
         for block in collectionBlocks(in: source) {
-            result[block.name] = fieldNames(in: block.schemaBody)
+            let fields = fieldNames(in: block.schemaBody)
+            guard !fields.isEmpty else { continue }
+            result[block.name] = fields
         }
         return result
     }
