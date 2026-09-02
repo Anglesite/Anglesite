@@ -128,6 +128,7 @@ struct PlistEditorView: View {
                     Text(tab.rawValue).tag(tab)
                 }
             }
+            .accessibilityIdentifier(AXID.settingsTabs)
         }
     }
 
@@ -1038,12 +1039,14 @@ struct PlistEditorView: View {
                     Label("Production Logs", systemImage: "text.alignleft")
                 }
                 .disabled(!model.workerDashboardEnabled)
+                .accessibilityIdentifier(AXID.settingsWorkersLogs)
                 Button {
                     NSWorkspace.shared.open(model.workerDashboardAnalyticsURL)
                 } label: {
                     Label("Analytics", systemImage: "chart.bar.xaxis")
                 }
                 .disabled(!model.workerDashboardEnabled)
+                .accessibilityIdentifier(AXID.settingsWorkersAnalytics)
                 if model.isLoadingWorkers {
                     ProgressView().controlSize(.small)
                 }
@@ -1193,12 +1196,16 @@ struct PlistEditorView: View {
     private func workerStatus(_ row: PlistEditorModel.WorkerRow) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             switch row.status {
+            // `row.id` is the catalog's worker id — the stable, non-localized handle automation
+            // keys off (#1751); the switch's only label is the catalog-supplied display name.
             case .componentTied(let affectedPages):
                 if affectedPages.isEmpty {
                     Text("Inactive — not used")
                         .foregroundStyle(.secondary)
+                        .accessibilityIdentifier(AXID.settingsWorkerStatus(row.id))
                 } else {
                     WorkerAffectedPagesButton(pages: affectedPages)
+                        .accessibilityIdentifier(AXID.settingsWorkerStatus(row.id))
                 }
             case .settingsActivated(let isOn):
                 Toggle(row.descriptor.displayName, isOn: Binding(
@@ -1208,9 +1215,11 @@ struct PlistEditorView: View {
                     }))
                     .toggleStyle(.switch)
                     .labelsHidden()
+                    .accessibilityIdentifier(AXID.settingsWorkerToggle(row.id))
                 Text(isOn ? "On" : "Off")
                     .foregroundStyle(.secondary)
                     .frame(minWidth: 28, alignment: .leading)
+                    .accessibilityIdentifier(AXID.settingsWorkerStatus(row.id))
             }
         }
     }

@@ -321,7 +321,10 @@ struct DomainSheetView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!isAddRecordFormValid(draft))
             case .confirmingDelete:
+                // #1739: Esc cancels; Return is deliberately unbound because the delete "can't
+                // be undone" — see the rationale on `ChatView`'s conflict sheet.
                 Button("Cancel") { model.cancelDelete() }
+                    .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Delete", role: .destructive) { model.confirmDelete() }
             case .failed:

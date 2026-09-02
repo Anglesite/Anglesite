@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 @testable import AnglesiteCore
 
@@ -40,6 +41,7 @@ struct PlistEditorModelCapabilityGatingTests {
         let model: PlistEditorModel
         let configDirectory: URL
         let notified: NotifiedSettings
+        let keychainCleanup: () -> Void
     }
 
     /// `deployTarget` is written into `Source/anglesite.json` exactly as a hand edit (or #1682's
@@ -57,8 +59,8 @@ struct PlistEditorModelCapabilityGatingTests {
         if let deployTarget {
             try DomainConfigStore(sourceDirectory: sourceDir).save(DomainConfig(deployTarget: deployTarget))
         }
-        let keychain = KeychainStore(service: "io.dwk.anglesite.test-\(UUID().uuidString)")
-        try keychain.writeCloudflareToken("test-token")
+        let scratchKeychain = TemporaryKeychainStore()
+        try scratchKeychain.store.writeCloudflareToken("test-token")
         let notified = NotifiedSettings()
         let model = PlistEditorModel(
             file: FileRef(url: plistURL, group: .metadata, name: "Info.plist"),
@@ -67,18 +69,19 @@ struct PlistEditorModelCapabilityGatingTests {
             configDirectory: configDir,
             workerCatalogProvider: { [] },
             onActiveWorkersChanged: { notified.append($0) },
-            keychain: keychain,
+            keychain: scratchKeychain.store,
             capabilityProber: CloudflareCapabilityProber(transport: { request in
                 Issue.record("the Cloudflare capability probe must not run on a gated site: \(request.url?.absoluteString ?? "?")")
                 return (Data(#"{"success":true,"result":[]}"#.utf8),
                         HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
             }))
-        return Fixture(model: model, configDirectory: configDir, notified: notified)
+        return Fixture(model: model, configDirectory: configDir, notified: notified, keychainCleanup: scratchKeychain.cleanup)
     }
 
     @Test("a GitHub Pages site resolves to .githubPages and reports no Workers support")
     func githubPagesSiteHasNoWorkerSupport() async throws {
         let fixture = try await makeFixture(deployTarget: GitHubPagesDeployTarget.id)
+        defer { fixture.keychainCleanup() }
         #expect(fixture.model.deployTargetKind == .githubPages)
         #expect(fixture.model.supportsWorkers == false)
     }
@@ -86,6 +89,7 @@ struct PlistEditorModelCapabilityGatingTests {
     @Test("a site with no declared target still supports Workers")
     func undeclaredSiteSupportsWorkers() async throws {
         let fixture = try await makeFixture(deployTarget: nil)
+        defer { fixture.keychainCleanup() }
         #expect(fixture.model.deployTargetKind == .cloudflare)
         #expect(fixture.model.supportsWorkers == true)
     }
@@ -93,6 +97,7 @@ struct PlistEditorModelCapabilityGatingTests {
     @Test("setWorkerActive on a GitHub Pages site explains instead of activating")
     func workerToggleGated() async throws {
         let fixture = try await makeFixture(deployTarget: GitHubPagesDeployTarget.id)
+        defer { fixture.keychainCleanup() }
 
         await fixture.model.setWorkerActive("solid-pod", isOn: true)
 
@@ -107,6 +112,7 @@ struct PlistEditorModelCapabilityGatingTests {
     @Test("setInboxCaptureEnabled on a GitHub Pages site explains instead of enabling")
     func inboxCaptureGated() async throws {
         let fixture = try await makeFixture(deployTarget: GitHubPagesDeployTarget.id)
+        defer { fixture.keychainCleanup() }
 
         await fixture.model.setInboxCaptureEnabled(true)
 
@@ -122,6 +128,7 @@ struct PlistEditorModelCapabilityGatingTests {
         // ungated `false` write on a site that never had the feature would still be a write the
         // owner can't explain, and it would clear a value a re-Cloudflare'd site had set.
         let fixture = try await makeFixture(deployTarget: GitHubPagesDeployTarget.id)
+        defer { fixture.keychainCleanup() }
         try await SiteConfigStore(configDirectory: fixture.configDirectory)
             .save(SiteSettings(inboxCaptureEnabled: true))
 
@@ -135,6 +142,7 @@ struct PlistEditorModelCapabilityGatingTests {
     @Test("an undeclared site still activates a worker normally")
     func workerToggleUngated() async throws {
         let fixture = try await makeFixture(deployTarget: nil)
+        defer { fixture.keychainCleanup() }
 
         await fixture.model.setWorkerActive("solid-pod", isOn: true)
 

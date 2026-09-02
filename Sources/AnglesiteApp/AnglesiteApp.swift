@@ -293,7 +293,7 @@ struct AnglesiteApp: App {
             ArrangeCommands()
             // Website menu: the site window's operations, regrouped (menu-bar spec §2.9).
             WebsiteCommands()
-            // View ▸ pane switching ⌘1–3 + panel toggles (Chat ⌘K, Related Pages, Inspector ⌥⌘I) —
+            // View ▸ pane switching ⌘1–3 + panel toggles (Chat ⌃⌘K, Related Pages, Inspector ⌥⌘I) —
             // declared before PreviewNavigationCommands so they sit above it (#512).
             // NOTE the anchor asymmetry (verified in the running app): `after:` groups render in
             // DECLARATION order (this one above Preview navigation/Debug Pane), while `before:`

@@ -96,6 +96,18 @@ final class PreviewModel {
     /// exposed separately so callers don't have to spell out the nil check.
     var isEditModeEnabled: Bool { wysiwygCanvas != nil }
 
+    /// True while the preview `WKWebView` holds real AppKit keyboard focus, for ANY reason —
+    /// the full `wysiwygCanvas` block editor, or the lighter-weight inline `contentEditable` quick
+    /// edit the overlay JS (`JS/edit-overlay/src/overlay.ts`) opens on a plain click, e.g. a
+    /// page/post title (#1715). The two never both exist: quick-edit works whether or not
+    /// `wysiwygCanvas` is mounted, so this can't just be `wysiwygCanvas?.hasKeyboardFocus == true`
+    /// — that stayed `false` for a quick-edit session with no canvas at all, which is what let
+    /// `SiteNavigatorView`'s ⌘⌫ delete the selected Navigator item out from under someone typing
+    /// in the title instead of editing it. Driven by `PreviewFocusSentinel` (`PreviewView.swift`),
+    /// mounted unconditionally on `previewPane(for:)` rather than only while `wysiwygCanvas`
+    /// exists.
+    var hasKeyboardFocus = false
+
     /// The `Source/`-relative page file currently mounted in the WYSIWYG canvas, resolved against
     /// `openSiteDirectory` — `nil` outside edit mode, or before a site directory is known.
     /// `.navigationDocument` uses this (Task 18) so the window's proxy icon points at the specific
