@@ -108,14 +108,20 @@ private struct StringListEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption).foregroundStyle(.secondary)
-            ForEach($rows) { $row in
+            // Enumerated so each row's accessibility label carries its position ("Tags, item 2 of
+            // 5"): every row shares the same visible caption, and a bare `title` would leave
+            // VoiceOver announcing five identical "Tags" fields. Identity stays the row UUID, not
+            // the offset, so deleting a row still never re-binds a survivor's editor.
+            ForEach(Array($rows.enumerated()), id: \.element.id) { index, $row in
+                let rowLabel = String(localized: "\(title), item \(index + 1) of \(rows.count)")
                 HStack {
                     TextField("", text: $row.value)
-                        .accessibilityLabel(title)
+                        .accessibilityLabel(rowLabel)
                     Button(role: .destructive) { rows.removeAll { $0.id == row.id } } label: {
                         Image(systemName: "minus.circle")
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel(String(localized: "Remove \(rowLabel)"))
                 }
             }
             HStack {

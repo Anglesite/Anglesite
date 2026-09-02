@@ -108,6 +108,16 @@
         }
       }
     },
+    "%@, item %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, item %2$lld of %3$lld"
+          }
+        }
+      }
+    },
     "%@, version %@, %@" : {
       "localizations" : {
         "en" : {
@@ -3166,6 +3176,9 @@
 
     },
     "Remove" : {
+
+    },
+    "Remove %@" : {
 
     },
     "Remove Highlights and Comments" : {
