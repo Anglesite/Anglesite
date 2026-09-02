@@ -560,6 +560,9 @@
     "Anglesite already supports this — redeploy the site to pick it up." : {
 
     },
+    "Anglesite lost access to this site, likely after a restart. Double-click to relocate it and restore access." : {
+
+    },
     "Anglesite lost access to “%@”, likely after a restart. Locate it again to restore access." : {
 
     },
@@ -1602,6 +1605,9 @@
 
     },
     "Done" : {
+
+    },
+    "Double-click to open %@ in its own window" : {
 
     },
     "Drafts platform-sized posts for this article. Anglesite never posts for you — copy each one out, then record the published URLs below." : {

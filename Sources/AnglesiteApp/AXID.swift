@@ -22,6 +22,11 @@ enum AXID {
     static let navigatorList = "navigator.list"
     static let navigatorRenameField = "navigator.renameField"
 
+    // MARK: Sites launcher
+
+    /// The launcher's site list (#1641) — automation selects a row and performs `AXShowMenu` on it.
+    static let launcherList = "launcher.list"
+
     // MARK: Shared sheet chrome
 
     /// The title/subtitle group every `SheetHeader`-based sheet and drawer renders; automation
@@ -53,6 +58,7 @@ enum AXID {
     /// toolbar family is generated from `SiteToolbarItemID` and covered separately).
     static let allStatic: [String] = [
         navigatorList, navigatorRenameField,
+        launcherList,
         sheetHeader,
         mainPaneTakeoverHeader, mainPaneTakeoverDone,
         debugSourceFilter, debugStreamFilter, debugSearchField,

@@ -141,8 +141,9 @@ verification pass, but quit the app when you're done.
 Key controls carry stable `accessibilityIdentifier`s (#1535), defined in
 [`Sources/AnglesiteApp/AXID.swift`](../Sources/AnglesiteApp/AXID.swift):
 site-window toolbar items derive `toolbar.<SiteToolbarItemID>` (e.g.
-`toolbar.deploy`), and the navigator, shared sheet header, and debug pane have
-hand-assigned dotted IDs (`navigator.list`, `sheet.header`, `debug.pause`).
+`toolbar.deploy`), and the navigator, launcher, shared sheet header, and debug pane
+have hand-assigned dotted IDs (`navigator.list`, `launcher.list`, `sheet.header`,
+`debug.pause`).
 `AXIDTests` freezes format and uniqueness — treat the strings as automation
 API: renaming one breaks external scripts, same contract as
 `SiteToolbarItemID`.
