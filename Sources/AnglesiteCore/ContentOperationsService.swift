@@ -8,8 +8,8 @@ public protocol ContentOperationsService: Sendable {
     /// Scaffold a new page. `name` seeds the title; a `nil` route is derived from it. Progress
     /// steps stream through `onProgress` so intent and GUI callers can show the same phases.
     func createPage(siteID: String, name: String, route: String?, onProgress: ProgressHandler?) async -> ContentCreateResult
-    /// Scaffold a new collection entry. `nil`/empty `collection` falls back to the standard
-    /// `posts` collection; a `nil` slug is derived from `title`.
+    /// Scaffold a new collection entry. `nil`/empty `collection` falls back to the site's own blog
+    /// collection (`PostCollectionResolver`, #1716); a `nil` slug is derived from `title`.
     func createPost(siteID: String, title: String, collection: String?, slug: String?, onProgress: ProgressHandler?) async -> ContentCreateResult
     /// Scaffold a typed entry (V-1.2 personal/business content types) from the content-type registry.
     /// `typeID` is a registry id (`note`, `article`, …); `title` seeds the name/title field and the
