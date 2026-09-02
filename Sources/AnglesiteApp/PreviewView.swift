@@ -419,16 +419,25 @@ extension View {
 
 /// Attaches `.onDeleteCommand` only while `isActive` (#1423) — `previewPane(for:)`'s canvas delete
 /// target and `SiteNavigatorView`'s Navigator delete target both use this, gated on
-/// `WYSIWYGCanvasController.hasKeyboardFocus` (this sentinel above), so exactly one
-/// `.onDeleteCommand` is ever attached to the window's view tree at a time. Two coexisting
+/// `PreviewModel.hasKeyboardFocus`/`WYSIWYGCanvasController.hasKeyboardFocus` respectively (see
+/// `PreviewFocusSentinel` above, #1715), so exactly one `.onDeleteCommand` is ever attached to the
+/// window's view tree at a time. Two coexisting
 /// `.onDeleteCommand`s made AppKit's Edit ▸ Delete menu-bridging non-deterministic: sometimes the
 /// item stayed disabled with a valid Navigator selection, sometimes clicking it invoked the
 /// canvas's handler (a silent no-op with no block selected) instead of the Navigator's. Splitting
 /// them back into mutually-exclusive attachment restores the single-handler shape #989 already
 /// validated as reliable, before the canvas target (#1225 Task 11) started coexisting with it.
+///
+/// `action` is optional (#1714), mirroring SwiftUI's own `onDeleteCommand(perform:)`: passing
+/// `nil` keeps the modifier attached — so the modified view's identity is stable, unlike the
+/// `isActive` branch flip, which recreates it — while AppKit validates Edit ▸ Delete as disabled,
+/// exactly as if nothing were attached (verified live on macOS 27 with a focused `List`: non-nil
+/// → enabled, nil → disabled, selection preserved across the flip). So `isActive` is the
+/// *which surface owns the command* gate (focus), and `nil` the *does the current selection
+/// support it* gate (`SiteNavigatorModel.deletableSelection()`).
 extension View {
     @ViewBuilder
-    func onDeleteCommand(active isActive: Bool, perform action: @escaping () -> Void) -> some View {
+    func onDeleteCommand(active isActive: Bool, perform action: (() -> Void)?) -> some View {
         if isActive {
             onDeleteCommand(perform: action)
         } else {

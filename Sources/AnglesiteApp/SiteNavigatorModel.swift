@@ -119,19 +119,34 @@ final class SiteNavigatorModel {
         return NavigatorItem(id: node.id, title: node.title, target: node.target)
     }
 
-    /// A row is renamable/deletable/duplicable iff it is a page or post (route target) —
-    /// directory rows are out of scope. The astro-without-title case is caught at commit, not
-    /// pre-disabled (pre-checking would read every page file per refresh).
+    /// Which verbs a row supports is decided by its `URLTreeNode.Kind`, never by its
+    /// `NavigatorTarget` (#1714): the home row and every other page share a `.route` target, so
+    /// target-based gating couldn't tell "a page" from "the page the site can't do without" and
+    /// offered Delete on the home row. This is the single source of truth every surface reads —
+    /// the row's context menu, Edit ▸ Duplicate (`SiteWindow.navigatorSelectionActions(for:)`),
+    /// Edit ▸ Delete / the Delete key (`deletableSelection()`), and File ▸ Rename… — so they can't
+    /// disagree about the same row.
+    private func kind(for id: String) -> URLTreeNode.Kind? { nodesByID[id]?.kind }
+
+    /// A page or collection entry — the rows content verbs apply to; directory rows are out of
+    /// scope. The astro-without-title case is caught at commit, not pre-disabled (pre-checking
+    /// would read every page file per refresh).
     private func isContentRow(_ id: String) -> Bool {
-        guard let target = target(for: id) else { return false }
-        if case .route = target { return true }
-        return false
+        switch kind(for: id) {
+        case .home, .page: return true
+        case .directory, nil: return false
+        }
     }
 
+    /// Rename edits the title inside the file (`NavigatorRenameService`), never its path or
+    /// route, so the home page qualifies like any other page.
     func canRename(_ id: String) -> Bool { isContentRow(id) }
 
-    /// Delete/Duplicate (#516) share Rename's gating exactly — pages and posts only.
-    func canDelete(_ id: String) -> Bool { isContentRow(id) }
+    /// Delete (#516) is the one verb the home row doesn't get (#1714): deleting `/` leaves the
+    /// site with no front door, and `create_page` refuses to scaffold the root, so ⌘Z would be
+    /// the only way back. Duplicate is non-destructive — the copy lands at an ordinary route
+    /// (`/home-copy`) and the home page stays where it is — so it keeps Rename's gating.
+    func canDelete(_ id: String) -> Bool { kind(for: id) == .page }
     func canDuplicate(_ id: String) -> Bool { isContentRow(id) }
 
     /// Repurpose (#465, Task 16) is post-only — unlike Rename/Delete/Duplicate, which apply to
