@@ -66,9 +66,13 @@ struct PreviewWebView: AdwaitaWidget {
         // lives for the window's (and app's) whole run in this one-window shell, so the idle
         // callback can't outlive it.
         let webViewBits = UInt(bitPattern: UnsafeMutableRawPointer(webView))
+        // `.oneArg`: the signal's C signature is (manager, JSCValue*, user_data) — one
+        // argument between the instance and the closure data, delivered as `args[0]`.
+        // (adwaita-swift's `argCount:` spelling of the same thing was removed upstream in
+        // da5aad1, the revision bump for #1760.)
         storage.connectSignal(
             name: "script-message-received::\(namespace)",
-            argCount: 1,
+            type: .oneArg,
             pointer: ucm
         ) { (args: [Any]) -> Void in
             guard let raw = args.first as? UnsafeRawPointer else {
