@@ -142,6 +142,94 @@ struct WorkerCompositionTests {
         }
     }
 
+    // MARK: - wrangler naming rules (#1750)
+
+    /// Mirrors the two wrangler config-validation rules that crash-looped every local
+    /// `wrangler dev` session on a UUID-identified site (#1750): `name` must be lowercase
+    /// alphanumerics/underscores/dashes, and every `bucket_name` must be lowercase
+    /// alphanumerics/hyphens, 3–63 characters, starting and ending alphanumeric. Written
+    /// independently of `WorkerSiteName`'s own validators so this test checks the *generated
+    /// TOML*, not that the generator agrees with itself.
+    private func wranglerNamingProblems(in toml: String) -> [String] {
+        var problems: [String] = []
+        // Only the top-level `name` is the Worker name; once a `[table]` header has been seen, a
+        // `name = "…"` key is a binding name (e.g. a Durable Object's `name = "POD"`), which
+        // wrangler does not hold to the lowercase rule.
+        var inTable = false
+        for line in toml.split(separator: "\n") {
+            if line.hasPrefix("[") { inTable = true }
+            if !inTable, line.hasPrefix("name = \""), let value = quotedValue(String(line)) {
+                if value.range(of: #"^[a-z0-9_][a-z0-9_-]*$"#, options: .regularExpression) == nil {
+                    problems.append("name \"\(value)\" is not lowercase alphanumeric with dashes")
+                }
+            }
+            if line.hasPrefix("bucket_name = \""), let value = quotedValue(String(line)) {
+                if value.range(of: #"^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$"#, options: .regularExpression) == nil {
+                    problems.append("bucket_name \"\(value)\" violates the R2 bucket-name rule")
+                }
+            }
+        }
+        return problems
+    }
+
+    private func quotedValue(_ line: String) -> String? {
+        guard let open = line.firstIndex(of: "\""), let close = line.lastIndex(of: "\""), open < close else { return nil }
+        return String(line[line.index(after: open)..<close])
+    }
+
+    @Test("a raw uppercase UUID site id is refused up front instead of reaching wrangler (#1750)")
+    func rejectsRawUUIDSiteID() {
+        #expect(throws: WorkerComposition.ConfigError.self) {
+            try WorkerComposition.generateWranglerToml(
+                siteName: "F0EF6A17-9948-4157-98CE-A6D8234BA0AF",
+                workers: [solidPodWorker]
+            )
+        }
+    }
+
+    @Test("a UUID site id run through WorkerSiteName generates a config wrangler's name and bucket rules accept (#1750)")
+    func derivedUUIDSiteNamePassesWranglerRules() throws {
+        let siteName = WorkerSiteName.derive(from: "F0EF6A17-9948-4157-98CE-A6D8234BA0AF")
+        // solid-pod (BLOBS) + micropub (MEDIA) exercise both derived-bucket emission sites; the
+        // rest of v3 covers the D1/queue names alongside.
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: siteName,
+            workers: v3Workers + [solidPodWorker, webdavWorker]
+        )
+        #expect(toml.contains("name = \"f0ef6a17-9948-4157-98ce-a6d8234ba0af\""))
+        #expect(toml.contains("bucket_name = \"f0ef6a17-9948-4157-98ce-a6d8234ba0af-pod-blobs\""))
+        #expect(toml.contains("bucket_name = \"f0ef6a17-9948-4157-98ce-a6d8234ba0af-media\""))
+        #expect(wranglerNamingProblems(in: toml).isEmpty, "\(wranglerNamingProblems(in: toml))")
+    }
+
+    @Test("the longest allowed derived name still yields wrangler-valid bucket names")
+    func maxLengthDerivedNamePassesWranglerRules() throws {
+        let siteName = WorkerSiteName.derive(from: String(repeating: "x", count: 200))
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: siteName,
+            workers: [micropubWorker, solidPodWorker]
+        )
+        #expect(wranglerNamingProblems(in: toml).isEmpty, "\(wranglerNamingProblems(in: toml))")
+    }
+
+    @Test("a provisioned R2 bucket name that breaks wrangler's rule is refused")
+    func rejectsInvalidProvisionedBucketName() {
+        #expect(throws: WorkerComposition.ConfigError.self) {
+            try WorkerComposition.generateWranglerToml(
+                siteName: "my-site",
+                workers: [micropubWorker],
+                resources: .init(r2BucketName: "Bad_Bucket")
+            )
+        }
+    }
+
+    @Test("a mixed-case site name is refused even though it is TOML-safe (wrangler requires lowercase)")
+    func rejectsMixedCaseSiteName() {
+        #expect(throws: WorkerComposition.ConfigError.self) {
+            try WorkerComposition.generateWranglerToml(siteName: "MySite", workers: [])
+        }
+    }
+
     @Test("inboxCaptureEnabled adds an INBOX_KV binding and uncomments main even with no @dwk/* workers")
     func inboxCaptureAddsKVBinding() throws {
         let toml = try WorkerComposition.generateWranglerToml(
