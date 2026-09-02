@@ -50,14 +50,15 @@ struct ChatView: View {
                 HStack {
                     Spacer()
                     // #1739: Esc keeps the outside edits; Return is deliberately unbound.
-                    // "Undo anyway" overwrites uncommitted changes made outside Anglesite —
-                    // git has no record of them, so there is no recovery — which makes Cancel
-                    // the safe choice, and a hand-rolled sheet button carries exactly one key
-                    // equivalent (stacking `.defaultAction` + `.cancelAction` keeps only the
-                    // first; `.onExitCommand` never fires with no focused control), so Cancel
-                    // can't hold Return *and* Esc. Esc is the one that must always work. No
-                    // prominent style either: on macOS that reads as "Return presses this".
-                    // To make "Undo anyway" the Return default instead, give it
+                    // This is the canonical rationale for the app's hand-rolled confirmation
+                    // sheets (`DomainSheetView`'s delete-record footer points here): the
+                    // action is unrecoverable — a forced undo overwrites uncommitted outside
+                    // edits git has no record of — so Cancel is the safe choice, and a sheet
+                    // button holds exactly one key equivalent (stacking `.defaultAction` +
+                    // `.cancelAction` keeps only the first; `.onExitCommand` never fires with
+                    // no focused control), so Cancel can't take Return without losing Esc.
+                    // Hence no `.borderedProminent` either: on macOS that reads as "Return
+                    // presses this". To make the action the Return default instead, give it
                     // `.keyboardShortcut(.defaultAction)` (#1738's shape).
                     Button("Cancel") { model.dismissConflictPrompt() }
                         .keyboardShortcut(.cancelAction)
