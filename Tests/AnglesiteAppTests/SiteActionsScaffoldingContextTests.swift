@@ -25,7 +25,7 @@ struct SiteActionsScaffoldingContextTests {
     /// observe, and `Bundle.main` is never the app bundle under `swift test` (it's the Swift
     /// toolchain's own `swiftpm-testing-helper`), so the default `AppSettings.shared`/`Bundle.main`
     /// pair can never resolve the real template in this environment.
-    private func makeIsolatedSettings(sitesRoot: URL) throws -> (AppSettings, cleanup: () -> Void) {
+    private func makeIsolatedSettings(sitesRoot: URL) -> (AppSettings, cleanup: () -> Void) {
         let scratch = TemporaryUserDefaults()
         let settings = AppSettings(
             defaults: scratch.defaults,
@@ -65,7 +65,7 @@ struct SiteActionsScaffoldingContextTests {
         let sitesRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("scaffolding-context-sites-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: sitesRoot) }
-        let (settings, cleanup) = try makeIsolatedSettings(sitesRoot: sitesRoot)
+        let (settings, cleanup) = makeIsolatedSettings(sitesRoot: sitesRoot)
         defer { cleanup() }
         settings.templatePathOverride = template
 
@@ -88,7 +88,7 @@ struct SiteActionsScaffoldingContextTests {
         let sitesRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("scaffolding-context-sites-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: sitesRoot) }
-        let (settings, cleanup) = try makeIsolatedSettings(sitesRoot: sitesRoot)
+        let (settings, cleanup) = makeIsolatedSettings(sitesRoot: sitesRoot)
         defer { cleanup() }
         settings.templatePathOverride = bareDir
 
@@ -114,7 +114,7 @@ struct SiteActionsScaffoldingContextTests {
         let sitesRoot = FileManager.default.temporaryDirectory
             .appendingPathComponent("scaffolding-context-sites-\(UUID().uuidString)")
         defer { try? FileManager.default.removeItem(at: sitesRoot) }
-        let (settings, cleanup) = try makeIsolatedSettings(sitesRoot: sitesRoot)
+        let (settings, cleanup) = makeIsolatedSettings(sitesRoot: sitesRoot)
         defer { cleanup() }
         settings.templatePathOverride = root
 
