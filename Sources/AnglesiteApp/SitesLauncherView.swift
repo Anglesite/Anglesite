@@ -51,6 +51,9 @@ struct SitesLauncherView: View {
     @State private var siteToRename: SiteStore.Site?
     /// Bound to the rename alert's text field; seeded with the current name when the prompt opens.
     @State private var renameText = ""
+    /// The site whose primary action (double-click / Return) was refused because its project
+    /// files are missing, or nil when no explanation is up. Drives the "Can't Open Site" `.alert`.
+    @State private var unopenableSite: SiteStore.Site?
     private struct NewSiteSession: Identifiable {
         let id = UUID()
         let model: NewSiteWizardModel
@@ -231,7 +234,10 @@ struct SitesLauncherView: View {
         // Menu key) and VoiceOver (VO-Shift-M) invoke on the focused row. SwiftUI hands the
         // closure the right-clicked row's id when the click lands outside the selection, so a
         // mouse right-click still acts on the clicked row, not the selection (#680). Double-click
-        // is the primary action (open); Return does the same via the hidden default button below.
+        // and Return are the primary action (open): `List` invokes `primaryAction` for Return
+        // itself whenever it has keyboard focus (verified on macOS 27.0 with an in-process key-event
+        // probe, PR #1726 review), so there is deliberately no window-wide Return shortcut here —
+        // one would fire alongside the list's own handling and double-present the Locate panel.
         .contextMenu(forSelectionType: SiteStore.Site.ID.self) { ids in
             if let site = site(for: ids) {
                 rowMenu(for: site)
@@ -240,20 +246,6 @@ struct SitesLauncherView: View {
             if let site = site(for: ids) {
                 open(site: site)
             }
-        }
-        .background {
-            // Return opens the selected site — the launcher's default action, same shape as the
-            // navigator's Return-to-rename affordance. Hidden from the Tab loop and VoiceOver:
-            // it is a key equivalent, not a control.
-            Button("") {
-                if let site = selectedSite {
-                    open(site: site)
-                }
-            }
-            .keyboardShortcut(.return, modifiers: [])
-            .hidden()
-            .accessibilityHidden(true)
-            .disabled(selectedSite == nil)
         }
         // Accept `.anglesite` packages dragged from Finder (#524) — same register path as
         // Finder double-click (`onOpenURL`), including the MAS bookmark mint (a user drag
@@ -290,6 +282,26 @@ struct SitesLauncherView: View {
                     .strokeBorder(Color.accentColor, lineWidth: 3)
                     .allowsHitTesting(false)
             }
+        }
+        // The primary action on a row with missing project files explains itself instead of
+        // silently doing nothing (#1726 review): name the missing files and offer the package in
+        // Finder. Removal stays on the row menu — this alert only says why it can't open.
+        .alert(
+            "Can't Open Site",
+            isPresented: Binding(
+                get: { unopenableSite != nil },
+                set: { if !$0 { unopenableSite = nil } }
+            ),
+            presenting: unopenableSite
+        ) { site in
+            if FileManager.default.fileExists(atPath: site.packageURL.path) {
+                Button("Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([site.packageURL])
+                }
+            }
+            Button("OK", role: .cancel) {}
+        } message: { site in
+            Text("“\(site.name)” is missing required files: \(site.missingSentinels.joined(separator: ", ")). Restore them to open the site, or remove it from Anglesite with its row menu.")
         }
         .confirmationDialog(
             "Remove “\(siteToRemoveName)” from Anglesite?",
@@ -350,9 +362,7 @@ struct SitesLauncherView: View {
         // One AX element per row (name + path as the label), matching what the old button read
         // out, with the validity as its value.
         .accessibilityElement(children: .combine)
-        .accessibilityValue(site.isValid
-                             ? "Valid"
-                             : (site.needsReauthorization ? "Needs re-authorization" : "Missing required files"))
+        .accessibilityValue(accessibilityValue(for: site))
         .help(helpText(for: site))
         .swipeActions(edge: .trailing) {
             Button("Remove", systemImage: "minus.circle", role: .destructive) {
@@ -376,10 +386,6 @@ struct SitesLauncherView: View {
         Button("Remove from Anglesite…", systemImage: "minus.circle", role: .destructive) {
             promptRemove(site)
         }
-    }
-
-    private var selectedSite: SiteStore.Site? {
-        sites.first { $0.id == selectedSiteID }
     }
 
     /// The single site a selection-keyed menu/primary action refers to. The list is
@@ -448,15 +454,29 @@ struct SitesLauncherView: View {
         return String(localized: "Site is missing required files: \(site.missingSentinels.joined(separator: ", "))")
     }
 
+    /// The row's VoiceOver value: the site's validity, mirroring `helpText(for:)`'s three states.
+    private func accessibilityValue(for site: SiteStore.Site) -> String {
+        if site.isValid {
+            return String(localized: "Valid")
+        }
+        if site.needsReauthorization {
+            return String(localized: "Needs re-authorization")
+        }
+        return String(localized: "Missing required files")
+    }
+
     /// The row's primary action (double-click / Return). A dead bookmark routes to the same
     /// "Locate…" recovery as the context-menu action (#776); a site with missing project files
-    /// has nothing to open — its tooltip names the problem and the row menu offers removal.
+    /// has nothing to open, so the action explains why (`unopenableSite`) rather than silently
+    /// ignoring the double-click — the row menu is where removal lives.
     private func open(site: SiteStore.Site) {
         if site.isValid {
             openWindow(value: site.id)
             dismissWindow()
         } else if site.needsReauthorization {
             Task { await reauthorize(site) }
+        } else {
+            unopenableSite = site
         }
     }
 

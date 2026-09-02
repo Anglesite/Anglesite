@@ -895,6 +895,9 @@
     "Can't Open Component" : {
 
     },
+    "Can't Open Site" : {
+
+    },
     "Can't open %@" : {
 
     },
@@ -4583,6 +4586,16 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "“%1$@” is already connected to another site (%2$@). This deploy succeeded at its workers.dev address, but won't use %3$@ until that's resolved in your Cloudflare dashboard."
+          }
+        }
+      }
+    },
+    "“%@” is missing required files: %@. Restore them to open the site, or remove it from Anglesite with its row menu." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "“%1$@” is missing required files: %2$@. Restore them to open the site, or remove it from Anglesite with its row menu."
           }
         }
       }
