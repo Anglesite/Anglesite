@@ -131,10 +131,38 @@ public actor SiteKnowledgeIndex {
     /// Incrementally re-indexes one changed file — the file-watcher path, so a single edit
     /// doesn't trigger a full `rebuild`. A file that no longer exists (or is no longer indexable)
     /// is removed instead, so callers can route both "changed" and "unsure" events here.
+    ///
+    /// Resolves the site's post collections (a `content.config.ts` parse plus a few directory
+    /// stats) for this one file, so the upsert reflects the config on disk right now rather than
+    /// whatever the last full `rebuild` saw. A caller reconciling a whole change batch should
+    /// resolve once via `postCollections(projectRoot:)` and use the module-internal
+    /// `upsertFile(siteID:projectRoot:relativePath:postCollections:)` rather than paying that
+    /// resolution per file (`KnowledgeReindex` does).
     public func upsertFile(siteID: String, projectRoot: URL, relativePath: String) async {
         let scanned = await Task.detached(priority: .utility) {
-            Self.document(siteID: siteID, projectRoot: projectRoot, relativePath: relativePath)
+            Self.document(
+                siteID: siteID, projectRoot: projectRoot, relativePath: relativePath,
+                postCollections: Self.postCollections(projectRoot: projectRoot))
         }.value
+        store(scanned, siteID: siteID, relativePath: relativePath)
+    }
+
+    /// Batch-caller form of ``upsertFile(siteID:projectRoot:relativePath:)``: classifies with a
+    /// `postCollections` set the caller already resolved via `postCollections(projectRoot:)`, so
+    /// a batch of N changed files parses the config once, not N times. Module-internal because
+    /// the set's exact contents (blog-like collections plus `notes`) are this index's business.
+    func upsertFile(siteID: String, projectRoot: URL, relativePath: String, postCollections: Set<String>) async {
+        let scanned = await Task.detached(priority: .utility) {
+            Self.document(
+                siteID: siteID, projectRoot: projectRoot, relativePath: relativePath,
+                postCollections: postCollections)
+        }.value
+        store(scanned, siteID: siteID, relativePath: relativePath)
+    }
+
+    /// Records an upsert's outcome: a scanned document replaces any prior entry for the path;
+    /// `nil` (unreadable, oversized, or not an indexed kind) drops it.
+    private func store(_ scanned: Document?, siteID: String, relativePath: String) {
         guard let document = scanned else {
             documentsBySite[siteID]?[relativePath] = nil
             return
@@ -221,8 +249,7 @@ public actor SiteKnowledgeIndex {
     }
 
     private static func scan(siteID: String, projectRoot: URL) -> [Document] {
-        // Resolved once per rebuild, not per file — it reads `content.config.ts` and stats a
-        // handful of directories, which is cheap once but not per indexed document.
+        // Resolved once per rebuild, not per indexed document.
         let postCollections = postCollections(projectRoot: projectRoot)
         return walk(projectRoot).compactMap { abs in
             let relativePath = relativePosix(abs, from: projectRoot)
@@ -234,18 +261,10 @@ public actor SiteKnowledgeIndex {
 
     /// The collection names whose entries classify as ``Document/Kind/post``: the site's
     /// blog-like collections plus `notes`, which is post-like for retrieval even though it's
-    /// never where New Post… files anything.
-    private static func postCollections(projectRoot: URL) -> Set<String> {
+    /// never where New Post… files anything. Reads `content.config.ts` and stats a handful of
+    /// directories — cheap once per `rebuild` or per change batch, not per indexed document.
+    static func postCollections(projectRoot: URL) -> Set<String> {
         PostCollectionResolver.postCollections(siteDirectory: projectRoot).union(["notes"])
-    }
-
-    /// Single-file variant for ``upsertFile(siteID:projectRoot:relativePath:)``: re-resolves the
-    /// post collections for just this file, so an upsert reflects the config on disk right now
-    /// rather than whatever the last full rebuild saw.
-    private static func document(siteID: String, projectRoot: URL, relativePath: String) -> Document? {
-        document(
-            siteID: siteID, projectRoot: projectRoot, relativePath: relativePath,
-            postCollections: postCollections(projectRoot: projectRoot))
     }
 
     private static func document(

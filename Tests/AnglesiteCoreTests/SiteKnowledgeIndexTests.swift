@@ -219,6 +219,25 @@ struct SiteKnowledgeIndexTests {
         #expect(doc?.kind == .post)
     }
 
+    @Test("upsertFile(postCollections:) classifies with the caller's set instead of re-resolving")
+    func upsertHonorsPrecomputedPostCollections() async {
+        // No config plus an existing blog/ directory: resolving from disk yields a set that
+        // contains "blog", so a classification that follows only the passed-in set proves the
+        // batch variant never re-reads the site.
+        let root = try! writeSiteTree(prefix: "knowledge-index", [
+            "src/content/blog/welcome.md": "---\ntitle: Welcome\n---\nFirst post.",
+        ])
+        #expect(SiteKnowledgeIndex.postCollections(projectRoot: root) == ["blog", "posts", "notes"])
+        let index = SiteKnowledgeIndex()
+        let path = "src/content/blog/welcome.md"
+
+        await index.upsertFile(siteID: "site-1", projectRoot: root, relativePath: path, postCollections: [])
+        #expect(await index.document(siteID: "site-1", relativePath: path)?.kind == .content)
+
+        await index.upsertFile(siteID: "site-1", projectRoot: root, relativePath: path, postCollections: ["blog"])
+        #expect(await index.document(siteID: "site-1", relativePath: path)?.kind == .post)
+    }
+
     @Test("unload removes only the requested site")
     func unloadRemovesOnlyRequestedSite() async {
         let rootA = try! writeSiteTree(prefix: "knowledge-index", ["src/pages/a.astro": "# Alpha"])
