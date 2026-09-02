@@ -17,6 +17,15 @@ struct SiteNavigatorView: View {
     var onPublishRequested: (NavigatorItem) -> Void
     var onUnpublishRequested: (NavigatorItem) -> Void
     @FocusState private var editingFocused: Bool
+    /// True while the navigator `List` itself (or the inline-rename field inside it) holds
+    /// keyboard focus. Gates the hidden ⌘⌫ key equivalent below (#1747): a SwiftUI
+    /// `.keyboardShortcut` is window-scoped, so without this gate ⌘⌫ pressed with focus in any
+    /// other view that doesn't consume it — the Site Graph takeover's Explorer outline, the
+    /// Related Pages panel, inspector controls — deleted whatever THIS list happened to have
+    /// selected. `canvasHasKeyboardFocus` above only covers the preview/canvas (#1423, #1715); this
+    /// is the general case. Xcode/Finder semantics: ⌘⌫ (or Delete) acts on a list only while that
+    /// list has focus.
+    @FocusState private var listHasKeyboardFocus: Bool
 
     var body: some View {
         List(selection: $model.selection) {
@@ -26,6 +35,17 @@ struct SiteNavigatorView: View {
         }
         .listStyle(.sidebar)
         .accessibilityIdentifier(AXID.navigatorList)
+        .focused($listHasKeyboardFocus)
+        // A click on a row must also give the list keyboard focus so the ordinary click-then-⌘⌫
+        // delete gesture satisfies the gate below — a plain click selects a row without moving
+        // AppKit focus to the list (`@FocusState` doesn't follow selection), so without this the
+        // gate would make ⌘⌫ inert right after every mouse click. `simultaneousGesture` so
+        // selection, drag-out (`.draggable`) and the context menu keep working. Primary click
+        // only, deliberately: a right-click doesn't change `selection`, so focusing the list on
+        // one would let ⌘⌫ act on a row other than the one the context menu targeted.
+        .simultaneousGesture(TapGesture().onEnded {
+            if !listHasKeyboardFocus { listHasKeyboardFocus = true }
+        })
         // Bare Delete key deletes the selection, matching Xcode/Mail/Notes sidebar convention
         // (#674). `deletableSelection()` is nil during inline-rename, so Delete edits the text
         // field there instead — same guard the Return-to-rename affordance above uses. This is
@@ -70,14 +90,22 @@ struct SiteNavigatorView: View {
         .background {
             // ⌘⌫ as a second key equivalent for the same delete action (#989) — a view-level key
             // command, not a Commands-scene item, so it doesn't add another Edit-menu row.
-            Button("") {
-                if let item = model.deletableSelection() {
-                    onDeleteRequested(item)
+            // Attached only while `listHasKeyboardFocus` (#1747) — see its doc comment above:
+            // without this gate the shortcut is window-scoped and leaks in from any other focused
+            // view. Not attaching the modifier at all (rather than `.disabled`, which would still
+            // claim the shortcut and no-op) is what frees the keystroke for the focused view — the
+            // same conditional-attachment shape as `onDeleteCommand(active:perform:)`
+            // (`PreviewView.swift`).
+            if listHasKeyboardFocus {
+                Button("") {
+                    if let item = model.deletableSelection() {
+                        onDeleteRequested(item)
+                    }
                 }
+                .keyboardShortcut(.delete, modifiers: [.command])
+                .hidden()
+                .accessibilityHidden(true)
             }
-            .keyboardShortcut(.delete, modifiers: [.command])
-            .hidden()
-            .accessibilityHidden(true)
         }
         .alert(
             "Rename failed",
