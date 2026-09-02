@@ -24,12 +24,16 @@ struct NewContentActions {
 /// Edit-menu items enable/disable correctly without the menu needing to know either surface's
 /// internals. Delete has no field here (#989) — it's driven entirely by `SiteNavigatorView`'s
 /// `.onDeleteCommand` / the canvas's own `.onDeleteCommand` (`SiteWindow.previewPane(for:)`), which
-/// are now mutually exclusive: each is attached only while `WYSIWYGCanvasController
-/// .hasKeyboardFocus` says it should be the live one (#1423), rather than left for AppKit's
-/// responder chain to arbitrate between two simultaneously-attached handlers — that arbitration is
-/// what made the shared Edit ▸ Delete item unreliable once the canvas target (#1225 Task 11)
-/// started coexisting with the Navigator's. A second Commands-level Delete button here would still
-/// just re-create the duplicate-item bug #989 already ruled out.
+/// are now mutually exclusive: each is attached only while the side that should be live currently
+/// is (#1423) — the Navigator side gates on the broader `PreviewModel.hasKeyboardFocus` (#1715:
+/// covers the canvas AND the overlay JS's non-canvas `contentEditable` quick-edit), while the
+/// canvas's own delete target (`SiteWindow.swift`) still reads `WYSIWYGCanvasController
+/// .hasKeyboardFocus` specifically, since it acts on the canvas's own block selection. Two
+/// differently-scoped flags rather than AppKit's responder chain arbitrating between two
+/// simultaneously-attached handlers — that arbitration is what made the shared Edit ▸ Delete item
+/// unreliable once the canvas target (#1225 Task 11) started coexisting with the Navigator's. A
+/// second Commands-level Delete button here would still just re-create the duplicate-item bug
+/// #989 already ruled out.
 struct NavigatorSelectionActions {
     let duplicate: (@MainActor () -> Void)?
     let publish: (@MainActor () -> Void)?

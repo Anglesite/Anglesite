@@ -93,8 +93,23 @@ The canonical pre-PR suites and their gotchas are in
   ways.
 - `swift test` hanging with no output usually means a stale SwiftPM process
   holds the `.build` lock — `pgrep -fl swift-test`, kill the orphan.
-- Don't run two full `swift test` runs concurrently on one machine (multiple
-  agents!): the FoundationModels suites flake/hang under contention.
+- **Run full suites through `scripts/swift-test.sh`, not bare `swift test`**
+  (multiple agents!). It takes a machine-scoped lock —
+  `/tmp/anglesite-swift-test.lock`, an atomic `mkdir` directory, released on
+  exit/Ctrl-C — so two full runs on one Mac serialize instead of colliding, and
+  it prints who holds the lock (pid, worktree, since) while it waits. Arguments
+  pass straight through (`scripts/swift-test.sh --filter Foo`); a `--filter`
+  run of suites that never touch the model skips the lock. Why (#1594):
+  on-device FoundationModels inference is serialized by a **system-wide**
+  daemon across all processes — six concurrent standalone probes completed one
+  solo-length turn each at exact 10s intervals, pure FIFO — so two `swift test`
+  processes issuing live-model turns multiply each other's per-turn wall clock
+  past the suites' own timeouts (the "flake"/"hang"). It is not `.build`-lock,
+  temp-path, or port contention, and compilation (`scripts/build-app.sh`) is
+  unaffected. Hand-rolling the same `mkdir /tmp/anglesite-swift-test.lock` /
+  `rmdir` pair is compatible with the wrapper (it waits on a bare lock and
+  never reclaims one), but the wrapper adds holder info, stale-lock reclaim,
+  and `ANGLESITE_TEST_LOCK_WAIT=fail` for fail-fast callers — see its header.
 - `swift test --filter X` still *compiles* the whole package — a broken
   sibling target blocks a filtered run too.
 
@@ -204,6 +219,7 @@ Ground rules:
 | "Check container resources" build warning (Debug) / error (Release) | Gitignored container artifacts absent in this worktree | rsync the three `Resources/container-*` dirs from the main checkout (see above), then rebuild |
 | App runs but previews fail: `imageLayoutNotProvisioned; …` | Same as above — app was built without the artifacts | Same rsync, then rebuild |
 | `swift test` produces no output for minutes | Stale SwiftPM process holds the `.build` lock | `pgrep -fl swift-test`; kill the orphan |
-| FoundationModels test suites flake or hang | Two full `swift test` runs racing on one machine | Serialize full-suite runs across agents |
+| FoundationModels test suites flake or hang | Two `swift test` runs issuing live-model turns on one machine — the on-device inference daemon is a system-wide FIFO queue (#1594) | Run full suites via `scripts/swift-test.sh` (machine-scoped lock); a bare `swift test` bypasses it |
+| `scripts/swift-test.sh` sits at "waiting for swift test lock held by …" | Another full run holds `/tmp/anglesite-swift-test.lock` — expected; a *stale* lock (dead holder pid) is reclaimed automatically | Wait (Ctrl-C bails out at once with exit 130 and leaves the holder's lock alone), or `ANGLESITE_TEST_LOCK_WAIT=fail` to fail fast (exit 75). A bare `mkdir` lock with no `holder` file and no live `swift test` anywhere (`pgrep -fl swift-test`) was left by a killed hand-rolled run: `rmdir` it |
 | `xed .` opened the wrong thing | `Package.swift` has no runnable target | `open Anglesite.xcodeproj` |
 | `xcrun mcpbridge` → `Fatal error: … no running Xcode processes found` | Xcode MCP needs a live Xcode | Start Xcode with the project open, or use the CLI path |

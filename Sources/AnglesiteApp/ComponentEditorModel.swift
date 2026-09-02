@@ -106,6 +106,14 @@ final class ComponentEditorModel {
     /// Each new picker value cancels the previous pending commit and restarts the delay, so only
     /// the settled value after the drag pauses actually commits.
     private var colorCommitTasks: [String: Task<Void, Never>] = [:]
+    /// Debounce timer seam for `debounceColorCommit` — mirrors `InvisiblePublishQueue.Sleep` /
+    /// `SyncScheduler.Sleep`: production always sleeps for real, tests substitute a manually
+    /// released gate so debounce assertions don't race a live 350 ms timer against the test's
+    /// own wall-clock waits under concurrent-agent load (#1721, the same lesson as #762).
+    typealias Sleep = @Sendable (Duration) async throws -> Void
+    /// Quiet window a `ColorPicker` drag must pause for before its value commits.
+    static let colorCommitDebounce: Duration = .milliseconds(350)
+    private let sleep: Sleep
     /// Editable draft of the component's Props interface (Props form), seeded from
     /// `model?.frontmatter?.props` whenever a fresh model loads (`reconcileDrafts`) and
     /// reconciled back via an explicit "Save Props" action (`savePropsDraft`) — the op replaces
@@ -152,9 +160,16 @@ final class ComponentEditorModel {
         case frontmatter, client
     }
 
-    init(file: FileRef, context: ComponentEditorContext) {
+    /// `sleep` is the `debounceColorCommit` timer seam — see ``Sleep``. Production call sites
+    /// leave the default; only tests pass a gate.
+    init(
+        file: FileRef,
+        context: ComponentEditorContext,
+        sleep: @escaping Sleep = { try await Task.sleep(for: $0) }
+    ) {
         self.file = file
         self.context = context
+        self.sleep = sleep
     }
 
     /// Path of this component relative to the site's Source/ root.
@@ -377,11 +392,16 @@ final class ComponentEditorModel {
 
     /// Commits `selectorDrafts` for `rule` via `setRuleSelector` if it actually differs from the
     /// model's current selector — called on the selector field's `onSubmit`.
-    func commitSelector(rule: ComponentModel.StyleRule) {
+    ///
+    /// Returns the write task, or `nil` when the draft already matches and nothing is sent, so a
+    /// test can await the write landing (or prove the no-op synchronously) instead of sleeping
+    /// for a guessed interval and racing the task under load (#1721). Views ignore the result.
+    @discardableResult
+    func commitSelector(rule: ComponentModel.StyleRule) -> Task<Void, Never>? {
         let key = Self.spanKey(rule.span)
         let newSelector = selectorDrafts[key] ?? rule.selector
-        guard newSelector != rule.selector else { return }
-        Task { await setRuleSelector(ruleSpan: spanArray(rule.span), newSelector: newSelector) }
+        guard newSelector != rule.selector else { return nil }
+        return Task { await setRuleSelector(ruleSpan: spanArray(rule.span), newSelector: newSelector) }
     }
 
     func propertyDraft(for decl: ComponentModel.Declaration) -> String {
@@ -434,13 +454,16 @@ final class ComponentEditorModel {
     /// for `decl` before removing it. Without this, a declaration removed mid-drag (before the
     /// `debounceColorCommit` delay elapses) would have its pending commit fire afterward and
     /// resurrect the just-deleted declaration via `setStyleProperty`.
-    func removeDeclaration(rule: ComponentModel.StyleRule, decl: ComponentModel.Declaration) {
+    ///
+    /// Returns the remove's write task (see `commitSelector`); views ignore it.
+    @discardableResult
+    func removeDeclaration(rule: ComponentModel.StyleRule, decl: ComponentModel.Declaration) -> Task<Void, Never> {
         let key = Self.spanKey(decl.span)
         colorCommitTasks[key]?.cancel()
         colorCommitTasks[key] = nil
         valueDrafts[key] = nil
         propertyDrafts[key] = nil
-        Task { await removeStyleProperty(ruleSpan: spanArray(rule.span), property: decl.property) }
+        return Task { await removeStyleProperty(ruleSpan: spanArray(rule.span), property: decl.property) }
     }
 
     /// Debounces `ColorPicker` writes: cancels any pending commit for this declaration and
@@ -457,8 +480,11 @@ final class ComponentEditorModel {
     ) {
         let key = Self.spanKey(decl.span)
         colorCommitTasks[key]?.cancel()
-        colorCommitTasks[key] = Task {
-            try? await Task.sleep(for: .milliseconds(350))
+        colorCommitTasks[key] = Task { [sleep] in
+            // A cancelled timer throws (`CancellationError` from the real `Task.sleep`, or the
+            // test gate's equivalent); the `isCancelled` guard below is what turns that into a
+            // no-op rather than a commit of the superseded value.
+            try? await sleep(Self.colorCommitDebounce)
             guard !Task.isCancelled else { return }
             await commitDeclaration(ruleIndex: ruleIndex, rule: rule, decl: decl)
             onSettled()
@@ -543,12 +569,15 @@ final class ComponentEditorModel {
         attrValueDrafts[Self.attrKey(nodeID: node.id, name: name)] = text
     }
 
-    func commitAttr(node: ComponentModel.Node, name: String) {
+    /// Commits the attribute draft for `name` on `node` if there is one and it differs from the
+    /// current value. Returns the write task, or `nil` for a no-op (see `commitSelector`).
+    @discardableResult
+    func commitAttr(node: ComponentModel.Node, name: String) -> Task<Void, Never>? {
         let key = Self.attrKey(nodeID: node.id, name: name)
-        guard let draft = attrValueDrafts[key] else { return }
+        guard let draft = attrValueDrafts[key] else { return nil }
         let current = node.attrs.first(where: { $0.name == name })?.value ?? ""
-        guard draft != current else { return }
-        Task { await setAttr(nodeId: node.id, name: name, value: draft) }
+        guard draft != current else { return nil }
+        return Task { await setAttr(nodeId: node.id, name: name, value: draft) }
     }
 
     /// Discards any in-progress draft for `name` before removing the attribute. Without this, a
@@ -556,9 +585,12 @@ final class ComponentEditorModel {
     /// the same attribute name is later re-added via "Add attribute" — `attrValueDraft`'s getter
     /// would render the discarded draft instead of the freshly-committed value, and committing it
     /// would silently overwrite the new value. Mirrors `removeDeclaration`'s draft-clearing.
-    func removeAttr(node: ComponentModel.Node, name: String) {
+    ///
+    /// Returns the remove's write task (see `commitSelector`); views ignore it.
+    @discardableResult
+    func removeAttr(node: ComponentModel.Node, name: String) -> Task<Void, Never> {
         attrValueDrafts[Self.attrKey(nodeID: node.id, name: name)] = nil
-        Task { await setAttr(nodeId: node.id, name: name, value: nil) }
+        return Task { await setAttr(nodeId: node.id, name: name, value: nil) }
     }
 
     // MARK: - Outline & canvas drag/drop (moved from ComponentEditorView — #824)

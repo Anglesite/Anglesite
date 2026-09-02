@@ -117,7 +117,7 @@ Expected:
 
 ### 13. (Device-gated) Chat edit + unavailable copy
 
-With Apple Intelligence available: toolbar **Chat** (⌘K), ask for a small copy edit → same `.edit` row + Undo + ⌘Z semantics as case 3. Without it: the assistant surfaces "Apple Intelligence isn't available…" with the System Settings pointer. This case is optional for the run's PASS.
+With Apple Intelligence available: toolbar **Chat** (⌃⌘K), ask for a small copy edit → same `.edit` row + Undo + ⌘Z semantics as case 3. Without it: the assistant surfaces "Apple Intelligence isn't available…" with the System Settings pointer. This case is optional for the run's PASS.
 
 ## Exit state for Part 4
 
