@@ -89,13 +89,18 @@ struct PreviewWebView: AdwaitaWidget {
             }
             let json = String(cString: jsonC)
             g_free(jsonC)
-            guard let data = json.data(using: .utf8),
-                  let body = try? JSONSerialization.jsonObject(with: data)
-            else {
-                Task { await logCenter.append(source: "bridge-gtk", stream: .stderr, text: "undecodable script message: \(json)") }
-                return
-            }
+            // Deserialize inside the task, not before it: the handler runs on the GTK main
+            // actor (adwaita-swift ≥ df1b4f3 is main-actor-isolated by default), and the
+            // `Any` JSONSerialization produces isn't Sendable, so handing it across would be
+            // a data-race diagnostic — an error once this target adopts Swift 6 mode. The
+            // `String` crosses instead.
             Task {
+                guard let data = json.data(using: .utf8),
+                      let body = try? JSONSerialization.jsonObject(with: data)
+                else {
+                    await logCenter.append(source: "bridge-gtk", stream: .stderr, text: "undecodable script message: \(json)")
+                    return
+                }
                 switch await AnglesiteMessageDispatcher.dispatch(body: body, via: router) {
                 case .editReply(let reply):
                     guard let encoded = try? JSONEncoder().encode(reply),
