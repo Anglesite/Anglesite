@@ -77,11 +77,17 @@ struct ModerationView: View {
             isPresented: Binding(get: { moderation.banConfirmation != nil }, set: { _ in }),
             titleVisibility: .visible
         ) {
-            // Return-key default (#1736) — see the revert alert in `SiteWindow` for why the
-            // default sits on the action rather than on Cancel.
+            // Cancel is the Return-key default here — the one exception to the action-default
+            // shape used by every other destructive confirmation (#1736; see the revert alert in
+            // `SiteWindow`). Ban has no in-app recovery: `ModerationModel` has `ban(_:)` but no
+            // unban, so a stray Return must not be able to ban. The trade-off is deliberate: an
+            // NSAlert button holds a single key equivalent, so giving Cancel Return replaces its
+            // Esc equivalent and Esc does nothing on this dialog (verified with an isolated probe),
+            // and with Full Keyboard Access off there is no keyboard path to Ban. Revisit once an
+            // unban exists.
             Button("Ban", role: .destructive) { Task { await moderation.confirmBan() } }
-                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) { moderation.banConfirmation = nil }
+                .keyboardShortcut(.defaultAction)
         } message: {
             Text("This member's posts will stop appearing. Existing posts stay unless you also remove them.")
         }
