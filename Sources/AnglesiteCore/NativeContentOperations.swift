@@ -109,11 +109,15 @@ public struct NativeContentOperations: ContentOperationsService {
         return .created(filePath: relPath, identifier: normalized)
     }
 
-    /// Scaffolds a new post. `collection` defaults to `posts` and is validated against
-    /// `[A-Za-z0-9_-]+` — it becomes a filesystem path segment, so anything looser would let a
-    /// caller write outside the collection directory. The slug derives from `slug ?? title`;
-    /// existing paths are refused rather than overwritten, and the commit is best-effort like
-    /// `createPage`'s.
+    /// Scaffolds a new post. A `nil`/empty `collection` resolves to the site's own blog collection
+    /// via ``PostCollectionResolver`` (`blog` on the shipped template, `posts` where that's what
+    /// `content.config.ts` declares — #1716) and is refused outright when the config declares no
+    /// blog-like collection, rather than writing to a directory no loader reads. Any collection is
+    /// validated against `[A-Za-z0-9_-]+` — it becomes a filesystem path segment, so anything
+    /// looser would let a caller write outside the collection directory. The frontmatter is shaped
+    /// to the collection's declared schema fields (``ContentScaffold/renderPost(title:now:description:declaredFields:)``). The slug
+    /// derives from `slug ?? title`; existing paths are refused rather than overwritten, and the
+    /// commit is best-effort like `createPage`'s.
     public func createPost(siteID: String, title: String, collection: String?, slug: String?, onProgress: ProgressHandler? = nil) async -> ContentCreateResult {
         onProgress?(.createResolvingRuntime)
         guard let root = await siteDirectory(siteID) else { return .siteNotFound }
@@ -122,7 +126,16 @@ public struct NativeContentOperations: ContentOperationsService {
         guard !cleanTitle.isEmpty else { return .failed(reason: "create_post requires a non-empty title") }
 
         let trimmedColl = (collection ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-        let coll = trimmedColl.isEmpty ? "posts" : trimmedColl
+        let coll: String
+        if trimmedColl.isEmpty {
+            guard let resolved = PostCollectionResolver.resolve(siteDirectory: root) else {
+                return .failed(reason: "This site's content config declares no blog collection "
+                    + "(\(PostCollectionResolver.candidates.joined(separator: ", "))) to file the post in")
+            }
+            coll = resolved
+        } else {
+            coll = trimmedColl
+        }
         guard coll.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else {
             return .failed(reason: "Invalid collection name: \(coll)")
         }
@@ -139,7 +152,9 @@ public struct NativeContentOperations: ContentOperationsService {
 
         onProgress?(.createCallingPlugin)
         let suggestion = await copyGenerator.suggestDescription(title: cleanTitle, siteID: siteID, siteDirectory: root)
-        let contents = ContentScaffold.renderPost(title: cleanTitle, now: now(), description: suggestion?.description ?? "")
+        let contents = ContentScaffold.renderPost(
+            title: cleanTitle, now: now(), description: suggestion?.description ?? "",
+            declaredFields: FrontmatterSchemaReader.read(siteDirectory: root)[coll])
         do { try write(contents, to: abs) }
         catch { return .failed(reason: "\(error)") }
 

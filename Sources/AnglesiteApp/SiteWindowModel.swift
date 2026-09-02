@@ -2090,7 +2090,9 @@ final class SiteWindowModel {
         return result
     }
 
-    /// See `createPage`'s force-refresh note (#586) — same race, same fix.
+    /// See `createPage`'s force-refresh note (#586) — same race, same fix. `collection: nil` is
+    /// deliberate: the native service resolves it to the site's declared blog collection
+    /// (`PostCollectionResolver` — `blog` on the shipped template, not a hardcoded `posts`, #1716).
     func createPost(title: String) async -> ContentCreateResult {
         guard let site else { return .siteNotFound }
         let result = await contentCreation.createPost(siteID: site.id, title: title, collection: nil, slug: nil)

@@ -84,6 +84,53 @@ struct ContentScaffoldTests {
         #expect(out.contains("description: \"How we shipped it.\""))
     }
 
+    @Test("renderPost emits only the collection's declared fields, using its date key (#1716)")
+    func renderPostShapedToDeclaredFields() {
+        let date = Date(timeIntervalSince1970: 1_750_000_000)
+        // The shipped template's `blog` schema: strict, keyed on `pubDate`, no `tags`.
+        let out = ContentScaffold.renderPost(
+            title: "Launch Day", now: date, description: "How we shipped it.",
+            declaredFields: ["posse", "lang", "title", "pubDate", "description", "draft"])
+        #expect(out == """
+        ---
+        title: "Launch Day"
+        description: "How we shipped it."
+        pubDate: 2025-06-15T15:06:40.000Z
+        draft: true
+        ---
+
+        Write your post here.
+
+        """)
+    }
+
+    @Test("renderPost maps description onto a `summary` field and keeps publishDate/tags when declared")
+    func renderPostArticlesShape() {
+        let date = Date(timeIntervalSince1970: 1_750_000_000)
+        let out = ContentScaffold.renderPost(
+            title: "Launch Day", now: date, description: "How we shipped it.",
+            declaredFields: ["title", "summary", "publishDate", "updated", "tags", "draft"])
+        #expect(out == """
+        ---
+        title: "Launch Day"
+        summary: "How we shipped it."
+        publishDate: 2025-06-15T15:06:40.000Z
+        draft: true
+        tags: []
+        ---
+
+        Write your post here.
+
+        """)
+    }
+
+    @Test("renderPost with no declared fields keeps the legacy sidecar-faithful shape")
+    func renderPostNilFieldsIsLegacyShape() {
+        let date = Date(timeIntervalSince1970: 1_750_000_000)
+        #expect(ContentScaffold.renderPost(title: "T", now: date, declaredFields: nil)
+                == ContentScaffold.renderPost(title: "T", now: date))
+    }
+
     @Test("escapeYAML escapes newlines, carriage returns, tabs, and other control characters")
     func escapeYAMLEscapesControlChars() {
         #expect(ContentScaffold.escapeYAML("a\nb") == "a\\nb")

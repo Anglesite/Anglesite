@@ -9,14 +9,44 @@ import Foundation
 /// names inside the `z.object({...})` block. Anything it doesn't recognize is left out rather
 /// than guessed, matching `Frontmatter.parse`'s "deliberately minimal" precedent.
 public enum FrontmatterSchemaReader {
-    /// Reads `<siteDirectory>/src/content.config.ts` and returns each collection's declared field
-    /// names, keyed by collection name. A missing or unreadable config yields `[:]` rather than an
-    /// error — no declared schema is a normal state (callers fall back to inferred conventions),
-    /// not a failure to surface.
+    /// Reads `<siteDirectory>/src/content.config.ts` (or the legacy `src/content/config.ts`) and
+    /// returns each collection's declared field names, keyed by collection name. A missing or
+    /// unreadable config yields `[:]` rather than an error — no declared schema is a normal state
+    /// (callers fall back to inferred conventions), not a failure to surface.
     public static func read(siteDirectory: URL) -> [String: [String]] {
-        let url = siteDirectory.appendingPathComponent("src/content.config.ts")
-        guard let source = try? String(contentsOf: url, encoding: .utf8) else { return [:] }
+        guard let source = contentConfigSource(siteDirectory: siteDirectory) else { return [:] }
         return collections(fromContentConfig: source)
+    }
+
+    /// Every collection the site's content config declares, in declaration order — including
+    /// ones whose schema is imported rather than an inline `z.object({...})` (which
+    /// ``read(siteDirectory:)`` leaves out because it has no fields to report). This is the
+    /// "is this collection wired up at all?" question ``PostCollectionResolver`` asks (#1716).
+    /// A missing or unreadable config yields `[]`.
+    public static func declaredCollectionNames(siteDirectory: URL) -> [String] {
+        guard let source = contentConfigSource(siteDirectory: siteDirectory) else { return [] }
+        return collectionNames(fromContentConfig: source)
+    }
+
+    /// Declaration-order names of every `const NAME = defineCollection(` in content-config source
+    /// text, regardless of schema shape.
+    public static func collectionNames(fromContentConfig source: String) -> [String] {
+        let range = NSRange(source.startIndex..<source.endIndex, in: source)
+        return declarationPattern.matches(in: source, range: range).compactMap { match in
+            guard let nameRange = Range(match.range(at: 1), in: source) else { return nil }
+            return String(source[nameRange])
+        }
+    }
+
+    /// The site's content config source: Astro 5's `src/content.config.ts`, else the legacy
+    /// `src/content/config.ts` location (Astro 2–4, still honored by Astro 5). `nil` when neither
+    /// exists or can't be read as UTF-8.
+    private static func contentConfigSource(siteDirectory: URL) -> String? {
+        for relative in ["src/content.config.ts", "src/content/config.ts"] {
+            let url = siteDirectory.appendingPathComponent(relative)
+            if let source = try? String(contentsOf: url, encoding: .utf8) { return source }
+        }
+        return nil
     }
 
     /// Extracts collection-name → field-name lists from content-config source text. Split out

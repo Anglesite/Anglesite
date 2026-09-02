@@ -196,24 +196,46 @@ public enum ContentScaffold {
         """ + "\n"
     }
 
-    /// Markdown source for a new post: quoted, escaped frontmatter with `publishDate` set to
+    /// Markdown source for a new post: quoted, escaped frontmatter with the publish date set to
     /// `now` (ISO-8601 with fractional seconds, matching the sidecar's `toISOString()` output
     /// byte-for-byte) and `draft: true` — new entries start unpublished.
-    public static func renderPost(title: String, now: Date, description: String = "") -> String {
+    ///
+    /// `declaredFields` is the target collection's schema field list from
+    /// ``FrontmatterSchemaReader`` (#1716). When known, only declared keys are emitted and the
+    /// date goes under whichever key the schema uses (`pubDate` for the template's `blog`
+    /// collection, else `publishDate`, else `date`), and the description falls back to `summary`
+    /// — the collection schemas are `.strict()`, so an undeclared `tags:` or a `publishDate:`
+    /// where `pubDate:` is required makes Astro reject the whole entry. `nil` (no readable
+    /// schema) keeps the legacy `posts` shape unchanged.
+    public static func renderPost(
+        title: String, now: Date, description: String = "", declaredFields: [String]? = nil
+    ) -> String {
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
         let publishDate = formatter.string(from: now)
-        return """
-        ---
-        title: "\(escapeYAML(title))"
-        description: "\(escapeYAML(description))"
-        publishDate: \(publishDate)
-        draft: true
-        tags: []
-        ---
 
-        Write your post here.
-        """ + "\n"
+        var lines: [String] = []
+        if let declaredFields {
+            let declared = Set(declaredFields)
+            if declared.contains("title") { lines.append("title: \"\(escapeYAML(title))\"") }
+            if let key = ["description", "summary"].first(where: declared.contains) {
+                lines.append("\(key): \"\(escapeYAML(description))\"")
+            }
+            if let key = ["pubDate", "publishDate", "date"].first(where: declared.contains) {
+                lines.append("\(key): \(publishDate)")
+            }
+            if declared.contains("draft") { lines.append("draft: true") }
+            if declared.contains("tags") { lines.append("tags: []") }
+        } else {
+            lines = [
+                "title: \"\(escapeYAML(title))\"",
+                "description: \"\(escapeYAML(description))\"",
+                "publishDate: \(publishDate)",
+                "draft: true",
+                "tags: []",
+            ]
+        }
+        return "---\n" + lines.joined(separator: "\n") + "\n---\n\nWrite your post here.\n"
     }
 
     /// Render a new content entry's file contents from its descriptor: a YAML frontmatter block
