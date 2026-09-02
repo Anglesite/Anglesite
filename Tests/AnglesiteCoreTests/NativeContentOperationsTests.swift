@@ -215,6 +215,29 @@ struct NativeContentOperationsTests {
         #expect(await spy.calls.isEmpty)
     }
 
+    @Test("createPost refuses when the blog collection's schema is imported rather than readable (#1716)")
+    func createPostRefusesUnreadableBlogSchema() async throws {
+        let (ops, root, spy) = makeOps()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("src"), withIntermediateDirectories: true)
+        // The shipped template's `articles` collection: declared and blog-like, but its `.strict()`
+        // schema lives in `lib/content-schemas.ts` (keyed on `summary`, not `description`), so the
+        // legacy frontmatter shape would be rejected by Astro. Refuse instead of guessing.
+        try """
+        import { articlesSchema } from "./lib/content-schemas.ts";
+        const articles = defineCollection({ loader: glob({ base: "./src/content/articles" }), schema: articlesSchema });
+        export const collections = { articles };
+        """.write(to: root.appendingPathComponent("src/content.config.ts"), atomically: true, encoding: .utf8)
+
+        let result = await ops.createPost(siteID: "s1", title: "Hello World", collection: nil, slug: nil)
+
+        guard case let .failed(reason) = result else { Issue.record("expected .failed, got \(result)"); return }
+        #expect(reason.contains("articles"))
+        #expect(reason.contains("schema"))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("src/content").path))
+        #expect(await spy.calls.isEmpty)
+    }
+
     @Test("an explicit collection still wins over the resolved default")
     func createPostExplicitCollectionOverridesResolution() async throws {
         let (ops, root, _) = makeOps()

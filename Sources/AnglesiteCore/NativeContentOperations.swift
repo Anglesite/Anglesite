@@ -112,7 +112,9 @@ public struct NativeContentOperations: ContentOperationsService {
     /// Scaffolds a new post. A `nil`/empty `collection` resolves to the site's own blog collection
     /// via ``PostCollectionResolver`` (`blog` on the shipped template, `posts` where that's what
     /// `content.config.ts` declares — #1716) and is refused outright when the config declares no
-    /// blog-like collection, rather than writing to a directory no loader reads. Any collection is
+    /// blog-like collection, rather than writing to a directory no loader reads — or when that
+    /// collection's schema can't be read (imported or spread-only), since the frontmatter would
+    /// then be a guess its `.strict()` schema rejects. Any collection is
     /// validated against `[A-Za-z0-9_-]+` — it becomes a filesystem path segment, so anything
     /// looser would let a caller write outside the collection directory. The frontmatter is shaped
     /// to the collection's declared schema fields (``ContentScaffold/renderPost(title:now:description:declaredFields:)``). The slug
@@ -127,14 +129,24 @@ public struct NativeContentOperations: ContentOperationsService {
 
         let trimmedColl = (collection ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         let coll: String
+        let declaredFields: [String]?
         if trimmedColl.isEmpty {
-            guard let resolved = PostCollectionResolver.resolve(siteDirectory: root) else {
+            switch PostCollectionResolver.resolve(siteDirectory: root) {
+            case .collection(let name, let fields):
+                coll = name
+                declaredFields = fields
+            case .unreadableSchema(let name):
+                return .failed(reason: "This site's \(name) collection uses a schema Anglesite can't read, "
+                    + "so it can't tell which fields a new post there needs")
+            case .noBlogCollection:
                 return .failed(reason: "This site's content config declares no blog collection "
                     + "(\(PostCollectionResolver.candidates.joined(separator: ", "))) to file the post in")
             }
-            coll = resolved
         } else {
+            // An explicit collection is the caller's decision: shape to its schema when readable,
+            // else the legacy shape — the pre-#1716 contract for the AppleScript/intent paths.
             coll = trimmedColl
+            declaredFields = FrontmatterSchemaReader.read(siteDirectory: root)[coll]
         }
         guard coll.range(of: "^[A-Za-z0-9_-]+$", options: .regularExpression) != nil else {
             return .failed(reason: "Invalid collection name: \(coll)")
@@ -154,7 +166,7 @@ public struct NativeContentOperations: ContentOperationsService {
         let suggestion = await copyGenerator.suggestDescription(title: cleanTitle, siteID: siteID, siteDirectory: root)
         let contents = ContentScaffold.renderPost(
             title: cleanTitle, now: now(), description: suggestion?.description ?? "",
-            declaredFields: FrontmatterSchemaReader.read(siteDirectory: root)[coll])
+            declaredFields: declaredFields)
         do { try write(contents, to: abs) }
         catch { return .failed(reason: "\(error)") }
 

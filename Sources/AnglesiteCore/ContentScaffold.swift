@@ -206,7 +206,10 @@ public enum ContentScaffold {
     /// collection, else `publishDate`, else `date`), and the description falls back to `summary`
     /// — the collection schemas are `.strict()`, so an undeclared `tags:` or a `publishDate:`
     /// where `pubDate:` is required makes Astro reject the whole entry. `nil` (no readable
-    /// schema) keeps the legacy `posts` shape unchanged.
+    /// schema) keeps the legacy `posts` shape unchanged — as does an empty list, which would
+    /// otherwise render a frontmatter block with no `title` and no date at all. The reader never
+    /// reports an empty list (a zero-field reading is omitted as unreadable), so that guard is for
+    /// other callers of this public API.
     public static func renderPost(
         title: String, now: Date, description: String = "", declaredFields: [String]? = nil
     ) -> String {
@@ -215,7 +218,7 @@ public enum ContentScaffold {
         let publishDate = formatter.string(from: now)
 
         var lines: [String] = []
-        if let declaredFields {
+        if let declaredFields, !declaredFields.isEmpty {
             let declared = Set(declaredFields)
             if declared.contains("title") { lines.append("title: \"\(escapeYAML(title))\"") }
             if let key = ["description", "summary"].first(where: declared.contains) {
