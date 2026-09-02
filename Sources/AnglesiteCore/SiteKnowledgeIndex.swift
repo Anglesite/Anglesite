@@ -44,8 +44,10 @@ public actor SiteKnowledgeIndex {
         public enum Kind: String, Sendable, Equatable, CaseIterable {
             /// A routable page under `src/pages/`.
             case page
-            /// A post-like entry (`src/content/posts/`, `src/content/notes/`) — split from
-            /// ``content`` so blog-focused queries can target just these.
+            /// A post-like entry — an entry in one of the site's blog-like collections
+            /// (``PostCollectionResolver/postCollections(siteDirectory:)``: `blog` on the shipped
+            /// template, `posts`/`articles` where declared) or in `notes/`. Split from
+            /// ``content`` so blog-focused queries can target just these (#1725).
             case post
             /// A component under `src/components/`.
             case component
@@ -129,10 +131,38 @@ public actor SiteKnowledgeIndex {
     /// Incrementally re-indexes one changed file — the file-watcher path, so a single edit
     /// doesn't trigger a full `rebuild`. A file that no longer exists (or is no longer indexable)
     /// is removed instead, so callers can route both "changed" and "unsure" events here.
+    ///
+    /// Resolves the site's post collections (a `content.config.ts` parse plus a few directory
+    /// stats) for this one file, so the upsert reflects the config on disk right now rather than
+    /// whatever the last full `rebuild` saw. A caller reconciling a whole change batch should
+    /// resolve once via `postCollections(projectRoot:)` and use the module-internal
+    /// `upsertFile(siteID:projectRoot:relativePath:postCollections:)` rather than paying that
+    /// resolution per file (`KnowledgeReindex` does).
     public func upsertFile(siteID: String, projectRoot: URL, relativePath: String) async {
         let scanned = await Task.detached(priority: .utility) {
-            Self.document(siteID: siteID, projectRoot: projectRoot, relativePath: relativePath)
+            Self.document(
+                siteID: siteID, projectRoot: projectRoot, relativePath: relativePath,
+                postCollections: Self.postCollections(projectRoot: projectRoot))
         }.value
+        store(scanned, siteID: siteID, relativePath: relativePath)
+    }
+
+    /// Batch-caller form of ``upsertFile(siteID:projectRoot:relativePath:)``: classifies with a
+    /// `postCollections` set the caller already resolved via `postCollections(projectRoot:)`, so
+    /// a batch of N changed files parses the config once, not N times. Module-internal because
+    /// the set's exact contents (blog-like collections plus `notes`) are this index's business.
+    func upsertFile(siteID: String, projectRoot: URL, relativePath: String, postCollections: Set<String>) async {
+        let scanned = await Task.detached(priority: .utility) {
+            Self.document(
+                siteID: siteID, projectRoot: projectRoot, relativePath: relativePath,
+                postCollections: postCollections)
+        }.value
+        store(scanned, siteID: siteID, relativePath: relativePath)
+    }
+
+    /// Records an upsert's outcome: a scanned document replaces any prior entry for the path;
+    /// `nil` (unreadable, oversized, or not an indexed kind) drops it.
+    private func store(_ scanned: Document?, siteID: String, relativePath: String) {
         guard let document = scanned else {
             documentsBySite[siteID]?[relativePath] = nil
             return
@@ -219,13 +249,27 @@ public actor SiteKnowledgeIndex {
     }
 
     private static func scan(siteID: String, projectRoot: URL) -> [Document] {
-        walk(projectRoot).compactMap { abs in
+        // Resolved once per rebuild, not per indexed document.
+        let postCollections = postCollections(projectRoot: projectRoot)
+        return walk(projectRoot).compactMap { abs in
             let relativePath = relativePosix(abs, from: projectRoot)
-            return document(siteID: siteID, projectRoot: projectRoot, relativePath: relativePath)
+            return document(
+                siteID: siteID, projectRoot: projectRoot, relativePath: relativePath,
+                postCollections: postCollections)
         }
     }
 
-    private static func document(siteID: String, projectRoot: URL, relativePath: String) -> Document? {
+    /// The collection names whose entries classify as ``Document/Kind/post``: the site's
+    /// blog-like collections plus `notes`, which is post-like for retrieval even though it's
+    /// never where New Post… files anything. Reads `content.config.ts` and stats a handful of
+    /// directories — cheap once per `rebuild` or per change batch, not per indexed document.
+    static func postCollections(projectRoot: URL) -> Set<String> {
+        PostCollectionResolver.postCollections(siteDirectory: projectRoot).union(["notes"])
+    }
+
+    private static func document(
+        siteID: String, projectRoot: URL, relativePath: String, postCollections: Set<String>
+    ) -> Document? {
         guard shouldIndex(relativePath) else { return nil }
         let url = projectRoot.appendingPathComponent(relativePath)
         guard let size = fileSize(url), size <= 512_000 else { return nil }
@@ -239,7 +283,7 @@ public actor SiteKnowledgeIndex {
             id: documentID(siteID: siteID, relativePath: relativePath),
             siteID: siteID,
             path: relativePath,
-            kind: kind(for: relativePath),
+            kind: kind(for: relativePath, postCollections: postCollections),
             title: title,
             frontmatter: frontmatter,
             headings: headings,
@@ -283,10 +327,12 @@ public actor SiteKnowledgeIndex {
         return indexedExtensions.contains(ext)
     }
 
-    private static func kind(for path: String) -> Document.Kind {
+    private static func kind(for path: String, postCollections: Set<String>) -> Document.Kind {
         let ext = URL(fileURLWithPath: path).pathExtension.lowercased()
         if path.hasPrefix("src/pages/") { return .page }
-        if path.hasPrefix("src/content/posts/") || path.hasPrefix("src/content/notes/") { return .post }
+        if let collection = collectionName(of: path) {
+            return postCollections.contains(collection) ? .post : .content
+        }
         if path.hasPrefix("src/content/") { return .content }
         if path.hasPrefix("src/components/") { return .component }
         if path.hasPrefix("src/layouts/") { return .layout }
@@ -296,6 +342,17 @@ public actor SiteKnowledgeIndex {
             return .config
         }
         return .other
+    }
+
+    /// The collection folder of a `src/content/<collection>/…` entry, or `nil` for a file
+    /// directly under `src/content/` (no collection to anchor on) or outside it.
+    private static func collectionName(of path: String) -> String? {
+        let prefix = "src/content/"
+        guard path.hasPrefix(prefix) else { return nil }
+        let remainder = path.dropFirst(prefix.count)
+        guard let slash = remainder.firstIndex(of: "/") else { return nil }
+        let collection = remainder[..<slash]
+        return collection.isEmpty ? nil : String(collection)
     }
 
     private static func title(in source: String, frontmatter: [String: FrontmatterValue]) -> String? {
