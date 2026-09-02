@@ -330,11 +330,9 @@ public actor BackupCommand {
             arguments: ["git"] + arguments,
             currentDirectoryURL: siteDirectory
         )
-        let reason = await withTaskCancellationHandler {
-            await ProcessSupervisor.shared.waitForExit(handle)
-        } onCancel: {
-            Task { await ProcessSupervisor.shared.terminate(handle) }
-        }
+        // Cancellation terminates git and waits for it to actually exit (#1758) — the drained
+        // stderr below is then complete rather than whatever had landed before the SIGTERM.
+        let reason = await ProcessSupervisor.shared.waitForExitOrTerminate(handle)
 
         // `waitForExit` only resumes once the supervisor's pipe-drain Tasks have finished, so
         // every stderr line is already in LogCenter; cancelling ends the stream and the await

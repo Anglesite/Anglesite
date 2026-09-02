@@ -197,22 +197,63 @@ public actor InProcessBackend: SupervisorBackend {
     /// Marks the entry manually terminated *first*, so the supervision loop reports
     /// `.terminated` and never treats the kill as a crash to restart — even if the process
     /// happens to exit (or a restart backoff is in flight) while this runs. No-op for unknown
-    /// handles.
+    /// and already-finalized handles.
+    ///
+    /// Both signals target the child's whole process group, not just the leader. Foundation
+    /// spawns each child as its own group leader and delivers `terminate()`'s SIGTERM
+    /// group-wide ("the receiver and all of its subtasks"), so the escalation has to cover the
+    /// same set: a descendant that ignored the SIGTERM — or never received it, because it landed
+    /// in a shell child's `fork()`→`exec` window, where the shell's own trap handler consumes the
+    /// signal before the real program is exec'd (#1758) — would otherwise outlive its leader while
+    /// still holding our stdout/stderr pipes. Until every writer closes, the pipe readers never
+    /// see EOF, so `finalize` (and every `waitForExit` waiter) stalls. Hence the second phase:
+    /// once the leader is gone, the group gets the remainder of `timeout` to wind down on its own
+    /// before it is SIGKILLed too.
     public func terminate(_ handle: SpawnedProcessHandle, timeout: TimeInterval) async {
-        guard let entry = entries[handle.id] else { return }
+        guard let entry = entries[handle.id], entry.finalReason == nil else { return }
         entry.manuallyTerminated = true
-        guard let process = entry.currentProcess, process.isRunning else { return }
+        guard let process = entry.currentProcess else { return }
 
-        process.terminate()  // SIGTERM
         let deadline = Date().addingTimeInterval(timeout)
-        while process.isRunning && Date() < deadline {
+        if process.isRunning {
+            process.terminate()  // SIGTERM, to the whole process group
+            while process.isRunning && Date() < deadline {
+                try? await Task.sleep(nanoseconds: 50_000_000)
+            }
+            if process.isRunning {
+                Self.forceKill(leader: process.processIdentifier, group: entry.processGroupID)
+                return
+            }
+        }
+        // Leader gone. If the supervision loop still hasn't finalized by the deadline, a
+        // descendant in the group is holding the log pipes open — sweep the group. Only the
+        // group: the leader's pid is dead and is never signalled again (it could be recycled),
+        // so with no recorded group there is nothing safe to do.
+        guard let group = entry.processGroupID else { return }
+        while entry.finalReason == nil && Date() < deadline {
             try? await Task.sleep(nanoseconds: 50_000_000)
         }
-        if process.isRunning {
-            #if canImport(Darwin)
-            kill(process.processIdentifier, SIGKILL)
-            #endif
+        if entry.finalReason == nil {
+            Self.forceKillGroup(group)
         }
+    }
+
+    /// SIGKILL escalation while the leader is still running: its whole process group when one
+    /// was recorded at spawn (the live leader keeps the group ID reserved), else the leader alone.
+    private static func forceKill(leader pid: pid_t, group: pid_t?) {
+        #if canImport(Darwin)
+        if let group { killpg(group, SIGKILL) } else { kill(pid, SIGKILL) }
+        #endif
+    }
+
+    /// SIGKILL every remaining member of `group` after its leader has exited. A process-group
+    /// ID stays reserved for as long as any member lives, so a group that still answers
+    /// `killpg(_, 0)` cannot have been recycled by an unrelated process; an empty group is left
+    /// alone.
+    private static func forceKillGroup(_ group: pid_t) {
+        #if canImport(Darwin)
+        if killpg(group, 0) == 0 { killpg(group, SIGKILL) }
+        #endif
     }
 
     /// Terminates every supervised process in parallel and waits for each to fully finalize
@@ -268,6 +309,10 @@ public actor InProcessBackend: SupervisorBackend {
         let logCenter: LogCenter
 
         var currentProcess: Process?
+        /// The current incarnation's process-group ID when it is its own group leader (how
+        /// Foundation spawns it); `nil` if that couldn't be confirmed, in which case SIGKILL
+        /// escalation falls back to the leader alone. See `terminate`.
+        var processGroupID: pid_t?
         var stdinWriter: FileHandle?
         var supervisionTask: Task<Void, Never>?
         var attempt: Int = 0
@@ -333,6 +378,11 @@ public actor InProcessBackend: SupervisorBackend {
         }
 
         entry.currentProcess = process
+        entry.processGroupID = nil
+        #if canImport(Darwin)
+        let pgid = getpgid(process.processIdentifier)
+        if pgid == process.processIdentifier { entry.processGroupID = pgid }
+        #endif
 
         // Kick off pipe readers. The `readabilityHandler` runs on a libdispatch queue
         // (blocking reads never compete with the Swift cooperative pool — otherwise the test

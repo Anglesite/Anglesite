@@ -1047,16 +1047,20 @@ struct DeployCommandTests {
         return false
     }
 
-    /// Generous budget — see the original note: cancellation resumes `waitForExit` immediately, so
-    /// the marker only lands after a chain of fire-and-forget tasks under parallel-test load.
-    private static let markerObservationTimeout: Duration = .seconds(30)
+    /// Budget for observing the fixture's readiness marker — a "has the wrangler step started
+    /// yet" wait, generous because the build and preflight steps run first. The SIGTERM marker
+    /// itself is no longer polled for: see `cancellationTerminatesWrangler`.
+    private static let startObservationTimeout: Duration = .seconds(30)
 
     @Test("Cancelling the task actually SIGTERMs the in-flight wrangler subprocess")
     func cancellationTerminatesWrangler() async {
         // Token + build (/usr/bin/true) + preflight pass quickly, then wrangler blocks. Cancelling
         // the deploy must kill wrangler: `.failed(terminated)` AND the process reports the SIGTERM
-        // trap. The fixture sets the trap, then echoes __STARTED__ so we cancel exactly once
-        // wrangler is running.
+        // trap. The fixture arms the trap, then echoes __STARTED__ so we cancel exactly once
+        // wrangler is running. Cancellation resolves only after the child has really exited and
+        // its output is drained (`ProcessSupervisor.waitForExitOrTerminate`, #1758), so the marker
+        // is asserted from that settled state — no polling, no wall-clock budget. See
+        // `SIGTERMTrapFixture` (AuditCommandTests) for why the fixture backgrounds its `sleep`.
         let center = LogCenter()
         let exec = HostDeployExecutor(
             supervisor: ProcessSupervisor(),
@@ -1069,7 +1073,7 @@ struct DeployCommandTests {
                     case .preflight:
                         return .run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", #"echo '{"version":1,"ok":true,"failures":[],"warnings":[]}'"#])
                     case .wrangler:
-                        return .run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", "trap 'echo __SIGTERM__; exit 143' TERM; echo __STARTED__; sleep 20; echo __COMPLETED__"])
+                        return .run(executable: URL(fileURLWithPath: "/bin/sh"), arguments: ["-c", SIGTERMTrapFixture.script])
                     case .bundleUpload:
                         return .unavailable(reason: "not exercised in this test")
                     case .githubPagesPublish:
@@ -1081,14 +1085,16 @@ struct DeployCommandTests {
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
         let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
         let task = Task { await cmd.deploy(siteID: "site", siteDirectory: dir) }
-        #expect(await waitForMarker("__STARTED__", in: center, timeout: Self.markerObservationTimeout), "wrangler never started")
+        #expect(await waitForMarker("__STARTED__", in: center, timeout: Self.startObservationTimeout), "wrangler never started")
         task.cancel()
         let result = await task.value
         guard case .failed(let reason, _) = result else {
             Issue.record("expected .failed(terminated), got \(result)"); return
         }
         #expect(reason.contains("terminated"))
-        #expect(await waitForMarker("__SIGTERM__", in: center, timeout: Self.markerObservationTimeout), "wrangler subprocess was not actually SIGTERM'd")
+        let texts = await center.snapshot().map(\.text)
+        #expect(texts.contains("__SIGTERM__"), "wrangler subprocess was not actually SIGTERM'd: \(texts)")
+        #expect(!texts.contains("__COMPLETED__"), "wrangler ran to completion despite cancellation: \(texts)")
     }
 
     // MARK: Route coverage (#530)
