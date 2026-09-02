@@ -3,6 +3,62 @@ import Foundation
 import AnglesiteCore
 @testable import AnglesiteAppCore
 
+/// A manually-released stand-in for `ComponentEditorModel`'s `ColorPicker` debounce timer
+/// (its `Sleep` seam), in the mold of `InvisiblePublishQueueTests.ManualDebounceGate`: each
+/// `debounceColorCommit` parks here instead of racing a real 350 ms `Task.sleep` against the
+/// test's own wall-clock waits. Under concurrent-agent load on one Mac that race left the
+/// timer still pending when the "settled" assertion ran (#1721), even though the test passes
+/// in isolation — the same class of flake #762 fixed for the publish queue.
+///
+/// Unlike the publish-queue gate, this one models cancellation: a timer the model cancels
+/// (a superseding `debounceColorCommit`, or `removeDeclaration`) is torn down at once and
+/// counted in `cancelledCount()`, so a test asserts cancellation directly rather than by
+/// waiting a window out and checking nothing happened.
+private actor ManualDebounceGate {
+    private var waiters: [UUID: CheckedContinuation<Void, any Error>] = [:]
+    private var cancelled = 0
+
+    /// Parks until `release()` — or throws `CancellationError` as soon as the calling task is
+    /// cancelled, exactly as the real `Task.sleep` would.
+    func sleep() async throws {
+        let id = UUID()
+        try await withTaskCancellationHandler {
+            try await park(id)
+        } onCancel: {
+            Task { await self.cancelWaiter(id) }
+        }
+    }
+
+    private func park(_ id: UUID) async throws {
+        try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<Void, any Error>) in
+            if Task.isCancelled {
+                continuation.resume(throwing: CancellationError())
+            } else {
+                waiters[id] = continuation
+            }
+        }
+    }
+
+    private func cancelWaiter(_ id: UUID) {
+        guard let continuation = waiters.removeValue(forKey: id) else { return }
+        cancelled += 1
+        continuation.resume(throwing: CancellationError())
+    }
+
+    /// Timers currently parked (armed and not yet released or cancelled).
+    func armedCount() -> Int { waiters.count }
+
+    /// Timers torn down by task cancellation since the gate was created.
+    func cancelledCount() -> Int { cancelled }
+
+    /// "Elapses" every armed timer at once.
+    func release() {
+        let pending = Array(waiters.values)
+        waiters.removeAll()
+        pending.forEach { $0.resume() }
+    }
+}
+
 /// Coverage for the draft/dirty/commit/debounce state #824 moved out of `ComponentEditorView`
 /// and onto `ComponentEditorModel` — none of this needs a live view to exercise.
 @Suite("ComponentEditorModel draft state (#824)")
@@ -74,8 +130,13 @@ struct ComponentEditorModelDraftStateTests {
 
     /// Builds a `ComponentEditorModel` backed by `router` and already `load()`ed against
     /// `fixtureJSON`, so `model.model`/`outlineRows` are populated the way a real load would
-    /// leave them.
-    private func makeLoadedModel(router: EditRouter, json: String = ComponentEditorModelDraftStateTests.fixtureJSON) async -> ComponentEditorModel {
+    /// leave them. `sleep` substitutes the `ColorPicker` debounce timer — the debounce tests
+    /// pass a `ManualDebounceGate`; everything else leaves the production default.
+    private func makeLoadedModel(
+        router: EditRouter,
+        json: String = ComponentEditorModelDraftStateTests.fixtureJSON,
+        sleep: @escaping ComponentEditorModel.Sleep = { try await Task.sleep(for: $0) }
+    ) async -> ComponentEditorModel {
         let context = ComponentEditorContext(
             baseURL: nil,
             modelClient: modelClient(json: json),
@@ -83,9 +144,27 @@ struct ComponentEditorModelDraftStateTests {
             editRouter: router
         )
         let file = FileRef(url: URL(fileURLWithPath: "/tmp/site/src/components/Card.astro"), group: .components, name: "Card.astro")
-        let model = ComponentEditorModel(file: file, context: context)
+        let model = ComponentEditorModel(file: file, context: context, sleep: sleep)
         await model.load()
         return model
+    }
+
+    /// Polls `condition` until it holds or `timeout` elapses. The deadline is deliberately
+    /// generous: it only bounds how long a genuine failure hangs, while a passing test returns
+    /// as soon as the condition holds (same shape as `InvisiblePublishQueueTests.waitUntil`).
+    private func waitUntil(
+        timeout: Duration = .seconds(30),
+        _ condition: () async -> Bool
+    ) async {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: timeout)
+        while !(await condition()) {
+            guard clock.now < deadline else {
+                Issue.record("timed out waiting for debounce state")
+                return
+            }
+            try? await Task.sleep(for: .milliseconds(10))
+        }
     }
 
     /// `ComponentModel`'s nested types have no public memberwise initializers (by design — they're
@@ -189,15 +268,20 @@ struct ComponentEditorModelDraftStateTests {
     @Test("removeDeclaration clears pending drafts and cancels an in-flight debounce")
     func removeDeclarationClearsDraftsAndCancelsDebounce() async {
         let router = ScriptedRouter(replies: [EditReply(id: "x", status: .applied, message: nil)])
-        let model = await makeLoadedModel(router: router)
+        let gate = ManualDebounceGate()
+        let model = await makeLoadedModel(router: router, sleep: { _ in try await gate.sleep() })
         model.setValueDraft("2rem", for: paddingDecl)
         model.debounceColorCommit(ruleIndex: 0, rule: wrapRule, decl: paddingDecl)
+        await waitUntil { await gate.armedCount() == 1 }
 
         model.removeDeclaration(rule: wrapRule, decl: paddingDecl)
         // The draft is gone immediately (falls back to the model's own value)...
         #expect(model.valueDraft(for: paddingDecl) == "1rem")
-        // ...and the debounced commit never fires even after its window would have elapsed.
-        try? await Task.sleep(for: .milliseconds(400))
+        // ...and the pending timer is torn down rather than left to fire after the remove, so
+        // the only message the router ever sees is the remove itself.
+        await waitUntil { await gate.cancelledCount() == 1 }
+        #expect(await gate.armedCount() == 0)
+        await waitUntil { router.messages.count == 1 }
         #expect(router.messages.count == 1)
         #expect(router.messages.first?.op == EditMessage.Op.removeStyleProperty)
     }
@@ -207,31 +291,50 @@ struct ComponentEditorModelDraftStateTests {
     @Test("debounceColorCommit commits the settled value after the debounce window and calls onSettled")
     func debounceColorCommitSettles() async {
         let router = ScriptedRouter(replies: [EditReply(id: "x", status: .applied, message: nil)])
-        let model = await makeLoadedModel(router: router)
+        let gate = ManualDebounceGate()
+        let model = await makeLoadedModel(router: router, sleep: { _ in try await gate.sleep() })
         model.setValueDraft("#112233", for: paddingDecl)
 
         var settled = false
         model.debounceColorCommit(ruleIndex: 0, rule: wrapRule, decl: paddingDecl) { settled = true }
 
-        try? await Task.sleep(for: .milliseconds(100))
-        #expect(router.messages.isEmpty) // hasn't fired yet
-        try? await Task.sleep(for: .milliseconds(400))
+        // Parked on the timer: nothing has been written and the settle callback hasn't run.
+        await waitUntil { await gate.armedCount() == 1 }
+        #expect(router.messages.isEmpty)
+        #expect(!settled)
+
+        // Elapse the window; the commit lands and `onSettled` follows it.
+        await gate.release()
+        await waitUntil { settled }
         #expect(router.messages.count == 1)
+        guard case .object(let obj)? = router.messages.first?.component else {
+            Issue.record("expected object payload")
+            return
+        }
+        #expect(obj["value"] == .string("#112233"))
         #expect(settled)
     }
 
     @Test("a second debounceColorCommit call cancels the first pending commit")
     func debounceColorCommitCancelsPrevious() async {
         let router = ScriptedRouter(replies: [EditReply(id: "x", status: .applied, message: nil)])
-        let model = await makeLoadedModel(router: router)
+        let gate = ManualDebounceGate()
+        let model = await makeLoadedModel(router: router, sleep: { _ in try await gate.sleep() })
 
         model.setValueDraft("#111111", for: paddingDecl)
         model.debounceColorCommit(ruleIndex: 0, rule: wrapRule, decl: paddingDecl)
-        try? await Task.sleep(for: .milliseconds(50))
+        await waitUntil { await gate.armedCount() == 1 }
         model.setValueDraft("#222222", for: paddingDecl)
         model.debounceColorCommit(ruleIndex: 0, rule: wrapRule, decl: paddingDecl)
 
-        try? await Task.sleep(for: .milliseconds(500))
+        // The first timer is torn down and the second armed in its place.
+        await waitUntil {
+            let cancelled = await gate.cancelledCount()
+            let armed = await gate.armedCount()
+            return cancelled == 1 && armed == 1
+        }
+        await gate.release()
+        await waitUntil { !router.messages.isEmpty }
         // Exactly one commit fires — proof the first was cancelled rather than both landing.
         #expect(router.messages.count == 1)
         guard case .object(let obj)? = router.messages.first?.component else {

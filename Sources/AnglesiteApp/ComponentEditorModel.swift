@@ -106,6 +106,14 @@ final class ComponentEditorModel {
     /// Each new picker value cancels the previous pending commit and restarts the delay, so only
     /// the settled value after the drag pauses actually commits.
     private var colorCommitTasks: [String: Task<Void, Never>] = [:]
+    /// Debounce timer seam for `debounceColorCommit` — mirrors `InvisiblePublishQueue.Sleep` /
+    /// `SyncScheduler.Sleep`: production always sleeps for real, tests substitute a manually
+    /// released gate so debounce assertions don't race a live 350 ms timer against the test's
+    /// own wall-clock waits under concurrent-agent load (#1721, the same lesson as #762).
+    typealias Sleep = @Sendable (Duration) async throws -> Void
+    /// Quiet window a `ColorPicker` drag must pause for before its value commits.
+    static let colorCommitDebounce: Duration = .milliseconds(350)
+    private let sleep: Sleep
     /// Editable draft of the component's Props interface (Props form), seeded from
     /// `model?.frontmatter?.props` whenever a fresh model loads (`reconcileDrafts`) and
     /// reconciled back via an explicit "Save Props" action (`savePropsDraft`) — the op replaces
@@ -152,9 +160,16 @@ final class ComponentEditorModel {
         case frontmatter, client
     }
 
-    init(file: FileRef, context: ComponentEditorContext) {
+    /// `sleep` is the `debounceColorCommit` timer seam — see ``Sleep``. Production call sites
+    /// leave the default; only tests pass a gate.
+    init(
+        file: FileRef,
+        context: ComponentEditorContext,
+        sleep: @escaping Sleep = { try await Task.sleep(for: $0) }
+    ) {
         self.file = file
         self.context = context
+        self.sleep = sleep
     }
 
     /// Path of this component relative to the site's Source/ root.
@@ -457,8 +472,11 @@ final class ComponentEditorModel {
     ) {
         let key = Self.spanKey(decl.span)
         colorCommitTasks[key]?.cancel()
-        colorCommitTasks[key] = Task {
-            try? await Task.sleep(for: .milliseconds(350))
+        colorCommitTasks[key] = Task { [sleep] in
+            // A cancelled timer throws (`CancellationError` from the real `Task.sleep`, or the
+            // test gate's equivalent); the `isCancelled` guard below is what turns that into a
+            // no-op rather than a commit of the superseded value.
+            try? await sleep(Self.colorCommitDebounce)
             guard !Task.isCancelled else { return }
             await commitDeclaration(ruleIndex: ruleIndex, rule: rule, decl: decl)
             onSettled()
