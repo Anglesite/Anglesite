@@ -40,6 +40,19 @@ struct SiteNavigatorView: View {
         // navigator click closes the takeover), a plain click selects a row WITHOUT moving focus
         // to the list — ↓ and Return then go nowhere until the user Tabs. `simultaneousGesture`
         // so selection, drag-out (`.draggable`) and the context menu keep working.
+        //
+        // Primary click only, deliberately: `TapGesture` ignores secondary clicks, which matches
+        // AppKit — only a left mouse-down moves first responder; a right-click is routed to
+        // `rightMouseDown`/`menu(for:)` and leaves the responder chain alone. It also keeps
+        // Return honest: a right-click doesn't change `selection`, so focusing the list on one
+        // would let Return rename a row other than the one the context menu targeted. The menu's
+        // own Rename acts on `node.id` directly and needs no focus.
+        //
+        // No automated coverage for this wiring or the gate below: `@FocusState` only reflects
+        // focus for a key window in an active app, and a hosted `swift test` process is not
+        // reliably either (a synthesized `sendEvent` click doesn't even select a row there), so
+        // a hosted test would flake. Re-verify by hand — see docs/testing-macos-app.md ▸
+        // "Re-verifying navigator keyboard-focus gating".
         .simultaneousGesture(TapGesture().onEnded {
             if !listHasKeyboardFocus { listHasKeyboardFocus = true }
         })
@@ -69,8 +82,16 @@ struct SiteNavigatorView: View {
             // other focused view (e.g. the Site Graph explorer) and rename the navigator's
             // selection. Detaching rather than `.disabled`-ing is what frees the keystroke for
             // the focused view — the same conditional-attachment shape as
-            // `onDeleteCommand(active:perform:)` (`PreviewView.swift`) — so the `.disabled`
-            // below is only about the in-rename case, not the focus gate.
+            // `onDeleteCommand(active:perform:)` (`PreviewView.swift`).
+            //
+            // `listHasKeyboardFocus` stays true during inline rename: `.focused` on a container
+            // reflects focus anywhere in its subtree, so while the rename `TextField` (a
+            // descendant, focused via `$editingFocused`) is the window's first responder this
+            // block stays mounted. Verified with an in-process `NSHostingView` probe of the same
+            // List › OutlineGroup › TextField nesting: first responder = the field editor, the
+            // binding still true, the block never unmounted, and focus back on the list once the
+            // field went away. That is why the `.disabled` below is needed at all — it is the
+            // in-rename guard, not the focus gate.
             if listHasKeyboardFocus {
                 Button("") {
                     if let id = model.renameableSelection() {
