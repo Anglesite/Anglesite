@@ -22,7 +22,11 @@
 #   * this script additionally writes `holder` inside it (pid / cwd / since / args)
 #     so a waiter can say who holds it, and so a lock whose holder pid is dead is
 #     recognised as stale and reclaimed. A bare `mkdir` holder with no `holder`
-#     file is never reclaimed — it's waited on until it goes away.
+#     file is never reclaimed — it's waited on until it goes away;
+#   * Ctrl-C (SIGINT) or SIGTERM while waiting for the lock exits at once with
+#     128+signal (130 / 143) and leaves the other holder's lock untouched. Once
+#     `swift test` is running, the signal is forwarded to it and the lock is
+#     released when this script exits.
 #
 # When the lock is taken (ANGLESITE_TEST_LOCK=auto, the default):
 #
@@ -48,6 +52,10 @@
 #                                                script's own tests only; every
 #                                                real run must share the default
 #                                                (default: /tmp/anglesite-swift-test.lock)
+#
+# Exit status: `swift test`'s own; 75 (EX_TEMPFAIL) when ANGLESITE_TEST_LOCK_WAIT=fail
+# finds the lock held; 130 / 143 when interrupted by SIGINT / SIGTERM before
+# `swift test` started; 64 for a bad environment value.
 #
 set -euo pipefail
 
@@ -93,6 +101,45 @@ needs_lock() {
   return 1
 }
 
+# ---- Signals -----------------------------------------------------------------
+#
+# One handler for both phases of the run. While this shell is still waiting for
+# the lock there is no child to forward to, so the handler only *records* the
+# signal (and kills the current poll sleep); the wait loop checks for it after
+# every step and exits 128+N without touching the other holder's lock. The poll
+# sleep runs in the background under `wait`, which a trapped signal interrupts
+# at once — a foreground `sleep` would defer the trap until the sleep ended, so
+# Ctrl-C would sit out a whole poll interval. Recording rather than exiting from
+# the handler also closes the window between a winning `mkdir` and `have_lock=1`:
+# the exit happens at the next check, after the flag is set, so the EXIT trap
+# releases a lock this run did take. Once `swift test` is running, the signal is
+# forwarded to it and the run winds down through the normal wait/exit path.
+
+child=""
+sleeper=""
+pending_signal=""
+on_signal() {
+  if [[ -n "$child" ]]; then
+    kill -s "$1" "$child" 2>/dev/null || true
+  else
+    pending_signal="$1"
+    [[ -n "$sleeper" ]] && kill "$sleeper" 2>/dev/null || true
+  fi
+}
+bail_if_signalled() {
+  [[ -n "$pending_signal" ]] || return 0
+  echo "swift-test.sh: interrupted (SIG$pending_signal) before swift test started; giving up" >&2
+  exit $((128 + $(kill -l "$pending_signal")))
+}
+poll_sleep() {
+  sleep "$1" & sleeper=$!
+  # A signal recorded before the sleeper existed could not have killed it, so
+  # re-check now that it does; otherwise `wait` returns early on the next one.
+  if [[ -z "$pending_signal" ]]; then wait "$sleeper" || true; fi
+  kill "$sleeper" 2>/dev/null || true
+  sleeper=""
+}
+
 # ---- Lock acquire / release ------------------------------------------------
 
 holder_summary() {
@@ -105,8 +152,10 @@ holder_summary() {
     since=$(sed -n 's/^since=//p' "$lock_dir/holder")
     echo "pid ${pid:-?} in ${cwd:-?} since ${since:-?}"
   else
-    # BSD stat (macOS) first, GNU stat (Linux) as the fallback.
-    since=$(stat -f '%Sm' -t '%Y-%m-%dT%H:%M:%S%z' "$lock_dir" 2>/dev/null || stat -c '%y' "$lock_dir" 2>/dev/null || echo '?')
+    # `date -r <file>` prints the file's mtime on both BSD/macOS date and GNU
+    # coreutils date (`--reference`). Not `stat`: its `-f` is a format string on
+    # BSD but "filesystem status" on GNU, so one form can't serve both.
+    since=$(date -r "$lock_dir" +%Y-%m-%dT%H:%M:%S%z 2>/dev/null || echo '?')
     echo "an unknown process (no holder file — a hand-rolled mkdir lock) since ${since}"
   fi
 }
@@ -136,6 +185,7 @@ release_lock() {
 acquire_lock() {
   local announced=0
   while ! mkdir "$lock_dir" 2>/dev/null; do
+    bail_if_signalled
     if reclaim_if_stale; then continue; fi
     if [[ "$lock_wait" == "fail" ]]; then
       echo "swift-test.sh: swift test lock $lock_dir is held by $(holder_summary); ANGLESITE_TEST_LOCK_WAIT=fail, giving up" >&2
@@ -143,9 +193,10 @@ acquire_lock() {
     fi
     echo "swift-test.sh: waiting for swift test lock $lock_dir held by $(holder_summary)…" >&2
     announced=1
-    sleep "$poll_seconds"
+    poll_sleep "$poll_seconds"
   done
   have_lock=1
+  bail_if_signalled   # signal landed around the winning mkdir: EXIT trap releases it
   {
     echo "pid=$$"
     echo "cwd=$PWD"
@@ -158,12 +209,8 @@ acquire_lock() {
 
 # ---- Run ---------------------------------------------------------------------
 
-child=""
-forward_signal() {
-  [[ -n "$child" ]] && kill -s "$1" "$child" 2>/dev/null || true
-}
-trap 'forward_signal INT' INT
-trap 'forward_signal TERM' TERM
+trap 'on_signal INT' INT
+trap 'on_signal TERM' TERM
 trap 'release_lock' EXIT
 
 if needs_lock; then
@@ -180,8 +227,11 @@ fi
 # of after the run ends — but bash starts `&` children with SIGINT ignored, so
 # the subshell resets it first or a forwarded/terminal Ctrl-C would never stop
 # the run (confirmed empirically while writing this).
+bail_if_signalled
 ( trap - INT; exec swift test "$@" ) &
 child=$!
+# A signal that landed before `child` was set was only recorded — deliver it now.
+[[ -n "$pending_signal" ]] && kill -s "$pending_signal" "$child" 2>/dev/null || true
 status=0
 wait "$child" || status=$?
 # A trapped signal interrupts `wait` with 128+N before the child has exited;
