@@ -193,8 +193,9 @@ public actor SiteScaffolder {
 
         // Cloudflare Worker config (#701): a per-site-unique name (the same slug the wizard's
         // uniqueness check ran against) so a fresh site is deployable without hand-editing
-        // wrangler.toml, and two sites never clobber each other's Worker.
-        let projectSlug = SiteSlug.derive(from: draft.name)
+        // wrangler.toml, and two sites never clobber each other's Worker. `WorkerSiteName` (not
+        // the bare folder `SiteSlug`) so the name also fits wrangler's resource-name budget (#1750).
+        let projectSlug = WorkerSiteName.derive(from: draft.name)
         do { try writeWranglerConfig(siteName: projectSlug, siteDir: siteDir) }
         catch { emit(.warning(step: "writingContent", message: "Cloudflare Worker config not written: \(humanize(error))")) }
 

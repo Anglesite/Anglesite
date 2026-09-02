@@ -145,7 +145,7 @@ public struct SiteOperations: Sendable {
         // resolution so the headless path can't silently revert a rename on every deploy.
         let existingConfig = (try? WebsiteAnalyticsAsset.loadConfig(siteDirectory: siteDirectory)) ?? ""
         let workerSiteName = SiteConfigFile.value(forKey: "CF_PROJECT_NAME", in: existingConfig)
-            ?? SiteSlug.derive(from: site.name)
+            ?? WorkerSiteName.derive(from: site.name)
 
         // #1263 final review finding 1: this headless path (App Intents/Shortcuts/Siri) skipped
         // both the Group actor type and the moderator list before this — since `persistConfig`
@@ -255,7 +255,7 @@ public struct SiteOperations: Sendable {
                 await factory.socialWorkerProvision().provision(
                     siteID: site.id,
                     siteDirectory: url,
-                    siteName: SiteSlug.derive(from: site.name),
+                    siteName: WorkerSiteName.derive(from: site.name),
                     workers: Self.v2StarterWorkers
                 )
             }
