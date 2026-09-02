@@ -24,7 +24,7 @@ public enum WorkerSiteName {
     /// Cloudflare's upper bound on an R2 bucket name, the tightest of the derived-resource limits.
     static let maxResourceNameLength = 63
 
-    /// The longest site name ``derive(from:)`` will return: 63 minus ``longestResourceSuffix``.
+    /// The longest site name ``derive(from:)`` will return: 63 minus `longestResourceSuffix`.
     public static let maxLength = maxResourceNameLength - longestResourceSuffix.count
 
     /// Derives a wrangler-valid Worker name from any raw site identity.
