@@ -397,6 +397,16 @@ struct SiteNavigatorModelTests {
         let model = SiteNavigatorModel(graph: SiteContentGraph())
         #expect(model.fileURL(for: "nonexistent") == nil)
     }
+
+    @Test("requestFocus bumps focusRequestToken, once per call, so SiteNavigatorView's onChange fires (#1748)")
+    func requestFocusBumpsToken() {
+        let model = SiteNavigatorModel(graph: SiteContentGraph())
+        let initial = model.focusRequestToken
+        model.requestFocus()
+        #expect(model.focusRequestToken == initial + 1)
+        model.requestFocus()
+        #expect(model.focusRequestToken == initial + 2, "a second dismissal in a row must still register as a change")
+    }
 }
 
 /// `saveRedirect` writes through `RedirectsStore` to `Source/redirects.json` (#530) — the
