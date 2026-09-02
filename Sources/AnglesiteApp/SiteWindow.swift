@@ -444,7 +444,7 @@ struct SiteWindow: View {
         if let navigator = model.navigator {
             SiteNavigatorView(
                 model: navigator,
-                canvasHasKeyboardFocus: model.preview.wysiwygCanvas?.hasKeyboardFocus == true,
+                previewHasKeyboardFocus: model.preview.hasKeyboardFocus,
                 onDeleteRequested: { item in
                     contentDeleteTitle = "Delete “\(item.title)”?"
                     model.deleteConfirmation = item
@@ -1716,7 +1716,7 @@ struct SiteWindow: View {
                 // server restarts or fails (see PreviewModel.detachWebView).
                 onWebViewDismantled: { [preview = model.preview] webView in preview.detachWebView(webView) }
             )
-            .wysiwygCanvasFocusTracking(model.preview.wysiwygCanvas)
+            .previewFocusTracking(model.preview)
             // #1588 Task 11: a palette row dragged onto the canvas. Guarding on `wysiwygCanvas`
             // (nil except while Site ▸ Edit Page is on, per `PreviewModel.isEditModeEnabled`'s doc
             // comment) is what keeps this inert outside edit mode — no separate `active:` gate
