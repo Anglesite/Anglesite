@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 
 @Suite("SiteActions scaffolding context")
@@ -25,13 +26,12 @@ struct SiteActionsScaffoldingContextTests {
     /// toolchain's own `swiftpm-testing-helper`), so the default `AppSettings.shared`/`Bundle.main`
     /// pair can never resolve the real template in this environment.
     private func makeIsolatedSettings(sitesRoot: URL) throws -> (AppSettings, cleanup: () -> Void) {
-        let suiteName = "test-anglesite-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
+        let scratch = TemporaryUserDefaults()
         let settings = AppSettings(
-            defaults: defaults,
+            defaults: scratch.defaults,
             ubiquityContainerResolver: FakeUbiquityContainerResolver(result: sitesRoot)
         )
-        return (settings, { defaults.removePersistentDomain(forName: suiteName) })
+        return (settings, scratch.cleanup)
     }
 
     /// A minimal on-disk template — `scripts/themes.ts` (what `TemplateRuntime.isTemplateDirectory`
