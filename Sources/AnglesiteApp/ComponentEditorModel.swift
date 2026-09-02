@@ -392,11 +392,16 @@ final class ComponentEditorModel {
 
     /// Commits `selectorDrafts` for `rule` via `setRuleSelector` if it actually differs from the
     /// model's current selector — called on the selector field's `onSubmit`.
-    func commitSelector(rule: ComponentModel.StyleRule) {
+    ///
+    /// Returns the write task, or `nil` when the draft already matches and nothing is sent, so a
+    /// test can await the write landing (or prove the no-op synchronously) instead of sleeping
+    /// for a guessed interval and racing the task under load (#1721). Views ignore the result.
+    @discardableResult
+    func commitSelector(rule: ComponentModel.StyleRule) -> Task<Void, Never>? {
         let key = Self.spanKey(rule.span)
         let newSelector = selectorDrafts[key] ?? rule.selector
-        guard newSelector != rule.selector else { return }
-        Task { await setRuleSelector(ruleSpan: spanArray(rule.span), newSelector: newSelector) }
+        guard newSelector != rule.selector else { return nil }
+        return Task { await setRuleSelector(ruleSpan: spanArray(rule.span), newSelector: newSelector) }
     }
 
     func propertyDraft(for decl: ComponentModel.Declaration) -> String {
@@ -449,13 +454,16 @@ final class ComponentEditorModel {
     /// for `decl` before removing it. Without this, a declaration removed mid-drag (before the
     /// `debounceColorCommit` delay elapses) would have its pending commit fire afterward and
     /// resurrect the just-deleted declaration via `setStyleProperty`.
-    func removeDeclaration(rule: ComponentModel.StyleRule, decl: ComponentModel.Declaration) {
+    ///
+    /// Returns the remove's write task (see `commitSelector`); views ignore it.
+    @discardableResult
+    func removeDeclaration(rule: ComponentModel.StyleRule, decl: ComponentModel.Declaration) -> Task<Void, Never> {
         let key = Self.spanKey(decl.span)
         colorCommitTasks[key]?.cancel()
         colorCommitTasks[key] = nil
         valueDrafts[key] = nil
         propertyDrafts[key] = nil
-        Task { await removeStyleProperty(ruleSpan: spanArray(rule.span), property: decl.property) }
+        return Task { await removeStyleProperty(ruleSpan: spanArray(rule.span), property: decl.property) }
     }
 
     /// Debounces `ColorPicker` writes: cancels any pending commit for this declaration and
@@ -561,12 +569,15 @@ final class ComponentEditorModel {
         attrValueDrafts[Self.attrKey(nodeID: node.id, name: name)] = text
     }
 
-    func commitAttr(node: ComponentModel.Node, name: String) {
+    /// Commits the attribute draft for `name` on `node` if there is one and it differs from the
+    /// current value. Returns the write task, or `nil` for a no-op (see `commitSelector`).
+    @discardableResult
+    func commitAttr(node: ComponentModel.Node, name: String) -> Task<Void, Never>? {
         let key = Self.attrKey(nodeID: node.id, name: name)
-        guard let draft = attrValueDrafts[key] else { return }
+        guard let draft = attrValueDrafts[key] else { return nil }
         let current = node.attrs.first(where: { $0.name == name })?.value ?? ""
-        guard draft != current else { return }
-        Task { await setAttr(nodeId: node.id, name: name, value: draft) }
+        guard draft != current else { return nil }
+        return Task { await setAttr(nodeId: node.id, name: name, value: draft) }
     }
 
     /// Discards any in-progress draft for `name` before removing the attribute. Without this, a
@@ -574,9 +585,12 @@ final class ComponentEditorModel {
     /// the same attribute name is later re-added via "Add attribute" — `attrValueDraft`'s getter
     /// would render the discarded draft instead of the freshly-committed value, and committing it
     /// would silently overwrite the new value. Mirrors `removeDeclaration`'s draft-clearing.
-    func removeAttr(node: ComponentModel.Node, name: String) {
+    ///
+    /// Returns the remove's write task (see `commitSelector`); views ignore it.
+    @discardableResult
+    func removeAttr(node: ComponentModel.Node, name: String) -> Task<Void, Never> {
         attrValueDrafts[Self.attrKey(nodeID: node.id, name: name)] = nil
-        Task { await setAttr(nodeId: node.id, name: name, value: nil) }
+        return Task { await setAttr(nodeId: node.id, name: name, value: nil) }
     }
 
     // MARK: - Outline & canvas drag/drop (moved from ComponentEditorView — #824)
