@@ -444,7 +444,7 @@ struct SiteWindow: View {
         if let navigator = model.navigator {
             SiteNavigatorView(
                 model: navigator,
-                canvasHasKeyboardFocus: model.preview.wysiwygCanvas?.hasKeyboardFocus == true,
+                previewHasKeyboardFocus: model.preview.hasKeyboardFocus,
                 onDeleteRequested: { item in
                     contentDeleteTitle = "Delete “\(item.title)”?"
                     model.deleteConfirmation = item
@@ -925,7 +925,7 @@ struct SiteWindow: View {
 
             ToolbarItem(id: SiteToolbarItemID.chat.rawValue, placement: .primaryAction) {
                 Button {
-                    model.chatPresented.toggle()
+                    model.toggleChat()
                 } label: {
                     Label("Chat", systemImage: model.chatPresented
                         ? "bubble.left.and.bubble.right.fill"
@@ -933,8 +933,9 @@ struct SiteWindow: View {
                 }
                 .help(model.chatPresented ? "Hide chat panel" : "Show chat panel")
                 .accessibilityIdentifier(AXID.toolbar(.chat))
-                // ⌘K moved to View ▸ Show/Hide Chat (#512) — a second registration here would
-                // recreate the duplicate-shortcut ambiguity #509 removed for ⌘S.
+                // The shortcut (⌃⌘K, re-keyed from ⌘K per menu-bar spec §3) lives on View ▸
+                // Show/Hide Chat (#512) — a second registration here would recreate the
+                // duplicate-shortcut ambiguity #509 removed for ⌘S.
             }
 
             // Moved ahead of the two inspector toggles (#714 v2 slice 3 final review) so
@@ -1328,8 +1329,17 @@ struct SiteWindow: View {
                     }
             }
         }
+        // Revert is the Return-key default (#1736), the same shape as the delete sheet below (#1733):
+        // SwiftUI gives a `.destructive` button no key equivalent, so without it the alert had no
+        // default button at all — Return did nothing and only Esc worked. An NSAlert button holds a
+        // single key equivalent, so Cancel can own Return *or* Esc, never both; putting the default
+        // on Cancel silently kills Esc (verified with an isolated SwiftUI probe). Return-confirms is also
+        // how the system's own Revert sheet (TextEdit) behaves. Cancel keeps Esc via its `.cancel`
+        // role. The one deliberate exception is `ModerationView`'s Ban dialog, whose action has no
+        // in-app recovery at all, so it takes Cancel-default and the dead Esc that comes with it.
         .alert("Revert to the last saved version?", isPresented: $bindableModel.revertConfirmationPresented) {
             Button("Revert", role: .destructive) { Task { await model.confirmRevertToSaved() } }
+                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Unsaved changes in the editor and inspector will be discarded.")
@@ -1341,6 +1351,13 @@ struct SiteWindow: View {
         // button's synchronous action but *before* the `Task` it spawns gets to run, so
         // `confirmDelete()`'s `guard let item = deleteConfirmation` always saw nil and returned —
         // no delete, no commit, and no error to raise the alert below.
+        //
+        // Delete is the Return-key default (#1733). On macOS SwiftUI gives a `.destructive` button
+        // no key equivalent, so without the explicit shortcut the sheet has *no* default button and
+        // a keyboard user with Full Keyboard Access off can only Esc out of it. A destructive
+        // default is acceptable here because the delete is fully reversible — the message says so,
+        // and ⌘Z restores the file, the navigator row, and the auto-commit — which is the same
+        // shape as Photos' recoverable "Delete Photo" alert. Cancel keeps Esc via its `.cancel` role.
         .confirmationDialog(
             contentDeleteTitle,
             isPresented: Binding(
@@ -1349,6 +1366,7 @@ struct SiteWindow: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) { Task { await model.confirmDelete() } }
+                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) { model.deleteConfirmation = nil }
         } message: {
             Text("This will remove the file from your site. You can bring it back with Edit ▸ Undo.")
@@ -1698,7 +1716,7 @@ struct SiteWindow: View {
                 // server restarts or fails (see PreviewModel.detachWebView).
                 onWebViewDismantled: { [preview = model.preview] webView in preview.detachWebView(webView) }
             )
-            .wysiwygCanvasFocusTracking(model.preview.wysiwygCanvas)
+            .previewFocusTracking(model.preview)
             // #1588 Task 11: a palette row dragged onto the canvas. Guarding on `wysiwygCanvas`
             // (nil except while Site ▸ Edit Page is on, per `PreviewModel.isEditModeEnabled`'s doc
             // comment) is what keeps this inert outside edit mode — no separate `active:` gate

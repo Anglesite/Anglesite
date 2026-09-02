@@ -340,10 +340,34 @@ func performWYSIWYGPaletteDrop(
     await controller.submit(.insertBlock(parentId: target.parentId, slot: target.slot, index: target.index, newId: newId, block: content))
 }
 
-/// Watches whether the WYSIWYG canvas (#1225) holds real AppKit keyboard focus, so
-/// `WYSIWYGCanvasController.hasKeyboardFocus` (Task 11) and `EditorFocusRegistry`'s
-/// `.wysiwygCanvas` case (added inert in Task 10 — `FormatCommands`/`EditMenuSkeletonCommands`
-/// already read it, nothing wrote it until now) reflect reality.
+/// Watches whether the preview `WKWebView` holds real AppKit keyboard focus, so
+/// `PreviewModel.hasKeyboardFocus` (#1715), `WYSIWYGCanvasController.hasKeyboardFocus` (#1225 Task
+/// 11), and `EditorFocusRegistry`'s `.wysiwygCanvas` case (added inert in Task 10 —
+/// `FormatCommands`/`EditMenuSkeletonCommands` already read it, nothing wrote it until Task 11)
+/// all reflect reality.
+///
+/// Mounted unconditionally (not just while `wysiwygCanvas` is non-nil): the same `WKWebView` also
+/// hosts the overlay JS's lighter-weight `contentEditable` quick-edit (`JS/edit-overlay/src/
+/// overlay.ts`) — a plain click-to-edit for e.g. a page/post title — which never touches
+/// `wysiwygCanvas` at all. Gating this sentinel on `wysiwygCanvas != nil` left `hasKeyboardFocus`
+/// stuck `false` for a quick-edit session with no canvas mounted, which is what let
+/// `SiteNavigatorView`'s ⌘⌫ delete the selected Navigator item instead of editing the title (#1715).
+/// `wysiwygCanvas` is still read fresh on each focus change (not captured) since edit mode can
+/// toggle on/off while this sentinel stays mounted for the pane's whole lifetime.
+///
+/// Scope note: like `SentinelView`'s existing contract, `focused` here means "the window's first
+/// responder's visible rect lies inside the preview pane's frame" — ANY responder focus landing
+/// there (e.g. clicking a plain link or video, not just a `contentEditable` quick-edit), not
+/// narrowly "actively editing text". So `SiteNavigatorView`'s ⌘⌫ now goes inert whenever the
+/// preview pane has any kind of focus, with nothing else picking up the keystroke in that case —
+/// not just while text is actually being edited. Accepted as-is: it's the same "one focus-scoped
+/// command" shape ⌘D Duplicate already uses (`WYSIWYGCanvasController.swift`,
+/// `SiteWindow.navigatorSelectionActions(for:)`) — Delete belongs to whichever surface currently
+/// holds focus, and the preview pane holding ANY focus, editable or not, is reason enough not to
+/// have a sidebar shortcut reach past it and delete the Navigator's selection. It also isn't a new
+/// imprecision this PR introduces: the pre-#1715 canvas-only sentinel had the exact same "any
+/// responder in the pane" scope while edit mode was on — this widens the window it applies in
+/// (always, not just during edit mode), not the check itself.
 ///
 /// Reuses `SentinelView` (`MarkdownTextView.swift`) rather than re-deriving the same mechanism:
 /// `PreviewView` wraps a raw `WKWebView` directly as its `NSViewRepresentable.NSViewType` (Task 8
@@ -355,13 +379,15 @@ func performWYSIWYGPaletteDrop(
 /// KVO + geometry containment). Placed as a `.background` on `PreviewView` in
 /// `SiteWindow.previewPane(for:)` — sharing that exact frame is what makes the plain geometry
 /// containment check correct without needing a `webView` reference here at all.
-private struct WYSIWYGCanvasFocusSentinel: NSViewRepresentable {
-    let canvas: WYSIWYGCanvasController
+private struct PreviewFocusSentinel: NSViewRepresentable {
+    let model: PreviewModel
 
     func makeNSView(context: Context) -> SentinelView {
         let view = SentinelView()
-        view.onFocusChange = { [weak canvas] focused in
-            guard let canvas else { return }
+        view.onFocusChange = { [weak model] focused in
+            guard let model else { return }
+            model.hasKeyboardFocus = focused
+            guard let canvas = model.wysiwygCanvas else { return }
             canvas.hasKeyboardFocus = focused
             let token = ObjectIdentifier(canvas)
             if focused {
@@ -380,33 +406,38 @@ private struct WYSIWYGCanvasFocusSentinel: NSViewRepresentable {
     }
 }
 
-/// `SiteWindow.previewPane(for:)`'s hook for mounting `WYSIWYGCanvasFocusSentinel` — kept here
-/// (rather than exposing the private type directly) so the sentinel's implementation stays a
+/// `SiteWindow.previewPane(for:)`'s hook for mounting `PreviewFocusSentinel` — kept here (rather
+/// than exposing the private type directly) so the sentinel's implementation stays a
 /// `PreviewView.swift`-local concern, mirroring `EditorFocusSentinel`'s privacy in
 /// `MarkdownTextView.swift`.
 extension View {
     @ViewBuilder
-    func wysiwygCanvasFocusTracking(_ canvas: WYSIWYGCanvasController?) -> some View {
-        if let canvas {
-            background(WYSIWYGCanvasFocusSentinel(canvas: canvas))
-        } else {
-            self
-        }
+    func previewFocusTracking(_ model: PreviewModel) -> some View {
+        background(PreviewFocusSentinel(model: model))
     }
 }
 
 /// Attaches `.onDeleteCommand` only while `isActive` (#1423) — `previewPane(for:)`'s canvas delete
 /// target and `SiteNavigatorView`'s Navigator delete target both use this, gated on
-/// `WYSIWYGCanvasController.hasKeyboardFocus` (this sentinel above), so exactly one
-/// `.onDeleteCommand` is ever attached to the window's view tree at a time. Two coexisting
+/// `PreviewModel.hasKeyboardFocus`/`WYSIWYGCanvasController.hasKeyboardFocus` respectively (see
+/// `PreviewFocusSentinel` above, #1715), so exactly one `.onDeleteCommand` is ever attached to the
+/// window's view tree at a time. Two coexisting
 /// `.onDeleteCommand`s made AppKit's Edit ▸ Delete menu-bridging non-deterministic: sometimes the
 /// item stayed disabled with a valid Navigator selection, sometimes clicking it invoked the
 /// canvas's handler (a silent no-op with no block selected) instead of the Navigator's. Splitting
 /// them back into mutually-exclusive attachment restores the single-handler shape #989 already
 /// validated as reliable, before the canvas target (#1225 Task 11) started coexisting with it.
+///
+/// `action` is optional (#1714), mirroring SwiftUI's own `onDeleteCommand(perform:)`: passing
+/// `nil` keeps the modifier attached — so the modified view's identity is stable, unlike the
+/// `isActive` branch flip, which recreates it — while AppKit validates Edit ▸ Delete as disabled,
+/// exactly as if nothing were attached (verified live on macOS 27 with a focused `List`: non-nil
+/// → enabled, nil → disabled, selection preserved across the flip). So `isActive` is the
+/// *which surface owns the command* gate (focus), and `nil` the *does the current selection
+/// support it* gate (`SiteNavigatorModel.deletableSelection()`).
 extension View {
     @ViewBuilder
-    func onDeleteCommand(active isActive: Bool, perform action: @escaping () -> Void) -> some View {
+    func onDeleteCommand(active isActive: Bool, perform action: (() -> Void)?) -> some View {
         if isActive {
             onDeleteCommand(perform: action)
         } else {

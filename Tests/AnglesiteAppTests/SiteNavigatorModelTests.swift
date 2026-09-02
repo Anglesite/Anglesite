@@ -70,6 +70,102 @@ struct SiteNavigatorModelTests {
         #expect(model.canDuplicate("nonexistent") == false)
     }
 
+    /// #1714: the home row (`URLTreeNode.Kind.home`, `src/pages/index.astro`) is a page for
+    /// Rename and Duplicate — both leave the site's front door in place — but never for Delete:
+    /// removing `/` leaves the site with no home page, and `create_page` refuses to scaffold the
+    /// root, so ⌘Z would be the only way back. Gating on the row's *kind* (not its `.route`
+    /// target, which home shares with every other page) is what keeps the context menu, Edit ▸
+    /// Duplicate, and Edit ▸ Delete reading the same answer for the same row.
+    @Test("home row: renamable and duplicable, never deletable")
+    func homeRowIsNotDeletable() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let graph = SiteContentGraph()
+        await graph.load(
+            siteID: "site-1",
+            pages: [
+                SiteContentGraph.Page(
+                    id: "site-1:page:/", siteID: "site-1", route: "/",
+                    filePath: "src/pages/index.astro", title: "Welcome", lastModified: Date()),
+                SiteContentGraph.Page(
+                    id: "site-1:page:/about", siteID: "site-1", route: "/about",
+                    filePath: "src/pages/about.astro", title: "About", lastModified: Date()),
+            ],
+            posts: [], images: []
+        )
+        let model = SiteNavigatorModel(graph: graph)
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
+        while model.nodes.isEmpty { await Task.yield() }
+        let home = try #require(model.nodes.first { $0.kind == .home })
+
+        #expect(model.canRename(home.id) == true)
+        #expect(model.canDuplicate(home.id) == true)
+        #expect(model.canDelete(home.id) == false)
+
+        model.selection = home.id
+        #expect(model.deletableSelection() == nil)
+        model.stop()
+    }
+
+    /// The other half of the #1714 kind-based rule: a collection entry (post) row is an ordinary
+    /// page for every verb, same as a `src/pages/` page — the `.home` carve-out is home-only.
+    @Test("post row: renamable, duplicable, and deletable")
+    func postRowSupportsAllVerbs() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let graph = SiteContentGraph()
+        await graph.load(
+            siteID: "site-1",
+            pages: [],
+            posts: [SiteContentGraph.Post(
+                id: "site-1:post:hello", siteID: "site-1", collection: "notes", slug: "hello",
+                title: "Hello", draft: false, publishDate: Date(), tags: [],
+                filePath: "src/content/notes/hello.md", lastModified: Date())],
+            images: []
+        )
+        let model = SiteNavigatorModel(graph: graph)
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
+        while model.nodes.isEmpty { await Task.yield() }
+        let post = try #require(flatten(model.nodes).first { $0.title == "Hello" })
+
+        #expect(model.canRename(post.id) == true)
+        #expect(model.canDuplicate(post.id) == true)
+        #expect(model.canDelete(post.id) == true)
+
+        model.selection = post.id
+        #expect(model.deletableSelection()?.id == post.id)
+        model.stop()
+    }
+
+    /// Folder rows (#1714): no verb at all — not just Delete/Duplicate, Rename too.
+    @Test("directory row: no rename, duplicate, or delete")
+    func directoryRowSupportsNoVerbs() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let graph = SiteContentGraph()
+        await graph.load(
+            siteID: "site-1",
+            pages: [],
+            posts: [SiteContentGraph.Post(
+                id: "site-1:post:hello", siteID: "site-1", collection: "notes", slug: "hello",
+                title: "Hello", draft: false, publishDate: Date(), tags: [],
+                filePath: "src/content/notes/hello.md", lastModified: Date())],
+            images: []
+        )
+        let model = SiteNavigatorModel(graph: graph)
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
+        while model.nodes.isEmpty { await Task.yield() }
+        let dir = try #require(model.nodes.first { if case .directory = $0.kind { return true }; return false })
+
+        #expect(model.canRename(dir.id) == false)
+        #expect(model.canDuplicate(dir.id) == false)
+        #expect(model.canDelete(dir.id) == false)
+        model.stop()
+    }
+
     /// #674: the bare Delete key on the navigator list should act on whatever
     /// `deletableSelection()` returns — nil disables it, non-nil is the item to delete.
     @Test("deletableSelection returns the selected content row")

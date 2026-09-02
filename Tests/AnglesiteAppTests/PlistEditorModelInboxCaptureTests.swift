@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 @testable import AnglesiteCore
 
@@ -15,7 +16,7 @@ struct PlistEditorModelInboxCaptureTests {
     private struct Fixture {
         let model: PlistEditorModel
         let configDirectory: URL
-        let keychainService: String
+        let keychainCleanup: () -> Void
     }
 
     private func makeFixture(
@@ -36,20 +37,19 @@ struct PlistEditorModelInboxCaptureTests {
         if let settings {
             try await SiteConfigStore(configDirectory: configDir).save(settings)
         }
-        let keychainService = "io.dwk.anglesite.test-\(UUID().uuidString)"
-        let keychain = KeychainStore(service: keychainService)
+        let scratchKeychain = TemporaryKeychainStore()
         if let token {
-            try keychain.writeCloudflareToken(token)
+            try scratchKeychain.store.writeCloudflareToken(token)
         }
         let model = PlistEditorModel(
             file: FileRef(url: plistURL, group: .metadata, name: "Info.plist"),
             websiteTitle: "My Test Site",
             sourceDirectory: sourceDir,
             configDirectory: configDir,
-            keychain: keychain,
+            keychain: scratchKeychain.store,
             capabilityProber: CloudflareCapabilityProber(transport: proberTransport)
         )
-        return Fixture(model: model, configDirectory: configDir, keychainService: keychainService)
+        return Fixture(model: model, configDirectory: configDir, keychainCleanup: scratchKeychain.cleanup)
     }
 
     @Test("turning on with a KV-capable token persists inboxCaptureEnabled")
@@ -61,6 +61,7 @@ struct PlistEditorModelInboxCaptureTests {
                 : #"{"success":true,"result":[{"id":"acc1"}]}"#
             return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!)
         })
+        defer { fixture.keychainCleanup() }
 
         await fixture.model.setInboxCaptureEnabled(true)
 
@@ -79,6 +80,7 @@ struct PlistEditorModelInboxCaptureTests {
                 : (200, #"{"success":true,"result":[{"id":"acc1"}]}"#)
             return (Data(body.utf8), HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!)
         })
+        defer { fixture.keychainCleanup() }
 
         await fixture.model.setInboxCaptureEnabled(true)
 
@@ -95,6 +97,7 @@ struct PlistEditorModelInboxCaptureTests {
                 provisionedWorkerResources: .init(inboxKVNamespaceID: "ns-1", inboxAccountID: "acct-1"),
                 inboxCaptureEnabled: true
             ))
+        defer { fixture.keychainCleanup() }
         await fixture.model.loadWorkers()
 
         await fixture.model.setInboxCaptureEnabled(false)
@@ -109,6 +112,7 @@ struct PlistEditorModelInboxCaptureTests {
     @Test("a save failure on turn-off surfaces an error and leaves the toggle state unchanged")
     func turnOffSaveFailure() async throws {
         let fixture = try await makeFixture(settings: SiteSettings(inboxCaptureEnabled: true))
+        defer { fixture.keychainCleanup() }
         await fixture.model.loadWorkers()
         #expect(fixture.model.inboxCaptureEnabled == true)
 
@@ -145,6 +149,7 @@ struct PlistEditorModelInboxCaptureTests {
             struct Unexpected: Error {}
             throw Unexpected()
         })
+        defer { fixture.keychainCleanup() }
 
         await fixture.model.setInboxCaptureEnabled(true)
 
@@ -157,6 +162,7 @@ struct PlistEditorModelInboxCaptureTests {
     @Test("loadWorkers pre-fills inboxForwardEmail from anglesite.json's email.inboxForwardAddress")
     func loadWorkersPreFillsForwardEmail() async throws {
         let fixture = try await makeFixture()
+        defer { fixture.keychainCleanup() }
         try DomainConfigStore(sourceDirectory: fixture.model.sourceDirectory).save(
             DomainConfig(email: .init(inboxForwardAddress: "owner@example.com")))
 
@@ -168,6 +174,7 @@ struct PlistEditorModelInboxCaptureTests {
     @Test("saveInboxForwardEmail trims and persists a valid address without disturbing dmarcReportEmail")
     func saveInboxForwardEmailPersists() async throws {
         let fixture = try await makeFixture()
+        defer { fixture.keychainCleanup() }
         try DomainConfigStore(sourceDirectory: fixture.model.sourceDirectory).save(
             DomainConfig(email: .init(provider: "fastmail", dmarcReportEmail: "dmarc@example.com")))
         await fixture.model.loadWorkers()
@@ -185,6 +192,7 @@ struct PlistEditorModelInboxCaptureTests {
     @Test("saveInboxForwardEmail rejects a value with no @ and leaves the prior address on disk")
     func saveInboxForwardEmailRejectsInvalid() async throws {
         let fixture = try await makeFixture()
+        defer { fixture.keychainCleanup() }
         try DomainConfigStore(sourceDirectory: fixture.model.sourceDirectory).save(
             DomainConfig(email: .init(inboxForwardAddress: "owner@example.com")))
         await fixture.model.loadWorkers()
@@ -199,6 +207,7 @@ struct PlistEditorModelInboxCaptureTests {
     @Test("saveInboxForwardEmail with a blank value clears a previously-set address")
     func saveInboxForwardEmailClears() async throws {
         let fixture = try await makeFixture()
+        defer { fixture.keychainCleanup() }
         try DomainConfigStore(sourceDirectory: fixture.model.sourceDirectory).save(
             DomainConfig(email: .init(inboxForwardAddress: "owner@example.com")))
         await fixture.model.loadWorkers()

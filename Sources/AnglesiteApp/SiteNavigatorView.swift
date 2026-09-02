@@ -5,12 +5,17 @@ import AnglesiteCore
 /// changes and either navigates the preview or opens the editor.
 struct SiteNavigatorView: View {
     @Bindable var model: SiteNavigatorModel
-    /// True while the WYSIWYG canvas holds real keyboard focus elsewhere in the window (#1423) —
-    /// while true, this view's `.onDeleteCommand` is withheld so exactly one `.onDeleteCommand` is
-    /// attached to the window's tree at a time. See `SiteWindow.previewPane(for:)`'s matching
-    /// canvas-side gate and `onDeleteCommand(active:perform:)`'s doc comment (`PreviewView.swift`)
-    /// for why two simultaneously-attached handlers made AppKit's Edit ▸ Delete menu unreliable.
-    var canvasHasKeyboardFocus: Bool = false
+    /// True while the live preview's `WKWebView` holds real keyboard focus elsewhere in the window
+    /// (#1423, widened #1715) — while true, this view's `.onDeleteCommand` AND its
+    /// `.background`-attached ⌘⌫ Button are both withheld, so nothing here competes with the
+    /// preview's own delete/text-editing handling for the keystroke. Covers both the full
+    /// `wysiwygCanvas` block editor AND the overlay JS's lighter-weight `contentEditable`
+    /// quick-edit (e.g. clicking a page/post title) — see `PreviewModel.hasKeyboardFocus`'s doc
+    /// comment for why the two need one shared flag rather than a canvas-only check. See
+    /// `SiteWindow.previewPane(for:)`'s matching canvas-side gate and
+    /// `onDeleteCommand(active:perform:)`'s doc comment (`PreviewView.swift`) for why two
+    /// simultaneously-attached handlers made AppKit's Edit ▸ Delete menu unreliable.
+    var previewHasKeyboardFocus: Bool = false
     var onDeleteRequested: (NavigatorItem) -> Void
     var onDuplicateRequested: (NavigatorItem) -> Void
     var onRepurposeRequested: (NavigatorItem) -> Void
@@ -33,13 +38,20 @@ struct SiteNavigatorView: View {
         // what AppKit's standard Edit ▸ Delete menu item invokes too, so it doubles as that item's
         // handler — a separate Commands `Button("Delete")` alongside it just renders as a second,
         // indistinguishable "Delete" row. The `active:` gate (#1423) keeps this the ONLY
-        // `.onDeleteCommand` attached while the canvas has focus — see `canvasHasKeyboardFocus`'s
-        // doc comment above.
-        .onDeleteCommand(active: !canvasHasKeyboardFocus) {
-            if let item = model.deletableSelection() {
-                onDeleteRequested(item)
-            }
-        }
+        // `.onDeleteCommand` attached while the preview has focus — see `previewHasKeyboardFocus`'s
+        // doc comment above. The action is `nil` while the selection isn't deletable (#1714) — a
+        // folder row, the home row, nothing selected, or inline-rename in progress — so AppKit
+        // validates Edit ▸ Delete as disabled, rather than enabling it for whatever row this list
+        // happens to hold focus on and leaving the item live as a silent no-op. Passing `nil`
+        // (instead of also dropping the modifier via `active:`) keeps the List's identity stable
+        // across selection changes; see `onDeleteCommand(active:perform:)`'s doc comment.
+        .onDeleteCommand(
+            active: !previewHasKeyboardFocus,
+            perform: model.deletableSelection() == nil ? nil : {
+                if let item = model.deletableSelection() {
+                    onDeleteRequested(item)
+                }
+            })
         .overlay {
             if model.nodes.isEmpty {
                 ContentUnavailableView("No content yet", systemImage: "sidebar.left")
@@ -63,14 +75,25 @@ struct SiteNavigatorView: View {
         .background {
             // ⌘⌫ as a second key equivalent for the same delete action (#989) — a view-level key
             // command, not a Commands-scene item, so it doesn't add another Edit-menu row.
-            Button("") {
-                if let item = model.deletableSelection() {
-                    onDeleteRequested(item)
+            // Gated on `previewHasKeyboardFocus` (#1715) exactly like `.onDeleteCommand` above:
+            // this predates that gate (#989 shipped before #1423) and was never updated to respect
+            // it, so ⌘⌫ typed into the live preview — e.g. mid-edit in a contentEditable title —
+            // always deleted the Navigator's selected item instead of editing text, regardless of
+            // where real keyboard focus was. `.disabled` alone isn't enough: a disabled Button
+            // still claims its shortcut and no-ops, which would swallow ⌘⌫ instead of letting it
+            // fall through to the preview's own text editing. Not attaching the modifier at all
+            // (same conditional-attachment shape as `onDeleteCommand(active:perform:)`,
+            // `PreviewView.swift`) is what actually frees the keystroke.
+            if !previewHasKeyboardFocus {
+                Button("") {
+                    if let item = model.deletableSelection() {
+                        onDeleteRequested(item)
+                    }
                 }
+                .keyboardShortcut(.delete, modifiers: [.command])
+                .hidden()
+                .accessibilityHidden(true)
             }
-            .keyboardShortcut(.delete, modifiers: [.command])
-            .hidden()
-            .accessibilityHidden(true)
         }
         .alert(
             "Rename failed",

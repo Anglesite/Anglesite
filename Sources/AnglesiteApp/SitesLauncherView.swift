@@ -312,7 +312,10 @@ struct SitesLauncherView: View {
             titleVisibility: .visible,
             presenting: siteToRemove
         ) { site in
+            // Return-key default (#1736) — see the revert alert in `SiteWindow` for why the
+            // default sits on the action rather than on Cancel.
             Button("Remove from Anglesite", role: .destructive) { removeSite(site) }
+                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) {}
         } message: { site in
             // Removal only forgets the site here — the package on disk is untouched, matching
