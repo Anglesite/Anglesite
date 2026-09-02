@@ -208,6 +208,7 @@ private struct ToggleConventionRow: View {
         LabeledContent(label) {
             HStack(spacing: 6) {
                 Toggle("", isOn: Binding(get: { learned.value }, set: onSet)).labelsHidden()
+                    .accessibilityLabel(label)
                 ProjectStyleGuideView.statusIndicator(learned, onClear: onClear)
             }
         }
@@ -232,6 +233,7 @@ private struct NumberConventionRow: View {
         LabeledContent(label) {
             HStack(spacing: 6) {
                 TextField("", text: $text)
+                    .accessibilityLabel(label)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 60)
                     .multilineTextAlignment(.trailing)

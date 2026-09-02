@@ -60,6 +60,7 @@ struct TypedEntryForm: View {
             VStack(alignment: .leading) {
                 Text(label).font(.caption).foregroundStyle(.secondary)
                 TextField("", text: model.textBinding(field.name), axis: .vertical).lineLimit(2...6)
+                    .accessibilityLabel(label)
             }
         case .bool:
             Toggle(label, isOn: model.boolBinding(field.name))
@@ -110,6 +111,7 @@ private struct StringListEditor: View {
             ForEach($rows) { $row in
                 HStack {
                     TextField("", text: $row.value)
+                        .accessibilityLabel(title)
                     Button(role: .destructive) { rows.removeAll { $0.id == row.id } } label: {
                         Image(systemName: "minus.circle")
                     }

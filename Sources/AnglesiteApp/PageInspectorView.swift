@@ -62,6 +62,7 @@ private struct PageMetadataForm: View {
             VStack(alignment: .leading) {
                 Text("Description").font(.caption).foregroundStyle(.secondary)
                 TextField("", text: model.descriptionBinding(), axis: .vertical).lineLimit(2...6)
+                    .accessibilityLabel("Description")
             }
             LanguageSettingsSection(tag: model.langBinding(), siteDefaultTag: model.siteDefaultLangTag)
             RobotsSettingsSection(route: model.route, noindex: model.noindexBinding(), disallowCrawl: model.disallowCrawlBinding())

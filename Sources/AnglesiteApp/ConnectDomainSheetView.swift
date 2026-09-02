@@ -60,7 +60,9 @@ struct ConnectDomainSheetView: View {
 
         case .enteringHostname:
             VStack(alignment: .leading, spacing: 8) {
-                TextField("example.com", text: $model.hostnameInput)
+                TextField("Domain", text: $model.hostnameInput, prompt: Text("example.com"))
+                    .labelsHidden()
+                    .accessibilityLabel("Domain")
                     .textFieldStyle(.roundedBorder)
                     .onSubmit { model.submitTransfer() }
                 Text("Keep it at your current registrar — you'll add it to Cloudflare and point its nameservers there. We'll connect it automatically on your next Publish once that's done.")
