@@ -77,7 +77,10 @@ struct ModerationView: View {
             isPresented: Binding(get: { moderation.banConfirmation != nil }, set: { _ in }),
             titleVisibility: .visible
         ) {
+            // Return-key default (#1736) — see the revert alert in `SiteWindow` for why the
+            // default sits on the action rather than on Cancel.
             Button("Ban", role: .destructive) { Task { await moderation.confirmBan() } }
+                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) { moderation.banConfirmation = nil }
         } message: {
             Text("This member's posts will stop appearing. Existing posts stay unless you also remove them.")
@@ -88,6 +91,7 @@ struct ModerationView: View {
             titleVisibility: .visible
         ) {
             Button("Remove", role: .destructive) { Task { await moderation.confirmRemove() } }
+                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) { moderation.removeConfirmation = nil }
         } message: {
             Text("This removes the post from the community timeline. The author's own copy on their own site is unaffected.")
