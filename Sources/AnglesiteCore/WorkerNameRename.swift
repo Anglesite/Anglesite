@@ -12,7 +12,8 @@ public enum WorkerNameRename {
     /// Ways ``WorkerNameRename/apply(newName:siteDirectory:fileManager:)`` can refuse — all
     /// thrown before any write, so a failed rename never leaves the two files half-updated.
     public enum RenameError: Error, Equatable, Sendable {
-        /// `newName` doesn't satisfy `WorkerComposition`'s `[A-Za-z0-9_-]+` constraint.
+        /// `newName` doesn't satisfy wrangler's `name` rule (`WorkerSiteName.isValidWorkerName`:
+        /// lowercase alphanumerics, underscores, and dashes).
         case invalidName(String)
         /// No `wrangler.toml` at the site root — the site was never scaffolded for deploy, so
         /// there is nothing to rename.
@@ -23,9 +24,9 @@ public enum WorkerNameRename {
     }
 
     /// Rewrites `wrangler.toml`'s `name = "..."` line and `.site-config`'s `CF_PROJECT_NAME` to
-    /// `newName`. Throws `.invalidName` before touching any file if `newName` doesn't match
-    /// `WorkerComposition`'s `[A-Za-z0-9_-]+` constraint, so a rejected name never gets partially
-    /// written.
+    /// `newName`. Throws `.invalidName` before touching any file if `newName` doesn't satisfy
+    /// wrangler's lowercase `name` rule (`WorkerComposition.isValidSiteName`), so a rejected name
+    /// never gets partially written.
     public static func apply(newName: String, siteDirectory: URL, fileManager: FileManager = .default) throws {
         guard WorkerComposition.isValidSiteName(newName) else {
             throw RenameError.invalidName(newName)

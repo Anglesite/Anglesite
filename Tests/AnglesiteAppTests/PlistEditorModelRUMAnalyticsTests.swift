@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 @testable import AnglesiteCore
 
@@ -21,6 +22,7 @@ struct PlistEditorModelRUMAnalyticsTests {
 
     private struct Fixture {
         let model: PlistEditorModel
+        let keychainCleanup: () -> Void
     }
 
     private func makeFixture(
@@ -37,10 +39,9 @@ struct PlistEditorModelRUMAnalyticsTests {
         try FileManager.default.createDirectory(at: configDir, withIntermediateDirectories: true)
         let plistURL = sourceDir.appendingPathComponent("Info.plist")
         try Self.emptyPlist.write(to: plistURL, atomically: true, encoding: .utf8)
-        let keychainService = "io.dwk.anglesite.test-\(UUID().uuidString)"
-        let keychain = KeychainStore(service: keychainService)
+        let scratchKeychain = TemporaryKeychainStore()
         if let token {
-            try keychain.writeCloudflareToken(token)
+            try scratchKeychain.store.writeCloudflareToken(token)
         }
         let model = PlistEditorModel(
             file: FileRef(url: plistURL, group: .metadata, name: "Info.plist"),
@@ -48,14 +49,15 @@ struct PlistEditorModelRUMAnalyticsTests {
             sourceDirectory: sourceDir,
             configDirectory: configDir,
             rumAnalyticsProvider: FakeRUMAnalyticsProvider(result: rumResult),
-            keychain: keychain)
+            keychain: scratchKeychain.store)
         model.analyticsSettings.cloudflareToken = siteTag
-        return Fixture(model: model)
+        return Fixture(model: model, keychainCleanup: scratchKeychain.cleanup)
     }
 
     @Test("loadRUMSummary does nothing when Cloudflare Analytics is not enabled")
     func skipsWhenAnalyticsDisabled() async throws {
         let fixture = try await makeFixture(siteTag: "")
+        defer { fixture.keychainCleanup() }
 
         await fixture.model.loadRUMSummary()
 
@@ -69,6 +71,7 @@ struct PlistEditorModelRUMAnalyticsTests {
             totalPageviews: 240, totalVisits: 90,
             dailyPageviews: [DailyCount(date: Date(timeIntervalSince1970: 0), pageviews: 240)])
         let fixture = try await makeFixture(siteTag: "site-tag-1", rumResult: .success(summary))
+        defer { fixture.keychainCleanup() }
 
         await fixture.model.loadRUMSummary()
 
@@ -81,6 +84,7 @@ struct PlistEditorModelRUMAnalyticsTests {
         let fixture = try await makeFixture(
             siteTag: "site-tag-1",
             rumResult: .failure(CloudflareWebAnalyticsError.api("boom")))
+        defer { fixture.keychainCleanup() }
 
         await fixture.model.loadRUMSummary()
 
@@ -101,6 +105,7 @@ struct PlistEditorModelRUMAnalyticsTests {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
         defer { cfToken.release() }
         let fixture = try await makeFixture(token: nil, siteTag: "site-tag-1")
+        defer { fixture.keychainCleanup() }
 
         await fixture.model.loadRUMSummary()
 

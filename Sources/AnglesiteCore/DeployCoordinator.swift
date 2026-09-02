@@ -230,11 +230,13 @@ public enum DeployCoordinator {
     /// to re-derivation on every deploy would silently regenerate `wrangler.toml` under the
     /// original (still-taken) name basis after a rename-and-retry, defeating the rename. Only a
     /// genuinely first-ever deploy (no candidate name recorded yet) falls through to the derived
-    /// slug of `siteName ?? siteID`.
+    /// slug of `siteName ?? siteID` — via ``WorkerSiteName/derive(from:)``, the same derivation the
+    /// local wrangler-dev path runs the site id through (#1750), so a stock UUID never reaches
+    /// wrangler in its raw uppercase form on either path.
     public static func resolveWorkerSiteName(siteDirectory: URL, siteID: String, siteName: String?) -> String {
         let existingConfig = (try? WebsiteAnalyticsAsset.loadConfig(siteDirectory: siteDirectory)) ?? ""
         return SiteConfigFile.value(forKey: "CF_PROJECT_NAME", in: existingConfig)
-            ?? SiteSlug.derive(from: siteName ?? siteID)
+            ?? WorkerSiteName.derive(from: siteName ?? siteID)
     }
 
     /// Whether this site is a hosted community (V-5.1b, #907) — read from `.site-config`'s

@@ -19,7 +19,12 @@ struct NewPageSheet: View {
         NavigationStack {
             Form {
                 Section("Page") {
-                    TextField("Title", text: $title)
+                    // A grouped-Form row hands its label to the field only through AXTitleUIElement —
+                    // no AXDescription, no placeholder — so AX tooling saw the sheet's default-
+                    // focused control as a bare "text field" (#1734). The explicit label names it
+                    // directly; the prompt pairs with the Route field's "my-new-webpage".
+                    TextField("Title", text: $title, prompt: Text("My New Webpage"))
+                        .accessibilityLabel("Title")
                     HStack {
                         Text("URL")
                         Spacer(minLength: 16)

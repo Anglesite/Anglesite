@@ -67,6 +67,16 @@ struct ContentScannerTests {
         #expect(note?.title == "quick-note")    // title falls back to slug
     }
 
+    @Test("post date also reads the template blog collection's `pubDate` key (#1716)")
+    func postPubDate() {
+        let root = try! writeSiteTree(prefix: "content-scan", [
+            "src/content/blog/welcome.md": "---\ntitle: Welcome\npubDate: 2026-01-01\n---\nBody",
+        ])
+        let posts = ContentScanner.scan(projectRoot: root, siteID: siteID).posts
+        #expect(posts.first?.collection == "blog")
+        #expect(posts.first?.publishDate == ISO8601DateFormatter().date(from: "2026-01-01T00:00:00Z"))
+    }
+
     @Test("post slug falls back to filename when frontmatter omits it")
     func postSlugFallback() {
         let root = try! writeSiteTree(prefix: "content-scan", [

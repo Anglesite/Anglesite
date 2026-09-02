@@ -38,6 +38,35 @@ struct IncrementalReindexTests {
         #expect(await index.documents(siteID: "s").contains { $0.path == "src/pages/about.astro" })
     }
 
+    @Test("apply classifies a batch of new blog/ entries as posts on a template-style config (#1725)")
+    func applyClassifiesBlogBatchAsPosts() async {
+        let root = try! writeSiteTree(prefix: "reindex", [
+            "src/content.config.ts": """
+            const blog = defineCollection({ type: "content", schema: z.object({ title: z.string() }) });
+            const products = defineCollection({ type: "content", schema: z.object({ name: z.string() }) });
+            export const collections = { blog, products };
+            """,
+            "src/pages/index.astro": "---\ntitle: Home\n---\n# Home",
+        ])
+        let index = SiteKnowledgeIndex()
+        await index.rebuild(siteID: "s", projectRoot: root)
+
+        // Several files land in one batch, as after a git pull — the batch path resolves the
+        // post collections once and must classify every file with the same rules as `rebuild`.
+        let added = ["src/content/blog/one.md", "src/content/blog/two.md", "src/content/products/widget.md"]
+        for path in added {
+            let url = root.appendingPathComponent(path)
+            try! FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try! Data("---\ntitle: \(path)\n---\nbody".utf8).write(to: url)
+        }
+        await KnowledgeReindex.apply(.init(paths: added.map { root.appendingPathComponent($0) }, needsFullRescan: false),
+                                     to: index, siteID: "s", projectRoot: root, fileExists: exists)
+
+        #expect(await index.document(siteID: "s", relativePath: "src/content/blog/one.md")?.kind == .post)
+        #expect(await index.document(siteID: "s", relativePath: "src/content/blog/two.md")?.kind == .post)
+        #expect(await index.document(siteID: "s", relativePath: "src/content/products/widget.md")?.kind == .content)
+    }
+
     @Test("apply removes a deleted file from the index")
     func applyRemovesDeletedFile() async {
         let root = try! writeSiteTree(prefix: "reindex", ["src/pages/gone.astro": "---\ntitle: Gone\n---\nbody"])

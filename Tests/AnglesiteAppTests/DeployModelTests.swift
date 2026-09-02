@@ -558,7 +558,7 @@ struct DeployModelTests {
         let workerNameConflictPresented = model.workerNameConflictPresented
         #expect(workerNameConflictPresented)
         let workerNameConflictError = model.workerNameConflictError
-        #expect(workerNameConflictError == "Worker names can only contain letters, numbers, hyphens, and underscores.")
+        #expect(workerNameConflictError == "Worker names can only contain lowercase letters, numbers, hyphens, and underscores.")
     }
 
     @Test("Cancelling the conflict prompt clears the parked deploy and dismisses the sheet")

@@ -130,6 +130,8 @@ struct DebugPaneView: View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 12) {
                 Text("Server").font(.headline)
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier(AXID.debugServerHeader)
                 Picker("ESI Fragments", selection: $esiPreviewMode.unprocessed) {
                     Text("Live").tag(false)
                     Text("Unprocessed (show fallbacks)").tag(true)
@@ -138,8 +140,18 @@ struct DebugPaneView: View {
                 .frame(maxWidth: 320)
                 Spacer()
             }
-            ForEach(workerSessions) { session in
-                workerRow(session)
+            // The design's "Local Workers" block (§5): a labelled group the session rows live in,
+            // hidden entirely when there are none so a static-only site's pane is unchanged. The
+            // label is a visible subheading *and* an AX heading (#1752) — without it the rows sat
+            // unlabelled under the ESI picker, and the Debug window had no headings at all.
+            if !workerSessions.isEmpty {
+                Text("Local Workers")
+                    .font(.subheadline.weight(.semibold))
+                    .accessibilityAddTraits(.isHeader)
+                    .accessibilityIdentifier(AXID.debugLocalWorkersHeader)
+                ForEach(workerSessions) { session in
+                    workerRow(session)
+                }
             }
         }
     }
@@ -152,11 +164,14 @@ struct DebugPaneView: View {
                 .accessibilityHidden(true)  // the status text carries the meaning
             Text(session.displayName)
                 .font(.system(size: 12, weight: .medium))
+                .accessibilityIdentifier(AXID.debugWorkerName(session.siteID))
             statusText(session.status)
                 .font(.system(size: 12))
+                .accessibilityIdentifier(AXID.debugWorkerStatus(session.siteID))
             if case .running(.some(let url)) = session.status {
                 Link(url.absoluteString, destination: url)
                     .font(.system(size: 12, design: .monospaced))
+                    .accessibilityIdentifier(AXID.debugWorkerURL(session.siteID))
                 Button {
                     NSPasteboard.general.clearContents()
                     NSPasteboard.general.setString(url.absoluteString, forType: .string)
@@ -166,6 +181,7 @@ struct DebugPaneView: View {
                 .buttonStyle(.borderless)
                 .help("Copy local worker URL")
                 .accessibilityLabel("Copy local worker URL")
+                .accessibilityIdentifier(AXID.debugWorkerCopy(session.siteID))
             }
             if case .failed(let reason) = session.status {
                 Text(reason)
@@ -174,10 +190,16 @@ struct DebugPaneView: View {
                     .lineLimit(1)
                     .truncationMode(.tail)
                     .help(reason)
+                    .accessibilityIdentifier(AXID.debugWorkerFailure(session.siteID))
             }
             Spacer()
         }
         .padding(.leading, 4)
+        // One group per session, labelled with the site name, so the status/URL/copy controls
+        // read in context instead of as loose siblings of the ESI picker (#1752).
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(session.displayName)
+        .accessibilityIdentifier(AXID.debugWorkerRow(session.siteID))
     }
 
     private func statusColor(_ status: WorkersDevStatus) -> Color {
