@@ -1329,8 +1329,17 @@ struct SiteWindow: View {
                     }
             }
         }
+        // Revert is the Return-key default (#1736), the same shape as the delete sheet below (#1733):
+        // SwiftUI gives a `.destructive` button no key equivalent, so without it the alert had no
+        // default button at all — Return did nothing and only Esc worked. An NSAlert button holds a
+        // single key equivalent, so Cancel can own Return *or* Esc, never both; putting the default
+        // on Cancel silently kills Esc (verified with an isolated SwiftUI probe). Return-confirms is also
+        // how the system's own Revert sheet (TextEdit) behaves. Cancel keeps Esc via its `.cancel`
+        // role. The one deliberate exception is `ModerationView`'s Ban dialog, whose action has no
+        // in-app recovery at all, so it takes Cancel-default and the dead Esc that comes with it.
         .alert("Revert to the last saved version?", isPresented: $bindableModel.revertConfirmationPresented) {
             Button("Revert", role: .destructive) { Task { await model.confirmRevertToSaved() } }
+                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) {}
         } message: {
             Text("Unsaved changes in the editor and inspector will be discarded.")

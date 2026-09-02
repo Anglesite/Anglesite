@@ -49,7 +49,10 @@ struct CommunitiesView: View {
                 set: { _ in }),
             presenting: communities.leaveConfirmation
         ) { community in
+            // Return-key default (#1736) — see the revert alert in `SiteWindow` for why the
+            // default sits on the action rather than on Cancel.
             Button("Leave", role: .destructive) { Task { await communities.confirmLeave() } }
+                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) { communities.cancelLeave() }
         } message: { community in
             // `community.displayName` is remote-supplied (a hostile Group's own actor-document

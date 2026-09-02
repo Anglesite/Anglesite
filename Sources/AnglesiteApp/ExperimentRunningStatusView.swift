@@ -54,9 +54,14 @@ struct ExperimentRunningStatusView: View {
             titleVisibility: .visible
         ) {
             if let decision = model.pendingConclude {
+                // Return-key default (#1736) — see the revert alert in `SiteWindow` for why the
+                // default sits on the action rather than on Cancel. Explicit for every decision so
+                // Return behaves the same whether the confirm button is `.destructive` (promote,
+                // discard) or role-less (keep) — SwiftUI only defaults the latter on its own.
                 Button(concludeConfirmLabel(for: decision), role: concludeConfirmRole(for: decision)) {
                     Task { await model.confirmConclude(deploy: deploySite) }
                 }
+                .keyboardShortcut(.defaultAction)
             }
             Button("Cancel", role: .cancel) { model.cancelConclude() }
         } message: {
