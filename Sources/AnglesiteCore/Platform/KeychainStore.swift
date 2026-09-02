@@ -228,10 +228,12 @@ public struct KeychainStore: SecretStore {
 
     // MARK: Internals
 
+    #if os(macOS)
     /// Serializes the process-wide user-interaction switch across quiet operations, so one
     /// restoring the previous value can't re-enable prompting while another is still inside its
     /// `SecItem` call.
     private static let interactionLock = NSLock()
+    #endif
 
     /// Runs one `SecItem*` call under this store's interaction policy: straight through when
     /// ``allowsUserInteraction`` is set; otherwise with the process's keychain UI disabled for the
@@ -239,7 +241,12 @@ public struct KeychainStore: SecretStore {
     /// blocking on the authorization dialog. See ``withoutUserInteraction`` for why this is the
     /// (deprecated, still functional) `SecKeychainSetUserInteractionAllowed` switch and not a
     /// per-query attribute.
+    ///
+    /// macOS only: the file-based login keychain and its ACL dialog don't exist on iOS, where
+    /// `SecItem` goes straight to the data-protection keychain and never prompts, so there the
+    /// quiet face is the default one (and the `SecKeychain*` symbols aren't in the SDK at all).
     private func performSecItemCall(_ call: () -> OSStatus) -> OSStatus {
+        #if os(macOS)
         guard !allowsUserInteraction else { return call() }
         return Self.interactionLock.withLock {
             var previous: DarwinBoolean = true
@@ -251,6 +258,9 @@ public struct KeychainStore: SecretStore {
             defer { _ = SecKeychainSetUserInteractionAllowed(previous.boolValue) }
             return call()
         }
+        #else
+        return call()
+        #endif
     }
 
     /// The attribute dictionary identifying one slot — the shared prefix of every
