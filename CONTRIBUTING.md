@@ -51,8 +51,10 @@ Working headless (CI, agents, or just no Xcode GUI)? [`docs/testing-macos-app.md
 Run the relevant suites before opening a PR:
 
 ```sh
-# Swift package tests (AnglesiteSiteModel, AnglesiteCore, AnglesiteBridge, AnglesiteIntents)
-swift test --package-path .
+# Swift package tests (AnglesiteSiteModel, AnglesiteCore, AnglesiteBridge, AnglesiteIntents).
+# The wrapper is `swift test` behind a machine-scoped lock — use it for local
+# full runs so two runs on one Mac don't collide (#1594, see below); args pass through.
+scripts/swift-test.sh
 
 # App target builds
 scripts/build-app.sh -project Anglesite.xcodeproj -scheme Anglesite -configuration Debug build
@@ -67,6 +69,7 @@ Notes:
 - MCP/apply-edit e2e tests run only when `ANGLESITE_PLUGIN_PATH` points at an Anglesite plugin checkout; otherwise they skip.
 - If you touch `Resources/Template/`, run `swift test` too — some Swift tests couple to the template markup.
 - Test `UserDefaults` suites must come from `AnglesiteTestSupport`'s `TemporaryUserDefaults` / `withTemporaryUserDefaults`, never a hand-rolled `UserDefaults(suiteName:)` — a plain suite name leaks a plist into `~/Library/Preferences` on every run that nothing can reclaim (#1727). After `swift test` exits, `scripts/check-test-userdefaults-leak.sh` (CI runs it too) fails if a suite was left behind in `$TMPDIR` or `~/Library/Preferences`; a Mac still carrying the pre-#1727 backlog needs a one-time `rm ~/Library/Preferences/test-anglesite-*.plist` before it comes back clean.
+- **One full `swift test` per Mac at a time.** The FoundationModels suites issue live on-device model turns, and on-device inference is serialized by a system-wide daemon across *all* processes (a FIFO queue — #1594 measured six concurrent callers finishing at exact one-turn intervals), so a second concurrent run multiplies every turn's wall clock past the suites' timeouts. `scripts/swift-test.sh` enforces this with a lock at `/tmp/anglesite-swift-test.lock` (an atomic `mkdir` directory — compatible with taking it by hand the same way) and waits, naming the holder; `--filter` runs that don't touch the live-model suites (`scripts/lib/live-model-tests.sh`) skip the lock. CI is unaffected (its runners have no on-device model and never run concurrent suites). Details in [`docs/testing-macos-app.md`](docs/testing-macos-app.md#automated-tests).
 - CI runs the JS overlay checks, Linux portable-target builds, macOS `swift test` (including ThreadSanitizer and timing-sensitive-isolation lanes), an `Anglesite.xcodeproj` ↔ `project.yml` sync check, and an AppIntents schema check. All must pass.
 - **CI never *executes* `AnglesiteAppTests` or `AnglesiteIntentsTests`** — local `swift test` on Xcode 27 is the only run coverage for them (#855). The `macos-26` lanes' Xcode 26.6 (Swift 6.3.3) excludes those `compiler(>=6.4)`-gated targets from the package graph entirely, and the non-required `xcode-27` preview lane can only *compile* them: that image pairs the Xcode 27 SDK with a macOS 26.x **host**, and test bundles built for macOS 27 hard-link 27-only symbols (verified live: FoundationModels' CoreSpotlight cross-import overlay, CloudKit's async overlay, `AppIntents.EntityQuery.allowedExecutionTargets`) that dyld cannot resolve there, so the bundles can never even be loaded. If your change touches `Sources/AnglesiteApp`, `Sources/AnglesiteIntents`, or their tests, run `swift test` locally on Xcode 27 before opening the PR — CI will not catch a runtime regression in those suites. Revisit when a hosted runner image ships with a macOS 27 *host OS* (not just the SDK): flip the `xcode-27` lane's build step back to `swift test` and delete this note.
 

@@ -404,9 +404,17 @@ extension View {
 /// canvas's handler (a silent no-op with no block selected) instead of the Navigator's. Splitting
 /// them back into mutually-exclusive attachment restores the single-handler shape #989 already
 /// validated as reliable, before the canvas target (#1225 Task 11) started coexisting with it.
+///
+/// `action` is optional (#1714), mirroring SwiftUI's own `onDeleteCommand(perform:)`: passing
+/// `nil` keeps the modifier attached — so the modified view's identity is stable, unlike the
+/// `isActive` branch flip, which recreates it — while AppKit validates Edit ▸ Delete as disabled,
+/// exactly as if nothing were attached (verified live on macOS 27 with a focused `List`: non-nil
+/// → enabled, nil → disabled, selection preserved across the flip). So `isActive` is the
+/// *which surface owns the command* gate (focus), and `nil` the *does the current selection
+/// support it* gate (`SiteNavigatorModel.deletableSelection()`).
 extension View {
     @ViewBuilder
-    func onDeleteCommand(active isActive: Bool, perform action: @escaping () -> Void) -> some View {
+    func onDeleteCommand(active isActive: Bool, perform action: (() -> Void)?) -> some View {
         if isActive {
             onDeleteCommand(perform: action)
         } else {
