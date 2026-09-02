@@ -34,12 +34,19 @@ struct SiteNavigatorView: View {
         // handler — a separate Commands `Button("Delete")` alongside it just renders as a second,
         // indistinguishable "Delete" row. The `active:` gate (#1423) keeps this the ONLY
         // `.onDeleteCommand` attached while the canvas has focus — see `canvasHasKeyboardFocus`'s
-        // doc comment above.
-        .onDeleteCommand(active: !canvasHasKeyboardFocus) {
-            if let item = model.deletableSelection() {
-                onDeleteRequested(item)
-            }
-        }
+        // doc comment above. The action is `nil` while the selection isn't deletable (#1714) — a
+        // folder row, the home row, nothing selected, or inline-rename in progress — so AppKit
+        // validates Edit ▸ Delete as disabled, rather than enabling it for whatever row this list
+        // happens to hold focus on and leaving the item live as a silent no-op. Passing `nil`
+        // (instead of also dropping the modifier via `active:`) keeps the List's identity stable
+        // across selection changes; see `onDeleteCommand(active:perform:)`'s doc comment.
+        .onDeleteCommand(
+            active: !canvasHasKeyboardFocus,
+            perform: model.deletableSelection() == nil ? nil : {
+                if let item = model.deletableSelection() {
+                    onDeleteRequested(item)
+                }
+            })
         .overlay {
             if model.nodes.isEmpty {
                 ContentUnavailableView("No content yet", systemImage: "sidebar.left")
