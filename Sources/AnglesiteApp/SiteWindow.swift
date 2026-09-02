@@ -1341,6 +1341,13 @@ struct SiteWindow: View {
         // button's synchronous action but *before* the `Task` it spawns gets to run, so
         // `confirmDelete()`'s `guard let item = deleteConfirmation` always saw nil and returned —
         // no delete, no commit, and no error to raise the alert below.
+        //
+        // Delete is the Return-key default (#1733). On macOS SwiftUI gives a `.destructive` button
+        // no key equivalent, so without the explicit shortcut the sheet has *no* default button and
+        // a keyboard user with Full Keyboard Access off can only Esc out of it. A destructive
+        // default is acceptable here because the delete is fully reversible — the message says so,
+        // and ⌘Z restores the file, the navigator row, and the auto-commit — which is the same
+        // shape as Photos' recoverable "Delete Photo" alert. Cancel keeps Esc via its `.cancel` role.
         .confirmationDialog(
             contentDeleteTitle,
             isPresented: Binding(
@@ -1349,6 +1356,7 @@ struct SiteWindow: View {
             titleVisibility: .visible
         ) {
             Button("Delete", role: .destructive) { Task { await model.confirmDelete() } }
+                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) { model.deleteConfirmation = nil }
         } message: {
             Text("This will remove the file from your site. You can bring it back with Edit ▸ Undo.")
