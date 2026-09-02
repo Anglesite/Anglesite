@@ -2,6 +2,22 @@ import Testing
 import Foundation
 @testable import AnglesiteCore
 
+/// Shell fixture shared by the SIGTERM-cancellation tests here, in `DeployCommandTests`, and in
+/// `ProcessSupervisorShutdownTests`: arms a TERM trap that reports itself, announces readiness,
+/// then blocks.
+///
+/// The blocking child is started *in the background and awaited with `wait`* on purpose. bash
+/// (what macOS `/bin/sh` is) defers a trapped signal that arrives while a *foreground* command
+/// runs until that command finishes, and a SIGTERM that lands in the child's `fork()`→`exec`
+/// window is consumed by the shell's own trap handler and never reaches the exec'd `sleep` — so
+/// with a foreground `sleep` the trap could legitimately never run before the supervisor's
+/// SIGKILL escalation, and observing the marker was a race the tests lost under load (#1758).
+/// POSIX requires `wait` to return the moment a trapped signal is delivered, so this form runs
+/// the trap deterministically; the trap reaps its own child so no orphan keeps the log pipe open.
+enum SIGTERMTrapFixture {
+    static let script = #"sleep 20 & c=$!; trap "kill $c 2>/dev/null; wait $c; echo __SIGTERM__; exit 143" TERM; echo __STARTED__; wait $c; echo __COMPLETED__"#
+}
+
 /// Tests for `AuditCommand` — the deterministic structured-audit path that replaces
 /// the chat-routed `/anglesite:check` pill for one-click audits (#86).
 ///
@@ -85,35 +101,32 @@ struct AuditCommandTests {
 
     @Test("Cancelling the task actually SIGTERMs the in-flight build subprocess")
     func cancellationTerminatesBuild() async {
-        // The fixture sets a SIGTERM trap, echoes __STARTED__, then blocks. We cancel exactly once
-        // the build is running (synchronized on __STARTED__, not a fixed delay), and assert the
-        // result is `.failed(terminated)` AND the process reports the SIGTERM trap — proving it was
-        // actually killed, not orphaned.
+        // The fixture arms a SIGTERM trap, echoes __STARTED__, then blocks. We cancel exactly once
+        // the build is running (synchronized on __STARTED__, not a fixed delay). Cancellation
+        // resolves only after the child has really exited and its output is drained
+        // (`ProcessSupervisor.waitForExitOrTerminate`, #1758), so the result and the trap's
+        // marker are asserted from that settled state — no polling, no wall-clock budget. (The
+        // previous shape — a fire-and-forget SIGTERM plus a 30 s poll for the marker — raced the
+        // kill against the fixture's own fork window and lost under load; see
+        // `SIGTERMTrapFixture`.)
         let (cmd, center) = makeCommand(
             runners: [FakeAuditRunner(category: .accessibility, result: .success([]))],
-            build: { _ in self.shFixture("trap 'echo __SIGTERM__; exit 143' TERM; echo __STARTED__; sleep 20; echo __COMPLETED__") }
+            build: { _ in self.shFixture(SIGTERMTrapFixture.script) }
         )
         let task = Task { await cmd.audit(siteID: "site", siteDirectory: tmpDir) }
         #expect(await waitForMarker("__STARTED__", in: center, timeout: .seconds(10)), "build never started")
         task.cancel()
         let result = await task.value
-        guard case .failed(let reason, _, _) = result else {
+        guard case .failed(let reason, _, let tail) = result else {
             Issue.record("expected .failed(terminated), got \(result)")
             return
         }
         #expect(reason.contains("terminated"))
-        // 30s, not the 10s every other marker wait in this file uses: `task.cancel()` only
-        // resumes `waitForExit`'s continuation immediately (ProcessSupervisor.waitForExit's
-        // documented cancel-fast-forward contract) — the actual SIGTERM send is a *separate*,
-        // un-awaited `Task { await supervisor.terminate(handle) }` fired from
-        // `HostAuditExecutor.spawn`'s `onCancel` handler (AuditExecutor.swift). `task.value`
-        // above can therefore resolve well before that detached task is even scheduled, so this
-        // wait is racing real OS/GCD scheduling latency, not a fixed-cost operation. #1500 saw
-        // this lose a 10s budget twice in the isolated, low-concurrency timing-sensitive lane
-        // (scripts/lib/timing-sensitive-tests.sh) — i.e. even reduced cross-suite contention
-        // doesn't bound how long a bare `Task {}` waits for a runner-loaded scheduler. Don't
-        // re-tighten this without evidence the detached-task scheduling gap has been closed.
-        #expect(await waitForMarker("__SIGTERM__", in: center, timeout: .seconds(30)), "build subprocess was not actually SIGTERM'd")
+        let texts = await center.snapshot().map(\.text)
+        #expect(texts.contains("__SIGTERM__"), "build subprocess was not actually SIGTERM'd: \(texts)")
+        #expect(!texts.contains("__COMPLETED__"), "build ran to completion despite cancellation: \(texts)")
+        #expect(tail.contains { $0.text == "__SIGTERM__" },
+                "logTail must carry the drained output, not a snapshot taken before the kill landed")
     }
 
     // MARK: Build failure

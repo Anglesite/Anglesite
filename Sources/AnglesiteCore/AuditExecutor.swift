@@ -160,8 +160,8 @@ public struct HostAuditExecutor: AuditExecutor {
     }
 
     /// Resolves the step to a ``AuditCommand/LaunchPlan`` and either spawns it under
-    /// `ProcessSupervisor` (streaming to `LogCenter`, terminated on task cancellation) or
-    /// returns the plan's refusal reason as a `nil`-exit-code result.
+    /// `ProcessSupervisor` (streaming to `LogCenter`; cancelling the task terminates the child
+    /// and waits for it to exit) or returns the plan's refusal reason as a `nil`-exit-code result.
     public func run(step: AuditStep, siteDirectory: URL, source: String) async -> AuditStepResult {
         let resolver = resolveCommand(step)
         let plan = resolver(siteDirectory)
@@ -193,11 +193,10 @@ public struct HostAuditExecutor: AuditExecutor {
             return AuditStepResult(exitCode: nil, output: "couldn't spawn process: \(error)")
         }
 
-        let reason = await withTaskCancellationHandler {
-            await supervisor.waitForExit(handle)
-        } onCancel: {
-            Task { await supervisor.terminate(handle) }
-        }
+        // On cancellation this SIGTERMs the child and returns only once it has really exited and
+        // its log pipes are drained — so the snapshot below is complete and `.terminated` means
+        // "dead", not "kill requested" (#1758).
+        let reason = await supervisor.waitForExitOrTerminate(handle)
 
         let snapshot = await logCenter.snapshot()
         let output = snapshot

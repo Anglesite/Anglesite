@@ -37,8 +37,9 @@ import Foundation
 ///     for the `.wrangler` (and `.bundleUpload`) steps it runs.
 ///
 /// **Cancellation**: cancelling the deploy task propagates through `executor.run` (the host
-/// executor wraps its `waitForExit` in a cancellation handler that SIGTERMs the in-flight
-/// subprocess), so a cancelled build/wrangler is actually killed rather than orphaned.
+/// executor awaits `ProcessSupervisor.waitForExitOrTerminate`, which SIGTERMs the in-flight
+/// subprocess and returns only once it has exited), so a cancelled build/wrangler is actually
+/// killed — and known to be dead by the time `.failed` comes back — rather than orphaned.
 public actor DeployCommand {
     /// Terminal outcome of one `deploy(...)` call. Every failure mode is a case, not a thrown
     /// error — `deploy` never throws, so UI callers switch exhaustively over this instead of
