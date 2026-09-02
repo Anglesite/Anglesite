@@ -118,8 +118,39 @@ final class SiteWindowModel {
     var sync = SyncModel()
     // Chat is now on both targets and backed by the on-device `FoundationModelAssistant`;
     // the panel UI is target-agnostic.
-    var chat: ChatModel?
+    /// `nil` until the site resolves in `loadAndStart`. The `didSet` hands a pending input-focus
+    /// request over to the new model: View ▸ Show Chat (⌃⌘K) is enabled as soon as the window
+    /// exists, before `loadAndStart` has created `chat`, so a keyboard-first user's `showChat()`
+    /// can land while this is still `nil` (#1640). `SiteWindow` gates the pane on both
+    /// `chatPresented` and `chat`, so `chatPresented == true` at assignment time means the pane
+    /// was requested but never mounted — the request is re-raised here and `ChatView`'s
+    /// appear-time `.task` consumes it when the pane first appears.
+    var chat: ChatModel? {
+        didSet {
+            if chatPresented { chat?.requestInputFocus() }
+        }
+    }
     var chatPresented = false
+
+    /// View ▸ Show/Hide Chat (⌃⌘K) and the toolbar Chat button. Showing goes through
+    /// `showChat()` so the prompt input also takes keyboard focus (#1640); hiding just dismisses.
+    func toggleChat() {
+        if chatPresented {
+            chatPresented = false
+        } else {
+            showChat()
+        }
+    }
+
+    /// Presents the chat pane (a no-op on visibility if it's already open) and asks `ChatModel`
+    /// to put keyboard focus in its prompt input, so a keyboard-only user lands ready to type
+    /// rather than having to Tab across the window to reach the field (#679 checklist, #1640).
+    /// If `chat` doesn't exist yet (site still resolving), `chatPresented` carries the request
+    /// until `chat`'s `didSet` forwards it on assignment — see the property's doc comment.
+    func showChat() {
+        chatPresented = true
+        chat?.requestInputFocus()
+    }
     /// Created once the site resolves in `loadAndStart` (needs `siteDirectory`/`configDirectory`),
     /// same lifecycle as `chat`. Its own `sheetPresented` drives the `.sheet(isPresented:)` in
     /// `SiteWindow`, following `AuditModel`'s pattern rather than the item-based sheets.
@@ -2129,7 +2160,9 @@ final class SiteWindowModel {
         return result
     }
 
-    /// See `createPage`'s force-refresh note (#586) — same race, same fix.
+    /// See `createPage`'s force-refresh note (#586) — same race, same fix. `collection: nil` is
+    /// deliberate: the native service resolves it to the site's declared blog collection
+    /// (`PostCollectionResolver` — `blog` on the shipped template, not a hardcoded `posts`, #1716).
     func createPost(title: String) async -> ContentCreateResult {
         guard let site else { return .siteNotFound }
         let result = await contentCreation.createPost(siteID: site.id, title: title, collection: nil, slug: nil)

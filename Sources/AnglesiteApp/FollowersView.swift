@@ -46,7 +46,10 @@ struct FollowersView: View {
             isPresented: Binding(get: { followers.rejectConfirmation != nil }, set: { _ in }),
             titleVisibility: .visible
         ) {
+            // Return-key default (#1736) — see the revert alert in `SiteWindow` for why the
+            // default sits on the action rather than on Cancel.
             Button("Reject", role: .destructive) { Task { await followers.confirmReject() } }
+                .keyboardShortcut(.defaultAction)
             Button("Cancel", role: .cancel) { followers.rejectConfirmation = nil }
         } message: {
             Text("This declines the follow request from \(followers.rejectConfirmation?.displayName ?? "this requester").")

@@ -148,6 +148,28 @@ final class ChatModel {
 
     // MARK: API consumed by ChatView
 
+    /// `true` while a request to put keyboard focus in the prompt input is pending (#1640). Set
+    /// by `requestInputFocus()` — View ▸ Show Chat ⌃⌘K and the toolbar Chat button, via
+    /// `SiteWindowModel.showChat()` — and cleared by `ChatView` through
+    /// `consumeInputFocusRequest()` once it has moved focus. A latched flag rather than a
+    /// fire-and-forget call because the pane is usually *not mounted yet* when the request is
+    /// made (showing the pane and focusing its input is one command), so `ChatView` picks the
+    /// request up as it appears; when the pane is already open, its `onChange` on this flag
+    /// handles the same request instead.
+    private(set) var inputFocusRequested = false
+
+    /// Asks `ChatView` to move keyboard focus into the prompt input the next time it can.
+    func requestInputFocus() {
+        inputFocusRequested = true
+    }
+
+    /// Clears a pending input-focus request, returning whether there was one. One-shot: the
+    /// caller (`ChatView`) is expected to focus the field iff this returns `true`.
+    func consumeInputFocusRequest() -> Bool {
+        defer { inputFocusRequested = false }
+        return inputFocusRequested
+    }
+
     /// Loads persisted history into `messages`. Safe to call multiple times — subsequent calls
     /// re-read from disk. Errors are recorded in `lastError`.
     func loadHistory() async {
@@ -199,7 +221,7 @@ final class ChatModel {
     ///
     /// The annotation id is deliberately **kept** in `surfacedAnnotationIDs` for the whole
     /// operation — including across the `await`. If it were removed first, a `loadAnnotations()`
-    /// that runs during the suspension (e.g. ⌘K toggles the chat panel, tearing down and
+    /// that runs during the suspension (e.g. ⌃⌘K toggles the chat panel, tearing down and
     /// re-mounting `ChatView` and refiring its `.task`) would see the id missing, fetch the
     /// still-unresolved annotation from MCP, and append a duplicate row. Leaving the id in the
     /// set makes that re-surface a no-op. On success the row is simply gone (the resolved

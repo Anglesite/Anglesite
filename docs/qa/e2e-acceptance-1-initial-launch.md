@@ -63,7 +63,7 @@ Expected:
 - **File ▸ Open Site…** (⌘O) enabled; picking a non-package shows the "Couldn't open that site" alert.
 - **File ▸ Export Site Source…** disabled. **File ▸ Print…** inert.
 - **Site menu**: every item (Deploy ⇧⌘D, Recheck Deploy Readiness, Backup, Audit, Harden…, Domain…, Add Integration…, Siri AI Readiness…, dev-server controls, Open in Browser) disabled.
-- **View**: pane switches ⌘1–3, Chat ⌘K, Inspector ⌥⌘I inert; **"Show Debug Pane" (⌥⌘D) not visible** in a Release build until the Settings ▸ Advanced diagnostics toggle is on (visible by default in Debug builds).
+- **View**: pane switches ⌘1–3, Chat ⌃⌘K, Inspector ⌥⌘I inert; **"Show Debug Pane" (⌥⌘D) not visible** in a Release build until the Settings ▸ Advanced diagnostics toggle is on (visible by default in Debug builds).
 - **App menu ▸ About Anglesite** shows the custom panel with the `Phase <n> · macOS <version>` credits line.
 
 Fail if any site-scoped command is enabled with no site window focused.

@@ -198,6 +198,17 @@ final class SiteNavigatorModel {
         return item(for: id)
     }
 
+    /// The row Return-to-rename (`SiteNavigatorView`'s hidden Return key equivalent) should act
+    /// on right now, or nil when there's no selection, the selection isn't renameable, or
+    /// inline-rename is already in progress (Return must then reach the focused TextField to
+    /// commit, not restart the rename) — the rename-side twin of `deletableSelection()`.
+    /// Whether the navigator actually holds keyboard focus is the view's concern (#1732), not
+    /// the model's: this answers "which row", the view answers "should Return reach us at all".
+    func renameableSelection() -> String? {
+        guard editingItemID == nil, let id = selection, canRename(id) else { return nil }
+        return id
+    }
+
     func beginEditing(_ id: String) {
         guard canRename(id) else { return }
         let current = nodesByID[id]?.title ?? ""

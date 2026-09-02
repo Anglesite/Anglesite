@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 @testable import AnglesiteCore
 
@@ -31,7 +32,7 @@ struct PlistEditorModelBotPreferenceSyncTests {
         token: String? = "test-token",
         zoneID: String? = "z1",
         flagEnabled: Bool = true
-    ) throws -> PlistEditorModel {
+    ) throws -> (model: PlistEditorModel, keychainCleanup: () -> Void) {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("PlistEditorModelBotPreferenceSyncTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -47,29 +48,32 @@ struct PlistEditorModelBotPreferenceSyncTests {
             try licensingJSON.write(
                 to: dataDir.appendingPathComponent("licensing.json"), atomically: true, encoding: .utf8)
         }
-        let keychain = KeychainStore(service: "io.dwk.anglesite.test-\(UUID().uuidString)")
-        if let token { try keychain.writeCloudflareToken(token) }
+        let scratchKeychain = TemporaryKeychainStore()
+        if let token { try scratchKeychain.store.writeCloudflareToken(token) }
         let suiteName = "test-anglesite-\(UUID().uuidString)"
         let appSettings = AppSettings(defaults: UserDefaults(suiteName: suiteName)!)
         appSettings.botPreferenceSyncUIEnabled = flagEnabled
         let file = FileRef(url: plistURL, group: .metadata, name: "Info.plist")
-        return PlistEditorModel(
+        let model = PlistEditorModel(
             file: file, websiteTitle: "Test Site", sourceDirectory: dir,
-            keychain: keychain,
+            keychain: scratchKeychain.store,
             reader: StubReader(zoneID: zoneID),
             appSettings: appSettings)
+        return (model, scratchKeychain.cleanup)
     }
 
     @Test("load() never resolves a zone — resolution only happens via resolveBotPreferenceSyncZoneIfNeeded()")
     func loadNeverResolves() async throws {
-        let model = try makeModel()
+        let (model, keychainCleanup) = try makeModel()
+        defer { keychainCleanup() }
         await model.load()
         #expect(model.botPreferenceSyncZoneID == nil)
     }
 
     @Test("flag off: never resolves a zone, even with a domain and token")
     func flagOffNeverResolves() async throws {
-        let model = try makeModel(flagEnabled: false)
+        let (model, keychainCleanup) = try makeModel(flagEnabled: false)
+        defer { keychainCleanup() }
         await model.load()
         await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == nil)
@@ -77,7 +81,8 @@ struct PlistEditorModelBotPreferenceSyncTests {
 
     @Test("flag on, zone resolves, pristine usage: preselects cloudflare without marking the tab dirty")
     func pristineUsagePreselectsCloudflare() async throws {
-        let model = try makeModel()
+        let (model, keychainCleanup) = try makeModel()
+        defer { keychainCleanup() }
         await model.load()
         await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == "z1")
@@ -87,7 +92,8 @@ struct PlistEditorModelBotPreferenceSyncTests {
 
     @Test("flag on, zone resolves, an expressed preference: never overridden")
     func expressedPreferenceIsUnchanged() async throws {
-        let model = try makeModel(licensingJSON: #"{"usage":{"blockAICrawlers":false,"aiTrain":"no"}}"#)
+        let (model, keychainCleanup) = try makeModel(licensingJSON: #"{"usage":{"blockAICrawlers":false,"aiTrain":"no"}}"#)
+        defer { keychainCleanup() }
         await model.load()
         await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == "z1")
@@ -102,7 +108,8 @@ struct PlistEditorModelBotPreferenceSyncTests {
     /// to the default `.anglesite` value — is what must stop the preselect.
     @Test("flag on, zone resolves, explicit anglesite choice with otherwise-default usage: never overridden")
     func explicitAnglesiteChoiceIsUnchanged() async throws {
-        let model = try makeModel(licensingJSON: #"{"usage":{"botBlocklistManagedBy":"anglesite"}}"#)
+        let (model, keychainCleanup) = try makeModel(licensingJSON: #"{"usage":{"botBlocklistManagedBy":"anglesite"}}"#)
+        defer { keychainCleanup() }
         await model.load()
         await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == "z1")
@@ -112,7 +119,8 @@ struct PlistEditorModelBotPreferenceSyncTests {
 
     @Test("flag on, no zone resolves: stays anglesite-managed and hides the option")
     func noZoneResolved() async throws {
-        let model = try makeModel(zoneID: nil)
+        let (model, keychainCleanup) = try makeModel(zoneID: nil)
+        defer { keychainCleanup() }
         await model.load()
         await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == nil)
@@ -121,7 +129,8 @@ struct PlistEditorModelBotPreferenceSyncTests {
 
     @Test("resolveBotPreferenceSyncZoneIfNeeded() is safe to call repeatedly — only resolves once")
     func repeatedCallsResolveOnce() async throws {
-        let model = try makeModel()
+        let (model, keychainCleanup) = try makeModel()
+        defer { keychainCleanup() }
         await model.load()
         await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == "z1")
@@ -146,9 +155,10 @@ struct PlistEditorModelBotPreferenceSyncTests {
     /// (zone-independent) is provably correct by inspection.
     @Test("flag on, persisted cloudflare mode, zone no longer resolves: mode is preserved, not silently reverted")
     func persistedCloudflareModeSurvivesUnresolvedZone() async throws {
-        let model = try makeModel(
+        let (model, keychainCleanup) = try makeModel(
             licensingJSON: #"{"usage":{"botBlocklistManagedBy":"cloudflare","blockAICrawlers":true,"aiInput":"no","aiTrain":"no"}}"#,
             zoneID: nil)
+        defer { keychainCleanup() }
         await model.load()
         await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == nil)
@@ -157,7 +167,8 @@ struct PlistEditorModelBotPreferenceSyncTests {
 
     @Test("flag on, no domain configured: never attempts resolution")
     func noDomainConfigured() async throws {
-        let model = try makeModel(domain: nil)
+        let (model, keychainCleanup) = try makeModel(domain: nil)
+        defer { keychainCleanup() }
         await model.load()
         await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == nil)
@@ -165,7 +176,8 @@ struct PlistEditorModelBotPreferenceSyncTests {
 
     @Test("flag on, no Cloudflare token: never attempts resolution")
     func noToken() async throws {
-        let model = try makeModel(token: nil)
+        let (model, keychainCleanup) = try makeModel(token: nil)
+        defer { keychainCleanup() }
         await model.load()
         await model.resolveBotPreferenceSyncZoneIfNeeded()
         #expect(model.botPreferenceSyncZoneID == nil)

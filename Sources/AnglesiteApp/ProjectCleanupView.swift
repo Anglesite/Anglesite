@@ -36,9 +36,12 @@ struct ProjectCleanupView: View {
                 titleVisibility: .visible,
                 presenting: candidateToDelete
             ) { candidate in
+                // Return-key default (#1736) — see the revert alert in `SiteWindow` for why the
+                // default sits on the action rather than on Cancel.
                 Button("Delete", role: .destructive) {
                     Task { await onDelete(candidate) }
                 }
+                .keyboardShortcut(.defaultAction)
                 Button("Cancel", role: .cancel) {}
             } message: { candidate in
                 Text(candidate.kind == .page

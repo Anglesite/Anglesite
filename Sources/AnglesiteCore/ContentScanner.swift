@@ -134,7 +134,9 @@ public enum ContentScanner {
                     slug: slug,
                     title: title,
                     draft: fm["draft"] == .bool(true),
-                    publishDate: parseDate(stringField(fm, "publishDate") ?? stringField(fm, "date")),
+                    // `pubDate` is the template `blog` collection's key (#1716); the rest use `publishDate`.
+                    publishDate: parseDate(
+                        stringField(fm, "publishDate") ?? stringField(fm, "pubDate") ?? stringField(fm, "date")),
                     tags: tags,
                     filePath: relPosix,
                     lastModified: mtime(abs)
