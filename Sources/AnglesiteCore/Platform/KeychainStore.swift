@@ -2,6 +2,7 @@
 // platforms without the Security framework.
 #if canImport(Security)
 import Foundation
+import LocalAuthentication
 import Security
 
 /// Stores secrets in the user's login keychain via `SecItem` (generic-password class).
@@ -123,6 +124,36 @@ public struct KeychainStore: SecretStore {
             guard let string = String(data: data, encoding: .utf8) else { throw Error.invalidUTF8 }
             return string
         case errSecItemNotFound:
+            return nil
+        default:
+            throw Error.unhandled(status)
+        }
+    }
+
+    /// Same as ``read(account:)``, except a query that would need to show a system authorization
+    /// prompt — e.g. the "$App wants to use your confidential information…" dialog macOS shows
+    /// when the item's per-app ACL no longer trusts the caller's code signature, which happens on
+    /// every rebuild of an ad-hoc-signed Debug build (#1705) — fails immediately with `nil` instead
+    /// of blocking this thread until a human answers a prompt they may never see (there is no
+    /// indication anywhere in the app's UI that one is pending). `LAContext.interactionNotAllowed`
+    /// makes `SecItemCopyMatching` itself refuse to display that UI, surfacing
+    /// `errSecInteractionNotAllowed` synchronously rather than blocking on it.
+    public func readNonInteractive(account: String) throws -> String? {
+        var query = baseQuery(account: account)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
+        let context = LAContext()
+        context.interactionNotAllowed = true
+        query[kSecUseAuthenticationContext as String] = context
+
+        var item: CFTypeRef?
+        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        switch status {
+        case errSecSuccess:
+            guard let data = item as? Data else { return nil }
+            guard let string = String(data: data, encoding: .utf8) else { throw Error.invalidUTF8 }
+            return string
+        case errSecItemNotFound, errSecInteractionNotAllowed:
             return nil
         default:
             throw Error.unhandled(status)

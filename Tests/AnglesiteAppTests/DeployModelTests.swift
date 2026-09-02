@@ -525,6 +525,60 @@ struct DeployModelTests {
         }
     }
 
+    /// Stands in for a keychain entry that exists but can't be read without showing a system
+    /// authorization prompt (#1705's actual failure mode: an ad-hoc rebuild invalidates the
+    /// item's per-app ACL trust, and the read blocks on a SecurityAgent dialog nothing in the UI
+    /// shows is pending). `read` — the foreground/interactive path — succeeds normally; only
+    /// `readNonInteractive` — the invisible-publish background path — reports "unavailable",
+    /// mirroring `KeychainStore.readNonInteractive`'s `errSecInteractionNotAllowed` handling.
+    private final class WouldPromptSecretStore: SecretStore, @unchecked Sendable {
+        private var storage: [String: String] = [:]
+        func read(account: String) throws -> String? { storage[account] }
+        func readNonInteractive(account: String) throws -> String? { nil }
+        func write(_ value: String, account: String) throws {
+            if value.isEmpty { storage.removeValue(forKey: account) } else { storage[account] = value }
+        }
+        func delete(account: String) throws { storage.removeValue(forKey: account) }
+    }
+
+    @Test("deployAutomatically defers instead of blocking when the keychain would need to prompt (#1705)")
+    func deployAutomaticallyDefersWhenKeychainWouldPrompt() async throws {
+        let executor = GatedDeployExecutor()
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
+        let keychain = WouldPromptSecretStore()
+        try keychain.write("cf-token-xyz", account: SecretAccounts.cloudflareToken)
+        let model = DeployModel(command: command, logCenter: LogCenter(), keychain: keychain)
+        let directory = try temporaryDirectory()
+
+        // The foreground path reads the same store interactively and finds the token fine — this
+        // proves the deferral below comes from the interactive/non-interactive split, not from an
+        // empty store. `resumeBuild()` must wait until the `.build` step has actually parked
+        // (`waitUntilBuildIsParked()`) — calling it any earlier is a no-op (#1705 postmortem: an
+        // earlier draft of this test called it up front, which is harmless in the sibling
+        // worker-name-conflict test above only because that one short-circuits before `.build`
+        // ever runs; here it left `.build` permanently parked and the `isRunning` spin-wait below
+        // busy-looped for hours instead of failing).
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        await executor.waitUntilBuildIsParked()
+        await executor.resumeBuild()
+        while model.isRunning { await Task.yield() }
+        guard case .succeeded = model.phase else {
+            Issue.record("expected the foreground (interactive) deploy to succeed, got \(model.phase)")
+            return
+        }
+
+        let fakeControl = RecordingLocalContainerControl()
+        let result = await model.deployAutomatically(
+            siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [],
+            containerControlProvider: { (siteID: "s", control: fakeControl) }
+        )
+
+        guard case .deferred = result else {
+            Issue.record("expected the automatic deploy to defer rather than treat a would-prompt read as a token, got \(result)")
+            return
+        }
+    }
+
     @Test("An invalid rename target surfaces a plain-language error instead of the raw error enum")
     func renameWithInvalidNameSurfacesPlainLanguageError() async {
         let executor = GatedDeployExecutor()

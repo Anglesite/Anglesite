@@ -346,7 +346,9 @@ final class DeployModel {
     ) async -> InvisiblePublishQueue.Result {
         guard !isRunning else { return .deferred(reason: "another site operation is running") }
         guard !awaitingUserAction else { return .deferred(reason: "a deploy prompt is waiting for a response") }
-        guard hasUsableToken() else { return .deferred(reason: "Cloudflare credentials are not configured") }
+        guard hasUsableToken(interactive: false) else {
+            return .deferred(reason: "Cloudflare credentials are not configured")
+        }
         guard hasChosenLicense(siteDirectory: siteDirectory) else {
             return .deferred(reason: "a content license hasn't been chosen yet")
         }
@@ -678,21 +680,34 @@ final class DeployModel {
     /// with a generic "no token" error. An expired credential that still has a refresh token is
     /// left to `CloudflareDeployTarget.keychainTokenSource` to actually refresh (this is a presence check
     /// only — no refresh attempted here, since it's synchronous).
-    private func hasUsableToken() -> Bool {
+    ///
+    /// - Parameter interactive: `false` for the invisible-publish background path (#1705), which
+    ///   reads the keychain non-interactively so a would-prompt read (e.g. after an ad-hoc rebuild
+    ///   invalidates the item's per-app ACL trust) reports "no token" and defers the publish
+    ///   instead of blocking the main actor on a prompt nothing in the UI shows is pending. The two
+    ///   foreground call sites (`deploy()`'s preflight checks) keep the default `true`: a prompt
+    ///   there is expected and answerable, since the user just clicked Deploy.
+    private func hasUsableToken(interactive: Bool = true) -> Bool {
         if let tokenAvailabilityOverride {
             return tokenAvailabilityOverride()
         }
         if let env = ProcessInfo.processInfo.environment["CLOUDFLARE_API_TOKEN"], !env.isEmpty {
             return true
         }
-        if let credential = try? keychain.readCloudflareOAuthCredential() {
+        let credential = interactive
+            ? try? keychain.readCloudflareOAuthCredential()
+            : try? keychain.readCloudflareOAuthCredentialNonInteractive()
+        if let credential = credential ?? nil {
             let isDefinitelyUnrefreshable = credential.refreshToken == nil
                 && (credential.expiresAt.map { $0 <= Date() } ?? false)
             if !isDefinitelyUnrefreshable {
                 return true
             }
         }
-        if let stored = (try? keychain.readCloudflareToken()) ?? nil, !stored.isEmpty {
+        let stored = interactive
+            ? (try? keychain.readCloudflareToken()) ?? nil
+            : (try? keychain.readCloudflareTokenNonInteractive()) ?? nil
+        if let stored, !stored.isEmpty {
             return true
         }
         return false
