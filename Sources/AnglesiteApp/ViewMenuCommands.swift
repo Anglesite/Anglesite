@@ -50,8 +50,9 @@ struct ViewMenuCommands: Commands {
             // convention (menu-bar spec §3). The shortcut lives here, not on the
             // toolbar chat button — a shortcut on a toolbar item is invisible in
             // the menu bar (the discoverability gap #512 exists to close).
+            // Showing also focuses the prompt input (#1640) — see `SiteWindowModel.showChat()`.
             Button(model?.chatPresented == true ? "Hide Chat" : "Show Chat") {
-                model?.chatPresented.toggle()
+                model?.toggleChat()
             }
             .keyboardShortcut("k", modifiers: [.command, .control])
             .disabled(model == nil)
