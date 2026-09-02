@@ -141,6 +141,29 @@ struct DeployCoordinatorTests {
         #expect(name == SiteSlug.derive(from: "site-1"))
     }
 
+    @Test("a stock UUID siteID falls back to the shared WorkerSiteName derivation, not the raw id (#1750)")
+    func resolveWorkerSiteNameDerivesUUIDSiteID() throws {
+        let dir = try temporaryDirectory()
+        let siteID = "F0EF6A17-9948-4157-98CE-A6D8234BA0AF"
+
+        let name = DeployCoordinator.resolveWorkerSiteName(siteDirectory: dir, siteID: siteID, siteName: nil)
+
+        #expect(name == WorkerSiteName.derive(from: siteID))
+        #expect(name == "f0ef6a17-9948-4157-98ce-a6d8234ba0af")
+        #expect(WorkerSiteName.isValidWorkerName(name))
+    }
+
+    @Test("an over-long display name is derived through the shared length budget")
+    func resolveWorkerSiteNameCapsLength() throws {
+        let dir = try temporaryDirectory()
+        let longName = String(repeating: "Very Long Site Name ", count: 10)
+
+        let name = DeployCoordinator.resolveWorkerSiteName(siteDirectory: dir, siteID: "site-1", siteName: longName)
+
+        #expect(name == WorkerSiteName.derive(from: longName))
+        #expect(name.count <= WorkerSiteName.maxLength)
+    }
+
     // MARK: - resolveIsHostedCommunity (#907)
 
     @Test("resolveIsHostedCommunity reads SITE_TYPE=community from .site-config")

@@ -51,6 +51,9 @@ struct SitesLauncherView: View {
     @State private var siteToRename: SiteStore.Site?
     /// Bound to the rename alert's text field; seeded with the current name when the prompt opens.
     @State private var renameText = ""
+    /// The site whose primary action (double-click / Return) was refused because its project
+    /// files are missing, or nil when no explanation is up. Drives the "Can't Open Site" `.alert`.
+    @State private var unopenableSite: SiteStore.Site?
     private struct NewSiteSession: Identifiable {
         let id = UUID()
         let model: NewSiteWizardModel
@@ -71,6 +74,12 @@ struct SitesLauncherView: View {
     @State private var preparingNewCommunity = false
     @State private var sitesRootScopedURL: URL?
     @State private var router = WindowRouter.shared
+    /// The selected row's site id (#1641). Rows used to be `Button`s in a selection-less `List`,
+    /// which left the list's `AXRow`s unselectable and without an `AXShowMenu` action — the only
+    /// menu hook was on the inner button, and performing it there failed and dropped focus, so
+    /// Full Keyboard Access (⌃Return / the Menu key) and VoiceOver could never reach a row's
+    /// context menu. Native `List(selection:)` rows are what those paths target.
+    @State private var selectedSiteID: SiteStore.Site.ID?
 
     @Environment(\.openWindow) private var openWindow
     @Environment(\.dismissWindow) private var dismissWindow
@@ -214,64 +223,30 @@ struct SitesLauncherView: View {
     }
 
     private var siteList: some View {
-        List(sites) { site in
-            Button {
-                open(site: site)
-            } label: {
-                HStack(spacing: 10) {
-                    Image(systemName: site.isValid
-                          ? "checkmark.circle.fill"
-                          : "exclamationmark.triangle.fill")
-                        .foregroundStyle(site.isValid ? Color.green : Color.orange)
-                        .accessibilityHidden(true)
-                    VStack(alignment: .leading, spacing: 2) {
-                        Text(site.name).font(.body.monospaced())
-                        Text(site.packageURL.path)
-                            .font(.caption2)
-                            .foregroundStyle(.secondary)
-                            .lineLimit(1)
-                            .truncationMode(.middle)
-                    }
-                    Spacer()
-                }
-                .contentShape(Rectangle())
-                .padding(.vertical, 2)
-            }
-            .buttonStyle(.plain)
-            // A dead bookmark (needsReauthorization) still lets the row respond to a click — it
-            // routes to the same "Locate…" recovery as the context-menu action — rather than
-            // going fully dead with no way to fix it in place (#776).
-            .disabled(!site.isValid && !site.needsReauthorization)
-            // Draggable out to Finder/Terminal/another app (#676) — offers the package URL
-            // regardless of validity (a dead bookmark is still a real path on disk), and must
-            // come AFTER .disabled(...) above so the drag isn't scoped inside that disabled
-            // subtree — otherwise a row with missing files couldn't be dragged out at all,
-            // contradicting this comment.
-            .draggable(site.packageURL)
-            .accessibilityValue(site.isValid
-                                 ? "Valid"
-                                 : (site.needsReauthorization ? "Needs re-authorization" : "Missing required files"))
-            .help(helpText(for: site))
-            .contextMenu {
-                if site.needsReauthorization {
-                    Button("Locate…", systemImage: "questionmark.folder") {
-                        Task { await reauthorize(site) }
-                    }
-                }
-                Button("Rename…", systemImage: "pencil") {
-                    promptRename(site)
-                }
-                Button("Remove from Anglesite…", systemImage: "minus.circle", role: .destructive) {
-                    promptRemove(site)
-                }
-            }
-            .swipeActions(edge: .trailing) {
-                Button("Remove", systemImage: "minus.circle", role: .destructive) {
-                    promptRemove(site)
-                }
-            }
+        List(sites, selection: $selectedSiteID) { site in
+            siteRow(site)
         }
         .listStyle(.inset)
+        .accessibilityIdentifier(AXID.launcherList)
+        // The row menu lives on the list, keyed by selection (#1641), rather than as a
+        // `.contextMenu` on each row's content: this is the form AppKit's table rows expose as
+        // the row-level `AXShowMenu` action, which is what Full Keyboard Access (⌃Return / the
+        // Menu key) and VoiceOver (VO-Shift-M) invoke on the focused row. SwiftUI hands the
+        // closure the right-clicked row's id when the click lands outside the selection, so a
+        // mouse right-click still acts on the clicked row, not the selection (#680). Double-click
+        // and Return are the primary action (open): `List` invokes `primaryAction` for Return
+        // itself whenever it has keyboard focus (verified on macOS 27.0 with an in-process key-event
+        // probe, PR #1726 review), so there is deliberately no window-wide Return shortcut here —
+        // one would fire alongside the list's own handling and double-present the Locate panel.
+        .contextMenu(forSelectionType: SiteStore.Site.ID.self) { ids in
+            if let site = site(for: ids) {
+                rowMenu(for: site)
+            }
+        } primaryAction: { ids in
+            if let site = site(for: ids) {
+                open(site: site)
+            }
+        }
         // Accept `.anglesite` packages dragged from Finder (#524) — same register path as
         // Finder double-click (`onOpenURL`), including the MAS bookmark mint (a user drag
         // conveys sandbox access to the dragged item).
@@ -308,6 +283,26 @@ struct SitesLauncherView: View {
                     .allowsHitTesting(false)
             }
         }
+        // The primary action on a row with missing project files explains itself instead of
+        // silently doing nothing (#1726 review): name the missing files and offer the package in
+        // Finder. Removal stays on the row menu — this alert only says why it can't open.
+        .alert(
+            "Can't Open Site",
+            isPresented: Binding(
+                get: { unopenableSite != nil },
+                set: { if !$0 { unopenableSite = nil } }
+            ),
+            presenting: unopenableSite
+        ) { site in
+            if FileManager.default.fileExists(atPath: site.packageURL.path) {
+                Button("Reveal in Finder") {
+                    NSWorkspace.shared.activateFileViewerSelecting([site.packageURL])
+                }
+            }
+            Button("OK", role: .cancel) {}
+        } message: { site in
+            Text("“\(site.name)” is missing required files: \(site.missingSentinels.joined(separator: ", ")). Restore them to open the site, or remove it from Anglesite with its row menu.")
+        }
         .confirmationDialog(
             "Remove “\(siteToRemoveName)” from Anglesite?",
             isPresented: Binding(
@@ -340,6 +335,67 @@ struct SitesLauncherView: View {
         } message: {
             Text("Sets a display name just for Anglesite. Leave blank to use the site's built-in name.")
         }
+    }
+
+    private func siteRow(_ site: SiteStore.Site) -> some View {
+        HStack(spacing: 10) {
+            Image(systemName: site.isValid
+                  ? "checkmark.circle.fill"
+                  : "exclamationmark.triangle.fill")
+                .foregroundStyle(site.isValid ? Color.green : Color.orange)
+                .accessibilityHidden(true)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(site.name).font(.body.monospaced())
+                Text(site.packageURL.path)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
+                    .truncationMode(.middle)
+            }
+            Spacer()
+        }
+        .padding(.vertical, 2)
+        // A site with missing project files can't be opened, but its row stays selectable so the
+        // context menu (Remove from Anglesite…) is reachable by keyboard — dim it rather than
+        // `.disabled(...)`, which would also strip the row out of the keyboard/AT path.
+        .opacity(site.isValid || site.needsReauthorization ? 1 : 0.5)
+        // Draggable out to Finder/Terminal/another app (#676) — offers the package URL
+        // regardless of validity (a dead bookmark is still a real path on disk).
+        .draggable(site.packageURL)
+        // One AX element per row (name + path as the label), matching what the old button read
+        // out, with the validity as its value.
+        .accessibilityElement(children: .combine)
+        .accessibilityValue(accessibilityValue(for: site))
+        .help(helpText(for: site))
+        .swipeActions(edge: .trailing) {
+            Button("Remove", systemImage: "minus.circle", role: .destructive) {
+                promptRemove(site)
+            }
+        }
+    }
+
+    /// The row context menu (#1641) — see `siteList` for why it's attached via
+    /// `contextMenu(forSelectionType:)` rather than per row.
+    @ViewBuilder
+    private func rowMenu(for site: SiteStore.Site) -> some View {
+        if site.needsReauthorization {
+            Button("Locate…", systemImage: "questionmark.folder") {
+                Task { await reauthorize(site) }
+            }
+        }
+        Button("Rename…", systemImage: "pencil") {
+            promptRename(site)
+        }
+        Button("Remove from Anglesite…", systemImage: "minus.circle", role: .destructive) {
+            promptRemove(site)
+        }
+    }
+
+    /// The single site a selection-keyed menu/primary action refers to. The list is
+    /// single-select, so `ids` holds at most one id; empty means the click landed on no row.
+    private func site(for ids: Set<SiteStore.Site.ID>) -> SiteStore.Site? {
+        guard let id = ids.first else { return nil }
+        return sites.first { $0.id == id }
     }
 
     private var emptyState: some View {
@@ -393,21 +449,38 @@ struct SitesLauncherView: View {
     /// reporting it as such sends owners chasing a fix that doesn't exist (#776).
     private func helpText(for site: SiteStore.Site) -> String {
         if site.isValid {
-            return "Open \(site.name) in its own window"
+            return String(localized: "Double-click to open \(site.name) in its own window")
         }
         if site.needsReauthorization {
-            return "Anglesite lost access to this site, likely after a restart. Click to relocate it and restore access."
+            return String(localized: "Anglesite lost access to this site, likely after a restart. Double-click to relocate it and restore access.")
         }
-        return "Site is missing required files: \(site.missingSentinels.joined(separator: ", "))"
+        return String(localized: "Site is missing required files: \(site.missingSentinels.joined(separator: ", "))")
     }
 
-    private func open(site: SiteStore.Site) {
-        guard site.isValid else {
-            Task { await reauthorize(site) }
-            return
+    /// The row's VoiceOver value: the site's validity, mirroring `helpText(for:)`'s three states.
+    private func accessibilityValue(for site: SiteStore.Site) -> String {
+        if site.isValid {
+            return String(localized: "Valid")
         }
-        openWindow(value: site.id)
-        dismissWindow()
+        if site.needsReauthorization {
+            return String(localized: "Needs re-authorization")
+        }
+        return String(localized: "Missing required files")
+    }
+
+    /// The row's primary action (double-click / Return). A dead bookmark routes to the same
+    /// "Locate…" recovery as the context-menu action (#776); a site with missing project files
+    /// has nothing to open, so the action explains why (`unopenableSite`) rather than silently
+    /// ignoring the double-click — the row menu is where removal lives.
+    private func open(site: SiteStore.Site) {
+        if site.isValid {
+            openWindow(value: site.id)
+            dismissWindow()
+        } else if site.needsReauthorization {
+            Task { await reauthorize(site) }
+        } else {
+            unopenableSite = site
+        }
     }
 
     /// Re-grant access to `site` (#776) via `SiteActions.reauthorize` — an `NSOpenPanel` anchored

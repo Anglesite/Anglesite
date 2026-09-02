@@ -60,6 +60,7 @@ struct TypedEntryForm: View {
             VStack(alignment: .leading) {
                 Text(label).font(.caption).foregroundStyle(.secondary)
                 TextField("", text: model.textBinding(field.name), axis: .vertical).lineLimit(2...6)
+                    .accessibilityLabel(label)
             }
         case .bool:
             Toggle(label, isOn: model.boolBinding(field.name))
@@ -107,13 +108,20 @@ private struct StringListEditor: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Text(title).font(.caption).foregroundStyle(.secondary)
-            ForEach($rows) { $row in
+            // Enumerated so each row's accessibility label carries its position ("Tags, item 2 of
+            // 5"): every row shares the same visible caption, and a bare `title` would leave
+            // VoiceOver announcing five identical "Tags" fields. Identity stays the row UUID, not
+            // the offset, so deleting a row still never re-binds a survivor's editor.
+            ForEach(Array($rows.enumerated()), id: \.element.id) { index, $row in
+                let rowLabel = String(localized: "\(title), item \(index + 1) of \(rows.count)")
                 HStack {
                     TextField("", text: $row.value)
+                        .accessibilityLabel(rowLabel)
                     Button(role: .destructive) { rows.removeAll { $0.id == row.id } } label: {
                         Image(systemName: "minus.circle")
                     }
                     .buttonStyle(.borderless)
+                    .accessibilityLabel(String(localized: "Remove \(rowLabel)"))
                 }
             }
             HStack {

@@ -578,6 +578,14 @@ jobs:
         if: failure() && steps.swift-test.outcome == 'failure'
         run: scripts/annotate-swift-log.sh "$RUNNER_TEMP/swift-test.log" "build-test ▸ Test"
 
+      # #1727 belt-and-suspenders: every test UserDefaults suite goes through
+      # TemporaryUserDefaults, whose cleanup() must leave nothing behind once the test
+      # processes have exited. Checked from a separate process on purpose — the in-suite
+      # assertions cannot observe what cfprefsd does at process exit, which is the mechanism
+      # that produced the original ~/Library/Preferences leak.
+      - name: Check no test UserDefaults suites leaked
+        run: scripts/check-test-userdefaults-leak.sh
+
       - name: Build (release)
         run: swift build -c release
 

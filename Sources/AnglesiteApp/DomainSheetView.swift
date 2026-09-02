@@ -116,7 +116,11 @@ struct DomainSheetView: View {
             Text("Enter the domain to manage").font(.headline)
             Text("The domain must be managed in Cloudflare. Your API token needs Zone DNS Read and Edit permissions.")
                 .font(.callout).foregroundStyle(.secondary).multilineTextAlignment(.center).frame(maxWidth: 400)
-            TextField("example.com", text: $model.domainInput)
+            // Outside a Form, a hidden label never reaches the AX tree (verified by attribute
+            // dump, #1734) — the explicit label is what VoiceOver announces.
+            TextField("Domain", text: $model.domainInput, prompt: Text("example.com"))
+                .labelsHidden()
+                .accessibilityLabel("Domain")
                 .textFieldStyle(.roundedBorder).frame(maxWidth: 300)
                 .onSubmit { model.resolveAndLoad() }
             Spacer()

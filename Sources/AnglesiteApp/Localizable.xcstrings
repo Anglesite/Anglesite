@@ -108,6 +108,16 @@
         }
       }
     },
+    "%@, item %lld of %lld" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "%1$@, item %2$lld of %3$lld"
+          }
+        }
+      }
+    },
     "%@, version %@, %@" : {
       "localizations" : {
         "en" : {
@@ -560,6 +570,9 @@
     "Anglesite already supports this — redeploy the site to pick it up." : {
 
     },
+    "Anglesite lost access to this site, likely after a restart. Double-click to relocate it and restore access." : {
+
+    },
     "Anglesite lost access to “%@”, likely after a restart. Locate it again to restore access." : {
 
     },
@@ -890,6 +903,9 @@
 
     },
     "Can't Open Component" : {
+
+    },
+    "Can't Open Site" : {
 
     },
     "Can't open %@" : {
@@ -1602,6 +1618,9 @@
 
     },
     "Done" : {
+
+    },
+    "Double-click to open %@ in its own window" : {
 
     },
     "Drafts platform-sized posts for this article. Anglesite never posts for you — copy each one out, then record the published URLs below." : {
@@ -2380,6 +2399,9 @@
 
     },
     "Move To…" : {
+
+    },
+    "My New Webpage" : {
 
     },
     "My Website" : {
@@ -3166,6 +3188,9 @@
 
     },
     "Remove" : {
+
+    },
+    "Remove %@" : {
 
     },
     "Remove Highlights and Comments" : {
@@ -4580,6 +4605,16 @@
           "stringUnit" : {
             "state" : "new",
             "value" : "“%1$@” is already connected to another site (%2$@). This deploy succeeded at its workers.dev address, but won't use %3$@ until that's resolved in your Cloudflare dashboard."
+          }
+        }
+      }
+    },
+    "“%@” is missing required files: %@. Restore them to open the site, or remove it from Anglesite with its row menu." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "“%1$@” is missing required files: %2$@. Restore them to open the site, or remove it from Anglesite with its row menu."
           }
         }
       }

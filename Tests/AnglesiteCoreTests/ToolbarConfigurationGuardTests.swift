@@ -1,19 +1,14 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 /// `final class` so `deinit` drops the throwaway suite (mirrors AppSettingsTests/StartupTimingStoreTests).
 final class ToolbarConfigurationGuardTests {
-    private let suiteName: String
-    private let defaults: UserDefaults
+    private let scratch = TemporaryUserDefaults(label: "toolbar-guard")
+    private var defaults: UserDefaults { scratch.defaults }
 
-    init() {
-        let suite = "test-anglesite-toolbar-guard-\(UUID().uuidString)"
-        suiteName = suite
-        defaults = UserDefaults(suiteName: suite)!
-    }
-
-    deinit { defaults.removePersistentDomain(forName: suiteName) }
+    deinit { scratch.cleanup() }
 
     @Test("First-ever launch (no recorded OS build) does not purge")
     func firstLaunchDoesNotPurge() {

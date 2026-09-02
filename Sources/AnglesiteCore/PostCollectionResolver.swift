@@ -49,16 +49,27 @@ public enum PostCollectionResolver {
     /// Resolves against `siteDirectory` (`Source/`): the declared collections and readable schemas
     /// in its `content.config.ts` plus which candidate directories exist under `src/content/`.
     public static func resolve(siteDirectory: URL) -> Resolution {
-        let declared = FrontmatterSchemaReader.declaredCollectionNames(siteDirectory: siteDirectory)
-        let readable = FrontmatterSchemaReader.read(siteDirectory: siteDirectory)
-        let contentDir = siteDirectory.appendingPathComponent("src/content", isDirectory: true)
-        let existing = candidates.filter { name in
-            var isDir: ObjCBool = false
-            return FileManager.default.fileExists(
-                atPath: contentDir.appendingPathComponent(name, isDirectory: true).path, isDirectory: &isDir)
-                && isDir.boolValue
-        }
-        return resolve(declared: declared, readableSchemas: readable, existingDirectories: existing)
+        resolve(
+            declared: FrontmatterSchemaReader.declaredCollectionNames(siteDirectory: siteDirectory),
+            readableSchemas: FrontmatterSchemaReader.read(siteDirectory: siteDirectory),
+            existingDirectories: existingCandidateDirectories(siteDirectory: siteDirectory))
+    }
+
+    /// Every blog-like collection the site has — the set-valued sibling of
+    /// ``resolve(siteDirectory:)`` for classifiers that need to recognize *all* of a site's post
+    /// collections rather than pick one to write into (``SiteKnowledgeIndex``, #1725). Same
+    /// facts, same fallbacks: the declared ``candidates`` when the config declares anything, else
+    /// the candidate directories that exist plus ``legacyDefault``. The collection `resolve`
+    /// names — the `name` of ``PostCollectionResolver/Resolution/collection(name:declaredFields:)``
+    /// or of ``PostCollectionResolver/Resolution/unreadableSchema(name:)`` — is always a member:
+    /// recognizing an entry as post-like needs no readable schema, only a declared collection, so
+    /// the template's imported-schema `articles` still indexes as a post even though New Post…
+    /// refuses to write there. The set is empty exactly when `resolve` returns
+    /// ``PostCollectionResolver/Resolution/noBlogCollection``.
+    public static func postCollections(siteDirectory: URL) -> Set<String> {
+        postCollections(
+            declared: FrontmatterSchemaReader.declaredCollectionNames(siteDirectory: siteDirectory),
+            existingDirectories: existingCandidateDirectories(siteDirectory: siteDirectory))
     }
 
     /// Pure resolution over already-gathered facts — see the type doc for the order. Split out
@@ -76,5 +87,25 @@ public enum PostCollectionResolver {
         }
         let name = candidates.first { existingDirectories.contains($0) } ?? legacyDefault
         return .collection(name: name, declaredFields: nil)
+    }
+
+    /// Pure counterpart of ``postCollections(siteDirectory:)``.
+    static func postCollections(declared: [String], existingDirectories: [String]) -> Set<String> {
+        if !declared.isEmpty {
+            return Set(candidates.filter { declared.contains($0) })
+        }
+        return Set(candidates.filter { existingDirectories.contains($0) }).union([legacyDefault])
+    }
+
+    /// Which of ``candidates`` exist as directories under `src/content/` — the no-config fallback
+    /// signal shared by both resolvers.
+    private static func existingCandidateDirectories(siteDirectory: URL) -> [String] {
+        let contentDir = siteDirectory.appendingPathComponent("src/content", isDirectory: true)
+        return candidates.filter { name in
+            var isDir: ObjCBool = false
+            return FileManager.default.fileExists(
+                atPath: contentDir.appendingPathComponent(name, isDirectory: true).path, isDirectory: &isDir)
+                && isDir.boolValue
+        }
     }
 }

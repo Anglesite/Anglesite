@@ -549,7 +549,7 @@ final class DeployModel {
         } catch let error as WorkerNameRename.RenameError {
             switch error {
             case .invalidName:
-                workerNameConflictError = "Worker names can only contain letters, numbers, hyphens, and underscores."
+                workerNameConflictError = "Worker names can only contain lowercase letters, numbers, hyphens, and underscores."
             case .wranglerConfigMissing:
                 workerNameConflictError = "Couldn't find this site's wrangler.toml — try deploying again."
             case .nameLineNotFound:

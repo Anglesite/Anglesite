@@ -31,6 +31,13 @@ struct SiteNavigatorView: View {
     /// selected instead of the actually-focused view. `previewHasKeyboardFocus` above only covers
     /// the preview/canvas (#1423, #1715); this is the general, list-focus case. Xcode/Finder
     /// semantics: Return/⌘⌫ (or Delete) act on a list only while that list has focus.
+    ///
+    /// Also the target of the general takeover-dismissal focus restore (#1748): `SiteWindow`
+    /// bumps `model.focusRequestToken` whenever `mainPaneMode` leaves a takeover (Site Graph,
+    /// Cleanup, a file editor, …) for something else, and the `.onChange` below claims this same
+    /// focus flag in response — reusing this gate rather than adding a second, parallel one, since
+    /// both are really the same underlying need: something in the window must hold real AppKit
+    /// keyboard focus, and the navigator is the reliable fallback.
     @FocusState private var listHasKeyboardFocus: Bool
 
     var body: some View {
@@ -42,6 +49,7 @@ struct SiteNavigatorView: View {
         .listStyle(.sidebar)
         .accessibilityIdentifier(AXID.navigatorList)
         .focused($listHasKeyboardFocus)
+        .onChange(of: model.focusRequestToken) { _, _ in listHasKeyboardFocus = true }
         // A click on a row must also give the list keyboard focus (Finder semantics) so the
         // ordinary click-then-Return-rename and click-then-⌘⌫-delete gestures both satisfy the
         // gate below. Verified on-device: once SwiftUI's focus goes nil (e.g. the focused Site
