@@ -751,6 +751,14 @@ jobs:
         if: failure() && steps.timing-sensitive-test.outcome == 'failure'
         run: scripts/annotate-swift-log.sh "$RUNNER_TEMP/swift-timing-sensitive-test.log" "Timing-sensitive suites (isolated lane) ▸ Run timing-sensitive suites in isolation"
 
+      # #1745: build-test isn't the only lane that runs swift test — a suite whose leak only
+      # shows up here (this lane runs a different, isolated target set) would otherwise go
+      # unchecked. Same belt-and-suspenders rationale as build-test's own step (#1727): checked
+      # from a separate process on purpose, since the in-suite assertions can't observe what
+      # cfprefsd does at process exit.
+      - name: Check no test UserDefaults suites leaked
+        run: scripts/check-test-userdefaults-leak.sh
+
   ios-build:
     name: iOS app target (AnglesiteMobile)
     # #864: no other lane ever actually compiles an iOS app target. xcodeproj-sync (macos-15)
@@ -888,6 +896,14 @@ jobs:
       - name: Surface Swift errors (annotations + job summary)
         if: failure() && steps.tsan.outcome == 'failure'
         run: scripts/annotate-swift-log.sh "$RUNNER_TEMP/swift-tsan.log" "Concurrency suites (ThreadSanitizer)"
+
+      # #1745: build-test isn't the only lane that runs swift test — a suite whose leak only
+      # shows up here (this lane runs a different, isolated target set under
+      # --sanitize=thread) would otherwise go unchecked. Same belt-and-suspenders rationale as
+      # build-test's own step (#1727): checked from a separate process on purpose, since the
+      # in-suite assertions can't observe what cfprefsd does at process exit.
+      - name: Check no test UserDefaults suites leaked
+        run: scripts/check-test-userdefaults-leak.sh
 
   docs-docc:
     name: DocC build (comment/doc-comment health check)
@@ -1028,6 +1044,22 @@ jobs:
       # local hook — absent in any clone that skipped setup-dev-env.sh, and already bypassed
       # more than once (#970). Enforce it here so the last byte stops flip-flopping.
       - run: scripts/check-xcstrings-newline.sh
+
+  test-userdefaults-suite-lint:
+    name: Tests lint (no direct UserDefaults(suiteName:) literals)
+    # Static grep over Tests/*.swift — no Xcode/xcodegen needed, so ubuntu-latest suffices.
+    # Catches the #1727 bypass at review time, before any test runs; the separate
+    # check-test-userdefaults-leak.sh step in build-test/timing-sensitive-tests/concurrency-tsan
+    # catches the leak itself, after the fact, from a process that already ran (#1745).
+    needs: changes
+    if: needs.changes.outputs.swift == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - run: scripts/check-test-userdefaults-suite-literal.sh
 
   appintents-schema:
     name: AppIntents schema conformance (metadata processor)
@@ -1170,6 +1202,7 @@ jobs:
       - docs-docc
       - xcodeproj-sync
       - localization-catalog
+      - test-userdefaults-suite-lint
       - appintents-schema
       - reuse-lint
     runs-on: ubuntu-latest
