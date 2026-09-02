@@ -54,6 +54,45 @@ struct SiteWindowModelChatFocusTests {
         #expect(model.chatPresented == true)
     }
 
+    // View ▸ Show Chat is enabled as soon as the window model exists, before `loadAndStart` has
+    // created `chat` — the request must survive until the model is assigned (review on #1720).
+    @Test("showChat before ChatModel exists requests focus once chat is assigned")
+    func showBeforeChatExistsRequestsFocusOnAssignment() {
+        let model = makeModel()
+        model.showChat()
+        #expect(model.chat == nil)
+        #expect(model.chatPresented == true)
+
+        let chat = makeChat()
+        #expect(chat.inputFocusRequested == false)
+        model.chat = chat
+        #expect(chat.inputFocusRequested == true)
+        // ChatView's appear-time `.task` consumes it exactly once when the pane first mounts.
+        #expect(chat.consumeInputFocusRequest() == true)
+        #expect(chat.consumeInputFocusRequest() == false)
+    }
+
+    @Test("hiding the pane again before ChatModel exists cancels the deferred focus request")
+    func hideBeforeChatExistsCancelsDeferredFocus() {
+        let model = makeModel()
+        model.toggleChat()
+        model.toggleChat()
+        #expect(model.chatPresented == false)
+
+        let chat = makeChat()
+        model.chat = chat
+        #expect(chat.inputFocusRequested == false)
+    }
+
+    @Test("assigning ChatModel with the pane never requested does not request focus")
+    func assignChatWithoutShowDoesNotRequestFocus() {
+        let model = makeModel()
+        let chat = makeChat()
+        model.chat = chat
+        #expect(model.chatPresented == false)
+        #expect(chat.inputFocusRequested == false)
+    }
+
     @Test("showing the pane requests input focus; hiding it does not")
     func showRequestsFocusHideDoesNot() {
         let model = makeModel()
