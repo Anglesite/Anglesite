@@ -18,6 +18,31 @@ enum MainPaneMode: Equatable {
     case communities    // Website ▸ Communities… (V-5.1a, #368)
     case moderation     // Website ▸ Moderation… (V-5.1b/V-5.3, #907/#370)
     case contacts       // Website ▸ Contacts… (#966)
+
+    /// True for every mode but `.preview` — the drill-in takeovers (#1748), each reached from the
+    /// canvas. `SiteWindow`'s `mainPaneMode` `.onChange` uses this to restore navigator keyboard
+    /// focus whenever one of these is dismissed, since none of the takeover views claim focus of
+    /// their own when they mount. `.editor`'s associated `FileRef` doesn't matter here: switching
+    /// files while still `.editor` isn't a takeover dismissal.
+    var isTakeover: Bool {
+        if case .preview = self { return false }
+        return true
+    }
+
+    /// Whether `self` and `other` are the same takeover (or both `.preview`), ignoring
+    /// `.editor`'s associated file — used to tell "left this takeover for a different one" apart
+    /// from "opened a different file while already in the editor" (#1748), which isn't a
+    /// dismissal and shouldn't steal focus back to the navigator.
+    func isSameKind(as other: MainPaneMode) -> Bool {
+        switch (self, other) {
+        case (.preview, .preview), (.graph, .graph), (.cleanup, .cleanup), (.reader, .reader),
+            (.followers, .followers), (.communities, .communities), (.moderation, .moderation),
+            (.contacts, .contacts), (.editor, .editor):
+            return true
+        default:
+            return false
+        }
+    }
 }
 
 enum ActiveEditor {
@@ -512,6 +537,20 @@ final class SiteWindowModel {
     /// so reopening it from the navigator resumes it instead of reloading from disk.
     func returnToCanvas() {
         Task { if await leaveCurrentEditor() { mainPaneMode = .preview } }
+    }
+
+    /// Called from `SiteWindow`'s `mainPaneMode` `.onChange` (#1748): whenever `oldMode` was a
+    /// takeover and `newMode` leaves it for something else — `returnToCanvas()`, a navigator
+    /// click, or switching straight into a different takeover — asks the navigator to claim
+    /// keyboard focus. None of the takeover views (Graph's Explorer outline, a file editor, …)
+    /// claim focus of their own when they mount, so SwiftUI otherwise leaves focus nil once the
+    /// dismissed takeover's view leaves the tree: a later click can still select a navigator row
+    /// without making it first responder, so arrow keys/Return go nowhere until the user presses
+    /// Tab. See `MainPaneMode.isSameKind` for why switching files within an already-open editor
+    /// doesn't count as a dismissal here.
+    func focusNavigatorIfTakeoverDismissed(from oldMode: MainPaneMode, to newMode: MainPaneMode) {
+        guard oldMode.isTakeover, !oldMode.isSameKind(as: newMode) else { return }
+        navigator?.requestFocus()
     }
 
     /// Returns whether the pane actually switched to Graph — `false` when `leaveCurrentEditor()`/

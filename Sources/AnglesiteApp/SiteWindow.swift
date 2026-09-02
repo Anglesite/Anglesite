@@ -208,6 +208,14 @@ struct SiteWindow: View {
         .onChange(of: model.preview.state) { _, newState in
             model.previewStateChanged(newState)
         }
+        // Restores a first responder when a main-pane takeover is dismissed (#1748) — see
+        // `SiteWindowModel.focusNavigatorIfTakeoverDismissed`'s doc comment. Kept as a single call
+        // (rather than the condition inline) so this closure stays trivial for the type checker —
+        // `coreBody` is already a long modifier chain (see `focusedValues(for:)`'s doc comment on
+        // why that chain is split out at all).
+        .onChange(of: model.mainPaneMode) { oldValue, newValue in
+            model.focusNavigatorIfTakeoverDismissed(from: oldValue, to: newValue)
+        }
         .onChange(of: model.hasUnsavedEdits, initial: true) { _, hasUnsavedEdits in
             if hasUnsavedEdits {
                 if unsavedEditsTerminationLease == nil {

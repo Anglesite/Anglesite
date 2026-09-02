@@ -17,6 +17,11 @@ struct SiteNavigatorView: View {
     var onPublishRequested: (NavigatorItem) -> Void
     var onUnpublishRequested: (NavigatorItem) -> Void
     @FocusState private var editingFocused: Bool
+    /// Real AppKit keyboard focus for the list itself, as opposed to `model.selection` (which
+    /// just tracks which row is highlighted). Driven programmatically off `model.focusRequestToken`
+    /// (#1748) — see that property's doc comment for why the list needs to be told to take focus
+    /// rather than relying on it following selection.
+    @FocusState private var listFocused: Bool
 
     var body: some View {
         List(selection: $model.selection) {
@@ -25,6 +30,8 @@ struct SiteNavigatorView: View {
             }
         }
         .listStyle(.sidebar)
+        .focused($listFocused)
+        .onChange(of: model.focusRequestToken) { _, _ in listFocused = true }
         .accessibilityIdentifier(AXID.navigatorList)
         // Bare Delete key deletes the selection, matching Xcode/Mail/Notes sidebar convention
         // (#674). `deletableSelection()` is nil during inline-rename, so Delete edits the text
