@@ -697,7 +697,7 @@ final class DeployModel {
         let credential = interactive
             ? try? keychain.readCloudflareOAuthCredential()
             : try? keychain.readCloudflareOAuthCredentialNonInteractive()
-        if let credential = credential ?? nil {
+        if let credential {
             let isDefinitelyUnrefreshable = credential.refreshToken == nil
                 && (credential.expiresAt.map { $0 <= Date() } ?? false)
             if !isDefinitelyUnrefreshable {
