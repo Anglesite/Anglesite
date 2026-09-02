@@ -1245,6 +1245,240 @@ struct NativeContentOperationsDuplicateComponentTests {
     }
 }
 
+@Suite("NativeContentOperations.promoteVariant")
+struct NativeContentOperationsPromoteVariantTests {
+    private func makeRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("native-content-ops-promote-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private let controlRelPath = "src/pages/pricing.astro"
+    private let variantRelPath = "src/pages/x/homepage-hero/b.astro"
+    private let controlContents = """
+    ---
+    import BaseLayout from "../layouts/BaseLayout.astro";
+    ---
+
+    <BaseLayout title="Pricing">
+      <h1>Pricing</h1>
+    </BaseLayout>
+    """
+    private let variantContents = """
+    ---
+    import BaseLayout from "../../layouts/BaseLayout.astro";
+    ---
+
+    <BaseLayout canonicalPath="/pricing/" title="Fresh eggs">
+      <h1>Fresh eggs!</h1>
+    </BaseLayout>
+    """
+
+    private func makeExperiment() -> DomainConfig.Experiments.Experiment {
+        .init(
+            id: "homepage-hero", name: "Homepage headline", page: "/pricing/",
+            variant: .init(id: "b", name: "Fresh eggs headline", page: "/x/homepage-hero/b/"),
+            split: 0.5, goal: .init(kind: "pageview", path: "/contact/"), status: "running",
+            startedAt: "2026-08-01")
+    }
+
+    private func writeFixtures(under root: URL) throws {
+        let controlAbs = root.appendingPathComponent(controlRelPath)
+        try FileManager.default.createDirectory(at: controlAbs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try controlContents.write(to: controlAbs, atomically: true, encoding: .utf8)
+        let variantAbs = root.appendingPathComponent(variantRelPath)
+        try FileManager.default.createDirectory(at: variantAbs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try variantContents.write(to: variantAbs, atomically: true, encoding: .utf8)
+        try RobotsConfigFile.write(
+            RobotsConfigStore.upserting(
+                path: "/x/homepage-hero/b/", source: .page(file: variantRelPath), directive: .noindex,
+                into: RobotsConfigFile.read(under: root)),
+            under: root)
+    }
+
+    @Test("promoteVariant applies the variant's content to the control page, with canonicalPath stripped")
+    func appliesVariantContent() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeFixtures(under: root)
+        let ops = NativeContentOperations(
+            siteDirectory: { _ in root },
+            gitCommit: { _, _, _ in "deadbeef" },
+            gitDelete: { _, _, _ in "deadbeef" })
+
+        let result = await ops.promoteVariant(siteID: "s1", experiment: makeExperiment())
+
+        guard case .created(let filePath, _) = result else { Issue.record("expected .created, got \(result)"); return }
+        #expect(filePath == controlRelPath)
+        let written = try String(contentsOf: root.appendingPathComponent(controlRelPath), encoding: .utf8)
+        #expect(written.contains("<BaseLayout title=\"Fresh eggs\">"))
+        #expect(!written.contains("canonicalPath"))
+    }
+
+    @Test("promoteVariant deletes the variant page and clears its robots-config entry")
+    func removesVariantAndRobotsEntry() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeFixtures(under: root)
+        // `gitDelete` actually removes the file, mirroring `processGitDelete`'s real working-tree
+        // unlink (`deleteContent` itself only calls this closure — it does no unlinking of its own).
+        let ops = NativeContentOperations(
+            siteDirectory: { _ in root },
+            gitCommit: { _, _, _ in "deadbeef" },
+            gitDelete: { root, relPath, _ in
+                try? FileManager.default.removeItem(at: root.appendingPathComponent(relPath))
+                return "deadbeef"
+            })
+
+        _ = await ops.promoteVariant(siteID: "s1", experiment: makeExperiment())
+
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent(variantRelPath).path))
+        let config = RobotsConfigFile.read(under: root)
+        #expect(!config.noindex.contains { $0.path == "/x/homepage-hero/b/" })
+    }
+
+    @Test("promoteVariant commits the control page, the variant delete, and the robots-config change")
+    func commitsEveryChange() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeFixtures(under: root)
+        let spy = NativeContentOperationsTests.Spy()
+        let ops = NativeContentOperations(
+            siteDirectory: { _ in root },
+            gitCommit: { proj, rel, msg in await spy.record(proj, rel, msg); return "deadbeef" },
+            gitDelete: { _, rel, msg in await spy.record(root, rel, msg); return "deadbeef" })
+
+        _ = await ops.promoteVariant(siteID: "s1", experiment: makeExperiment())
+
+        let calls = await spy.calls
+        #expect(calls.contains { $0.1 == controlRelPath })
+        #expect(calls.contains { $0.1 == variantRelPath })
+        #expect(calls.contains { $0.1 == RobotsConfigFile.relativePath })
+    }
+
+    @Test("promoteVariant fails when the variant page doesn't exist")
+    func failsWhenVariantMissing() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let controlAbs = root.appendingPathComponent(controlRelPath)
+        try FileManager.default.createDirectory(at: controlAbs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try controlContents.write(to: controlAbs, atomically: true, encoding: .utf8)
+        let ops = NativeContentOperations(siteDirectory: { _ in root }, gitCommit: { _, _, _ in "deadbeef" })
+
+        let result = await ops.promoteVariant(siteID: "s1", experiment: makeExperiment())
+
+        guard case .failed = result else { Issue.record("expected .failed, got \(result)"); return }
+    }
+
+    @Test("promoteVariant fails when the control-page commit fails, and leaves the variant untouched")
+    func failsWhenControlCommitFails() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeFixtures(under: root)
+        let ops = NativeContentOperations(siteDirectory: { _ in root }, gitCommit: { _, _, _ in nil })
+
+        let result = await ops.promoteVariant(siteID: "s1", experiment: makeExperiment())
+
+        guard case .failed = result else { Issue.record("expected .failed, got \(result)"); return }
+        #expect(FileManager.default.fileExists(atPath: root.appendingPathComponent(variantRelPath).path))
+    }
+
+    @Test("promoteVariant surfaces a failure when the variant delete fails after a successful promote")
+    func surfacesFailedVariantDelete() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeFixtures(under: root)
+        let ops = NativeContentOperations(
+            siteDirectory: { _ in root },
+            gitCommit: { _, _, _ in "deadbeef" },
+            gitDelete: { _, _, _ in nil })
+
+        let result = await ops.promoteVariant(siteID: "s1", experiment: makeExperiment())
+
+        guard case .failed(let reason) = result else { Issue.record("expected .failed, got \(result)"); return }
+        #expect(reason.contains("Promoted the variant"))
+        // The control page was already promoted before the delete failed.
+        let written = try String(contentsOf: root.appendingPathComponent(controlRelPath), encoding: .utf8)
+        #expect(written.contains("Fresh eggs"))
+    }
+
+    @Test("promoteVariant reports siteNotFound when siteDirectory resolves nil")
+    func siteNotFound() async {
+        let ops = NativeContentOperations(siteDirectory: { _ in nil }, gitCommit: { _, _, _ in "deadbeef" })
+        let result = await ops.promoteVariant(siteID: "missing", experiment: makeExperiment())
+        #expect(result == .siteNotFound)
+    }
+}
+
+@Suite("NativeContentOperations.discardVariant")
+struct NativeContentOperationsDiscardVariantTests {
+    private func makeRoot() throws -> URL {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("native-content-ops-discard-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        return root
+    }
+
+    private let variantRelPath = "src/pages/x/homepage-hero/b.astro"
+
+    private func makeExperiment() -> DomainConfig.Experiments.Experiment {
+        .init(
+            id: "homepage-hero", name: "Homepage headline", page: "/pricing/",
+            variant: .init(id: "b", name: "Fresh eggs headline", page: "/x/homepage-hero/b/"),
+            split: 0.5, goal: .init(kind: "pageview", path: "/contact/"), status: "running",
+            startedAt: "2026-08-01")
+    }
+
+    @Test("discardVariant deletes the variant page and clears its robots-config entry")
+    func removesVariantAndRobotsEntry() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let variantAbs = root.appendingPathComponent(variantRelPath)
+        try FileManager.default.createDirectory(at: variantAbs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try "stub".write(to: variantAbs, atomically: true, encoding: .utf8)
+        try RobotsConfigFile.write(
+            RobotsConfigStore.upserting(
+                path: "/x/homepage-hero/b/", source: .page(file: variantRelPath), directive: .noindex,
+                into: RobotsConfigFile.read(under: root)),
+            under: root)
+        // `gitDelete` actually removes the file, mirroring `processGitDelete`'s real working-tree
+        // unlink (`deleteContent` itself only calls this closure — it does no unlinking of its own).
+        let ops = NativeContentOperations(
+            siteDirectory: { _ in root },
+            gitCommit: { _, _, _ in "deadbeef" },
+            gitDelete: { root, relPath, _ in
+                try? FileManager.default.removeItem(at: root.appendingPathComponent(relPath))
+                return "deadbeef"
+            })
+
+        let result = await ops.discardVariant(siteID: "s1", experiment: makeExperiment())
+
+        #expect(result == .deleted(filePath: variantRelPath))
+        #expect(!FileManager.default.fileExists(atPath: variantAbs.path))
+        let config = RobotsConfigFile.read(under: root)
+        #expect(!config.noindex.contains { $0.path == "/x/homepage-hero/b/" })
+    }
+
+    @Test("discardVariant fails when the variant page doesn't exist")
+    func failsWhenVariantMissing() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let ops = NativeContentOperations(siteDirectory: { _ in root }, gitDelete: { _, _, _ in "deadbeef" })
+
+        let result = await ops.discardVariant(siteID: "s1", experiment: makeExperiment())
+
+        guard case .failed = result else { Issue.record("expected .failed, got \(result)"); return }
+    }
+
+    @Test("discardVariant reports siteNotFound when siteDirectory resolves nil")
+    func siteNotFound() async {
+        let ops = NativeContentOperations(siteDirectory: { _ in nil }, gitDelete: { _, _, _ in "deadbeef" })
+        let result = await ops.discardVariant(siteID: "missing", experiment: makeExperiment())
+        #expect(result == .siteNotFound)
+    }
+}
+
 private struct StubPageCopyGenerator: PageCopyGenerating {
     let suggestion: PageCopySuggestion?
     func suggestDescription(title: String, siteID: String, siteDirectory: URL) async -> PageCopySuggestion? {

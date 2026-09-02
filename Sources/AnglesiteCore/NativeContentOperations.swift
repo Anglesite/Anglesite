@@ -520,6 +520,90 @@ public struct NativeContentOperations: ContentOperationsService {
             in: range, with: "<BaseLayout canonicalPath=\"\(escaped)\"")
     }
 
+    /// The exact inverse of `injectingCanonicalPath`: removes the `canonicalPath="<controlRoute>"`
+    /// prop `duplicatePageAsVariant` injected, so a promoted variant's content doesn't carry a
+    /// self-referential canonical link once it becomes the control page. A no-op (returns `contents`
+    /// unchanged) if the exact injected substring isn't found — e.g. the owner hand-edited the
+    /// `<BaseLayout` tag after scaffolding — since silently stripping something else the owner wrote
+    /// would be worse than leaving a stale canonical prop behind.
+    static func removingCanonicalPath(_ controlRoute: String, from contents: String) -> String {
+        let escaped = controlRoute.replacingOccurrences(of: "\"", with: "&quot;")
+        let target = "<BaseLayout canonicalPath=\"\(escaped)\""
+        guard let range = contents.range(of: target) else { return contents }
+        return contents.replacingCharacters(in: range, with: "<BaseLayout")
+    }
+
+    /// Concludes a running experiment by promoting the variant (#1270 slice 6, design doc §5): the
+    /// variant's content — with its scaffold-time `canonicalPath` prop stripped — replaces the
+    /// control page, the variant page is removed, and its `robots-config.json` noindex entry is
+    /// cleared. The inverse of `duplicatePageAsVariant`, and the only conclude path that changes the
+    /// site's content; `discardVariant` below backs the other two (keep/discard).
+    ///
+    /// Failure ordering matters: if applying the variant's content to the control page fails or its
+    /// commit fails, nothing else happens (`.failed`, retryable, no partial state). If that succeeds
+    /// but removing the now-superseded variant page fails, the promotion has *already* taken effect —
+    /// swallowing that failure would silently strand an orphaned variant page, so it's surfaced
+    /// instead (mirrors `restoreContent`'s "a failure after real content already changed must not be
+    /// swallowed" precedent).
+    public func promoteVariant(
+        siteID: String, experiment: DomainConfig.Experiments.Experiment
+    ) async -> ContentCreateResult {
+        guard let root = await siteDirectory(siteID) else { return .siteNotFound }
+        let controlRelativePath = ContentScaffold.pageRelativePath(servedRoute: experiment.page)
+        let variantRelativePath = ContentScaffold.pageRelativePath(servedRoute: experiment.variant.page)
+        let variantAbs = root.appendingPathComponent(variantRelativePath)
+        guard fileManager.fileExists(atPath: variantAbs.path) else {
+            return .failed(reason: "No variant page exists at \(variantRelativePath)")
+        }
+        let variantContents: String
+        do { variantContents = try FileDocumentIO.load(variantAbs, fileManager: fileManager).contents }
+        catch { return .failed(reason: "\(error)") }
+
+        let promoted = Self.removingCanonicalPath(experiment.page, from: variantContents)
+        do { try write(promoted, to: root.appendingPathComponent(controlRelativePath)) }
+        catch { return .failed(reason: "\(error)") }
+
+        guard await gitCommit(root, controlRelativePath, "anglesite: promote experiment variant into \(controlRelativePath)") != nil else {
+            return .failed(reason: "Updated the page, but couldn't save it to your site's history. Try again in a moment.")
+        }
+
+        if case .failed(let reason) = await deleteContent(siteID: siteID, relativePath: variantRelativePath) {
+            return .failed(reason: "Promoted the variant, but couldn't remove its now-unused page (\(reason)). You can delete \(variantRelativePath) by hand.")
+        }
+        await clearVariantRobotsEntry(root: root, experiment: experiment)
+        return .created(filePath: controlRelativePath, identifier: controlRelativePath)
+    }
+
+    /// Concludes a running experiment without promoting it (#1270 slice 6, design doc §5) — backs
+    /// both "keep the original" and "discard early", which the design doc states are the identical
+    /// file operation, differing only in owner-facing framing and the recorded
+    /// `ExperimentHistoryStore.Outcome.Decision`. Removes the variant page and clears its robots
+    /// noindex entry; the control page is untouched.
+    public func discardVariant(
+        siteID: String, experiment: DomainConfig.Experiments.Experiment
+    ) async -> ContentDeleteResult {
+        guard let root = await siteDirectory(siteID) else { return .siteNotFound }
+        let variantRelativePath = ContentScaffold.pageRelativePath(servedRoute: experiment.variant.page)
+        let result = await deleteContent(siteID: siteID, relativePath: variantRelativePath)
+        guard case .deleted = result else { return result }
+        await clearVariantRobotsEntry(root: root, experiment: experiment)
+        return result
+    }
+
+    /// Shared by `promoteVariant`/`discardVariant`: clears the variant page's noindex entry from
+    /// `robots-config.json` (the reverse of `duplicatePageAsVariant`'s own noindex write) and
+    /// commits the change if it actually changed anything — same best-effort
+    /// `_ = await gitCommit(...)` shape as `duplicatePageAsVariant`'s robots commit, since by this
+    /// point the variant page is already gone and a stale noindex entry pointing at a nonexistent
+    /// route is cosmetic, not a correctness problem worth failing the whole conclude over.
+    private func clearVariantRobotsEntry(root: URL, experiment: DomainConfig.Experiments.Experiment) async {
+        let variantRelativePath = ContentScaffold.pageRelativePath(servedRoute: experiment.variant.page)
+        guard let changed = try? RobotsConfigFile.apply(
+            source: .page(file: variantRelativePath), noindex: false, disallowCrawl: false,
+            path: experiment.variant.page, under: root), changed else { return }
+        _ = await gitCommit(root, RobotsConfigFile.relativePath, "anglesite: update robots-config.json")
+    }
+
     /// Duplicate an existing post within the same `collection`. Same retitle/collision/commit
     /// shape as `duplicatePage`, but derives a slug (not a route) and writes via
     /// `ContentScaffold.postRelativePath`.

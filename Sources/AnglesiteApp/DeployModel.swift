@@ -336,6 +336,10 @@ final class DeployModel {
     /// or the security-block modal. The durable invisible-publish queue uses the returned result to
     /// decide whether its pending marker may be cleared. Terminal transitions still fire, so
     /// completion and security-block notifications use the normal app notification path.
+    ///
+    /// Also never raises the Keychain's own authorization dialog: the credential presence check
+    /// runs through the store's `withoutUserInteraction` face, deferring instead when a stored
+    /// credential would need the user's OK to read (#1717).
     func deployAutomatically(
         siteID: String,
         siteDirectory: URL,
@@ -346,7 +350,22 @@ final class DeployModel {
     ) async -> InvisiblePublishQueue.Result {
         guard !isRunning else { return .deferred(reason: "another site operation is running") }
         guard !awaitingUserAction else { return .deferred(reason: "a deploy prompt is waiting for a response") }
-        guard hasUsableToken() else { return .deferred(reason: "Cloudflare credentials are not configured") }
+        // Non-interactive on purpose: this runs after every `Source/` edit (the #357 invisible
+        // publish queue), and a Keychain read that can raise the login-keychain authorization
+        // dialog would turn each Duplicate/Delete/New Post into a system password prompt (#1717).
+        // A credential the app isn't authorized to read silently is left for the user's next
+        // Publish click, which reads interactively and may prompt — once, with "Always Allow".
+        switch credentialAvailability(allowingUserInteraction: false) {
+        case .available:
+            break
+        case .missing:
+            return .deferred(reason: "Cloudflare credentials are not configured")
+        case .needsUserInteraction:
+            await logCenter.append(
+                source: "deploy:\(siteID)", stream: .stderr,
+                text: "Background publish skipped: reading the Cloudflare sign-in from the keychain would need your permission. Choose Publish to grant it once.")
+            return .deferred(reason: "Anglesite needs your permission to read the Cloudflare sign-in from the keychain — choose Publish to grant it")
+        }
         guard hasChosenLicense(siteDirectory: siteDirectory) else {
             return .deferred(reason: "a content license hasn't been chosen yet")
         }
@@ -669,6 +688,20 @@ final class DeployModel {
         blockedPresented = false
     }
 
+    /// What `credentialAvailability(allowingUserInteraction:)` found. Split out from the plain
+    /// `hasUsableToken()` Bool for the one caller that has to tell "nothing stored" apart from "a
+    /// credential the app may not read without asking" (#1717).
+    enum CredentialAvailability: Equatable {
+        /// A usable credential is reachable right now.
+        case available
+        /// Nothing usable is stored or configured in the environment.
+        case missing
+        /// A credential slot exists but reading it would need the user's authorization (the
+        /// login-keychain ACL dialog), which the caller didn't allow. Only produced with
+        /// `allowingUserInteraction: false`.
+        case needsUserInteraction
+    }
+
     /// True if the env var, a stored OAuth credential, or the legacy pasted-token slot currently
     /// holds a usable Cloudflare credential. Keychain errors are treated as "no token" — the
     /// user can recover by signing in again. A stored OAuth credential counts as usable unless
@@ -678,24 +711,53 @@ final class DeployModel {
     /// with a generic "no token" error. An expired credential that still has a refresh token is
     /// left to `CloudflareDeployTarget.keychainTokenSource` to actually refresh (this is a presence check
     /// only — no refresh attempted here, since it's synchronous).
+    ///
+    /// Interactive: the Keychain may raise its authorization dialog. That is right for the
+    /// foreground callers (`deploy()`, `deployUnavailableReason`) — the user just clicked — and
+    /// wrong for `deployAutomatically`, which uses `credentialAvailability(allowingUserInteraction:
+    /// false)` instead.
     private func hasUsableToken() -> Bool {
+        credentialAvailability(allowingUserInteraction: true) == .available
+    }
+
+    /// The presence check behind `hasUsableToken()`, with control over whether the Keychain may
+    /// prompt. With `allowingUserInteraction: false` every read goes through the store's
+    /// `withoutUserInteraction` face, and a read the user would have to authorize reports
+    /// ``CredentialAvailability/needsUserInteraction`` rather than being mistaken for "nothing
+    /// stored" (#1717). Any other Keychain failure still reads as `.missing`, as it always has.
+    private func credentialAvailability(allowingUserInteraction: Bool) -> CredentialAvailability {
         if let tokenAvailabilityOverride {
-            return tokenAvailabilityOverride()
+            return tokenAvailabilityOverride() ? .available : .missing
         }
         if let env = ProcessInfo.processInfo.environment["CLOUDFLARE_API_TOKEN"], !env.isEmpty {
-            return true
+            return .available
         }
-        if let credential = try? keychain.readCloudflareOAuthCredential() {
-            let isDefinitelyUnrefreshable = credential.refreshToken == nil
-                && (credential.expiresAt.map { $0 <= Date() } ?? false)
-            if !isDefinitelyUnrefreshable {
-                return true
+        let store = allowingUserInteraction ? keychain : keychain.withoutUserInteraction
+        var needsUserInteraction = false
+        do {
+            if let credential = try store.readCloudflareOAuthCredential() {
+                let isDefinitelyUnrefreshable = credential.refreshToken == nil
+                    && (credential.expiresAt.map { $0 <= Date() } ?? false)
+                if !isDefinitelyUnrefreshable {
+                    return .available
+                }
             }
+        } catch let error as KeychainStore.Error where error.requiresUserInteraction {
+            needsUserInteraction = true
+        } catch {
+            // Every other Keychain failure reads as "no credential" — the user recovers by
+            // signing in again.
         }
-        if let stored = (try? keychain.readCloudflareToken()) ?? nil, !stored.isEmpty {
-            return true
+        do {
+            if let stored = try store.readCloudflareToken(), !stored.isEmpty {
+                return .available
+            }
+        } catch let error as KeychainStore.Error where error.requiresUserInteraction {
+            needsUserInteraction = true
+        } catch {
+            // As above.
         }
-        return false
+        return needsUserInteraction ? .needsUserInteraction : .missing
     }
 
     /// Whether `siteDirectory`'s `licensing.json` records an explicit license choice (#999). A

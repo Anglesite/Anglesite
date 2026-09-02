@@ -63,6 +63,11 @@ public struct AnalyzeExperimentIntent: AppIntent {
         switch (controlImpressions, treatmentImpressions) {
         case (nil, nil):
             guard let prefill = await service.prefillForRunningExperiment() else {
+                if let outcome = await service.mostRecentConcludedOutcome() {
+                    return "I don't see a running experiment right now. Your last test, "
+                        + "\(outcome.name), wrapped up on \(outcome.concludedAt) — you "
+                        + "\(Self.phrase(outcome.decision)). Start a new one, or tell me the counts yourself."
+                }
                 return "I don't see a running experiment on any of your sites right now — "
                     + "start one, or tell me the counts yourself."
             }
@@ -100,6 +105,15 @@ public struct AnalyzeExperimentIntent: AppIntent {
         }
         return reply
     }
+
+    /// Phrases a concluded experiment's decision for the zero-argument fallback (#1270 slice 6).
+    private static func phrase(_ decision: ExperimentHistoryStore.Outcome.Decision) -> String {
+        switch decision {
+        case .promote: return "promoted the variant"
+        case .keep: return "kept the original"
+        case .discard: return "ended it early"
+        }
+    }
 }
 
 // MARK: - Test-only helpers
@@ -118,6 +132,10 @@ extension AnalyzeExperimentIntent {
 /// passing its own fake.
 struct UnreachableExperimentResultsService: ExperimentResultsService {
     func prefillForRunningExperiment() async -> ExperimentResultsSync.Prefill? {
+        fatalError("UnreachableExperimentResultsService was called — pass a real fake service for this test case")
+    }
+
+    func mostRecentConcludedOutcome() async -> ExperimentHistoryStore.Outcome? {
         fatalError("UnreachableExperimentResultsService was called — pass a real fake service for this test case")
     }
 }
