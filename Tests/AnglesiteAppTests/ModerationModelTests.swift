@@ -76,6 +76,73 @@ struct ModerationModelTests {
         #expect(body?["type"] as? String == "Remove")
         #expect(body?["object"] as? String == "https://lemmy.ml/u/spammer")
         #expect(model.members.isEmpty)
+        #expect(model.bannedMembers.map(\.id) == ["abc123"])
+    }
+
+    /// #1742: unban is the recovery path that lets the Ban confirmation dialog use the same
+    /// action-default keyboard shape as the other eight destructive confirmations. Confirms it
+    /// POSTs the AS2 inverse of ban's `Remove` and moves the member back to the visible list.
+    @Test("unbanning a member POSTs Add and moves them back from banned to visible")
+    func unbanRestoresMember() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let recorder = Recorder()
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if let data = request.httpBody, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                await recorder.record(json)
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+            return (Data("{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        let member = model.members[0]
+        try await model.ban(member)
+        #expect(model.bannedMembers.count == 1)
+
+        await model.unban(member)
+
+        let body = await recorder.bodies.last
+        #expect(body?["type"] as? String == "Add")
+        #expect(body?["object"] as? String == "https://lemmy.ml/u/spammer")
+        #expect(model.bannedMembers.isEmpty)
+        #expect(model.members.map(\.id) == ["abc123"])
+    }
+
+    /// A failed unban (e.g. a genuinely broken deploy) must leave the member in `bannedMembers`
+    /// rather than silently dropping them from both lists — same leave-state-untouched-on-failure
+    /// contract ``approve(_:)`` follows. The `Remove` POST that puts the member into
+    /// `bannedMembers` in the first place must still succeed, so the stub only fails `Add`.
+    @Test("a failed unban sets errorMessage and leaves the member in bannedMembers")
+    func unbanFailureSetsErrorMessage() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            let isAdd: Bool
+            if let data = request.httpBody, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                isAdd = (json["type"] as? String) == "Add"
+            } else {
+                isAdd = false
+            }
+            let http = HTTPURLResponse(
+                url: request.url!, statusCode: isAdd ? 500 : 202, httpVersion: nil, headerFields: nil)!
+            return (Data(isAdd ? "server error".utf8 : "{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        let member = model.members[0]
+        try await model.ban(member)
+        #expect(model.bannedMembers.count == 1)
+
+        await model.unban(member)
+
+        #expect(model.errorMessage != nil)
+        #expect(model.bannedMembers.count == 1)
+        #expect(model.members.isEmpty)
     }
 
     /// The sync jobs that write member/post snapshot files (`CommunityMembersSync`/

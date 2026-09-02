@@ -2,8 +2,9 @@ import SwiftUI
 import AnglesiteCore
 
 /// The Moderation section (V-5.1b/V-5.3, #907/#370, design doc §5): moderators, an approval
-/// queue for pending join requests, members (with ban), posts (with remove), and an inert
-/// reports placeholder (D5 — no report-handling exists upstream yet).
+/// queue for pending join requests, members (with ban), banned members (with unban, #1742),
+/// posts (with remove), and an inert reports placeholder (D5 — no report-handling exists
+/// upstream yet).
 struct ModerationView: View {
     @Bindable var moderation: ModerationModel
     /// Bound to the "Add Moderator" text field; cleared after a successful add.
@@ -53,6 +54,19 @@ struct ModerationView: View {
                     }
                 }
             }
+            Section("Banned") {
+                if moderation.bannedMembers.isEmpty {
+                    Text("No banned members.").foregroundStyle(.secondary)
+                } else {
+                    ForEach(moderation.bannedMembers) { member in
+                        HStack {
+                            Text(member.name ?? member.actorURL.absoluteString)
+                            Spacer()
+                            Button("Unban") { Task { await moderation.unban(member) } }
+                        }
+                    }
+                }
+            }
             Section("Posts") {
                 ForEach(moderation.posts) { post in
                     HStack {
@@ -77,17 +91,12 @@ struct ModerationView: View {
             isPresented: Binding(get: { moderation.banConfirmation != nil }, set: { _ in }),
             titleVisibility: .visible
         ) {
-            // Cancel is the Return-key default here — the one exception to the action-default
-            // shape used by every other destructive confirmation (#1736; see the revert alert in
-            // `SiteWindow`). Ban has no in-app recovery: `ModerationModel` has `ban(_:)` but no
-            // unban, so a stray Return must not be able to ban. The trade-off is deliberate: an
-            // NSAlert button holds a single key equivalent, so giving Cancel Return replaces its
-            // Esc equivalent and Esc does nothing on this dialog (verified with an isolated probe),
-            // and with Full Keyboard Access off there is no keyboard path to Ban. Revisit once an
-            // unban exists.
+            // Action-default shape, matching every other destructive confirmation (#1736) — safe
+            // now that ``ModerationModel/unban(_:)`` (#1742) gives a stray Return an in-app way
+            // back, the same recovery path the other eight dialogs already had.
             Button("Ban", role: .destructive) { Task { await moderation.confirmBan() } }
-            Button("Cancel", role: .cancel) { moderation.banConfirmation = nil }
                 .keyboardShortcut(.defaultAction)
+            Button("Cancel", role: .cancel) { moderation.banConfirmation = nil }
         } message: {
             Text("This member's posts will stop appearing. Existing posts stay unless you also remove them.")
         }
