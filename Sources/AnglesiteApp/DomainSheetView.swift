@@ -321,7 +321,12 @@ struct DomainSheetView: View {
                     .buttonStyle(.borderedProminent)
                     .disabled(!isAddRecordFormValid(draft))
             case .confirmingDelete:
+                // #1739: Esc cancels; Return is deliberately unbound. The sheet itself says
+                // "This can't be undone." — so Cancel is the safe choice, and a sheet button
+                // holds only one key equivalent (see `ChatView`'s conflict sheet), so Cancel
+                // takes Esc and Delete stays a deliberate click / Full Keyboard Access press.
                 Button("Cancel") { model.cancelDelete() }
+                    .keyboardShortcut(.cancelAction)
                 Spacer()
                 Button("Delete", role: .destructive) { model.confirmDelete() }
             case .failed:

@@ -49,11 +49,21 @@ struct ChatView: View {
                     .fixedSize(horizontal: false, vertical: true)
                 HStack {
                     Spacer()
+                    // #1739: Esc keeps the outside edits; Return is deliberately unbound.
+                    // "Undo anyway" overwrites uncommitted changes made outside Anglesite —
+                    // git has no record of them, so there is no recovery — which makes Cancel
+                    // the safe choice, and a hand-rolled sheet button carries exactly one key
+                    // equivalent (stacking `.defaultAction` + `.cancelAction` keeps only the
+                    // first; `.onExitCommand` never fires with no focused control), so Cancel
+                    // can't hold Return *and* Esc. Esc is the one that must always work. No
+                    // prominent style either: on macOS that reads as "Return presses this".
+                    // To make "Undo anyway" the Return default instead, give it
+                    // `.keyboardShortcut(.defaultAction)` (#1738's shape).
                     Button("Cancel") { model.dismissConflictPrompt() }
+                        .keyboardShortcut(.cancelAction)
                     Button("Undo anyway", role: .destructive) {
                         Task { await model.confirmConflictUndo() }
                     }
-                    .buttonStyle(.borderedProminent)
                 }
             }
             .padding(20)
