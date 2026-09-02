@@ -195,7 +195,7 @@ var packageTargets: [Target] = [
     ),
     .testTarget(
         name: "AnglesiteIOSTests",
-        dependencies: ["AnglesiteIOS", "AnglesiteSiteModel", "AnglesiteCore"],
+        dependencies: ["AnglesiteIOS", "AnglesiteSiteModel", "AnglesiteCore", "AnglesiteTestSupport"],
         path: "Tests/AnglesiteIOSTests",
         swiftSettings: strictConcurrency
     )

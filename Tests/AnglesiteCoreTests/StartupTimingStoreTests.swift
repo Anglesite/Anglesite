@@ -1,19 +1,14 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 /// `final class` so `deinit` drops the throwaway suite (mirrors AppSettingsTests).
 final class StartupTimingStoreTests {
-    private let suiteName: String
-    private let defaults: UserDefaults
+    private let scratch = TemporaryUserDefaults(label: "startup")
+    private var defaults: UserDefaults { scratch.defaults }
 
-    init() {
-        let suite = "test-anglesite-startup-\(UUID().uuidString)"
-        suiteName = suite
-        defaults = UserDefaults(suiteName: suite)!
-    }
-
-    deinit { defaults.removePersistentDomain(forName: suiteName) }
+    deinit { scratch.cleanup() }
 
     @Test("Absent timing falls back to the default profile")
     func absentFallsBackToDefault() {

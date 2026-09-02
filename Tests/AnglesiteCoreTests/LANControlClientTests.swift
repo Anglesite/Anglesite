@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 struct LANControlClientTests {
     private static let unusedRemote = LANControlClient.unusedGitRemote
@@ -60,18 +61,10 @@ struct LANControlClientTests {
 /// `AppSettings.lanRuntimeConfiguration` parsing — the seam `LiveSiteRuntimeFactory` gates its
 /// LAN branch on (kept in AnglesiteCore so it's testable off the app target, per CLAUDE.md).
 final class LANRuntimeSettingsTests {
-    private let suiteName: String
-    private let defaults: UserDefaults
+    private let scratch = TemporaryUserDefaults()
+    private var defaults: UserDefaults { scratch.defaults }
 
-    init() {
-        let suite = "test-anglesite-\(UUID().uuidString)"
-        suiteName = suite
-        defaults = UserDefaults(suiteName: suite)!
-    }
-
-    deinit {
-        defaults.removePersistentDomain(forName: suiteName)
-    }
+    deinit { scratch.cleanup() }
 
     @Test("nil until a host is configured — runtime selection stays untouched by default")
     func nilByDefault() {

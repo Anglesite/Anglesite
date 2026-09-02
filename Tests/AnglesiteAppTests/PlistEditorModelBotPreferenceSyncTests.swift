@@ -3,6 +3,7 @@ import Foundation
 import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 private final class StubReader: CloudflareReading, @unchecked Sendable {
     private let zoneID: String?
@@ -17,9 +18,15 @@ private final class StubReader: CloudflareReading, @unchecked Sendable {
     func workerScriptNames(apiToken: String) async throws -> [String] { [] }
 }
 
+/// A `final class` so `deinit` drops the throwaway `UserDefaults` suite `makeModel()` hands each
+/// model's `AppSettings` (#1727).
 @Suite("PlistEditorModel Bot Preference Sync zone gating (#1628)")
 @MainActor
-struct PlistEditorModelBotPreferenceSyncTests {
+final class PlistEditorModelBotPreferenceSyncTests {
+    private let scratch = TemporaryUserDefaults()
+
+    deinit { scratch.cleanup() }
+
     private static let emptyPlist = """
         <?xml version="1.0" encoding="UTF-8"?>
         <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -50,8 +57,7 @@ struct PlistEditorModelBotPreferenceSyncTests {
         }
         let scratchKeychain = TemporaryKeychainStore()
         if let token { try scratchKeychain.store.writeCloudflareToken(token) }
-        let suiteName = "test-anglesite-\(UUID().uuidString)"
-        let appSettings = AppSettings(defaults: UserDefaults(suiteName: suiteName)!)
+        let appSettings = AppSettings(defaults: scratch.defaults)
         appSettings.botPreferenceSyncUIEnabled = flagEnabled
         let file = FileRef(url: plistURL, group: .metadata, name: "Info.plist")
         let model = PlistEditorModel(

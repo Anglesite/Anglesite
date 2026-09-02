@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 
 /// `PreviewModel`'s convenience init constructs its runtime eagerly via `makeRuntime` (not lazily
@@ -627,7 +628,7 @@ extension SiteWindowModelTests {
     func openThemeApplyWizardNoTemplateIsNoOp() throws {
         let model = makeModel()
         model.site = siteWithNonexistentPackage()
-        let (settings, cleanup) = try makeIsolatedSettings()
+        let (settings, cleanup) = makeIsolatedSettings()
         defer { cleanup() }
         let bareDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("theme-apply-wizard-bare-\(UUID().uuidString)")
@@ -644,7 +645,7 @@ extension SiteWindowModelTests {
     func openThemeApplyWizardBuildsModel() throws {
         let model = makeModel()
         model.site = siteWithNonexistentPackage()
-        let (settings, cleanup) = try makeIsolatedSettings()
+        let (settings, cleanup) = makeIsolatedSettings()
         defer { cleanup() }
         let template = try makeFixtureThemeTemplate()
         defer { try? FileManager.default.removeItem(at: template) }
@@ -660,10 +661,9 @@ extension SiteWindowModelTests {
     /// An isolated `AppSettings` backed by its own `UserDefaults` suite, mirroring
     /// `TemplateRuntimeTests`' setup — never mutate `AppSettings.shared` directly, since that's a
     /// real singleton other tests/suites could observe.
-    private func makeIsolatedSettings() throws -> (AppSettings, cleanup: () -> Void) {
-        let suiteName = "test-anglesite-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        return (AppSettings(defaults: defaults), { defaults.removePersistentDomain(forName: suiteName) })
+    private func makeIsolatedSettings() -> (AppSettings, cleanup: () -> Void) {
+        let scratch = TemporaryUserDefaults()
+        return (AppSettings(defaults: scratch.defaults), scratch.cleanup)
     }
 
     /// A minimal on-disk template — `scripts/themes.ts` (what `TemplateRuntime.isTemplateDirectory`

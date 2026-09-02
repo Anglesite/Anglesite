@@ -9,8 +9,8 @@ import FoundationNetworking
 import AnglesiteCore
 import AnglesiteSiteModel
 
-/// Minimal conforming store, same shape as `SecretStoreTests`' reference implementation —
-/// `AnglesiteIOSTests` doesn't depend on `AnglesiteTestSupport`.
+/// Minimal conforming store, same shape as `SecretStoreTests`' reference implementation (and as
+/// `AnglesiteTestSupport.InMemorySecretStore`, which this file predates).
 private final class InMemorySecretStore: SecretStore, @unchecked Sendable {
     private var entries: [String: String] = [:]
     private let lock = NSLock()

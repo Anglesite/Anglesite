@@ -2,14 +2,21 @@
 import Testing
 import Foundation
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 
+/// A `final class` so `deinit` drops the throwaway `UserDefaults` suite behind
+/// `scratchAppSettings()` (#1727).
 @Suite("CommunitiesModel")
 @MainActor
-struct CommunitiesModelTests {
+final class CommunitiesModelTests {
+    private let scratch = TemporaryUserDefaults()
+
+    deinit { scratch.cleanup() }
+
     /// In-memory `SecretStore` so `configure(site:)` can read a publish token without touching
     /// the Keychain — mirrors how `MicrosubReaderModel`'s own tests stub credential storage.
     final class InMemorySecretStore: SecretStore, @unchecked Sendable {
@@ -123,8 +130,8 @@ struct CommunitiesModelTests {
     /// A scratch `UserDefaults` suite, not `.standard` — discovery tests need to control
     /// `communitySearchInstance` without leaking state into, or racing, every other test in the
     /// process (Swift Testing runs `@Suite`s concurrently by default).
-    private static func scratchAppSettings() -> AppSettings {
-        AppSettings(defaults: UserDefaults(suiteName: "communities-model-test-\(UUID().uuidString)")!)
+    private func scratchAppSettings() -> AppSettings {
+        AppSettings(defaults: scratch.defaults)
     }
 
     @Test("join resolves the handle, follows it, and records it in the ledger")
@@ -700,7 +707,7 @@ struct CommunitiesModelTests {
         let (config, source) = try Self.makeSiteDirectories()
         defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
         let secretStore = InMemorySecretStore()
-        let appSettings = Self.scratchAppSettings()
+        let appSettings = scratchAppSettings()
         appSettings.communitySearchInstance = "lemmy.example"
         let searchURL = "https://lemmy.example/api/v3/search"
             + "?q=birding&type_=Communities&listing_type=All&sort=TopAll&limit=20"
@@ -732,7 +739,7 @@ struct CommunitiesModelTests {
         let (config, source) = try Self.makeSiteDirectories()
         defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
         let secretStore = InMemorySecretStore()
-        let appSettings = Self.scratchAppSettings()
+        let appSettings = scratchAppSettings()
         appSettings.communitySearchInstance = "lemmy.example"
         let searchURL = "https://lemmy.example/api/v3/search"
             + "?q=birding&type_=Communities&listing_type=All&sort=TopAll&limit=20"
@@ -776,7 +783,7 @@ struct CommunitiesModelTests {
         let (config, source) = try Self.makeSiteDirectories()
         defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
         let secretStore = InMemorySecretStore()
-        let appSettings = Self.scratchAppSettings()
+        let appSettings = scratchAppSettings()
         appSettings.communitySearchInstance = "lemmy.example"
         let firstURL = "https://lemmy.example/api/v3/search"
             + "?q=first&type_=Communities&listing_type=All&sort=TopAll&limit=20"
