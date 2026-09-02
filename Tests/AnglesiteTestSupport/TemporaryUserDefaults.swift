@@ -21,10 +21,15 @@ import Foundation
 /// So on Darwin the suite name is instead an **absolute path** inside a per-suite scratch
 /// directory under the user's temporary directory — CFPreferences treats a path-shaped
 /// application ID as "persist to exactly this plist". Nothing ever lands in
-/// `~/Library/Preferences`, `cleanup()` removes the whole directory (which cfprefsd does not
-/// recreate), and a suite that crashes before cleanup leaks only into `$TMPDIR`, which the OS
-/// purges on its own. Names keep the `test-anglesite-` prefix so any leftover — old or new —
-/// stays recognizable.
+/// `~/Library/Preferences`, and `cleanup()` removes the whole directory. Deleting the
+/// *directory* is the load-bearing step: `removePersistentDomain(forName:)` on a path-shaped
+/// domain still rewrites the plist as an empty dictionary, exactly like a named one, but cfprefsd
+/// never recreates a missing parent directory — not synchronously, and not when the process
+/// exits, even if the domain still held cached values at that point (verified from a second
+/// process after the writing process had exited, macOS 27 — see PR #1731). A suite that crashes
+/// before cleanup leaks only into `$TMPDIR`, which the OS purges on its own. Names keep the
+/// `test-anglesite-` prefix so any leftover — old or new — stays recognizable, and
+/// `scripts/check-test-userdefaults-leak.sh` (CI runs it after `swift test`) fails on one.
 public struct TemporaryUserDefaults: @unchecked Sendable {
     /// Prefix shared by every suite this helper creates. Nothing but tests writes it.
     public static let suitePrefix = "test-anglesite-"
@@ -80,8 +85,9 @@ public struct TemporaryUserDefaults: @unchecked Sendable {
         directory?.appendingPathComponent("\(name).plist")
     }
 
-    /// Removes the persistent domain, flushes it, and deletes the backing scratch directory.
-    /// Idempotent — safe to call more than once.
+    /// Removes the persistent domain, flushes it, and deletes the backing scratch directory —
+    /// the directory deletion is what keeps cfprefsd from writing an empty plist back (see the
+    /// type's documentation). Idempotent — safe to call more than once.
     public func cleanup() {
         defaults.removePersistentDomain(forName: suiteName)
         defaults.synchronize()
