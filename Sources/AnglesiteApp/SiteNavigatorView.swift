@@ -17,6 +17,13 @@ struct SiteNavigatorView: View {
     var onPublishRequested: (NavigatorItem) -> Void
     var onUnpublishRequested: (NavigatorItem) -> Void
     @FocusState private var editingFocused: Bool
+    /// True while the navigator `List` itself (or the inline-rename field inside it) holds
+    /// keyboard focus. Gates the hidden Return-to-rename key equivalent below (#1732): a SwiftUI
+    /// `.keyboardShortcut` is window-scoped, so without this gate Return pressed with focus in any
+    /// other view that doesn't consume it — the Site Graph takeover's Explorer outline, the Related
+    /// Pages panel, inspector controls — started renaming whatever THIS list happened to have
+    /// selected. Finder semantics: Return renames only when the list has focus.
+    @FocusState private var listHasKeyboardFocus: Bool
 
     var body: some View {
         List(selection: $model.selection) {
@@ -26,6 +33,16 @@ struct SiteNavigatorView: View {
         }
         .listStyle(.sidebar)
         .accessibilityIdentifier(AXID.navigatorList)
+        .focused($listHasKeyboardFocus)
+        // A click on a row must also give the list keyboard focus (Finder semantics) so the
+        // ordinary click-then-Return rename gesture satisfies the gate below. Verified on-device:
+        // once SwiftUI's focus goes nil (e.g. the focused Site Graph explorer is torn down when a
+        // navigator click closes the takeover), a plain click selects a row WITHOUT moving focus
+        // to the list — ↓ and Return then go nowhere until the user Tabs. `simultaneousGesture`
+        // so selection, drag-out (`.draggable`) and the context menu keep working.
+        .simultaneousGesture(TapGesture().onEnded {
+            if !listHasKeyboardFocus { listHasKeyboardFocus = true }
+        })
         // Bare Delete key deletes the selection, matching Xcode/Mail/Notes sidebar convention
         // (#674). `deletableSelection()` is nil during inline-rename, so Delete edits the text
         // field there instead — same guard the Return-to-rename affordance above uses. This is
@@ -46,19 +63,29 @@ struct SiteNavigatorView: View {
             }
         }
         .background {
-            Button("") {
-                if let id = model.selection, model.editingItemID == nil, model.canRename(id) {
-                    model.beginEditing(id)
+            // Return-to-rename (Finder semantics) as a view-level key equivalent. Attached only
+            // while `listHasKeyboardFocus` (#1732) — see its doc comment: the shortcut is
+            // window-scoped, so mounting the Button unconditionally let Return leak in from any
+            // other focused view (e.g. the Site Graph explorer) and rename the navigator's
+            // selection. Detaching rather than `.disabled`-ing is what frees the keystroke for
+            // the focused view — the same conditional-attachment shape as
+            // `onDeleteCommand(active:perform:)` (`PreviewView.swift`) — so the `.disabled`
+            // below is only about the in-rename case, not the focus gate.
+            if listHasKeyboardFocus {
+                Button("") {
+                    if let id = model.renameableSelection() {
+                        model.beginEditing(id)
+                    }
                 }
+                .keyboardShortcut(.return, modifiers: [])
+                .hidden()
+                // `.hidden()` still exposes the empty-label button to VoiceOver; keep it out of
+                // the accessibility tree (it's a keyboard-shortcut affordance, not a real control).
+                .accessibilityHidden(true)
+                // Disabled while editing: otherwise this default-button shortcut swallows Return
+                // before the focused TextField's onSubmit, so commits never fire (#299 review).
+                .disabled(model.editingItemID != nil)
             }
-            .keyboardShortcut(.return, modifiers: [])
-            .hidden()
-            // `.hidden()` still exposes the empty-label button to VoiceOver; keep it out of the
-            // accessibility tree (it's a keyboard-shortcut affordance, not a real control).
-            .accessibilityHidden(true)
-            // Disabled while editing: otherwise this default-button shortcut swallows Return
-            // before the focused TextField's onSubmit, so commits never fire (#299 review).
-            .disabled(model.editingItemID != nil)
         }
         .background {
             // ⌘⌫ as a second key equivalent for the same delete action (#989) — a view-level key

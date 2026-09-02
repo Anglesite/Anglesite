@@ -149,6 +149,86 @@ struct SiteNavigatorModelTests {
         #expect(model.deletableSelection() == nil)
     }
 
+    // MARK: renameableSelection (#1732)
+
+    @Test("renameableSelection returns the selected page row")
+    func renameableSelectionReturnsPageRow() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let graph = SiteContentGraph()
+        await graph.load(
+            siteID: "site-1",
+            pages: [SiteContentGraph.Page(
+                id: "site-1:page:/about", siteID: "site-1", route: "/about",
+                filePath: "src/pages/about.astro", title: "About", lastModified: Date())],
+            posts: [], images: []
+        )
+        let model = SiteNavigatorModel(graph: graph)
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
+        while model.nodes.isEmpty { await Task.yield() }
+        let id = try #require(flatten(model.nodes).first { $0.title == "About" }?.id)
+        model.selection = id
+
+        #expect(model.renameableSelection() == id)
+    }
+
+    @Test("renameableSelection is nil with no selection")
+    func renameableSelectionNilWithoutSelection() {
+        let model = SiteNavigatorModel(graph: SiteContentGraph())
+        #expect(model.renameableSelection() == nil)
+    }
+
+    /// Return while already inline-renaming must reach the focused TextField (commit), not
+    /// restart the rename — the same guard `deletableSelection()` applies for Delete.
+    @Test("renameableSelection is nil while inline-renaming the selection")
+    func renameableSelectionNilWhileEditing() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let graph = SiteContentGraph()
+        await graph.load(
+            siteID: "site-1",
+            pages: [SiteContentGraph.Page(
+                id: "site-1:page:/about", siteID: "site-1", route: "/about",
+                filePath: "src/pages/about.astro", title: "About", lastModified: Date())],
+            posts: [], images: []
+        )
+        let model = SiteNavigatorModel(graph: graph)
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
+        while model.nodes.isEmpty { await Task.yield() }
+        let id = try #require(flatten(model.nodes).first { $0.title == "About" }?.id)
+        model.selection = id
+
+        model.beginEditing(id)
+
+        #expect(model.renameableSelection() == nil)
+    }
+
+    @Test("renameableSelection is nil for the non-renameable directory row")
+    func renameableSelectionNilForDirectoryRow() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        let graph = SiteContentGraph()
+        await graph.load(
+            siteID: "site-1",
+            pages: [],
+            posts: [SiteContentGraph.Post(
+                id: "site-1:post:hello", siteID: "site-1", collection: "notes", slug: "hello",
+                title: "Hello", draft: false, publishDate: Date(), tags: [],
+                filePath: "src/content/notes/hello.md", lastModified: Date())],
+            images: []
+        )
+        let model = SiteNavigatorModel(graph: graph)
+        model.start(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
+        while model.nodes.isEmpty { await Task.yield() }
+        let id = try #require(model.nodes.first { if case .directory = $0.kind { return true }; return false }?.id)
+        model.selection = id
+
+        #expect(model.renameableSelection() == nil)
+    }
+
     @Test("fileURL(for:) resolves a route (page) target to its sourceDirectory-relative file")
     func fileURLResolvesRouteTarget() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
