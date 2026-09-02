@@ -16,7 +16,7 @@ final class WYSIWYGCanvasController {
 
     /// True while the canvas holds real AppKit keyboard focus — distinct from `selectedBlockId
     /// != nil`, which persists even after focus moves to the Navigator or an inspector field.
-    /// Set by `WYSIWYGCanvasFocusSentinel` (`PreviewView.swift`), the `NSWindow.firstResponder`
+    /// Set by `PreviewFocusSentinel` (`PreviewView.swift`), the `NSWindow.firstResponder`
     /// KVO watcher `previewPane(for:)` layers under the mounted `PreviewView` — mirrors
     /// `MarkdownTextView.swift`'s `SentinelView`, reused directly rather than re-implemented,
     /// since a plain `.focused($binding)` can't reach through `PreviewView`'s raw-`WKWebView`

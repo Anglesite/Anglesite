@@ -111,7 +111,11 @@ struct RobotsSettingsSection: View {
         }
         .alert("Block crawling entirely for your whole site?", isPresented: $confirmingWholeSiteBlock) {
             Button("Cancel", role: .cancel) { }
+            // Return-key default (#1736) — see the revert alert in `SiteWindow` for why the
+            // default sits on the action rather than on Cancel. Reversible: the toggle above
+            // turns it straight back off.
             Button("Block Crawling", role: .destructive) { disallowCrawl = true }
+                .keyboardShortcut(.defaultAction)
         } message: {
             Text("This is your home page — search engines won't be able to crawl any page reachable only through it.")
         }
