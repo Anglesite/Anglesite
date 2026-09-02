@@ -65,4 +65,40 @@ struct PostCollectionResolverTests {
 
         #expect(PostCollectionResolver.resolve(siteDirectory: root) == "blog")
     }
+
+    // MARK: - postCollections (#1725)
+
+    @Test("postCollections returns every declared blog-like collection, not just the winner")
+    func postCollectionsDeclared() {
+        #expect(PostCollectionResolver.postCollections(declared: ["blog", "notes", "articles", "products"], existingDirectories: ["posts"])
+            == ["blog", "articles"])
+    }
+
+    @Test("postCollections is empty when the config declares nothing blog-like")
+    func postCollectionsDeclaredNoneBlogLike() {
+        #expect(PostCollectionResolver.postCollections(declared: ["events", "members"], existingDirectories: ["posts"]).isEmpty)
+    }
+
+    @Test("with no config, postCollections is the existing candidate directories plus the legacy default")
+    func postCollectionsNoConfig() {
+        #expect(PostCollectionResolver.postCollections(declared: [], existingDirectories: ["blog"]) == ["blog", "posts"])
+        #expect(PostCollectionResolver.postCollections(declared: [], existingDirectories: []) == ["posts"])
+    }
+
+    @Test("resolve(siteDirectory:) always picks a member of postCollections(siteDirectory:)")
+    func resolveIsMemberOfPostCollections() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("post-collection-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("src/content/articles"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try """
+        const blog = defineCollection({ type: "content", schema: z.object({ title: z.string() }) });
+        const articles = defineCollection({ type: "content", schema: z.object({ title: z.string() }) });
+        export const collections = { blog, articles };
+        """.write(to: root.appendingPathComponent("src/content.config.ts"), atomically: true, encoding: .utf8)
+
+        let set = PostCollectionResolver.postCollections(siteDirectory: root)
+        #expect(set == ["blog", "articles"])
+        #expect(set.contains(try #require(PostCollectionResolver.resolve(siteDirectory: root))))
+    }
 }

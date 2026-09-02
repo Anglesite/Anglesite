@@ -28,15 +28,22 @@ public enum PostCollectionResolver {
     /// `content.config.ts` plus which candidate directories exist under `src/content/`. Returns
     /// `nil` only when the config declares collections and none is blog-like.
     public static func resolve(siteDirectory: URL) -> String? {
-        let declared = FrontmatterSchemaReader.declaredCollectionNames(siteDirectory: siteDirectory)
-        let contentDir = siteDirectory.appendingPathComponent("src/content", isDirectory: true)
-        let existing = candidates.filter { name in
-            var isDir: ObjCBool = false
-            return FileManager.default.fileExists(
-                atPath: contentDir.appendingPathComponent(name, isDirectory: true).path, isDirectory: &isDir)
-                && isDir.boolValue
-        }
-        return resolve(declared: declared, existingDirectories: existing)
+        resolve(
+            declared: FrontmatterSchemaReader.declaredCollectionNames(siteDirectory: siteDirectory),
+            existingDirectories: existingCandidateDirectories(siteDirectory: siteDirectory))
+    }
+
+    /// Every blog-like collection the site has — the set-valued sibling of
+    /// ``resolve(siteDirectory:)`` for classifiers that need to recognize *all* of a site's post
+    /// collections rather than pick one to write into (``SiteKnowledgeIndex``, #1725). Same
+    /// facts, same fallbacks: the declared ``candidates`` when the config declares anything, else
+    /// the candidate directories that exist plus ``legacyDefault``. Whatever
+    /// ``resolve(siteDirectory:)`` returns is always a member; the set is empty exactly when it
+    /// returns `nil`.
+    public static func postCollections(siteDirectory: URL) -> Set<String> {
+        postCollections(
+            declared: FrontmatterSchemaReader.declaredCollectionNames(siteDirectory: siteDirectory),
+            existingDirectories: existingCandidateDirectories(siteDirectory: siteDirectory))
     }
 
     /// Pure resolution over already-gathered facts — see the type doc for the order. Split out
@@ -46,5 +53,25 @@ public enum PostCollectionResolver {
             return candidates.first { declared.contains($0) }
         }
         return candidates.first { existingDirectories.contains($0) } ?? legacyDefault
+    }
+
+    /// Pure counterpart of ``postCollections(siteDirectory:)``.
+    static func postCollections(declared: [String], existingDirectories: [String]) -> Set<String> {
+        if !declared.isEmpty {
+            return Set(candidates.filter { declared.contains($0) })
+        }
+        return Set(candidates.filter { existingDirectories.contains($0) }).union([legacyDefault])
+    }
+
+    /// Which of ``candidates`` exist as directories under `src/content/` — the no-config fallback
+    /// signal shared by both resolvers.
+    private static func existingCandidateDirectories(siteDirectory: URL) -> [String] {
+        let contentDir = siteDirectory.appendingPathComponent("src/content", isDirectory: true)
+        return candidates.filter { name in
+            var isDir: ObjCBool = false
+            return FileManager.default.fileExists(
+                atPath: contentDir.appendingPathComponent(name, isDirectory: true).path, isDirectory: &isDir)
+                && isDir.boolValue
+        }
     }
 }
