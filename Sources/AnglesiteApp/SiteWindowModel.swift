@@ -95,6 +95,26 @@ final class SiteWindowModel {
     // the panel UI is target-agnostic.
     var chat: ChatModel?
     var chatPresented = false
+
+    /// View ▸ Show/Hide Chat (⌃⌘K) and the toolbar Chat button. Showing goes through
+    /// `showChat()` so the prompt input also takes keyboard focus (#1640); hiding just dismisses.
+    func toggleChat() {
+        if chatPresented {
+            chatPresented = false
+        } else {
+            showChat()
+        }
+    }
+
+    /// Presents the chat pane (a no-op on visibility if it's already open) and asks `ChatModel`
+    /// to put keyboard focus in its prompt input, so a keyboard-only user lands ready to type
+    /// rather than having to Tab across the window to reach the field (#679 checklist, #1640).
+    /// `chat` is `nil` until the site resolves in `loadAndStart` — the pane can't render before
+    /// then either (`SiteWindow` gates on both), so there's nothing to focus yet.
+    func showChat() {
+        chatPresented = true
+        chat?.requestInputFocus()
+    }
     /// Created once the site resolves in `loadAndStart` (needs `siteDirectory`/`configDirectory`),
     /// same lifecycle as `chat`. Its own `sheetPresented` drives the `.sheet(isPresented:)` in
     /// `SiteWindow`, following `AuditModel`'s pattern rather than the item-based sheets.

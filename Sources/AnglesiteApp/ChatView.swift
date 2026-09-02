@@ -39,6 +39,16 @@ struct ChatView: View {
             await model.loadHistory()
             await model.loadAnnotations()
         }
+        // Input focus on request (#1640): View ▸ Show Chat ⌃⌘K / the toolbar Chat button latch a
+        // request on the model *before* this pane is mounted, so the appear-time `.task` picks
+        // it up (`.task`, not `.onAppear`, so the field has finished laying out — the same
+        // pattern the New Community / navigator-rename fields use); the `onChange` covers a
+        // request that arrives while the pane is already open. Both consume the request so it
+        // can't re-fire on a later remount.
+        .task { focusInputIfRequested() }
+        .onChange(of: model.inputFocusRequested) { _, requested in
+            if requested { focusInputIfRequested() }
+        }
         .sheet(item: $model.conflictPrompt) { prompt in
             VStack(alignment: .leading, spacing: 12) {
                 Text("File modified outside Anglesite")
@@ -215,6 +225,11 @@ struct ChatView: View {
                 }
             }
         )
+    }
+
+    private func focusInputIfRequested() {
+        guard model.consumeInputFocusRequest() else { return }
+        inputFocused = true
     }
 
     private func submitIfReady() {

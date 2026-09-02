@@ -925,7 +925,7 @@ struct SiteWindow: View {
 
             ToolbarItem(id: SiteToolbarItemID.chat.rawValue, placement: .primaryAction) {
                 Button {
-                    model.chatPresented.toggle()
+                    model.toggleChat()
                 } label: {
                     Label("Chat", systemImage: model.chatPresented
                         ? "bubble.left.and.bubble.right.fill"
@@ -933,8 +933,9 @@ struct SiteWindow: View {
                 }
                 .help(model.chatPresented ? "Hide chat panel" : "Show chat panel")
                 .accessibilityIdentifier(AXID.toolbar(.chat))
-                // ⌘K moved to View ▸ Show/Hide Chat (#512) — a second registration here would
-                // recreate the duplicate-shortcut ambiguity #509 removed for ⌘S.
+                // The shortcut (⌃⌘K, re-keyed from ⌘K per menu-bar spec §3) lives on View ▸
+                // Show/Hide Chat (#512) — a second registration here would recreate the
+                // duplicate-shortcut ambiguity #509 removed for ⌘S.
             }
 
             // Moved ahead of the two inspector toggles (#714 v2 slice 3 final review) so
