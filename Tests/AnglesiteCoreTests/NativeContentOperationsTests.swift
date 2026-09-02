@@ -136,6 +136,119 @@ struct NativeContentOperationsTests {
         #expect(reason.contains("Invalid collection name"))
     }
 
+    /// The shipped template's `content.config.ts` shape: a `blog` collection (strict schema keyed
+    /// on `pubDate`) and no `posts` collection at all.
+    private func writeBlogContentConfig(in root: URL) throws {
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("src"), withIntermediateDirectories: true)
+        try """
+        import { defineCollection } from "astro:content";
+        const blog = defineCollection({
+          loader: collectionLoader("blog"),
+          schema: z.object({
+            ...socialFields,
+            lang: z.string().optional(),
+            title: z.string(),
+            pubDate: z.coerce.date(),
+            description: z.string().optional(),
+            draft: z.boolean().default(false),
+          }).strict(),
+        });
+        const events = defineCollection({
+          loader: glob({ pattern: "**/*.md", base: "./src/content/events" }),
+          schema: z.object({ name: z.string(), start: z.coerce.date() }).strict(),
+        });
+        export const collections = { blog, events };
+        """.write(to: root.appendingPathComponent("src/content.config.ts"), atomically: true, encoding: .utf8)
+    }
+
+    @Test("createPost with no collection files the post in the site's declared blog collection (#1716)")
+    func createPostResolvesDeclaredBlogCollection() async throws {
+        let (ops, root, spy) = makeOps()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBlogContentConfig(in: root)
+
+        let result = await ops.createPost(siteID: "s1", title: "Hello World", collection: nil, slug: nil)
+
+        #expect(result == .created(filePath: "src/content/blog/hello-world.md", identifier: "hello-world"))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("src/content/posts").path))
+        let calls = await spy.calls
+        #expect(calls.first?.2 == "anglesite: add blog hello-world")
+    }
+
+    @Test("createPost shapes the frontmatter to the resolved collection's strict schema (#1716)")
+    func createPostMatchesDeclaredSchema() async throws {
+        let (ops, root, _) = makeOps()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBlogContentConfig(in: root)
+
+        _ = await ops.createPost(siteID: "s1", title: "Hello World", collection: nil, slug: nil)
+
+        let written = try String(contentsOf: root.appendingPathComponent("src/content/blog/hello-world.md"), encoding: .utf8)
+        #expect(written == """
+        ---
+        title: "Hello World"
+        description: ""
+        pubDate: 2025-06-15T15:06:40.000Z
+        draft: true
+        ---
+
+        Write your post here.
+
+        """)
+    }
+
+    @Test("createPost refuses when the config declares collections but none is blog-like (#1716)")
+    func createPostRefusesWithoutBlogLikeCollection() async throws {
+        let (ops, root, spy) = makeOps()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("src"), withIntermediateDirectories: true)
+        try """
+        const events = defineCollection({ schema: z.object({ name: z.string() }) });
+        export const collections = { events };
+        """.write(to: root.appendingPathComponent("src/content.config.ts"), atomically: true, encoding: .utf8)
+
+        let result = await ops.createPost(siteID: "s1", title: "Hello World", collection: nil, slug: nil)
+
+        guard case let .failed(reason) = result else { Issue.record("expected .failed, got \(result)"); return }
+        #expect(reason.contains("blog collection"))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("src/content/posts").path))
+        #expect(await spy.calls.isEmpty)
+    }
+
+    @Test("createPost refuses when the blog collection's schema is imported rather than readable (#1716)")
+    func createPostRefusesUnreadableBlogSchema() async throws {
+        let (ops, root, spy) = makeOps()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("src"), withIntermediateDirectories: true)
+        // The shipped template's `articles` collection: declared and blog-like, but its `.strict()`
+        // schema lives in `lib/content-schemas.ts` (keyed on `summary`, not `description`), so the
+        // legacy frontmatter shape would be rejected by Astro. Refuse instead of guessing.
+        try """
+        import { articlesSchema } from "./lib/content-schemas.ts";
+        const articles = defineCollection({ loader: glob({ base: "./src/content/articles" }), schema: articlesSchema });
+        export const collections = { articles };
+        """.write(to: root.appendingPathComponent("src/content.config.ts"), atomically: true, encoding: .utf8)
+
+        let result = await ops.createPost(siteID: "s1", title: "Hello World", collection: nil, slug: nil)
+
+        guard case let .failed(reason) = result else { Issue.record("expected .failed, got \(result)"); return }
+        #expect(reason.contains("articles"))
+        #expect(reason.contains("schema"))
+        #expect(!FileManager.default.fileExists(atPath: root.appendingPathComponent("src/content").path))
+        #expect(await spy.calls.isEmpty)
+    }
+
+    @Test("an explicit collection still wins over the resolved default")
+    func createPostExplicitCollectionOverridesResolution() async throws {
+        let (ops, root, _) = makeOps()
+        defer { try? FileManager.default.removeItem(at: root) }
+        try writeBlogContentConfig(in: root)
+
+        let result = await ops.createPost(siteID: "s1", title: "Note one", collection: "notes", slug: nil)
+
+        #expect(result == .created(filePath: "src/content/notes/note-one.md", identifier: "note-one"))
+    }
+
     @Test("createTyped writes a like to its collection and commits")
     func createTypedLike() async throws {
         let (ops, root, spy) = makeOps()

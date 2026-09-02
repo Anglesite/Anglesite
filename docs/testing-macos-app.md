@@ -156,11 +156,16 @@ verification pass, but quit the app when you're done.
 Key controls carry stable `accessibilityIdentifier`s (#1535), defined in
 [`Sources/AnglesiteApp/AXID.swift`](../Sources/AnglesiteApp/AXID.swift):
 site-window toolbar items derive `toolbar.<SiteToolbarItemID>` (e.g.
-`toolbar.deploy`), and the navigator, shared sheet header, and debug pane have
-hand-assigned dotted IDs (`navigator.list`, `sheet.header`, `debug.pause`).
-`AXIDTests` freezes format and uniqueness — treat the strings as automation
-API: renaming one breaks external scripts, same contract as
-`SiteToolbarItemID`.
+`toolbar.deploy`), and the navigator, shared sheet header, Website Settings
+takeover, and debug pane have hand-assigned dotted IDs (`navigator.list`,
+`sheet.header`, `settings.tabs`, `debug.pause`). Per-item rows derive theirs
+from an already-stable, non-localized key: Workers-tab rows from the catalog
+worker id (`settings.workers.toggle.<workerID>`,
+`settings.workers.status.<workerID>`) and the debug pane's Local Workers rows
+from the site id (`debug.worker.<siteID>` for the row group, then `.name`,
+`.status`, `.url`, `.copy`, `.failure` beneath it). `AXIDTests` freezes format
+and uniqueness — treat the strings as automation API: renaming one breaks
+external scripts, same contract as `SiteToolbarItemID`.
 
 They surface as the AX element's `AXIdentifier` attribute (what XCUITest
 matches as `identifier`), so UI scripting can target controls without
@@ -173,6 +178,46 @@ Accessibility. Example (once granted):
 ```sh
 osascript -e 'tell application "System Events" to tell process "Anglesite" to get value of attribute "AXIdentifier" of buttons of toolbar 1 of window 1'
 ```
+
+### Re-verifying navigator keyboard-focus gating (#1732, #1747)
+
+The navigator's Return-to-rename **and** ⌘⌫-to-delete key equivalents
+([`SiteNavigatorView.swift`](../Sources/AnglesiteApp/SiteNavigatorView.swift))
+are each attached only while the navigator `List` holds keyboard focus (⌘⌫ is
+additionally ANDed with `!previewHasKeyboardFocus`, #1715/#1730), and a click
+on a row gives the list that focus via a `simultaneousGesture(TapGesture())`.
+None of this has automated coverage: `@FocusState` only reflects focus for a
+key window in an active app, and a hosted `swift test` process is not reliably
+either (a synthesized `NSWindow.sendEvent` click doesn't even select a row
+there), so a hosted test would flake. If you touch that file's `.focused`,
+`simultaneousGesture`, `if listHasKeyboardFocus` (Return), or
+`if listHasKeyboardFocus && !previewHasKeyboardFocus` (⌘⌫) blocks, re-verify by
+hand on a Debug build (launch per the steps above; Full Keyboard Access off):
+
+1. **Return leak check — the #1732 repro.** Select a navigator row → Website ▸
+   Graph… → Tab until focus is in the takeover's Explorer outline → ↓ →
+   Return. The navigator must not show a rename field
+   (`navigator.renameField` absent from the AX tree), its selection must be
+   unchanged, and focus must stay in the Explorer.
+2. **⌘⌫ leak check — the #1747 repro.** Same setup, but press ⌘⌫ instead of
+   Return once focus is in the Explorer outline. No delete confirmation for
+   the navigator's selection must appear, the selection must be unchanged, and
+   focus must stay in the Explorer.
+3. **Click-to-focus.** Fresh launch → click a row, with no Tab first. ↓ must
+   move the selection, Return must open the rename field (Esc cancels), and
+   ⌘⌫ (with the rename field not open) must show the delete confirmation.
+   Repeat with the Graph takeover open and a navigator click closing it.
+4. **Commit path.** Return inside an active rename field commits it: the field
+   disappears, focus returns to the list, and Return renames again.
+
+With Accessibility permission granted (see above), `AXFocusedUIElement` of the
+app's window via System Events tells you which control holds focus at each
+step; `navigator.list` and `navigator.renameField` are the two identifiers
+involved. The one premise that *can* be checked in-process — that `.focused`
+on the `List` stays true while the descendant rename `TextField` is first
+responder — is a ~60-line `NSHostingView` probe of the same
+List › OutlineGroup › TextField nesting; the click-to-focus gap is not
+reproducible that way.
 
 ## Xcode MCP (optional, richer control)
 

@@ -23,13 +23,14 @@ struct SiteNavigatorView: View {
     var onUnpublishRequested: (NavigatorItem) -> Void
     @FocusState private var editingFocused: Bool
     /// True while the navigator `List` itself (or the inline-rename field inside it) holds
-    /// keyboard focus. Gates the hidden ⌘⌫ key equivalent below (#1747), ANDed with
-    /// `previewHasKeyboardFocus` above: a SwiftUI `.keyboardShortcut` is window-scoped, so without
-    /// this gate ⌘⌫ pressed with focus in any other view that doesn't consume it — the Site Graph
-    /// takeover's Explorer outline, the Related Pages panel, inspector controls — deleted whatever
-    /// THIS list happened to have selected. `previewHasKeyboardFocus` above only covers the
-    /// preview/canvas (#1423, #1715); this is the general case. Xcode/Finder semantics: ⌘⌫ (or
-    /// Delete) acts on a list only while that list has focus.
+    /// keyboard focus. Gates BOTH hidden view-level key equivalents below — Return-to-rename
+    /// (#1732) and ⌘⌫-to-delete (#1747, ANDed there with `previewHasKeyboardFocus`): a SwiftUI
+    /// `.keyboardShortcut` is window-scoped, so without this gate Return/⌘⌫ pressed with focus in
+    /// any other view that doesn't consume it — the Site Graph takeover's Explorer outline, the
+    /// Related Pages panel, inspector controls — acted on whatever THIS list happened to have
+    /// selected instead of the actually-focused view. `previewHasKeyboardFocus` above only covers
+    /// the preview/canvas (#1423, #1715); this is the general, list-focus case. Xcode/Finder
+    /// semantics: Return/⌘⌫ (or Delete) act on a list only while that list has focus.
     @FocusState private var listHasKeyboardFocus: Bool
 
     var body: some View {
@@ -41,13 +42,26 @@ struct SiteNavigatorView: View {
         .listStyle(.sidebar)
         .accessibilityIdentifier(AXID.navigatorList)
         .focused($listHasKeyboardFocus)
-        // A click on a row must also give the list keyboard focus so the ordinary click-then-⌘⌫
-        // delete gesture satisfies the gate below — a plain click selects a row without moving
-        // AppKit focus to the list (`@FocusState` doesn't follow selection), so without this the
-        // gate would make ⌘⌫ inert right after every mouse click. `simultaneousGesture` so
-        // selection, drag-out (`.draggable`) and the context menu keep working. Primary click
-        // only, deliberately: a right-click doesn't change `selection`, so focusing the list on
-        // one would let ⌘⌫ act on a row other than the one the context menu targeted.
+        // A click on a row must also give the list keyboard focus (Finder semantics) so the
+        // ordinary click-then-Return-rename and click-then-⌘⌫-delete gestures both satisfy the
+        // gate below. Verified on-device: once SwiftUI's focus goes nil (e.g. the focused Site
+        // Graph explorer is torn down when a navigator click closes the takeover), a plain click
+        // selects a row WITHOUT moving focus to the list — ↓, Return, and ⌘⌫ then go nowhere until
+        // the user Tabs. `simultaneousGesture` so selection, drag-out (`.draggable`) and the
+        // context menu keep working.
+        //
+        // Primary click only, deliberately: `TapGesture` ignores secondary clicks, which matches
+        // AppKit — only a left mouse-down moves first responder; a right-click is routed to
+        // `rightMouseDown`/`menu(for:)` and leaves the responder chain alone. It also keeps
+        // Return/⌘⌫ honest: a right-click doesn't change `selection`, so focusing the list on one
+        // would let Return/⌘⌫ act on a row other than the one the context menu targeted. The
+        // menu's own Rename/Delete act on `node.id` directly and need no focus.
+        //
+        // No automated coverage for this wiring or the gates below: `@FocusState` only reflects
+        // focus for a key window in an active app, and a hosted `swift test` process is not
+        // reliably either (a synthesized `sendEvent` click doesn't even select a row there), so
+        // a hosted test would flake. Re-verify by hand — see docs/testing-macos-app.md ▸
+        // "Re-verifying navigator keyboard-focus gating".
         .simultaneousGesture(TapGesture().onEnded {
             if !listHasKeyboardFocus { listHasKeyboardFocus = true }
         })
@@ -78,19 +92,37 @@ struct SiteNavigatorView: View {
             }
         }
         .background {
-            Button("") {
-                if let id = model.selection, model.editingItemID == nil, model.canRename(id) {
-                    model.beginEditing(id)
+            // Return-to-rename (Finder semantics) as a view-level key equivalent. Attached only
+            // while `listHasKeyboardFocus` (#1732) — see its doc comment: the shortcut is
+            // window-scoped, so mounting the Button unconditionally let Return leak in from any
+            // other focused view (e.g. the Site Graph explorer) and rename the navigator's
+            // selection. Detaching rather than `.disabled`-ing is what frees the keystroke for
+            // the focused view — the same conditional-attachment shape as
+            // `onDeleteCommand(active:perform:)` (`PreviewView.swift`).
+            //
+            // `listHasKeyboardFocus` stays true during inline rename: `.focused` on a container
+            // reflects focus anywhere in its subtree, so while the rename `TextField` (a
+            // descendant, focused via `$editingFocused`) is the window's first responder this
+            // block stays mounted. Verified with an in-process `NSHostingView` probe of the same
+            // List › OutlineGroup › TextField nesting: first responder = the field editor, the
+            // binding still true, the block never unmounted, and focus back on the list once the
+            // field went away. That is why the `.disabled` below is needed at all — it is the
+            // in-rename guard, not the focus gate.
+            if listHasKeyboardFocus {
+                Button("") {
+                    if let id = model.renameableSelection() {
+                        model.beginEditing(id)
+                    }
                 }
+                .keyboardShortcut(.return, modifiers: [])
+                .hidden()
+                // `.hidden()` still exposes the empty-label button to VoiceOver; keep it out of
+                // the accessibility tree (it's a keyboard-shortcut affordance, not a real control).
+                .accessibilityHidden(true)
+                // Disabled while editing: otherwise this default-button shortcut swallows Return
+                // before the focused TextField's onSubmit, so commits never fire (#299 review).
+                .disabled(model.editingItemID != nil)
             }
-            .keyboardShortcut(.return, modifiers: [])
-            .hidden()
-            // `.hidden()` still exposes the empty-label button to VoiceOver; keep it out of the
-            // accessibility tree (it's a keyboard-shortcut affordance, not a real control).
-            .accessibilityHidden(true)
-            // Disabled while editing: otherwise this default-button shortcut swallows Return
-            // before the focused TextField's onSubmit, so commits never fire (#299 review).
-            .disabled(model.editingItemID != nil)
         }
         .background {
             // ⌘⌫ as a second key equivalent for the same delete action (#989) — a view-level key
