@@ -8,7 +8,9 @@ struct WebsiteInspectorView: View {
     let openStylesheet: (FileRef) -> Void
     let openMoreSettings: () -> Void
 
-    @SceneStorage("websiteInspector.tab") private var tab: SiteInspectorTab = .metadata
+    /// Hoisted to `SiteWindow` (#1699 slice 1) — same `NSHostingController`/scene-storage
+    /// constraint as `SiteInspectorView.tab`.
+    @Binding var tab: SiteInspectorTab
     @FocusState private var titleFocused: Bool
     @FocusState private var languageFocused: Bool
 

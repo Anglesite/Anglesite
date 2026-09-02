@@ -12,6 +12,11 @@ public protocol ExperimentResultsService: Sendable {
     /// returns its live counts, or `nil` when no site has one running, its D1 database isn't
     /// provisioned, or there's no Cloudflare token available.
     func prefillForRunningExperiment() async -> ExperimentResultsSync.Prefill?
+
+    /// The most recently concluded experiment across every site the app knows about (#1270 slice
+    /// 6), or `nil` when no site has ever concluded one. Backs `AnalyzeExperimentIntent`'s
+    /// zero-argument fallback once there's no running experiment to report on.
+    func mostRecentConcludedOutcome() async -> ExperimentHistoryStore.Outcome?
 }
 
 /// Production conformance: reads every site `SiteStore` knows about, MRU-first.
@@ -22,5 +27,18 @@ public struct LiveExperimentResultsService: ExperimentResultsService {
         let sites = await SiteStore.shared.sites
         return await ExperimentResultsSync.prefillForRunningExperiment(
             sites: sites.map { (sourceDirectory: $0.sourceDirectory, configDirectory: $0.configDirectory) })
+    }
+
+    public func mostRecentConcludedOutcome() async -> ExperimentHistoryStore.Outcome? {
+        let sites = await SiteStore.shared.sites
+        var mostRecent: ExperimentHistoryStore.Outcome?
+        for site in sites {
+            let outcomes = await ExperimentHistoryStore(configDirectory: site.configDirectory).load()
+            guard let latest = outcomes.last else { continue }
+            if mostRecent == nil || latest.concludedAt > mostRecent!.concludedAt {
+                mostRecent = latest
+            }
+        }
+        return mostRecent
     }
 }

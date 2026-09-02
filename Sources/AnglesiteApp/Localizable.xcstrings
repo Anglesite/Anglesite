@@ -1160,6 +1160,9 @@
     "Computed" : {
 
     },
+    "Conclude this test" : {
+
+    },
     "Condition, e.g. (min-width: 768px)" : {
 
     },
@@ -1682,6 +1685,9 @@
     "Enable Tor Browser access for this site via Cloudflare's zone-level setting" : {
 
     },
+    "End test early" : {
+
+    },
     "Enforce" : {
 
     },
@@ -2154,6 +2160,9 @@
 
     },
     "Keep it at your current registrar — you'll add it to Cloudflare and point its nameservers there. We'll connect it automatically on your next Publish once that's done." : {
+
+    },
+    "Keep the original" : {
 
     },
     "Keep which version" : {
@@ -2961,6 +2970,9 @@
     "Project Style Guide" : {
 
     },
+    "Promote the variant" : {
+
+    },
     "Props" : {
 
     },
@@ -3013,6 +3025,9 @@
 
     },
     "Published to GitHub" : {
+
+    },
+    "Publishes To" : {
 
     },
     "Publishing" : {
@@ -3918,6 +3933,9 @@
     "The domain must be managed in Cloudflare. Your API token needs Zone DNS Read and Edit permissions." : {
 
     },
+    "The host your next publish goes to. Whatever you published before stays online until you publish again. GitHub Pages publishes with the GitHub token in Settings → Advanced → Credentials." : {
+
+    },
     "The license offered for your content. Anglesite never picks one for you — until you choose, your site says all rights reserved." : {
 
     },
@@ -4210,6 +4228,9 @@
     "Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write, Administration: Read and write access (Administration is needed to create a new repo when publishing), Repository security advisories: Read, and Dependabot alerts: Read (both are used to show a site's open security reports) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs." : {
 
     },
+    "Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write, Administration: Read and write access (Administration is needed to create a new repo when publishing), Pages: Read and write access (needed to publish a site via the GitHub Pages deploy target), Repository security advisories: Read, and Dependabot alerts: Read (both are used to show a site's open security reports) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs." : {
+
+    },
     "Uses Apple Intelligence on your device. No content leaves your Mac without your say-so." : {
 
     },
@@ -4324,6 +4345,9 @@
     "What this website is about, in a sentence" : {
 
     },
+    "What we've learned" : {
+
+    },
     "What's New in Anglesite" : {
 
     },
@@ -4354,10 +4378,16 @@
     "Words or phrases to avoid" : {
 
     },
+    "Worker features aren't available for this site — it publishes to GitHub Pages, which doesn't run Cloudflare Workers. Switch its publishing destination back to Cloudflare to use them." : {
+
+    },
     "Worker name" : {
 
     },
     "Worker name already in use" : {
+
+    },
+    "Workers Unavailable" : {
 
     },
     "Workers are unavailable for this site — its package configuration folder couldn't be found." : {

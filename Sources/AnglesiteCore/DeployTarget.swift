@@ -87,8 +87,9 @@ public struct DeployTargetContext: Sendable {
 /// itself.
 public protocol DeployTarget: Sendable {
     /// Stable identifier persisted in `Source/anglesite.json`'s `deployTarget` field (e.g.
-    /// `"cloudflare"`). Not yet read by `DeployCommand` to select a conformer (#1015 slice 1) —
-    /// reserved for the target-selection slice.
+    /// `"cloudflare"`). Read by `DeployTargetSelection` to pick the conformer a site publishes
+    /// through (#1682), so it's part of the on-disk contract: renaming one re-points every site
+    /// that declared it back to the Cloudflare default.
     static var id: String { get }
 
     /// Pre-build gate: resolves this target's credential and runs any fail-fast checks against

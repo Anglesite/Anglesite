@@ -44,6 +44,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
     let contentIndexerStore = ContentIndexerStore()
 
+    /// Purges a stale site-window toolbar customization (#1704) before any window can mount.
+    /// `willFinishLaunching` runs ahead of window/scene restoration, unlike `didFinishLaunching`.
+    func applicationWillFinishLaunching(_ notification: Notification) {
+        ToolbarConfigurationGuard.shared.purgeIfNeeded()
+    }
+
     func applicationDidFinishLaunching(_ notification: Notification) {
         Task { await AppleScriptCommandEnvironment.shared.configure(contentGraph: contentGraph) }
 

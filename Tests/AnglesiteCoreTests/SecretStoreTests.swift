@@ -104,55 +104,6 @@ struct SecretStoreTests {
         #expect(try store.readIndieAuthAccessToken(siteID: "site-a") == "microsub-tok")
     }
 
-    /// A store that simulates the #1705 scenario: `read` behaves normally (as the foreground,
-    /// interactive path would), but `readNonInteractive` always reports "unavailable" — standing
-    /// in for a keychain query that would need to show a prompt nobody can answer. Used to pin that
-    /// the `*NonInteractive` convenience methods actually route through the store's own
-    /// `readNonInteractive` override rather than silently falling back to `read`.
-    private final class WouldPromptSecretStore: SecretStore, @unchecked Sendable {
-        private var entries: [String: String] = [:]
-
-        func read(account: String) throws -> String? { entries[account] }
-        func readNonInteractive(account: String) throws -> String? { nil }
-        func write(_ value: String, account: String) throws { entries[account] = value.isEmpty ? nil : value }
-        func delete(account: String) throws { entries[account] = nil }
-    }
-
-    @Test("readCloudflareTokenNonInteractive defaults to read(account:) when a store has no override")
-    func readCloudflareTokenNonInteractiveDefaultsToRead() throws {
-        let store = InMemorySecretStore()
-        try store.writeCloudflareToken("tok-123")
-        #expect(try store.readCloudflareTokenNonInteractive() == "tok-123")
-    }
-
-    @Test("readCloudflareTokenNonInteractive reports nothing when the store's override would prompt")
-    func readCloudflareTokenNonInteractiveHonorsOverride() throws {
-        let store = WouldPromptSecretStore()
-        try store.writeCloudflareToken("tok-123")
-        #expect(try store.readCloudflareToken() == "tok-123")
-        #expect(try store.readCloudflareTokenNonInteractive() == nil)
-    }
-
-    @Test("readCloudflareOAuthCredentialNonInteractive defaults to read(account:) when a store has no override")
-    func readCloudflareOAuthCredentialNonInteractiveDefaultsToRead() throws {
-        let store = InMemorySecretStore()
-        let credential = CloudflareOAuthCredential(
-            accessToken: "tok", refreshToken: "refresh", expiresAt: nil,
-            tokenEndpoint: URL(string: "https://dash.cloudflare.com/oauth2/token")!)
-        try store.writeCloudflareOAuthCredential(credential)
-        #expect(try store.readCloudflareOAuthCredentialNonInteractive() == credential)
-    }
-
-    @Test("readCloudflareOAuthCredentialNonInteractive reports nothing when the store's override would prompt")
-    func readCloudflareOAuthCredentialNonInteractiveHonorsOverride() throws {
-        let store = WouldPromptSecretStore()
-        try store.writeCloudflareOAuthCredential(CloudflareOAuthCredential(
-            accessToken: "tok", refreshToken: "refresh", expiresAt: nil,
-            tokenEndpoint: URL(string: "https://dash.cloudflare.com/oauth2/token")!))
-        #expect(try store.readCloudflareOAuthCredential() != nil)
-        #expect(try store.readCloudflareOAuthCredentialNonInteractive() == nil)
-    }
-
     @Test("UnavailableSecretStore reads nothing, deletes as no-op, and refuses writes")
     func unavailableStoreBehavior() throws {
         let store = UnavailableSecretStore()

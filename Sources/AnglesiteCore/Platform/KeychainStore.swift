@@ -2,7 +2,6 @@
 // platforms without the Security framework.
 #if canImport(Security)
 import Foundation
-import LocalAuthentication
 import Security
 
 /// Stores secrets in the user's login keychain via `SecItem` (generic-password class).
@@ -38,6 +37,24 @@ public struct KeychainStore: SecretStore {
         /// A read returned data that didn't decode as UTF-8. Should never happen for tokens we
         /// wrote ourselves, but guards against a foreign actor having scribbled in our slot.
         case invalidUTF8
+
+        /// Whether the failure means "the user would have to authorize this" rather than "the
+        /// keychain is broken": the status a ``KeychainStore/withoutUserInteraction`` read returns
+        /// when the item's ACL doesn't trust this binary (`errSecAuthFailed`, or
+        /// `errSecInteractionNotAllowed` on some paths), and the one a user's *Deny* on the
+        /// interactive prompt produces (`errSecUserCanceled`). Callers on a background path treat
+        /// these as "not readable right now" — the secret may well exist — and leave the prompt to
+        /// the user's next foreground action (#1717). Every other status stays a plain error.
+        public var requiresUserInteraction: Bool {
+            switch self {
+            case .unhandled(let status):
+                return status == errSecAuthFailed
+                    || status == errSecInteractionNotAllowed
+                    || status == errSecUserCanceled
+            case .invalidUTF8:
+                return false
+            }
+        }
     }
 
     /// Default service identifier. Matches the app's bundle id.
@@ -85,8 +102,15 @@ public struct KeychainStore: SecretStore {
     public let service: String
 
     /// The `kSecAttrAccessGroup` every query carries, or `nil` to let the system apply the
-    /// process's default group. See ``init(service:accessGroup:)``.
+    /// process's default group. See ``init(service:accessGroup:allowsUserInteraction:)``.
     public let accessGroup: String?
+
+    /// Whether an operation may block on the login-keychain authorization dialog. `true` for the
+    /// default store (a foreground action the user just took may legitimately prompt); `false` for
+    /// the face ``withoutUserInteraction`` returns, whose operations fail fast with a status
+    /// ``Error/requiresUserInteraction`` recognizes instead. See that property for when each is
+    /// appropriate.
+    public let allowsUserInteraction: Bool
 
     /// Creates a store scoped to `service` and, optionally, to a shared keychain access group.
     ///
@@ -103,9 +127,36 @@ public struct KeychainStore: SecretStore {
     ///     reject the operation (typically `errSecMissingEntitlement`, surfaced as
     ///     ``Error/unhandled(_:)``), so this is not something to switch on speculatively, and a
     ///     caller that does pass one must have a sensible failure path for the builds that lack it.
-    public init(service: String = KeychainStore.defaultService, accessGroup: String? = nil) {
+    ///   - allowsUserInteraction: Whether operations may block on the keychain authorization
+    ///     dialog. Defaults to `true`; production callers get the `false` variant through
+    ///     ``withoutUserInteraction`` rather than passing this directly.
+    public init(
+        service: String = KeychainStore.defaultService,
+        accessGroup: String? = nil,
+        allowsUserInteraction: Bool = true
+    ) {
         self.service = service
         self.accessGroup = accessGroup
+        self.allowsUserInteraction = allowsUserInteraction
+    }
+
+    /// The same service and access group, with ``allowsUserInteraction`` off.
+    ///
+    /// The macOS login keychain guards each item with an ACL of trusted applications. The app that
+    /// created an item is on it, so production reads are silent — but a binary with a different
+    /// code signature (every rebuilt ad-hoc Debug build, or a re-signed release) isn't, and
+    /// `SecItemCopyMatching` then blocks on the "Anglesite wants to use your confidential
+    /// information stored in 'io.dwk.anglesite'" dialog until the user answers. That is acceptable
+    /// for a click the user just made and never for background work, which is where this face is
+    /// used (#1717: the invisible-publish queue's credential check after every content edit).
+    ///
+    /// `kSecUseAuthenticationUI` does not suppress that legacy-keychain prompt (verified on macOS
+    /// 27); the process-wide `SecKeychainSetUserInteractionAllowed` switch does, so each operation
+    /// on this face flips it off for exactly the duration of its `SecItem` call, under a lock so
+    /// two quiet operations can't restore each other's state early. The switch is deprecated but
+    /// functional, and the only per-process control the file-based keychain offers.
+    public var withoutUserInteraction: any SecretStore {
+        KeychainStore(service: service, accessGroup: accessGroup, allowsUserInteraction: false)
     }
 
     // MARK: Reads
@@ -117,43 +168,13 @@ public struct KeychainStore: SecretStore {
         query[kSecMatchLimit as String] = kSecMatchLimitOne
 
         var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
+        let status = performSecItemCall { SecItemCopyMatching(query as CFDictionary, &item) }
         switch status {
         case errSecSuccess:
             guard let data = item as? Data else { return nil }
             guard let string = String(data: data, encoding: .utf8) else { throw Error.invalidUTF8 }
             return string
         case errSecItemNotFound:
-            return nil
-        default:
-            throw Error.unhandled(status)
-        }
-    }
-
-    /// Same as ``read(account:)``, except a query that would need to show a system authorization
-    /// prompt — e.g. the "$App wants to use your confidential information…" dialog macOS shows
-    /// when the item's per-app ACL no longer trusts the caller's code signature, which happens on
-    /// every rebuild of an ad-hoc-signed Debug build (#1705) — fails immediately with `nil` instead
-    /// of blocking this thread until a human answers a prompt they may never see (there is no
-    /// indication anywhere in the app's UI that one is pending). `LAContext.interactionNotAllowed`
-    /// makes `SecItemCopyMatching` itself refuse to display that UI, surfacing
-    /// `errSecInteractionNotAllowed` synchronously rather than blocking on it.
-    public func readNonInteractive(account: String) throws -> String? {
-        var query = baseQuery(account: account)
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        let context = LAContext()
-        context.interactionNotAllowed = true
-        query[kSecUseAuthenticationContext as String] = context
-
-        var item: CFTypeRef?
-        let status = SecItemCopyMatching(query as CFDictionary, &item)
-        switch status {
-        case errSecSuccess:
-            guard let data = item as? Data else { return nil }
-            guard let string = String(data: data, encoding: .utf8) else { throw Error.invalidUTF8 }
-            return string
-        case errSecItemNotFound, errSecInteractionNotAllowed:
             return nil
         default:
             throw Error.unhandled(status)
@@ -177,14 +198,14 @@ public struct KeychainStore: SecretStore {
             kSecValueData as String: data,
             kSecAttrAccessible as String: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly
         ]
-        let updateStatus = SecItemUpdate(existing as CFDictionary, attributes as CFDictionary)
+        let updateStatus = performSecItemCall { SecItemUpdate(existing as CFDictionary, attributes as CFDictionary) }
         switch updateStatus {
         case errSecSuccess:
             return
         case errSecItemNotFound:
             var addQuery = baseQuery(account: account)
             for (k, v) in attributes { addQuery[k] = v }
-            let addStatus = SecItemAdd(addQuery as CFDictionary, nil)
+            let addStatus = performSecItemCall { SecItemAdd(addQuery as CFDictionary, nil) }
             guard addStatus == errSecSuccess else { throw Error.unhandled(addStatus) }
         default:
             throw Error.unhandled(updateStatus)
@@ -193,7 +214,7 @@ public struct KeychainStore: SecretStore {
 
     /// Removes the stored entry for `account`. No-op if no entry exists.
     public func delete(account: String) throws {
-        let status = SecItemDelete(baseQuery(account: account) as CFDictionary)
+        let status = performSecItemCall { SecItemDelete(baseQuery(account: account) as CFDictionary) }
         switch status {
         case errSecSuccess, errSecItemNotFound:
             return
@@ -206,6 +227,41 @@ public struct KeychainStore: SecretStore {
     // clearCloudflareToken()) comes from the SecretStore protocol extension.
 
     // MARK: Internals
+
+    #if os(macOS)
+    /// Serializes the process-wide user-interaction switch across quiet operations, so one
+    /// restoring the previous value can't re-enable prompting while another is still inside its
+    /// `SecItem` call.
+    private static let interactionLock = NSLock()
+    #endif
+
+    /// Runs one `SecItem*` call under this store's interaction policy: straight through when
+    /// ``allowsUserInteraction`` is set; otherwise with the process's keychain UI disabled for the
+    /// duration, so an item whose ACL would need the user's OK fails (`errSecAuthFailed`) instead of
+    /// blocking on the authorization dialog. See ``withoutUserInteraction`` for why this is the
+    /// (deprecated, still functional) `SecKeychainSetUserInteractionAllowed` switch and not a
+    /// per-query attribute.
+    ///
+    /// macOS only: the file-based login keychain and its ACL dialog don't exist on iOS, where
+    /// `SecItem` goes straight to the data-protection keychain and never prompts, so there the
+    /// quiet face is the default one (and the `SecKeychain*` symbols aren't in the SDK at all).
+    private func performSecItemCall(_ call: () -> OSStatus) -> OSStatus {
+        #if os(macOS)
+        guard !allowsUserInteraction else { return call() }
+        return Self.interactionLock.withLock {
+            var previous: DarwinBoolean = true
+            // Both calls are "deprecated since 10.10: SecKeychain is deprecated" and still the only
+            // process-level control the file-based login keychain has. A failure to read the
+            // previous value leaves `previous == true`, i.e. the normal state to restore to.
+            _ = SecKeychainGetUserInteractionAllowed(&previous)
+            _ = SecKeychainSetUserInteractionAllowed(false)
+            defer { _ = SecKeychainSetUserInteractionAllowed(previous.boolValue) }
+            return call()
+        }
+        #else
+        return call()
+        #endif
+    }
 
     /// The attribute dictionary identifying one slot — the shared prefix of every
     /// `SecItemCopyMatching`/`SecItemAdd`/`SecItemUpdate`/`SecItemDelete` this type issues.

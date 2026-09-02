@@ -35,6 +35,14 @@ final class PlistEditorModel {
     private(set) var rumSummary: RUMAnalyticsSummary?
     private(set) var rumSummaryError: String?
     private(set) var hasWebsiteIcons = false
+    /// Where this site publishes — `anglesite.json`'s `deployTarget` (#1682), as one of
+    /// `DeployTargetSelection.selectableIDs`. Always a value the deploy path would actually act
+    /// on: a `nil` or unrecognized declaration loads as `CloudflareDeployTarget.id`, the same
+    /// resolution `DeployTargetSelection` applies, so the picker can never show a host the site
+    /// wouldn't really deploy to. Persisted immediately by `setDeployTarget(_:)` rather than
+    /// through the tab's dirty-tracked save aggregation — it's a single declared choice with no
+    /// partially-typed intermediate state to protect, matching the Workers tab's toggles.
+    private(set) var deployTargetID = CloudflareDeployTarget.id
     var analyticsSettings = WebsiteAnalyticsAsset.Settings() {
         didSet {
             if oldValue.customHeadTag != analyticsSettings.customHeadTag {
@@ -335,6 +343,7 @@ final class PlistEditorModel {
             lastModified = loaded.modificationDate
             loadError = nil
             hasWebsiteIcons = WebsiteIconInstaller.hasInstalledIcons(in: sourceDirectory)
+            deployTargetID = Self.loadDeployTargetID(sourceDirectory: sourceDirectory)
             let (analytics, config) = try Self.loadAnalyticsSettings(sourceDirectory: sourceDirectory)
             analyticsSettings = analytics
             savedAnalyticsSettings = analytics
@@ -1123,6 +1132,35 @@ final class PlistEditorModel {
     // (`setWorkerActive`), so this facet is never dirty and never participates in the
     // save-on-leave/⌘S aggregation.
 
+    // MARK: Workers capability gate (#1683)
+
+    /// Why every Workers-backed control is unavailable on a non-Cloudflare site. One string for
+    /// both the replaced tab body and the two action-layer guards, so the owner reads the same
+    /// sentence wherever they meet the wall.
+    ///
+    /// Names GitHub Pages outright rather than saying "your host doesn't support this": the app
+    /// advises, it doesn't make the owner go diff `anglesite.json` to find out what it meant.
+    /// `.githubPages` is the only non-Cloudflare kind today — revisit this wording (and probably
+    /// make it a function of ``DeployTargetKind``) when a third one lands.
+    static let workersUnavailableExplanation = String(
+        localized: "Worker features aren't available for this site — it publishes to GitHub Pages, which doesn't run Cloudflare Workers. Switch its publishing destination back to Cloudflare to use them.")
+
+    /// Where this site publishes, read straight from `Source/anglesite.json` at each access —
+    /// the same one-off-read pattern `ExperimentStatsModel`/`ConnectDomainModel`/
+    /// `DomainConfigAuditModel` use, rather than caching a copy that a hand edit (or another
+    /// window's write) could leave stale. A read failure degrades to `.cloudflare`, which is what
+    /// an undeclared site means anyway — a settings pane can't decide a corrupt config file means
+    /// "take features away."
+    var deployTargetKind: DeployTargetKind {
+        DeployTargetKind(identifier: try? DomainConfigStore(sourceDirectory: sourceDirectory).load().deployTarget)
+    }
+
+    /// Whether this site's host can run Workers at all. The Workers tab reads it to decide
+    /// whether to show the catalog or the explanation, and both write paths guard on it.
+    var supportsWorkers: Bool {
+        DeployTargetCapabilities.supportsWorkers(for: deployTargetKind)
+    }
+
     /// Loads everything the Workers tab shows: persisted `SiteSettings`, the worker catalog
     /// (network fetch with cache/empty degradation inside `WorkerCatalogFetcher`), and per-
     /// component-tied-worker affected pages via `ImpactAnalysis` over the Site Graph snapshot.
@@ -1219,6 +1257,14 @@ final class PlistEditorModel {
     /// `activeWorkerIDs` (#1172 review follow-up) — see that function's doc comment for why a plain
     /// `Config/`-only toggle would silently drop a trusted hand edit to the declaration.
     func setWorkerActive(_ workerID: String, isOn: Bool) async {
+        // Defense in depth (#1683): the gated tab body never renders this toggle, so reaching
+        // here means something bypassed the view. Refuse and explain rather than writing an
+        // activation that `DeployModel`'s `as? CloudflareDeployTarget` fallback would then
+        // silently decline to provision — same non-bypassable posture as `PreDeployCheck`.
+        guard supportsWorkers else {
+            workersError = Self.workersUnavailableExplanation
+            return
+        }
         guard let configDirectory else { return }
         let store = SiteConfigStore(configDirectory: configDirectory)
         var settings = (try? await store.load()) ?? workerSettings
@@ -1251,6 +1297,14 @@ final class PlistEditorModel {
     /// `setWorkerActive`'s "toggle now, provision later" contract exactly. Turning off never
     /// touches `provisionedWorkerResources` — the namespace and any staged submissions survive.
     func setInboxCaptureEnabled(_ enabled: Bool) async {
+        // Gated up front (#1683) — including the *off* path. Turning off is still a
+        // `Config/settings.plist` write on behalf of a feature this host can't run, and letting
+        // it through would clear a value that becomes live again the moment the site is pointed
+        // back at Cloudflare. Same defense-in-depth rationale as `setWorkerActive`.
+        guard supportsWorkers else {
+            inboxCaptureError = Self.workersUnavailableExplanation
+            return
+        }
         guard let configDirectory else { return }
         let store = SiteConfigStore(configDirectory: configDirectory)
         guard enabled else {
@@ -1316,6 +1370,29 @@ final class PlistEditorModel {
             email.inboxForwardAddress = trimmed
             config.email = email
         }
+    }
+
+    // MARK: - Publishing (#1682)
+
+    /// The stored `deployTarget`, normalized through `DeployTargetSelection.canonicalID(forDeclared:)`
+    /// — the same policy `DeployCommand`'s resolver goes through — so an absent, empty, or
+    /// unrecognized declaration reads as Cloudflare here for exactly the reason it deploys through
+    /// Cloudflare there, rather than because a second copy of that rule happens to agree.
+    private static func loadDeployTargetID(sourceDirectory: URL) -> String {
+        let declared = (try? DomainConfigStore(sourceDirectory: sourceDirectory).load())?.deployTarget
+        return DeployTargetSelection.canonicalID(forDeclared: declared)
+    }
+
+    /// Persists where this site publishes to `anglesite.json`'s `deployTarget` (#1682). Writes
+    /// the Cloudflare identifier explicitly rather than clearing the key when the owner switches
+    /// back: `DomainConfigStore.save`'s merge only preserves keys the caller doesn't mention, and
+    /// an explicit declaration is what makes the choice legible in the git history `Source/` is
+    /// the source of truth for. Ignores an identifier this app version can't act on, so the
+    /// picker and the deploy path can never disagree.
+    func setDeployTarget(_ id: String) {
+        guard DeployTargetSelection.selectableIDs.contains(id), id != deployTargetID else { return }
+        deployTargetID = id
+        DomainConfigStore.update(sourceDirectory: sourceDirectory) { $0.deployTarget = id }
     }
 
     /// Loads what the Social tab shows: persisted `SiteSettings` (for the Atmosphere toggle) and

@@ -14,31 +14,29 @@ import Foundation
 /// - `read` returns `nil` (not an error) when no entry exists.
 /// - `write("")` deletes the entry, so an empty write round-trips as `read → nil`.
 /// - `delete` of a missing entry is a no-op, not an error.
+/// - `withoutUserInteraction` never blocks on a user prompt; a read that would need one throws.
 /// - Values are secrets: implementations and callers must never log them.
 public protocol SecretStore: Sendable {
     /// Returns the stored secret for `account`, or `nil` if no entry exists.
     func read(account: String) throws -> String?
-    /// Returns the stored secret for `account` the same way as ``read(account:)``, except a read
-    /// that would need to show the user a system authorization prompt fails fast (returns `nil`)
-    /// instead of blocking the caller until someone answers it. Background/automatic paths that
-    /// can't put a prompt in front of anyone — the invisible publish queue (#1705) — must call
-    /// this instead of ``read(account:)``, which is allowed to block on that prompt because it's
-    /// only ever called from an interactive, user-initiated flow. The default implementation just
-    /// forwards to ``read(account:)`` for stores with no interactive UI to suppress; only
-    /// `KeychainStore` overrides it for real.
-    func readNonInteractive(account: String) throws -> String?
     /// Writes `value` for `account`, replacing any existing entry. An empty `value` deletes.
     func write(_ value: String, account: String) throws
     /// Removes the stored entry for `account`. No-op if no entry exists.
     func delete(account: String) throws
+    /// The same store, addressing the same entries, whose operations never wait on the user.
+    ///
+    /// Background work — anything the user didn't just click — must read secrets through this
+    /// face (#1717): where the platform store would otherwise raise an authorization dialog (the
+    /// macOS login-keychain "Anglesite wants to use your confidential information…" prompt, for an
+    /// item this binary isn't on the ACL of), the operation fails instead, and the caller treats
+    /// that as "not readable right now", not as "no secret". A store that can never prompt returns
+    /// `self` — the protocol extension's default.
+    var withoutUserInteraction: any SecretStore { get }
 }
 
 public extension SecretStore {
-    /// Default: no distinct non-interactive path to take, so this just behaves like
-    /// ``read(account:)``.
-    func readNonInteractive(account: String) throws -> String? {
-        try read(account: account)
-    }
+    /// Default for stores that never prompt: the same store.
+    var withoutUserInteraction: any SecretStore { self }
 }
 
 /// Well-known account keys, shared across platform stores so the Settings UI, deploy path,
@@ -180,11 +178,6 @@ public extension SecretStore {
         try read(account: SecretAccounts.cloudflareToken)
     }
 
-    /// Same as ``readCloudflareToken()`` but never prompts — see ``readNonInteractive(account:)``.
-    func readCloudflareTokenNonInteractive() throws -> String? {
-        try readNonInteractive(account: SecretAccounts.cloudflareToken)
-    }
-
     /// Store the Cloudflare API token under the shared account key. Empty string clears.
     func writeCloudflareToken(_ token: String) throws {
         try write(token, account: SecretAccounts.cloudflareToken)
@@ -310,24 +303,12 @@ public extension SecretStore {
     /// Read the stored Cloudflare OAuth credential, or `nil` if none is stored (or the stored
     /// token endpoint doesn't parse as a URL — a credential without one can never be refreshed).
     func readCloudflareOAuthCredential() throws -> CloudflareOAuthCredential? {
-        try readCloudflareOAuthCredential(using: read(account:))
-    }
-
-    /// Same as ``readCloudflareOAuthCredential()`` but never prompts — see
-    /// ``readNonInteractive(account:)``.
-    func readCloudflareOAuthCredentialNonInteractive() throws -> CloudflareOAuthCredential? {
-        try readCloudflareOAuthCredential(using: readNonInteractive(account:))
-    }
-
-    private func readCloudflareOAuthCredential(
-        using reader: (String) throws -> String?
-    ) throws -> CloudflareOAuthCredential? {
-        guard let accessToken = try reader(SecretAccounts.cloudflareOAuthAccessToken), !accessToken.isEmpty,
-              let tokenEndpointString = try reader(SecretAccounts.cloudflareOAuthTokenEndpoint),
+        guard let accessToken = try read(account: SecretAccounts.cloudflareOAuthAccessToken), !accessToken.isEmpty,
+              let tokenEndpointString = try read(account: SecretAccounts.cloudflareOAuthTokenEndpoint),
               let tokenEndpoint = URL(string: tokenEndpointString)
         else { return nil }
-        let refreshToken = try reader(SecretAccounts.cloudflareOAuthRefreshToken)
-        let expiresAt = try reader(SecretAccounts.cloudflareOAuthExpiresAt)
+        let refreshToken = try read(account: SecretAccounts.cloudflareOAuthRefreshToken)
+        let expiresAt = try read(account: SecretAccounts.cloudflareOAuthExpiresAt)
             .flatMap(Double.init)
             .map(Date.init(timeIntervalSince1970:))
         return CloudflareOAuthCredential(

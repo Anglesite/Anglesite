@@ -46,7 +46,10 @@ jobs:
             build-mode: manual
             runs-on: macos-26
     runs-on: ${{ matrix.runs-on }}
-    timeout-minutes: ${{ matrix.language == 'swift' && 45 || 10 }}
+    # Swift's portable-target build + CodeQL analysis has been landing at 42-46 minutes as the
+    # portable targets grow, so 45 was too tight — three consecutive runs on #1680 timed out
+    # mid-"Perform CodeQL Analysis" at 45m18s-45m43s (#1710). 60 gives real headroom.
+    timeout-minutes: ${{ matrix.language == 'swift' && 60 || 10 }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -61,7 +64,7 @@ jobs:
           sudo xcode-select -s "$LATEST"
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           languages: ${{ matrix.language }}
           build-mode: ${{ matrix.build-mode }}
@@ -89,6 +92,6 @@ jobs:
         run: swift build --package-path .
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@db488ddef3bf6cb639b32c2e9a7c0a7ea8271d28 # v4.37.8
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
           category: '/language:${{ matrix.language }}'

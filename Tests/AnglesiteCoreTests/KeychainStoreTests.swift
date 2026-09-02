@@ -49,21 +49,6 @@ final class KeychainStoreTests: XCTestCase {
         XCTAssertEqual(try store.read(account: "alpha"), "super-secret")
     }
 
-    // MARK: Non-interactive read (#1705)
-
-    /// The everyday case: an entry this test process itself wrote carries no interactive-access
-    /// ACL, so `readNonInteractive` round-trips it exactly like `read` — the two only diverge when
-    /// a query would actually need to show UI, which this suite has no way to provoke against the
-    /// real keychain (that requires a stale code-signature ACL, not achievable from a test binary).
-    func testReadNonInteractiveRoundTripsALocallyWrittenEntry() throws {
-        try store.write("super-secret", account: "alpha")
-        XCTAssertEqual(try store.readNonInteractive(account: "alpha"), "super-secret")
-    }
-
-    func testReadNonInteractiveReturnsNilWhenNoEntryExists() throws {
-        XCTAssertNil(try store.readNonInteractive(account: "alpha"))
-    }
-
     func testSecondWriteReplacesTheFirst() throws {
         try store.write("first", account: "alpha")
         try store.write("second", account: "alpha")

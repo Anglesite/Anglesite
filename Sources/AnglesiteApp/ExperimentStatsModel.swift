@@ -2,16 +2,17 @@ import Foundation
 import Observation
 import AnglesiteCore
 
-/// Drives the Experiment Results sheet (#769) and, as of #1518, the experiment lifecycle that
-/// leads up to it: propose a suggestion, configure its variant/goal, start it running, and only
-/// then fall back to manual-entry analysis. The retired Claude Code plugin's edge A/B machinery
-/// (cookie-based variant assignment, an analytics pipeline reporting impressions/conversions back
-/// to the app) was never rebuilt after #466 — see `ExperimentStats`' doc comment — so `.manual`
-/// took the two variants' counts as owner-typed input (read off whatever analytics the owner
-/// already has) rather than reading them from a stored experiment config, until live prefill
-/// (#1270 §4/§10 slice 4) wired the manual form up to `ExperimentResultsSync`: when the site has
-/// a running experiment, a provisioned D1 database, and a Cloudflare token, `loadLivePrefillIfAvailable()`
-/// fills the manual form's fields from live counts instead of leaving them for the owner to type.
+/// Drives the Experiment Results sheet (#769) and, as of #1518/#1270 slice 6, the full experiment
+/// lifecycle: propose a suggestion, configure its variant/goal, start it running, conclude it
+/// (promote/keep/discard), and only then fall back to manual-entry analysis. The retired Claude
+/// Code plugin's edge A/B machinery (cookie-based variant assignment, an analytics pipeline
+/// reporting impressions/conversions back to the app) has since been rebuilt as deterministic
+/// template TypeScript + Swift (#1270 slices 1-4) — `.manual` still takes the two variants' counts
+/// as owner-typed input (read off whatever analytics the owner already has) for a non-Cloudflare
+/// deploy or a site with no token configured, but live prefill (#1270 §4/§10 slice 4) wired the
+/// manual form up to `ExperimentResultsSync`: when the site has a running experiment, a
+/// provisioned D1 database, and a Cloudflare token, `loadLivePrefillIfAvailable()` fills the
+/// manual form's fields from live counts instead of leaving them for the owner to type.
 /// Fresh-per-open, same lifecycle as `CopyEditReportModel`.
 @Observable @MainActor
 final class ExperimentStatsModel: Identifiable {
@@ -356,8 +357,10 @@ final class ExperimentStatsModel: Identifiable {
 
     /// Whether the "Analyze manually" escape hatch applies (#1518 review, I6). Excluded from
     /// `.starting`: a deploy is in flight there and `observeDeployPhase(_:)` still needs the step
-    /// to come back to it.
+    /// to come back to it. Also excluded while `isConcluding`, for the same reason: `confirmConclude()`
+    /// still needs `step` to be `.running` when its async work finishes.
     var canReturnToManual: Bool {
+        guard !isConcluding else { return false }
         switch step {
         case .manual, .starting: return false
         case .propose, .configure, .running: return true
@@ -420,4 +423,84 @@ final class ExperimentStatsModel: Identifiable {
     }
 
     private(set) var startFailureReason: String?
+
+    // MARK: - Conclude (#1270 slice 6)
+
+    /// The conclude action awaiting owner confirmation, or `nil` when none is pending — drives
+    /// `ExperimentRunningStatusView`'s `.confirmationDialog`, same optional-state-driven shape as
+    /// `SiteWindowModel.deleteConfirmation`.
+    var pendingConclude: ExperimentHistoryStore.Outcome.Decision?
+
+    /// Set while `confirmConclude()`'s async work is in flight — gates the sheet's Done button and
+    /// `canReturnToManual`, same reasoning as `.starting`: dismissing or navigating away mid-conclude
+    /// would leave the operation racing the view that started it.
+    private(set) var isConcluding = false
+
+    /// Why the last conclude attempt failed — `nil` when none has failed since the last success.
+    /// Surfaced by `ExperimentRunningStatusView` beside the conclude buttons, same idiom as
+    /// `scaffoldFailureReason`/`startFailureReason`.
+    private(set) var concludeFailureReason: String?
+
+    /// Arms `pendingConclude`, which the view's confirmation dialog reads. A no-op outside
+    /// `.running` or while a previous conclude is still in flight.
+    func requestConclude(_ decision: ExperimentHistoryStore.Outcome.Decision) {
+        guard case .running = step, !isConcluding else { return }
+        pendingConclude = decision
+    }
+
+    /// Dismisses the pending confirmation dialog without acting.
+    func cancelConclude() {
+        pendingConclude = nil
+    }
+
+    /// Carries out the confirmed conclude decision (#1270 slice 6, design doc §5): promotes the
+    /// variant into the control page (`.promote`) or simply removes it (`.keep`/`.discard` — the
+    /// same file operation, per the design doc, differing only in what gets recorded), drops the
+    /// experiment from `anglesite.json`, appends an outcome to `Config/experiment-history.json`,
+    /// returns to `.manual`, and publishes.
+    ///
+    /// Unlike `start(unavailableReason:deploy:)`, there is no deploy-phase rollback here: the git
+    /// content change (if any) and the config/history updates are valid the moment they land,
+    /// regardless of whether the subsequent publish succeeds — a concluded experiment that hasn't
+    /// published yet is simply "concluded, not yet live," not a false claim the way a `"running"`
+    /// status with no successful deploy would be. `deploy` is therefore called unconditionally and
+    /// fire-and-forget, same as every other content edit in this app that doesn't gate on deploy
+    /// availability; the site window's own deploy-status UI covers publish progress from here.
+    func confirmConclude(deploy: () -> Void) async {
+        guard case .running(let experiment) = step, let decision = pendingConclude else { return }
+        pendingConclude = nil
+        isConcluding = true
+        defer { isConcluding = false }
+        concludeFailureReason = nil
+
+        let succeeded: Bool
+        switch decision {
+        case .promote:
+            switch await contentOps.promoteVariant(siteID: siteID, experiment: experiment) {
+            case .created: succeeded = true
+            case .failed(let reason): concludeFailureReason = reason; succeeded = false
+            case .siteNotFound: concludeFailureReason = "Couldn't find this site's files on disk."; succeeded = false
+            }
+        case .keep, .discard:
+            switch await contentOps.discardVariant(siteID: siteID, experiment: experiment) {
+            case .deleted: succeeded = true
+            case .failed(let reason): concludeFailureReason = reason; succeeded = false
+            case .siteNotFound: concludeFailureReason = "Couldn't find this site's files on disk."; succeeded = false
+            }
+        }
+        guard succeeded else { return }
+
+        DomainConfigStore.update(sourceDirectory: sourceDirectory) { $0.experiments = .init(active: []) }
+        let outcome = ExperimentHistoryStore.Outcome(
+            experimentID: experiment.id, name: experiment.name, decision: decision,
+            variantName: experiment.variant.name,
+            controlVisitors: controlImpressions, controlConversions: controlConversions,
+            variantVisitors: treatmentImpressions, variantConversions: treatmentConversions,
+            startedAt: experiment.startedAt,
+            concludedAt: ISO8601DateFormatter().string(from: Date()).prefix(10).description)
+        await ExperimentHistoryStore(configDirectory: configDirectory).append(outcome)
+
+        step = .manual
+        deploy()
+    }
 }

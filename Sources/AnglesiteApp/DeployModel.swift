@@ -336,6 +336,10 @@ final class DeployModel {
     /// or the security-block modal. The durable invisible-publish queue uses the returned result to
     /// decide whether its pending marker may be cleared. Terminal transitions still fire, so
     /// completion and security-block notifications use the normal app notification path.
+    ///
+    /// Also never raises the Keychain's own authorization dialog: the credential presence check
+    /// runs through the store's `withoutUserInteraction` face, deferring instead when a stored
+    /// credential would need the user's OK to read (#1717).
     func deployAutomatically(
         siteID: String,
         siteDirectory: URL,
@@ -346,8 +350,21 @@ final class DeployModel {
     ) async -> InvisiblePublishQueue.Result {
         guard !isRunning else { return .deferred(reason: "another site operation is running") }
         guard !awaitingUserAction else { return .deferred(reason: "a deploy prompt is waiting for a response") }
-        guard hasUsableToken(interactive: false) else {
+        // Non-interactive on purpose: this runs after every `Source/` edit (the #357 invisible
+        // publish queue), and a Keychain read that can raise the login-keychain authorization
+        // dialog would turn each Duplicate/Delete/New Post into a system password prompt (#1717).
+        // A credential the app isn't authorized to read silently is left for the user's next
+        // Publish click, which reads interactively and may prompt — once, with "Always Allow".
+        switch credentialAvailability(allowingUserInteraction: false) {
+        case .available:
+            break
+        case .missing:
             return .deferred(reason: "Cloudflare credentials are not configured")
+        case .needsUserInteraction:
+            await logCenter.append(
+                source: "deploy:\(siteID)", stream: .stderr,
+                text: "Background publish skipped: reading the Cloudflare sign-in from the keychain would need your permission. Choose Publish to grant it once.")
+            return .deferred(reason: "Anglesite needs your permission to read the Cloudflare sign-in from the keychain — choose Publish to grant it")
         }
         guard hasChosenLicense(siteDirectory: siteDirectory) else {
             return .deferred(reason: "a content license hasn't been chosen yet")
@@ -671,6 +688,20 @@ final class DeployModel {
         blockedPresented = false
     }
 
+    /// What `credentialAvailability(allowingUserInteraction:)` found. Split out from the plain
+    /// `hasUsableToken()` Bool for the one caller that has to tell "nothing stored" apart from "a
+    /// credential the app may not read without asking" (#1717).
+    enum CredentialAvailability: Equatable {
+        /// A usable credential is reachable right now.
+        case available
+        /// Nothing usable is stored or configured in the environment.
+        case missing
+        /// A credential slot exists but reading it would need the user's authorization (the
+        /// login-keychain ACL dialog), which the caller didn't allow. Only produced with
+        /// `allowingUserInteraction: false`.
+        case needsUserInteraction
+    }
+
     /// True if the env var, a stored OAuth credential, or the legacy pasted-token slot currently
     /// holds a usable Cloudflare credential. Keychain errors are treated as "no token" — the
     /// user can recover by signing in again. A stored OAuth credential counts as usable unless
@@ -681,36 +712,52 @@ final class DeployModel {
     /// left to `CloudflareDeployTarget.keychainTokenSource` to actually refresh (this is a presence check
     /// only — no refresh attempted here, since it's synchronous).
     ///
-    /// - Parameter interactive: `false` for the invisible-publish background path (#1705), which
-    ///   reads the keychain non-interactively so a would-prompt read (e.g. after an ad-hoc rebuild
-    ///   invalidates the item's per-app ACL trust) reports "no token" and defers the publish
-    ///   instead of blocking the main actor on a prompt nothing in the UI shows is pending. The two
-    ///   foreground call sites (`deploy()`'s preflight checks) keep the default `true`: a prompt
-    ///   there is expected and answerable, since the user just clicked Deploy.
-    private func hasUsableToken(interactive: Bool = true) -> Bool {
+    /// Interactive: the Keychain may raise its authorization dialog. That is right for the
+    /// foreground callers (`deploy()`, `deployUnavailableReason`) — the user just clicked — and
+    /// wrong for `deployAutomatically`, which uses `credentialAvailability(allowingUserInteraction:
+    /// false)` instead.
+    private func hasUsableToken() -> Bool {
+        credentialAvailability(allowingUserInteraction: true) == .available
+    }
+
+    /// The presence check behind `hasUsableToken()`, with control over whether the Keychain may
+    /// prompt. With `allowingUserInteraction: false` every read goes through the store's
+    /// `withoutUserInteraction` face, and a read the user would have to authorize reports
+    /// ``CredentialAvailability/needsUserInteraction`` rather than being mistaken for "nothing
+    /// stored" (#1717). Any other Keychain failure still reads as `.missing`, as it always has.
+    private func credentialAvailability(allowingUserInteraction: Bool) -> CredentialAvailability {
         if let tokenAvailabilityOverride {
-            return tokenAvailabilityOverride()
+            return tokenAvailabilityOverride() ? .available : .missing
         }
         if let env = ProcessInfo.processInfo.environment["CLOUDFLARE_API_TOKEN"], !env.isEmpty {
-            return true
+            return .available
         }
-        let credential = interactive
-            ? try? keychain.readCloudflareOAuthCredential()
-            : try? keychain.readCloudflareOAuthCredentialNonInteractive()
-        if let credential {
-            let isDefinitelyUnrefreshable = credential.refreshToken == nil
-                && (credential.expiresAt.map { $0 <= Date() } ?? false)
-            if !isDefinitelyUnrefreshable {
-                return true
+        let store = allowingUserInteraction ? keychain : keychain.withoutUserInteraction
+        var needsUserInteraction = false
+        do {
+            if let credential = try store.readCloudflareOAuthCredential() {
+                let isDefinitelyUnrefreshable = credential.refreshToken == nil
+                    && (credential.expiresAt.map { $0 <= Date() } ?? false)
+                if !isDefinitelyUnrefreshable {
+                    return .available
+                }
             }
+        } catch let error as KeychainStore.Error where error.requiresUserInteraction {
+            needsUserInteraction = true
+        } catch {
+            // Every other Keychain failure reads as "no credential" — the user recovers by
+            // signing in again.
         }
-        let stored = interactive
-            ? (try? keychain.readCloudflareToken()) ?? nil
-            : (try? keychain.readCloudflareTokenNonInteractive()) ?? nil
-        if let stored, !stored.isEmpty {
-            return true
+        do {
+            if let stored = try store.readCloudflareToken(), !stored.isEmpty {
+                return .available
+            }
+        } catch let error as KeychainStore.Error where error.requiresUserInteraction {
+            needsUserInteraction = true
+        } catch {
+            // As above.
         }
-        return false
+        return needsUserInteraction ? .needsUserInteraction : .missing
     }
 
     /// Whether `siteDirectory`'s `licensing.json` records an explicit license choice (#999). A
@@ -775,6 +822,17 @@ final class DeployModel {
         // back when the sheet was first presented.
         let containerControl = await containerControlProvider()
 
+        // Where this site publishes (#1682) — resolved exactly once per deploy attempt, right
+        // here, and then *pinned* into `activeCommand` below so every consumer downstream (the
+        // `SocialWorkerProvisionCommand` closures built from the Cloudflare downcast, and
+        // `DeployCommand.deploy`'s own authorize-then-publish pair) provably sees the same
+        // conformer. The production resolver re-reads `anglesite.json` on every call and several
+        // `await`s separate those consumers, so two independent reads could genuinely disagree if
+        // the owner flipped Website Settings ▸ Publishing mid-deploy. Resolved at attempt time
+        // rather than threaded in from `deploy(…)`, for the same reason `containerControl` is
+        // (#823): a token-prompt/rename retry re-enters here and picks up the current declaration.
+        let resolvedTarget = command.target(for: siteDirectory)
+
         // Select the executor: in-container when the runtime is a started container;
         // explicit unavailable result otherwise. The token source always comes from the
         // injected `command` so the test-injection path (a fully pre-built
@@ -784,7 +842,7 @@ final class DeployModel {
         let containerSecretRunner: SocialWorkerProvisionCommand.SecretRunner?
         if let cc = containerControl {
             activeCommand = DeployCommand(
-                target: command.target,
+                target: resolvedTarget,
                 executor: ContainerDeployExecutor(
                     control: cc.control,
                     siteID: cc.siteID,
@@ -795,7 +853,7 @@ final class DeployModel {
             containerRunner = containerCommandRunner.runner
             containerSecretRunner = containerCommandRunner.secretRunner
         } else {
-            activeCommand = command
+            activeCommand = command.pinning(target: resolvedTarget)
             containerRunner = nil
             containerSecretRunner = nil
         }
@@ -905,10 +963,18 @@ final class DeployModel {
 
         // Both closures below only make sense against a Cloudflare target — `SocialWorkerProvisionCommand`
         // is itself entirely a Cloudflare Workers concept (out of scope to generalize in #1015
-        // slice 1). `cloudflareTarget` is `nil` only if `command.target` were ever something else;
-        // today it's always `CloudflareDeployTarget` (the default), so the closures behave exactly
-        // as before.
-        let cloudflareTarget = command.target as? CloudflareDeployTarget
+        // slice 1). Since #1682 the target is resolved per site from `anglesite.json`, so
+        // `cloudflareTarget` really is `nil` for a site that publishes to GitHub Pages: both
+        // closures then return `nil`/`[]` and `provision()` reports a missing Cloudflare token
+        // rather than trapping. Making that degrade *legible* to the owner (and unreachable
+        // through the Workers UI in the first place) is #1683's capability gating, deliberately
+        // not this slice.
+        //
+        // `resolvedTarget`, not a fresh `target(for:)` read: `activeCommand` is pinned to this
+        // same conformer, so what these closures authorize against and what `deploy(…)` publishes
+        // through are the same object rather than two reads of a file the owner can edit between
+        // them.
+        let cloudflareTarget = resolvedTarget as? CloudflareDeployTarget
         let socialCommand = SocialWorkerProvisionCommand(
             tokenSource: {
                 guard let cloudflareTarget else { return nil }
