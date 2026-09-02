@@ -5,13 +5,17 @@ import AnglesiteCore
 /// changes and either navigates the preview or opens the editor.
 struct SiteNavigatorView: View {
     @Bindable var model: SiteNavigatorModel
-    /// True while the WYSIWYG canvas holds real keyboard focus elsewhere in the window (#1423) —
-    /// while true, this view's `.onDeleteCommand` AND its `.background`-attached ⌘⌫ Button (#1715)
-    /// are both withheld, so nothing here competes with the canvas's own delete/text-editing
-    /// handling for the keystroke. See `SiteWindow.previewPane(for:)`'s matching canvas-side gate
-    /// and `onDeleteCommand(active:perform:)`'s doc comment (`PreviewView.swift`) for why two
+    /// True while the live preview's `WKWebView` holds real keyboard focus elsewhere in the window
+    /// (#1423, widened #1715) — while true, this view's `.onDeleteCommand` AND its
+    /// `.background`-attached ⌘⌫ Button are both withheld, so nothing here competes with the
+    /// preview's own delete/text-editing handling for the keystroke. Covers both the full
+    /// `wysiwygCanvas` block editor AND the overlay JS's lighter-weight `contentEditable`
+    /// quick-edit (e.g. clicking a page/post title) — see `PreviewModel.hasKeyboardFocus`'s doc
+    /// comment for why the two need one shared flag rather than a canvas-only check. See
+    /// `SiteWindow.previewPane(for:)`'s matching canvas-side gate and
+    /// `onDeleteCommand(active:perform:)`'s doc comment (`PreviewView.swift`) for why two
     /// simultaneously-attached handlers made AppKit's Edit ▸ Delete menu unreliable.
-    var canvasHasKeyboardFocus: Bool = false
+    var previewHasKeyboardFocus: Bool = false
     var onDeleteRequested: (NavigatorItem) -> Void
     var onDuplicateRequested: (NavigatorItem) -> Void
     var onRepurposeRequested: (NavigatorItem) -> Void
@@ -34,9 +38,9 @@ struct SiteNavigatorView: View {
         // what AppKit's standard Edit ▸ Delete menu item invokes too, so it doubles as that item's
         // handler — a separate Commands `Button("Delete")` alongside it just renders as a second,
         // indistinguishable "Delete" row. The `active:` gate (#1423) keeps this the ONLY
-        // `.onDeleteCommand` attached while the canvas has focus — see `canvasHasKeyboardFocus`'s
+        // `.onDeleteCommand` attached while the preview has focus — see `previewHasKeyboardFocus`'s
         // doc comment above.
-        .onDeleteCommand(active: !canvasHasKeyboardFocus) {
+        .onDeleteCommand(active: !previewHasKeyboardFocus) {
             if let item = model.deletableSelection() {
                 onDeleteRequested(item)
             }
@@ -64,16 +68,16 @@ struct SiteNavigatorView: View {
         .background {
             // ⌘⌫ as a second key equivalent for the same delete action (#989) — a view-level key
             // command, not a Commands-scene item, so it doesn't add another Edit-menu row.
-            // Gated on `canvasHasKeyboardFocus` (#1715) exactly like `.onDeleteCommand` above: this
-            // predates that gate (#989 shipped before #1423) and was never updated to respect it,
-            // so ⌘⌫ typed into the WYSIWYG canvas — e.g. mid-edit in a contentEditable title —
+            // Gated on `previewHasKeyboardFocus` (#1715) exactly like `.onDeleteCommand` above:
+            // this predates that gate (#989 shipped before #1423) and was never updated to respect
+            // it, so ⌘⌫ typed into the live preview — e.g. mid-edit in a contentEditable title —
             // always deleted the Navigator's selected item instead of editing text, regardless of
             // where real keyboard focus was. `.disabled` alone isn't enough: a disabled Button
             // still claims its shortcut and no-ops, which would swallow ⌘⌫ instead of letting it
-            // fall through to the canvas's own text editing. Not attaching the modifier at all
+            // fall through to the preview's own text editing. Not attaching the modifier at all
             // (same conditional-attachment shape as `onDeleteCommand(active:perform:)`,
             // `PreviewView.swift`) is what actually frees the keystroke.
-            if !canvasHasKeyboardFocus {
+            if !previewHasKeyboardFocus {
                 Button("") {
                     if let item = model.deletableSelection() {
                         onDeleteRequested(item)
