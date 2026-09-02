@@ -156,11 +156,16 @@ verification pass, but quit the app when you're done.
 Key controls carry stable `accessibilityIdentifier`s (#1535), defined in
 [`Sources/AnglesiteApp/AXID.swift`](../Sources/AnglesiteApp/AXID.swift):
 site-window toolbar items derive `toolbar.<SiteToolbarItemID>` (e.g.
-`toolbar.deploy`), and the navigator, shared sheet header, and debug pane have
-hand-assigned dotted IDs (`navigator.list`, `sheet.header`, `debug.pause`).
-`AXIDTests` freezes format and uniqueness — treat the strings as automation
-API: renaming one breaks external scripts, same contract as
-`SiteToolbarItemID`.
+`toolbar.deploy`), and the navigator, shared sheet header, Website Settings
+takeover, and debug pane have hand-assigned dotted IDs (`navigator.list`,
+`sheet.header`, `settings.tabs`, `debug.pause`). Per-item rows derive theirs
+from an already-stable, non-localized key: Workers-tab rows from the catalog
+worker id (`settings.workers.toggle.<workerID>`,
+`settings.workers.status.<workerID>`) and the debug pane's Local Workers rows
+from the site id (`debug.worker.<siteID>` for the row group, then `.name`,
+`.status`, `.url`, `.copy`, `.failure` beneath it). `AXIDTests` freezes format
+and uniqueness — treat the strings as automation API: renaming one breaks
+external scripts, same contract as `SiteToolbarItemID`.
 
 They surface as the AX element's `AXIdentifier` attribute (what XCUITest
 matches as `identifier`), so UI scripting can target controls without
