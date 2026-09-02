@@ -535,11 +535,22 @@ if ProcessInfo.processInfo.environment["ANGLESITE_LINUX_SHELL"] == "1" {
     // revision pin of a dependency another package requires by branch ("required using two
     // different revision-based requirements"), so Meta and friends cannot be frozen from
     // here, and an upstream push to their main can break this target with no change in this
-    // repo. That is what #1385 was: Meta's main dropped WidgetData.stateManager out from
-    // under every adwaita-swift revision, then restored it a few commits later. This pin
-    // needs Meta main ≥ 266f6eb (WidgetData init's id: parameter).
+    // repo. Twice now: #1385 was Meta's main dropping WidgetData.stateManager out from under
+    // every adwaita-swift revision, then restoring it a few commits later; #1760 was Meta's
+    // main switching to the Swift 6 language mode (183233a — @MainActor on App, AnyView,
+    // ViewBuilder, WidgetData, …), which turned every pre-Swift-6 adwaita-swift revision's
+    // PreferencesDialog/Window into "main actor-isolated … in a synchronous nonisolated
+    // context" errors until adwaita-swift followed with defaultIsolation(MainActor) an hour
+    // later (df1b4f3). When the Flatpak lane fails inside .build/checkouts with no change
+    // here, the fix is this pin: bump to the first adwaita-swift main commit that compiles
+    // against Meta's current main. This pin needs Meta main ≥ 183233a (Swift 6 mode) and
+    // tools ≥ 6.3 (adwaita-swift's manifest; Flathub's swift6//25.08 extension is 6.3.3).
+    // The git.aparoksha.dev URL now redirects to codeberg.org/aparoksha; SwiftPM follows it
+    // silently, and adwaita-swift's own manifest still names its siblings (meta, meta-sqlite,
+    // levenshtein-transformations) by the aparoksha.dev URL, so this stays consistent with
+    // it rather than being the one package resolved by a different identity.
     packageDependencies.append(
-        .package(url: "https://git.aparoksha.dev/aparoksha/adwaita-swift", revision: "8c986907fc67a1763fc9cd4334c4b3e515d86e30")
+        .package(url: "https://git.aparoksha.dev/aparoksha/adwaita-swift", revision: "df1b4f3c432bfc284d7c42990c3688a0ccf62322")
     )
     packageTargets.append(
         .systemLibrary(name: "CWebKitGTK", path: "Sources/CWebKitGTK", pkgConfig: "webkitgtk-6.0")
