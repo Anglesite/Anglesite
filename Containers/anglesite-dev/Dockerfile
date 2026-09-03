@@ -12,7 +12,7 @@
 # separate FROM stages: Apple container 1.1 resolves even the unused stage for the requested
 # platform, so an arm64 build fails while trying to fetch the amd64-only digest. The default keeps
 # direct/manual builds on arm64, matching the macOS runtime.
-ARG BASE_IMAGE=node:22-bookworm-slim@sha256:6db9be2ebb4bafb687a078ef5ba1b1dd256e8004d246a31fd210b6b848ab6be2
+ARG BASE_IMAGE=node:24-bookworm-slim@sha256:e9b5516b06baeaea9a8e65a7aec6a85fbb960a30b52b66968f2c8092b3e2a3eb
 FROM ${BASE_IMAGE} AS base
 
 # socat is the guest-side vsock<->TCP bridge: the host reaches astro/mcp (guest-local TCP) by
