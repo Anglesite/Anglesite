@@ -298,7 +298,8 @@ packageTargets.append(
         name: "AnglesiteIntentsTests",
         // `AnglesiteIOS` for the `UbiquitousPackageDiscovering` fakes `SiteEntityUbiquityDiscovery`
         // is tested against; see the note on `AnglesiteIntents`' own dependency on it.
-        dependencies: ["AnglesiteIntents", "AnglesiteCore", "AnglesiteSiteModel", "AnglesiteIOS"],
+        // `AnglesiteTestSupport` for the shared `FakeUbiquityContainerResolver`.
+        dependencies: ["AnglesiteIntents", "AnglesiteCore", "AnglesiteSiteModel", "AnglesiteIOS", "AnglesiteTestSupport"],
         path: "Tests/AnglesiteIntentsTests",
         swiftSettings: strictConcurrency
     )
@@ -378,7 +379,7 @@ packageTargets.append(contentsOf: [
     ),
     .testTarget(
         name: "AnglesiteRemoteTests",
-        dependencies: ["AnglesiteRemote", "AnglesiteCore"],
+        dependencies: ["AnglesiteRemote", "AnglesiteCore", "AnglesiteTestSupport"],
         path: "Tests/AnglesiteRemoteTests",
         swiftSettings: strictConcurrency,
         linkerSettings: webRTCTestRPath

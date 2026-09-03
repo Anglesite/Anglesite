@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 // Serialized: `pullsCommitsAndDeletes` spawns real `git` subprocesses via raw `Process()` (not
 // `ProcessSupervisor`) in `makeThrowawayGitRepo()`. See the identical note on
@@ -64,7 +65,7 @@ struct InboxSubmissionSyncTests {
         let count = await InboxSubmissionSync.pullAndCommitIfConfigured(
             siteDirectory: URL(fileURLWithPath: "/nonexistent"),
             configDirectory: configDir,
-            secretStore: FakeSecretStore(token: "unused"))
+            secretStore: InMemorySecretStore(token: "unused"))
         #expect(count == 0)
     }
 
@@ -79,7 +80,7 @@ struct InboxSubmissionSyncTests {
         let count = await InboxSubmissionSync.pullAndCommitIfConfigured(
             siteDirectory: URL(fileURLWithPath: "/nonexistent"),
             configDirectory: configDir,
-            secretStore: FakeSecretStore(token: "unused"))
+            secretStore: InMemorySecretStore(token: "unused"))
         #expect(count == 0)
     }
 
@@ -100,7 +101,7 @@ struct InboxSubmissionSyncTests {
         let count = await InboxSubmissionSync.pullAndCommitIfConfigured(
             siteDirectory: URL(fileURLWithPath: "/nonexistent"),
             configDirectory: configDir,
-            secretStore: FakeSecretStore(token: nil),
+            secretStore: InMemorySecretStore(token: nil),
             transport: { _ in
                 Issue.record("transport must not be called when no Cloudflare token is available")
                 struct UnexpectedNetworkCall: Error {}
@@ -113,7 +114,7 @@ struct InboxSubmissionSyncTests {
     func resolvesTokenAndCommits() async throws {
         // Claim the env var cleared (#1289 review) so this positive path actually exercises
         // `secretStore` rather than possibly getting a passing token from an ambient/leaked
-        // CLOUDFLARE_API_TOKEN (#1282) without ever going near `FakeSecretStore` — the Authorization
+        // CLOUDFLARE_API_TOKEN (#1282) without ever going near `InMemorySecretStore` — the Authorization
         // header assertion below is what pins that this really came from the injected store.
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
         defer { cfToken.release() }
@@ -138,7 +139,7 @@ struct InboxSubmissionSyncTests {
         let count = await InboxSubmissionSync.pullAndCommitIfConfigured(
             siteDirectory: siteDirectory,
             configDirectory: configDir,
-            secretStore: FakeSecretStore(token: "token"),
+            secretStore: InMemorySecretStore(token: "token"),
             transport: { request in
                 await seenAuthorization.record(request.value(forHTTPHeaderField: "Authorization"))
                 if request.httpMethod == "DELETE" {
@@ -193,13 +194,6 @@ struct InboxSubmissionSyncTests {
 private actor DeletedIDs {
     private(set) var values: [String] = []
     func append(_ id: String) { values.append(id) }
-}
-
-private struct FakeSecretStore: SecretStore {
-    let token: String?
-    func read(account: String) throws -> String? { account == SecretAccounts.cloudflareToken ? token : nil }
-    func write(_ value: String, account: String) throws {}
-    func delete(account: String) throws {}
 }
 
 private actor SeenHeader {

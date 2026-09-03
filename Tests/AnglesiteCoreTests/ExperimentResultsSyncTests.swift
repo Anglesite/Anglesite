@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 @Suite(.serialized)
 struct ExperimentResultsSyncTests {
@@ -73,7 +74,7 @@ struct ExperimentResultsSyncTests {
 
         let prefill = await ExperimentResultsSync.prefill(
             sourceDirectory: sourceDirectory, configDirectory: configDirectory,
-            secretStore: FakeSecretStore(token: "unused"),
+            secretStore: InMemorySecretStore(token: "unused"),
             transport: { _ in
                 Issue.record("transport must not be called with no running experiment")
                 struct UnexpectedNetworkCall: Error {}
@@ -95,7 +96,7 @@ struct ExperimentResultsSyncTests {
 
         let prefill = await ExperimentResultsSync.prefill(
             sourceDirectory: sourceDirectory, configDirectory: configDirectory,
-            secretStore: FakeSecretStore(token: "unused"),
+            secretStore: InMemorySecretStore(token: "unused"),
             transport: { _ in
                 Issue.record("transport must not be called with no provisioned D1 database")
                 struct UnexpectedNetworkCall: Error {}
@@ -121,7 +122,7 @@ struct ExperimentResultsSyncTests {
 
         let prefill = await ExperimentResultsSync.prefill(
             sourceDirectory: sourceDirectory, configDirectory: configDirectory,
-            secretStore: FakeSecretStore(token: nil),
+            secretStore: InMemorySecretStore(token: nil),
             transport: { _ in
                 Issue.record("transport must not be called with no Cloudflare token")
                 struct UnexpectedNetworkCall: Error {}
@@ -157,7 +158,7 @@ struct ExperimentResultsSyncTests {
 
         let prefill = await ExperimentResultsSync.prefill(
             sourceDirectory: sourceDirectory, configDirectory: configDirectory,
-            secretStore: FakeSecretStore(token: "token"),
+            secretStore: InMemorySecretStore(token: "token"),
             transport: { request in
                 await seenAuthorization.record(request.value(forHTTPHeaderField: "Authorization"))
                 if request.url!.path.hasSuffix("/accounts") { return (accountsBody, Self.response(200)) }
@@ -185,7 +186,7 @@ struct ExperimentResultsSyncTests {
 
         let prefill = await ExperimentResultsSync.prefillForRunningExperiment(
             sites: [(sourceDirectory: site1Source, configDirectory: site1Config)],
-            secretStore: FakeSecretStore(token: "unused"),
+            secretStore: InMemorySecretStore(token: "unused"),
             transport: { _ in
                 Issue.record("transport must not be called when no site has a running experiment")
                 struct UnexpectedNetworkCall: Error {}
@@ -225,7 +226,7 @@ struct ExperimentResultsSyncTests {
                 (sourceDirectory: idleSource, configDirectory: idleConfig),
                 (sourceDirectory: runningSource, configDirectory: runningConfig),
             ],
-            secretStore: FakeSecretStore(token: "token"),
+            secretStore: InMemorySecretStore(token: "token"),
             transport: { request in
                 if request.url!.path.hasSuffix("/accounts") { return (accountsBody, Self.response(200)) }
                 if request.url!.path.contains("/d1/database/db1/query") { return (d1Body, Self.response(200)) }
@@ -236,13 +237,6 @@ struct ExperimentResultsSyncTests {
         #expect(unwrapped.experiment == experiment)
         #expect(unwrapped.counts.controlVisitors == 10)
     }
-}
-
-private struct FakeSecretStore: SecretStore {
-    let token: String?
-    func read(account: String) throws -> String? { account == SecretAccounts.cloudflareToken ? token : nil }
-    func write(_ value: String, account: String) throws {}
-    func delete(account: String) throws {}
 }
 
 private actor SeenHeader {

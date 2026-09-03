@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import AnglesiteRemote
 import AnglesiteCore
+import AnglesiteTestSupport
 
 @Suite struct RemoteContainerSessionTests {
     static func makeRegistry() throws -> RemoteSessionRegistry {

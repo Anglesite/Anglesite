@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 private final class StubProvisioner: AISearchProvisioning, @unchecked Sendable {
     private(set) var lastDomain: String?
@@ -20,37 +21,6 @@ private final class StubProvisioner: AISearchProvisioning, @unchecked Sendable {
     func aiSearchInstanceSource(instanceID: String, apiToken: String) async throws -> String {
         existingInstanceSource
     }
-}
-
-private final class StubReader: CloudflareReading, @unchecked Sendable {
-    private let state: CloudflareZoneState
-    init(state: CloudflareZoneState) { self.state = state }
-    func resolveZoneID(domain: String, apiToken: String) async throws -> String? { "z1" }
-    func zoneState(zoneID: String, domain: String, apiToken: String) async throws -> CloudflareZoneState { state }
-    func listDNSRecords(zoneID: String, apiToken: String) async throws -> [DNSRecord] { [] }
-    func workerScriptNames(apiToken: String) async throws -> [String] { [] }
-}
-
-private final class StubWriter: CloudflareWriting, @unchecked Sendable {
-    private(set) var createdRules: [WAFRulePayload] = []
-    var errorToThrow: CloudflareError?
-    func enableDNSSEC(zoneID: String, apiToken: String) async throws {}
-    func setAlwaysUseHTTPS(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func setHSTS(zoneID: String, maxAge: Int, includeSubdomains: Bool, preload: Bool, apiToken: String) async throws {}
-    func addDNSRecord(zoneID: String, record: DNSRecordPayload, apiToken: String) async throws {}
-    func deleteDNSRecord(zoneID: String, recordID: String, apiToken: String) async throws {}
-    func setBotFightMode(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func createWAFCustomRule(zoneID: String, rule: WAFRulePayload, apiToken: String) async throws {
-        if let errorToThrow { throw errorToThrow }
-        createdRules.append(rule)
-    }
-    func setSpeedBrain(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func setECH(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func enableZstandardCompression(zoneID: String, apiToken: String) async throws {}
-    func setPageShield(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func enableOnionRouting(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func attachWorkersCustomDomain(hostname: String, workerScriptName: String, apiToken: String) async throws -> CustomDomainAttachResult { .attached }
-    func setMarkdownForAgents(hostname: String, enabled: Bool, apiToken: String) async throws -> Bool { true }
 }
 
 private final class FailingReader: CloudflareReading, @unchecked Sendable {
@@ -90,8 +60,8 @@ struct AISearchExecutorTests {
 
     @Test("provision adds a WAF skip rule when Bot Fight Mode is on")
     func provisionAddsWAFRuleWhenBotFightModeOn() async throws {
-        let writer = StubWriter()
-        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: true)), writer: writer, provisioner: StubProvisioner())
+        let writer = StubCloudflareWriter()
+        let executor = AISearchExecutor(reader: StubCloudflareReader(state: zoneState(botFightMode: true)), writer: writer, provisioner: StubProvisioner())
         let result = try await executor.provision(zoneID: "z1", domain: "Example.com", apiToken: "t")
         #expect(result.wafSkipRuleAdded == true)
         #expect(result.wafSkipRuleWarning == nil)
@@ -102,8 +72,8 @@ struct AISearchExecutorTests {
 
     @Test("provision skips the WAF rule when Bot Fight Mode is off")
     func provisionSkipsWAFRuleWhenBotFightModeOff() async throws {
-        let writer = StubWriter()
-        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: false)), writer: writer, provisioner: StubProvisioner())
+        let writer = StubCloudflareWriter()
+        let executor = AISearchExecutor(reader: StubCloudflareReader(state: zoneState(botFightMode: false)), writer: writer, provisioner: StubProvisioner())
         let result = try await executor.provision(zoneID: "z1", domain: "example.com", apiToken: "t")
         #expect(result.wafSkipRuleAdded == false)
         #expect(result.wafSkipRuleWarning == nil)
@@ -112,9 +82,9 @@ struct AISearchExecutorTests {
 
     @Test("provision degrades to a warning when the WAF skip-rule write fails")
     func provisionDegradesGracefullyWhenWAFRuleWriteFails() async throws {
-        let writer = StubWriter()
+        let writer = StubCloudflareWriter()
         writer.errorToThrow = .http(status: 429) // e.g. free-plan 5-rule quota exceeded
-        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: true)), writer: writer, provisioner: StubProvisioner())
+        let executor = AISearchExecutor(reader: StubCloudflareReader(state: zoneState(botFightMode: true)), writer: writer, provisioner: StubProvisioner())
         let result = try await executor.provision(zoneID: "z1", domain: "example.com", apiToken: "t")
         #expect(result.wafSkipRuleAdded == false)
         #expect(result.wafSkipRuleWarning != nil)
@@ -126,7 +96,7 @@ struct AISearchExecutorTests {
 
     @Test("provision degrades to a warning when the zone-state read fails")
     func provisionDegradesGracefullyWhenZoneStateReadFails() async throws {
-        let executor = AISearchExecutor(reader: FailingReader(), writer: StubWriter(), provisioner: StubProvisioner())
+        let executor = AISearchExecutor(reader: FailingReader(), writer: StubCloudflareWriter(), provisioner: StubProvisioner())
         let result = try await executor.provision(zoneID: "z1", domain: "example.com", apiToken: "t")
         #expect(result.wafSkipRuleAdded == false)
         #expect(result.wafSkipRuleWarning != nil)
@@ -135,7 +105,7 @@ struct AISearchExecutorTests {
     @Test("provision derives the instance namespace from the lowercased, dot-free domain")
     func provisionDerivesNamespace() async throws {
         let provisioner = StubProvisioner()
-        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: false)), writer: StubWriter(), provisioner: provisioner)
+        let executor = AISearchExecutor(reader: StubCloudflareReader(state: zoneState(botFightMode: false)), writer: StubCloudflareWriter(), provisioner: provisioner)
         _ = try await executor.provision(zoneID: "z1", domain: "Example.com", apiToken: "t")
         #expect(provisioner.lastInstanceID == "example-com")
     }
@@ -144,7 +114,7 @@ struct AISearchExecutorTests {
     func provisionPropagatesProvisionerError() async throws {
         let provisioner = StubProvisioner()
         provisioner.errorToThrow = CloudflareError.unauthorized
-        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: false)), writer: StubWriter(), provisioner: provisioner)
+        let executor = AISearchExecutor(reader: StubCloudflareReader(state: zoneState(botFightMode: false)), writer: StubCloudflareWriter(), provisioner: provisioner)
         await #expect(throws: CloudflareError.unauthorized) {
             try await executor.provision(zoneID: "z1", domain: "example.com", apiToken: "t")
         }
@@ -155,7 +125,7 @@ struct AISearchExecutorTests {
         let provisioner = StubProvisioner()
         provisioner.errorToThrow = AISearchProvisionError.instanceAlreadyExists
         provisioner.existingInstanceSource = "Example.com"
-        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: false)), writer: StubWriter(), provisioner: provisioner)
+        let executor = AISearchExecutor(reader: StubCloudflareReader(state: zoneState(botFightMode: false)), writer: StubCloudflareWriter(), provisioner: provisioner)
         let result = try await executor.provision(zoneID: "z1", domain: "Example.com", apiToken: "t")
         #expect(result.instance.id == "example-com")
         #expect(result.instance.name == "example-com")
@@ -166,7 +136,7 @@ struct AISearchExecutorTests {
         let provisioner = StubProvisioner()
         provisioner.errorToThrow = AISearchProvisionError.instanceAlreadyExists
         provisioner.existingInstanceSource = "a-b.com"
-        let executor = AISearchExecutor(reader: StubReader(state: zoneState(botFightMode: false)), writer: StubWriter(), provisioner: provisioner)
+        let executor = AISearchExecutor(reader: StubCloudflareReader(state: zoneState(botFightMode: false)), writer: StubCloudflareWriter(), provisioner: provisioner)
         await #expect(throws: AISearchProvisionError.instanceIDCollision) {
             // "a.b.com" and "a-b.com" both normalize to instance id "a-b-com".
             try await executor.provision(zoneID: "z1", domain: "a.b.com", apiToken: "t")

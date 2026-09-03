@@ -1,55 +1,13 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 
 @Suite("ActivityPubFollowersClient")
 struct ActivityPubFollowersClientTests {
-    /// A transport that answers every request with one canned status + body (or, when built with
-    /// `init(throwing:)`, throws instead of returning), and records the URLs and headers it was
-    /// asked for. An `actor` rather than an `@unchecked Sendable` class: the recording state is
-    /// mutated from the `@Sendable` transport closure, so it needs real isolation, not just a
-    /// promise that callers won't race it.
-    actor FakeTransport {
-        private let status: Int
-        private let body: String
-        private let error: (any Error)?
-        private(set) var requestedURLs: [URL] = []
-        private(set) var requestedHeaders: [[String: String]] = []
-
-        init(status: Int = 200, body: String = "") {
-            self.status = status
-            self.body = body
-            self.error = nil
-        }
-
-        /// Simulates a network-level failure with no HTTP response at all (DNS failure, no
-        /// connectivity, etc.) — the branch `ActivityPubFollowersClient.fetch` re-wraps as
-        /// `.requestFailed(status: 0, ...)`.
-        init(throwing error: any Error) {
-            self.status = 0
-            self.body = ""
-            self.error = error
-        }
-
-        private func respond(to request: URLRequest) throws -> (Data, HTTPURLResponse) {
-            requestedURLs.append(request.url!)
-            requestedHeaders.append(request.allHTTPHeaderFields ?? [:])
-            if let error {
-                throw error
-            }
-            let http = HTTPURLResponse(
-                url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-            return (Data(body.utf8), http)
-        }
-
-        nonisolated var transport: ActivityPubFollowersClient.Transport {
-            { request in try await self.respond(to: request) }
-        }
-    }
-
     private static func client(_ fake: FakeTransport) throws -> ActivityPubFollowersClient {
         ActivityPubFollowersClient(
             siteURL: try #require(URL(string: "https://example.com")), transport: fake.transport)
