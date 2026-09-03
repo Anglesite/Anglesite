@@ -59,8 +59,12 @@ public enum ContentScaffold {
     ///
     /// The argument is a *file-path* route (no trailing slash), not the served route
     /// ``servedRoute(_:)`` produces — a trailing slash here would yield `src/pages/about/.astro`.
-    public static func pageRelativePath(normalizedRoute: String) -> String {
-        "src/pages" + normalizedRoute + ".astro"
+    ///
+    /// `extension` defaults to `"astro"` for fresh scaffolds; a caller duplicating an existing
+    /// page passes its source extension (e.g. `"md"`) so the copy keeps compiling as the same
+    /// content type instead of Astro trying to parse Markdown frontmatter as component script (#1786).
+    public static func pageRelativePath(normalizedRoute: String, extension ext: String = "astro") -> String {
+        "src/pages" + normalizedRoute + "." + ext
     }
 
     /// The trailing-slash *served* form of a page route: `/about` → `/about/`, `/` → `/`.
@@ -93,8 +97,11 @@ public enum ContentScaffold {
 
     /// Where a scaffolded collection entry lands, relative to the site root:
     /// `src/content/<collection>/<slug>.md`.
-    public static func postRelativePath(collection: String, slug: String) -> String {
-        "src/content/\(collection)/\(slug).md"
+    ///
+    /// `extension` defaults to `"md"` for fresh scaffolds; a caller duplicating an existing entry
+    /// passes its source extension (e.g. `"mdx"`/`"astro"`) so the copy keeps its original format (#1786).
+    public static func postRelativePath(collection: String, slug: String, extension ext: String = "md") -> String {
+        "src/content/\(collection)/\(slug).\(ext)"
     }
 
     /// Derive a slug from a target URL, for content types with no title field to slugify — `reply`

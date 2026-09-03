@@ -984,6 +984,31 @@ struct NativeContentOperationsDuplicateTests {
         #expect(filePath == "src/pages/about-copy-2.astro")
     }
 
+    @Test("duplicatePage preserves a Markdown source's .md extension instead of hardcoding .astro (#1786)")
+    func duplicatesMarkdownPagePreservingExtension() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let relPath = "src/pages/about.md"
+        let abs = root.appendingPathComponent(relPath)
+        try FileManager.default.createDirectory(at: abs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        let original = "---\ntitle: \"About\"\nlayout: ../layouts/BaseLayout.astro\n---\n\nHello.\n"
+        try original.write(to: abs, atomically: true, encoding: .utf8)
+
+        let ops = NativeContentOperations(
+            siteDirectory: { _ in root },
+            gitCommit: { _, _, _ in "deadbeef" }
+        )
+
+        let result = await ops.duplicatePage(siteID: "site-1", relativePath: relPath, title: "About")
+
+        guard case .created(let filePath, _) = result else {
+            Issue.record("expected .created, got \(result)"); return
+        }
+        #expect(filePath == "src/pages/about-copy.md")
+        let copied = try String(contentsOf: root.appendingPathComponent(filePath), encoding: .utf8)
+        #expect(copied.contains("title: \"About Copy\""))
+    }
+
     @Test("duplicatePost writes into the same collection with a -copy slug")
     func duplicatesPost() async throws {
         let root = try makeRoot()
@@ -1008,6 +1033,29 @@ struct NativeContentOperationsDuplicateTests {
         #expect(identifier == "hello-world-copy")
         let copied = try String(contentsOf: root.appendingPathComponent(filePath), encoding: .utf8)
         #expect(copied.contains("title: \"Hello World Copy\""))
+    }
+
+    @Test("duplicatePost preserves a non-Markdown collection entry's extension (#1786)")
+    func duplicatesPostPreservingNonMarkdownExtension() async throws {
+        let root = try makeRoot()
+        defer { try? FileManager.default.removeItem(at: root) }
+        let relPath = "src/content/posts/hello-world.mdx"
+        let abs = root.appendingPathComponent(relPath)
+        try FileManager.default.createDirectory(at: abs.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try ContentScaffold.renderPost(title: "Hello World", now: Date(timeIntervalSince1970: 0))
+            .write(to: abs, atomically: true, encoding: .utf8)
+
+        let ops = NativeContentOperations(
+            siteDirectory: { _ in root },
+            gitCommit: { _, _, _ in "deadbeef" }
+        )
+
+        let result = await ops.duplicatePost(siteID: "site-1", relativePath: relPath, collection: "posts", title: "Hello World")
+
+        guard case .created(let filePath, _) = result else {
+            Issue.record("expected .created, got \(result)"); return
+        }
+        #expect(filePath == "src/content/posts/hello-world-copy.mdx")
     }
 
     @Test("duplicatePage falls back to a verbatim copy when the extension has no editable title location")
