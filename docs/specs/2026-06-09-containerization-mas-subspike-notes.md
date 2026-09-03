@@ -1,6 +1,6 @@
 # Apple Containerization under the App Sandbox (MAS) — sub-spike notes
 
-> **Status:** desk research + empirical run of the 3-config matrix on macOS 27.0 / Apple Silicon (build 26A5353q), 2026-06-09. **The empirical results are stronger than the prediction.** Harness: [`Spikes/ContainerSpike/`](../../Spikes/ContainerSpike/).
+> **Status:** desk research + empirical run of the 3-config matrix on macOS 27.0 / Apple Silicon (build 26A5353q), 2026-06-09. **The empirical results are stronger than the prediction.** Harness: `Spikes/ContainerSpike/` (#60; deleted once its findings landed here — see #1802).
 >
 > ### Empirical findings (2026-06-09)
 >
@@ -109,7 +109,7 @@ What its source shows:
 
 ## What the binary spike actually produced (2026-06-09 run)
 
-The 3-config matrix was run on macOS 27.0 / Apple Silicon (build 26A5353q). The runnable harness lives at [`Spikes/ContainerSpike/`](../../Spikes/ContainerSpike/) with each configuration recorded under `Entitlements/`. Results, in order of run:
+The 3-config matrix was run on macOS 27.0 / Apple Silicon (build 26A5353q). The harness lived at `Spikes/ContainerSpike/` (removed after landing its findings here — see #1802) with each configuration recorded under `Entitlements/`. Results, in order of run:
 
 | Config | Codesign | Outcome | Interpretation |
 |---|---|---|---|
