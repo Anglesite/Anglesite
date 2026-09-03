@@ -1519,6 +1519,15 @@ test("activitypub: actor document is served as activity+json", async () => {
   expect(body.preferredUsername).toBe("owner.example");
 });
 
+test("activitypub: actor document links the site home page as url, not the AS2 document (#1771)", async () => {
+  const response = await fetchWorker(new Request("https://owner.example/users/site"));
+  const body = await response.json() as { id: string; url?: string };
+  // @dwk/activitypub ≥ 1.0.0-beta.5 defaults `url` to the baseUrl root — the page a peer's
+  // "open original profile" action lands on. It must not be the actor `id` (the JSON itself).
+  expect(body.url).toBe("https://owner.example/");
+  expect(body.url).not.toBe(body.id);
+});
+
 test("activitypub: actor document carries AP_ICON as an Image resolved against the origin (#1771)", async () => {
   const response = await worker.fetch(
     new Request("https://owner.example/users/site"),
