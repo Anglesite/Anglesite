@@ -212,4 +212,114 @@ struct CommunityMembershipClientTests {
             _ = try await Self.client(fake).listFollowRequests()
         }
     }
+
+    @Test("GETs open reports from this site's own actor endpoint, decoding bare-IRI actor/object")
+    func listsReports() async throws {
+        let fake = FakeTransport(
+            status: 200,
+            body: #"""
+            {"items":[{"id":"https://example.com/users/site/outbox/flag1","type":"Flag",
+              "actor":"https://lemmy.ml/u/reporter","object":"https://lemmy.ml/u/spammer",
+              "content":"spam","published":"2026-08-19T03:09:28.000Z"}],"total":1,"page":1,"pageSize":20}
+            """#)
+
+        let reports = try await Self.client(fake).listReports()
+
+        #expect(reports.count == 1)
+        #expect(reports.first?.activityID == "https://example.com/users/site/outbox/flag1")
+        #expect(reports.first?.reporter?.absoluteString == "https://lemmy.ml/u/reporter")
+        #expect(reports.first?.target?.absoluteString == "https://lemmy.ml/u/spammer")
+        #expect(reports.first?.reason == "spam")
+        #expect(reports.first?.receivedAt != nil)
+        #expect(await fake.requestedURLs.first?.absoluteString == "https://example.com/users/site/reports")
+        let headers = await fake.requestedHeaders.first
+        #expect(headers?["Authorization"] == "Bearer secret-token")
+    }
+
+    @Test("listReports resolves an embedded-object actor/object to its id")
+    func listsReportsWithEmbeddedObjects() async throws {
+        let fake = FakeTransport(
+            status: 200,
+            body: #"""
+            {"items":[{"id":"https://example.com/users/site/outbox/flag2",
+              "actor":{"id":"https://lemmy.ml/u/reporter","type":"Person"},
+              "object":{"id":"https://lemmy.ml/u/spammer","type":"Person"}}],"total":1}
+            """#)
+
+        let reports = try await Self.client(fake).listReports()
+
+        #expect(reports.first?.reporter?.absoluteString == "https://lemmy.ml/u/reporter")
+        #expect(reports.first?.target?.absoluteString == "https://lemmy.ml/u/spammer")
+    }
+
+    @Test("listReports resolves the first element of an array object to a target")
+    func listsReportsWithArrayObject() async throws {
+        let fake = FakeTransport(
+            status: 200,
+            body: #"""
+            {"items":[{"id":"https://example.com/users/site/outbox/flag3",
+              "actor":"https://lemmy.ml/u/reporter",
+              "object":["https://lemmy.ml/u/spammer","https://lemmy.ml/status/1"]}],"total":1}
+            """#)
+
+        let reports = try await Self.client(fake).listReports()
+
+        #expect(reports.first?.target?.absoluteString == "https://lemmy.ml/u/spammer")
+    }
+
+    @Test("listReports skips an item with no usable id, but keeps items missing actor/object/content")
+    func listsReportsSkipsItemsWithoutID() async throws {
+        let fake = FakeTransport(
+            status: 200,
+            body: #"""
+            {"items":[{"actor":"https://lemmy.ml/u/reporter","object":"https://lemmy.ml/u/spammer"},
+              {"id":"https://example.com/users/site/outbox/flag4"}],"total":2}
+            """#)
+
+        let reports = try await Self.client(fake).listReports()
+
+        #expect(reports.count == 1)
+        #expect(reports.first?.activityID == "https://example.com/users/site/outbox/flag4")
+        #expect(reports.first?.reporter == nil)
+        #expect(reports.first?.target == nil)
+        #expect(reports.first?.reason == nil)
+    }
+
+    @Test("listReports returns an empty list when there are none")
+    func listsEmptyReports() async throws {
+        let fake = FakeTransport(status: 200, body: #"{"items":[],"total":0}"#)
+        let reports = try await Self.client(fake).listReports()
+        #expect(reports.isEmpty)
+    }
+
+    @Test("listReports maps a non-2xx status to requestFailed")
+    func listReportsMapsNon2xx() async throws {
+        let fake = FakeTransport(status: 404, body: "Not Found")
+        await #expect(throws: CommunityMembershipError.requestFailed(status: 404, body: "Not Found")) {
+            _ = try await Self.client(fake).listReports()
+        }
+    }
+
+    @Test("POSTs an Ignore activity referencing the flag activity id to resolve a report")
+    func resolvesReport() async throws {
+        let fake = FakeTransport()
+
+        try await Self.client(fake).resolveReport(activityID: "https://example.com/users/site/outbox/flag1")
+
+        let body = await fake.requestedBodies.first
+        #expect(body?["type"] as? String == "Ignore")
+        #expect(body?["object"] as? String == "https://example.com/users/site/outbox/flag1")
+        #expect(body?["actor"] as? String == "https://example.com/users/site")
+        let headers = await fake.requestedHeaders.first
+        #expect(headers?["Authorization"] == "Bearer secret-token")
+        #expect(await fake.requestedURLs.first?.absoluteString == "https://example.com/users/site/outbox")
+    }
+
+    @Test("resolveReport maps a non-2xx status to requestFailed")
+    func resolveReportMapsNon2xx() async throws {
+        let fake = FakeTransport(status: 403, body: "forbidden")
+        await #expect(throws: CommunityMembershipError.requestFailed(status: 403, body: "forbidden")) {
+            try await Self.client(fake).resolveReport(activityID: "https://example.com/users/site/outbox/flag1")
+        }
+    }
 }

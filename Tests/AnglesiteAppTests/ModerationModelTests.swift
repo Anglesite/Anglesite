@@ -356,4 +356,179 @@ struct ModerationModelTests {
         #expect(model.errorMessage != nil)
         #expect(model.pendingFollowers.count == 1)
     }
+
+    private nonisolated static let sampleReportsBody =
+        #"""
+        {"items":[{"id":"https://my-community.example/users/site/outbox/flag1",
+          "actor":"https://lemmy.ml/u/reporter","object":"https://lemmy.ml/u/spammer",
+          "content":"spam"}],"total":1}
+        """#
+
+    @Test("reload fetches open reports from this site's own actor")
+    func reloadLoadsReports() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if request.url?.lastPathComponent == "reports" {
+                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (Data(Self.sampleReportsBody.utf8), http)
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+            return (Data("{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+
+        #expect(model.reports.count == 1)
+        #expect(model.reports.first?.target?.absoluteString == "https://lemmy.ml/u/spammer")
+    }
+
+    /// Same "the upstream route postdates the latest tagged release" degrade
+    /// `reloadIgnoresFollowRequests404()` covers for `follow_requests` — `GET <actor>/reports`
+    /// (`davidwkeith/workers` PR #500) is even newer, so a deployed community's Worker 404ing on
+    /// it must never pop a blocking alert.
+    @Test("a 404 from reports leaves the reports list empty without surfacing an error")
+    func reloadIgnoresReports404() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            let http = HTTPURLResponse(url: request.url!, statusCode: 404, httpVersion: nil, headerFields: nil)!
+            return (Data("Not Found".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+
+        #expect(model.reports.isEmpty)
+        #expect(model.errorMessage == nil)
+    }
+
+    @Test("a non-404 failure from reports surfaces via errorMessage")
+    func reloadSurfacesNon404ReportsFailure() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            let http = HTTPURLResponse(url: request.url!, statusCode: 500, httpVersion: nil, headerFields: nil)!
+            return (Data("server error".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+
+        #expect(model.reports.isEmpty)
+        #expect(model.errorMessage != nil)
+    }
+
+    @Test("dismissing a report POSTs Ignore and drops it from the visible list")
+    func dismissReportResolvesAndRemovesFromList() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let recorder = Recorder()
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if request.url?.lastPathComponent == "reports" {
+                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (Data(Self.sampleReportsBody.utf8), http)
+            }
+            if let data = request.httpBody, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                await recorder.record(json)
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+            return (Data("{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        #expect(model.reports.count == 1)
+
+        await model.dismissReport(model.reports[0])
+
+        let body = await recorder.bodies.first
+        #expect(body?["type"] as? String == "Ignore")
+        #expect(body?["object"] as? String == "https://my-community.example/users/site/outbox/flag1")
+        #expect(model.reports.isEmpty)
+    }
+
+    @Test("a failed dismiss sets errorMessage and leaves the report in the list")
+    func dismissReportFailureSetsErrorMessage() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if request.url?.lastPathComponent == "reports" {
+                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (Data(Self.sampleReportsBody.utf8), http)
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!
+            return (Data("forbidden".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        #expect(model.reports.count == 1)
+
+        await model.dismissReport(model.reports[0])
+
+        #expect(model.errorMessage != nil)
+        #expect(model.reports.count == 1)
+    }
+
+    @Test("removing a report's target POSTs Remove without dismissing the report")
+    func removeReportTargetPostsRemove() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+        let recorder = Recorder()
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if request.url?.lastPathComponent == "reports" {
+                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (Data(Self.sampleReportsBody.utf8), http)
+            }
+            if let data = request.httpBody, let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any] {
+                await recorder.record(json)
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 202, httpVersion: nil, headerFields: nil)!
+            return (Data("{}".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        #expect(model.reports.count == 1)
+
+        try await model.removeReportTarget(model.reports[0])
+
+        let body = await recorder.bodies.first
+        #expect(body?["type"] as? String == "Remove")
+        #expect(body?["object"] as? String == "https://lemmy.ml/u/spammer")
+        // Removing the target is independent of dismissing the report (design's resolve/act
+        // split) — the report stays visible until the owner separately dismisses it.
+        #expect(model.reports.count == 1)
+    }
+
+    @Test("removeReportTarget propagates a non-2xx failure without crashing")
+    func removeReportTargetPropagatesFailure() async throws {
+        let (config, source) = try Self.makeSiteDirectories()
+        defer { try? FileManager.default.removeItem(at: config.deletingLastPathComponent()) }
+        let secretStore = InMemorySecretStore()
+        secretStore.values[SecretAccounts.activityPubPublishToken(siteID: "site-1")] = "token"
+
+        let model = ModerationModel(secretStore: secretStore, membershipTransport: { request in
+            if request.url?.lastPathComponent == "reports" {
+                let http = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                return (Data(Self.sampleReportsBody.utf8), http)
+            }
+            let http = HTTPURLResponse(url: request.url!, statusCode: 403, httpVersion: nil, headerFields: nil)!
+            return (Data("forbidden".utf8), http)
+        })
+        await model.configure(site: Self.site(configDirectory: config, sourceDirectory: source))
+        #expect(model.reports.count == 1)
+
+        await #expect(throws: CommunityMembershipError.requestFailed(status: 403, body: "forbidden")) {
+            try await model.removeReportTarget(model.reports[0])
+        }
+    }
 }
