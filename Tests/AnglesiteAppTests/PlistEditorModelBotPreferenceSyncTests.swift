@@ -3,20 +3,6 @@ import Foundation
 import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 @testable import AnglesiteCore
-import AnglesiteTestSupport
-
-private final class StubReader: CloudflareReading, @unchecked Sendable {
-    private let zoneID: String?
-    init(zoneID: String?) { self.zoneID = zoneID }
-    func resolveZoneID(domain: String, apiToken: String) async throws -> String? { zoneID }
-    func zoneState(zoneID: String, domain: String, apiToken: String) async throws -> CloudflareZoneState {
-        CloudflareZoneState(
-            dnssecActive: false, sslMode: "strict", alwaysUseHTTPS: false,
-            hsts: nil, caaRecords: [], mxRecords: [], spfRecords: [], dmarcRecords: [])
-    }
-    func listDNSRecords(zoneID: String, apiToken: String) async throws -> [DNSRecord] { [] }
-    func workerScriptNames(apiToken: String) async throws -> [String] { [] }
-}
 
 /// A `final class` so `deinit` drops the throwaway `UserDefaults` suite `makeModel()` hands each
 /// model's `AppSettings` (#1727).
@@ -63,7 +49,7 @@ final class PlistEditorModelBotPreferenceSyncTests {
         let model = PlistEditorModel(
             file: file, websiteTitle: "Test Site", sourceDirectory: dir,
             keychain: scratchKeychain.store,
-            reader: StubReader(zoneID: zoneID),
+            reader: StubCloudflareReader(zoneID: zoneID),
             appSettings: appSettings)
         return (model, scratchKeychain.cleanup)
     }

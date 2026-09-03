@@ -4,58 +4,6 @@ import AnglesiteCore
 import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 
-private final class StubReader: CloudflareReading, @unchecked Sendable {
-    private let zoneID: String?
-    private let state: CloudflareZoneState
-    private let records: [DNSRecord]
-    private(set) var resolvedDomain: String?
-    private(set) var listedZoneID: String?
-
-    init(zoneID: String? = "z1", state: CloudflareZoneState = StubReader.cleanState, records: [DNSRecord] = []) {
-        self.zoneID = zoneID
-        self.state = state
-        self.records = records
-    }
-
-    static let cleanState = CloudflareZoneState(
-        dnssecActive: true, sslMode: "strict", alwaysUseHTTPS: true,
-        hsts: nil, caaRecords: [], mxRecords: [], spfRecords: [], dmarcRecords: [])
-
-    func resolveZoneID(domain: String, apiToken: String) async throws -> String? {
-        resolvedDomain = domain
-        return zoneID
-    }
-    func zoneState(zoneID: String, domain: String, apiToken: String) async throws -> CloudflareZoneState { state }
-    func listDNSRecords(zoneID: String, apiToken: String) async throws -> [DNSRecord] {
-        listedZoneID = zoneID
-        return records
-    }
-    func workerScriptNames(apiToken: String) async throws -> [String] { [] }
-}
-
-private final class StubWriter: CloudflareWriting, @unchecked Sendable {
-    private(set) var addedRecords: [DNSRecordPayload] = []
-
-    func enableDNSSEC(zoneID: String, apiToken: String) async throws {}
-    func setAlwaysUseHTTPS(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func setHSTS(zoneID: String, maxAge: Int, includeSubdomains: Bool, preload: Bool, apiToken: String) async throws {}
-    func addDNSRecord(zoneID: String, record: DNSRecordPayload, apiToken: String) async throws {
-        addedRecords.append(record)
-    }
-    func deleteDNSRecord(zoneID: String, recordID: String, apiToken: String) async throws {}
-    func setBotFightMode(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func createWAFCustomRule(zoneID: String, rule: WAFRulePayload, apiToken: String) async throws {}
-    func setSpeedBrain(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func setECH(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func enableZstandardCompression(zoneID: String, apiToken: String) async throws {}
-    func setPageShield(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func enableOnionRouting(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func attachWorkersCustomDomain(hostname: String, workerScriptName: String, apiToken: String) async throws -> CustomDomainAttachResult {
-        .attached
-    }
-    func setMarkdownForAgents(hostname: String, enabled: Bool, apiToken: String) async throws -> Bool { true }
-}
-
 /// A `CloudflareReading` whose `resolveZoneID` calls suspend until the test explicitly resolves
 /// them — mirrors `HardenModelTests`/`AISearchModelTests`' `ControllableReader`, used to exercise
 /// a run still in flight when the sheet is dismissed/reopened out from under it (#1506).
@@ -63,7 +11,7 @@ private actor ControllableReader: CloudflareReading {
     private var continuations: [(domain: String, continuation: CheckedContinuation<String?, any Error>)] = []
     private let state: CloudflareZoneState
 
-    init(state: CloudflareZoneState = StubReader.cleanState) {
+    init(state: CloudflareZoneState = StubCloudflareReader.cleanState) {
         self.state = state
     }
 
@@ -112,7 +60,7 @@ struct DomainConfigAuditModelTests {
         defer { cfToken.release() }
         let (site, cleanup) = try tempSite()
         defer { cleanup() }
-        let model = DomainConfigAuditModel(reader: StubReader(), writer: StubWriter(), keychain: keychain)
+        let model = DomainConfigAuditModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter(), keychain: keychain)
         model.configure(site: site)
 
         model.runAudit()
@@ -133,7 +81,7 @@ struct DomainConfigAuditModelTests {
         let declared = DomainConfig(domain: .init(hostname: "example.com"))
         let (site, cleanup) = try tempSite(declaring: declared)
         defer { cleanup() }
-        let model = DomainConfigAuditModel(reader: StubReader(zoneID: nil), writer: StubWriter(), keychain: keychain)
+        let model = DomainConfigAuditModel(reader: StubCloudflareReader(zoneID: nil), writer: StubCloudflareWriter(), keychain: keychain)
         model.configure(site: site)
 
         model.runAudit()
@@ -159,7 +107,7 @@ struct DomainConfigAuditModelTests {
         let declared = DomainConfig(domain: .init(hostname: "example.com"))
         let (site, cleanup) = try tempSite(declaring: declared)
         defer { cleanup() }
-        let model = DomainConfigAuditModel(reader: StubReader(), writer: StubWriter(), keychain: InMemorySecretStore())
+        let model = DomainConfigAuditModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter(), keychain: InMemorySecretStore())
         model.configure(site: site)
 
         model.runAudit()
@@ -186,7 +134,7 @@ struct DomainConfigAuditModelTests {
         // Token available for the audit step, so phase reaches `.results` with a non-empty plan —
         // reconcile()'s own guard requires that starting phase. Claimed explicitly via the shared
         // coordinator (#1211 review) rather than relying on ambient/leaked env state.
-        let model = DomainConfigAuditModel(reader: StubReader(zoneID: "z1"), writer: StubWriter(), keychain: InMemorySecretStore())
+        let model = DomainConfigAuditModel(reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(), keychain: InMemorySecretStore())
         model.configure(site: site)
         let auditToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         model.runAudit()
@@ -221,8 +169,8 @@ struct DomainConfigAuditModelTests {
         let declared = DomainConfig(domain: .init(hostname: "example.com"), dns: .init(managedRecords: [record]))
         let (site, cleanup) = try tempSite(declaring: declared)
         defer { cleanup() }
-        let reader = StubReader(zoneID: "z1", state: StubReader.cleanState, records: [])
-        let model = DomainConfigAuditModel(reader: reader, writer: StubWriter(), keychain: keychain)
+        let reader = StubCloudflareReader(zoneID: "z1", state: StubCloudflareReader.cleanState, records: [])
+        let model = DomainConfigAuditModel(reader: reader, writer: StubCloudflareWriter(), keychain: keychain)
         model.configure(site: site)
 
         model.runAudit()
@@ -249,8 +197,8 @@ struct DomainConfigAuditModelTests {
         let declared = DomainConfig(domain: .init(hostname: "example.com"), dns: .init(managedRecords: [record]))
         let (site, cleanup) = try tempSite(declaring: declared)
         defer { cleanup() }
-        let writer = StubWriter()
-        let model = DomainConfigAuditModel(reader: StubReader(zoneID: "z1"), writer: writer, keychain: keychain)
+        let writer = StubCloudflareWriter()
+        let model = DomainConfigAuditModel(reader: StubCloudflareReader(zoneID: "z1"), writer: writer, keychain: keychain)
         model.configure(site: site)
 
         model.runAudit()
@@ -271,7 +219,7 @@ struct DomainConfigAuditModelTests {
     @Test("openSheet() resets phase")
     func openSheetResets() {
         // No CloudflareAPITokenTestEnvironment claim needed: openSheet() never calls apiToken().
-        let model = DomainConfigAuditModel(reader: StubReader(), writer: StubWriter(), keychain: keychain)
+        let model = DomainConfigAuditModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter(), keychain: keychain)
         model.openSheet()
         #expect(model.sheetPresented == true)
         #expect(model.phase == .idle)
@@ -281,7 +229,7 @@ struct DomainConfigAuditModelTests {
     @Test("dismissSheet() clears the presented flag")
     func dismissSheetClearsPresented() {
         // No CloudflareAPITokenTestEnvironment claim needed: neither method calls apiToken().
-        let model = DomainConfigAuditModel(reader: StubReader(), writer: StubWriter(), keychain: keychain)
+        let model = DomainConfigAuditModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter(), keychain: keychain)
         model.openSheet()
         model.dismissSheet()
         #expect(model.sheetPresented == false)
@@ -301,7 +249,7 @@ struct DomainConfigAuditModelTests {
         let declared = DomainConfig(domain: .init(hostname: "example.com"))
         let (site, cleanup) = try tempSite(declaring: declared)
         defer { cleanup() }
-        let model = DomainConfigAuditModel(reader: reader, writer: StubWriter(), keychain: keychain)
+        let model = DomainConfigAuditModel(reader: reader, writer: StubCloudflareWriter(), keychain: keychain)
         model.configure(site: site)
 
         model.runAudit()
@@ -330,7 +278,7 @@ struct DomainConfigAuditModelTests {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
         let reader = ControllableReader()
-        let model = DomainConfigAuditModel(reader: reader, writer: StubWriter(), keychain: keychain)
+        let model = DomainConfigAuditModel(reader: reader, writer: StubCloudflareWriter(), keychain: keychain)
 
         let staleDeclared = DomainConfig(domain: .init(hostname: "stale.example"))
         let (staleSite, staleCleanup) = try tempSite(declaring: staleDeclared)
