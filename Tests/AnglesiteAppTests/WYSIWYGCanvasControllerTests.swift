@@ -370,6 +370,9 @@ private extension OpResult {
 private final class FakeInvertibleTransport: WYSIWYGServerInvertibleTransport, @unchecked Sendable {
     private var model: BlockModel
     var nextServerInverse: WireInverse?
+    /// Test-only override for `applyServerInverse`'s result — `nil` means "just report `.applied`
+    /// against the current `model`" (the default every test but the stale-replay one wants).
+    var nextApplyServerInverseResult: OpResult?
 
     init(model: BlockModel) {
         self.model = model
@@ -388,7 +391,10 @@ private final class FakeInvertibleTransport: WYSIWYGServerInvertibleTransport, @
     }
 
     func applyServerInverse(_ inverse: WireInverse, requestId: String) async -> (result: OpResult, serverInverse: WireInverse?) {
-        (.applied(model: model), nil) // not exercised by this test
+        if let nextApplyServerInverseResult {
+            return (nextApplyServerInverseResult, nil)
+        }
+        return (.applied(model: model), nil)
     }
 
     func onModelUpdate(_ listener: @escaping @Sendable (BlockModel) -> Void) async -> () -> Void { {} }
@@ -409,5 +415,54 @@ extension WYSIWYGCanvasControllerTests {
         _ = await controller.submit(op)
 
         #expect(reported == .wire(serverInverse))
+    }
+
+    @Test("submit always registers the client-computed inverse for editText, even when the transport offers a server one (#1225 Finding 5)")
+    func submitAlwaysUsesClientInverseForEditText() async {
+        let node = BlockNode(id: "b1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 5], richText: [RichTextRun(kind: .text, text: "Hello")])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["b1"], blocks: ["b1": node])
+        let transport = FakeInvertibleTransport(model: initial)
+        // The transport WOULD supply a server-computed inverse — one that, in the real
+        // sidecar wire schema, could never carry `previousRuns` and would silently break
+        // typing-coalescing if it were ever registered for editText.
+        transport.nextServerInverse = WireInverse(op: "editText", component: .object(["runs": .string("[stale]")]))
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        var reported: WYSIWYGReversal?
+        controller.addOpAppliedListener { _, inverse, _ in reported = inverse }
+
+        let op = Op.editText(
+            blockId: "b1",
+            runs: [RichTextRun(kind: .text, text: "Hello, world")],
+            previousRuns: [RichTextRun(kind: .text, text: "Hello")])
+        _ = await controller.submit(op)
+
+        #expect(reported == .op(WYSIWYGOpInverter.invert(op)))
+    }
+
+    @Test("a stale .wire undo/redo replay logs via LogCenter instead of failing silently (#1602 final review, Finding 2)")
+    func staleWireReplayLogsRejection() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let transport = FakeInvertibleTransport(model: initial)
+        let serverInverse = WireInverse(op: "deleteBlock", component: .object(["nodeId": .string("real-n7")]))
+        transport.nextServerInverse = serverInverse
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        let undoManager = UndoManager()
+        undoManager.groupsByEvent = false // no run loop in a test; see WYSIWYGUndoCoordinator's doc
+        controller.undoCoordinator.undoManager = undoManager
+
+        let op = Op.insertBlock(parentId: rootParentID, slot: "main", index: 0, newId: "b1", block: BlockNodeContent(kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0]))
+        _ = await controller.submit(op) // registers the `.wire(serverInverse)` reversal as the undo step
+
+        // Once undo actually fires, replaying that `.wire` reversal goes stale — a marker unique
+        // to this test run distinguishes its log line from any other test appending to the shared
+        // "wysiwyg" LogCenter source concurrently.
+        let marker = "staleWireReplayLogsRejection-\(UUID().uuidString)"
+        transport.nextApplyServerInverseResult = .rejected(reason: .versionMismatch, message: marker, freshModel: nil)
+
+        undoManager.undo()
+        await controller.undoCoordinator.pendingPerform?.value
+
+        let lines = await LogCenter.shared.snapshot()
+        #expect(lines.contains { $0.source == "wysiwyg" && $0.stream == .stderr && $0.text.contains(marker) })
     }
 }

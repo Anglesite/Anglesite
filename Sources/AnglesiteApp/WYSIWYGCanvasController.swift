@@ -67,14 +67,16 @@ final class WYSIWYGCanvasController {
     /// `self`, which isn't available yet inside `init` before all stored properties are set.
     /// `@ObservationIgnored`: not view-relevant state, same as `SiteWindowModel`'s coordinators.
     ///
-    /// Awaits `apply(_:)` — not `submit(_:)` — to completion and reports whether the op actually
-    /// landed. Using `apply(_:)` (which skips `fireOpApplied`) is load-bearing, not a style choice:
-    /// `WYSIWYGUndoCoordinator.register` already re-registers the opposite undo/redo direction
-    /// itself once this `Performer` returns `true`. If this replayed through `submit(_:)`
-    /// instead, `submit`'s own `fireOpApplied` call would *also* reach `registerApplied`, double-
-    /// registering the same step and corrupting `UndoManager`'s undo/redo stacks. `.applied` vs.
-    /// `.rejected` (e.g. a version-mismatch conflict) decides `true`/`false`, so a rejection that
-    /// left the document unchanged never re-registers a (now-wrong) next step either.
+    /// Awaits `apply(_:)` — not `submit(_:)` — to completion and reports a `WYSIWYGPerformOutcome`
+    /// describing whether the op actually landed. Using `apply(_:)` (which skips `fireOpApplied`)
+    /// is load-bearing, not a style choice: `WYSIWYGUndoCoordinator.register` already re-registers
+    /// the opposite undo/redo direction itself once this `Performer` returns `.applied`. If this
+    /// replayed through `submit(_:)` instead, `submit`'s own `fireOpApplied` call would *also*
+    /// reach `registerApplied`, double-registering the same step and corrupting `UndoManager`'s
+    /// undo/redo stacks. `.applied(freshInverse:)` carries the transport's more accurate reversal
+    /// of what was just performed (or `nil` when it has no better answer than the already-
+    /// registered guess), while `.rejected` (e.g. a version-mismatch conflict) means the document
+    /// didn't change, so a rejection never re-registers a (now-wrong) next step either.
     @ObservationIgnored
     lazy var undoCoordinator = WYSIWYGUndoCoordinator { [weak self] step in
         guard let self else { return .rejected }
@@ -94,7 +96,9 @@ final class WYSIWYGCanvasController {
     /// failure mode a single-closure property would have.
     ///
     /// Quality-gate re-analysis is **not** wired here: it has to fire on every model change,
-    /// including undo/redo, so it hangs off `sendAndApply(_:)` instead — see `runQualityGates`.
+    /// including undo/redo, so it hangs off `absorb(_:)` instead — the shared "model changed"
+    /// funnel both `sendAndApply(_:)` and `sendAndApplyServerInverse(_:)` return through — see
+    /// `runQualityGates`.
     private var opAppliedListeners: [(Op, WYSIWYGReversal, BlockModel) -> Void] = []
 
     func addOpAppliedListener(_ listener: @escaping (Op, WYSIWYGReversal, BlockModel) -> Void) {
@@ -150,9 +154,25 @@ final class WYSIWYGCanvasController {
         let (result, freshInverse) = await apply(.op(op))
         if case .applied(let newModel) = result {
             hasUncommittedOps = true
-            fireOpApplied(op, freshInverse ?? .op(WYSIWYGOpInverter.invert(op)), newModel)
+            fireOpApplied(op, Self.registeredReversal(for: op, freshInverse: freshInverse), newModel)
         }
         return result
+    }
+
+    /// Decides which reversal to register for an applied `op`. `editText` always uses the
+    /// client-computed inverse, never a transport-supplied `freshInverse` — server-computed editText
+    /// inverses drop `previousRuns` on the wire (`WYSIWYGOpTranslator`'s editText encoding carries
+    /// only `runs`), so a `.wire` reversal would break `WYSIWYGUndoCoordinator`'s typing-coalescing
+    /// invariant (a coalesced multi-tick undo session would restore to the wrong intermediate tick
+    /// instead of the session's true baseline — #1225 Finding 5). editText also has no structural
+    /// id-drift risk in the first place: editing a text node's content doesn't change the tree shape
+    /// or renumber any node's id, unlike insert/delete/move, so there's no correctness reason to
+    /// prefer the server inverse here.
+    private static func registeredReversal(for op: Op, freshInverse: WYSIWYGReversal?) -> WYSIWYGReversal {
+        if case .editText = op {
+            return .op(WYSIWYGOpInverter.invert(op))
+        }
+        return freshInverse ?? .op(WYSIWYGOpInverter.invert(op))
     }
 
     /// Replays one reversal step against the transport and updates `model` — the shared core
@@ -198,6 +218,11 @@ final class WYSIWYGCanvasController {
             return (.rejected(reason: .hostError, message: "transport cannot replay a server-computed inverse", freshModel: nil), nil)
         }
         let (result, serverInverse) = await invertible.applyServerInverse(inverse, requestId: UUID().uuidString)
+        if case .rejected(let reason, let message, _) = result {
+            await LogCenter.shared.append(
+                source: "wysiwyg", stream: .stderr,
+                text: "undo/redo replay rejected: \(reason.rawValue) — \(message ?? "no detail")")
+        }
         return (await absorb(result), serverInverse.map(WYSIWYGReversal.wire))
     }
 
@@ -548,7 +573,7 @@ extension WYSIWYGCanvasController: WYSIWYGHostTransport {
     func sendOp(_ envelope: OpEnvelope) async -> OpResult {
         let (result, freshInverse) = await sendAndApply(envelope)
         if case .applied(let newModel) = result {
-            fireOpApplied(envelope.op, freshInverse ?? .op(WYSIWYGOpInverter.invert(envelope.op)), newModel)
+            fireOpApplied(envelope.op, Self.registeredReversal(for: envelope.op, freshInverse: freshInverse), newModel)
         }
         return result
     }
