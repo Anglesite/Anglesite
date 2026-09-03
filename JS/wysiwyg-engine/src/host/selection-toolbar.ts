@@ -71,6 +71,15 @@ export class SelectionToolbar {
   }
 
   #showButtons(range: Range): void {
+    // Invalidates any earlier in-flight request unconditionally, not just the ones `#hide()`
+    // already covers. Without this, reselecting to a *different* non-collapsed range B while a
+    // request for range A is still in flight leaves `#pendingRange` pointing at A — so when A's
+    // reply lands, `#request`'s `this.#pendingRange !== range` guard compares `rangeA !== rangeA`
+    // and wrongly treats it as fresh, overwriting the just-rendered button bar for B with a preview
+    // of A's rewritten text (Accept still bound to A's range, not what the owner is looking at).
+    // Once the visible selection has moved on, any earlier request is moot regardless of whether
+    // the new selection happens to overlap the old range.
+    this.#pendingRange = null;
     this.#el?.remove();
     const el = this.#doc.createElement("div");
     el.setAttribute("data-selection-toolbar", "");
@@ -115,7 +124,16 @@ export class SelectionToolbar {
     this.#pendingRange = range;
     const text = range.toString();
     this.#renderLoading();
-    const reply = await this.#transport.requestWritingHelp(text, instructionForAction(action, tone));
+    let reply: WritingHelpReply;
+    try {
+      reply = await this.#transport.requestWritingHelp(text, instructionForAction(action, tone));
+    } catch {
+      // A rejected promise (transport-level failure, not a `{status:"unavailable"}` reply) must
+      // not leave the toolbar stuck on "Rewriting…" forever with an unhandled rejection — surface
+      // the same user-visible error state the `.unavailable` reply path already renders below.
+      if (this.#pendingRange === range) this.#renderError("Couldn't generate a rewrite — try again.");
+      return;
+    }
     // The selection (and thus the active edit) may have moved on during the round trip — discard
     // a stale reply rather than force-applying it to whatever is selected now.
     if (this.#pendingRange !== range) return;
