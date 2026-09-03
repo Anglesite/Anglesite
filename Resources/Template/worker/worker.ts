@@ -70,6 +70,7 @@ import {
   extractMf2ContentString,
   extractMf2Photos,
   extractMf2StringList,
+  imageMediaTypeForUrl,
   type ExtractedPhoto,
 } from "./render-utils.ts";
 import { handleReaderCallback, handleReaderSignin } from "./reader-auth.ts";
@@ -1149,7 +1150,17 @@ export function resolveFanOutAddressing(
  * render only posts carrying an attachment, so a bare `Note` from `content` alone is invisible
  * to a Pixelfed follower. `@dwk/activitypub`'s outbox wraps the posted object with `{ ...input }`
  * (see its `#asOutboxActivity`), so `attachment` passes through to delivery unmodified — no
- * package-side change needed.
+ * package-side change needed. Each `Image` also carries `mediaType` (#1770): Pixelfed's inbox
+ * validator (`Helpers::verifyAttachments`, `'*.mediaType' => required|in(pixelfed.media_types)`)
+ * drops the whole Note without it, while Mastodon, Misskey, and Friendica sniff or HEAD-fetch the
+ * type themselves — so the field is derived from the photo URL's extension and omitted, never
+ * guessed, when that extension is unknown (see `imageMediaTypeForUrl`). Known Pixelfed caveat,
+ * recorded here rather than worked around (#1770's decision, no per-platform code per #1241):
+ * Pixelfed's default `media_types` is `image/jpeg,image/jpg,image/png,image/gif`, so a correctly
+ * typed `image/webp` attachment — the rendition `anglesite:optimize-images` prefers — is still
+ * rejected by a default-configured instance (large instances widen the list). Photos that must
+ * reach Pixelfed should be posted as JPEG/PNG; serving a JPEG rendition to the fan-out would need
+ * the URL ↔ MIME mapping from the Micropub media endpoint to survive to fan-out time.
  *
  * `visibility`/`btoTargets` drive restricted (`visibility: contacts`) delivery (#1565, §2.4):
  * `btoTargets` are meant to be the actor IRIs of contacts with a linked ActivityPub actor — the
@@ -1194,11 +1205,18 @@ async function fanOutMicropubCreateToActivityPub(
     url: tagFediverseUrl(location, utmCodesArtifact),
     ...(photos.length > 0
       ? {
-          attachment: photos.map((photo) => ({
-            type: "Image",
-            url: photo.url,
-            ...(photo.alt !== undefined ? { name: photo.alt } : {}),
-          })),
+          attachment: photos.map((photo) => {
+            // `mediaType` is what Pixelfed's inbox validator requires on every attachment
+            // (#1770) — without it the whole Note is dropped, the very outcome #1240 exists
+            // to fix. Omitted (not guessed) when the URL's extension is unrecognized.
+            const mediaType = imageMediaTypeForUrl(photo.url);
+            return {
+              type: "Image",
+              url: photo.url,
+              ...(mediaType !== undefined ? { mediaType } : {}),
+              ...(photo.alt !== undefined ? { name: photo.alt } : {}),
+            };
+          }),
         }
       : {}),
     // No `cc` naming the followers collection: unlike the convention some AP implementations
