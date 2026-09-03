@@ -80,8 +80,13 @@ other op; there is no separate accept/dismiss step.
 
 **Availability / failure:** if FM is unavailable or the call fails or times
 out, the insert proceeds with empty alt text exactly as it does today — a
-silent degrade, not a blocking gate. The existing pre-deploy accessibility
-check still catches empty alt text at deploy time regardless.
+silent degrade, not a blocking gate. Neither the pre-deploy accessibility
+check nor the in-app quality gate flags an empty `alt` — both treat it as
+intentionally decorative, matching how a manually-added decorative image is
+already handled. A degraded proposal is therefore indistinguishable from a
+deliberately decorative image; closing that gap (e.g. a quality-gate finding
+for `alt=""` with no `role="presentation"`) is a reasonable follow-up for
+PR 3's chip work, not this PR's job.
 
 **Front-doors:** GUI only (the drop gesture itself). No chat tool or App
 Intent — there is no meaningful voice/chat trigger for "the image I just

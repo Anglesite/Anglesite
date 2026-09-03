@@ -1756,7 +1756,6 @@ struct SiteWindow: View {
                 let route = model.preview.activeRoute ?? "/"
                 Task {
                     let logCenter = LogCenter.shared
-                    let conventions = await model.currentProjectConventions()
                     guard var bytes = await WYSIWYGImageDropHandler.loadImageBytes(from: providers) else { return }
 
                     // #1671: embed the last-used file license (mirroring `Insert ▸ Image…`) before
@@ -1793,29 +1792,36 @@ struct SiteWindow: View {
                     // #1227: propose alt text with the on-device vision model, seeding it straight
                     // into the insertBlock op below rather than a follow-up edit — one op, one
                     // undo entry, reviewable live in the inspector. Silent degrade to empty alt
-                    // text on any failure (model unavailable, vision call error, timeout).
+                    // text on any failure (model unavailable, vision call error).
                     //
-                    // Gated on `#if compiler(>=6.4)`, matching ChatView.swift / SiteAnnotationModifier.swift
-                    // (the latter's doc comment: "gated ... because the macOS 27 APIs they call don't
-                    // exist on Xcode 26.3. On the fallback toolchain the modifier becomes a no-op").
-                    // `WYSIWYGAltTextProposer`, `FoundationModelAssistant`, and `GeneratedAltText` only
-                    // exist under matching `compiler(>=6.4)` gates inside AnglesiteCore. Package.swift's
-                    // own `#if compiler(>=6.4) && canImport(Darwin)` around the `AnglesiteAppCore` target
-                    // keeps this file out of the SwiftPM package graph entirely on an older compiler, but
-                    // that gate is manifest-only: `project.yml`'s `sources: - path: Sources/AnglesiteApp`
-                    // for the Xcode `Anglesite` app scheme lists this file unconditionally, and
-                    // `scripts/build-app.sh` doesn't select or verify the active toolchain before calling
-                    // `xcodebuild` — so a local build with an older Xcode selected (a missed
+                    // Gated on `#if compiler(>=6.4) && canImport(FoundationModels)`, matching
+                    // `WYSIWYGAltTextProposer`'s own gate in AnglesiteCore (and the spirit of
+                    // ChatView.swift / SiteAnnotationModifier.swift — the latter's doc comment:
+                    // "gated ... because the macOS 27 APIs they call don't exist on Xcode 26.3. On
+                    // the fallback toolchain the modifier becomes a no-op"). `WYSIWYGAltTextProposer`,
+                    // `FoundationModelAssistant`, and `GeneratedAltText` only exist under that same
+                    // gate inside AnglesiteCore. Package.swift's own `#if compiler(>=6.4) &&
+                    // canImport(Darwin)` around the `AnglesiteAppCore` target keeps this file out of
+                    // the SwiftPM package graph entirely on an older compiler, but that gate is
+                    // manifest-only: `project.yml`'s `sources: - path: Sources/AnglesiteApp` for the
+                    // Xcode `Anglesite` app scheme lists this file unconditionally, and
+                    // `scripts/build-app.sh` doesn't select or verify the active toolchain before
+                    // calling `xcodebuild` — so a local build with an older Xcode selected (a missed
                     // docs/testing-macos-app.md preflight) would otherwise hard-fail with "cannot find
-                    // 'GeneratedAltText' in scope" instead of degrading gracefully.
+                    // 'GeneratedAltText' in scope" instead of degrading gracefully. This file's gate
+                    // is necessary but not yet sufficient for that protection on its own:
+                    // `SiteAssistantSessionFactory.swift` references the same three types completely
+                    // unguarded, so the `AnglesiteApp` target as a whole still can't compile on an
+                    // older toolchain until that file gets the equivalent gate too.
                     let altText: String
                     let isDecorative: Bool
-                    #if compiler(>=6.4)
+                    #if compiler(>=6.4) && canImport(FoundationModels)
                     let proposer = WYSIWYGAltTextProposer(
                         produce: { imageURL, context in
-                            try await FoundationModelAssistant(tier: .onDevice).generateStructured(
+                            let conventions = await model.currentProjectConventions()
+                            return try await FoundationModelAssistant(tier: .onDevice).generateStructured(
                                 prompt: AltTextPromptBuilder.build(
-                                    basePrompt: "Generate concise, descriptive alt text for this image as it would appear on a website. If the image is purely decorative, mark it decorative and use empty alt text.",
+                                    basePrompt: AltTextPromptBuilder.defaultBasePrompt,
                                     conventions: conventions
                                 ),
                                 imageURL: imageURL,
@@ -1835,7 +1841,7 @@ struct SiteWindow: View {
                     isDecorative = proposedAlt?.isDecorative == true
                     altText = isDecorative ? "" : (proposedAlt?.altText ?? "")
                     #else
-                    // Fallback toolchain (pre-Xcode-27, `compiler(>=6.4)` false): the exact pre-#1227
+                    // Fallback (pre-Xcode-27, or FoundationModels unavailable): the exact pre-#1227
                     // stub — empty alt, no decorative role.
                     isDecorative = false
                     altText = ""
