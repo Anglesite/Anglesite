@@ -18,9 +18,15 @@ struct SiteSplitScreen: View {
 
     @State private var sitePicker = SitePickerModel()
     @State private var siteSelection = SiteSelectionModel()
+    /// Persists/restores the content-type filter, post selection, and warm-session set across
+    /// relaunch (#1436, design §8.6).
+    @State private var restoration = NavigationRestorationModel()
     /// The sidebar's content-type filter: a registry type id, or `nil` for "All Posts".
     @State private var selectedTypeID: String?
     @State private var selection: PostListItemSelection?
+    /// A restored `.existing(postURL:)` selection waiting for the post list to load so it can
+    /// resolve into a real `PostListModel.Item` — cleared once applied or found stale.
+    @State private var pendingRestoredPostURL: URL?
     /// The selected site's session pane state — re-resolved whenever the site changes.
     @State private var sessionState: SessionState = .none
     private let registry = ContentTypeRegistry.default
@@ -57,8 +63,24 @@ struct SiteSplitScreen: View {
         .task(id: siteSelection.selectedSite?.id) { await resolveSession() }
         .onChange(of: sitePicker.state) { _, newState in
             if case .sites(let sites) = newState {
+                let hadNoSelection = siteSelection.selectedSite == nil
                 siteSelection.restoreSelection(from: sites)
+                // Only the cold-launch restore (no prior selection) re-applies a saved position —
+                // an interactive site switch already resets the filter/selection itself.
+                if hadNoSelection, let site = siteSelection.selectedSite {
+                    restorePosition(forSite: site.id)
+                }
             }
+        }
+        .onChange(of: selectedTypeID) { _, _ in persistPosition() }
+        .onChange(of: selection) { _, _ in persistPosition() }
+        .onChange(of: postList?.state) { _, newState in
+            guard let pendingRestoredPostURL, case .posts(let items) = newState else { return }
+            defer { self.pendingRestoredPostURL = nil }
+            // A deleted/moved post simply leaves the composer pane on its existing empty state —
+            // the same "already correct" fallback `SiteSelectionModel.restoreSelection` uses.
+            guard let item = items.first(where: { $0.id == pendingRestoredPostURL }) else { return }
+            selection = .existing(item)
         }
         .fullScreenCover(item: $editingSite) { site in
             if let model = editSessions[site.id] {
@@ -74,6 +96,34 @@ struct SiteSplitScreen: View {
             else { return }
             selectSite(site)
             presentEditSession(for: site)
+        }
+        .safeAreaInset(edge: .top) { continueEditingBanner }
+    }
+
+    // MARK: - Position restoration (#1436)
+
+    /// Persists the current site's content-type filter and post selection. Called on every
+    /// change — cheap, and the only way to avoid losing position to memory pressure rather than
+    /// an orderly background transition.
+    private func persistPosition() {
+        guard let siteID = siteSelection.selectedSite?.id else { return }
+        restoration.recordPosition(
+            siteID: siteID, typeID: selectedTypeID, selection: selection.map(PersistedSelection.init))
+    }
+
+    /// Applies a saved position for `siteID`: the type filter immediately, and a `.new` selection
+    /// immediately (the composer needs nothing else). An `.existing` selection instead waits for
+    /// `postList` to load — resolved by the `postList?.state` observer above.
+    private func restorePosition(forSite siteID: UUID) {
+        guard let saved = restoration.restorePosition(forSite: siteID) else { return }
+        selectedTypeID = saved.typeID
+        switch saved.selection {
+        case .new(let typeID):
+            selection = .new(typeID: typeID)
+        case .existing(let postURL):
+            pendingRestoredPostURL = postURL
+        case nil:
+            break
         }
     }
 
@@ -336,10 +386,59 @@ struct SiteSplitScreen: View {
                 pairedMacs: { try PairedDeviceStore().load() },
                 // #1208 P4 swaps this factory for the real WebRTC-backed P2PSiteRuntime;
                 // nothing else in the session UI knows which runtime it drives.
-                makeRuntime: { PendingP2PSiteRuntime() }
+                makeRuntime: { PendingP2PSiteRuntime() },
+                // #1436: remember which sites have a live/starting session so a relaunch can
+                // re-offer it instead of silently dropping it.
+                onPhaseChange: { phase in
+                    switch phase {
+                    case .waking, .starting, .ready:
+                        restoration.markSessionWarm(siteID: site.id)
+                    case .idle, .failed, .pairingRequired:
+                        restoration.markSessionEnded(siteID: site.id)
+                    }
+                }
             )
         }
         editingSite = site
+    }
+
+    /// The sites `restoration` remembers as warm, resolved against the currently-discovered
+    /// site list — a persisted ID for a site that's since vanished (deleted, not yet synced)
+    /// resolves to nothing, same as `SiteSelectionModel.restoreSelection`'s handling of that case.
+    private var warmSites: [SitePickerModel.DiscoveredSite] {
+        switcherSites.filter { restoration.warmSessionIDs.contains($0.id) }
+    }
+
+    /// A dismissible, non-modal "Continue editing…" offer (#1436, design §8.6 / platform spec
+    /// §4: re-offer a warm session after relaunch rather than silently dropping it — never a
+    /// sheet or alert for this, per §4's "don't use an alert for routine information").
+    @ViewBuilder
+    private var continueEditingBanner: some View {
+        if !warmSites.isEmpty {
+            VStack(spacing: 8) {
+                ForEach(warmSites) { site in
+                    HStack {
+                        Label {
+                            Text("Continue editing \(site.displayName)?")
+                        } icon: {
+                            Image(systemName: "paintbrush.pointed")
+                        }
+                        Spacer()
+                        Button("Continue") {
+                            selectSite(site)
+                            presentEditSession(for: site)
+                        }
+                        .buttonStyle(.borderedProminent)
+                        Button("Not Now") {
+                            restoration.markSessionEnded(siteID: site.id)
+                        }
+                        .buttonStyle(.bordered)
+                    }
+                }
+            }
+            .padding(12)
+            .background(.thinMaterial)
+        }
     }
 
     /// Single path for every site-switch trigger (sidebar row, switcher menu) so the
