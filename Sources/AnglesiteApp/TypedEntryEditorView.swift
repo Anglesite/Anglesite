@@ -69,6 +69,10 @@ struct TypedEntryForm: View {
                        displayedComponents: field.kind == .date ? [.date] : [.date, .hourAndMinute])
         case .number:
             TextField(label, text: model.numberBinding(field.name))
+        case .enum(let cases):
+            Picker(label, selection: model.textBinding(field.name)) {
+                ForEach(cases, id: \.self) { Text($0) }
+            }
         case .stringArray, .imageArray:
             StringListEditor(title: label, items: model.listBinding(field.name),
                              pickFile: field.kind == .imageArray)
@@ -249,7 +253,7 @@ private struct ObjectArrayEditor: View {
                        displayedComponents: field.kind == .date ? [.date] : [.date, .hourAndMinute])
         case .number:
             TextField(label, text: numberBinding(field.name, in: values, rowID: rowID))
-        case .markdown, .stringArray, .imageArray, .objectArray:
+        case .markdown, .stringArray, .imageArray, .objectArray, .enum:
             // Fail visibly rather than silently. `verbatim:` deliberately: this is a
             // descriptor-authoring diagnostic that no shipped descriptor can reach, not user copy.
             Text(verbatim: "\(field.name) — unsupported member field kind")
