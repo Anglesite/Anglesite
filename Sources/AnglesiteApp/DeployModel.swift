@@ -416,6 +416,24 @@ final class DeployModel {
         let signInResult: CloudflareOAuthSignIn.Result
         do {
             signInResult = try await oauthSignIn.run()
+        } catch CloudflareOAuthPresentationError.sessionFailedToStart {
+            // The browser sheet never presented — not a user cancel. Most commonly a Debug build
+            // signed without the Associated Domains entitlement that `.https(host:path:)` callback
+            // matching needs (#1766). Unlike a real cancel, this is worth a developer-facing
+            // message and a Debug-pane line, since there's otherwise no way to learn why sign-in
+            // silently went nowhere.
+            await logCenter.append(
+                source: "cloudflare-oauth-sign-in", stream: .stderr,
+                text: "Cloudflare sign-in session failed to start — this build likely lacks the "
+                    + "Associated Domains entitlement (com.apple.developer.associated-domains) "
+                    + "that OAuth callback matching needs.")
+            tokenVerification = .failed(message: """
+                Cloudflare sign-in needs the Associated Domains entitlement, which this build \
+                doesn't carry (common on an ad-hoc Debug build). Sign the build with a real Team \
+                (see xcconfig/Signing-Debug.local.xcconfig.example) or paste a legacy Cloudflare \
+                API token in Settings ▸ Advanced ▸ Credentials.
+                """)
+            return
         } catch let error as ASWebAuthenticationSessionError where error.code == .canceledLogin {
             // The user dismissed the browser sheet — same "no error banner" treatment a dismissed
             // paste sheet got.
