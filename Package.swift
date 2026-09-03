@@ -446,9 +446,10 @@ packageDependencies.append(
 //     the whole highlighting stack the spec calls for, with no separate grammar packages
 //     to add.
 // Both AppKit-only, so gated the same as SwiftGit2 above.
-// Pinned to a commit, not `from:` — `Package.resolved` is gitignored (no committed lockfile), so
-// every fresh checkout resolves independently, and a floating `from:` here let a fresh resolve of
-// 2.3.10 silently ship an API change (`text` became `String?`) that broke #774 (see #781, #783).
+// Pinned to a commit, not `from:` — `Package.resolved` is committed, but that doesn't protect a
+// `from:` requirement: any other dependency change forces a re-resolve, and a floating `from:`
+// here let one silently ship an API change (`text` became `String?`) that broke #774 (see #781,
+// #783).
 // Matches the SwiftGit2/STTextView-Plugin-Neon policy below: deliberate bumps only. This is tag
 // 2.3.10's commit.
 packageDependencies.append(
