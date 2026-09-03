@@ -56,7 +56,7 @@ struct CloudflareTokenPromptView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Connect to Cloudflare")
                     .font(.headline)
-                Text("Deploying needs a one-time API token. It takes about a minute.")
+                Text("Publishing needs a one-time API token. It takes about a minute.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -93,7 +93,7 @@ struct CloudflareTokenPromptView: View {
                     onCancel()
                 }
                 .keyboardShortcut(.cancelAction)
-                Button("Connect & deploy") {
+                Button("Connect and Publish") {
                     submit()
                 }
                 .keyboardShortcut(.defaultAction)

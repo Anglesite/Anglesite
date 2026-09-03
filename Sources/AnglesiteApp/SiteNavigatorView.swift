@@ -219,10 +219,10 @@ struct SiteNavigatorView: View {
                     Button("Repurpose Post…") { onRepurposeRequested(item) }
                 }
                 if model.canPublish(node.id), let item = model.item(for: node.id) {
-                    Button("Publish") { onPublishRequested(item) }
+                    Button("Publish Post") { onPublishRequested(item) }
                 }
                 if model.canUnpublish(node.id), let item = model.item(for: node.id) {
-                    Button("Unpublish") { onUnpublishRequested(item) }
+                    Button("Move to Drafts") { onUnpublishRequested(item) }
                 }
                 if model.canDelete(node.id), let item = model.item(for: node.id) {
                     Button("Delete", role: .destructive) { onDeleteRequested(item) }

@@ -75,9 +75,9 @@ public enum LiveRegionAnnouncer {
     public static func deployAnnouncement(from old: DeployActivity, to new: DeployActivity) -> String? {
         guard old != new else { return nil }
         switch new {
-        case .running(let site): return "Deploying \(site)"
-        case .succeeded(let url): return "Deploy succeeded. \(url)"
-        case .failed(let reason): return "Deploy failed. \(reason)"
+        case .running(let site): return "Publishing \(site)"
+        case .succeeded(let url): return "Published. \(url)"
+        case .failed(let reason): return "Couldn't publish. \(reason)"
         case .inactive: return nil
         }
     }
@@ -86,7 +86,7 @@ public enum LiveRegionAnnouncer {
     /// crossing `0 → ≥1`. Gives a VoiceOver user early notice that something is going wrong before
     /// the terminal state, without announcing every subsequent error line (which would flood).
     public static func deployStderrAnnouncement(previousStderrCount: Int, currentStderrCount: Int) -> String? {
-        (previousStderrCount == 0 && currentStderrCount > 0) ? "Deploy log has errors" : nil
+        (previousStderrCount == 0 && currentStderrCount > 0) ? "Publish log has errors" : nil
     }
 
     // MARK: Experiment lifecycle

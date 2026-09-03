@@ -51,7 +51,7 @@ struct BlockedDeploySheetView: View {
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Deploy blocked").font(.title3).fontWeight(.semibold)
+                Text("Can't publish yet").font(.title3).fontWeight(.semibold)
                 Text("The pre-deploy scan found issues that need fixing before this site can ship.")
                     .font(.callout).foregroundStyle(.secondary)
             }

@@ -71,7 +71,7 @@ struct GitHubTokenPromptView: View {
                     onCancel()
                 }
                 .keyboardShortcut(.cancelAction)
-                Button("Connect & publish") {
+                Button("Connect and Publish") {
                     submit()
                 }
                 .keyboardShortcut(.defaultAction)

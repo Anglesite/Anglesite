@@ -676,7 +676,7 @@ struct SiteWindow: View {
                 Button {
                     model.openPreviewInBrowser()
                 } label: {
-                    Label("Open in browser", systemImage: "arrow.up.forward.app")
+                    Label("Open in Browser", systemImage: "arrow.up.forward.app")
                 }
                 .disabled(!model.canOpenPreviewInBrowser)
                 .help("Open the live preview in your default browser")
@@ -796,7 +796,7 @@ struct SiteWindow: View {
                 }
                 .disabled(!model.canRunAgentReadiness)
                 .help(site.isValid
-                      ? "Check Cloudflare's Agent Readiness score for this site's deployed URL"
+                      ? "Check Cloudflare's Agent Readiness score for this site's published URL"
                       : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.agentReadiness))
             }
@@ -917,14 +917,14 @@ struct SiteWindow: View {
                     Button {
                         model.deploySite()
                     } label: {
-                        Label("Deploy", systemImage: "paperplane.fill")
+                        Label("Publish Site", systemImage: "paperplane.fill")
                     }
                     .buttonStyle(.borderedProminent)
                     .disabled(!model.canRunDeploy)
                     .help(site.isValid && model.preview.canDeploy
-                          ? "Build, scan, and run wrangler deploy on this site"
+                          ? "Build, scan, and publish this site to Cloudflare"
                           : site.isValid
-                            ? "Open the preview first to start the runtime before deploying"
+                            ? "Open the preview first to start the runtime before publishing"
                             : "Site is missing required files")
                     .accessibilityIdentifier(AXID.toolbar(.deploy))
                 }
@@ -1094,7 +1094,7 @@ struct SiteWindow: View {
             DomainSheetView(model: model.domain)
         }
         .sheet(isPresented: $bindableModel.connectDomain.sheetPresented, onDismiss: {
-            // Sequences the "Buy a domain" handoff to `BuyDomainSheetView` after this sheet's own
+            // Sequences the "Buy a Domain" handoff to `BuyDomainSheetView` after this sheet's own
             // dismissal transaction finishes, rather than flipping both sheets' `sheetPresented`
             // bindings synchronously from one button action — see `ConnectDomainModel
             // .pendingBuyDomain`'s doc comment.

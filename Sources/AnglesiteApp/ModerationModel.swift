@@ -176,7 +176,7 @@ final class ModerationModel {
 
     func ban(_ member: CommunityMember) async throws {
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            errorMessage = "This site has no known public URL yet — publish it at least once first."
             return
         }
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
@@ -199,7 +199,7 @@ final class ModerationModel {
     /// ``addModerator(_:)`` already use.
     func unban(_ member: CommunityMember) async {
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            errorMessage = "This site has no known public URL yet — publish it at least once first."
             return
         }
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
@@ -218,7 +218,7 @@ final class ModerationModel {
     /// precedent.
     func approve(_ follower: PendingFollower) async {
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            errorMessage = "This site has no known public URL yet — publish it at least once first."
             return
         }
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
@@ -232,7 +232,7 @@ final class ModerationModel {
 
     func removePost(_ post: AnnouncedPost) async throws {
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            errorMessage = "This site has no known public URL yet — publish it at least once first."
             return
         }
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)

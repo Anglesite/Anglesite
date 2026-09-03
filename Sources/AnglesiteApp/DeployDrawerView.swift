@@ -57,7 +57,7 @@ struct DeployDrawerView: View {
                     Text(milestone).font(.caption).foregroundStyle(.secondary)
                 }
                 if case .succeeded = model.phase, case .dirty = model.sourceBundleStatus {
-                    Text("Code changes not yet deployed to the CMS bundle.")
+                    Text("Code changes not yet published to the CMS bundle.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -71,7 +71,7 @@ struct DeployDrawerView: View {
                 // discovered during a background/automatic deploy would otherwise never reach the
                 // user at all — this caption is the fallback that survives past that gate.
                 if case .succeeded = model.phase, case .conflict(let hostname, let ownedBy) = model.domainAttachStatus {
-                    Text("\(hostname) is already connected to another site (\(ownedBy)) — not used for this deploy.")
+                    Text("\(hostname) is already connected to another site (\(ownedBy)) — not used this time.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -101,7 +101,7 @@ struct DeployDrawerView: View {
                         Text("Your site is live. Connect a domain?")
                             .font(.caption)
                             .foregroundStyle(.secondary)
-                        Button("Connect a domain…", action: onConnectDomain)
+                        Button("Connect a Domain…", action: onConnectDomain)
                             .buttonStyle(.link)
                             .font(.caption)
                     }
@@ -113,9 +113,9 @@ struct DeployDrawerView: View {
                 // a Copy action, so a separate "Copy URL" button would just duplicate it (#1078).
                 ShareLink(item: url)
                     .labelStyle(.iconOnly)
-                    .help("Share the deployed site's URL")
-                    .accessibilityLabel("Share deployed URL")
-                Button("Open in browser") {
+                    .help("Share the published site's URL")
+                    .accessibilityLabel("Share published URL")
+                Button("Open in Browser") {
                     NSWorkspace.shared.open(url)
                 }
                 .buttonStyle(.borderedProminent)
@@ -136,7 +136,7 @@ struct DeployDrawerView: View {
                 ),
                 size: .compact
             )
-            .accessibilityLabel("Deploying")
+            .accessibilityLabel("Publishing")
         case .succeeded:
             Image(systemName: "checkmark.circle.fill")
                 .foregroundStyle(.green).font(.title3)
@@ -153,9 +153,9 @@ struct DeployDrawerView: View {
 
     private var headerTitle: String {
         switch model.phase {
-        case .running: return "Deploying \(siteName)…"
+        case .running: return "Publishing \(siteName)…"
         case .succeeded(let url, _): return url.absoluteString
-        case .failed: return "Deploy failed"
+        case .failed: return "Couldn't publish"
         case .idle, .blocked, .workerNameConflict, .webmentionPaidPlanConfirmationNeeded, .domainConfigDrift: return siteName
         }
     }
@@ -163,7 +163,7 @@ struct DeployDrawerView: View {
     private var headerSubtitle: String? {
         switch model.phase {
         case .succeeded(_, let duration):
-            return String(format: "deployed in %.1f s", duration)
+            return String(format: "published in %.1f s", duration)
         case .failed(let reason, let exit):
             return exit.map { "\(reason) (exit \($0))" } ?? reason
         default:

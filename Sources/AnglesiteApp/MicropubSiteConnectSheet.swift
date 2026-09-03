@@ -131,7 +131,7 @@ struct MicropubSiteConnectSheet: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             case .needsDeployedSite:
                 ContentUnavailableView {
-                    Label("Not Deployed Yet", systemImage: "icloud.and.arrow.up")
+                    Label("Not Published Yet", systemImage: "icloud.and.arrow.up")
                 } description: {
                     Text("Publish this site at least once before connecting it for CMS mode.")
                 }

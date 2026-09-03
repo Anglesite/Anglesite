@@ -36,7 +36,7 @@ struct HealthBadgeView: View {
         .buttonStyle(.plain)
         .controlSize(.small)
         .help(helpText)
-        .accessibilityLabel("Deploy readiness")
+        .accessibilityLabel("Publish readiness")
         .accessibilityValue(headerTitle)
         .accessibilityHint("Shows the most recent pre-deploy scan results")
         .popover(isPresented: $popoverPresented, arrowEdge: .top) {
@@ -89,10 +89,10 @@ struct HealthBadgeView: View {
 
     private var helpText: String {
         switch model.badgeState {
-        case .unknown:  return "Deploy-readiness check has not run yet"
+        case .unknown:  return "Publish-readiness check has not run yet"
         case .clean:    return "Most recent scan: no issues"
         case .warnings: return "Most recent scan: warnings only"
-        case .failures: return "Most recent scan: failures — deploy is blocked"
+        case .failures: return "Most recent scan: failures — publishing is blocked"
         }
     }
 
@@ -121,7 +121,7 @@ struct HealthBadgeView: View {
     private var headerTitle: String {
         switch model.badgeState {
         case .unknown:  return "Health unknown"
-        case .clean:    return "Ready to deploy"
+        case .clean:    return "Ready to publish"
         case .warnings: return "Warnings"
         case .failures: return "Issues found"
         }

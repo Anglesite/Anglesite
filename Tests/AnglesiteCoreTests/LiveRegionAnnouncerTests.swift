@@ -69,21 +69,21 @@ struct LiveRegionAnnouncerTests {
     @Test("Starting a deploy announces it by site name")
     func deployStartAnnouncesSite() {
         #expect(LiveRegionAnnouncer.deployAnnouncement(from: .inactive, to: .running(site: "acme"))
-                == "Deploying acme")
+                == "Publishing acme")
     }
 
     @Test("Running → succeeded announces success with the deployed URL")
     func deploySuccessAnnouncesURL() {
         #expect(LiveRegionAnnouncer.deployAnnouncement(from: .running(site: "acme"),
                                                        to: .succeeded(url: "https://acme.pages.dev"))
-                == "Deploy succeeded. https://acme.pages.dev")
+                == "Published. https://acme.pages.dev")
     }
 
     @Test("Running → failed announces failure with the reason")
     func deployFailureAnnouncesReason() {
         #expect(LiveRegionAnnouncer.deployAnnouncement(from: .running(site: "acme"),
                                                        to: .failed(reason: "wrangler exited 1"))
-                == "Deploy failed. wrangler exited 1")
+                == "Couldn't publish. wrangler exited 1")
     }
 
     @Test("A no-op transition (same state re-emitted) announces nothing")
@@ -103,7 +103,7 @@ struct LiveRegionAnnouncerTests {
     @Test("The first stderr line warns once, before any terminal state")
     func deployFirstStderrWarns() {
         #expect(LiveRegionAnnouncer.deployStderrAnnouncement(previousStderrCount: 0, currentStderrCount: 1)
-                == "Deploy log has errors")
+                == "Publish log has errors")
     }
 
     @Test("Subsequent stderr lines stay silent — the warning fires once, not per line")

@@ -40,18 +40,18 @@ Verify the deploy pipeline end-to-end: readiness gating, first-run Cloudflare to
 
 ### 1. Deploy affordance gating + tooltips
 
-- Toolbar **Deploy** (paperplane, prominent, paired with the health badge) and **Site ▸ Deploy** (⇧⌘D) are enabled only when: site valid, preview runtime ready, and no backup/audit in flight.
-- Stop the dev server → Deploy disables with tooltip "Open the preview first to start the runtime before deploying". Restart it before continuing.
-- The button is labeled **Deploy** (not Publish — "Publish" is the separate GitHub feature).
+- Toolbar **Publish Site** (paperplane, prominent, paired with the health badge) and **Website ▸ Publish Site…** (⇧⌘P) are enabled only when: site valid, preview runtime ready, and no backup/audit in flight.
+- Stop the dev server → Publish Site disables with tooltip "Open the preview first to start the runtime before publishing". Restart it before continuing.
+- The button is labeled **Publish Site** ("Publish" is the owner-facing verb per #334; the GitHub feature is **Publish to GitHub…**, and "deploy" survives only in the debug pane and logs).
 
 ### 2. Token onboarding: happy path
 
-Click Deploy with no stored token.
+Click Publish Site with no stored token.
 
 Expected:
 
 - The deploy parks and the **"Connect to Cloudflare"** sheet appears: three numbered steps (link "Open Cloudflare API tokens" → pre-filled token page; the "Anglesite" custom token with "Edit Cloudflare Workers" fallback; create-and-paste), a secure paste field, **Cancel** / **Connect & deploy** (disabled while empty or verifying).
-- Create the token in the dashboard, paste it, click **Connect & deploy**: spinner "Checking token…" → green **"Connected to <account>"** flash → sheet dismisses → **the parked deploy starts by itself** (no second Deploy click).
+- Create the token in the dashboard, paste it, click **Connect and Publish**: spinner "Checking token…" → green **"Connected to <account>"** flash → sheet dismisses → **the parked deploy starts by itself** (no second Deploy click).
 - The token is written to Keychain **only after** successful verification (check Keychain afterwards); it never appears in any log line.
 
 ### 3. Token onboarding: failure + cancel semantics
