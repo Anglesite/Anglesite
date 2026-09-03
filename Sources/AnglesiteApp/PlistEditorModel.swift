@@ -434,7 +434,7 @@ final class PlistEditorModel {
             savedEntries = self.entries
             return true
         } catch {
-            loadError = "Save failed: \(error.localizedDescription)"
+            loadError = String(localized: "Save failed: \(error.localizedDescription)")
             return false
         }
     }
@@ -990,7 +990,7 @@ final class PlistEditorModel {
     private func mtaStsDNSMessage(for error: DomainOperationError) -> String {
         switch error {
         case .noToken:
-            return "No Cloudflare API token found. Add one in Settings → Credentials."
+            return CloudflareTokenMessage.notFoundWithHint
         case .zoneNotFound(let domain):
             return "Zone not found for \(domain). Check that the mail domain is managed in Cloudflare."
         case .cloudflare(let error):

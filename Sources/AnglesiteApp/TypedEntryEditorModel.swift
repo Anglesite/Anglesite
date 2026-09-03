@@ -175,7 +175,7 @@ final class TypedEntryEditorModel: InspectorEditorModel {
             if robotsChanged { await commitRobotsConfig() }
             return true
         } catch {
-            loadError = "Save failed: \(error.localizedDescription)"
+            loadError = String(localized: "Save failed: \(error.localizedDescription)")
             return false
         }
     }
@@ -225,10 +225,10 @@ final class TypedEntryEditorModel: InspectorEditorModel {
             if robotsChanged { await commitRobotsConfig() }
             return true
         } catch let error as MicropubError where error.requiresReauthorization {
-            loadError = "Sign in again to save changes to this site's CMS."
+            loadError = String(localized: "Sign in again to save changes to this site's CMS.")
             return false
         } catch {
-            loadError = "CMS save failed: \(error.localizedDescription)"
+            loadError = String(localized: "CMS save failed: \(error.localizedDescription)")
             return false
         }
     }

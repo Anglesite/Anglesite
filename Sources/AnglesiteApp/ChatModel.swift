@@ -178,7 +178,7 @@ final class ChatModel {
             transcript.reset()
             for entry in entries { transcript.append(Message(persisted: entry)) }
         } catch {
-            lastError = "couldn't load history: \(error)"
+            lastError = String(localized: "couldn't load history: \(error.localizedDescription)")
         }
     }
 
@@ -193,7 +193,7 @@ final class ChatModel {
             annotations = try await annotationFeed()
         } catch {
             // Surface as a non-blocking inline error; the chat is still usable.
-            lastError = "couldn't load annotations: \(error.localizedDescription)"
+            lastError = String(localized: "couldn't load annotations: \(error.localizedDescription)")
             return
         }
         for annotation in annotations where !annotation.resolved {
@@ -238,7 +238,7 @@ final class ChatModel {
             // loadAnnotations). `insertByTimestamp` re-locates the chronological position rather
             // than trusting a stale index.
             transcript.insertByTimestamp(removed)
-            lastError = "couldn't resolve annotation: \(error.localizedDescription)"
+            lastError = String(localized: "couldn't resolve annotation: \(error.localizedDescription)")
         }
     }
 
@@ -305,7 +305,7 @@ final class ChatModel {
               !metadata.undone
         else { return .stale }
         guard let undoCommand else {
-            lastError = "Undo unavailable: MCP not running."
+            lastError = String(localized: "Undo unavailable: MCP not running.")
             return .retryable
         }
         // Double-submit guard: the row button and ⌘Z are independent entry points into this
@@ -333,7 +333,7 @@ final class ChatModel {
             // cancels; if they confirm, the forced retry's success invalidates by commit.
             return .retryable
         case .failed(let reason, let detail):
-            let errorContent = "Couldn't undo: \(detail) (\(reason))"
+            let errorContent = String(localized: "Couldn't undo: \(detail) (\(reason))")
             transcript.append(Message(role: .error, content: errorContent))
             lastError = errorContent
             return .retryable
@@ -370,7 +370,7 @@ final class ChatModel {
         // reverts can no longer be located.
         editUndoCoordinator.invalidateAll()
         await assistant.resetSession()
-        do { try await history.clear() } catch { lastError = "couldn't clear history: \(error)" }
+        do { try await history.clear() } catch { lastError = String(localized: "couldn't clear history: \(error.localizedDescription)") }
     }
 
     // MARK: Event consumption
@@ -383,7 +383,7 @@ final class ChatModel {
         } catch {
             transcript.endTurn()
             isStreaming = false
-            lastError = "couldn't start \(assistant.capabilities.providerName): \(error)"
+            lastError = String(localized: "couldn't start \(assistant.capabilities.providerName): \(error.localizedDescription)")
             return
         }
 

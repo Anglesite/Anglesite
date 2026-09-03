@@ -521,7 +521,7 @@ struct SitesLauncherView: View {
                     sites[index].name = updated.name
                 }
             } catch {
-                loadError = "Couldn't rename \(site.name): \(error)"
+                loadError = String(localized: "Couldn't rename \(site.name): \(error.localizedDescription)")
             }
         }
     }
@@ -540,7 +540,7 @@ struct SitesLauncherView: View {
                 try await SiteStore.shared.remove(id: site.id)
                 sites.removeAll { $0.id == site.id }
             } catch {
-                loadError = "Couldn't remove \(site.name): \(error)"
+                loadError = String(localized: "Couldn't remove \(site.name): \(error.localizedDescription)")
             }
         }
     }
@@ -640,7 +640,7 @@ struct SitesLauncherView: View {
             sites = await SiteStore.shared.sites
             loadError = nil
         } catch {
-            loadError = "\(error)"
+            loadError = String(localized: "\(error.localizedDescription)")
         }
     }
 

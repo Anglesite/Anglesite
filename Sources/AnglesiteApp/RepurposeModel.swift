@@ -41,7 +41,7 @@ final class RepurposeModel: Identifiable {
         running = true
         defer { running = false }
         guard let post = PostSource.load(slug: slug, sourceDirectory: sourceDirectory) else {
-            errorMessage = "Couldn't load the post \"\(slug)\"."
+            errorMessage = String(localized: "Couldn't load the post \"\(slug)\".")
             return
         }
         self.post = post
@@ -73,7 +73,7 @@ final class RepurposeModel: Identifiable {
                 .write(to: fileURL, atomically: true, encoding: .utf8)
             syndicationSaved = true
         } catch {
-            errorMessage = "Couldn't record the syndication URLs: \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn't record the syndication URLs: \(error.localizedDescription)")
         }
     }
 }

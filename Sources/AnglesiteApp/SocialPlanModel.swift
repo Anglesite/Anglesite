@@ -54,7 +54,7 @@ final class SocialPlanModel: Identifiable {
             try SocialCalendarMarkdown.write(markdown: markdown, sourceDirectory: sourceDirectory)
             saved = true
         } catch {
-            errorMessage = "Couldn't save the plan: \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn't save the plan: \(error.localizedDescription)")
         }
     }
 }

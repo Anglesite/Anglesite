@@ -329,7 +329,7 @@ final class DomainModel {
     private func message(for error: DomainOperationError, domain: String) -> String {
         switch error {
         case .noToken:
-            return "No Cloudflare API token found. Add one in Settings → Credentials."
+            return CloudflareTokenMessage.notFoundWithHint
         case .zoneNotFound(let d):
             return "Zone not found for \"\(d)\". Check the domain and ensure your API token has Zone Read permission."
         case .cloudflare(let cfError):
