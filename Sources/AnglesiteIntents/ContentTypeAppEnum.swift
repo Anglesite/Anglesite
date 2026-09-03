@@ -25,6 +25,8 @@ public enum ContentTypeAppEnum: String, AppEnum, Sendable, CaseIterable {
     /// A lightweight endorsement of an external URL (`u-like-of`); target-identified like
     /// ``reply``, and body-less.
     case like
+    /// A response to an `h-event` recording attendance intent (`u-in-reply-to` + `p-rsvp`).
+    case rsvp
 
     // Small-business types (#345).
 
@@ -51,7 +53,7 @@ public enum ContentTypeAppEnum: String, AppEnum, Sendable, CaseIterable {
     /// keeps this map total over the cases.
     public static let caseDisplayRepresentations: [ContentTypeAppEnum: DisplayRepresentation] = [
         .note: "Note", .article: "Article", .photo: "Photo", .album: "Album",
-        .bookmark: "Bookmark", .reply: "Reply", .like: "Like",
+        .bookmark: "Bookmark", .reply: "Reply", .like: "Like", .rsvp: "RSVP",
         .announcement: "Announcement", .event: "Event", .review: "Review",
         .member: "Member", .blogroll: "Blogroll entry",
     ]

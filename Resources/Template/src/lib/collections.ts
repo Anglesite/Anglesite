@@ -3,10 +3,10 @@
  * layouts can't drift from each other (or from content.config.ts).
  */
 
-/** The eight h-entry collections that share Hentry.astro. */
+/** The nine h-entry collections that share Hentry.astro. */
 export const HENTRY_COLLECTIONS = [
   "notes", "articles", "photos", "albums",
-  "bookmarks", "replies", "likes", "announcements",
+  "bookmarks", "replies", "likes", "rsvps", "announcements",
 ] as const;
 export type HentryCollection = (typeof HENTRY_COLLECTIONS)[number];
 

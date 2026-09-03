@@ -300,7 +300,7 @@ extension ContentTypeRegistry {
 
     // MARK: Personal (h-entry family)
 
-    static let personalTypes: [ContentTypeDescriptor] = [note, article, photo, album, bookmark, reply, like]
+    static let personalTypes: [ContentTypeDescriptor] = [note, article, photo, album, bookmark, reply, like, rsvp]
 
     static let note = ContentTypeDescriptor(
         id: "note",
@@ -466,6 +466,35 @@ extension ContentTypeRegistry {
             microformat: "h-entry",
             microformatProperties: [
                 "likeOf": "u-like-of",
+                "publishDate": "dt-published",
+            ],
+            schemaType: nil
+        )
+    )
+
+    /// A response to an `h-event` recording attendance intent (yes/no/maybe/interested) — the
+    /// IndieWeb RSVP post type (indieweb.org/rsvp). `inReplyTo` names the event being RSVP'd to,
+    /// the same `u-in-reply-to` shape `reply` already uses; `rsvp` carries the closed-vocabulary
+    /// status. No schema.org projection, matching `reply`/`like` — a terse interaction post, not
+    /// structured content (#1598).
+    static let rsvp = ContentTypeDescriptor(
+        id: "rsvp",
+        displayName: "RSVP",
+        storage: .collection("rsvps"),
+        fields: [
+            ContentTypeField("lang", .language),
+            ContentTypeField("inReplyTo", .url, required: true),
+            ContentTypeField("rsvp", .enum(cases: ["yes", "no", "maybe", "interested"]), required: true),
+            ContentTypeField("body", .markdown),
+            ContentTypeField("publishDate", .datetime, required: true),
+            ContentTypeField("draft", .bool),
+        ],
+        projections: ContentTypeProjections(
+            microformat: "h-entry",
+            microformatProperties: [
+                "inReplyTo": "u-in-reply-to",
+                "rsvp": "p-rsvp",
+                "body": "e-content",
                 "publishDate": "dt-published",
             ],
             schemaType: nil

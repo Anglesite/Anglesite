@@ -48,6 +48,7 @@ export const POST_TYPE_LABELS: Record<string, string> = {
   bookmarks: "bookmarks",
   replies: "replies",
   likes: "likes",
+  rsvps: "RSVPs",
   announcements: "announcements",
   events: "events",
   reviews: "reviews",

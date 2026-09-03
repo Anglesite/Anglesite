@@ -21,10 +21,10 @@ function entry(collection: string, data: Record<string, any>, body = ""): FeedEn
   return { id: "hello", collection, data, body };
 }
 
-test("config covers all eight collections", () => {
+test("config covers all nine collections", () => {
   assert.deepEqual(
     Object.keys(FEED_COLLECTIONS).sort(),
-    ["albums", "articles", "blog", "bookmarks", "likes", "notes", "photos", "replies"],
+    ["albums", "articles", "blog", "bookmarks", "likes", "notes", "photos", "replies", "rsvps"],
   );
 });
 
@@ -425,6 +425,20 @@ test("toFeedItem falls back to an escaped anchor to inReplyTo when the reply has
   assert.equal(
     reply.contentHtml,
     `<a href="https://indieweb.org/post">https://indieweb.org/post</a>`,
+  );
+});
+
+test("toFeedItem derives a title from the rsvp status and falls back to an anchor to inReplyTo when empty", () => {
+  const rsvp = toFeedItem(
+    "rsvps",
+    entry("rsvps", { inReplyTo: "https://example.com/event", rsvp: "yes", publishDate: "2026-01-02" }, ""),
+    SITE,
+    "",
+  );
+  assert.equal(rsvp.title, "RSVP: yes");
+  assert.equal(
+    rsvp.contentHtml,
+    `<a href="https://example.com/event">https://example.com/event</a>`,
   );
 });
 

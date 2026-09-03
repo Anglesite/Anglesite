@@ -51,6 +51,7 @@ const SEARCH_FIELDS: Record<string, SearchFieldMapping> = {
   bookmarks: { dateField: "publishDate", title: (d) => asString(d.title) },
   replies: { dateField: "publishDate", title: () => undefined },
   likes: { dateField: "publishDate", title: () => undefined },
+  rsvps: { dateField: "publishDate", title: (d) => (typeof d.rsvp === "string" ? `RSVP: ${d.rsvp}` : undefined) },
   announcements: { dateField: "publishDate", title: (d) => asString(d.title) },
   events: { dateField: "start", title: (d) => asString(d.name) },
   reviews: { dateField: "publishDate", title: (d) => asString(d.itemReviewed) },

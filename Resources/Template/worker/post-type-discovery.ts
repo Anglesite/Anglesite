@@ -5,7 +5,7 @@
  * docs/superpowers/specs/2026-07-24-micropub-content-sync-design.md §1.
  *
  * `discoverCollection` returns `null` for any type this bridge doesn't support yet (an
- * unrecognized `h-*` type, `repost-of`, `rsvp`, `checkin`, `video`) — the caller must fall back
+ * unrecognized `h-*` type, `repost-of`, `checkin`, `video`) — the caller must fall back
  * to `@dwk/micropub`'s own default flat-URL policy rather than guessing a collection.
  */
 
@@ -43,7 +43,7 @@ export function discoverCollection(mf2: Mf2Object): string | null {
   // Check these before supported types (e.g., in-reply-to) to prevent combinations like
   // RSVP + in-reply-to from being miscategorized.
   if (hasProperty(mf2, "repost-of")) return null;
-  if (hasProperty(mf2, "rsvp")) return null;
+  if (hasProperty(mf2, "rsvp")) return "rsvps";
   if (hasProperty(mf2, "checkin")) return null;
   if (hasProperty(mf2, "video")) return null;
 

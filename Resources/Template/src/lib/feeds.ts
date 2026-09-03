@@ -67,6 +67,11 @@ export const FEED_COLLECTIONS: Record<string, FeedCollectionConfig> = {
   bookmarks: { title: "Bookmarks", dateField: "publishDate", deriveTitle: (e) => e.data.title },
   replies: { title: "Replies", dateField: "publishDate", deriveTitle: () => undefined },
   likes: { title: "Likes", dateField: "publishDate", deriveTitle: () => undefined },
+  rsvps: {
+    title: "RSVPs",
+    dateField: "publishDate",
+    deriveTitle: (e) => (typeof e.data.rsvp === "string" ? `RSVP: ${e.data.rsvp}` : undefined),
+  },
 };
 
 /// Resolve the absolute site base URL from an Astro endpoint context, failing loudly when
@@ -110,11 +115,11 @@ export function websubHub(
 }
 
 /**
- * Fallback `contentHtml` for interaction posts (likes/replies/bookmarks) whose body rendered to
- * nothing — a like/reply/bookmark with no commentary still has faithful content to syndicate:
- * the target URL it points at. This is deliberately *not* prose ("Liked", "Re:", …) — a
- * synthesized caption is exactly what #1021/#1022 removed; the target URL is the one piece of
- * real content every interaction post has. Photos keep their existing caption fallback
+ * Fallback `contentHtml` for interaction posts (likes/replies/bookmarks/rsvps) whose body
+ * rendered to nothing — a like/reply/bookmark/RSVP with no commentary still has faithful content
+ * to syndicate: the target URL it points at. This is deliberately *not* prose ("Liked", "Re:",
+ * …) — a synthesized caption is exactly what #1021/#1022 removed; the target URL is the one
+ * piece of real content every interaction post has. Photos keep their existing caption fallback
  * (`feed-data.ts`'s `renderContentHtml`) and are untouched here.
  */
 function interactionContentFallback(collection: string, data: Record<string, any>): string {
@@ -125,7 +130,9 @@ function interactionContentFallback(collection: string, data: Record<string, any
         ? data.inReplyTo
         : collection === "bookmarks"
           ? data.bookmarkOf
-          : undefined;
+          : collection === "rsvps"
+            ? data.inReplyTo
+            : undefined;
   if (!targetUrl) return "";
   const escaped = escapeXml(String(targetUrl));
   return `<a href="${escaped}">${escaped}</a>`;

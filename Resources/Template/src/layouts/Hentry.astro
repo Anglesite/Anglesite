@@ -20,7 +20,7 @@ interface Props {
   entry: CollectionEntry<HentryCollection>;
 }
 
-// Flattened view of the eight-collection h-entry union — all fields optional; `entry` stays strictly typed above.
+// Flattened view of the nine-collection h-entry union — all fields optional; `entry` stays strictly typed above.
 interface HentryFields {
   title?: string;
   summary?: string;
@@ -32,6 +32,7 @@ interface HentryFields {
   bookmarkOf?: string;
   inReplyTo?: string;
   likeOf?: string;
+  rsvp?: string;
   syndication?: string[];
   draft?: boolean;
   lang?: string;
@@ -94,6 +95,7 @@ const likeCite = cited(d.likeOf);
     {d.likeOf && (likeCite
       ? <EmbedCard snapshot={likeCite} citeClass="u-like-of" inlineVideo={inlineVideo} />
       : <a class="u-like-of" href={d.likeOf}>Liked this</a>)}
+    {d.rsvp && <data class="p-rsvp" value={d.rsvp}>RSVP: {d.rsvp.charAt(0).toUpperCase() + d.rsvp.slice(1)}</data>}
     {(d.summary ?? d.caption) && <p class="p-summary">{d.summary ?? d.caption}</p>}
     <div class="e-content"><slot /></div>
     {/* The permalink (u-url) is unconditional — every entry has one regardless of whether
