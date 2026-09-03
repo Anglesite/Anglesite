@@ -14,8 +14,8 @@ concurrency:
   cancel-in-progress: true
 
 # Drop AnglesiteContainer (and its native apple/containerization graph) from every SwiftPM/xcodebuild
-# manifest evaluation in CI. `swift build`/`swift test` compile all products, so without this the
-# macos-15 runner would try to build the Swift-6.2/native container stack it can neither build nor
+# manifest evaluation in CI. `swift build`/`swift test` compile all products, so without this CI's
+# macOS runners would try to build the Swift-6.2/native container stack they can neither build nor
 # run. No CI lane builds the container runtime yet; a future app-build lane (#69 Task 8) that needs
 # it can override this at the job level. Mechanism: Package.swift gates target+product+dependency on
 # this var.
@@ -761,7 +761,7 @@ jobs:
 
   ios-build:
     name: iOS app target (AnglesiteMobile)
-    # #864: no other lane ever actually compiles an iOS app target. xcodeproj-sync (macos-15)
+    # #864: no other lane ever actually compiles an iOS app target. xcodeproj-sync (macos-26)
     # only checks source-file membership in the generated project — its own header says
     # explicitly that it "deliberately does NOT run a full xcodebuild" — and every other
     # xcodebuild-based lane (build-test, concurrency-tsan, appintents-schema) builds only the
@@ -993,7 +993,7 @@ jobs:
     name: Anglesite.xcodeproj ↔ project.yml in sync
     needs: changes
     if: needs.changes.outputs.swift == 'true'
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 10
     permissions:
       contents: read
