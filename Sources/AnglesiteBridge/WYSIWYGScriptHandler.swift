@@ -63,6 +63,25 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
                 }
                 let script = "window.__anglesiteWysiwygHost?._handleOpResult?.(\(requestIdJSON), \(json))"
                 await MainActor.run { webView.evaluateJavaScript(script) }
+            case .writingHelpReply(let requestId, let outcome):
+                guard let webView else {
+                    await logCenter.append(source: "wysiwyg-bridge", stream: .stderr, text: "webView deallocated before writing-help-request reply for id=\(requestId)")
+                    return
+                }
+                guard let data = try? JSONEncoder().encode(outcome),
+                      let json = String(data: data, encoding: .utf8)
+                else {
+                    await logCenter.append(source: "wysiwyg-bridge", stream: .stderr, text: "failed to encode WritingHelpOutcome for id=\(requestId)")
+                    return
+                }
+                guard let requestIdData = try? JSONEncoder().encode(requestId),
+                      let requestIdJSON = String(data: requestIdData, encoding: .utf8)
+                else {
+                    await logCenter.append(source: "wysiwyg-bridge", stream: .stderr, text: "failed to encode requestId for id=\(requestId)")
+                    return
+                }
+                let script = "window.__anglesiteWysiwygHost?._handleWritingHelpReply?.(\(requestIdJSON), \(json))"
+                await MainActor.run { webView.evaluateJavaScript(script) }
             case .rejected(let reason):
                 await logCenter.append(source: "wysiwyg-bridge", stream: .stderr, text: "rejected message: \(reason)")
             }

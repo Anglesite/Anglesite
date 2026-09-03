@@ -3,7 +3,7 @@ import Foundation
 /// Result of a writing-help request (#1227 PR 2) — never throws to its caller. `.unavailable`
 /// covers every failure mode (no FM on this Mac, a generation error) with one owner-facing
 /// message, matching PR 1's alt-text "silent degrade, never surface a raw error" convention.
-public enum WritingHelpOutcome: Equatable, Sendable {
+public enum WritingHelpOutcome: Equatable, Sendable, Codable {
     case rewritten(String)
     case unavailable(String)
 }

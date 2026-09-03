@@ -145,4 +145,49 @@ struct WYSIWYGOpsDispatcherTests {
             return
         }
     }
+
+    @Test("dispatch routes writing-help-request to the assistant and returns the reply")
+    func routesWritingHelpRequest() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+        let body: [String: Any] = ["type": "writing-help-request", "requestId": "wh-1", "text": "Original text.", "instruction": "Tighten this."]
+        let result = await WYSIWYGOpsDispatcher.dispatch(
+            body: body, via: transport,
+            writingHelp: { text, instruction in
+                #expect(text == "Original text.")
+                #expect(instruction == "Tighten this.")
+                return .rewritten("Shorter version.")
+            })
+        guard case .writingHelpReply(let requestId, let outcome) = result else {
+            Issue.record("expected .writingHelpReply, got \(result)")
+            return
+        }
+        #expect(requestId == "wh-1")
+        #expect(outcome == .rewritten("Shorter version."))
+    }
+
+    @Test("dispatch replies .unavailable for writing-help-request when no assistant is wired")
+    func writingHelpRequestWithoutAssistant() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+        let body: [String: Any] = ["type": "writing-help-request", "requestId": "wh-2", "text": "x", "instruction": "y"]
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: body, via: transport, writingHelp: nil)
+        guard case .writingHelpReply(let requestId, let outcome) = result else {
+            Issue.record("expected .writingHelpReply, got \(result)")
+            return
+        }
+        #expect(requestId == "wh-2")
+        guard case .unavailable = outcome else {
+            Issue.record("expected .unavailable, got \(outcome)")
+            return
+        }
+    }
+
+    @Test("dispatch rejects a writing-help-request missing required fields")
+    func rejectsMalformedWritingHelpRequest() async {
+        let transport = RecordingTransport(reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: ["type": "writing-help-request"], via: transport)
+        guard case .rejected(.envelopeDecode) = result else {
+            Issue.record("expected .rejected(.envelopeDecode), got \(result)")
+            return
+        }
+    }
 }
