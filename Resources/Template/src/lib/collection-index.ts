@@ -16,7 +16,11 @@ export function targetClassFor(collection: string): string | undefined {
     case "likes":
       return "u-like-of";
     case "replies":
+    case "rsvps":
+    case "checkins":
       return "u-in-reply-to";
+    case "reposts":
+      return "u-repost-of";
     case "bookmarks":
       return "u-bookmark-of";
     default:
@@ -29,7 +33,8 @@ export function targetClassFor(collection: string): string | undefined {
  * `undefined` for collections with no such field or an entry missing it. Mirrors `feeds.ts`'s
  * private `interactionContentFallback` target-URL lookup — index/timeline pages render the same
  * fallback link inline (in place of an empty `e-content`) that the feeds render as `contentHtml`
- * when a like/reply/bookmark's body is empty (#1021/#1022).
+ * when a like/reply/bookmark's body is empty (#1021/#1022). `rsvps` shares `replies`' field
+ * (`inReplyTo` names the event being RSVP'd to).
  */
 export function targetUrlFor(collection: string, data: Record<string, unknown>): string | undefined {
   const raw =
@@ -39,6 +44,12 @@ export function targetUrlFor(collection: string, data: Record<string, unknown>):
         ? data.inReplyTo
         : collection === "bookmarks"
           ? data.bookmarkOf
-          : undefined;
+          : collection === "rsvps"
+            ? data.inReplyTo
+            : collection === "checkins"
+              ? data.venueUrl
+              : collection === "reposts"
+                ? data.repostOf
+                : undefined;
   return typeof raw === "string" && raw.length > 0 ? raw : undefined;
 }

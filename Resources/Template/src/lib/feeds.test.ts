@@ -21,10 +21,10 @@ function entry(collection: string, data: Record<string, any>, body = ""): FeedEn
   return { id: "hello", collection, data, body };
 }
 
-test("config covers all eight collections", () => {
+test("config covers all eleven collections", () => {
   assert.deepEqual(
     Object.keys(FEED_COLLECTIONS).sort(),
-    ["albums", "articles", "blog", "bookmarks", "likes", "notes", "photos", "replies"],
+    ["albums", "articles", "blog", "bookmarks", "checkins", "likes", "notes", "photos", "replies", "reposts", "rsvps"],
   );
 });
 
@@ -425,6 +425,58 @@ test("toFeedItem falls back to an escaped anchor to inReplyTo when the reply has
   assert.equal(
     reply.contentHtml,
     `<a href="https://indieweb.org/post">https://indieweb.org/post</a>`,
+  );
+});
+
+test("toFeedItem derives a title from the rsvp status and falls back to an anchor to inReplyTo when empty", () => {
+  const rsvp = toFeedItem(
+    "rsvps",
+    entry("rsvps", { inReplyTo: "https://example.com/event", rsvp: "yes", publishDate: "2026-01-02" }, ""),
+    SITE,
+    "",
+  );
+  assert.equal(rsvp.title, "RSVP: yes");
+  assert.equal(
+    rsvp.contentHtml,
+    `<a href="https://example.com/event">https://example.com/event</a>`,
+  );
+});
+
+test("toFeedItem derives a title from the check-in location and falls back to an anchor to venueUrl when empty", () => {
+  const checkin = toFeedItem(
+    "checkins",
+    entry("checkins", { location: "The Coffee Shop", venueUrl: "https://example.com/venue", publishDate: "2026-01-02" }, ""),
+    SITE,
+    "",
+  );
+  assert.equal(checkin.title, "Checked in at The Coffee Shop");
+  assert.equal(
+    checkin.contentHtml,
+    `<a href="https://example.com/venue">https://example.com/venue</a>`,
+  );
+});
+
+test("toFeedItem gives a check-in with no venueUrl an empty content fallback (no natural target URL)", () => {
+  const checkin = toFeedItem(
+    "checkins",
+    entry("checkins", { location: "The Coffee Shop", publishDate: "2026-01-02" }, ""),
+    SITE,
+    "",
+  );
+  assert.equal(checkin.contentHtml, "");
+});
+
+test("toFeedItem leaves a repost title-less and falls back to an anchor to repostOf when empty", () => {
+  const repost = toFeedItem(
+    "reposts",
+    entry("reposts", { repostOf: "https://example.com/original", publishDate: "2026-01-02" }, ""),
+    SITE,
+    "",
+  );
+  assert.equal(repost.title, undefined);
+  assert.equal(
+    repost.contentHtml,
+    `<a href="https://example.com/original">https://example.com/original</a>`,
   );
 });
 

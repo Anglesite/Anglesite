@@ -38,7 +38,7 @@ struct WebsiteCommands: Commands {
 
             // "Publish" is the user-facing verb (Personal Publishing OS, #334); the
             // pre-deploy check still gates it, no override (spec §2.9).
-            Button("Publish…") { model?.deploySite() }
+            Button("Publish Site…") { model?.deploySite() }
                 .keyboardShortcut("p", modifiers: [.command, .shift])
                 .disabled(model?.canRunDeploy != true)
 

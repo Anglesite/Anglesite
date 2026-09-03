@@ -37,6 +37,32 @@ struct SocialPublishPlanTests {
         ])
     }
 
+    @Test("repostOf frontmatter produces a webmention target, closing the #1598 dangling hook")
+    func repostOfProducesWebmentionTarget() throws {
+        let root = try writeSiteTree(prefix: "social-plan", [
+            "src/content/reposts/example.md": """
+            ---
+            slug: reposting-that
+            repostOf: "https://example.com/original"
+            publishDate: 2026-06-29
+            ---
+            """
+        ])
+        defer { try? FileManager.default.removeItem(at: root) }
+
+        let plan = try SocialPublishPlan.build(
+            projectRoot: root,
+            siteBase: URL(string: "https://mysite.test")!,
+            referenceDate: referenceDate
+        )
+
+        #expect(plan.entries.count == 1)
+        #expect(plan.entries[0].sourceFile == "src/content/reposts/example.md")
+        #expect(plan.entries[0].webmentionTargets.map(\.absoluteString) == [
+            "https://example.com/original",
+        ])
+    }
+
     @Test("collects requested POSSE destinations without requiring outbound links")
     func posseTargets() throws {
         let root = try writeSiteTree(prefix: "social-plan", [

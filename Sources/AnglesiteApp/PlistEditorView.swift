@@ -637,7 +637,7 @@ struct PlistEditorView: View {
             if model.mtaStsSettings.mode != .disabled {
                 SettingsBox(title: "Required DNS Records") {
                     VStack(alignment: .leading, spacing: 6) {
-                        Text("Point mta-sts.\(displayDomain) at this deployed site and ensure it has a valid HTTPS certificate. Add these TXT records automatically, or copy them into Website → Manage Domain. The MTA-STS ID changes automatically when this policy changes.")
+                        Text("Point mta-sts.\(displayDomain) at this published site and ensure it has a valid HTTPS certificate. Add these TXT records automatically, or copy them into Website → Manage Domain. The MTA-STS ID changes automatically when this policy changes.")
                             .font(.callout)
                             .foregroundStyle(.secondary)
                         if mtaStsDNSRecords.isEmpty {
@@ -1052,7 +1052,7 @@ struct PlistEditorView: View {
                 }
             }
             if !model.workerDashboardEnabled {
-                Text("Logs and analytics become available after the first deploy that includes a worker.")
+                Text("Logs and analytics become available after the first publish that includes a worker.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -1172,7 +1172,7 @@ struct PlistEditorView: View {
         case (false, .none):
             return String(localized: "Not enabled.")
         case (true, .none):
-            return String(localized: "Will activate on next deploy.")
+            return String(localized: "Will activate on next publish.")
         case (true, .some(let id)):
             return String(localized: "Active — namespace \(id).")
         case (false, .some):

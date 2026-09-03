@@ -393,7 +393,7 @@ final class DeployModel {
         case .blocked(let failures, _):
             return .blocked(failureCount: failures.count)
         case .workerNameConflict(let name):
-            return .failed(reason: "Worker name \"\(name)\" is already in use on your Cloudflare account — rename it in the app and deploy again.")
+            return .failed(reason: "Worker name \"\(name)\" is already in use on your Cloudflare account — rename it in the app and publish again.")
         case .domainConfigDrift(let findings):
             return .failed(reason: "\(findings.count) declared domain configuration item(s) don't match your live Cloudflare setup — review the Domain Config Audit in the app and deploy again.")
         case .failed(let reason, _):
@@ -408,7 +408,7 @@ final class DeployModel {
     /// the parked deploy.
     func signInWithCloudflare() async {
         guard let pending = pendingDeploy else {
-            tokenVerification = .failed(message: "No deploy is waiting — close this and click Deploy again.")
+            tokenVerification = .failed(message: "Nothing is waiting to publish — close this and click Publish Site again.")
             return
         }
 
@@ -516,7 +516,7 @@ final class DeployModel {
     /// failure path does, so it can't be dropped by app termination.
     func confirmLicenseChoice(_ license: LicenseRef?) async {
         guard let pending = pendingDeploy else {
-            licenseGateError = "No deploy is waiting — close this and click Deploy again."
+            licenseGateError = "Nothing is waiting to publish — close this and click Publish Site again."
             return
         }
         let store = LicensingStore(sourceDirectory: pending.siteDirectory)
@@ -559,7 +559,7 @@ final class DeployModel {
     /// same sheet if it's also taken.
     func renameWorkerAndRetry(_ newName: String) async {
         guard let pending = pendingDeploy else {
-            workerNameConflictError = "No deploy is waiting — close this and click Deploy again."
+            workerNameConflictError = "Nothing is waiting to publish — close this and click Publish Site again."
             return
         }
         do {
@@ -569,9 +569,9 @@ final class DeployModel {
             case .invalidName:
                 workerNameConflictError = "Worker names can only contain lowercase letters, numbers, hyphens, and underscores."
             case .wranglerConfigMissing:
-                workerNameConflictError = "Couldn't find this site's wrangler.toml — try deploying again."
+                workerNameConflictError = "Couldn't find this site's wrangler.toml — try publishing again."
             case .nameLineNotFound:
-                workerNameConflictError = "This site's wrangler.toml is missing its Worker name — try deploying again."
+                workerNameConflictError = "This site's wrangler.toml is missing its Worker name — try publishing again."
             }
             return
         } catch {
@@ -1056,6 +1056,9 @@ final class DeployModel {
         )
         let siteURL = DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory)
         let apUsername = DeployCoordinator.resolveActivityPubUsername(siteDirectory: siteDirectory)
+        // The actor's avatar (#1771): the owner's `.site-config` AP_ICON override, else the
+        // site's apple-touch-icon — the same file Settings ▸ Website Icon replaces.
+        let apIcon = DeployCoordinator.resolveActivityPubIcon(siteDirectory: siteDirectory)
         // The handle this deploy will actually serve (override-or-hostname-default, #1239) — used
         // below to advance the `lastDeployedAPUsername` baseline, distinct from `apUsername`
         // (the raw `.site-config` override, `nil` unless the owner set one) threaded to
@@ -1084,6 +1087,7 @@ final class DeployModel {
             siteURL: siteURL,
             displayName: settings.displayName,
             apUsername: apUsername,
+            apIcon: apIcon,
             acknowledgesPaidPlan: acknowledgesPaidPlan,
             inboxCaptureEnabled: settings.inboxCaptureEnabled ?? false,
             inboxForwardEmail: inboxForwardEmail,

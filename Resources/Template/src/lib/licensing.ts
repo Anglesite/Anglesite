@@ -138,6 +138,8 @@ export const NON_ASSERTING_COLLECTIONS: readonly LicensableCollection[] = [
   "replies",
   "likes",
   "reviews",
+  "rsvps",
+  "reposts",
 ];
 
 /** Every licensable collection, in the settings facet's display order. Exported so `rsl.ts` and

@@ -49,6 +49,9 @@ struct ContentConfigDriftTests {
         case .url: return "z.string().url()"
         case .date, .datetime: return "z.coerce.date()"
         case .number: return "z.number()"
+        case .enum(let cases):
+            let quoted = cases.map { "\"\($0)\"" }.joined(separator: ", ")
+            return "z.enum([\(quoted)])"
         case .bool: return "z.boolean()"
         case .stringArray, .imageArray: return "z.array(z.string())"
         case .objectArray(let fields):
@@ -156,6 +159,12 @@ struct ContentConfigDriftTests {
             ContentTypeField("org", .string),
         ])
         #expect(Self.zod(for: kind) == "z.array(z.object({ title: z.string(), org: z.string().optional() }))")
+    }
+
+    @Test("zod(for:) renders an enum field as z.enum([...]) with its cases quoted and ordered")
+    func zodForEnum() {
+        let kind = ContentTypeField.Kind.enum(cases: ["yes", "no", "maybe", "interested"])
+        #expect(Self.zod(for: kind) == #"z.enum(["yes", "no", "maybe", "interested"])"#)
     }
 
     @Test("schemaLines weaves bookmarks' template-only image field in after title")

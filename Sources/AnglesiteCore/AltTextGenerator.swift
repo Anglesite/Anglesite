@@ -89,10 +89,7 @@ public struct AltTextGenerator: Sendable {
     /// Covered by the `resolvesImagePath` test through `postProcess` (which captures the URL it
     /// passes to `produce`), so it needs no wider visibility.
     private func imageFileURL(forSrc src: String) -> URL {
-        let relative = src.hasPrefix("/") ? String(src.dropFirst()) : src
-        return siteDirectory
-            .appendingPathComponent("public", isDirectory: true)
-            .appendingPathComponent(relative)
+        WYSIWYGImageAssetIngestor.fileURL(forAssetPath: src, siteDirectory: siteDirectory)
     }
 
     /// A `replace-attr` edit on the same element as `message`. The plugin's patcher expects the

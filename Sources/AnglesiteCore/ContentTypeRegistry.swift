@@ -42,6 +42,12 @@ public struct ContentTypeField: Sendable, Equatable {
         case image
         /// A numeric value (e.g. a review rating).
         case number
+        /// A closed set of allowed string values (e.g. RSVP status: yes/no/maybe/interested).
+        /// Backed like `.string` (`TypedContentEditor.FieldValue.text`) — the only difference is
+        /// which editor control renders it (a `Picker` over `cases`, instead of a free-text
+        /// field) and which Zod expression the template layer generates (`z.enum([...])` instead
+        /// of `z.string()`). First declared by the `rsvp` content type's `rsvp` field (#1598).
+        case `enum`(cases: [String])
         /// An ordered list of strings (e.g. tags).
         case stringArray
         /// An ordered list of site-relative media paths (e.g. album photos).
@@ -294,7 +300,7 @@ extension ContentTypeRegistry {
 
     // MARK: Personal (h-entry family)
 
-    static let personalTypes: [ContentTypeDescriptor] = [note, article, photo, album, bookmark, reply, like]
+    static let personalTypes: [ContentTypeDescriptor] = [note, article, photo, album, bookmark, reply, like, rsvp, checkin, repost]
 
     static let note = ContentTypeDescriptor(
         id: "note",
@@ -460,6 +466,92 @@ extension ContentTypeRegistry {
             microformat: "h-entry",
             microformatProperties: [
                 "likeOf": "u-like-of",
+                "publishDate": "dt-published",
+            ],
+            schemaType: nil
+        )
+    )
+
+    /// A response to an `h-event` recording attendance intent (yes/no/maybe/interested) — the
+    /// IndieWeb RSVP post type (indieweb.org/rsvp). `inReplyTo` names the event being RSVP'd to,
+    /// the same `u-in-reply-to` shape `reply` already uses; `rsvp` carries the closed-vocabulary
+    /// status. No schema.org projection, matching `reply`/`like` — a terse interaction post, not
+    /// structured content (#1598).
+    static let rsvp = ContentTypeDescriptor(
+        id: "rsvp",
+        displayName: "RSVP",
+        storage: .collection("rsvps"),
+        fields: [
+            ContentTypeField("lang", .language),
+            ContentTypeField("inReplyTo", .url, required: true),
+            ContentTypeField("rsvp", .enum(cases: ["yes", "no", "maybe", "interested"]), required: true),
+            ContentTypeField("body", .markdown),
+            ContentTypeField("publishDate", .datetime, required: true),
+            ContentTypeField("draft", .bool),
+        ],
+        projections: ContentTypeProjections(
+            microformat: "h-entry",
+            microformatProperties: [
+                "inReplyTo": "u-in-reply-to",
+                "rsvp": "p-rsvp",
+                "body": "e-content",
+                "publishDate": "dt-published",
+            ],
+            schemaType: nil
+        )
+    )
+
+    /// A record of physical presence at a place — the IndieWeb check-in post type
+    /// (indieweb.org/checkin), Foursquare/Swarm-style. `location` is the venue name as plain
+    /// text; `venueUrl` is an optional permalink to the venue (rendered `u-in-reply-to`, the same
+    /// mf2 property `reply`/`rsvp` use for their own targets — mf2 has no dedicated "venue link"
+    /// property). No schema.org projection, matching `reply`/`like`/`rsvp` (#1598).
+    static let checkin = ContentTypeDescriptor(
+        id: "checkin",
+        displayName: "Check-in",
+        storage: .collection("checkins"),
+        fields: [
+            ContentTypeField("lang", .language),
+            ContentTypeField("location", .string, required: true),
+            ContentTypeField("venueUrl", .url),
+            ContentTypeField("body", .markdown),
+            ContentTypeField("publishDate", .datetime, required: true),
+            ContentTypeField("draft", .bool),
+        ],
+        projections: ContentTypeProjections(
+            microformat: "h-entry",
+            microformatProperties: [
+                "location": "p-location",
+                "venueUrl": "u-in-reply-to",
+                "body": "e-content",
+                "publishDate": "dt-published",
+            ],
+            schemaType: nil
+        )
+    )
+
+    /// A share of someone else's post, with optional commentary — the IndieWeb repost post type
+    /// (indieweb.org/repost). `repostOf` names the reposted entry's URL. No schema.org
+    /// projection, matching `reply`/`like`/`rsvp`/`checkin` (#1598). POSSE-eligible via the
+    /// existing frontmatter-driven `SocialPublishPlan` pipeline — no new eligibility code needed;
+    /// `webmentionTargets` already reads a `repostOf` frontmatter key (a dangling hook from
+    /// earlier scaffolding), this descriptor is what finally makes it reachable.
+    static let repost = ContentTypeDescriptor(
+        id: "repost",
+        displayName: "Repost",
+        storage: .collection("reposts"),
+        fields: [
+            ContentTypeField("lang", .language),
+            ContentTypeField("repostOf", .url, required: true),
+            ContentTypeField("body", .markdown),
+            ContentTypeField("publishDate", .datetime, required: true),
+            ContentTypeField("draft", .bool),
+        ],
+        projections: ContentTypeProjections(
+            microformat: "h-entry",
+            microformatProperties: [
+                "repostOf": "u-repost-of",
+                "body": "e-content",
                 "publishDate": "dt-published",
             ],
             schemaType: nil

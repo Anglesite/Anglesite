@@ -4,7 +4,7 @@ import Foundation
 /// its `apply_edit` block-editor ops. Successor to `StubWYSIWYGHostTransport` for production use
 /// (#1222) — see this feature's plan doc for the two-round-trip design (`sendOp` applies, then
 /// re-fetches the model; the sidecar doesn't piggyback a fresh page model onto these ops' reply).
-public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
+public actor SidecarWYSIWYGHostTransport: WYSIWYGServerInvertibleTransport {
     private let path: String
     private let pageModelClient: PageModelClient
     private let editRouter: any EditRouter
@@ -13,7 +13,8 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
     /// substituted for the app-side `rootParentID` sentinel when translating an `Op` (final-review
     /// Finding 1). Seeded at construction from whatever `get_page_model` fetch produced the
     /// caller's initial `BlockModel`, and refreshed every time this transport re-fetches the
-    /// model itself (`sendOp`'s `.applied`/stale-refresh paths) so it never goes stale even
+    /// model itself (`applyMessageAndAdapt`'s `.applied`/version-mismatch-refresh paths, shared by
+    /// both `sendOpReportingServerInverse` and `applyServerInverse`) so it never goes stale even
     /// though the sidecar's root id is, in practice, deterministically stable.
     private var rootId: BlockId
 
@@ -25,24 +26,68 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
     }
 
     public func sendOp(_ envelope: OpEnvelope) async -> OpResult {
+        await sendOpReportingServerInverse(envelope).result
+    }
+
+    public func sendOpReportingServerInverse(_ envelope: OpEnvelope) async -> (result: OpResult, serverInverse: WireInverse?) {
         let message = WYSIWYGOpTranslator.translate(
             envelope.op, requestId: envelope.id, path: path, baseVersion: envelope.targetVersion, rootId: rootId)
+        var insertBlockContent: BlockNodeContent?
+        if case .insertBlock(_, _, _, _, let block) = envelope.op {
+            insertBlockContent = block
+        }
+        return await applyMessageAndAdapt(message, insertBlockContent: insertBlockContent, requestId: envelope.id)
+    }
+
+    public func applyServerInverse(_ inverse: WireInverse, requestId: String) async -> (result: OpResult, serverInverse: WireInverse?) {
+        // Defense-in-depth (low real-world risk since `inverse` is decoded verbatim from this same
+        // trusted local sidecar's own prior reply, not untrusted input): if `component` carries a
+        // "path" key, confirm it targets THIS transport's own file before replaying it. Only reject
+        // on a confirmed mismatch — an absent "path" key, or a non-object `component`, isn't
+        // evidence of anything wrong, since not every op kind's inverse component shape is known
+        // to carry one.
+        if case .object(let fields) = inverse.component,
+           case .string(let inversePath)? = fields["path"],
+           inversePath != path {
+            return (.rejected(reason: .hostError, message: "server inverse targets a different file than expected", freshModel: nil), nil)
+        }
+        // A server-computed inverse for `deleteBlock` reinstates via `NodeSpec.raw` — full,
+        // already-serialized markup — so unlike a fresh `insertBlock` translated from an `Op`,
+        // replaying one never needs the props/richText follow-up dance below.
+        let message = EditMessage(id: requestId, path: path, selector: nil, op: inverse.op, component: inverse.component, value: nil)
+        return await applyMessageAndAdapt(message, insertBlockContent: nil, requestId: requestId)
+    }
+
+    /// Shared apply+re-fetch+adapt core for `sendOpReportingServerInverse`/`applyServerInverse` —
+    /// factors out what used to be `sendOp(_:)`'s whole body, adding the reply's own
+    /// `inverseOp`/`inverseComponent` decode (Task 4) into a `WireInverse` on success.
+    /// `insertBlockContent` is non-nil only for a translated `Op.insertBlock` (never for a
+    /// replayed `WireInverse` — see `applyServerInverse`'s doc comment above).
+    private func applyMessageAndAdapt(
+        _ message: EditMessage, insertBlockContent: BlockNodeContent?, requestId: String
+    ) async -> (result: OpResult, serverInverse: WireInverse?) {
         let reply = await editRouter.apply(message)
         switch reply.status {
         case .applied:
-            if case .insertBlock(_, _, _, _, let block) = envelope.op {
-                if let rejection = await applyInsertFollowUp(block, insertReply: reply, requestId: envelope.id) {
-                    return rejection
+            if let insertBlockContent {
+                if let rejection = await applyInsertFollowUp(insertBlockContent, insertReply: reply, requestId: requestId) {
+                    return (rejection, nil)
                 }
             }
             do {
                 let fresh = try await pageModelClient.fetch(path: path)
                 rootId = fresh.tree.id
-                return .applied(model: PageModelBlockAdapter.adapt(fresh))
+                let serverInverse: WireInverse?
+                if let inverseOp = reply.inverseOp, let inverseComponent = reply.inverseComponent {
+                    serverInverse = WireInverse(op: inverseOp, component: inverseComponent)
+                } else {
+                    serverInverse = nil
+                }
+                return (.applied(model: PageModelBlockAdapter.adapt(fresh)), serverInverse)
             } catch {
                 // The write landed but the re-fetch failed — surface as a host error with no
                 // fresh model rather than silently claiming success without a model to show.
-                return .rejected(reason: .hostError, message: "edit applied but re-fetch failed: \(error)", freshModel: nil)
+                return (.rejected(reason: .hostError, message: "edit applied but re-fetch failed: \(error)", freshModel: nil), nil)
             }
         case .failed:
             let reason: OpRejectionReason = (reply.reason == "stale") ? .versionMismatch : .hostError
@@ -51,12 +96,12 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGHostTransport {
                 rootId = fresh.tree.id
                 freshModel = PageModelBlockAdapter.adapt(fresh)
             }
-            return .rejected(reason: reason, message: reply.message, freshModel: freshModel)
+            return (.rejected(reason: reason, message: reply.message, freshModel: freshModel), nil)
         case .ambiguous, .preview:
             // Neither status is reachable here: `EditMessage`'s `dryRun` defaults false (no
             // preview requested) and these ops don't use `selector`-based matching (no ambiguity
             // path). Treat defensively as a host error rather than force-unwrapping an assumption.
-            return .rejected(reason: .hostError, message: "unexpected reply status: \(reply.status)", freshModel: nil)
+            return (.rejected(reason: .hostError, message: "unexpected reply status: \(reply.status)", freshModel: nil), nil)
         }
     }
 

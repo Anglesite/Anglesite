@@ -136,7 +136,7 @@ struct DomainSheetView: View {
                 } label: {
                     Label("Use this domain as your Bluesky handle", systemImage: "at")
                 }
-                .help("Verifies via /.well-known/atproto-did when the site is deployed here; otherwise adds a DNS record.")
+                .help("Verifies via /.well-known/atproto-did when the site is published here; otherwise adds a DNS record.")
                 .disabled(model.isRunning)
                 Button {
                     model.beginAddRecord(context: .google)
@@ -225,7 +225,7 @@ struct DomainSheetView: View {
                 Image(systemName: "exclamationmark.triangle.fill").foregroundStyle(.yellow)
                 Text(reason).font(.callout).foregroundStyle(.secondary)
                 Spacer()
-                Button("Try again") { model.retryBlueskyHandleVerification() }
+                Button("Try Again") { model.retryBlueskyHandleVerification() }
                 Button {
                     model.dismissBlueskyHandleResult()
                 } label: {
@@ -332,7 +332,7 @@ struct DomainSheetView: View {
                 Spacer()
                 Button("Delete", role: .destructive) { model.confirmDelete() }
             case .failed:
-                Button("Try again") { model.retryFromFailed() }
+                Button("Try Again") { model.retryFromFailed() }
             default:
                 EmptyView()
             }

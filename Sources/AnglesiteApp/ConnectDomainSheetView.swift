@@ -44,7 +44,7 @@ struct ConnectDomainSheetView: View {
                 Button {
                     model.chooseBuy()
                 } label: {
-                    Label("Buy a domain", systemImage: "cart")
+                    Label("Buy a Domain", systemImage: "cart")
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)

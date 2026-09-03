@@ -38,12 +38,17 @@ enum SiteAssistantSessionFactory {
         var undoCommand: @Sendable (_ mcpClient: @escaping MCPClientProvider) -> UndoCommand
         var editRouterProvider: EditRouterProvider
         var assistant: AssistantBuilder
+        #if compiler(>=6.4)
+        // `AltTextGenerator` is only declared under `#if compiler(>=6.4)`
+        // (Sources/AnglesiteCore/AltTextGenerator.swift) — the field itself has to be gated,
+        // not just its `.live` initializer, or an older toolchain can't even parse the type.
         var altTextGenerator: @Sendable (
             _ siteID: String,
             _ sourceDirectory: URL,
             _ mcpClient: @escaping MCPClientProvider,
             _ conventionsEngine: ProjectConventionsEngine?
         ) -> AltTextGenerator
+        #endif
 
         static let live: Dependencies = {
             let annotationFeed: @Sendable (URL) -> AnnotationFeed = { sourceDirectory in
@@ -80,6 +85,7 @@ enum SiteAssistantSessionFactory {
                     graphSnapshotProvider: graphSnapshotProvider
                 )
             }
+            #if compiler(>=6.4)
             return Dependencies(
                 annotationFeed: annotationFeed,
                 resolveAnnotation: resolveAnnotation,
@@ -94,7 +100,7 @@ enum SiteAssistantSessionFactory {
                         produce: { imageURL, context in
                             let conventions = await conventionsEngine?.conventions(siteID: siteID)
                             let prompt = AltTextPromptBuilder.build(
-                                basePrompt: "Generate concise, descriptive alt text for this image as it would appear on a website. If the image is purely decorative, mark it decorative and use empty alt text.",
+                                basePrompt: AltTextPromptBuilder.defaultBasePrompt,
                                 conventions: conventions
                             )
                             return try await FoundationModelAssistant(tier: .onDevice).generateStructured(
@@ -128,6 +134,15 @@ enum SiteAssistantSessionFactory {
                     )
                 }
             )
+            #else
+            return Dependencies(
+                annotationFeed: annotationFeed,
+                resolveAnnotation: resolveAnnotation,
+                undoCommand: undoCommand,
+                editRouterProvider: editRouterProvider,
+                assistant: assistant
+            )
+            #endif
         }()
     }
 
@@ -207,10 +222,16 @@ enum SiteAssistantSessionFactory {
             undoCommand: dependencies.undoCommand(mcpClient)
         )
 
+        #if compiler(>=6.4)
         let altTextGenerator = dependencies.altTextGenerator(siteID, sourceDirectory, mcpClient, conventionsEngine)
         let postProcessor: MCPApplyEditRouter.PostProcessor? = { reply, message in
             await altTextGenerator.postProcess(reply: reply, message: message)
         }
+        #else
+        // No `AltTextGenerator` on this toolchain (see the `Dependencies.altTextGenerator` gate
+        // above) — alt-text post-processing is simply unavailable rather than a hard build failure.
+        let postProcessor: MCPApplyEditRouter.PostProcessor? = nil
+        #endif
 
         return SiteAssistantSession(
             chat: chat,

@@ -15,8 +15,8 @@ test("buildFeedPaths: includes root-level and per-collection feed formats", () =
 
 test("buildFeedPaths: exactly 3 root paths plus 3 per FEED_COLLECTIONS entry", () => {
   const paths = buildFeedPaths();
-  // FEED_COLLECTIONS has 8 entries (blog, notes, articles, photos, albums, bookmarks, replies, likes).
-  assert.equal(paths.length, 3 + 8 * 3);
+  // FEED_COLLECTIONS has 11 entries (blog, notes, articles, photos, albums, bookmarks, replies, likes, rsvps, checkins, reposts).
+  assert.equal(paths.length, 3 + 11 * 3);
 });
 
 test("buildMcpConfigArtifact: enabled is true only when experimental.mcp === true", () => {

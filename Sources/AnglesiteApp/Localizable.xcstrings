@@ -59,7 +59,7 @@
     "%@ has been changed since this edit. Undoing will overwrite those changes." : {
 
     },
-    "%@ is already connected to another site (%@) — not used for this deploy." : {
+    "%@ is already connected to another site (%@) — not used this time." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {
@@ -850,7 +850,7 @@
     "Build failed" : {
 
     },
-    "Build, scan, and run wrangler deploy on this site" : {
+    "Build, scan, and publish this site to Cloudflare" : {
 
     },
     "Building your community…" : {
@@ -884,7 +884,7 @@
     "Buy a Domain" : {
 
     },
-    "Buy a domain" : {
+    "Buy a Domain" : {
 
     },
     "Buy directly on the Cloudflare dashboard instead" : {
@@ -962,7 +962,7 @@
     "Check ${site}" : {
 
     },
-    "Check Cloudflare's Agent Readiness score for this site's deployed URL" : {
+    "Check Cloudflare's Agent Readiness score for this site's published URL" : {
 
     },
     "Check Domain Config" : {
@@ -1095,7 +1095,7 @@
     "Cloudflare periodically updates this zone's robots.txt with named-bot rules for the categories you choose there (Search, Agent, Training). Anglesite's own \"AI Answers\"/\"AI Training\" signals above still apply either way." : {
 
     },
-    "Cloudflare's Agent Readiness score checks whether AI agents and assistants can discover, read, and act on your deployed site — the 2026 equivalent of a Lighthouse score, but for AI agents instead of browsers." : {
+    "Cloudflare's Agent Readiness score checks whether AI agents and assistants can discover, read, and act on your published site — the 2026 equivalent of a Lighthouse score, but for AI agents instead of browsers." : {
 
     },
     "Cloudflare's Bot Preference Sync manages named-bot blocking for this site, but Anglesite can't currently confirm the zone — check Settings ▸ Credentials and this site's domain." : {
@@ -1113,7 +1113,7 @@
     "Code" : {
 
     },
-    "Code changes not yet deployed to the CMS bundle." : {
+    "Code changes not yet published to the CMS bundle." : {
 
     },
     "Collection" : {
@@ -1194,10 +1194,7 @@
     "Connect" : {
 
     },
-    "Connect & deploy" : {
-
-    },
-    "Connect & publish" : {
+    "Connect and Publish" : {
 
     },
     "Connect This Site" : {
@@ -1215,7 +1212,7 @@
     "Connect a Domain…" : {
 
     },
-    "Connect a domain…" : {
+    "Connect a Domain…" : {
 
     },
     "Connect for CMS Mode" : {
@@ -1506,28 +1503,28 @@
     "Dependency Updates Available" : {
 
     },
-    "Deploy" : {
+    "Publish Site" : {
 
     },
     "Deploy ${site}" : {
 
     },
-    "Deploy blocked" : {
+    "Can't publish yet" : {
 
     },
-    "Deploy blocked — domain config drift" : {
+    "Can't publish yet — domain setup doesn't match" : {
 
     },
-    "Deploy readiness" : {
+    "Publish readiness" : {
 
     },
-    "Deploying" : {
+    "Publishing" : {
 
     },
-    "Deploying needs a one-time API token. It takes about a minute." : {
+    "Publishing needs a one-time API token. It takes about a minute." : {
 
     },
-    "Deploying needs a one-time sign-in to your Cloudflare account." : {
+    "Publishing needs a one-time sign-in to your Cloudflare account." : {
 
     },
     "Describe what you're going for…" : {
@@ -2329,7 +2326,7 @@
     "Lock" : {
 
     },
-    "Logs and analytics become available after the first deploy that includes a worker." : {
+    "Logs and analytics become available after the first publish that includes a worker." : {
 
     },
     "Logs…" : {
@@ -2641,7 +2638,7 @@
     "Not Connected" : {
 
     },
-    "Not Deployed Yet" : {
+    "Not Published Yet" : {
 
     },
     "Not Set" : {
@@ -2764,7 +2761,7 @@
     "Open in Browser" : {
 
     },
-    "Open in browser" : {
+    "Open in Browser" : {
 
     },
     "Open the Anglesite app on your iPhone or iPad and scan this code to pair it with this Mac. The code carries this Mac's device ID and public key — nothing leaves your iCloud account." : {
@@ -2785,7 +2782,7 @@
     "Open the preview first to start the runtime before auditing" : {
 
     },
-    "Open the preview first to start the runtime before deploying" : {
+    "Open the preview first to start the runtime before publishing" : {
 
     },
     "Open this site's GitHub repository" : {
@@ -2929,13 +2926,13 @@
     "Play dial-up sound while loading" : {
 
     },
-    "Plays a nostalgic dial-up modem sound while the dev server starts up or a deploy is running. Purely decorative — off by default." : {
+    "Plays a nostalgic dial-up modem sound while the dev server starts up or a publish is running. Purely decorative — off by default." : {
 
     },
     "Point at a checkout of the plugin (e.g. `../anglesite`) to iterate without rebuilding the app." : {
 
     },
-    "Point mta-sts.%@ at this deployed site and ensure it has a valid HTTPS certificate. Add these TXT records automatically, or copy them into Website → Manage Domain. The MTA-STS ID changes automatically when this policy changes." : {
+    "Point mta-sts.%@ at this published site and ensure it has a valid HTTPS certificate. Add these TXT records automatically, or copy them into Website → Manage Domain. The MTA-STS ID changes automatically when this policy changes." : {
 
     },
     "Polar" : {
@@ -2947,7 +2944,7 @@
     "Posts" : {
 
     },
-    "Posts a notification when a Deploy, Backup, or Audit finishes while Anglesite is in the background — success or failure. Clicking the notification brings the site's window to the front. Delivery starts quietly; promote or silence Anglesite in System Settings › Notifications." : {
+    "Posts a notification when a Publish, Backup, or Audit finishes while Anglesite is in the background — success or failure. Clicking the notification brings the site's window to the front. Delivery starts quietly; promote or silence Anglesite in System Settings › Notifications." : {
 
     },
     "Post…" : {
@@ -3025,6 +3022,9 @@
     "Publish" : {
 
     },
+    "Publish Post" : {
+
+    },
     "Publish DNS Records" : {
 
     },
@@ -3070,7 +3070,7 @@
     "Publishing needs a one-time personal access token. It takes about a minute." : {
 
     },
-    "Publish…" : {
+    "Publish Site…" : {
 
     },
     "Purchasing…" : {
@@ -3471,7 +3471,7 @@
     "Scan for Cleanup Opportunities" : {
 
     },
-    "Scanning the deployed site for AI agent readiness…" : {
+    "Scanning the published site for AI agent readiness…" : {
 
     },
     "Scanning…" : {
@@ -3612,10 +3612,10 @@
     "Settings" : {
 
     },
-    "Share deployed URL" : {
+    "Share published URL" : {
 
     },
-    "Share the deployed site's URL" : {
+    "Share the published site's URL" : {
 
     },
     "Share…" : {
@@ -3720,7 +3720,7 @@
     "Signed in as %@" : {
 
     },
-    "Signing in to Cloudflare from a Deploy sheet stores this credential; it's what every Cloudflare-backed feature (deploy, Harden, Domain Config Audit, Onion Routing, Analytics, domain buy/transfer, and inbound Webmention/Micropub sync) uses first. Refreshed automatically when it expires." : {
+    "Signing in to Cloudflare from a Publish sheet stores this credential; it's what every Cloudflare-backed feature (publishing, Harden, Domain Config Audit, Onion Routing, Analytics, domain buy/transfer, and inbound Webmention/Micropub sync) uses first. Refreshed automatically when it expires." : {
 
     },
     "Signing in…" : {
@@ -3813,7 +3813,7 @@
     "Sources" : {
 
     },
-    "Speaks streaming chat responses (start, and the reply when it finishes) and deploy progress (start, errors, and the final result) as VoiceOver announcements. Turn off if you prefer to read these surfaces by navigating to them yourself." : {
+    "Speaks streaming chat responses (start, and the reply when it finishes) and publishing progress (start, errors, and the final result) as VoiceOver announcements. Turn off if you prefer to read these surfaces by navigating to them yourself." : {
 
     },
     "Standard error" : {
@@ -4135,7 +4135,7 @@
     "Try Again" : {
 
     },
-    "Try again" : {
+    "Try Again" : {
 
     },
     "Turn On" : {
@@ -4202,7 +4202,7 @@
     "Unprocessed (show fallbacks)" : {
 
     },
-    "Unpublish" : {
+    "Move to Drafts" : {
 
     },
     "Unrated" : {
@@ -4292,7 +4292,7 @@
     "Variant rate" : {
 
     },
-    "Verifies via /.well-known/atproto-did when the site is deployed here; otherwise adds a DNS record." : {
+    "Verifies via /.well-known/atproto-did when the site is published here; otherwise adds a DNS record." : {
 
     },
     "Vertically" : {
@@ -4418,7 +4418,7 @@
     "Who does this site speak to?" : {
 
     },
-    "Will activate on next deploy." : {
+    "Will activate on next publish." : {
 
     },
     "Words or phrases to avoid" : {
@@ -4466,7 +4466,7 @@
     "Your community was created, but something above needs attention before it can preview. You can open it anyway and fix it from the community window." : {
 
     },
-    "Your declared domain configuration (anglesite.json) doesn't match what's live on Cloudflare. Review and reconcile before deploying again." : {
+    "Your declared domain configuration (anglesite.json) doesn't match what's live on Cloudflare. Review and reconcile before publishing again." : {
 
     },
     "Your own terms" : {
@@ -4614,10 +4614,10 @@
         }
       }
     },
-    "“%@” already exists on your connected Cloudflare account. Choose a different name to deploy this site under." : {
+    "“%@” already exists on your connected Cloudflare account. Choose a different name to publish this site under." : {
 
     },
-    "“%@” is already connected to another site (%@). This deploy succeeded at its workers.dev address, but won't use %@ until that's resolved in your Cloudflare dashboard." : {
+    "“%@” is already connected to another site (%@). The site is live at its workers.dev address, but won't use %@ until that's resolved in your Cloudflare dashboard." : {
       "localizations" : {
         "en" : {
           "stringUnit" : {

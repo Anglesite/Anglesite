@@ -2,7 +2,7 @@ import SwiftUI
 import AnglesiteCore
 
 /// The "Buy a Domain" sheet (#1195): search, price, confirm, purchase. Reached from
-/// `ConnectDomainSheetView`'s "Buy a domain" button.
+/// `ConnectDomainSheetView`'s "Buy a Domain" button.
 struct BuyDomainSheetView: View {
     @Bindable var model: BuyDomainModel
 

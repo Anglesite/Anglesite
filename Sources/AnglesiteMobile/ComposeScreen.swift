@@ -284,6 +284,10 @@ struct MicropubEntryForm: View {
         case .number:
             TextField(label, text: model.numberBinding(field.name))
                 .keyboardType(.decimalPad)
+        case .enum(let cases):
+            Picker(label, selection: model.textBinding(field.name)) {
+                ForEach(cases, id: \.self) { Text($0) }
+            }
         case .stringArray:
             StringListEditor(title: label, items: model.listBinding(field.name), model: nil)
         case .imageArray:
@@ -596,7 +600,7 @@ private struct ObjectArrayEditor: View {
         case .number:
             TextField(label, text: numberBinding(field.name, in: values, rowID: rowID))
                 .keyboardType(.decimalPad)
-        case .markdown, .stringArray, .imageArray, .objectArray:
+        case .markdown, .stringArray, .imageArray, .objectArray, .enum:
             Text(verbatim: "\(field.name) — unsupported member field kind")
                 .font(.caption)
                 .foregroundStyle(.secondary)

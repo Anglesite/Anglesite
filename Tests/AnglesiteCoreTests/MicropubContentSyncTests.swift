@@ -58,6 +58,23 @@ struct MicropubContentSyncTests {
         #expect(result == .records([]))
     }
 
+    @Test("fieldValue accepts an .enum value that matches the vocabulary exactly")
+    func fieldValueAcceptsValidEnumValue() {
+        let field = ContentTypeField("rsvp", .enum(cases: ["yes", "no", "maybe", "interested"]))
+        let properties: [String: [JSONValue]] = ["rsvp": [.string("yes")]]
+        #expect(MicropubContentSync.fieldValue(for: field, rawProperty: "rsvp", properties: properties) == .text("yes"))
+    }
+
+    @Test(
+        "fieldValue rejects an .enum value outside the vocabulary (wrong case or unknown value), returning nil instead of writing invalid frontmatter",
+        arguments: ["Yes", "going", ""]
+    )
+    func fieldValueRejectsInvalidEnumValue(sent: String) {
+        let field = ContentTypeField("rsvp", .enum(cases: ["yes", "no", "maybe", "interested"]))
+        let properties: [String: [JSONValue]] = ["rsvp": [.string(sent)]]
+        #expect(MicropubContentSync.fieldValue(for: field, rawProperty: "rsvp", properties: properties) == nil)
+    }
+
     // MARK: - values(for:properties:updatedAt:slug:)
 
     private static let anUpdatedAt = 1_753_300_000
@@ -188,6 +205,17 @@ struct MicropubContentSyncTests {
         let values = try #require(MicropubContentSync.values(
             for: review, properties: properties, updatedAt: Self.anUpdatedAt, slug: "a-book-review"))
         #expect(values["itemReviewed"] == .text("A Book"))
+    }
+
+    @Test("values resolves checkin's location from the nested h-card under the sibling checkin property")
+    func valuesResolvesCheckinLocationFromNestedHCard() throws {
+        let descriptor = try #require(ContentTypeRegistry.default.descriptor(id: "checkin"))
+        let properties: [String: [JSONValue]] = [
+            "checkin": [.object(["type": .array([.string("h-card")]), "properties": .object(["name": .array([.string("The Coffee Shop")])])])],
+            "content": [.string("Great espresso.")],
+        ]
+        let values = try #require(MicropubContentSync.values(for: descriptor, properties: properties, updatedAt: 1_750_000_000, slug: "coffee"))
+        #expect(values["location"] == .text("The Coffee Shop"))
     }
 
     // MARK: - values: Fix 6 — slug-derived title fallback for a title-like required field

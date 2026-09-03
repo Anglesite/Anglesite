@@ -210,7 +210,7 @@ struct AISearchModelTests {
             return
         }
         // The owner-facing fix, not a raw API code or bare HTTP status (#1486).
-        #expect(reason.localizedCaseInsensitiveContains("deploy"))
+        #expect(reason.localizedCaseInsensitiveContains("publish"))
         #expect(reason.localizedCaseInsensitiveContains("sitemap"))
         #expect(!reason.contains("7028"))
         #expect(!reason.contains("HTTP 400"))
@@ -234,7 +234,7 @@ struct AISearchModelTests {
             Issue.record("expected .failed before cost confirmation, got \(model.phase)")
             return
         }
-        #expect(reason.localizedCaseInsensitiveContains("deploy"))
+        #expect(reason.localizedCaseInsensitiveContains("publish"))
         #expect(reason.localizedCaseInsensitiveContains("sitemap"))
     }
 

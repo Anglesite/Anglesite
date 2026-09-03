@@ -20,7 +20,7 @@ struct CloudflareOAuthSignInView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Connect to Cloudflare")
                     .font(.headline)
-                Text("Deploying needs a one-time sign-in to your Cloudflare account.")
+                Text("Publishing needs a one-time sign-in to your Cloudflare account.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

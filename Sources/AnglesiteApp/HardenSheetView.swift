@@ -290,7 +290,7 @@ struct HardenSheetView: View {
                 }
                 .buttonStyle(.borderedProminent)
             case .failed:
-                Button("Try again") {
+                Button("Try Again") {
                     model.retryFromFailed()
                 }
             default:

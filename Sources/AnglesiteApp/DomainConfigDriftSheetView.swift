@@ -44,8 +44,8 @@ struct DomainConfigDriftSheetView: View {
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Deploy blocked — domain config drift").font(.title3).fontWeight(.semibold)
-                Text("Your declared domain configuration (anglesite.json) doesn't match what's live on Cloudflare. Review and reconcile before deploying again.")
+                Text("Can't publish yet — domain setup doesn't match").font(.title3).fontWeight(.semibold)
+                Text("Your declared domain configuration (anglesite.json) doesn't match what's live on Cloudflare. Review and reconcile before publishing again.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             Spacer()

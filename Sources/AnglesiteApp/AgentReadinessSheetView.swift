@@ -59,7 +59,7 @@ struct AgentReadinessSheetView: View {
         case .idle:
             return "See how easily AI agents and assistants can find and use this site."
         case .scanning:
-            return "Cloudflare is scanning the deployed site — this can take up to a minute."
+            return "Cloudflare is scanning the published site — this can take up to a minute."
         case .succeeded(let report, let url):
             var subtitle = "Scanned \(url.absoluteString)."
             if let nextLevel = report.nextLevel {
@@ -81,7 +81,7 @@ struct AgentReadinessSheetView: View {
         case .scanning:
             VStack(spacing: 8) {
                 ProgressView()
-                Text("Scanning the deployed site for AI agent readiness…")
+                Text("Scanning the published site for AI agent readiness…")
                     .font(.callout).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -108,7 +108,7 @@ struct AgentReadinessSheetView: View {
                 .foregroundStyle(.secondary)
             Text("Is this site ready for AI agents?")
                 .font(.headline)
-            Text("Cloudflare's Agent Readiness score checks whether AI agents and assistants can discover, read, and act on your deployed site — the 2026 equivalent of a Lighthouse score, but for AI agents instead of browsers.")
+            Text("Cloudflare's Agent Readiness score checks whether AI agents and assistants can discover, read, and act on your published site — the 2026 equivalent of a Lighthouse score, but for AI agents instead of browsers.")
                 .font(.callout).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)

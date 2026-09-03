@@ -2,7 +2,7 @@ import SwiftUI
 import AnglesiteCore
 
 /// Drives the "Buy a Domain" sheet (#1195): search → price → confirm → purchase, reached from
-/// `ConnectDomainSheetView`'s "Buy a domain" button. A successful purchase records the exact same
+/// `ConnectDomainSheetView`'s "Buy a Domain" button. A successful purchase records the exact same
 /// `DOMAIN_CHOICE=transfer` intent "I already own a domain" does (`ConnectDomainCommand
 /// .recordTransfer`) — a Cloudflare-registered domain needs identical Workers Custom Domain
 /// attach logic to a nameserver-delegated one, so `CustomDomainAttachCommand` needs no changes.

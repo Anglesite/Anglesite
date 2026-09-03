@@ -468,6 +468,28 @@ struct ContentScaffoldTests {
         #expect(!out.contains("Write your bookmark here."))
     }
 
+    @Test("renderEntry defaults an unsupplied .enum field to its first case, never an empty string (#1598)")
+    func renderEntryEnumDefaultsToFirstCase() {
+        let descriptor = ContentTypeDescriptor(
+            id: "test-rsvp", displayName: "Test RSVP", storage: .collection("test-rsvps"),
+            fields: [ContentTypeField("rsvp", .enum(cases: ["yes", "no", "maybe", "interested"]), required: true)],
+            projections: ContentTypeProjections(microformat: "h-entry", microformatProperties: ["rsvp": "p-rsvp"], schemaType: nil))
+        let now = Date(timeIntervalSince1970: 1_750_000_000)
+        let out = ContentScaffold.renderEntry(descriptor: descriptor, title: nil, now: now)
+        #expect(out.contains("rsvp: \"yes\""))
+    }
+
+    @Test("renderEntry renders a supplied .enum value instead of the first-case default")
+    func renderEntryEnumUsesSuppliedValue() {
+        let descriptor = ContentTypeDescriptor(
+            id: "test-rsvp2", displayName: "Test RSVP", storage: .collection("test-rsvps2"),
+            fields: [ContentTypeField("rsvp", .enum(cases: ["yes", "no", "maybe", "interested"]), required: true)],
+            projections: ContentTypeProjections(microformat: "h-entry", microformatProperties: ["rsvp": "p-rsvp"], schemaType: nil))
+        let now = Date(timeIntervalSince1970: 1_750_000_000)
+        let out = ContentScaffold.renderEntry(descriptor: descriptor, title: nil, now: now, fieldValues: ["rsvp": "maybe"])
+        #expect(out.contains("rsvp: \"maybe\""))
+    }
+
     @Test("renderEntry: supplied-but-empty body means no body; bad bool falls back (#531)")
     func renderEntryEmptyBodyAndBadBool() {
         let bookmark = ContentTypeRegistry().descriptor(id: "bookmark")!

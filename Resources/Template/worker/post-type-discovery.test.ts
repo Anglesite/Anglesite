@@ -86,23 +86,23 @@ describe("discoverCollection", () => {
     expect(discoverCollection(mf2("h-entry", { name: ["Untitled"] }))).toBe("notes");
   });
 
-  test("repost-of returns null", () => {
-    expect(discoverCollection(mf2("h-entry", { "repost-of": ["https://example.com/post"] }))).toBeNull();
+  test("repost-of maps to reposts", () => {
+    expect(discoverCollection(mf2("h-entry", { "repost-of": ["https://example.com/post"] }))).toBe("reposts");
   });
 
-  test("rsvp returns null", () => {
-    expect(discoverCollection(mf2("h-entry", { rsvp: ["yes"] }))).toBeNull();
+  test("rsvp maps to rsvps", () => {
+    expect(discoverCollection(mf2("h-entry", { rsvp: ["yes"] }))).toBe("rsvps");
   });
 
-  test("an RSVP (rsvp + in-reply-to together — the standard RSVP shape) returns null, not replies", () => {
+  test("an RSVP (rsvp + in-reply-to together — the standard RSVP shape) maps to rsvps, not replies", () => {
     expect(discoverCollection(mf2("h-entry", {
       "in-reply-to": ["https://example.com/event"],
       rsvp: ["yes"],
-    }))).toBeNull();
+    }))).toBe("rsvps");
   });
 
-  test("checkin returns null", () => {
-    expect(discoverCollection(mf2("h-entry", { checkin: [{ type: ["h-card"], properties: { name: ["Venue"] } }] }))).toBeNull();
+  test("checkin maps to checkins", () => {
+    expect(discoverCollection(mf2("h-entry", { checkin: [{ type: ["h-card"], properties: { name: ["Venue"] } }] }))).toBe("checkins");
   });
 
   test("video returns null", () => {
