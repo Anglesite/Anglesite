@@ -11,7 +11,7 @@ struct WYSIWYGCanvasControllerTests {
         let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
         let transport = StubWYSIWYGHostTransport(model: initial)
         let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
-        var reported: (op: Op, inverse: Op, model: BlockModel)?
+        var reported: (op: Op, inverse: WYSIWYGReversal, model: BlockModel)?
         controller.addOpAppliedListener { op, inverse, model in reported = (op, inverse, model) }
 
         let op = Op.insertBlock(parentId: rootParentID, slot: "main", index: 0, newId: "b1", block: BlockNodeContent(kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0]))
@@ -20,7 +20,7 @@ struct WYSIWYGCanvasControllerTests {
         #expect(result.isApplied)
         #expect(controller.model.rootIds == ["b1"])
         #expect(reported?.op == op)
-        #expect(reported?.inverse == WYSIWYGOpInverter.invert(op))
+        #expect(reported?.inverse == .op(WYSIWYGOpInverter.invert(op)))
     }
 
     @Test("submit adopts the fresh model on a version-mismatch rejection without calling onOpApplied")
@@ -172,7 +172,7 @@ struct WYSIWYGCanvasControllerTests {
         #expect(controller.model.rootIds.isEmpty) // the stale insert must not have landed
 
         // A correctly-versioned envelope still applies and fires onOpApplied with the real op.
-        var reported: (op: Op, inverse: Op)?
+        var reported: (op: Op, inverse: WYSIWYGReversal)?
         controller.addOpAppliedListener { op, inverse, _ in reported = (op, inverse) }
         let freshEnvelope = OpEnvelope(id: "req-2", targetVersion: controller.model.version, op: staleOp)
         let freshResult = await controller.sendOp(freshEnvelope)
@@ -180,7 +180,7 @@ struct WYSIWYGCanvasControllerTests {
         #expect(freshResult.isApplied)
         #expect(controller.model.rootIds == ["b1"])
         #expect(reported?.op == staleOp)
-        #expect(reported?.inverse == WYSIWYGOpInverter.invert(staleOp))
+        #expect(reported?.inverse == .op(WYSIWYGOpInverter.invert(staleOp)))
     }
 
     @Test("mountScript(for:displayNames:) builds a mount(...) call carrying the model's and display names' exact JSON")
@@ -365,4 +365,49 @@ struct WYSIWYGCanvasControllerTests {
 
 private extension OpResult {
     var isApplied: Bool { if case .applied = self { true } else { false } }
+}
+
+private final class FakeInvertibleTransport: WYSIWYGServerInvertibleTransport, @unchecked Sendable {
+    private var model: BlockModel
+    var nextServerInverse: WireInverse?
+
+    init(model: BlockModel) {
+        self.model = model
+    }
+
+    func sendOp(_ envelope: OpEnvelope) async -> OpResult {
+        await sendOpReportingServerInverse(envelope).result
+    }
+
+    func sendOpReportingServerInverse(_ envelope: OpEnvelope) async -> (result: OpResult, serverInverse: WireInverse?) {
+        guard let next = StubWYSIWYGHostTransport.applying(envelope.op, to: model) else {
+            return (.rejected(reason: .invalidTarget, message: "target block not found", freshModel: nil), nil)
+        }
+        model = next
+        return (.applied(model: next), nextServerInverse)
+    }
+
+    func applyServerInverse(_ inverse: WireInverse, requestId: String) async -> (result: OpResult, serverInverse: WireInverse?) {
+        (.applied(model: model), nil) // not exercised by this test
+    }
+
+    func onModelUpdate(_ listener: @escaping @Sendable (BlockModel) -> Void) async -> () -> Void { {} }
+}
+
+extension WYSIWYGCanvasControllerTests {
+    @Test("submit reports a WireInverse from a WYSIWYGServerInvertibleTransport instead of the local guess (#1602 item 2)")
+    func submitPrefersServerComputedInverseWhenAvailable() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let transport = FakeInvertibleTransport(model: initial)
+        let serverInverse = WireInverse(op: "deleteBlock", component: .object(["nodeId": .string("real-n7")]))
+        transport.nextServerInverse = serverInverse
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        var reported: WYSIWYGReversal?
+        controller.addOpAppliedListener { _, inverse, _ in reported = inverse }
+
+        let op = Op.insertBlock(parentId: rootParentID, slot: "main", index: 0, newId: "b1", block: BlockNodeContent(kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0]))
+        _ = await controller.submit(op)
+
+        #expect(reported == .wire(serverInverse))
+    }
 }
