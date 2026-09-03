@@ -1,5 +1,7 @@
 # iOS UIKit Siri-Annotation Provider Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the iOS thin client (`AnglesiteMobile`) the same Siri onscreen-entity resolution the macOS app already has — "this heading", "that image" — by porting the AppKit-only `PreviewAnnotationProvider` → `[AppEntityUIElement]` shaping to UIKit and wiring it into the iOS preview `WKWebView`.

@@ -1,5 +1,7 @@
 # Design Interview App Wiring (#631) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the design-interview feature (shipped fully unit-tested in PR #633, but with zero reachable entry points) two working front doors — a GUI sheet on the site window, and a Siri intent that opens the app to it — so at least one, and in fact both, of "GUI" and "Siri" reach a live `DesignInterviewModel` conversation in the running app.

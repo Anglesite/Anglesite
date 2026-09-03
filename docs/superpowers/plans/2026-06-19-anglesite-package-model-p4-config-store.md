@@ -1,5 +1,7 @@
 # `.anglesite` Package Model — Phase 4 (Per-Site Config Store) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give each package an app-owned per-site config store in `Config/` — a `SiteConfigStore` over `Config/settings.plist` — and move chat history from the legacy `<site>/.anglesite/` location into `Config/chat-history.jsonl`, so app-owned state lives in the package (outside the `Source/` git repo) rather than app-global or in the source tree.

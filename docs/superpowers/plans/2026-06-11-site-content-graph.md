@@ -1,5 +1,7 @@
 # `SiteContentGraph` Actor — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Land issue [#136](https://github.com/Anglesite/Anglesite-app/issues/136) — a `public actor SiteContentGraph` in `AnglesiteCore` that holds an in-memory projection of pages, posts, and images for every open site, with single-subscriber change notifications keyed by siteID.

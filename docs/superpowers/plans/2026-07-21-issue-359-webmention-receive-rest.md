@@ -1,5 +1,7 @@
 # Webmention Receive (#359) — Provisioning, Discovery, Conformance Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Finish the Swift/template side of #359 (Webmention receive) that PR #887 deliberately deferred: Cloudflare Queue + D1-inbox-binding + `SITE_URL` provisioning (with an explicit paid-plan opt-in), a provisioning-gated `<link rel="webmention">` discovery tag, and an advisory (non-blocking) surface for `WorkersConformanceStatus.gateStatus(.v3)`.

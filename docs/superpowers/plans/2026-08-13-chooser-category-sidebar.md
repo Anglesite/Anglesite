@@ -1,5 +1,7 @@
 # Chooser Category Sidebar Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the New Site chooser's category sidebar (Business, Personal, Blog, Portfolio, Organization, Blank), filter the theme grid by category, record the chosen category as `SITE_TYPE`, and render committed thumbnails for pack-based themes.

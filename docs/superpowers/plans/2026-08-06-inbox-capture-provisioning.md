@@ -1,5 +1,7 @@
 # Inbox Capture Provisioning Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a Settings UI (Workers tab) that provisions #587's `/inbox` Worker route + `INBOX_KV` staging — closing the gap where `SiteSettings.inboxCaptureAccountID`/`inboxCaptureKVNamespaceID` are unfillable, dead storage slots and `WorkerComposition.generateWranglerToml`'s inbox parameters are never passed by any caller.

@@ -1,5 +1,7 @@
 # Theme Apply Wizard + Design Token Engine Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a deterministic, Claude-free way to apply a visual theme to an existing `.anglesite` site — either one of the 9 built-in quick-picks or a freedesignmd catalog system — through GUI, App Intent, and FM-chat front doors alike.

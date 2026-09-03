@@ -1,5 +1,7 @@
 # V-1.3 Business Content Types + Content-Config Drift Guard — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Bring the three collection-backed business content types (`announcement`, `event`, `review`) end-to-end — config, render, scaffold, smoke test — and add a registry↔`content.config.ts` drift guard covering all ten collection-backed types.

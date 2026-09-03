@@ -1,5 +1,7 @@
 # `.anglesite` Package Model — Phase 1 (Format Core) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Establish the `.anglesite` package on-disk format — a `Source/` + `Config/` + `Info.plist`-marker layout with stable-UUID identity and a format-version gate — plus the macOS type declarations (UTI + `CFBundleDocumentTypes`) that make Finder treat it as an editable package.

@@ -1,5 +1,7 @@
 # WYSIWYG slice 5 — live quality gates — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** After each applied WYSIWYG op, the host re-analyzes the page's block model for five categories of issue (contrast, alt text, heading order, link integrity, image weight) and streams findings to the engine as advisory chips anchored to blocks; heading-order and (this slice) no other category gets a one-tap apply.

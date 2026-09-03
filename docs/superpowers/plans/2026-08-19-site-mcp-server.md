@@ -1,5 +1,7 @@
 # Site MCP Server (Read-Only Tools) + MCP Server Card Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a read-only MCP server at `/mcp` (Streamable HTTP) plus a generated MCP Server Card at `/.well-known/mcp/server-card.json`, gated behind a new opt-in `experimental.mcp` flag, per [#1576](https://github.com/Anglesite/Anglesite/issues/1576) and the approved design at [`docs/superpowers/specs/2026-08-19-site-mcp-server-design.md`](../specs/2026-08-19-site-mcp-server-design.md).

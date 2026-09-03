@@ -1,5 +1,7 @@
 # Required `.url` fields collected at creation — Implementation Plan (#916)
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Stop Anglesite committing a schema-invalid bookmark/reply/like by collecting each type's required `.url` value in the New Collection sheet and validating it before the file is written.

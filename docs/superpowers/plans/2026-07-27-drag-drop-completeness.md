@@ -1,5 +1,7 @@
 # Drag & drop completeness Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let sites and content items be dragged out of Anglesite (to Finder, Terminal, other apps), and give the launcher's existing drop target a visible targeted highlight.

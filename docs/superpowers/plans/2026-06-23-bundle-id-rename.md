@@ -1,5 +1,7 @@
 # Bundle-ID + Package-UTI Rename Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 > **Status (2026-06-23): EXECUTED in PR #302** via subagent-driven development — all 6 tasks implemented, each spec+quality reviewed clean, full `swift test` green, both schemes build. The single still-open box (Task 2 Step 5) is the manual GUI package-open smoke, deferred to the developer; App Store Connect registration of `io.dwk.anglesite` is out of scope (tracked separately). Do not re-execute completed tasks.

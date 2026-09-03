@@ -1,5 +1,7 @@
 # IndieMark Self-Assessment Page Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a `/indiemark/` page on every Anglesite-built site that reports, per IndieMark axis, what the site actually has (h-card, post types, webmention/micropub/websub, POSSE syndication, home-page indexability) versus what Anglesite the platform supports but can't verify from a static build (IndieAuth, Microsub, ActivityPub, HTTPS, on-site search, microformats2 markup).

@@ -1,5 +1,7 @@
 # Share extension: post the current Safari page — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a user share the current Safari page into Anglesite (Save Draft or Publish as a link post) without the main app being frontmost, via a new macOS Share Extension target.

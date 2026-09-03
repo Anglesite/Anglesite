@@ -1,5 +1,7 @@
 # Repeating Structured-Group Field Kind Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a new `ContentTypeField.Kind` case representing a repeating group of small structured records (e.g. an h-resume `experience` entry: title/org/start/end/description) so it round-trips through YAML frontmatter, the generic SwiftUI content editor, and the Zod-drift test — with no new content type or Astro rendering (that's issue #964's job once this primitive exists).

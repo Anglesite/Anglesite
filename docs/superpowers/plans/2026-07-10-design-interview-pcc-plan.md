@@ -1,5 +1,7 @@
 # design-interview Conversation + PCC Escalation Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the design-interview conversation (Intent → Mood → Brand → Axis confirmation) as an on-device-FM-backed chat flow with a live GUI mirror, converging on the same `DesignApplyService` write path as the theme-apply wizard, and give `FoundationModelAssistant`'s `.privateCloudCompute` tier a real escalation path instead of its current on-device stub.

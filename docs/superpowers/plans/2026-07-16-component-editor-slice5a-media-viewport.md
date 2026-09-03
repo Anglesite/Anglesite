@@ -1,5 +1,7 @@
 # Component Editor Slice 5a: Media-Query Editing + Viewport Presets Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the Component Editor's Styles panel collapsible `@media`-grouped sections (with a way to add a rule under a media condition), and give its canvas a viewport-width preset toolbar (Mobile/Tablet/Desktop/Fill) — the two "polish" items from Component Editor slice 5 (issue #495) that need no plugin changes, since `add-style-rule`'s `media` param already shipped in slice 2.

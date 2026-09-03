@@ -1,5 +1,7 @@
 # Website Design Window v2 — Slice 4: Blocks in the + Menu Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a Blocks section to the toolbar's `insert` (`+`) menu, listing the theme's insertable components and inserting them the same way the WYSIWYG block palette panel and the Insert ▸ Component menu already do — per [#714](https://github.com/Anglesite/Anglesite/issues/714) v2 slice 4 (spec §4, Slices item 4), the final slice of the v2 redesign. This branch is layered directly on the slice-3 toolbar hoist follow-up (`claude/issue-714-slice3-hoist-actions`, PR [#1690](https://github.com/Anglesite/Anglesite/pull/1690)), since it edits the exact `insert` `Menu` that follow-up just touched.

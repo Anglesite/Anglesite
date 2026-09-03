@@ -1,5 +1,7 @@
 # WebMCP Tool Pack Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship two read-only WebMCP tools (`anglesite_search_posts`, `anglesite_fetch_post_markdown`) in the site template, gated behind a new `experimental.webmcp` flag in `anglesite.json`, per [issue #1279](https://github.com/Anglesite/Anglesite/issues/1279).

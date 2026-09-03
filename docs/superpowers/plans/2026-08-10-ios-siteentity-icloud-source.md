@@ -1,5 +1,7 @@
 # iOS SiteEntity iCloud Source Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give iOS's `SiteEntity` AppIntents resolution a real backing — the same iCloud-discovered `.anglesite` packages `SitePickerModel` already lists in production — instead of the macOS-only `SiteStore.shared`, which is always empty on iOS.

@@ -1,5 +1,7 @@
 # Server Debug Panel (#699) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the Debug Pane a per-site "Local Workers" status block (running/restarting/failed + local URL) and move wrangler-dev output to its own filterable `worker:<siteID>` log source.

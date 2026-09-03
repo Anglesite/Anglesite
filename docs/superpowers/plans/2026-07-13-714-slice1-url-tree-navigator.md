@@ -1,5 +1,7 @@
 # URL-Tree Navigator (#714 slice 1) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the grouped site-navigator sidebar with a visitor-facing URL tree (website-settings row, pinned home, HTML pages, feed-badged collection directories), and relocate the Cleanup section to the Site menu.

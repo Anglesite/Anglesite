@@ -1,5 +1,7 @@
 # Phase A Closeout Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Finish Phase A by adding the missing A.9 end-to-end integration test (#143) and wiring `PreviewSiteIntent`'s page-route navigation through to the live preview, then close #139 and #143.

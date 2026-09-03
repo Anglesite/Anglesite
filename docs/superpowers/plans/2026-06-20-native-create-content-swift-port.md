@@ -1,5 +1,7 @@
 # Native Swift `create_page` / `create_post` (Bucket 1, Slice 2) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Port the `create_page` and `create_post` operations from the Node MCP sidecar into native Swift so content scaffolding runs in-process with no subprocess round-trip, advancing the Claude-Code-removal roadmap's Bucket 1 (hot-path → Swift).

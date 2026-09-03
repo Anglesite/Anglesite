@@ -1,5 +1,7 @@
 # Hosted Community Provisioning + Moderation Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close #907's three deferred follow-ups — a "New Community" site-creation flow, deploy wiring for the already-modeled Group actor-type/moderators fields, and a moderator UI for remove-post/ban-member — as three independently-mergeable, stacked PRs.
