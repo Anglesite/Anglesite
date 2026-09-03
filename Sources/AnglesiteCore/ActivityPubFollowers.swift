@@ -146,7 +146,7 @@ public struct ActivityPubFollowersClient: Sendable {
         var request = URLRequest(url: url)
         request.httpMethod = "GET"
         request.setValue(Self.acceptHeader, forHTTPHeaderField: "Accept")
-        request.timeoutInterval = 10
+        request.timeoutInterval = NetworkTimeouts.activityPubFollowersRequest
 
         let data: Data
         let http: HTTPURLResponse

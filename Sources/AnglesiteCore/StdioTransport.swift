@@ -112,7 +112,7 @@ public actor StdioTransport: MCPTransport {
         subscription?.cancel()
         subscription = nil
         if let h = handle {
-            await supervisor.terminate(h, timeout: 2)
+            await supervisor.terminate(h, timeout: ProcessSupervisor.fastTerminationGrace)
             _ = await supervisor.waitForExit(h)
         }
         handle = nil

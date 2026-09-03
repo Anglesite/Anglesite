@@ -76,6 +76,11 @@ public final class AppSettings: @unchecked Sendable {
         public static let externalLLMVerifiedDetail = "anglesite.externalLLM.verifiedDetail"
         /// Backs ``AppSettings/lastUsedFileLicenseSelection`` (#999).
         public static let lastUsedFileLicenseSelection = "anglesite.lastUsedFileLicenseSelection"
+        /// Slice-1 rollout gate for the AppKit site-window shell (`SiteShellFlag`, #1699 Stage 3
+        /// design §Rollout): off by default so `main` keeps shipping the legacy
+        /// `NavigationSplitView` chrome; enabled per-machine via defaults or per-launch via
+        /// `ANGLESITE_APPKIT_SHELL=1`. Deleted in slice 3 when the shell becomes the only chrome.
+        public static let appKitShellEnabled = "experimental.appKitShell"
     }
 
     private enum LegacyKey {
