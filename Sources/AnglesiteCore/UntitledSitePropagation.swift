@@ -30,7 +30,7 @@ public enum UntitledSitePropagation {
 
         guard let currentSiteName = SiteConfigFile.value(forKey: "SITE_NAME", in: config),
               let currentProjectName = SiteConfigFile.value(forKey: "CF_PROJECT_NAME", in: config),
-              currentProjectName == SiteSlug.derive(from: currentSiteName) else { return }
+              currentProjectName == WorkerSiteName.derive(from: currentSiteName) else { return }
 
         // .site-config only stores single-line `KEY=value` entries — take the first line only, so
         // an embedded newline in newDisplayName (e.g. from a hand-edited plist string) can't
@@ -39,7 +39,7 @@ public enum UntitledSitePropagation {
             .trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sanitizedName.isEmpty else { return }
 
-        let newSlug = SiteSlug.derive(from: sanitizedName)
+        let newSlug = WorkerSiteName.derive(from: sanitizedName)
         guard WorkerComposition.isValidSiteName(newSlug) else { return }
 
         // .site-config first: it's what DeployCoordinator.resolveWorkerSiteName actually reads at

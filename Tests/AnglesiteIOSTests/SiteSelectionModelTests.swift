@@ -1,23 +1,16 @@
 import Testing
 import Foundation
 @testable import AnglesiteIOS
+import AnglesiteTestSupport
 
 /// A `final class` (not a `struct`) so `deinit` can drop the throwaway `UserDefaults` suite,
 /// mirroring `AppSettingsTests`' scratch-suite pattern (`Tests/AnglesiteCoreTests/AppSettingsTests.swift`).
 @MainActor
 final class SiteSelectionModelTests {
-    private let suiteName: String
-    private let defaults: UserDefaults
+    private let scratch = TemporaryUserDefaults(label: "site-selection")
+    private var defaults: UserDefaults { scratch.defaults }
 
-    init() {
-        let suite = "test-site-selection-\(UUID().uuidString)"
-        suiteName = suite
-        defaults = UserDefaults(suiteName: suite)!
-    }
-
-    deinit {
-        defaults.removePersistentDomain(forName: suiteName)
-    }
+    deinit { scratch.cleanup() }
 
     private func makeSite(name: String, id: UUID = UUID()) -> SitePickerModel.DiscoveredSite {
         SitePickerModel.DiscoveredSite(

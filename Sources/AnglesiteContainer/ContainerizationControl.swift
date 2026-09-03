@@ -303,7 +303,15 @@ public struct ContainerizationControl: LocalContainerControl {
         // transient local-dev session can never dirty the site's real, git-tracked wrangler.toml
         // (#708 design §4). No real resource ids — Miniflare creates local-persisted D1/KV/R2
         // stores automatically for declared bindings in --local mode.
-        let toml = try WorkerComposition.generateWranglerToml(siteName: siteID, workers: workers)
+        //
+        // The Worker name goes through the same derivation the deploy path uses (#1750): a stock
+        // site UUID is uppercase hex, which wrangler rejects for `name` ("alphanumeric and
+        // lowercase with dashes only") and for every R2 `bucket_name` derived from it — passing
+        // it raw crash-looped every session straight to the Debug Pane's Failed state. Derived
+        // from `siteID` rather than the display name so it's stable across renames (restarts
+        // reuse the same Miniflare state) and unique per site (a lowercased UUID still is).
+        let workerName = WorkerSiteName.derive(from: siteID)
+        let toml = try WorkerComposition.generateWranglerToml(siteName: workerName, workers: workers)
         let configDir = "/tmp/anglesite-workers-dev/\(siteID)"
         let configPath = "\(configDir)/wrangler.toml"
         try await runToCompletion(container, id: "workers-dev-mkdir", onOutput: onOutput,

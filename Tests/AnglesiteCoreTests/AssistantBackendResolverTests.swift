@@ -7,20 +7,18 @@ final class AssistantBackendResolverTests {
     private let tempDir: URL
     private let persistenceURL: URL
     private let fileManager = FileManager.default
-    private let defaults: UserDefaults
-    private let suiteName: String
+    private let scratch = TemporaryUserDefaults()
+    private var defaults: UserDefaults { scratch.defaults }
 
     init() throws {
         tempDir = fileManager.temporaryDirectory.appendingPathComponent("assistant-backend-resolver-\(UUID().uuidString)", isDirectory: true)
         persistenceURL = tempDir.appendingPathComponent("acp-agents.json")
         try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        suiteName = "test-anglesite-\(UUID().uuidString)"
-        defaults = UserDefaults(suiteName: suiteName)!
     }
 
     deinit {
         try? fileManager.removeItem(at: tempDir)
-        defaults.removePersistentDomain(forName: suiteName)
+        scratch.cleanup()
     }
 
     @Test("activeAgentID parses a well-formed acp: prefix") func activeAgentIDParsesWellFormedPrefix() {

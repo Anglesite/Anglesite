@@ -122,4 +122,67 @@ struct PostCollectionResolverTests {
 
         #expect(PostCollectionResolver.resolve(siteDirectory: root) == .collection(name: "blog", declaredFields: ["title"]))
     }
+
+    // MARK: - postCollections (#1725)
+
+    @Test("postCollections returns every declared blog-like collection, not just the winner")
+    func postCollectionsDeclared() {
+        #expect(PostCollectionResolver.postCollections(declared: ["blog", "notes", "articles", "products"], existingDirectories: ["posts"])
+            == ["blog", "articles"])
+    }
+
+    @Test("postCollections is empty when the config declares nothing blog-like")
+    func postCollectionsDeclaredNoneBlogLike() {
+        #expect(PostCollectionResolver.postCollections(declared: ["events", "members"], existingDirectories: ["posts"]).isEmpty)
+    }
+
+    @Test("with no config, postCollections is the existing candidate directories plus the legacy default")
+    func postCollectionsNoConfig() {
+        #expect(PostCollectionResolver.postCollections(declared: [], existingDirectories: ["blog"]) == ["blog", "posts"])
+        #expect(PostCollectionResolver.postCollections(declared: [], existingDirectories: []) == ["posts"])
+    }
+
+    @Test("resolve(siteDirectory:) always picks a member of postCollections(siteDirectory:)")
+    func resolveIsMemberOfPostCollections() throws {
+        let root = FileManager.default.temporaryDirectory
+            .appendingPathComponent("post-collection-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: root.appendingPathComponent("src/content/articles"), withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try """
+        const blog = defineCollection({ type: "content", schema: z.object({ title: z.string() }) });
+        const articles = defineCollection({ type: "content", schema: z.object({ title: z.string() }) });
+        export const collections = { blog, articles };
+        """.write(to: root.appendingPathComponent("src/content.config.ts"), atomically: true, encoding: .utf8)
+
+        let set = PostCollectionResolver.postCollections(siteDirectory: root)
+        #expect(set == ["blog", "articles"])
+        #expect(set.contains(try #require(namedCollection(PostCollectionResolver.resolve(siteDirectory: root)))))
+    }
+
+    @Test("a declared blog collection with an unreadable schema still counts as a post collection (#1725)")
+    func unreadableSchemaStillClassifiesAsPost() throws {
+        // New Post… refuses to write into the template's imported-schema `articles`, but the
+        // knowledge index only needs to know the collection is declared to rank its entries as posts.
+        let root = try makeSiteRoot(contentSubdirectory: "src/content/articles")
+        defer { try? FileManager.default.removeItem(at: root) }
+        try """
+        import { articlesSchema } from "./lib/content-schemas.ts";
+        const articles = defineCollection({ loader: glob({ base: "./src/content/articles" }), schema: articlesSchema });
+        export const collections = { articles };
+        """.write(to: root.appendingPathComponent("src/content.config.ts"), atomically: true, encoding: .utf8)
+
+        let resolution = PostCollectionResolver.resolve(siteDirectory: root)
+        #expect(resolution == .unreadableSchema(name: "articles"))
+        #expect(PostCollectionResolver.postCollections(siteDirectory: root) == ["articles"])
+        #expect(PostCollectionResolver.postCollections(siteDirectory: root).contains(try #require(namedCollection(resolution))))
+    }
+
+    /// The collection a resolution names, whether or not New Post… would write there — `nil`
+    /// only for `.noBlogCollection`, the one outcome with no collection behind it.
+    private func namedCollection(_ resolution: Resolution) -> String? {
+        switch resolution {
+        case .collection(let name, _), .unreadableSchema(let name): return name
+        case .noBlogCollection: return nil
+        }
+    }
 }

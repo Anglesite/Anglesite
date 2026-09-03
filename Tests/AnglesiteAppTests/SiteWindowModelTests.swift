@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 
 /// `PreviewModel`'s convenience init constructs its runtime eagerly via `makeRuntime` (not lazily
@@ -56,6 +57,36 @@ struct SiteWindowModelTests {
 
         while model.mainPaneMode != .preview { await Task.yield() }
         #expect(model.mainPaneMode == .preview)
+    }
+
+    /// `SiteWindow`'s `mainPaneMode` `.onChange` calls this directly (#1748) — see its doc comment.
+    @Test("focusNavigatorIfTakeoverDismissed requests navigator focus when leaving a takeover for a different kind")
+    func focusNavigatorIfTakeoverDismissedFromTakeover() {
+        let model = makeModel()
+        let navigator = SiteNavigatorModel(graph: SiteContentGraph())
+        model.navigator = navigator
+        let before = navigator.focusRequestToken
+
+        model.focusNavigatorIfTakeoverDismissed(from: .graph, to: .preview)
+        #expect(navigator.focusRequestToken == before + 1)
+
+        model.focusNavigatorIfTakeoverDismissed(from: .cleanup, to: .reader)
+        #expect(navigator.focusRequestToken == before + 2, "switching straight into a different takeover still counts as a dismissal")
+    }
+
+    @Test("focusNavigatorIfTakeoverDismissed is a no-op leaving .preview or switching files within .editor")
+    func focusNavigatorIfTakeoverDismissedNoOp() {
+        let model = makeModel()
+        let navigator = SiteNavigatorModel(graph: SiteContentGraph())
+        model.navigator = navigator
+        let before = navigator.focusRequestToken
+        let fileA = FileRef(url: URL(fileURLWithPath: "/tmp/a.astro"), group: .pages, name: "a.astro")
+        let fileB = FileRef(url: URL(fileURLWithPath: "/tmp/b.astro"), group: .pages, name: "b.astro")
+
+        model.focusNavigatorIfTakeoverDismissed(from: .preview, to: .graph)
+        model.focusNavigatorIfTakeoverDismissed(from: .editor(fileA), to: .editor(fileB))
+
+        #expect(navigator.focusRequestToken == before)
     }
 
     /// Mirrors `presentCleanupAbortsOnEditorConflict`'s fixture: a dirty editor whose file changed
@@ -627,7 +658,7 @@ extension SiteWindowModelTests {
     func openThemeApplyWizardNoTemplateIsNoOp() throws {
         let model = makeModel()
         model.site = siteWithNonexistentPackage()
-        let (settings, cleanup) = try makeIsolatedSettings()
+        let (settings, cleanup) = makeIsolatedSettings()
         defer { cleanup() }
         let bareDir = FileManager.default.temporaryDirectory
             .appendingPathComponent("theme-apply-wizard-bare-\(UUID().uuidString)")
@@ -644,7 +675,7 @@ extension SiteWindowModelTests {
     func openThemeApplyWizardBuildsModel() throws {
         let model = makeModel()
         model.site = siteWithNonexistentPackage()
-        let (settings, cleanup) = try makeIsolatedSettings()
+        let (settings, cleanup) = makeIsolatedSettings()
         defer { cleanup() }
         let template = try makeFixtureThemeTemplate()
         defer { try? FileManager.default.removeItem(at: template) }
@@ -660,10 +691,9 @@ extension SiteWindowModelTests {
     /// An isolated `AppSettings` backed by its own `UserDefaults` suite, mirroring
     /// `TemplateRuntimeTests`' setup — never mutate `AppSettings.shared` directly, since that's a
     /// real singleton other tests/suites could observe.
-    private func makeIsolatedSettings() throws -> (AppSettings, cleanup: () -> Void) {
-        let suiteName = "test-anglesite-\(UUID().uuidString)"
-        let defaults = try #require(UserDefaults(suiteName: suiteName))
-        return (AppSettings(defaults: defaults), { defaults.removePersistentDomain(forName: suiteName) })
+    private func makeIsolatedSettings() -> (AppSettings, cleanup: () -> Void) {
+        let scratch = TemporaryUserDefaults()
+        return (AppSettings(defaults: scratch.defaults), scratch.cleanup)
     }
 
     /// A minimal on-disk template — `scripts/themes.ts` (what `TemplateRuntime.isTemplateDirectory`
@@ -2088,6 +2118,44 @@ extension SiteWindowModelTests {
         let reloaded = WebsiteInspectorModel(packageURL: packageURL)
         await reloaded.load()
         #expect(reloaded.title == "Flushed By Pane Switch", "the edit never reached Info.plist")
+    }
+}
+
+/// `isTakeover`/`isSameKind` drive `SiteWindow`'s focus-restoration `.onChange` (#1748) — see its
+/// doc comment. Covered in isolation here since that `.onChange` itself needs a live window/scene
+/// to exercise.
+@Suite("MainPaneMode")
+struct MainPaneModeTests {
+    private static let fileA = FileRef(url: URL(fileURLWithPath: "/tmp/a.astro"), group: .pages, name: "a.astro")
+    private static let fileB = FileRef(url: URL(fileURLWithPath: "/tmp/b.astro"), group: .pages, name: "b.astro")
+
+    @Test(".preview is not a takeover; every other case is")
+    func isTakeover() {
+        #expect(MainPaneMode.preview.isTakeover == false)
+        for mode: MainPaneMode in [
+            .editor(Self.fileA), .graph, .cleanup, .reader, .followers, .communities, .moderation, .contacts,
+        ] {
+            #expect(mode.isTakeover == true, "\(mode) should be a takeover")
+        }
+    }
+
+    @Test("isSameKind ignores .editor's associated file")
+    func isSameKindIgnoresEditorFile() {
+        #expect(MainPaneMode.editor(Self.fileA).isSameKind(as: .editor(Self.fileB)) == true)
+        #expect(MainPaneMode.editor(Self.fileA).isSameKind(as: .editor(Self.fileA)) == true)
+    }
+
+    @Test("isSameKind is false across different takeovers, and between a takeover and .preview")
+    func isSameKindAcrossDifferentKinds() {
+        #expect(MainPaneMode.graph.isSameKind(as: .cleanup) == false)
+        #expect(MainPaneMode.graph.isSameKind(as: .preview) == false)
+        #expect(MainPaneMode.preview.isSameKind(as: .editor(Self.fileA)) == false)
+    }
+
+    @Test("isSameKind is true for identical non-editor cases")
+    func isSameKindIdenticalCases() {
+        #expect(MainPaneMode.preview.isSameKind(as: .preview) == true)
+        #expect(MainPaneMode.graph.isSameKind(as: .graph) == true)
     }
 }
 

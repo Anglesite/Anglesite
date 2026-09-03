@@ -75,4 +75,96 @@ struct ProcessSupervisorShutdownTests {
         let reason = await supervisor.waitForExit(handle)
         #expect(reason == .terminated)
     }
+
+    // MARK: waitForExitOrTerminate + group-wide escalation (#1758)
+
+    /// Poll `center` until `marker` appears (bounded) — readiness sync only, never the assertion.
+    private func awaitMarker(_ marker: String, in center: LogCenter) async -> Bool {
+        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
+        while ContinuousClock.now < deadline {
+            if await center.snapshot().contains(where: { $0.text == marker }) { return true }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return false
+    }
+
+    @Test("waitForExitOrTerminate: a cancelled waiter resolves only once the child is dead and drained")
+    func waitForExitOrTerminateKillsAndDrainsOnCancellation() async throws {
+        let supervisor = ProcessSupervisor()
+        let center = LogCenter()
+        let handle = try await supervisor.launch(
+            source: "cancel-wait",
+            executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", SIGTERMTrapFixture.script],
+            logCenter: center
+        )
+        #expect(await awaitMarker("__STARTED__", in: center), "fixture never started")
+
+        let waiter = Task { await supervisor.waitForExitOrTerminate(handle) }
+        try await Task.sleep(for: .milliseconds(100))   // let the waiter park on the exit continuation
+        waiter.cancel()
+        let reason = await waiter.value
+
+        #expect(reason == .terminated)
+        #expect(await supervisor.isRunning(handle) == false, "child must be gone when the cancelled wait resolves")
+        let texts = await center.snapshot().map(\.text)
+        #expect(texts.contains("__SIGTERM__"), "SIGTERM must have been delivered and its output drained before resolving: \(texts)")
+        #expect(!texts.contains("__COMPLETED__"))
+    }
+
+    @Test("waitForExitOrTerminate: a waiter cancelled before it parks still kills the child")
+    func waitForExitOrTerminateHandlesPreCancelledWaiter() async throws {
+        let supervisor = ProcessSupervisor()
+        let center = LogCenter()
+        let handle = try await supervisor.launch(
+            source: "cancel-early",
+            executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", SIGTERMTrapFixture.script],
+            logCenter: center
+        )
+        #expect(await awaitMarker("__STARTED__", in: center), "fixture never started")
+
+        let waiter = Task { await supervisor.waitForExitOrTerminate(handle) }
+        waiter.cancel()   // very likely before the task body has run at all
+        let reason = await waiter.value
+
+        #expect(reason == .terminated)
+        #expect(await supervisor.isRunning(handle) == false)
+        #expect(await center.snapshot().contains { $0.text == "__SIGTERM__" })
+    }
+
+    @Test("waitForExitOrTerminate: an uncancelled waiter gets the real exit reason")
+    func waitForExitOrTerminateReturnsNaturalExit() async throws {
+        let supervisor = ProcessSupervisor()
+        let handle = try await supervisor.launch(
+            source: "natural-exit",
+            executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "exit 7"],
+            logCenter: LogCenter()
+        )
+        #expect(await supervisor.waitForExitOrTerminate(handle) == .exited(code: 7))
+    }
+
+    @Test("terminate sweeps a straggler that outlives its leader while holding the log pipes")
+    func terminateSweepsPipeHoldingStraggler() async throws {
+        // `trap '' TERM` is inherited across exec, so the backgrounded `sleep` ignores the
+        // group-wide SIGTERM; the leader then exits on its own, leaving the orphan holding our
+        // stdout pipe open. Without the group sweep the supervision loop could only finalize —
+        // and `waitForExit` only resolve — once the orphan exited by itself (60 s here).
+        let supervisor = ProcessSupervisor()
+        let center = LogCenter()
+        let handle = try await supervisor.launch(
+            source: "straggler",
+            executable: URL(fileURLWithPath: "/bin/sh"),
+            arguments: ["-c", "trap '' TERM; sleep 60 & echo __STARTED__; exit 0"],
+            logCenter: center
+        )
+        #expect(await awaitMarker("__STARTED__", in: center), "fixture never started")
+
+        let start = ContinuousClock.now
+        await supervisor.terminate(handle, timeout: 1)
+        _ = await supervisor.waitForExit(handle)
+        #expect(ContinuousClock.now - start < .seconds(30), "sweep must not wait for the orphan's own exit")
+        #expect(await supervisor.isRunning(handle) == false)
+    }
 }

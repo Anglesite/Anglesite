@@ -31,8 +31,9 @@ Example (`Sources/AnglesiteCore/WorkerComposition.swift:109-142`):
 /// Generates a wrangler.toml for a site with the given workers enabled.
 ///
 /// - Parameters:
-///   - siteName: The Worker name (used as the Cloudflare Workers project name).
-///     Must match `[A-Za-z0-9_-]+`.
+///   - siteName: The Worker name (used as the Cloudflare Workers project name). Must satisfy
+///     wrangler's `name` rule, `^[a-z0-9_][a-z0-9_-]*$` — derive it with
+///     ``WorkerSiteName/derive(from:)`` rather than passing a display name or site UUID.
 ///   - workers: The effective active `@dwk/workers` catalog descriptors. Empty = static-only
 ///     deploy.
 ///   - routeClaims: The effective active dynamic-route claims (#746), already validated by
@@ -41,9 +42,10 @@ Example (`Sources/AnglesiteCore/WorkerComposition.swift:109-142`):
 ///     longer shadow an active dynamic route, while every unclaimed path keeps Cloudflare's
 ///     asset-first fallback. Omitted entirely when there are no active dynamic routes.
 /// - Returns: A complete wrangler.toml string.
-/// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` contains
-///   characters outside `[A-Za-z0-9_-]`, or ``ConfigError/invalidRouteClaim(path:reason:)``
-///   for a claim that never passed `WorkerRouteClaims` validation.
+/// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` fails wrangler's lowercase
+///   `name` rule, ``ConfigError/invalidR2BucketName(_:)`` if an emitted `bucket_name` fails
+///   wrangler's bucket rule, or ``ConfigError/invalidRouteClaim(path:reason:)`` for a claim
+///   that never passed `WorkerRouteClaims` validation.
 public static func generateWranglerToml(...) -> String
 ```
 

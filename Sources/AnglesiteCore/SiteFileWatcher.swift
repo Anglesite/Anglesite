@@ -67,13 +67,21 @@ public enum KnowledgeReindex {
         // rename → write). Each index key only needs to be reconciled once against its current
         // on-disk state, so collapse duplicates before touching the index actor.
         var seen = Set<String>()
+        // The post-collection set (a `content.config.ts` parse plus a few directory stats) is
+        // resolved at most once per batch rather than once per changed file — lazily, so a batch
+        // of pure removals never pays for it.
+        var postCollections: Set<String>?
         for url in batch.paths {
             guard let relativePath = SiteIndexPaths.relativePOSIXPath(of: url, under: projectRoot),
                   !SiteIndexPaths.isSkipped(relativePath: relativePath),
                   seen.insert(relativePath).inserted
             else { continue }
             if fileExists(url) {
-                await index.upsertFile(siteID: siteID, projectRoot: projectRoot, relativePath: relativePath)
+                let collections = postCollections ?? SiteKnowledgeIndex.postCollections(projectRoot: projectRoot)
+                postCollections = collections
+                await index.upsertFile(
+                    siteID: siteID, projectRoot: projectRoot, relativePath: relativePath,
+                    postCollections: collections)
                 if let ranker {
                     // `upsertFile` may have dropped the path (now unreadable or a non-indexed kind);
                     // in that case there's no document to embed, so drop its vector instead.

@@ -22,6 +22,16 @@ final class SiteNavigatorModel {
     var editingItemID: String?
     var draftTitle: String = ""
     var renameError: String?
+    /// Bumped by `SiteWindowModel`'s teardown paths (#1748) to ask `SiteNavigatorView` to claim
+    /// real AppKit keyboard focus — e.g. right after a main-pane takeover (Site Graph, Cleanup, a
+    /// file editor, …) is dismissed, when the takeover's own focused control (its Explorer
+    /// outline, its text view, …) leaves the view tree with nothing else claiming focus behind it.
+    /// SwiftUI then leaves focus nil: a subsequent click can still *select* a navigator row without
+    /// making it first responder, so arrow keys/Return go nowhere until the user presses Tab. A
+    /// counter rather than a `Bool` so two requests in a row (the pane can drill through a takeover
+    /// straight into another one) both register as a change `SiteNavigatorView`'s `.onChange` sees,
+    /// even though the desired end state — "focus the list" — is the same both times.
+    private(set) var focusRequestToken = 0
     /// Error surface for `saveRedirect` (#530) — distinct from `renameError` since it's a
     /// different action, not a rename failure.
     var redirectSaveError: String?
@@ -176,6 +186,9 @@ final class SiteNavigatorModel {
         guard let post = postsByID[id], publishableDescriptor(id) != nil else { return false }
         return !post.draft
     }
+
+    /// See `focusRequestToken`.
+    func requestFocus() { focusRequestToken += 1 }
 
     /// The item the bare Delete key (`.onDeleteCommand`, #674) should act on right now, or nil
     /// when there's no selection, the selection isn't deletable, or inline-rename is in progress
