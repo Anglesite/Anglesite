@@ -22,6 +22,14 @@ public actor ProcessSupervisor {
     /// reaches every child the app spawned. Tests build their own instances.
     public static let shared = ProcessSupervisor()
 
+    /// Default SIGTERM→SIGKILL escalation grace period for `terminate`/`waitForExitOrTerminate`/
+    /// `shutdownAll` (#1801).
+    public static let defaultTerminationGrace: TimeInterval = 5
+    /// Faster escalation grace period for child processes whose teardown shouldn't block a caller
+    /// for the full ``defaultTerminationGrace`` — used by `StdioTransport.close()` and
+    /// `PodmanContainerControl`'s interactive-exec teardown (#1801).
+    public static let fastTerminationGrace: TimeInterval = 2
+
     /// Neutralize `SIGPIPE` process-wide. Every child's stdin pipe is owned here; if a child closes
     /// its read end (crash/exit) while we're mid-write, the default `SIGPIPE` disposition terminates
     /// the **whole process** with signal 13 — which under `swift test --parallel` aborts the entire
@@ -260,7 +268,7 @@ public actor ProcessSupervisor {
     /// nothing downstream could rely on the child being gone. Non-throwing, like `waitForExit`;
     /// if the process exits on its own before cancellation is observed, its real exit reason is
     /// returned unchanged.
-    public func waitForExitOrTerminate(_ handle: Handle, timeout: TimeInterval = 5) async -> ExitReason {
+    public func waitForExitOrTerminate(_ handle: Handle, timeout: TimeInterval = defaultTerminationGrace) async -> ExitReason {
         let reason = await waitForExit(handle)
         guard Task.isCancelled else { return reason }
         // Hand the kill to a task cancellation can't reach: `terminate`'s graceful-exit poll
@@ -276,7 +284,7 @@ public actor ProcessSupervisor {
 
     /// Sends SIGTERM to the child's process group and waits up to `timeout` seconds before
     /// escalating to SIGKILL (also group-wide — see `InProcessBackend.terminate`).
-    public func terminate(_ handle: Handle, timeout: TimeInterval = 5) async {
+    public func terminate(_ handle: Handle, timeout: TimeInterval = defaultTerminationGrace) async {
         await backend.terminate(backendHandle(for: handle), timeout: timeout)
     }
 
@@ -285,7 +293,7 @@ public actor ProcessSupervisor {
     /// Marking entries `manuallyTerminated` first means an in-flight `RestartPolicy.onCrash`
     /// backoff is broken instead of waited out. Wire this to the app's quit notification so no
     /// Node / Astro / MCP child outlives the app process.
-    public func shutdownAll(timeout: TimeInterval = 5) async {
+    public func shutdownAll(timeout: TimeInterval = defaultTerminationGrace) async {
         await backend.shutdownAll(timeout: timeout)
         for id in Array(processLeases.keys) {
             releaseProcessLease(id: id)
