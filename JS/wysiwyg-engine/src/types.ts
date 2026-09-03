@@ -38,6 +38,10 @@ export interface BlockNode {
   sourceSpan: [number, number];
   /** Present only on "text" blocks — the rich-text runs `editText` operates on. */
   richText?: RichTextRun[];
+  /** The `blocks.manifest.json` entry's owner-facing `name` (e.g. "H-Card"), when this node
+   *  resolved to one. `undefined` for a plain element/component the manifest doesn't know about.
+   *  Mirrors Swift's `BlockNode.manifestName` (WYSIWYGOps.swift, #1602 item 3). */
+  manifestName?: string;
 }
 
 /** Sentinel parent for blocks that live at the page root rather than inside another block's slot. */

@@ -13,7 +13,8 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGServerInvertibleTransport {
     /// substituted for the app-side `rootParentID` sentinel when translating an `Op` (final-review
     /// Finding 1). Seeded at construction from whatever `get_page_model` fetch produced the
     /// caller's initial `BlockModel`, and refreshed every time this transport re-fetches the
-    /// model itself (`sendOp`'s `.applied`/stale-refresh paths) so it never goes stale even
+    /// model itself (`applyMessageAndAdapt`'s `.applied`/version-mismatch-refresh paths, shared by
+    /// both `sendOpReportingServerInverse` and `applyServerInverse`) so it never goes stale even
     /// though the sidecar's root id is, in practice, deterministically stable.
     private var rootId: BlockId
 
@@ -39,6 +40,17 @@ public actor SidecarWYSIWYGHostTransport: WYSIWYGServerInvertibleTransport {
     }
 
     public func applyServerInverse(_ inverse: WireInverse, requestId: String) async -> (result: OpResult, serverInverse: WireInverse?) {
+        // Defense-in-depth (low real-world risk since `inverse` is decoded verbatim from this same
+        // trusted local sidecar's own prior reply, not untrusted input): if `component` carries a
+        // "path" key, confirm it targets THIS transport's own file before replaying it. Only reject
+        // on a confirmed mismatch — an absent "path" key, or a non-object `component`, isn't
+        // evidence of anything wrong, since not every op kind's inverse component shape is known
+        // to carry one.
+        if case .object(let fields) = inverse.component,
+           case .string(let inversePath)? = fields["path"],
+           inversePath != path {
+            return (.rejected(reason: .hostError, message: "server inverse targets a different file than expected", freshModel: nil), nil)
+        }
         // A server-computed inverse for `deleteBlock` reinstates via `NodeSpec.raw` — full,
         // already-serialized markup — so unlike a fresh `insertBlock` translated from an `Op`,
         // replaying one never needs the props/richText follow-up dance below.

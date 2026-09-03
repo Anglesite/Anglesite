@@ -23,10 +23,11 @@ public enum WYSIWYGPerformOutcome: Sendable {
 @MainActor
 public final class WYSIWYGUndoCoordinator {
     /// Replays one reversal step against the live canvas — the injected effect side. Typically
-    /// `WYSIWYGCanvasController.apply(_:)`'s non-notifying twin (see that type's doc for why it
-    /// must not be `submit(_:)` itself), awaited to completion. See `WYSIWYGPerformOutcome` for
-    /// what the return value drives: `register`'s optimistic re-registration is corrected on
-    /// `.applied(freshInverse:)` and rolled back entirely on `.rejected`.
+    /// `WYSIWYGCanvasController.apply(_:)` — `submit(_:)`'s non-notifying twin (see that type's
+    /// doc for why this must not be `submit(_:)` itself), awaited to completion. See
+    /// `WYSIWYGPerformOutcome` for what the return value drives: `register`'s optimistic
+    /// re-registration is corrected on `.applied(freshInverse:)` and rolled back entirely on
+    /// `.rejected`.
     public typealias Performer = @MainActor (WYSIWYGReversal) async -> WYSIWYGPerformOutcome
 
     /// The focused window's undo manager. Weak: the window owns it.
@@ -75,6 +76,14 @@ public final class WYSIWYGUndoCoordinator {
         /// only *which* reversal the already-correctly-placed registration performs — and that
         /// registration's handler only ever runs from inside a live `undo()`/`redo()` call, where
         /// the ambient flags are accurate again.
+        ///
+        /// Narrow race window: if the opposite undo/redo direction fires again before this
+        /// registration's still-in-flight `pendingPerform` `Task` completes and writes here, the
+        /// correction is silently dropped — the next fire in this direction performs the
+        /// already-stale captured `step` instead. This degrades safely rather than corrupting
+        /// anything: the sidecar refuses the stale replay as a version mismatch (surfaced via
+        /// `.rejected`, logged and rolled back like any other rejection), it just doesn't self-heal
+        /// the way a non-racing fire would.
         var correctedStep: WYSIWYGReversal?
     }
 
