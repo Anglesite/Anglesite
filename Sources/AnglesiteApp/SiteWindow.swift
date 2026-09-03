@@ -1751,11 +1751,12 @@ struct SiteWindow: View {
             // error presentation is deferred with the rest of the drop UX.
             .onDrop(of: [UTType.image.identifier, UTType.fileURL.identifier], isTargeted: nil) { providers, location in
                 guard let canvas = model.preview.wysiwygCanvas, let webView = model.preview.webView,
-                      let siteDirectory = model.preview.openSiteDirectory
+                      let siteDirectory = model.preview.openSiteDirectory, let siteID = model.preview.openSiteID
                 else { return false }
                 let route = model.preview.activeRoute ?? "/"
                 Task {
                     let logCenter = LogCenter.shared
+                    let conventions = await model.currentProjectConventions()
                     guard var bytes = await WYSIWYGImageDropHandler.loadImageBytes(from: providers) else { return }
 
                     // #1671: embed the last-used file license (mirroring `Insert ▸ Image…`) before
@@ -1788,11 +1789,41 @@ struct SiteWindow: View {
                     guard let assetPath else { return }
                     guard let target = await resolveWYSIWYGDropTarget(at: location, webView: webView) else { return }
                     let newId = UUID().uuidString
-                    // Alt-text proposal is stubbed empty — the real proposal is on-device AI
-                    // (#1227, out of scope here per the design doc).
+
+                    // #1227: propose alt text with the on-device vision model, seeding it straight
+                    // into the insertBlock op below rather than a follow-up edit — one op, one
+                    // undo entry, reviewable live in the inspector. Silent degrade to empty alt
+                    // text on any failure (model unavailable, vision call error, timeout).
+                    let proposer = WYSIWYGAltTextProposer(
+                        produce: { imageURL, context in
+                            try await FoundationModelAssistant(tier: .onDevice).generateStructured(
+                                prompt: AltTextPromptBuilder.build(
+                                    basePrompt: "Generate concise, descriptive alt text for this image as it would appear on a website. If the image is purely decorative, mark it decorative and use empty alt text.",
+                                    conventions: conventions
+                                ),
+                                imageURL: imageURL,
+                                context: context,
+                                resultType: GeneratedAltText.self
+                            )
+                        },
+                        log: { text in
+                            await logCenter.append(
+                                source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr, text: text)
+                        }
+                    )
+                    let proposedAlt = await proposer.propose(
+                        imageURL: WYSIWYGImageAssetIngestor.fileURL(forAssetPath: assetPath, siteDirectory: siteDirectory),
+                        context: AssistantContext(siteID: siteID, siteDirectory: siteDirectory, currentPageRoute: route)
+                    )
+                    var props: [String: PropValue] = [
+                        "src": .string(assetPath),
+                        "alt": .string(proposedAlt?.isDecorative == true ? "" : (proposedAlt?.altText ?? "")),
+                    ]
+                    if proposedAlt?.isDecorative == true {
+                        props["role"] = .string("presentation")
+                    }
                     let content = BlockNodeContent(
-                        kind: .astro, componentName: "img", props: ["src": .string(assetPath), "alt": .string("")],
-                        slots: [:], sourceSpan: [0, 0])
+                        kind: .astro, componentName: "img", props: props, slots: [:], sourceSpan: [0, 0])
                     await canvas.insertBlockAndSelect(parentId: target.parentId, slot: target.slot, index: target.index, newId: newId, block: content)
                 }
                 return true
