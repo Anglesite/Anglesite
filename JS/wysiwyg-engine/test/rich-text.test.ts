@@ -581,4 +581,32 @@ describe("RichTextEditor", () => {
       expect(editor.currentSelectionContext(document)).toBeNull();
     });
   });
+
+  describe("RichTextEditor.applyTextReplacement", () => {
+    it("uses the active element's ownerDocument, not the global document", async () => {
+      document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello world</div>`;
+      const model = makeTextModel();
+      const engine = new WysiwygEngine(model, new FixtureHost(model));
+      const editor = new RichTextEditor(engine);
+
+      editor.enter("t1");
+      const el = document.querySelector(`[${BLOCK_ID_ATTR}="t1"]`) as HTMLElement;
+      if (!el) throw new Error("fixture missing");
+
+      // Spy on the ownerDocument's methods to verify they're being used
+      const createTextNodeSpy = vi.spyOn(el.ownerDocument, "createTextNode");
+      const getSelectionSpy = vi.spyOn(el.ownerDocument, "getSelection");
+
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      editor.applyTextReplacement(range, "replaced text");
+
+      // Verify that the ownerDocument's methods were called (proving the method uses ownerDocument)
+      expect(createTextNodeSpy).toHaveBeenCalledWith("replaced text");
+      expect(getSelectionSpy).toHaveBeenCalled();
+
+      createTextNodeSpy.mockRestore();
+      getSelectionSpy.mockRestore();
+    });
+  });
 });

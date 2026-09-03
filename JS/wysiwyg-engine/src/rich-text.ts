@@ -263,16 +263,18 @@ export class RichTextEditor {
    * (see plan Global Constraints): the DOM mutation plus `runsFromElement` re-serialization is
    * the "diff." `previousRuns` is this editor's `enter()`-time baseline, same invariant `#commit()`
    * already preserves — a version-mismatch rejection mid-flow still discards the whole pending
-   * edit in one step.
+   * edit in one step. Uses `this.#activeElement.ownerDocument` to handle cross-frame editing
+   * (BreakpointCanvas), matching the pattern established in `enter()` and the format commands.
    */
   applyTextReplacement(range: Range, newText: string): void {
     if (this.#activeBlockId === null || this.#activeElement === null) return;
+    const doc = this.#activeElement.ownerDocument;
     range.deleteContents();
-    range.insertNode(document.createTextNode(newText));
+    range.insertNode(doc.createTextNode(newText));
     // Collapse and clear the live selection so a stray leftover Range doesn't confuse the next
     // selectionchange listener (the toolbar's own trigger, added in Task 6) into reopening itself
     // immediately after Accept.
-    const selection = document.getSelection();
+    const selection = doc.getSelection();
     selection?.removeAllRanges();
     const runs = runsFromElement(this.#activeElement);
     void this.#engine.submit({
