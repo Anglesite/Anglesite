@@ -292,7 +292,7 @@ struct AuditSheetView: View {
                     onRunAgain()
                 }
             } else if !model.isRunning, case .failed(_, _, let tail) = model.phase {
-                Button("Try again") {
+                Button("Try Again") {
                     onRunAgain()
                 }
                 if !tail.isEmpty {

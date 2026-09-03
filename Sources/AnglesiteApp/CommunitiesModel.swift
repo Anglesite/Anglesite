@@ -161,7 +161,7 @@ final class CommunitiesModel {
         isJoining = true
         defer { isJoining = false }
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            errorMessage = "This site has no known public URL yet — publish it at least once first."
             return
         }
         errorMessage = nil
@@ -271,7 +271,7 @@ final class CommunitiesModel {
         leaveConfirmation = nil
         errorMessage = nil
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            errorMessage = "This site has no known public URL yet — publish it at least once first."
             return
         }
         do {

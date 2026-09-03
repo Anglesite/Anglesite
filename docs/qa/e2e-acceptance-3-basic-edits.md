@@ -15,7 +15,7 @@ Verify the app's editing surfaces write to `Source/`, the preview hot-reloads, u
 - **Center pane**: segmented **Preview / Editor / Graph** switcher pinned in the toolbar center (⌘1/⌘2/⌘3); the Editor tag only exists while a file editor is active.
 - **Inspector** (right, ⌥⌘I): metadata form for the selected page/post.
 - **Selection semantics — the key UX rule:** selecting a **page or post** keeps the center pane on **Preview** (navigating to that route) and loads its metadata into the **Inspector**; selecting a **component/style/metadata file** opens the center **Editor**. There is no center-pane document editor for pages/posts.
-- **Toolbar** defaults: Site Graph, Backup, Audit, Open in browser, Deploy (+health badge), Chat, Inspector.
+- **Toolbar** defaults: Site Graph, Backup, Audit, Open in Browser, Publish Site (+health badge), Chat, Inspector.
 
 ## Acceptance Matrix
 

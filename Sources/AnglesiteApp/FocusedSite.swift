@@ -144,12 +144,12 @@ struct NavigatorEditCommands: Commands {
 
             Divider()
 
-            Button("Publish") {
+            Button("Publish Post") {
                 actions?.publish?()
             }
             .disabled(actions?.publish == nil)
 
-            Button("Unpublish") {
+            Button("Move to Drafts") {
                 actions?.unpublish?()
             }
             .disabled(actions?.unpublish == nil)

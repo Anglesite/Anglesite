@@ -44,21 +44,21 @@ private struct GeneralSettingsView: View {
 
             Section("Notifications") {
                 Toggle("Notify when site operations finish", isOn: $notifiesOnCompletion)
-                Text("Posts a notification when a Deploy, Backup, or Audit finishes while Anglesite is in the background — success or failure. Clicking the notification brings the site's window to the front. Delivery starts quietly; promote or silence Anglesite in System Settings › Notifications.")
+                Text("Posts a notification when a Publish, Backup, or Audit finishes while Anglesite is in the background — success or failure. Clicking the notification brings the site's window to the front. Delivery starts quietly; promote or silence Anglesite in System Settings › Notifications.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section("Sound") {
                 Toggle("Play dial-up sound while loading", isOn: $playsDialupSoundEffect)
-                Text("Plays a nostalgic dial-up modem sound while the dev server starts up or a deploy is running. Purely decorative — off by default.")
+                Text("Plays a nostalgic dial-up modem sound while the dev server starts up or a publish is running. Purely decorative — off by default.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             Section("Accessibility") {
                 Toggle("Announce live updates to VoiceOver", isOn: $announcesLiveUpdates)
-                Text("Speaks streaming chat responses (start, and the reply when it finishes) and deploy progress (start, errors, and the final result) as VoiceOver announcements. Turn off if you prefer to read these surfaces by navigating to them yourself.")
+                Text("Speaks streaming chat responses (start, and the reply when it finishes) and publishing progress (start, errors, and the final result) as VoiceOver announcements. Turn off if you prefer to read these surfaces by navigating to them yourself.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -427,7 +427,7 @@ private struct AdvancedSettingsView: View {
 
             Section("Credentials") {
                 CloudflareOAuthStatusRow()
-                Text("Signing in to Cloudflare from a Deploy sheet stores this credential; it's what every Cloudflare-backed feature (deploy, Harden, Domain Config Audit, Onion Routing, Analytics, domain buy/transfer, and inbound Webmention/Micropub sync) uses first. Refreshed automatically when it expires.")
+                Text("Signing in to Cloudflare from a Publish sheet stores this credential; it's what every Cloudflare-backed feature (publishing, Harden, Domain Config Audit, Onion Routing, Analytics, domain buy/transfer, and inbound Webmention/Micropub sync) uses first. Refreshed automatically when it expires.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
 

@@ -110,7 +110,7 @@ final class ConnectDomainModel {
         dismissSheet()
     }
 
-    /// "Buy a domain" — records the buy intent, flags the handoff for `SiteWindow`'s
+    /// "Buy a Domain" — records the buy intent, flags the handoff for `SiteWindow`'s
     /// `onDismiss`, then dismisses. See `pendingBuyDomain`'s doc comment for why the actual
     /// `BuyDomainSheetView` presentation happens on dismiss rather than synchronously here.
     func chooseBuy() {

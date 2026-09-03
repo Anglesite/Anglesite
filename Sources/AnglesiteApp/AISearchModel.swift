@@ -36,7 +36,7 @@ final class AISearchModel {
     /// preflight short-circuit (#1494) and the create-time 7028 mapping (#1486) so the two
     /// paths can't drift apart.
     static let missingSitemapGuidance =
-        "Your site's sitemap isn't reachable yet. Deploy the site first, then set up AI Search."
+        "Your site's sitemap isn't reachable yet. Publish the site first, then set up AI Search."
 
     init(
         reader: any CloudflareReading = HTTPCloudflareClient(),

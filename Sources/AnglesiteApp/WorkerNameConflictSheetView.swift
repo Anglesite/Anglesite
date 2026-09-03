@@ -26,7 +26,7 @@ struct WorkerNameConflictSheetView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Worker name already in use")
                     .font(.headline)
-                Text("“\(takenName)” already exists on your connected Cloudflare account. Choose a different name to deploy this site under.")
+                Text("“\(takenName)” already exists on your connected Cloudflare account. Choose a different name to publish this site under.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

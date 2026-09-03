@@ -592,7 +592,7 @@ struct DeployModelTests {
         let isRunning = model.isRunning
         #expect(!isRunning)
         let workerNameConflictError = model.workerNameConflictError
-        #expect(workerNameConflictError == "No deploy is waiting — close this and click Deploy again.")
+        #expect(workerNameConflictError == "Nothing is waiting to publish — close this and click Publish Site again.")
     }
 
     @Test("a site with no active workers still deploys through the plain static path")

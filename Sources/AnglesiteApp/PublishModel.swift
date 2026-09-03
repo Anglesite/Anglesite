@@ -69,7 +69,7 @@ final class PublishModel {
         start(source: source, repoName: repoName)
     }
 
-    /// Called by the token-prompt sheet's "Connect & publish" button. Verifies the token against
+    /// Called by the token-prompt sheet's "Connect and Publish" button. Verifies the token against
     /// GitHub before persisting it — so a bad token is caught here rather than failing later
     /// inside the publish — then retries the parked publish.
     func verifyAndSaveToken(_ token: String) async {

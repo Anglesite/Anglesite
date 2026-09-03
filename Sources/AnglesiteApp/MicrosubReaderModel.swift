@@ -73,7 +73,7 @@ final class MicrosubReaderModel {
     /// and calls `completeSignIn()`.
     func startSignIn() {
         guard let siteURL else {
-            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            errorMessage = "This site has no known public URL yet — publish it at least once first."
             return
         }
         errorMessage = nil
