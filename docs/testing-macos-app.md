@@ -179,28 +179,35 @@ Accessibility. Example (once granted):
 osascript -e 'tell application "System Events" to tell process "Anglesite" to get value of attribute "AXIdentifier" of buttons of toolbar 1 of window 1'
 ```
 
-### Re-verifying navigator keyboard-focus gating (#1732)
+### Re-verifying navigator keyboard-focus gating (#1732, #1747)
 
-The navigator's Return-to-rename key equivalent
+The navigator's Return-to-rename **and** ⌘⌫-to-delete key equivalents
 ([`SiteNavigatorView.swift`](../Sources/AnglesiteApp/SiteNavigatorView.swift))
-is attached only while the navigator `List` holds keyboard focus, and a click
+are each attached only while the navigator `List` holds keyboard focus (⌘⌫ is
+additionally ANDed with `!previewHasKeyboardFocus`, #1715/#1730), and a click
 on a row gives the list that focus via a `simultaneousGesture(TapGesture())`.
-Neither half has automated coverage: `@FocusState` only reflects focus for a
+None of this has automated coverage: `@FocusState` only reflects focus for a
 key window in an active app, and a hosted `swift test` process is not reliably
 either (a synthesized `NSWindow.sendEvent` click doesn't even select a row
 there), so a hosted test would flake. If you touch that file's `.focused`,
-`simultaneousGesture`, or `if listHasKeyboardFocus` block, re-verify by hand on
-a Debug build (launch per the steps above; Full Keyboard Access off):
+`simultaneousGesture`, `if listHasKeyboardFocus` (Return), or
+`if listHasKeyboardFocus && !previewHasKeyboardFocus` (⌘⌫) blocks, re-verify by
+hand on a Debug build (launch per the steps above; Full Keyboard Access off):
 
-1. **Leak check — the #1732 repro.** Select a navigator row → Website ▸ Graph…
-   → Tab until focus is in the takeover's Explorer outline → ↓ → Return. The
-   navigator must not show a rename field (`navigator.renameField` absent from
-   the AX tree), its selection must be unchanged, and focus must stay in the
-   Explorer.
-2. **Click-to-focus.** Fresh launch → click a row, with no Tab first. ↓ must
-   move the selection and Return must open the rename field; Esc cancels.
+1. **Return leak check — the #1732 repro.** Select a navigator row → Website ▸
+   Graph… → Tab until focus is in the takeover's Explorer outline → ↓ →
+   Return. The navigator must not show a rename field
+   (`navigator.renameField` absent from the AX tree), its selection must be
+   unchanged, and focus must stay in the Explorer.
+2. **⌘⌫ leak check — the #1747 repro.** Same setup, but press ⌘⌫ instead of
+   Return once focus is in the Explorer outline. No delete confirmation for
+   the navigator's selection must appear, the selection must be unchanged, and
+   focus must stay in the Explorer.
+3. **Click-to-focus.** Fresh launch → click a row, with no Tab first. ↓ must
+   move the selection, Return must open the rename field (Esc cancels), and
+   ⌘⌫ (with the rename field not open) must show the delete confirmation.
    Repeat with the Graph takeover open and a navigator click closing it.
-3. **Commit path.** Return inside an active rename field commits it: the field
+4. **Commit path.** Return inside an active rename field commits it: the field
    disappears, focus returns to the list, and Return renames again.
 
 With Accessibility permission granted (see above), `AXFocusedUIElement` of the
