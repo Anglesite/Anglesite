@@ -516,7 +516,7 @@ final class DeployModel {
     /// failure path does, so it can't be dropped by app termination.
     func confirmLicenseChoice(_ license: LicenseRef?) async {
         guard let pending = pendingDeploy else {
-            licenseGateError = "Nothing is waiting to publish — close this and click Publish Site again."
+            licenseGateError = String(localized: "Nothing is waiting to publish — close this and click Publish Site again.")
             return
         }
         let store = LicensingStore(sourceDirectory: pending.siteDirectory)
@@ -534,14 +534,14 @@ final class DeployModel {
                 await logCenter.append(
                     source: "license-gate:\(pending.siteID)", stream: .stderr,
                     text: "Refused to save an unsafe license URL: \(error)")
-                licenseGateError = "\"\(url)\" isn't a usable license address. Use an https:// URL or a path on this site starting with /."
+                licenseGateError = String(localized: "\"\(url)\" isn't a usable license address. Use an https:// URL or a path on this site starting with /.")
             }
             return
         } catch {
             await logCenter.append(
                 source: "license-gate:\(pending.siteID)", stream: .stderr,
                 text: "Saving the content license failed: \(error)")
-            licenseGateError = "Couldn't save your license choice: \(error.localizedDescription)"
+            licenseGateError = String(localized: "Couldn't save your license choice: \(error.localizedDescription)")
             return
         }
         pendingDeploy = nil
@@ -559,7 +559,7 @@ final class DeployModel {
     /// same sheet if it's also taken.
     func renameWorkerAndRetry(_ newName: String) async {
         guard let pending = pendingDeploy else {
-            workerNameConflictError = "Nothing is waiting to publish — close this and click Publish Site again."
+            workerNameConflictError = String(localized: "Nothing is waiting to publish — close this and click Publish Site again.")
             return
         }
         do {
@@ -567,15 +567,15 @@ final class DeployModel {
         } catch let error as WorkerNameRename.RenameError {
             switch error {
             case .invalidName:
-                workerNameConflictError = "Worker names can only contain lowercase letters, numbers, hyphens, and underscores."
+                workerNameConflictError = String(localized: "Worker names can only contain lowercase letters, numbers, hyphens, and underscores.")
             case .wranglerConfigMissing:
-                workerNameConflictError = "Couldn't find this site's wrangler.toml — try publishing again."
+                workerNameConflictError = String(localized: "Couldn't find this site's wrangler.toml — try publishing again.")
             case .nameLineNotFound:
-                workerNameConflictError = "This site's wrangler.toml is missing its Worker name — try publishing again."
+                workerNameConflictError = String(localized: "This site's wrangler.toml is missing its Worker name — try publishing again.")
             }
             return
         } catch {
-            workerNameConflictError = "Couldn't rename the Worker: \(error)"
+            workerNameConflictError = String(localized: "Couldn't rename the Worker: \(error.localizedDescription)")
             return
         }
         pendingDeploy = nil

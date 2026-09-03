@@ -2296,7 +2296,7 @@ final class SiteWindowModel {
     /// when `navigator` itself no longer has the row either (e.g. no `loadAndStart()` ran, as in
     /// most of this file's own tests).
     private func reportUnresolvedRow(id: String) {
-        contentActionError = "\(navigator?.item(for: id)?.title ?? "This item") is no longer part of this site's content."
+        contentActionError = String(localized: "\(navigator?.item(for: id)?.title ?? "This item") is no longer part of this site's content.")
     }
 
     /// The `ContentUndoCoordinator` applier: realize `mutation.before` at its path — write those
@@ -2390,7 +2390,7 @@ final class SiteWindowModel {
             // Reachable whenever the row outlived the graph entry behind it (a page deleted
             // outside the app, a rescan mid-dialog). Reported rather than returned silently:
             // an unexplained no-op here is exactly what #968 was raised about.
-            contentActionError = "\(item.title) is no longer part of this site's content."
+            contentActionError = String(localized: "\(item.title) is no longer part of this site's content.")
             return
         }
 

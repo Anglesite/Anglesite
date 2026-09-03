@@ -24,6 +24,11 @@
 # sufficient: it complements, not replaces, the manual `.xcstrings` diff review CONTRIBUTING.md
 # asks for.
 #
+# It separately flags model-layer error/status properties (see ERROR_PROPERTY_NAMES below)
+# assigned a bare string literal instead of going through `String(localized:)` — that shape has
+# no SwiftUI call site for either Xcode's real extractor or the checks above to see, so it
+# silently ships untranslated (#1800, #1852).
+#
 # For a string literal containing interpolation (`\(expr)`), Xcode's real extractor turns each
 # interpolation into a positional format specifier (%@, %lld, ...) chosen from the interpolated
 # expression's type - this script can't type-check, so it matches any interpolation against a
@@ -63,6 +68,21 @@ CALL_NAMES = [
 CALL_PATTERN = re.compile(r'\b(?:' + "|".join(CALL_NAMES) + r')\(\s*"')
 LOCALIZED_PATTERN = re.compile(r'String\(localized:\s*"')
 KEY_PATTERN = re.compile(r'LocalizedStringKey\(\s*"')
+
+# Model-layer error/status properties assigned a bare string literal instead of
+# String(localized: "...") are invisible to every pattern above (they're not one of the
+# recognized call sites, and Xcode's real extractor never sees them either) - so they ship
+# untranslated the moment a second locale lands (#1800). This list is deliberately just the
+# handful of property names audited so far, not a general "*Error" heuristic - matching on name
+# suffix alone would also flag every other similarly-named error property that hasn't been
+# migrated yet, which would fail this check for code no current change touches. Extend this list
+# deliberately as more properties are migrated (#1852 added the second batch).
+ERROR_PROPERTY_NAMES = [
+    "licenseGateError", "workerNameConflictError", "redirectsError", "utmCodesError",
+    "licensingError", "langError", "mtaStsError", "securityReportingError", "deleteError",
+    "redirectSaveError", "contentActionError",
+]
+BARE_ERROR_ASSIGN_PATTERN = re.compile(r'\b(?:' + "|".join(ERROR_PROPERTY_NAMES) + r')\s*=\s*"')
 
 # Any interpolation could extract to %@, %lld, %ld, %d, %f, %u, or a positional variant
 # (%1$@ etc.) depending on the interpolated expression's type - match permissively.
@@ -163,6 +183,7 @@ def literal_present(tokens):
 
 
 missing = []
+bare_assignments = []
 for path in sorted(sources_root.rglob("*.swift")):
     text = path.read_text(encoding="utf-8")
     for pattern in (CALL_PATTERN, LOCALIZED_PATTERN, KEY_PATTERN):
@@ -173,8 +194,17 @@ for path in sorted(sources_root.rglob("*.swift")):
             if not literal_present(tokens):
                 line = text.count("\n", 0, m.start()) + 1
                 missing.append((str(path), line, render(tokens)))
+    for m in BARE_ERROR_ASSIGN_PATTERN.finditer(text):
+        tokens, _end = scan_literal(text, m.end())
+        if not tokens or all(kind == "text" and not val for kind, val in tokens):
+            continue
+        line = text.count("\n", 0, m.start()) + 1
+        bare_assignments.append((str(path), line, render(tokens)))
+
+had_error = False
 
 if missing:
+    had_error = True
     missing.sort()
     print(
         f"error: {len(missing)} localizable string literal(s) in {sources_root} have no "
@@ -188,6 +218,25 @@ if missing:
         "regenerate the catalog locally, then review and commit the .xcstrings diff.",
         file=sys.stderr,
     )
+
+if bare_assignments:
+    had_error = True
+    bare_assignments.sort()
+    print(
+        f"error: {len(bare_assignments)} assignment(s) in {sources_root} give "
+        + "/".join(ERROR_PROPERTY_NAMES)
+        + " a bare string literal instead of String(localized: \"...\") (#1800, #1852):",
+        file=sys.stderr,
+    )
+    for path, line, raw in bare_assignments:
+        print(f"  {path}:{line}: \"{raw}\"", file=sys.stderr)
+    print(
+        "\nWrap the literal in String(localized: \"...\") so Xcode's extractor - and this "
+        "script's own checks above - can see it.",
+        file=sys.stderr,
+    )
+
+if had_error:
     sys.exit(1)
 
 print(f"✓ every scanned localizable literal in {sources_root} has a matching {catalog_path} key.")
