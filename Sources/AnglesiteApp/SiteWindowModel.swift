@@ -2852,7 +2852,7 @@ final class SiteWindowModel {
         applyPendingNavigation(for: resolved.id)
         applyPendingDesignInterviewRequest(for: resolved.id)
         await contentGraphRefresh.value
-        let assistantSession = AssistantSessionAssembler.makeSession(
+        let assistantSession = await AssistantSessionAssembler.makeSession(
             for: currentSite,
             preview: preview,
             contentGraph: contentGraph,

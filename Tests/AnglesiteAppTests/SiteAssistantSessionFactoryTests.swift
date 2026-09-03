@@ -27,7 +27,7 @@ struct SiteAssistantSessionFactoryTests {
         )
         let capture = SnapshotCapture()
         var dependencies = SiteAssistantSessionFactory.Dependencies.live
-        dependencies.assistant = { _, _, _, _, _, _, _, _, _, graphSnapshotProvider in
+        dependencies.assistant = { _, _, _, _, _, _, _, _, _, _, graphSnapshotProvider in
             Task {
                 let snapshot = await graphSnapshotProvider()
                 await capture.capture(snapshot)
@@ -36,7 +36,7 @@ struct SiteAssistantSessionFactoryTests {
         }
 
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        _ = SiteAssistantSessionFactory.makeSession(
+        _ = await SiteAssistantSessionFactory.makeSession(
             siteID: "site-1",
             sourceDirectory: root,
             configDirectory: root,
@@ -47,6 +47,7 @@ struct SiteAssistantSessionFactoryTests {
             semanticRanker: nil,
             conventionsEngine: nil,
             integrationService: IntegrationOperations.live(),
+            wysiwygBlockAccess: { nil },
             dependencies: dependencies,
             graphSnapshotProvider: { expected }
         )
@@ -57,18 +58,18 @@ struct SiteAssistantSessionFactoryTests {
 
     /// Runs `makeSession` with a builder that only records whether a design-interview factory
     /// arrived, returning that observation (#665).
-    private func interviewFactoryPresence(packageURL: URL?) -> Bool {
+    private func interviewFactoryPresence(packageURL: URL?) async -> Bool {
         // The builder closure is `@Sendable`, so it can't mutate a captured local directly —
         // but it runs synchronously inside `makeSession`, so an unchecked box is race-free here.
         final class Observed: @unchecked Sendable { var factoryPresent = false }
         let observed = Observed()
         var dependencies = SiteAssistantSessionFactory.Dependencies.live
-        dependencies.assistant = { _, _, _, _, _, _, _, _, designInterviewFactory, _ in
+        dependencies.assistant = { _, _, _, _, _, _, _, _, designInterviewFactory, _, _ in
             observed.factoryPresent = designInterviewFactory != nil
             return StubConversationalAssistant()
         }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        _ = SiteAssistantSessionFactory.makeSession(
+        _ = await SiteAssistantSessionFactory.makeSession(
             siteID: "site-1",
             sourceDirectory: root,
             configDirectory: root,
@@ -80,6 +81,7 @@ struct SiteAssistantSessionFactoryTests {
             semanticRanker: nil,
             conventionsEngine: nil,
             integrationService: IntegrationOperations.live(),
+            wysiwygBlockAccess: { nil },
             dependencies: dependencies,
             graphSnapshotProvider: { SiteGraphExplorerSnapshot(nodes: [], edges: []) }
         )
@@ -87,14 +89,15 @@ struct SiteAssistantSessionFactoryTests {
     }
 
     @Test("a packageURL yields a design-interview factory for the chat assistant (#665)")
-    func packageURLYieldsDesignInterviewFactory() {
+    func packageURLYieldsDesignInterviewFactory() async {
         let packageURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        #expect(interviewFactoryPresence(packageURL: packageURL))
+        #expect(await interviewFactoryPresence(packageURL: packageURL))
     }
 
     @Test("no packageURL means no design-interview factory (#665)")
-    func missingPackageURLMeansNoFactory() {
-        #expect(!interviewFactoryPresence(packageURL: nil))
+    func missingPackageURLMeansNoFactory() async {
+        let present = await interviewFactoryPresence(packageURL: nil)
+        #expect(!present)
     }
 }
 

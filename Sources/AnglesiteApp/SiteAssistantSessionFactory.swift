@@ -17,6 +17,7 @@ enum SiteAssistantSessionFactory {
     typealias EditRouterProvider = @Sendable (_ siteID: String) async -> (any EditRouter)?
     typealias GraphSnapshotProvider = @Sendable () async -> SiteGraphExplorerSnapshot
     typealias ContainerControlProvider = @Sendable () async -> (siteID: String, control: any LocalContainerControl)?
+    typealias WYSIWYGBlockAccessProvider = @Sendable () async -> (any WYSIWYGBlockTextAccess)?
     typealias AssistantBuilder = @Sendable (
         _ editBridge: IntentEditBridge,
         _ contentGraph: SiteContentGraph,
@@ -27,6 +28,7 @@ enum SiteAssistantSessionFactory {
         _ conventionsStore: ProjectConventionsStore,
         _ themeCatalog: ThemeCatalog?,
         _ designInterviewFactory: FoundationModelAssistant.DesignInterviewModelFactory?,
+        _ wysiwygBlockAccess: (any WYSIWYGBlockTextAccess)?,
         _ graphSnapshotProvider: @escaping GraphSnapshotProvider
     ) -> any ConversationalAssistant
 
@@ -56,7 +58,7 @@ enum SiteAssistantSessionFactory {
             let editRouterProvider: EditRouterProvider = { siteID in
                 await EditRouterRegistry.shared.router(for: siteID)
             }
-            let assistant: AssistantBuilder = { editBridge, contentGraph, knowledgeIndex, semanticRanker, integrationService, conventionsEngine, conventionsStore, themeCatalog, designInterviewFactory, graphSnapshotProvider in
+            let assistant: AssistantBuilder = { editBridge, contentGraph, knowledgeIndex, semanticRanker, integrationService, conventionsEngine, conventionsStore, themeCatalog, designInterviewFactory, wysiwygBlockAccess, graphSnapshotProvider in
                 CombinedAugmentedAssistant(
                     base: FoundationModelAssistant(
                         tier: .onDevice,
@@ -70,6 +72,7 @@ enum SiteAssistantSessionFactory {
                         copyEditAuditor: CopyEditAuditorFactory.makeDefault(),
                         socialMediaPlanner: SocialMediaPlannerFactory.makeDefault(),
                         postRepurposer: PostRepurposerFactory.makeDefault(),
+                        wysiwygBlockAccess: wysiwygBlockAccess,
                         themeCatalog: themeCatalog,
                         designInterviewFactory: designInterviewFactory
                     ),
@@ -141,9 +144,10 @@ enum SiteAssistantSessionFactory {
         conventionsEngine: ProjectConventionsEngine?,
         integrationService: any IntegrationOperationsService,
         themeCatalog: ThemeCatalog? = nil,
+        wysiwygBlockAccess: @escaping WYSIWYGBlockAccessProvider,
         dependencies: Dependencies = .live,
         graphSnapshotProvider: @escaping GraphSnapshotProvider
-    ) -> SiteAssistantSession {
+    ) async -> SiteAssistantSession {
         let editBridge = IntentEditBridge(routerProvider: dependencies.editRouterProvider)
         // A second `ProjectConventionsStore` instance pointed at the same `configDirectory` as
         // `SiteWindowModel`'s Style Guide store (rather than threading that instance through this
@@ -173,6 +177,7 @@ enum SiteAssistantSessionFactory {
                 }
             }
         }
+        let resolvedWysiwygAccess = await wysiwygBlockAccess()
         let resolvedAssistant: any ConversationalAssistant = AssistantBackendResolver.resolveActiveExternalLLMAssistant()
             ?? AssistantBackendResolver.resolveActiveACPAssistant(
                 siteID: siteID,
@@ -188,6 +193,7 @@ enum SiteAssistantSessionFactory {
             conventionsStore,
             themeCatalog,
             designInterviewFactory,
+            resolvedWysiwygAccess,
             graphSnapshotProvider
         )
         let chat = ChatModel(

@@ -86,6 +86,11 @@ public actor FoundationModelAssistant: ConversationalAssistant {
     private let copyEditAuditor: (any CopyEditAuditing)?
     private let socialMediaPlanner: (any SocialMediaPlanning)?
     private let postRepurposer: (any PostRepurposing)?
+    /// The seam to the live WYSIWYG canvas (#1227 PR 2) — lets ``RewriteBlockTool`` read a
+    /// block's current text and submit a chat-driven rewrite back into the mounted canvas. `nil`
+    /// whenever no canvas is mounted (Site ▸ Edit Page is off, or no site is open), in which case
+    /// the tool isn't attached at all (see ``conversationTools(for:includeSpotlight:)``).
+    private let wysiwygBlockAccess: (any WYSIWYGBlockTextAccess)?
     /// Builds a fresh ``DesignInterviewModel`` for the chat front door (#665). Infallible —
     /// distinct from ``DesignInterviewTool/ModelProvider``, which may throw when its backing
     /// state is gone. Named so the app-side wiring and this actor spell one type.
@@ -141,6 +146,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         copyEditAuditor: (any CopyEditAuditing)? = nil,
         socialMediaPlanner: (any SocialMediaPlanning)? = nil,
         postRepurposer: (any PostRepurposing)? = nil,
+        wysiwygBlockAccess: (any WYSIWYGBlockTextAccess)? = nil,
         themeCatalog: ThemeCatalog? = nil,
         designInterviewFactory: DesignInterviewModelFactory? = nil,
         maxRetainedTurns: Int = 12
@@ -156,6 +162,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         self.copyEditAuditor = copyEditAuditor
         self.socialMediaPlanner = socialMediaPlanner
         self.postRepurposer = postRepurposer
+        self.wysiwygBlockAccess = wysiwygBlockAccess
         self.themeCatalog = themeCatalog
         self.designInterviewFactory = designInterviewFactory
         // `trimSessionIfNeeded`'s cutoff indexing (`promptIndices.count - maxRetainedTurns`) assumes
@@ -454,6 +461,9 @@ public actor FoundationModelAssistant: ConversationalAssistant {
             names.append(RepurposePostTool.toolName)
             names.append(SaveSyndicationTool.toolName)
         }
+        if wysiwygBlockAccess != nil {
+            names.append(RewriteBlockTool.toolName)
+        }
         if themeCatalog != nil {
             names.append(SetupThemeTool.toolName)
         }
@@ -570,6 +580,11 @@ public actor FoundationModelAssistant: ConversationalAssistant {
                 repurposer: postRepurposer, conventionsStore: conventionsStore,
                 siteID: context.siteID, siteDirectory: context.siteDirectory))
             tools.append(SaveSyndicationTool(siteDirectory: context.siteDirectory))
+        }
+        if let wysiwygBlockAccess {
+            tools.append(RewriteBlockTool(
+                access: wysiwygBlockAccess, writingHelp: WritingHelpAssistantFactory.makeDefault(),
+                siteID: context.siteID, siteDirectory: context.siteDirectory))
         }
         if let themeCatalog {
             tools.append(SetupThemeTool(catalog: themeCatalog, sourceDirectory: context.siteDirectory))

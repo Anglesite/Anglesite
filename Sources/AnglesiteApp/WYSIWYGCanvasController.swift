@@ -533,3 +533,25 @@ extension WYSIWYGCanvasController: WYSIWYGHostTransport {
         {}
     }
 }
+
+/// Lets the `rewriteBlock` chat tool (`RewriteBlockTool`, #1227 PR 2) reach the live canvas
+/// through the `WYSIWYGBlockTextAccess` seam, without the tool (in `AnglesiteCore`, which can't
+/// import `AnglesiteApp`) knowing anything about `WYSIWYGCanvasController` itself.
+extension WYSIWYGCanvasController: WYSIWYGBlockTextAccess {
+    func blockText(_ id: String) async -> String? {
+        guard let node = model.blocks[id] else { return nil }
+        return WYSIWYGBlockClipboardWriter.render(node).plainText
+    }
+
+    /// Replaces the block's rich text with a single plain-text run (see plan Global Constraints
+    /// on formatting loss — a chat-driven whole-block rewrite has no selection-scoped DOM to
+    /// mutate the way the canvas toolbar's `applyTextReplacement` does, so this always replaces
+    /// the block's entire content).
+    func submitRewrite(blockId: String, newText: String) async -> Bool {
+        guard let node = model.blocks[blockId] else { return false }
+        let runs = [RichTextRun(kind: .text, text: newText, href: nil, children: nil)]
+        let result = await submit(.editText(blockId: blockId, runs: runs, previousRuns: node.richText ?? []))
+        if case .applied = result { return true }
+        return false
+    }
+}

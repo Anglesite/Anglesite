@@ -27,12 +27,18 @@ enum AssistantSessionAssembler {
         conventionsEngine: ProjectConventionsEngine,
         integrationService: any IntegrationOperationsService,
         graphSnapshotProvider: @escaping SiteAssistantSessionFactory.GraphSnapshotProvider
-    ) -> SiteAssistantSession {
+    ) async -> SiteAssistantSession {
         let mcpClient: @Sendable () async -> MCPClient? = { [preview] in
             await preview.mcpClient()
         }
         let containerControlProvider: SiteAssistantSessionFactory.ContainerControlProvider = { [preview] in
             await preview.activeContainerControl()
+        }
+        // Resolved lazily, same reasoning as `mcpClient`/`containerControlProvider` above: the
+        // canvas mounts/unmounts as the owner toggles Site ▸ Edit Page, so this must re-check
+        // `preview.wysiwygCanvas` at call time, not capture a possibly-nil snapshot now (#1227 PR 2).
+        let wysiwygBlockAccess: @Sendable () async -> (any WYSIWYGBlockTextAccess)? = { [preview] in
+            await preview.wysiwygCanvas
         }
         // Best-effort: SetupThemeTool only attaches to the chat assistant when a catalog loads
         // successfully. A missing/unreadable template must not block opening the site — the
@@ -41,7 +47,7 @@ enum AssistantSessionAssembler {
             guard let templateURL = TemplateRuntime.resolve().url else { return nil }
             return try? ThemeCatalog.load(templateURL: templateURL)
         }()
-        return SiteAssistantSessionFactory.makeSession(
+        return await SiteAssistantSessionFactory.makeSession(
             siteID: site.id,
             sourceDirectory: site.sourceDirectory,
             configDirectory: site.configDirectory,
@@ -54,6 +60,7 @@ enum AssistantSessionAssembler {
             conventionsEngine: conventionsEngine,
             integrationService: integrationService,
             themeCatalog: themeCatalog,
+            wysiwygBlockAccess: wysiwygBlockAccess,
             graphSnapshotProvider: graphSnapshotProvider
         )
     }
