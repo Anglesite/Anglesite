@@ -107,7 +107,7 @@ export async function getRecentIndexItems(collection: string, limit: number): Pr
   return Promise.all(surviving.map(withContent));
 }
 
-/// Combined reverse-chronological stream across all eight feed collections (blog plus the seven
+/// Combined reverse-chronological stream across all eleven feed collections (blog plus the ten
 /// micropost/titled collections) — the page-side equivalent of `feed-data.ts`'s
 /// `getCombinedItems`, capped at the same default limit. Sorts and slices metadata first, then
 /// renders `Content` only for the entries that survive the cap — build cost scales with `limit`,

@@ -280,4 +280,27 @@ struct TypedContentEditorTests {
         let read = TypedContentEditor.read("---\ntitle: x\n---\nBody.\n", descriptor: descriptor)
         #expect(read["lang"] == .text(""))
     }
+
+    @Test("a .enum field round-trips through defaultValue/decode/encode exactly like .string")
+    func enumFieldRoundTrips() {
+        let descriptor = ContentTypeDescriptor(
+            id: "test-enum", displayName: "Test", storage: .collection("test"),
+            fields: [ContentTypeField("rsvp", .enum(cases: ["yes", "no", "maybe", "interested"]))],
+            projections: ContentTypeProjections(microformat: "h-entry", microformatProperties: [:], schemaType: nil))
+        #expect(TypedContentEditor.defaultValue(for: .enum(cases: ["yes", "no"])) == .text(""))
+        let read = TypedContentEditor.read("---\nrsvp: maybe\n---\nBody.\n", descriptor: descriptor)
+        #expect(read["rsvp"] == .text("maybe"))
+        let written = TypedContentEditor.write(.init(["rsvp": .text("yes")]), into: "---\nrsvp: maybe\n---\nBody.\n", descriptor: descriptor)
+        #expect(written.contains("rsvp: yes") || written.contains("rsvp: \"yes\""))
+    }
+
+    @Test("a missing .enum key decodes as an empty string, not a crash")
+    func enumFieldMissingKey() {
+        let descriptor = ContentTypeDescriptor(
+            id: "test-enum-missing", displayName: "Test", storage: .collection("test"),
+            fields: [ContentTypeField("rsvp", .enum(cases: ["yes", "no"]))],
+            projections: ContentTypeProjections(microformat: "h-entry", microformatProperties: [:], schemaType: nil))
+        let read = TypedContentEditor.read("---\ntitle: x\n---\nBody.\n", descriptor: descriptor)
+        #expect(read["rsvp"] == .text(""))
+    }
 }

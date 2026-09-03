@@ -20,7 +20,7 @@ interface Props {
   entry: CollectionEntry<HentryCollection>;
 }
 
-// Flattened view of the eight-collection h-entry union — all fields optional; `entry` stays strictly typed above.
+// Flattened view of the eleven-collection h-entry union — all fields optional; `entry` stays strictly typed above.
 interface HentryFields {
   title?: string;
   summary?: string;
@@ -32,6 +32,10 @@ interface HentryFields {
   bookmarkOf?: string;
   inReplyTo?: string;
   likeOf?: string;
+  rsvp?: string;
+  location?: string;
+  venueUrl?: string;
+  repostOf?: string;
   syndication?: string[];
   draft?: boolean;
   lang?: string;
@@ -69,6 +73,7 @@ const cited = (url: string | undefined) => (url ? (snapshots.get(snapshotKey(url
 const bookmarkCite = cited(d.bookmarkOf);
 const replyCite = cited(d.inReplyTo);
 const likeCite = cited(d.likeOf);
+const repostCite = cited(d.repostOf);
 ---
 
 <BaseLayout
@@ -94,6 +99,12 @@ const likeCite = cited(d.likeOf);
     {d.likeOf && (likeCite
       ? <EmbedCard snapshot={likeCite} citeClass="u-like-of" inlineVideo={inlineVideo} />
       : <a class="u-like-of" href={d.likeOf}>Liked this</a>)}
+    {d.repostOf && (repostCite
+      ? <EmbedCard snapshot={repostCite} citeClass="u-repost-of" inlineVideo={inlineVideo} />
+      : <a class="u-repost-of" href={d.repostOf}>Reposted this</a>)}
+    {d.rsvp && <data class="p-rsvp" value={d.rsvp}>RSVP: {d.rsvp.charAt(0).toUpperCase() + d.rsvp.slice(1)}</data>}
+    {d.location && <span class="p-location h-card">{d.location}</span>}
+    {d.venueUrl && <a class="u-in-reply-to" href={d.venueUrl}>{d.venueUrl}</a>}
     {(d.summary ?? d.caption) && <p class="p-summary">{d.summary ?? d.caption}</p>}
     <div class="e-content"><slot /></div>
     {/* The permalink (u-url) is unconditional — every entry has one regardless of whether

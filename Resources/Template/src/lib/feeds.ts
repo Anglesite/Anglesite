@@ -5,7 +5,7 @@ import { tagUrl, type UTMCampaign } from "./utm-codes.ts";
 
 export interface FeedItem {
   /** Absent for collections whose items have no natural title (notes, replies, likes, photos,
-   * and bookmarks without an explicit title) — a synthesized title (excerpt/"Re: host"/etc.) is
+   * reposts, and bookmarks without an explicit title) — a synthesized title (excerpt/"Re: host"/etc.) is
    * not a real title, so we omit the field rather than fake one. */
   title?: string;
   link: string; // absolute
@@ -67,12 +67,23 @@ export const FEED_COLLECTIONS: Record<string, FeedCollectionConfig> = {
   bookmarks: { title: "Bookmarks", dateField: "publishDate", deriveTitle: (e) => e.data.title },
   replies: { title: "Replies", dateField: "publishDate", deriveTitle: () => undefined },
   likes: { title: "Likes", dateField: "publishDate", deriveTitle: () => undefined },
+  rsvps: {
+    title: "RSVPs",
+    dateField: "publishDate",
+    deriveTitle: (e) => (typeof e.data.rsvp === "string" ? `RSVP: ${e.data.rsvp}` : undefined),
+  },
+  checkins: {
+    title: "Check-ins",
+    dateField: "publishDate",
+    deriveTitle: (e) => (typeof e.data.location === "string" ? `Checked in at ${e.data.location}` : undefined),
+  },
+  reposts: { title: "Reposts", dateField: "publishDate", deriveTitle: () => undefined },
 };
 
 /// Resolve the absolute site base URL from an Astro endpoint context, failing loudly when
 /// `site` is unset. `astro.config.ts` always provides a fallback, so in practice this never
 /// throws — but an `Invalid`/undefined site would otherwise surface as an opaque TypeError in
-/// all 27 feed routes, so we give one clear message instead.
+/// all 36 feed routes, so we give one clear message instead.
 export function siteFrom(context: { site?: URL }): string {
   if (!context.site) {
     throw new Error(
@@ -110,11 +121,11 @@ export function websubHub(
 }
 
 /**
- * Fallback `contentHtml` for interaction posts (likes/replies/bookmarks) whose body rendered to
- * nothing — a like/reply/bookmark with no commentary still has faithful content to syndicate:
- * the target URL it points at. This is deliberately *not* prose ("Liked", "Re:", …) — a
- * synthesized caption is exactly what #1021/#1022 removed; the target URL is the one piece of
- * real content every interaction post has. Photos keep their existing caption fallback
+ * Fallback `contentHtml` for interaction posts (likes/replies/bookmarks/rsvps) whose body
+ * rendered to nothing — a like/reply/bookmark/RSVP with no commentary still has faithful content
+ * to syndicate: the target URL it points at. This is deliberately *not* prose ("Liked", "Re:",
+ * …) — a synthesized caption is exactly what #1021/#1022 removed; the target URL is the one
+ * piece of real content every interaction post has. Photos keep their existing caption fallback
  * (`feed-data.ts`'s `renderContentHtml`) and are untouched here.
  */
 function interactionContentFallback(collection: string, data: Record<string, any>): string {
@@ -125,7 +136,13 @@ function interactionContentFallback(collection: string, data: Record<string, any
         ? data.inReplyTo
         : collection === "bookmarks"
           ? data.bookmarkOf
-          : undefined;
+          : collection === "rsvps"
+            ? data.inReplyTo
+            : collection === "checkins"
+              ? data.venueUrl
+              : collection === "reposts"
+                ? data.repostOf
+                : undefined;
   if (!targetUrl) return "";
   const escaped = escapeXml(String(targetUrl));
   return `<a href="${escaped}">${escaped}</a>`;

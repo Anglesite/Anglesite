@@ -1,8 +1,8 @@
 ---
-// Combined reverse-chronological stream across all eight feed collections (blog, notes,
-// articles, photos, albums, bookmarks, replies, likes) — the browsable page-side equivalent of
-// the combined `/rss.xml` / `/atom.xml` / `/feed.json` feeds (`feed-data.ts`'s
-// `getCombinedItems`), capped at the same 50-item limit.
+// Combined reverse-chronological stream across all eleven feed collections (blog, notes,
+// articles, photos, albums, bookmarks, replies, likes, rsvps, checkins, reposts) — the browsable
+// page-side equivalent of the combined `/rss.xml` / `/atom.xml` / `/feed.json` feeds
+// (`feed-data.ts`'s `getCombinedItems`), capped at the same 50-item limit.
 import BaseLayout from "../../layouts/BaseLayout.astro";
 import IndexEntry from "../../components/IndexEntry.astro";
 import { getTimelineItems } from "../../lib/collection-index-astro.ts";

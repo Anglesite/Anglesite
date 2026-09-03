@@ -85,7 +85,7 @@ export async function getCombinedItems(site: string, limit = COMBINED_LIMIT): Pr
 
 /// Feed-level (channel/feed) author, derived from `siteProfile()` (`src/data/profile.json`).
 /// `siteProfile()` reads via `import.meta.glob`, which only resolves under Astro/Vite — this
-/// lookup belongs here (consumed by the 27 feed routes) rather than in `feeds.ts`, whose
+/// lookup belongs here (consumed by the 36 feed routes) rather than in `feeds.ts`, whose
 /// renderers take `author` as a plain parameter so pure node:test unit tests can inject it
 /// directly. Returns `undefined` when no name is configured (the default, unconfigured site),
 /// so every renderer omits author markup cleanly.

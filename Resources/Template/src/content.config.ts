@@ -106,6 +106,41 @@ const likes = defineCollection({
   }).strict(),
 });
 
+const rsvps = defineCollection({
+  loader: glob({ pattern: "**/*.md", base: "./src/content/rsvps" }),
+  schema: z.object({
+    ...socialFields,
+    lang: z.string().optional(),
+    inReplyTo: z.string().url(),
+    rsvp: z.enum(["yes", "no", "maybe", "interested"]),
+    publishDate: z.coerce.date(),
+    draft: z.boolean().default(false),
+  }).strict(),
+});
+
+const checkins = defineCollection({
+  loader: glob({ pattern: "**/*.md", base: "./src/content/checkins" }),
+  schema: z.object({
+    ...socialFields,
+    lang: z.string().optional(),
+    location: z.string(),
+    venueUrl: z.string().url().optional(),
+    publishDate: z.coerce.date(),
+    draft: z.boolean().default(false),
+  }).strict(),
+});
+
+const reposts = defineCollection({
+  loader: glob({ pattern: "**/*.md", base: "./src/content/reposts" }),
+  schema: z.object({
+    ...socialFields,
+    lang: z.string().optional(),
+    repostOf: z.string().url(),
+    publishDate: z.coerce.date(),
+    draft: z.boolean().default(false),
+  }).strict(),
+});
+
 const announcements = defineCollection({
   loader: glob({ pattern: "**/*.md", base: "./src/content/announcements" }),
   schema: z.object({
@@ -162,4 +197,4 @@ const blogroll = defineCollection({
   }).strict(),
 });
 
-export const collections = { blog, notes, articles, photos, albums, bookmarks, replies, likes, announcements, events, reviews, members, blogroll };
+export const collections = { blog, notes, articles, photos, albums, bookmarks, replies, likes, rsvps, checkins, reposts, announcements, events, reviews, members, blogroll };

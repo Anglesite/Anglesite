@@ -296,6 +296,9 @@ public enum ContentScaffold {
                 lines.append("\(field.name): 0")
             case .stringArray, .imageArray, .objectArray:
                 lines.append("\(field.name): []")
+            case .enum(let cases):
+                let value = fieldValues[field.name] ?? cases.first ?? ""
+                lines.append("\(field.name): \"\(escapeYAML(value))\"")
             case .string, .language, .text, .image:
                 lines.append("\(field.name): \"\(escapeYAML(scalarValue(field, title: title, fieldValues: fieldValues)))\"")
             // A `.url` line is commented out only when the field is optional *and* nothing was
@@ -359,7 +362,7 @@ public enum ContentScaffold {
                 value = "0"
             case .stringArray, .imageArray, .objectArray:
                 value = "[]"
-            case .string, .language, .text, .url, .image, .date, .datetime:
+            case .string, .language, .text, .url, .image, .date, .datetime, .enum:
                 let filled = ContentTypeDescriptor.titleLikeFieldNames.contains(field.name) ? (name ?? "") : ""
                 value = "\"\(escapeJSON(filled))\""
             }

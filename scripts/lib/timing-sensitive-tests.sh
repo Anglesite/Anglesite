@@ -17,9 +17,19 @@
 # reindex poll) and were seen missing those budgets under build-test's full-parallel
 # scheduler contention — the same class of flake #1344 isolated this lane for.
 #
-# ProcessSupervisorShutdownTests (#1602 CI run): its `awaitMarker` helper spawns a real
-# `/bin/sh` child and polls `LogCenter` for a startup marker against a hard 10s
-# `ContinuousClock` deadline — seen missing that budget (3 tests, `Expectation failed:
-# await awaitMarker("__STARTED__", in: center)`) under build-test's full-parallel
-# scheduler contention, unrelated to the PR's actual diff. Same class of flake as above.
-export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LANHostScanCoordinatorTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests|ProcessSupervisorShutdownTests'
+# ProcessSupervisorShutdownTests: its `waitForExitOrTerminate` cases (via the `awaitMarker`
+# helper) spawn a real `/bin/sh` fixture and poll LogCenter for a `"__STARTED__"` marker
+# under a bounded 10s `ContinuousClock` deadline — the identical "subprocess-started
+# marker timed out" shape #1344 already named for AuditCommandTests (also a real-
+# ProcessSupervisor-subprocess wait). Reproduced deterministically (3 tests, `Expectation
+# failed: await awaitMarker("__STARTED__", in: center)`) in build-test's full-parallel CI
+# lane on two unrelated PRs (#1598, #1602) while passing every time locally and in
+# isolation; moving it here is the same established mitigation.
+#
+# HMRRelayTests (#1598 CI run): `closingConnectionStopsHeartbeatAndOnMissGrowth` waits (via
+# `waitUntil`) for a `ControlHeartbeat` on a 20ms ping interval to register its first miss,
+# generously bounded at 15s — timed out entirely under build-test's full-parallel scheduler
+# contention (`Caught error: timed out after 15.0 seconds waiting for the first miss`) while
+# resolving in ~3.7s every time run locally/in isolation. Same class of flake as above:
+# starved `Task` scheduling under a heavily loaded CI runner, not a real regression.
+export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LANHostScanCoordinatorTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests|ProcessSupervisorShutdownTests|HMRRelayTests'

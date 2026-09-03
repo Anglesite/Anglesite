@@ -176,10 +176,10 @@ struct ContentTypeRegistryTests {
         #expect(skills.kind == .stringArray)
     }
 
-    @Test("personalTypes include album and like in canonical order")
+    @Test("personalTypes include album, like, rsvp, checkin, and repost in canonical order")
     func personalTypeOrder() {
         #expect(ContentTypeRegistry.personalTypes.map(\.id)
-            == ["note", "article", "photo", "album", "bookmark", "reply", "like"])
+            == ["note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin", "repost"])
     }
 
     @Test("album is an h-entry image gallery with an imageArray field")
@@ -235,6 +235,74 @@ struct ContentTypeRegistryTests {
         #expect(like.projections.microformatProperties["likeOf"] == "u-like-of")
     }
 
+    @Test("rsvp is an h-entry with u-in-reply-to + p-rsvp, no schema.org type")
+    func rsvpDescriptor() {
+        let rsvp = try! #require(ContentTypeRegistry().descriptor(id: "rsvp"))
+        #expect(rsvp.displayName == "RSVP")
+        #expect(rsvp.collection == "rsvps")
+        #expect(rsvp.projections.microformat == "h-entry")
+        #expect(rsvp.projections.schemaType == nil)
+
+        let inReplyTo = try! #require(rsvp.fields.first { $0.name == "inReplyTo" })
+        #expect(inReplyTo.kind == .url)
+        #expect(inReplyTo.required)
+        #expect(rsvp.projections.microformatProperties["inReplyTo"] == "u-in-reply-to")
+
+        let status = try! #require(rsvp.fields.first { $0.name == "rsvp" })
+        #expect(status.kind == .enum(cases: ["yes", "no", "maybe", "interested"]))
+        #expect(status.required)
+        #expect(rsvp.projections.microformatProperties["rsvp"] == "p-rsvp")
+
+        #expect(rsvp.fields.first?.name == "lang")
+        #expect(rsvp.fields.last?.name == "draft")
+        #expect(rsvp.titleField == nil)   // identified by inReplyTo, like reply/like (#916)
+        #expect(rsvp.requiredURLFields.map(\.name) == ["inReplyTo"])
+    }
+
+    @Test("checkin is an h-entry with required p-location and an optional venue u-in-reply-to")
+    func checkinDescriptor() {
+        let checkin = try! #require(ContentTypeRegistry().descriptor(id: "checkin"))
+        #expect(checkin.displayName == "Check-in")
+        #expect(checkin.collection == "checkins")
+        #expect(checkin.projections.microformat == "h-entry")
+        #expect(checkin.projections.schemaType == nil)
+
+        let location = try! #require(checkin.fields.first { $0.name == "location" })
+        #expect(location.kind == .string)
+        #expect(location.required)
+        #expect(checkin.projections.microformatProperties["location"] == "p-location")
+
+        let venueUrl = try! #require(checkin.fields.first { $0.name == "venueUrl" })
+        #expect(venueUrl.kind == .url)
+        #expect(!venueUrl.required)
+        #expect(checkin.projections.microformatProperties["venueUrl"] == "u-in-reply-to")
+
+        #expect(checkin.fields.first?.name == "lang")
+        #expect(checkin.fields.last?.name == "draft")
+        #expect(checkin.titleField == nil)
+        // venueUrl is optional, so it must NOT appear in requiredURLFields (#916 contract).
+        #expect(checkin.requiredURLFields.isEmpty)
+    }
+
+    @Test("repost is an h-entry with u-repost-of and no schema.org type")
+    func repostDescriptor() {
+        let repost = try! #require(ContentTypeRegistry().descriptor(id: "repost"))
+        #expect(repost.displayName == "Repost")
+        #expect(repost.collection == "reposts")
+        #expect(repost.projections.microformat == "h-entry")
+        #expect(repost.projections.schemaType == nil)
+
+        let repostOf = try! #require(repost.fields.first { $0.name == "repostOf" })
+        #expect(repostOf.kind == .url)
+        #expect(repostOf.required)
+        #expect(repost.projections.microformatProperties["repostOf"] == "u-repost-of")
+
+        #expect(repost.fields.first?.name == "lang")
+        #expect(repost.fields.last?.name == "draft")
+        #expect(repost.titleField == nil)   // identified by repostOf, like reply/like/rsvp (#916)
+        #expect(repost.requiredURLFields.map(\.name) == ["repostOf"])
+    }
+
     @Test("blogroll is an h-card directory entry with no draft field and no schema.org type")
     func blogrollDescriptor() {
         let blogroll = try! #require(ContentTypeRegistry().descriptor(id: "blogroll"))
@@ -273,7 +341,7 @@ struct ContentTypeRegistryTests {
     @Test("every post-family descriptor has a trailing draft field")
     func postFamilyHasDraft() {
         let registry = ContentTypeRegistry()
-        for id in ["note", "article", "photo", "album", "bookmark", "reply", "like"] {
+        for id in ["note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin", "repost"] {
             let descriptor = try! #require(registry.descriptor(id: id))
             #expect(descriptor.fields.last?.name == "draft", "\(id): draft should be the last field")
             #expect(descriptor.fields.last?.kind == .bool, "\(id): draft should be .bool")
@@ -315,7 +383,7 @@ struct ContentTypeRegistryTests {
     @Test("collectionBackedTypeIDs lists exactly the .collection-stored built-ins, in order")
     func collectionBackedIDs() {
         #expect(ContentTypeRegistry.default.collectionBackedTypeIDs == [
-            "note", "article", "photo", "album", "bookmark", "reply", "like",
+            "note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin", "repost",
             "announcement", "event", "review", "member", "blogroll",
         ])
     }
@@ -424,7 +492,7 @@ struct ContentTypeRegistryTests {
 
     @Test("every ENTRY_COLLECTIONS-backed descriptor declares a lang field")
     func entryCollectionDescriptorsHaveLang() {
-        let idsExpectingLang = ["note", "article", "photo", "album", "bookmark", "reply", "like", "announcement", "event", "review"]
+        let idsExpectingLang = ["note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin", "repost", "announcement", "event", "review"]
         let registry = ContentTypeRegistry()
         for id in idsExpectingLang {
             let descriptor = registry.descriptor(id: id)
