@@ -3,9 +3,10 @@ import Foundation
 @testable import AnglesiteCore
 
 // Gated for the same reason as the types under test — FoundationModels is unavailable at
-// runtime on CI (#128). These are live-model round-trip tests; they skip when the on-device
-// model isn't present so they never produce spurious CI failures.
-// TODO(#104/#161): migrate to the mock LanguageModel session once #104 lands.
+// runtime on CI (#128). These are live-model round-trip tests by design (Apple's
+// FoundationModels exposes no fake/mock session to substitute); they skip when the
+// on-device model isn't present so they never produce spurious CI failures. Registered in
+// scripts/lib/live-model-tests.sh so local full runs serialize on the on-device model (#1594).
 #if compiler(>=6.4) && canImport(FoundationModels)
 import FoundationModels
 

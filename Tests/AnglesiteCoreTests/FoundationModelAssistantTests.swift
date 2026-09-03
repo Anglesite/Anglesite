@@ -7,8 +7,9 @@ import UniformTypeIdentifiers
 import AnglesiteSiteModel
 
 // Gated like the type under test (#128). Capability/tier assertions run on any toolchain≥6.4;
-// the generate/generateStructured tests are live-model and skip when unavailable.
-// TODO(#104/#161): migrate the live tests to the mock LanguageModel session once #104 lands.
+// the generate/generateStructured tests are live-model by design (Apple's FoundationModels
+// exposes no fake/mock session to substitute) and skip when unavailable. Registered in
+// scripts/lib/live-model-tests.sh so local full runs serialize on the on-device model (#1594).
 #if compiler(>=6.4) && canImport(FoundationModels)
 import FoundationModels
 

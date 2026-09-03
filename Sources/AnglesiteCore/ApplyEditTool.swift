@@ -113,8 +113,7 @@ public struct ApplyEditTool: Tool, Sendable {
         }
     }
 
-    /// Map the #154 ``EditOperation`` onto the `EditMessage.Op` string vocabulary (the bridge
-    /// deferred in `GenerableTypes.swift`'s doc-comment, "TODO(#156)").
+    /// Map the #154 ``EditOperation`` onto the `EditMessage.Op` string vocabulary.
     private static func opString(for op: EditOperation) -> String {
         switch op {
         case .replaceText: return EditMessage.Op.replaceText
