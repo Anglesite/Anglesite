@@ -85,7 +85,7 @@ public enum ContentScaffold {
         route.hasSuffix("/") ? route : route + "/"
     }
 
-    /// The inverse of ``servedRoute(_:)`` composed with ``pageRelativePath(normalizedRoute:)``:
+    /// The inverse of ``servedRoute(_:)`` composed with ``pageRelativePath(normalizedRoute:extension:)``:
     /// where the `.astro` file behind a served page route lives. `/` → `src/pages/index.astro`,
     /// `/pricing/` → `src/pages/pricing.astro`. Accepts either slash form.
     public static func pageRelativePath(servedRoute: String) -> String {
