@@ -48,6 +48,7 @@ struct ConnectDomainSheetView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
+                .accessibilityLabel("Buy a domain")
 
                 Button {
                     model.beginTransfer()
@@ -56,6 +57,7 @@ struct ConnectDomainSheetView: View {
                         .frame(maxWidth: .infinity, alignment: .leading)
                 }
                 .buttonStyle(.bordered)
+                .accessibilityLabel("I already own a domain")
             }
 
         case .enteringHostname:
