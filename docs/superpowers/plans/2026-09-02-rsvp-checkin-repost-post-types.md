@@ -1354,12 +1354,13 @@ const reposts = defineCollection({
     ...socialFields,
     lang: z.string().optional(),
     repostOf: z.string().url(),
-    body: z.string().optional(),
     publishDate: z.coerce.date(),
     draft: z.boolean().default(false),
   }).strict(),
 });
 ```
+
+Note: no `body:` line — `.markdown`-kind fields are excluded from the frontmatter schema everywhere in this registry (they're the document body, not a frontmatter key); `ContentConfigDriftTests.zod(for:)` maps `.markdown` to `nil` and `schemaLines` skips any field whose `zod(for:)` is `nil`. Tasks 3 and 4 both originally had this same stray `body:` line in this plan's text and both implementers correctly caught and removed it against `ContentConfigDriftTests` — fixed here in the text too so this task doesn't repeat the discovery.
 
 Update the `collections` export to its final form:
 
