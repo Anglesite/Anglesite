@@ -1794,6 +1794,23 @@ struct SiteWindow: View {
                     // into the insertBlock op below rather than a follow-up edit — one op, one
                     // undo entry, reviewable live in the inspector. Silent degrade to empty alt
                     // text on any failure (model unavailable, vision call error, timeout).
+                    //
+                    // Gated on `#if compiler(>=6.4)`, matching ChatView.swift / SiteAnnotationModifier.swift
+                    // (the latter's doc comment: "gated ... because the macOS 27 APIs they call don't
+                    // exist on Xcode 26.3. On the fallback toolchain the modifier becomes a no-op").
+                    // `WYSIWYGAltTextProposer`, `FoundationModelAssistant`, and `GeneratedAltText` only
+                    // exist under matching `compiler(>=6.4)` gates inside AnglesiteCore. Package.swift's
+                    // own `#if compiler(>=6.4) && canImport(Darwin)` around the `AnglesiteAppCore` target
+                    // keeps this file out of the SwiftPM package graph entirely on an older compiler, but
+                    // that gate is manifest-only: `project.yml`'s `sources: - path: Sources/AnglesiteApp`
+                    // for the Xcode `Anglesite` app scheme lists this file unconditionally, and
+                    // `scripts/build-app.sh` doesn't select or verify the active toolchain before calling
+                    // `xcodebuild` — so a local build with an older Xcode selected (a missed
+                    // docs/testing-macos-app.md preflight) would otherwise hard-fail with "cannot find
+                    // 'GeneratedAltText' in scope" instead of degrading gracefully.
+                    let altText: String
+                    let isDecorative: Bool
+                    #if compiler(>=6.4)
                     let proposer = WYSIWYGAltTextProposer(
                         produce: { imageURL, context in
                             try await FoundationModelAssistant(tier: .onDevice).generateStructured(
@@ -1815,11 +1832,19 @@ struct SiteWindow: View {
                         imageURL: WYSIWYGImageAssetIngestor.fileURL(forAssetPath: assetPath, siteDirectory: siteDirectory),
                         context: AssistantContext(siteID: siteID, siteDirectory: siteDirectory, currentPageRoute: route)
                     )
+                    isDecorative = proposedAlt?.isDecorative == true
+                    altText = isDecorative ? "" : (proposedAlt?.altText ?? "")
+                    #else
+                    // Fallback toolchain (pre-Xcode-27, `compiler(>=6.4)` false): the exact pre-#1227
+                    // stub — empty alt, no decorative role.
+                    isDecorative = false
+                    altText = ""
+                    #endif
                     var props: [String: PropValue] = [
                         "src": .string(assetPath),
-                        "alt": .string(proposedAlt?.isDecorative == true ? "" : (proposedAlt?.altText ?? "")),
+                        "alt": .string(altText),
                     ]
-                    if proposedAlt?.isDecorative == true {
+                    if isDecorative {
                         props["role"] = .string("presentation")
                     }
                     let content = BlockNodeContent(
