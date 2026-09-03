@@ -38,6 +38,7 @@ jobs:
       template: ${{ steps.filter.outputs.template }}
       helpBook: ${{ steps.filter.outputs.helpBook }}
       workers: ${{ steps.filter.outputs.workers }}
+      docsIndex: ${{ steps.filter.outputs.docsIndex }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -94,7 +95,7 @@ jobs:
             return 1
           }
 
-          swift=false; js=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false
+          swift=false; js=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false; docsIndex=false
           matches 'Package.swift' 'Package.resolved' 'project.yml' 'Sources/**' 'Tests/**' 'Resources/Template/**' 'Resources/Attributions/**' 'scripts/**' 'packaging/flatpak/**' '.github/workflows/ci.yml' && swift=true
           matches 'JS/edit-overlay/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && js=true
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
@@ -102,6 +103,7 @@ jobs:
           matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
           matches 'Resources/Anglesite.help/**' 'scripts/check-help-links.sh' '.github/workflows/ci.yml' && helpBook=true
           matches 'Workers/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && workers=true
+          matches 'docs/specs/**' 'docs/superpowers/**' 'scripts/generate-docs-index.py' 'scripts/test-generate-docs-index.py' '.github/workflows/ci.yml' && docsIndex=true
 
           echo "swift=$swift" >> "$GITHUB_OUTPUT"
           echo "js=$js" >> "$GITHUB_OUTPUT"
@@ -110,6 +112,7 @@ jobs:
           echo "template=$template" >> "$GITHUB_OUTPUT"
           echo "helpBook=$helpBook" >> "$GITHUB_OUTPUT"
           echo "workers=$workers" >> "$GITHUB_OUTPUT"
+          echo "docsIndex=$docsIndex" >> "$GITHUB_OUTPUT"
 
   edit-overlay:
     name: JS edit-overlay (lint/typecheck/test)
@@ -255,6 +258,24 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check Help Book links
         run: scripts/check-help-links.sh
+
+  docs-index:
+    name: Docs index (specs/plans README + Status header)
+    needs: changes
+    if: needs.changes.outputs.docsIndex == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # docs/specs/README.md and docs/superpowers/README.md are generated from the design
+    # docs' header lines (#1816). Same shape as help-book-links: stdlib python3 only, no
+    # installs. Fails when a README is stale or a doc dated on/after the convention start
+    # has no recognised `Status:` line; warns (non-fatal) when CLAUDE.md & co. point at a
+    # superseded spec.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generator unit tests
+        run: python3 scripts/test-generate-docs-index.py
+      - name: Check docs indexes are current
+        run: scripts/generate-docs-index.py --check
 
   linux-build-test:
     name: Linux (portable SwiftPM targets)
@@ -1192,6 +1213,7 @@ jobs:
       - wysiwyg-engine
       - safari-extension
       - help-book-links
+      - docs-index
       - workers-tests
       - linux-build-test
       - linux-flatpak-build
