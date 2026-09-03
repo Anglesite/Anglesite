@@ -279,6 +279,16 @@ public enum WorkerComposition {
     ///     composes a Worker, claims `/mcp` in `[assets].run_worker_first` via `mcpRouteClaim`, and
     ///     emits the `SOCIAL_KV` `[[kv_namespaces]]` binding the site's MCP rate limiter needs.
     ///     Defaults to `false` (inert).
+    ///   - projectRoot: The absolute directory the site's project-relative entries (`main`,
+    ///     `[assets].directory`, `migrations_dir`) are rooted at, for a config that is *not*
+    ///     written into the site root itself. Wrangler resolves every path field against the
+    ///     config file's own directory — never the process CWD — so the local-dev path, which
+    ///     writes its ephemeral config outside the site tree on purpose (#708 §4: a transient
+    ///     session must never dirty the git-tracked wrangler.toml), passes the guest site root
+    ///     here (#1774); a relative `main` there pointed at a `worker/` that never existed
+    ///     beside the ephemeral config and crash-looped `wrangler dev`. `nil` (the default, and
+    ///     what every deploy-path caller passes) keeps the entries relative, which is only
+    ///     correct for a config saved into the site root. A trailing slash is tolerated.
     /// - Returns: A complete wrangler.toml string.
     /// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` fails wrangler's lowercase
     ///   `name` rule, ``ConfigError/invalidR2BucketName(_:)`` if an emitted `bucket_name` fails
@@ -298,11 +308,19 @@ public enum WorkerComposition {
         moderators: [String]? = nil,
         apUsername: String? = nil,
         experiments: [DomainConfig.Experiments.Experiment] = [],
-        mcpEnabled: Bool = false
+        mcpEnabled: Bool = false,
+        projectRoot: String? = nil
     ) throws -> String {
         guard isValidSiteName(siteName) else {
             throw ConfigError.invalidSiteName(siteName)
         }
+        // Every path wrangler resolves against the config file's directory goes through this,
+        // so an ephemeral config written outside the site tree still finds the site's files.
+        let rootPrefix = projectRoot.map { root -> String in
+            let trimmed = root.hasSuffix("/") ? String(root.dropLast()) : root
+            return trimmed + "/"
+        } ?? ""
+        func projectPath(_ relative: String) -> String { rootPrefix + relative }
         var effectiveClaims = routeClaims
         if inboxCaptureEnabled {
             effectiveClaims.append(inboxCaptureRouteClaim)
@@ -389,11 +407,11 @@ public enum WorkerComposition {
         // running experiment gets a Worker for exactly its paths and nothing else (design §3).
         let composesWorker = hasSocialFeatures || inboxCaptureEnabled || hasRunningExperiment || mcpEnabled
         if composesWorker {
-            lines.append("main = \"worker/worker.ts\"")
+            lines.append("main = \"\(projectPath("worker/worker.ts"))\"")
         }
         lines.append("")
         lines.append("[assets]")
-        lines.append("directory = \"dist\"")
+        lines.append("directory = \"\(projectPath("dist"))\"")
         if composesWorker {
             lines.append("binding = \"ASSETS\"")
             var patterns = Set(WorkerRouteClaims.runWorkerFirstPatterns(effectiveClaims))
@@ -426,7 +444,7 @@ public enum WorkerComposition {
             lines.append("[[d1_databases]]")
             lines.append("binding = \"EXPERIMENTS_DB\"")
             lines.append("database_name = \"\(siteName)-social\"")
-            lines.append("migrations_dir = \"worker/migrations\"")
+            lines.append("migrations_dir = \"\(projectPath("worker/migrations"))\"")
             if let id = resources.d1DatabaseID, !id.isEmpty {
                 lines.append("database_id = \"\(id)\"")
             } else {
@@ -441,7 +459,7 @@ public enum WorkerComposition {
             lines.append("[[d1_databases]]")
             lines.append("binding = \"AUTH_DB\"")
             lines.append("database_name = \"\(siteName)-social\"")
-            lines.append("migrations_dir = \"worker/migrations\"")
+            lines.append("migrations_dir = \"\(projectPath("worker/migrations"))\"")
             if let id = resources.d1DatabaseID, !id.isEmpty {
                 lines.append("database_id = \"\(id)\"")
             } else {

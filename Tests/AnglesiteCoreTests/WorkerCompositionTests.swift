@@ -71,6 +71,40 @@ struct WorkerCompositionTests {
         #expect(!toml.contains("run_worker_first"))
     }
 
+    @Test("projectRoot roots main, assets.directory and migrations_dir at an absolute path (#1774)")
+    func projectRootMakesConfigRelativePathsAbsolute() throws {
+        // The local-dev path writes its ephemeral config outside the site tree, and wrangler
+        // resolves every path field against the config file's own directory — so a relative
+        // `main` there points at a worker/ that doesn't exist and crash-loops `wrangler dev`.
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site",
+            workers: [indieauthWorker],
+            projectRoot: "/workspace/site"
+        )
+        #expect(toml.contains("main = \"/workspace/site/worker/worker.ts\""))
+        #expect(toml.contains("directory = \"/workspace/site/dist\""))
+        #expect(toml.contains("migrations_dir = \"/workspace/site/worker/migrations\""))
+        #expect(!toml.contains("\"worker/worker.ts\""))
+        #expect(!toml.contains("\"dist\""))
+        #expect(!toml.contains("\"worker/migrations\""))
+    }
+
+    @Test("projectRoot tolerates a trailing slash and nil keeps the deploy path's relative entries (#1774)")
+    func projectRootTrailingSlashAndNil() throws {
+        let rooted = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [indieauthWorker], projectRoot: "/workspace/site/"
+        )
+        #expect(rooted.contains("main = \"/workspace/site/worker/worker.ts\""))
+        #expect(!rooted.contains("/workspace/site//"))
+
+        let relative = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [indieauthWorker], projectRoot: nil
+        )
+        #expect(relative.contains("main = \"worker/worker.ts\""))
+        #expect(relative.contains("directory = \"dist\""))
+        #expect(relative.contains("migrations_dir = \"worker/migrations\""))
+    }
+
     @Test("generates wrangler.toml with webmention + indieauth (D1 + KV yes, R2 no)")
     func withSocialFeatures() throws {
         let toml = try WorkerComposition.generateWranglerToml(

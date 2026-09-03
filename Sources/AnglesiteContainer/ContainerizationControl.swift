@@ -43,6 +43,9 @@ public struct ContainerizationControl: LocalContainerControl {
 
     /// Guest mountpoint for the read-only virtio-fs share of the host `Source/` repo (see `start()` step 3).
     private static let repoSharePath = "/run/anglesite-source"
+    /// Where the site's `Source/` clone lives inside the guest — the CWD for astro/wrangler and
+    /// the root the ephemeral workers-dev config's paths are anchored to (#1774).
+    private static let guestSiteRoot = "/workspace/site"
 
     /// - Parameter imageLayoutURL: Explicit OCI layout to boot from, for tests and the container
     ///   probe; `nil` (the default) defers resolution to `BundledImage.layoutURL()` at `start()`
@@ -122,9 +125,9 @@ public struct ContainerizationControl: LocalContainerControl {
 
         do {
             try await runToCompletion(container, id: "clone", onOutput: onOutput,
-                ["git", "clone", Self.repoSharePath, "/workspace/site"])
+                ["git", "clone", Self.repoSharePath, Self.guestSiteRoot])
             try await runToCompletion(container, id: "checkout", onOutput: onOutput,
-                ["git", "-C", "/workspace/site", "checkout", ref])
+                ["git", "-C", Self.guestSiteRoot, "checkout", ref])
         } catch {
             await stopBareContainer(container, siteID: siteID)
             throw LocalContainerError.cloneFailed("\(error)")
@@ -138,7 +141,7 @@ public struct ContainerizationControl: LocalContainerControl {
             // Hydrate deps from the image's baked toolchain (zero-install hardlink when the site's
             // lockfile matches the template; offline-first npm ci otherwise), then start astro.
             try await runDetached(container, id: "astro", label: "astro", onOutput: onOutput, ["sh", "-lc",
-                "/usr/local/bin/anglesite-hydrate /workspace/site && cd /workspace/site && npx astro dev --port 4321 --host 127.0.0.1"])
+                "/usr/local/bin/anglesite-hydrate \(Self.guestSiteRoot) && cd \(Self.guestSiteRoot) && npx astro dev --port 4321 --host 127.0.0.1"])
 
             // MCP sidecar: baked into the image at /usr/local/lib/anglesite-mcp/ by the two-stage
             // Dockerfile (scripts/vendor-container-image.sh stages the plugin's server/ dir into the
@@ -148,7 +151,7 @@ public struct ContainerizationControl: LocalContainerControl {
             // ANGLESITE_MCP_HOST is intentionally unset — it defaults to 127.0.0.1, which is correct:
             // the in-guest vsock bridge reaches the sidecar via dial("tcp","127.0.0.1:4399").
             try await runDetached(container, id: "mcp", label: "mcp", onOutput: onOutput, ["sh", "-lc",
-                "ANGLESITE_MCP_TRANSPORT=http ANGLESITE_MCP_PORT=4399 ANGLESITE_PROJECT_ROOT=/workspace/site node /usr/local/lib/anglesite-mcp/server/index.mjs"])
+                "ANGLESITE_MCP_TRANSPORT=http ANGLESITE_MCP_PORT=4399 ANGLESITE_PROJECT_ROOT=\(Self.guestSiteRoot) node /usr/local/lib/anglesite-mcp/server/index.mjs"])
 
             // Guest vsock<->TCP bridges (socat, baked into the image): map guest vsock ports onto the
             // local TCP listeners above so host-side dialVsock reaches them. One process per port;
@@ -304,6 +307,14 @@ public struct ContainerizationControl: LocalContainerControl {
         // (#708 design §4). No real resource ids — Miniflare creates local-persisted D1/KV/R2
         // stores automatically for declared bindings in --local mode.
         //
+        // Because the config lives outside the site, its path entries must be absolute (#1774):
+        // wrangler resolves `main`, `[assets].directory`, and `migrations_dir` against the config
+        // file's own directory, never the process CWD — the `cd /workspace/site` below only
+        // affects wrangler's own CWD-relative lookups — so a relative `main = "worker/worker.ts"`
+        // looked for /tmp/anglesite-workers-dev/<siteID>/worker/worker.ts, found nothing, and
+        // crash-looped every session straight to Failed once #1750's name error stopped masking
+        // it. `projectRoot` anchors all three at the guest site root instead.
+        //
         // The Worker name goes through the same derivation the deploy path uses (#1750): a stock
         // site UUID is uppercase hex, which wrangler rejects for `name` ("alphanumeric and
         // lowercase with dashes only") and for every R2 `bucket_name` derived from it — passing
@@ -311,19 +322,39 @@ public struct ContainerizationControl: LocalContainerControl {
         // from `siteID` rather than the display name so it's stable across renames (restarts
         // reuse the same Miniflare state) and unique per site (a lowercased UUID still is).
         let workerName = WorkerSiteName.derive(from: siteID)
-        let toml = try WorkerComposition.generateWranglerToml(siteName: workerName, workers: workers)
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: workerName, workers: workers, projectRoot: Self.guestSiteRoot)
         let configDir = "/tmp/anglesite-workers-dev/\(siteID)"
         let configPath = "\(configDir)/wrangler.toml"
+        // `wrangler dev` also refuses to start when `[assets].directory` doesn't exist, and the
+        // guest's fresh clone has no `dist/` (gitignored; only `astro build` creates it) — so the
+        // second crash #1750 was masking would have been a missing assets directory. An empty
+        // `dist/` is enough for wrangler's existence check; it's gitignored, so the site's git
+        // status stays clean, and once a container-side build has populated it, the local
+        // Worker's asset fallback serves that build just like production would.
         try await runToCompletion(container, id: "workers-dev-mkdir", onOutput: onOutput,
-            ["mkdir", "-p", configDir])
+            ["mkdir", "-p", configDir, "\(Self.guestSiteRoot)/dist"])
         try await writeGuestFile(container, path: configPath, contents: toml, onOutput: onOutput)
+
+        // The Worker's entry graph statically imports two generated, gitignored artifacts —
+        // `worker/experiments.json` (#1270) and `worker/mcp-config.json` (#1576) — that the
+        // template's `prebuild` derives from `anglesite.json`. The deploy path gets them for free
+        // from `npm run build`; a local session bundles straight from the fresh clone, so it
+        // regenerates them here the same way the template's own `pretest:worker` script does,
+        // or wrangler's bundler fails on the unresolved imports (the third crash #1750 was
+        // masking, #1774). A generator missing from this site's checkout (a pre-#1576 template)
+        // is skipped rather than failed — that Worker doesn't import the artifact either.
+        try await runToCompletion(container, id: "workers-dev-artifacts", onOutput: onOutput,
+            ["sh", "-lc",
+             "cd \(Self.guestSiteRoot) && for s in scripts/experiments-artifact.ts scripts/mcp-artifact.ts; "
+                 + "do if [ -f \"$s\" ]; then npx tsx \"$s\" || exit 1; fi; done"])
 
         let launcher = LinuxContainerProcessLauncher(container: container)
         let supervisor = GuestProcessSupervisor(
             launcher: launcher,
             id: "workers-dev",
             argv: ["sh", "-lc",
-                "cd /workspace/site && npx wrangler dev --local --config \(configPath) --port \(Self.workersPort)"],
+                "cd \(Self.guestSiteRoot) && npx wrangler dev --local --config \(configPath) --port \(Self.workersPort)"],
             restartPolicy: .onCrash(maxAttempts: 3, baseBackoff: 0.5),
             onOutput: onOutput)
         try await supervisor.start()
