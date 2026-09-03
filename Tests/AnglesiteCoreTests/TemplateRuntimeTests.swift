@@ -1,24 +1,22 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 final class TemplateRuntimeTests {
     private let tempDir: URL
-    private let suiteName: String
-    private let defaults: UserDefaults
+    private let scratch = TemporaryUserDefaults()
+    private var defaults: UserDefaults { scratch.defaults }
     private let fileManager = FileManager.default
 
     init() throws {
         tempDir = fileManager.temporaryDirectory.appendingPathComponent("anglesite-template-\(UUID().uuidString)", isDirectory: true)
         try fileManager.createDirectory(at: tempDir, withIntermediateDirectories: true)
-        let suite = "test-anglesite-\(UUID().uuidString)"
-        suiteName = suite
-        defaults = UserDefaults(suiteName: suite)!
     }
 
     deinit {
         try? fileManager.removeItem(at: tempDir)
-        defaults.removePersistentDomain(forName: suiteName)
+        scratch.cleanup()
     }
 
     @Test("Is template directory recognizes themes.ts") func isTemplateDirectoryRecognizesThemes() throws {

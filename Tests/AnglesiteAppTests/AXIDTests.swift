@@ -27,6 +27,14 @@ struct AXIDTests {
         #expect(AXID.allStatic.allSatisfy { !$0.hasPrefix("toolbar.") })
     }
 
+    /// Frozen values automation scripts key off (`docs/testing-macos-app.md` § Accessibility
+    /// identifiers); a rename here is a breaking change for those scripts.
+    @Test func frozenValues() {
+        #expect(AXID.navigatorList == "navigator.list")
+        #expect(AXID.launcherList == "launcher.list")
+        #expect(AXID.allStatic.contains(AXID.launcherList))
+    }
+
     @Test func toolbarIdentifiersDeriveFromFrozenCustomizationIDs() {
         #expect(AXID.toolbar(.deploy) == "toolbar.deploy")
         let derived = SiteToolbarItemID.allCases.map(AXID.toolbar)

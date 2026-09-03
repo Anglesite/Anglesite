@@ -565,11 +565,10 @@ public struct HostDeployExecutor: DeployExecutor {
             return DeployStepResult(exitCode: nil, output: "couldn't spawn process: \(error)")
         }
 
-        let reason = await withTaskCancellationHandler {
-            await supervisor.waitForExit(handle)
-        } onCancel: {
-            Task { await supervisor.terminate(handle) }
-        }
+        // On cancellation this SIGTERMs the child and returns only once it has really exited and
+        // its log pipes are drained — so the snapshot below is complete and `.terminated` means
+        // "dead", not "kill requested" (#1758).
+        let reason = await supervisor.waitForExitOrTerminate(handle)
 
         // Snapshot stdout from LogCenter — identical to DeployCommand's approach.
         let snapshot = await logCenter.snapshot()

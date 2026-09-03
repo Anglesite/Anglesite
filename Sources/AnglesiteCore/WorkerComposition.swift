@@ -9,12 +9,21 @@ import Foundation
 /// Cloudflare resource identifiers once provisioning has created the backing stores.
 public enum WorkerComposition {
 
-    /// Ways `generateWranglerToml` can refuse to generate — both exist to keep unvalidated input
-    /// out of the generated file.
+    /// Ways `generateWranglerToml` can refuse to generate — all exist to keep input wrangler would
+    /// reject (or that is unvalidated) out of the generated file.
     public enum ConfigError: Error, Sendable {
-        /// `siteName` contains characters outside `[A-Za-z0-9_-]` — it's interpolated into TOML
-        /// and used as the Cloudflare project name, so anything else is rejected up front.
+        /// `siteName` fails wrangler's rule for the top-level `name` field
+        /// (``WorkerSiteName/isValidWorkerName(_:)``: lowercase alphanumerics, underscores, and
+        /// dashes, not starting with a dash) — it's interpolated into TOML and used as the
+        /// Cloudflare project name, so anything else is rejected up front. Callers derive a
+        /// conforming name via ``WorkerSiteName/derive(from:)``; passing a raw site UUID (upper-
+        /// case hex) is exactly the mistake that crash-looped every local `wrangler dev` (#1750).
         case invalidSiteName(String)
+        /// An emitted R2 `bucket_name` — whether derived from `siteName` or supplied via
+        /// `ProvisionedResources` — fails wrangler's bucket rule
+        /// (``WorkerSiteName/isValidR2BucketName(_:)``). Refused here so the failure surfaces as a
+        /// single clear error instead of a config-validation crash loop under `wrangler dev`.
+        case invalidR2BucketName(String)
         /// A route claim reached TOML generation without passing `WorkerRouteClaims` validation
         /// (callers derive claims via `WorkerRouteClaims.activeClaims`, which validates; this is
         /// the defense-in-depth backstop so an unvalidated path can never be interpolated into
@@ -137,10 +146,6 @@ public enum WorkerComposition {
         return claims + [WorkerRouteClaims.OwnedClaim(owner: apiCatalogOwnerID, claim: apiCatalogRouteClaim)]
     }
 
-    private static let validNameCharacters = CharacterSet(
-        charactersIn: "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-"
-    )
-
     /// The Cloudflare resource identifiers/names provisioning has created for a site. Every field
     /// is optional: `nil` means "not provisioned yet", and TOML generation emits a placeholder (or
     /// deterministic name) instead of failing — so config can be generated before, during, and
@@ -206,8 +211,9 @@ public enum WorkerComposition {
     /// Generates a wrangler.toml for a site with the given workers enabled.
     ///
     /// - Parameters:
-    ///   - siteName: The Worker name (used as the Cloudflare Workers project name).
-    ///     Must match `[A-Za-z0-9_-]+`.
+    ///   - siteName: The Worker name (used as the Cloudflare Workers project name). Must satisfy
+    ///     wrangler's `name` rule, `^[a-z0-9_][a-z0-9_-]*$` — derive it with
+    ///     ``WorkerSiteName/derive(from:)`` rather than passing a display name or site UUID.
     ///   - workers: The effective active `@dwk/workers` catalog descriptors. Empty = static-only
     ///     deploy.
     ///   - routeClaims: The effective active dynamic-route claims (#746), already validated by
@@ -274,9 +280,10 @@ public enum WorkerComposition {
     ///     emits the `SOCIAL_KV` `[[kv_namespaces]]` binding the site's MCP rate limiter needs.
     ///     Defaults to `false` (inert).
     /// - Returns: A complete wrangler.toml string.
-    /// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` contains
-    ///   characters outside `[A-Za-z0-9_-]`, or ``ConfigError/invalidRouteClaim(path:reason:)``
-    ///   for a claim that never passed `WorkerRouteClaims` validation.
+    /// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` fails wrangler's lowercase
+    ///   `name` rule, ``ConfigError/invalidR2BucketName(_:)`` if an emitted `bucket_name` fails
+    ///   wrangler's bucket rule, or ``ConfigError/invalidRouteClaim(path:reason:)`` for a claim
+    ///   that never passed `WorkerRouteClaims` validation.
     public static func generateWranglerToml(
         siteName: String,
         workers: [WorkerDescriptor],
@@ -588,20 +595,28 @@ public enum WorkerComposition {
         }
 
         if hasMicropub {
+            let bucketName = resources.r2BucketName ?? "\(siteName)-media"
+            guard WorkerSiteName.isValidR2BucketName(bucketName) else {
+                throw ConfigError.invalidR2BucketName(bucketName)
+            }
             lines.append("")
             lines.append("[[r2_buckets]]")
             lines.append("binding = \"MEDIA\"")
-            lines.append("bucket_name = \"\(resources.r2BucketName ?? "\(siteName)-media")\"")
+            lines.append("bucket_name = \"\(bucketName)\"")
         }
 
         // @dwk/solid-pod's own R2 bucket for blob bodies (binding BLOBS) — a distinct bucket
         // from Micropub's MEDIA, since they hold semantically different content. @dwk/webdav
         // reuses this same bucket (its catalog requires solid-pod), so it's gated on either.
         if hasSolidPod || hasWebdav {
+            let bucketName = resources.podBlobsR2BucketName ?? "\(siteName)-pod-blobs"
+            guard WorkerSiteName.isValidR2BucketName(bucketName) else {
+                throw ConfigError.invalidR2BucketName(bucketName)
+            }
             lines.append("")
             lines.append("[[r2_buckets]]")
             lines.append("binding = \"BLOBS\"")
-            lines.append("bucket_name = \"\(resources.podBlobsR2BucketName ?? "\(siteName)-pod-blobs")\"")
+            lines.append("bucket_name = \"\(bucketName)\"")
         }
 
         if hasActivityPub {
@@ -735,9 +750,12 @@ public enum WorkerComposition {
         return lines.joined(separator: "\n")
     }
 
+    /// wrangler's rule for the top-level `name` field (see ``WorkerSiteName/isValidWorkerName(_:)``)
+    /// — lowercase is required, which is stricter than the TOML-safety check this used to be
+    /// (#1750). `WorkerNameRename` and `UntitledSitePropagation` gate on the same predicate so a
+    /// name that would fail here never reaches `.site-config`/`wrangler.toml` either.
     static func isValidSiteName(_ siteName: String) -> Bool {
-        guard !siteName.isEmpty else { return false }
-        return siteName.unicodeScalars.allSatisfy { validNameCharacters.contains($0) }
+        WorkerSiteName.isValidWorkerName(siteName)
     }
 
     /// Whether `value` is safe to interpolate as-is into a TOML basic string (`"..."`) — no

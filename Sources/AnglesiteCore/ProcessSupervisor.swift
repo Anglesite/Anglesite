@@ -247,7 +247,35 @@ public actor ProcessSupervisor {
         await backend.waitForExit(backendHandle(for: handle))
     }
 
-    /// Sends SIGTERM and waits up to `timeout` seconds before escalating to SIGKILL.
+    /// Awaits `handle`'s exit like ``waitForExit(_:)``, but treats cancellation of the awaiting
+    /// task as an instruction to stop the child: it SIGTERMs the process (escalating to SIGKILL
+    /// after `timeout`, see ``terminate(_:timeout:)``) and then waits for the *real* exit —
+    /// supervision finalized, log pipes drained — before returning `.terminated`. A cancelled
+    /// caller therefore never observes "terminated" while the child is still alive or its last
+    /// output is still in flight, which is what lets `AuditCommand`/`DeployCommand` report a
+    /// cancelled step as genuinely killed (#124, #1758).
+    ///
+    /// Use this instead of pairing `waitForExit` with a fire-and-forget `Task { terminate }` in
+    /// an `onCancel` handler: that shape resumed the caller before the SIGTERM was even sent, so
+    /// nothing downstream could rely on the child being gone. Non-throwing, like `waitForExit`;
+    /// if the process exits on its own before cancellation is observed, its real exit reason is
+    /// returned unchanged.
+    public func waitForExitOrTerminate(_ handle: Handle, timeout: TimeInterval = 5) async -> ExitReason {
+        let reason = await waitForExit(handle)
+        guard Task.isCancelled else { return reason }
+        // Hand the kill to a task cancellation can't reach: `terminate`'s graceful-exit poll
+        // sleeps between checks, and `Task.sleep` in a cancelled task returns immediately —
+        // which would turn that poll into a busy spin for the whole `timeout`.
+        let backend = self.backend
+        let backendHandle = backendHandle(for: handle)
+        return await Task {
+            await backend.terminate(backendHandle, timeout: timeout)
+            return await backend.waitForExit(backendHandle)
+        }.value
+    }
+
+    /// Sends SIGTERM to the child's process group and waits up to `timeout` seconds before
+    /// escalating to SIGKILL (also group-wide — see `InProcessBackend.terminate`).
     public func terminate(_ handle: Handle, timeout: TimeInterval = 5) async {
         await backend.terminate(backendHandle(for: handle), timeout: timeout)
     }

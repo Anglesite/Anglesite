@@ -1,22 +1,15 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 /// A `final class` (not a `struct`) so `deinit` can drop the throwaway `UserDefaults` suite,
 /// mirroring the former `tearDown`.
 final class AppSettingsTests {
-    private let suiteName: String
-    private let defaults: UserDefaults
+    private let scratch = TemporaryUserDefaults()
+    private var defaults: UserDefaults { scratch.defaults }
 
-    init() {
-        let suite = "test-anglesite-\(UUID().uuidString)"
-        suiteName = suite
-        defaults = UserDefaults(suiteName: suite)!
-    }
-
-    deinit {
-        defaults.removePersistentDomain(forName: suiteName)
-    }
+    deinit { scratch.cleanup() }
 
 #if canImport(Darwin)
     /// Deterministic stand-in for `FileManager` so these tests don't depend on the real iCloud

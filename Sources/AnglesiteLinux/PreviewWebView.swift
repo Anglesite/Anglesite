@@ -66,9 +66,13 @@ struct PreviewWebView: AdwaitaWidget {
         // lives for the window's (and app's) whole run in this one-window shell, so the idle
         // callback can't outlive it.
         let webViewBits = UInt(bitPattern: UnsafeMutableRawPointer(webView))
+        // `.oneArg`: the signal's C signature is (manager, JSCValue*, user_data) — one
+        // argument between the instance and the closure data, delivered as `args[0]`.
+        // (adwaita-swift's `argCount:` spelling of the same thing was removed upstream in
+        // da5aad1, the revision bump for #1760.)
         storage.connectSignal(
             name: "script-message-received::\(namespace)",
-            argCount: 1,
+            type: .oneArg,
             pointer: ucm
         ) { (args: [Any]) -> Void in
             guard let raw = args.first as? UnsafeRawPointer else {
@@ -85,13 +89,18 @@ struct PreviewWebView: AdwaitaWidget {
             }
             let json = String(cString: jsonC)
             g_free(jsonC)
-            guard let data = json.data(using: .utf8),
-                  let body = try? JSONSerialization.jsonObject(with: data)
-            else {
-                Task { await logCenter.append(source: "bridge-gtk", stream: .stderr, text: "undecodable script message: \(json)") }
-                return
-            }
+            // Deserialize inside the task, not before it: the handler runs on the GTK main
+            // actor (adwaita-swift ≥ df1b4f3 is main-actor-isolated by default), and the
+            // `Any` JSONSerialization produces isn't Sendable, so handing it across would be
+            // a data-race diagnostic — an error once this target adopts Swift 6 mode. The
+            // `String` crosses instead.
             Task {
+                guard let data = json.data(using: .utf8),
+                      let body = try? JSONSerialization.jsonObject(with: data)
+                else {
+                    await logCenter.append(source: "bridge-gtk", stream: .stderr, text: "undecodable script message: \(json)")
+                    return
+                }
                 switch await AnglesiteMessageDispatcher.dispatch(body: body, via: router) {
                 case .editReply(let reply):
                     guard let encoded = try? JSONEncoder().encode(reply),
