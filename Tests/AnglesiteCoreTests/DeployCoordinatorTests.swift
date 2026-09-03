@@ -417,6 +417,52 @@ struct DeployCoordinatorTests {
         #expect(DeployCoordinator.resolveEffectiveActivityPubUsername(siteDirectory: dir) == "example.com")
     }
 
+    // resolveActivityPubIcon (#1771): `.site-config`'s AP_ICON override, else the site's
+    // apple-touch-icon when it ships one, else nil.
+
+    @Test("resolveActivityPubIcon prefers a .site-config AP_ICON override over the apple-touch-icon default")
+    func resolveActivityPubIconPrefersOverride() throws {
+        let dir = try temporaryDirectory()
+        try "AP_ICON=/images/me.jpg\n".write(
+            to: dir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
+        let publicDir = dir.appendingPathComponent("public")
+        try FileManager.default.createDirectory(at: publicDir, withIntermediateDirectories: true)
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: publicDir.appendingPathComponent("apple-touch-icon.png"))
+
+        #expect(DeployCoordinator.resolveActivityPubIcon(siteDirectory: dir) == "/images/me.jpg")
+    }
+
+    @Test("resolveActivityPubIcon defaults to /apple-touch-icon.png when the site's public/ ships one")
+    func resolveActivityPubIconDefaultsToAppleTouchIcon() throws {
+        let dir = try temporaryDirectory()
+        let publicDir = dir.appendingPathComponent("public")
+        try FileManager.default.createDirectory(at: publicDir, withIntermediateDirectories: true)
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: publicDir.appendingPathComponent("apple-touch-icon.png"))
+
+        #expect(DeployCoordinator.resolveActivityPubIcon(siteDirectory: dir) == "/apple-touch-icon.png")
+    }
+
+    @Test("resolveActivityPubIcon is nil when neither an override nor an apple-touch-icon exists")
+    func resolveActivityPubIconNilWithoutAnyImage() throws {
+        let dir = try temporaryDirectory()
+        try "SITE_URL=https://example.com\n".write(
+            to: dir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
+
+        #expect(DeployCoordinator.resolveActivityPubIcon(siteDirectory: dir) == nil)
+    }
+
+    @Test("resolveActivityPubIcon treats a blank AP_ICON as unset and falls back to the default")
+    func resolveActivityPubIconBlankOverrideFallsBack() throws {
+        let dir = try temporaryDirectory()
+        try "AP_ICON=   \n".write(
+            to: dir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
+        let publicDir = dir.appendingPathComponent("public")
+        try FileManager.default.createDirectory(at: publicDir, withIntermediateDirectories: true)
+        try Data([0x89, 0x50, 0x4E, 0x47]).write(to: publicDir.appendingPathComponent("apple-touch-icon.png"))
+
+        #expect(DeployCoordinator.resolveActivityPubIcon(siteDirectory: dir) == "/apple-touch-icon.png")
+    }
+
     @Test("activityPubHandleRenameNeedsConfirmation is false when the actor isn't locked, even if the handle changed")
     func activityPubHandleRenameNeedsConfirmationFalseWhenUnlocked() {
         #expect(!DeployCoordinator.activityPubHandleRenameNeedsConfirmation(

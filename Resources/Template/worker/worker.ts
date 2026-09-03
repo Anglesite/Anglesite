@@ -168,6 +168,10 @@ export interface WorkerEnv extends IndieAuthEnv {
    * `AP_USERNAME` overrides the WebFinger-visible handle (#1239, design doc
    * `2026-08-04-fediverse-handle-design.md`) — see `resolvePreferredUsername` below; it never
    * changes the actor **IRI**, which stays `ACTIVITYPUB_USERNAME` (`/users/site`) permanently.
+   * `AP_ICON` is the actor's avatar (#1771) — an absolute `http(s)` URL or a root-relative path
+   * resolved against the serving origin at request time (`resolveApIcon` below), surfaced as
+   * the actor document's `icon`; the app defaults it to the site's `apple-touch-icon.png`.
+   * Unset (or unusable) means no `icon`, and every platform shows its placeholder avatar.
    * See `WorkerComposition.generateWranglerToml` (Swift) for the binding generation.
    */
   ACTOR?: DurableObjectNamespace<ActivityPubObject>;
@@ -178,6 +182,7 @@ export interface WorkerEnv extends IndieAuthEnv {
   AP_ACTOR_TYPE?: string;
   AP_MODERATORS?: string;
   AP_USERNAME?: string;
+  AP_ICON?: string;
   /**
    * Solid-OIDC signing key (V-storage, identity layer for `@dwk/solid-pod`). Optional: a site
    * that hasn't provisioned Solid-OIDC has none of it bound, and every `/oidc/*` route degrades
@@ -1284,9 +1289,32 @@ export function resolvePreferredUsername(env: WorkerEnv, host: string): string {
 }
 
 /**
+ * Resolve the actor's avatar URL from `env.AP_ICON` (#1771): an absolute `http(s)` URL is passed
+ * through, a root-relative path (the app's default, `/apple-touch-icon.png`) is resolved
+ * against the serving origin — so the federated avatar always points at the host the actor is
+ * being fetched from, even before the app has ever learned the site's public URL. Unset, blank,
+ * unparseable, or any non-`http(s)` scheme yields `undefined` (no `icon` at all): `.site-config`
+ * is hand-editable, so a stray `javascript:`/`data:` value must degrade to "no avatar" rather
+ * than land in a document every peer fetches — the same request-time defense-in-depth posture
+ * `resolvePreferredUsername` takes for `AP_USERNAME`.
+ */
+export function resolveApIcon(env: WorkerEnv, baseUrl: string): string | undefined {
+  const raw = env.AP_ICON?.trim();
+  if (!raw) return undefined;
+  let url: URL;
+  try {
+    url = new URL(raw, baseUrl);
+  } catch {
+    return undefined;
+  }
+  if (url.protocol !== "https:" && url.protocol !== "http:") return undefined;
+  return url.href;
+}
+
+/**
  * Exported for `worker.test.ts` — a pure, synchronous mapping from `env` to
  * `@dwk/activitypub`'s config shape, so the `AP_ACTOR_TYPE`/`AP_MODERATORS` wiring (V-5.1b, #907)
- * is testable without standing up a real Durable Object.
+ * and the `AP_ICON` avatar (#1771) are testable without standing up a real Durable Object.
  */
 export function activityPubConfig(request: Request, env: WorkerEnv): ActivityPubConfig | null {
   if (!env.ACTOR || !env.AP_PRIVATE_KEY || !env.AP_PUBLIC_KEY) return null;
@@ -1299,6 +1327,9 @@ export function activityPubConfig(request: Request, env: WorkerEnv): ActivityPub
       name: env.AP_DISPLAY_NAME ?? new URL(baseUrl).hostname,
       summary: `Posts from ${new URL(baseUrl).hostname}`,
       type: isGroup ? "Group" : undefined,
+      // @dwk/activitypub renders this as `icon: { type: "Image", url }` and omits `icon`
+      // entirely when undefined.
+      icon: resolveApIcon(env, baseUrl),
     },
     // Only meaningful for a Group actor — @dwk/activitypub ignores this for a Person, but the
     // check here also guards against a stray AP_MODERATORS on an otherwise-Person site.

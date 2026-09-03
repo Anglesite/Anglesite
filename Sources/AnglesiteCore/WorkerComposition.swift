@@ -262,6 +262,13 @@ public enum WorkerComposition {
     ///     when unset, exactly like `displayName`; the composed Worker's `preferredUsername` then
     ///     falls back to the serving hostname (`worker.ts`'s concern, not this function's). Never
     ///     affects the actor IRI, which stays fixed regardless.
+    ///   - apIcon: The ActivityPub actor's avatar (#1771; `DeployCoordinator.resolveActivityPubIcon`
+    ///     — `.site-config`'s `AP_ICON` override, else the site's `apple-touch-icon.png`): an
+    ///     absolute `http(s)` URL or a root-relative path, emitted verbatim as `AP_ICON`. `nil`
+    ///     when the site has no image at all; the composed Worker's actor document then carries
+    ///     no `icon` (`worker.ts`'s concern, not this function's). A root-relative value is
+    ///     resolved against the serving origin at request time, so it stays valid even before
+    ///     the site's public URL is known.
     ///   - experiments: The site's declared experiments (`DomainConfig.Experiments.active`,
     ///     #1270 slice 3) — only entries with `status == "running"` contribute anything. A
     ///     running experiment is Worker composition's third enabler (alongside
@@ -297,6 +304,7 @@ public enum WorkerComposition {
         activityPubActorType: String? = nil,
         moderators: [String]? = nil,
         apUsername: String? = nil,
+        apIcon: String? = nil,
         experiments: [DomainConfig.Experiments.Experiment] = [],
         mcpEnabled: Bool = false
     ) throws -> String {
@@ -688,6 +696,11 @@ public enum WorkerComposition {
         // from the serving hostname.
         if hasActivityPub, let apUsername, !apUsername.isEmpty, isSafeTomlStringValue(apUsername) {
             varsLines.append("AP_USERNAME = \"\(apUsername)\"")
+        }
+        // AP_ICON (#1771): the actor's avatar — same "only emit when there's something to say"
+        // convention; the composed Worker resolves a root-relative path against its own origin.
+        if hasActivityPub, let apIcon, !apIcon.isEmpty, isSafeTomlStringValue(apIcon) {
+            varsLines.append("AP_ICON = \"\(apIcon)\"")
         }
         // Group actor config (V-5.1b, #907, design doc §4.1 D3): only "Group" ever emits a var —
         // an ordinary Person actor (the overwhelming common case) leaves both vars out entirely,

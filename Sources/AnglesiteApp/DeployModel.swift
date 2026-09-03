@@ -1038,6 +1038,9 @@ final class DeployModel {
         )
         let siteURL = DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory)
         let apUsername = DeployCoordinator.resolveActivityPubUsername(siteDirectory: siteDirectory)
+        // The actor's avatar (#1771): the owner's `.site-config` AP_ICON override, else the
+        // site's apple-touch-icon — the same file Settings ▸ Website Icon replaces.
+        let apIcon = DeployCoordinator.resolveActivityPubIcon(siteDirectory: siteDirectory)
         // The handle this deploy will actually serve (override-or-hostname-default, #1239) — used
         // below to advance the `lastDeployedAPUsername` baseline, distinct from `apUsername`
         // (the raw `.site-config` override, `nil` unless the owner set one) threaded to
@@ -1066,6 +1069,7 @@ final class DeployModel {
             siteURL: siteURL,
             displayName: settings.displayName,
             apUsername: apUsername,
+            apIcon: apIcon,
             acknowledgesPaidPlan: acknowledgesPaidPlan,
             inboxCaptureEnabled: settings.inboxCaptureEnabled ?? false,
             inboxForwardEmail: inboxForwardEmail,

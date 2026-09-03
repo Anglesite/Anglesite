@@ -325,6 +325,29 @@ public enum DeployCoordinator {
         return trimmed.isEmpty ? nil : trimmed
     }
 
+    /// The ActivityPub actor's avatar for `WorkerComposition`'s `AP_ICON` var (#1771):
+    /// `.site-config`'s `AP_ICON` when set — git-visible and hand-editable, exactly like
+    /// `AP_USERNAME`; an absolute `http(s)` URL or a root-relative path — else
+    /// `/apple-touch-icon.png` whenever the site's `public/` actually ships one. The template
+    /// always does, and Settings ▸ Website Icon (`WebsiteIconInstaller`, #1525) overwrites that
+    /// exact file in place, so the federated avatar tracks the owner's chosen icon with no extra
+    /// setting to discover. `nil` only when neither exists; `WorkerComposition.generateWranglerToml`
+    /// then omits the var and every platform shows its placeholder avatar. Read-through,
+    /// unvalidated, same as ``DeployCoordinator/resolveActivityPubUsername(siteDirectory:)``: the
+    /// root-relative default is resolved against the serving origin, and an unusable override
+    /// (non-`http(s)`, unparseable) is dropped, at *request* time (`worker.ts`'s `resolveApIcon`).
+    public static func resolveActivityPubIcon(siteDirectory: URL, fileManager: FileManager = .default) -> String? {
+        let config = (try? WebsiteAnalyticsAsset.loadConfig(siteDirectory: siteDirectory, fileManager: fileManager)) ?? ""
+        if let value = WebsiteAnalyticsAsset.configValue("AP_ICON", in: config) {
+            let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+            if !trimmed.isEmpty { return trimmed }
+        }
+        let appleTouchIcon = siteDirectory
+            .appendingPathComponent(WebsiteIconAsset.publicDirectoryRelativePath, isDirectory: true)
+            .appendingPathComponent(WebsiteIconAsset.appleTouchIconName)
+        return fileManager.fileExists(atPath: appleTouchIcon.path) ? "/\(WebsiteIconAsset.appleTouchIconName)" : nil
+    }
+
     /// RFC 7565 `acct:` userpart ∩ Mastodon remote-username grammar (#1239, design doc
     /// §"Owner-chosen username") — the same rule `worker.ts`'s `isValidApUsername` re-checks at
     /// request time. Exposed here so the app's handle-entry field (Workers tab / first-deploy
