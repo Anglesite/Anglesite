@@ -81,8 +81,14 @@ public struct BlockNode: Codable, Equatable, Sendable {
     /// `[start, end)` byte offsets into the source file — a 2-element array, matching TS's tuple.
     public var sourceSpan: [Int]
     public var richText: [RichTextRun]?
+    /// The `blocks.manifest.json` entry's owner-facing `name` (e.g. `"H-Card"`), when this node
+    /// resolved to one (`PageModel.Node.block?.name` — see `PageModelBlockAdapter`). `nil` for a
+    /// plain element/component the manifest doesn't know about. Lets `WYSIWYGOpTranslator` emit
+    /// the sidecar-resolved `insertBlock(manifestBlock:)` wire form instead of guessing a
+    /// `componentPath` from the bare tag name (#1602 item 3).
+    public var manifestName: String?
 
-    public init(id: BlockId, kind: BlockKind, componentName: String, props: [String: PropValue], slots: [String: [BlockId]], sourceSpan: [Int], richText: [RichTextRun]? = nil) {
+    public init(id: BlockId, kind: BlockKind, componentName: String, props: [String: PropValue], slots: [String: [BlockId]], sourceSpan: [Int], richText: [RichTextRun]? = nil, manifestName: String? = nil) {
         self.id = id
         self.kind = kind
         self.componentName = componentName
@@ -90,6 +96,7 @@ public struct BlockNode: Codable, Equatable, Sendable {
         self.slots = slots
         self.sourceSpan = sourceSpan
         self.richText = richText
+        self.manifestName = manifestName
     }
 }
 
@@ -102,14 +109,18 @@ public struct BlockNodeContent: Codable, Equatable, Sendable {
     public var slots: [String: [BlockId]]
     public var sourceSpan: [Int]
     public var richText: [RichTextRun]?
+    /// See `BlockNode.manifestName`'s doc comment — identical purpose, `BlockNodeContent` is
+    /// `BlockNode` minus `id`.
+    public var manifestName: String?
 
-    public init(kind: BlockKind, componentName: String, props: [String: PropValue], slots: [String: [BlockId]], sourceSpan: [Int], richText: [RichTextRun]? = nil) {
+    public init(kind: BlockKind, componentName: String, props: [String: PropValue], slots: [String: [BlockId]], sourceSpan: [Int], richText: [RichTextRun]? = nil, manifestName: String? = nil) {
         self.kind = kind
         self.componentName = componentName
         self.props = props
         self.slots = slots
         self.sourceSpan = sourceSpan
         self.richText = richText
+        self.manifestName = manifestName
     }
 }
 

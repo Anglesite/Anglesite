@@ -9,11 +9,11 @@ public enum WYSIWYGOpInverter {
         case .insertBlock(let parentId, let slot, let index, let newId, let block):
             return .deleteBlock(
                 parentId: parentId, slot: slot, index: index, blockId: newId,
-                block: BlockNode(id: newId, kind: block.kind, componentName: block.componentName, props: block.props, slots: block.slots, sourceSpan: block.sourceSpan, richText: block.richText))
+                block: BlockNode(id: newId, kind: block.kind, componentName: block.componentName, props: block.props, slots: block.slots, sourceSpan: block.sourceSpan, richText: block.richText, manifestName: block.manifestName))
         case .deleteBlock(let parentId, let slot, let index, let blockId, let block):
             return .insertBlock(
                 parentId: parentId, slot: slot, index: index, newId: blockId,
-                block: BlockNodeContent(kind: block.kind, componentName: block.componentName, props: block.props, slots: block.slots, sourceSpan: block.sourceSpan, richText: block.richText))
+                block: BlockNodeContent(kind: block.kind, componentName: block.componentName, props: block.props, slots: block.slots, sourceSpan: block.sourceSpan, richText: block.richText, manifestName: block.manifestName))
         case .moveBlock(let blockId, let fromParentId, let fromSlot, let fromIndex, let toParentId, let toSlot, let toIndex):
             return .moveBlock(blockId: blockId, fromParentId: toParentId, fromSlot: toSlot, fromIndex: toIndex, toParentId: fromParentId, toSlot: fromSlot, toIndex: fromIndex)
         case .setProp(let blockId, let propName, let value, let previousValue):

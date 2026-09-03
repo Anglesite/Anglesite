@@ -203,7 +203,7 @@ final class WYSIWYGCanvasController {
         let newId = UUID().uuidString
         let content = BlockNodeContent(
             kind: node.kind, componentName: node.componentName, props: node.props,
-            slots: node.slots, sourceSpan: node.sourceSpan, richText: node.richText)
+            slots: node.slots, sourceSpan: node.sourceSpan, richText: node.richText, manifestName: node.manifestName)
         await submit(.insertBlock(parentId: location.parentId, slot: location.slot, index: location.index + 1, newId: newId, block: content))
     }
 
