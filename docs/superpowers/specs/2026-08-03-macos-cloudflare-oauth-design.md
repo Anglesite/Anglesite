@@ -185,9 +185,10 @@ real signed build is tested against the live Associated Domains handoff (see Tes
 
 1. Widen the registered OAuth client's (`e6705eb5f46254ecae0641b2e4da0ee2`) allowed scopes in the
    Cloudflare dashboard to include the full `AnglesiteTokenTemplate.permissionGroups` list.
-2. Add the macOS `Anglesite` target's Team ID to the callback Worker's
-   `apple-app-site-association` (`Workers/anglesite-oauth-callback`, sibling repo, tracked at
-   #891 — not yet built).
+2. ~~Add the macOS `Anglesite` target's Team ID to the callback Worker's
+   `apple-app-site-association`~~ — done (`Workers/anglesite-oauth-callback/src/worker.ts`).
+   The Worker itself still isn't deployed (`auth.anglesite.dwk.io` has no DNS record) —
+   tracked at #1767, a manual maintainer follow-up like this list.
 
 ## Epic touchpoints
 
