@@ -48,6 +48,8 @@ Key things to know:
 
 Working headless (CI, agents, or just no Xcode GUI)? [`docs/testing-macos-app.md`](docs/testing-macos-app.md) is the how-to for building, launching, and smoke-testing the app from a CLI-only session — including the toolchain preflight, fresh-worktree gotchas, and the optional Xcode MCP (`xcrun mcpbridge`) setup.
 
+CI lane went red? [`docs/ci-troubleshooting.md`](docs/ci-troubleshooting.md) is the runbook — one section per `.github/workflows/ci.yml` job, covering what it runs, what a red usually means, and what to check first.
+
 Run the relevant suites before opening a PR:
 
 ```sh

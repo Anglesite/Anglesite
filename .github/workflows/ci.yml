@@ -1,5 +1,9 @@
 name: CI
 
+# Lane went red? See ../../docs/ci-troubleshooting.md for a per-job runbook (what each
+# lane runs, what a red usually means, what to check first) lifted from this file's own
+# inline comments — read that first before re-deriving a diagnosis from scratch here.
+
 on:
   push:
     branches: [main]
