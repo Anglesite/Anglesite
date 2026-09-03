@@ -422,6 +422,20 @@ packageDependencies.append(
 // to a commit rather than a tag or branch: SwiftGit2 upstream has no tagged SPM release yet, and
 // pinning to anglesite/main's tip would silently pick up unreviewed future commits. Bump
 // deliberately.
+//
+// Fork-tracking plan (#1804): `anglesite/main` carries 8 substantive commits beyond upstream's
+// `develop` — the unborn-HEAD commit fix, defaultSignature(), remove/headHasEntry/
+// restorePathFromHEAD (delete+undo), push/addAll/aheadBehind/addRemote (backup/publish),
+// sandboxed remote/credential/error hardening, the #994 GIT_THREADS threading fix, and git-bundle
+// read support (#988) — none offered upstream yet, though mbernson/SwiftGit2 is actively
+// maintained (pushed as recently as 2026-08), not dead. libgit2 itself is a vendored submodule
+// inside the fork, pinned at v1.9.4; nothing automated watches it for security releases —
+// Dependabot's swift-ecosystem entry only sees this revision pin, not the submodule two hops
+// down — so a libgit2 CVE reaches this app only via a manual rebase by whoever's doing dependency
+// maintenance. Drop the fork once upstream tags an SPM release (blocked on its own PR #1) that
+// carries equivalents of at least the unborn-HEAD and GIT_THREADS fixes — the two that are
+// correctness/safety fixes rather than added convenience API. See #1804 for the full
+// commit-by-commit accounting.
 packageDependencies.append(
     .package(url: "https://github.com/Anglesite/SwiftGit2.git", revision: "446d4777ae4413c2faaa88425693ff29981e4b07")
 )
