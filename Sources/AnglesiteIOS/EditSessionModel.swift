@@ -47,6 +47,7 @@ public final class EditSessionModel {
     private let pairedMacs: () throws -> [PairedDevice]
     private let makeRuntime: @MainActor () -> any SiteRuntime
     private let lastMacContact: @Sendable () async -> Date?
+    private let onPhaseChange: @MainActor (Phase) -> Void
 
     private var runtime: (any SiteRuntime)?
     private var observationTask: Task<Void, Never>?
@@ -60,18 +61,23 @@ public final class EditSessionModel {
     ///     ``PendingP2PSiteRuntime`` until #1208 P4 ships the real `P2PSiteRuntime`.
     ///   - lastMacContact: When the Mac was last known reachable (CloudKit presence heartbeat,
     ///     read-side lands with P4) — folded into failure copy when available.
+    ///   - onPhaseChange: Called after every ``phase`` transition. `SiteSplitScreen` uses this to
+    ///     track which sites have a warm session for #1436's relaunch re-offer, without this
+    ///     model taking on a `UserDefaults`/persistence dependency of its own.
     public init(
         siteID: UUID,
         siteDisplayName: String,
         pairedMacs: @escaping () throws -> [PairedDevice],
         makeRuntime: @escaping @MainActor () -> any SiteRuntime,
-        lastMacContact: @escaping @Sendable () async -> Date? = { nil }
+        lastMacContact: @escaping @Sendable () async -> Date? = { nil },
+        onPhaseChange: @escaping @MainActor (Phase) -> Void = { _ in }
     ) {
         self.siteID = siteID
         self.siteDisplayName = siteDisplayName
         self.pairedMacs = pairedMacs
         self.makeRuntime = makeRuntime
         self.lastMacContact = lastMacContact
+        self.onPhaseChange = onPhaseChange
     }
 
     /// Entry point every presentation of the cover calls. Gates on pairing, then starts a
@@ -80,7 +86,7 @@ public final class EditSessionModel {
     public func open() async {
         if runtime != nil { return }
         guard hasPairedMac else {
-            phase = .pairingRequired
+            setPhase(.pairingRequired)
             return
         }
         await startSession()
@@ -100,8 +106,14 @@ public final class EditSessionModel {
         let stopping = runtime
         runtime = nil
         mcpClient = nil
-        phase = .idle
+        setPhase(.idle)
         await stopping?.stop()
+    }
+
+    /// Single write path for ``phase`` so every transition also notifies ``onPhaseChange``.
+    private func setPhase(_ newPhase: Phase) {
+        phase = newPhase
+        onPhaseChange(newPhase)
     }
 
     private var hasPairedMac: Bool {
@@ -112,7 +124,7 @@ public final class EditSessionModel {
     private func startSession() async {
         let runtime = makeRuntime()
         self.runtime = runtime
-        phase = .waking
+        setPhase(.waking)
         mcpClient = await runtime.mcpClient
 
         observationTask?.cancel()
@@ -136,17 +148,17 @@ public final class EditSessionModel {
         case .idle:
             // The runtime's initial replayed state (or a stop this model initiated) — never
             // demote an in-flight phase for it.
-            if runtime == nil { phase = .idle }
+            if runtime == nil { setPhase(.idle) }
         case .starting:
-            phase = .starting
+            setPhase(.starting)
         case .ready(_, let url, _):
-            phase = .ready(url)
+            setPhase(.ready(url))
         case .failed(_, let message):
             var composed = message
             if let lastSeen = await lastMacContact() {
                 composed += " " + Self.lastReachableClause(lastSeen)
             }
-            phase = .failed(message: composed)
+            setPhase(.failed(message: composed))
         }
     }
 
