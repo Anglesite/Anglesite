@@ -479,9 +479,20 @@ packageDependencies.append(
 )
 // Markdown editor substrate (#797; survey #796 — see the spec addendum in
 // docs/superpowers/specs/2026-07-17-blog-markdown-editor-publishing-design.md). Anglesite's
-// fork of nodes-app/swift-markdown-engine v0.10.0 plus one patch making automatic quote
-// substitution configurable (SpellCheckingPolicy.automaticQuoteSubstitution) — smart quotes
-// corrupt Markdown sources. Only the zero-dependency core `MarkdownEngine` product is linked
+// fork of nodes-app/swift-markdown-engine v0.10.0 plus two patches (#1805):
+//   - ff54708b: automatic quote substitution configurable (SpellCheckingPolicy.
+//     automaticQuoteSubstitution) — smart quotes corrupt Markdown sources. Upstreamed as
+//     nodes-app/swift-markdown-engine#174 (open, unreviewed as of 2026-09-03).
+//   - badbaa4b: honor autoClosePairsEnabled for the `[`/`[[` auto-close paths in
+//     MarkdownLists, so an embedder that disables auto-close (as this one does, for plain
+//     Markdown source editing) doesn't get bracket pairs inserted underneath it. Not yet
+//     upstreamed — no PR filed.
+// Drop condition: once both land in a tagged upstream release, switch this to `from:` that
+// release (or the next deliberate bump per the policy below) and drop the fork.
+// Rebase policy: matching SwiftGit2/STTextView-Plugin-Neon — deliberate bumps only, not a
+// tracking branch. Upstream has moved to 0.11.0/0.12.0 since this fork's 0.10.0 base; nothing
+// in that range has been surveyed for relevance, so treat a future bump as its own review, not
+// a rubber-stamp fast-forward. Only the zero-dependency core `MarkdownEngine` product is linked
 // (no MarkdownEngineCodeBlocks/MarkdownEngineLatex — LaTeX and highlighted fences are out of
 // scope for v1, §A.2). Pinned by revision, matching the SwiftGit2/STTextView policy above:
 // deliberate bumps only (upstream is pre-1.0 and its API moves).
