@@ -4,10 +4,10 @@ import AnglesiteCore
 
 /// Backs the Moderation section (V-5.1b/V-5.3, #907/#370, design doc §5): moderator-list
 /// display, ban/remove actions over this site's own `CommunityMember`/`AnnouncedPost` snapshot
-/// files, and the approval queue (design doc D4, unblocked by `davidwkeith/workers` PR #488).
-/// App glue only, mirroring `CommunitiesModel`'s shape — protocol logic (`Remove`/`Accept`/the
-/// `follow_requests` listing) lives in `AnglesiteCore`'s `CommunityMembershipClient`.
-/// Report-review remains explicitly out of scope (design doc D5) — no state for it here.
+/// files, the approval queue (design doc D4, unblocked by `davidwkeith/workers` PR #488), and
+/// report review (design doc D5, unblocked by `davidwkeith/workers` PR #500 — #1438). App glue
+/// only, mirroring `CommunitiesModel`'s shape — protocol logic (`Remove`/`Accept`/`Ignore`/the
+/// `follow_requests`/`reports` listings) lives in `AnglesiteCore`'s `CommunityMembershipClient`.
 @MainActor
 @Observable
 final class ModerationModel {
@@ -22,12 +22,17 @@ final class ModerationModel {
     private(set) var posts: [AnnouncedPost] = []
     private(set) var moderators: [String] = []
     private(set) var pendingFollowers: [PendingFollower] = []
+    private(set) var reports: [FlagReport] = []
     var errorMessage: String?
     /// Cleared by whichever confirmation-dialog button runs — same no-op-setter/
     /// clear-in-button-action contract `SiteWindow.swift:898-916`'s delete confirmation uses
     /// (#968/#969), and `CommunitiesModel.leaveConfirmation`'s sibling pattern.
     var banConfirmation: CommunityMember?
     var removeConfirmation: AnnouncedPost?
+    /// Same pattern as ``removeConfirmation``, for acting on a report's reported target
+    /// (``removeReportTarget(_:)``) rather than dismissing the report itself
+    /// (``dismissReport(_:)``, which has no confirmation — see that method's doc comment).
+    var removeReportTargetConfirmation: FlagReport?
 
     private var siteID: String?
     private var sourceDirectory: URL?
@@ -89,10 +94,12 @@ final class ModerationModel {
         async let loadedPosts = Self.decodeAll(
             AnnouncedPost.self, from: sourceDirectory.appendingPathComponent("data/community-posts"))
         async let loadedPending = loadPendingFollowers()
+        async let loadedReports = loadReports()
         moderators = settings.moderators ?? []
         members = await loadedMembers
         posts = await loadedPosts
         pendingFollowers = await loadedPending
+        reports = await loadedReports
         // A member banned in-app and then restored some other way (direct Worker/git access,
         // another Anglesite session) would otherwise show up in both lists at once.
         let currentMemberIDs = Set(members.map(\.id))
@@ -120,6 +127,25 @@ final class ModerationModel {
             return []
         } catch {
             errorMessage = "Couldn't load pending join requests: \(error.localizedDescription)"
+            return []
+        }
+    }
+
+    /// Fetches open abuse reports from this site's own Worker
+    /// (`CommunityMembershipClient.listReports()`). Same "a 404 means the route isn't on this
+    /// deploy's Worker version yet, not a real error" degrade ``loadPendingFollowers()`` uses,
+    /// for the same reason: `GET <actor>/reports` (`davidwkeith/workers` PR #500) postdates the
+    /// latest tagged `@dwk/workers` release as of this writing. Any other failure surfaces via
+    /// `errorMessage`, same as ``loadPendingFollowers()``.
+    private func loadReports() async -> [FlagReport] {
+        guard let ownActorURL, let publishToken else { return [] }
+        let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
+        do {
+            return try await client.listReports()
+        } catch CommunityMembershipError.requestFailed(status: 404, body: _) {
+            return []
+        } catch {
+            errorMessage = "Couldn't load reports: \(error.localizedDescription)"
             return []
         }
     }
@@ -280,5 +306,52 @@ final class ModerationModel {
         } catch {
             errorMessage = "Couldn't remove the moderator: \(error.localizedDescription)"
         }
+    }
+
+    /// Dismisses a report — posts `Ignore` (``CommunityMembershipClient/resolveReport(activityID:)``)
+    /// and drops it from ``reports``. No confirmation dialog, unlike ``removeReportTarget(_:)``:
+    /// dismissing only marks the *report* resolved, it never touches the reported content/actor,
+    /// so a mistaken dismiss has no destructive effect beyond needing the peer to re-report (or
+    /// the owner to act on the target directly, which is still possible after dismissal since
+    /// ``target`` isn't cleared by this).
+    func dismissReport(_ report: FlagReport) async {
+        guard let ownActorURL, let publishToken else {
+            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            return
+        }
+        let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
+        do {
+            try await client.resolveReport(activityID: report.activityID)
+            reports.removeAll { $0.id == report.id }
+        } catch {
+            errorMessage = "Couldn't dismiss this report: \(error.localizedDescription)"
+        }
+    }
+
+    /// Acts on a report's reported target — the same ``remove(target:)``-backed `Remove` primitive
+    /// ``ban(_:)``/``removePost(_:)`` already use, since the Worker itself dispatches on what
+    /// ``FlagReport/target`` resolves to (a member actor or an announced post) rather than this
+    /// client declaring which. Deliberately doesn't also dismiss the report (design doc's
+    /// resolve/act split, workers#489 §"Non-goals") — the owner dismisses separately via
+    /// ``dismissReport(_:)`` once satisfied, so a report naming a target that's already been
+    /// removed some other way still shows up for review rather than vanishing silently.
+    func removeReportTarget(_ report: FlagReport) async throws {
+        guard let target = report.target else {
+            errorMessage = "This report doesn't name a specific member or post to remove."
+            return
+        }
+        guard let ownActorURL, let publishToken else {
+            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            return
+        }
+        let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
+        try await client.remove(target: target)
+    }
+
+    func confirmRemoveReportTarget() async {
+        guard let report = removeReportTargetConfirmation else { return }
+        removeReportTargetConfirmation = nil
+        do { try await removeReportTarget(report) }
+        catch { errorMessage = "Couldn't remove the reported content: \(error.localizedDescription)" }
     }
 }

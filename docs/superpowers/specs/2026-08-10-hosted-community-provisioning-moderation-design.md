@@ -39,7 +39,7 @@ still show more than this closes — see §6.
 | D2 | Creation entry point | A **separate `File ▸ New Community…` flow** (`NewCommunityWizardModel`/`NewCommunityWizard`), not a card in the existing single-question theme chooser (#1071). A hosted community is a different site kind (own Worker, own Group actor, moderators) — not a cosmetic theme pick. |
 | D3 | Community wizard scope | **Name only.** No moderator field: per workers#473/PR#476, the owner is implicitly the top moderator of their own actor via the existing bearer `publishToken` — no `config.moderators` membership needed. `SiteSettings.moderators` is for *delegating* to additional actors beyond the owner, which belongs in the Phase 3 Moderators UI (§5), not the creation wizard. No theme step either — one consistent look for v1. |
 | D4 | Approval-queue (pending joins) | **Deferred.** Listing pending followers is only reachable via the OAuth-gated Mastodon-API `follow_requests` surface (§3.3) — the app has no OAuth client against a site's own Mastodon-API today. File an upstream follow-up (§5) instead of building a new OAuth flow now. Remove/ban ship in this design; approve does not. **Update (2026-08-12):** the upstream follow-up shipped (`davidwkeith/workers` PR #488, closing workers#487) and approve now ships too — see `docs/superpowers/plans/2026-08-12-community-approval-queue.md`. |
-| D5 | Report queue | **Inert placeholder section** in the Moderation UI. No `Flag`-activity handling exists anywhere upstream (confirmed via repo-wide + upstream search) — this needs a new upstream primitive from scratch, out of scope here. The UI ships the section now so the layout doesn't reshape when report-handling eventually lands. |
+| D5 | Report queue | **Inert placeholder section** in the Moderation UI. No `Flag`-activity handling exists anywhere upstream (confirmed via repo-wide + upstream search) — this needs a new upstream primitive from scratch, out of scope here. The UI ships the section now so the layout doesn't reshape when report-handling eventually lands. **Update (2026-09-02):** the upstream primitive shipped (`davidwkeith/workers` PR #500, closing workers#489 — bearer-gated `GET <actor>/reports` plus `Ignore(Flag)` resolve on `/outbox`) and report review now ships too, tracked as its own issue (#1438) since #370 had already auto-closed on the D4 PR's merge. |
 
 ## 3. Phase 1 — New Community creation flow
 
@@ -176,3 +176,10 @@ once the follow-up filed in §6 landed upstream. Only report review (D5)
 remains blocked — report/Flag handling doesn't exist upstream at all. #370
 should stay open, scoped down to that one remaining piece, rather than being
 closed by this work.
+
+**Update (2026-09-02):** #370 auto-closed anyway on the D4 PR's merge
+(GitHub's linked-issue-on-merge behavior, not an explicit closing keyword),
+so report review got its own tracking issue, #1438. It shipped once
+`davidwkeith/workers` PR #500 (closing workers#489) landed the `Flag`
+storage, `GET <actor>/reports` listing, and `Ignore(Flag)` resolve — see D5's
+update above.
