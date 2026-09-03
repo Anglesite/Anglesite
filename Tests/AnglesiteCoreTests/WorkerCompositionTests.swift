@@ -934,4 +934,46 @@ struct WorkerCompositionTests {
         )
         #expect(toml.contains("run_worker_first"))
     }
+
+    // #1774: the local-dev path writes its ephemeral wrangler.toml outside the site tree
+    // (/tmp/anglesite-workers-dev/<siteID>/), and wrangler resolves every relative path field
+    // against the config file's own directory — not the process CWD — so a bare "worker/worker.ts"
+    // there can never find the real worker/ at /workspace/site. `projectRoot`, when given, roots
+    // every path field wrangler resolves against the config file's directory: `main`,
+    // `[assets].directory`, and both `migrations_dir` occurrences (AUTH_DB and EXPERIMENTS_DB).
+    @Test("projectRoot roots main, assets.directory, and both migrations_dir fields at an absolute path")
+    func projectRootMakesPathsAbsolute() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site",
+            workers: [indieauthWorker],
+            experiments: [runningExperiment()],
+            projectRoot: "/workspace/site"
+        )
+        #expect(toml.contains("main = \"/workspace/site/worker/worker.ts\""))
+        #expect(toml.contains("directory = \"/workspace/site/dist\""))
+        let migrationsDirCount = toml.components(separatedBy: "migrations_dir = \"/workspace/site/worker/migrations\"").count - 1
+        #expect(migrationsDirCount == 2)
+        #expect(!toml.contains("main = \"worker/worker.ts\""))
+        #expect(!toml.contains("directory = \"dist\""))
+        #expect(!toml.contains("migrations_dir = \"worker/migrations\""))
+    }
+
+    @Test("projectRoot defaults to nil and leaves the deploy path's relative paths untouched")
+    func projectRootDefaultsToNilForDeployPath() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [indieauthWorker], experiments: [runningExperiment()]
+        )
+        #expect(toml.contains("main = \"worker/worker.ts\""))
+        #expect(toml.contains("directory = \"dist\""))
+        #expect(toml.contains("migrations_dir = \"worker/migrations\""))
+    }
+
+    @Test("projectRoot tolerates a trailing slash without doubling it")
+    func projectRootTrailingSlash() throws {
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [], mcpEnabled: true, projectRoot: "/workspace/site/"
+        )
+        #expect(toml.contains("main = \"/workspace/site/worker/worker.ts\""))
+        #expect(!toml.contains("//worker/worker.ts"))
+    }
 }
