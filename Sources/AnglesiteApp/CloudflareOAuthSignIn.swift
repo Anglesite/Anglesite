@@ -16,6 +16,28 @@ enum CloudflareOAuthPresentationError: Error {
 // `CloudflareOAuthSignIn` itself lives in AnglesiteCore (shared with the iOS connect form,
 // #891); only the macOS presenter is app-target code, because it needs AppKit anchoring.
 extension CloudflareOAuthSignIn {
+    /// Holds the in-flight session and its anchor provider for as long as the browser sheet is
+    /// up. `ASWebAuthenticationSession` cancels itself when it is deallocated, and nothing else
+    /// retains it: a session held only by a local inside the continuation closure was released
+    /// the moment `start()` returned, so its completion handler fired straight away with
+    /// `.canceledLogin` — which `DeployModel` read as the user dismissing the sheet. That is the
+    /// "spinner clears, nothing happens" symptom of #1766 on *every* build, entitled or not; the
+    /// `start()`-returns-`false` path handled below is the separate, unentitled-build case.
+    ///
+    /// The session's completion handler captures this holder strongly (session → handler →
+    /// holder → session), and clearing the holder from inside that handler is what breaks the
+    /// cycle once the session has reported back. A per-call object rather than actor-isolated
+    /// static state because the completion handler runs nonisolated.
+    private final class LiveSession: @unchecked Sendable {
+        var session: ASWebAuthenticationSession?
+        var context: CloudflareOAuthPresentationContext?
+
+        func release() {
+            session = nil
+            context = nil
+        }
+    }
+
     /// Production presenter: a real `ASWebAuthenticationSession` anchored via
     /// `CloudflareOAuthPresentationContext`, matched against the callback Worker's `/oauth-callback`
     /// route via Associated Domains. `.https(host:path:)` callback matching has been available
@@ -26,6 +48,7 @@ extension CloudflareOAuthSignIn {
     @MainActor
     static let defaultPresenter: Presenter = { authorizeURL in
         let contextProvider = CloudflareOAuthPresentationContext()
+        let live = LiveSession()
         return try await withCheckedThrowingContinuation { continuation in
             // `session.start()` returning `false` and the completion handler firing are not
             // mutually exclusive in practice (#1766: a session that fails to start due to a
@@ -47,6 +70,8 @@ extension CloudflareOAuthSignIn {
                     host: CloudflareOAuthConfiguration.redirectURI.host!,
                     path: CloudflareOAuthConfiguration.redirectURI.path)
             ) { callbackURL, error in
+                // Release the strong references only once the session has reported back.
+                live.release()
                 if let error {
                     resume(.failure(error))
                 } else if let callbackURL {
@@ -56,7 +81,10 @@ extension CloudflareOAuthSignIn {
                 }
             }
             session.presentationContextProvider = contextProvider
+            live.session = session
+            live.context = contextProvider
             if !session.start() {
+                live.release()
                 resume(.failure(CloudflareOAuthPresentationError.sessionFailedToStart))
             }
         }
