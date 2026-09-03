@@ -49,4 +49,25 @@ describe("NativeHostTransport", () => {
     (window as any).__anglesiteWysiwygHost._handleQualityFindings(findings);
     expect(seen).toHaveLength(1);
   });
+
+  it("posts a writing-help-request message and resolves when the native side replies", async () => {
+    const transport = new NativeHostTransport();
+    const pending = transport.requestWritingHelp("Original text.", "Tighten this.");
+    expect(postedMessages).toHaveLength(1);
+    const posted = postedMessages[0] as { type: string; requestId: string; text: string; instruction: string };
+    expect(posted.type).toBe("writing-help-request");
+    expect(posted.text).toBe("Original text.");
+    expect(posted.instruction).toBe("Tighten this.");
+    expect(typeof posted.requestId).toBe("string");
+    (window as any).__anglesiteWysiwygHost._handleWritingHelpReply(posted.requestId, { status: "rewritten", text: "Shorter." });
+    await expect(pending).resolves.toEqual({ status: "rewritten", text: "Shorter." });
+  });
+
+  it("resolves with an unavailable reply when the native side reports one", async () => {
+    const transport = new NativeHostTransport();
+    const pending = transport.requestWritingHelp("x", "y");
+    const posted = postedMessages[0] as { requestId: string };
+    (window as any).__anglesiteWysiwygHost._handleWritingHelpReply(posted.requestId, { status: "unavailable", message: "not available" });
+    await expect(pending).resolves.toEqual({ status: "unavailable", message: "not available" });
+  });
 });

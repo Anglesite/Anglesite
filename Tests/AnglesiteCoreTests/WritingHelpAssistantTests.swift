@@ -31,6 +31,41 @@ struct WritingHelpPromptTests {
     }
 }
 
+@Suite("WritingHelpOutcome Codable")
+struct WritingHelpOutcomeCodableTests {
+    @Test("encodes .rewritten as {status: rewritten, text: ...} and decodes it back")
+    func rewrittenRoundTrips() throws {
+        let outcome = WritingHelpOutcome.rewritten("x")
+        let data = try JSONEncoder().encode(outcome)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["status"] == "rewritten")
+        #expect(json["text"] == "x")
+
+        let decoded = try JSONDecoder().decode(WritingHelpOutcome.self, from: data)
+        #expect(decoded == outcome)
+    }
+
+    @Test("encodes .unavailable as {status: unavailable, message: ...} and decodes it back")
+    func unavailableRoundTrips() throws {
+        let outcome = WritingHelpOutcome.unavailable("not available")
+        let data = try JSONEncoder().encode(outcome)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["status"] == "unavailable")
+        #expect(json["message"] == "not available")
+
+        let decoded = try JSONDecoder().decode(WritingHelpOutcome.self, from: data)
+        #expect(decoded == outcome)
+    }
+
+    @Test("decoding an unrecognized status throws a data-corrupted error")
+    func unrecognizedStatusThrows() {
+        let raw = Data(#"{"status":"bogus"}"#.utf8)
+        #expect(throws: (any Error).self) {
+            _ = try JSONDecoder().decode(WritingHelpOutcome.self, from: raw)
+        }
+    }
+}
+
 // Gated like the type under test — `WritingHelpAssisting`'s default implementation references
 // `GeneratedRewrite` (`@Generable`, Xcode-27 only). The logic here is model-free where possible
 // (prompt building above); the assistant itself is exercised through a `ContentAssistant` fake.

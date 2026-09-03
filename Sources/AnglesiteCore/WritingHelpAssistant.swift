@@ -3,9 +3,43 @@ import Foundation
 /// Result of a writing-help request (#1227 PR 2) — never throws to its caller. `.unavailable`
 /// covers every failure mode (no FM on this Mac, a generation error) with one owner-facing
 /// message, matching PR 1's alt-text "silent degrade, never surface a raw error" convention.
-public enum WritingHelpOutcome: Equatable, Sendable, Codable {
+public enum WritingHelpOutcome: Equatable, Sendable {
     case rewritten(String)
     case unavailable(String)
+}
+
+/// Custom `Codable` via a `status` string discriminator — mirrors `OpResult`'s extension
+/// (`Sources/AnglesiteCore/WYSIWYG/WYSIWYGOps.swift`) exactly. The auto-synthesized Codable for an
+/// enum with associated values does not produce the `{"status": "rewritten", "text": "..."}` /
+/// `{"status": "unavailable", "message": "..."}` shape the JS side (`WritingHelpReply`,
+/// #1227 PR 2) needs.
+extension WritingHelpOutcome: Codable {
+    private enum CodingKeys: String, CodingKey { case status, text, message }
+
+    public init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let status = try container.decode(String.self, forKey: .status)
+        switch status {
+        case "rewritten":
+            self = .rewritten(try container.decode(String.self, forKey: .text))
+        case "unavailable":
+            self = .unavailable(try container.decode(String.self, forKey: .message))
+        default:
+            throw DecodingError.dataCorruptedError(forKey: .status, in: container, debugDescription: "Unrecognized status: \(status)")
+        }
+    }
+
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .rewritten(let text):
+            try container.encode("rewritten", forKey: .status)
+            try container.encode(text, forKey: .text)
+        case .unavailable(let message):
+            try container.encode("unavailable", forKey: .status)
+            try container.encode(message, forKey: .message)
+        }
+    }
 }
 
 /// Rewrites `text` per a natural-language `instruction` — the shared core behind both the canvas
