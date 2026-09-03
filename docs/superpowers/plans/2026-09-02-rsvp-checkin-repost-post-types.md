@@ -8,10 +8,11 @@
 
 **Tech Stack:** Swift 6.4 (AnglesiteCore, AnglesiteApp, AnglesiteMobile, AnglesiteIntents), Swift Testing, Astro 5 / Zod (Resources/Template), Vitest + Node's `node:test`.
 
-**Spec:** [`docs/superpowers/specs/2026-09-02-rsvp-checkin-repost-post-types-design.md`](../specs/2026-09-02-rsvp-checkin-repost-post-types-design.md) — this plan refines two details the spec left at the field-table level:
+**Spec:** [`docs/superpowers/specs/2026-09-02-rsvp-checkin-repost-post-types-design.md`](../specs/2026-09-02-rsvp-checkin-repost-post-types-design.md) — this plan refines several details the spec left at the field-table level, and the shipped implementation refined two more of the spec's own examples:
 - Every personal (h-entry-family) descriptor follows a `lang` (first) / `draft` (last) bookend, with a required `publishDate: .datetime`. The spec's three field tables omitted `lang`/`publishDate`/`draft` for brevity; this plan's descriptors include them, matching `reply`/`like`/`bookmark` exactly.
 - Field names use the registry's existing `body`/`e-content` convention, not `content` as the spec prose said.
 - Check-in's optional venue permalink is its own field (`venueUrl`, distinct from RSVP's `inReplyTo`) rendered by its own `Hentry.astro` branch — not literally the same branch as RSVP's, since they read different frontmatter keys (both project to `u-in-reply-to`).
+- The spec's Feeds section sketched illustrative titles ("RSVP'd yes to {event title}", "Reposted {title or repostOf URL}") that assumed data (a cached event title) `feeds.ts` doesn't actually have access to at render time. What shipped is simpler and matches what the data supports: RSVP derives `RSVP: {status}` from the entry's own `rsvp` field; repost stays title-less like `likes`/`replies` (it has no title/name field to derive from). Check-in's `"Checked in at {location}"` shipped exactly as the spec described, since `location` is on the entry itself.
 
 ## Global Constraints
 
