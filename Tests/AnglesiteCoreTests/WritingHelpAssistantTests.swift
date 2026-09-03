@@ -38,6 +38,12 @@ struct WritingHelpPromptTests {
 
 @Suite("FoundationModelWritingHelpAssistant")
 struct FoundationModelWritingHelpAssistantTests {
+    /// Records log messages so tests can verify error logging ("logs are sacred").
+    private actor LogRecorder {
+        private(set) var messages: [String] = []
+        func record(_ message: String) { messages.append(message) }
+    }
+
     private struct FakeAssistant: ContentAssistant {
         var structuredResult: Result<GeneratedRewrite, Error>
         var capabilities: AssistantCapabilities {
@@ -96,6 +102,25 @@ struct FoundationModelWritingHelpAssistantTests {
             Issue.record("expected .unavailable, got \(outcome)")
             return
         }
+    }
+
+    @Test("logs the error when generation fails (\"logs are sacred\")")
+    func logsErrorOnGenerationFailure() async {
+        struct TestError: Error, CustomStringConvertible {
+            var description: String { "malformed output" }
+        }
+        let recorder = LogRecorder()
+        let assistant = FoundationModelWritingHelpAssistant(
+            assistantFactory: { FakeAssistant(structuredResult: .failure(TestError())) },
+            log: { await recorder.record($0) }
+        )
+        _ = await assistant.rewrite(
+            text: "x", instruction: "y", preamble: nil, siteID: "site-1",
+            siteDirectory: URL(fileURLWithPath: "/tmp/site"))
+        let messages = await recorder.messages
+        #expect(messages.count == 1)
+        #expect(messages.first?.contains("writing-help generation failed") ?? false)
+        #expect(messages.first?.contains("malformed output") ?? false)
     }
 }
 #endif

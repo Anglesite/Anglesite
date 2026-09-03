@@ -62,8 +62,16 @@ public struct FoundationModelWritingHelpAssistant: WritingHelpAssisting {
     /// request (today backed on-device; the seam is what changes when real PCC lands).
     private let assistantFactory: @Sendable () -> (any ContentAssistant)?
 
-    public init(assistantFactory: @escaping @Sendable () -> (any ContentAssistant)? = { ContentAssistantFactory.make(tier: .privateCloudCompute) }) {
+    /// Logs errors from generation failures ("logs are sacred" convention). Defaults to no-op for
+    /// best-effort behavior; production passes the debug-pane logger so failures leave a trace.
+    private let log: @Sendable (String) async -> Void
+
+    public init(
+        assistantFactory: @escaping @Sendable () -> (any ContentAssistant)? = { ContentAssistantFactory.make(tier: .privateCloudCompute) },
+        log: @escaping @Sendable (String) async -> Void = { _ in }
+    ) {
         self.assistantFactory = assistantFactory
+        self.log = log
     }
 
     public func rewrite(
@@ -80,6 +88,7 @@ public struct FoundationModelWritingHelpAssistant: WritingHelpAssisting {
             )
             return .rewritten(generated.rewrittenText)
         } catch {
+            await log("writing-help generation failed: \(error)")
             return .unavailable(ContentHelpDialogs.assistantUnavailable(feature: "Writing help"))
         }
     }
