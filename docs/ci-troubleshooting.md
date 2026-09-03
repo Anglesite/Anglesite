@@ -30,8 +30,9 @@ you `changes` didn't succeed.
 
 ## macOS toolchain selection, across every macOS lane
 
-Every macOS job (`build-test`, `xcode27-compile`, `timing-sensitive-tests`,
-`ios-build`, `concurrency-tsan`, `docs-docc`, `appintents-schema`) picks
+Every macOS job (`build-test`, `xcode27-compile`, `ios-build`,
+`concurrency-tsan` — deliberately only four per Swift PR, see
+[#1865](https://github.com/Anglesite/Anglesite/issues/1865)) picks
 "newest installed Xcode" itself rather than relying on the runner's default,
 via a `ls -d /Applications/Xcode*.app | sort -V | tail -1` + `xcode-select -s`
 step. Most of these also `grep -vE` out `Xcode_26.3`: that toolchain builds
@@ -49,8 +50,25 @@ in this repo's Swift code.
 a specific tag — see `ref: v1.9.0` in the job), installs its deps, verifies
 the `container-image.json` and `website-template.json` attributions
 manifests, builds the package in debug, runs the full `swift test --parallel`
-(skipping the timing-sensitive filter — see that lane below), checks for
-leaked test `UserDefaults` suites, then builds in release.
+(skipping the timing-sensitive filter), then runs the timing-sensitive
+suites in their own isolated `swift test` process (see below), checks for
+leaked test `UserDefaults` suites, builds the DocC documentation for the
+library targets (see below), builds in release, and — only on `main` —
+saves the SwiftPM `.build` cache. The timing-sensitive and DocC steps were
+separate macOS jobs until [#1865](https://github.com/Anglesite/Anglesite/issues/1865):
+each rebuilt the same package for minutes to run seconds of checks, and each
+queued up to an hour for one of the org's five concurrent macOS runner
+slots. As steps here they reuse this job's warm build. A red in one of them
+is reported under `build-test`, so read the step name in the job summary
+before assuming the main `Test` step failed.
+
+**macOS job budget:** every Swift PR fans out to exactly four macOS jobs
+(`build-test`, `concurrency-tsan`, `ios-build`, `xcode27-compile`) on
+purpose. The org's plan allows five concurrent macOS jobs in total, so any
+new macOS *job* — even a 12-second script — costs every other open PR an
+hour of runner queue. Add a new Swift check as a step in the lane that
+already has the build it needs (this one for SwiftPM, `ios-build` for the
+Xcode project), never as a new job.
 
 **Why macos-26, not macos-15:** the `macos-15` image's OS
 `libswift_Concurrency` (Swift 6.2.3-era, no assertions) carries a
@@ -94,7 +112,7 @@ See [#644](https://github.com/Anglesite/Anglesite/issues/644) /
   See `CONTRIBUTING.md` ▸ Testing and
   [#1727](https://github.com/Anglesite/Anglesite/issues/1727).
 - **Fails at "Test" with suites named in the timing-sensitive filter still
-  showing up:** they shouldn't run here at all — see `timing-sensitive-tests`
+  showing up:** they shouldn't run here at all — see the timing-sensitive step
   below; if one of them still executed in this lane, the skip filter and the
   lane's suite list have drifted apart.
 
@@ -136,17 +154,22 @@ now overdue. Until then, run `swift test` locally on Xcode 27 for actual
 execution coverage of these targets before opening a PR that touches them
 (see `CONTRIBUTING.md` ▸ Testing).
 
-## `timing-sensitive-tests` — isolated lane (macos-26)
+## Timing-sensitive suites — `build-test`'s isolated-process step (macos-26)
+
+*Was the separate `timing-sensitive-tests` job until #1865.*
 
 **What it runs:** `scripts/test-timing-sensitive.sh`, which runs (via
 `scripts/lib/timing-sensitive-tests.sh`'s `TIMING_SENSITIVE_TEST_FILTER`) a
 named subset of suites that assert real wall-clock budgets — real sockets,
 real subprocess spawns, `ContinuousClock` deadlines — in their own
 low-concurrency `swift test` invocation, isolated from `build-test`'s
-~3,500-test `--parallel` run. `build-test`'s own `Test` step explicitly
-`--skip`s this same filter, so each suite runs exactly once, here.
+~4,700-test `--parallel` run. `build-test`'s main `Test` step explicitly
+`--skip`s this same filter, so each suite runs exactly once, in the "Test
+(timing-sensitive suites, isolated process)" step that follows it. No
+`ANGLESITE_PLUGIN_PATH` is set for that step (matching the old lane), so the
+e2e-gated variants inside these suites stay skipped.
 
-**Why this lane exists:** `build-test`'s shared GCD/dispatch thread pool gets
+**Why this step exists:** `build-test`'s shared GCD/dispatch thread pool gets
 oversubscribed badly enough under full parallel load that these suites miss
 their own real-I/O deadlines — a scheduling artifact, not a code defect. PR
 [#1289](https://github.com/Anglesite/Anglesite/issues/1289) saw `build-test`
@@ -155,11 +178,11 @@ suites with no code change between retries. See
 [#1344](https://github.com/Anglesite/Anglesite/issues/1344) for the full
 writeup and inclusion criteria for which suites belong in the filter.
 
-**What a red usually means, and what to check first:** a suite in this lane
-timing out here (with a low-concurrency, dedicated runner) is much more
-likely to be a *real* regression than the same suite flaking under
-`build-test`'s full parallel load — don't reflexively blame scheduler
-contention for a failure that shows up here. If a *new* suite you added is
+**What a red usually means, and what to check first:** a suite timing out
+in this step (a low-concurrency process with nothing else running on the
+runner) is much more likely to be a *real* regression than the same suite
+flaking under the main `Test` step's full parallel load — don't reflexively
+blame scheduler contention for a failure that shows up here. If a *new* suite you added is
 flaky specifically under `build-test`'s parallel run but stable alone or
 here, it's a candidate to add to `scripts/lib/timing-sensitive-tests.sh`
 (each entry there documents its own evidence — follow that pattern). Same
@@ -251,13 +274,23 @@ affects what ships.
    Flathub — the branch is pinned explicitly (`//25.08`) because an
    ambiguous multi-branch match fails `--noninteractive` installs outright.
 
-## `ios-build` — iOS app target (AnglesiteMobile, macos-26)
+## `ios-build` — Xcode project lane: project.yml sync, AnglesiteMobile, AppIntents schema (macos-26)
 
-**What it runs:** `xcodegen generate` then `xcodebuild … -scheme
-AnglesiteMobile -destination 'generic/platform=iOS Simulator' build`.
+**What it runs:** installs the pinned XcodeGen, runs
+`scripts/check-xcodeproj-sync.sh` (which itself runs `xcodegen generate`
+and then the drift assertion — see below), builds `xcodebuild … -scheme
+AnglesiteMobile -destination 'generic/platform=iOS Simulator' build`, and
+finally the Xcode-27-gated AppIntents schema validation (see below). The
+sync check and the AppIntents check were the separate `xcodeproj-sync` and
+`appintents-schema` jobs until #1865 — 12-second scripts that each queued
+up to 100 minutes for a macOS runner. This is the one lane that needs the
+generated `Anglesite.xcodeproj`, so everything project-shaped lives here.
+There is no SwiftPM `.build` cache: `xcodebuild` resolves and builds
+packages under DerivedData, so the cache this lane once declared never
+saved anything.
 
-**Why this lane exists:** no other lane ever compiles an iOS app target —
-`xcodeproj-sync` only checks source-file membership in the generated
+**Why the AnglesiteMobile build exists:** no other lane ever compiles an iOS app target —
+the sync check only verifies source-file membership in the generated
 project (explicitly not a full `xcodebuild`), and every other
 `xcodebuild`-based lane builds only the macOS `Anglesite`/`AnglesiteIntents`
 schemes. This closes that gap: an iOS-incompatible change to
@@ -271,11 +304,14 @@ change in a module `AnglesiteMobile` links — check the build log for the
 first `error:` the way you would for `build-test`. If it fails at
 "Install XcodeGen (pinned)" with a checksum mismatch, the pinned
 `XCODEGEN_VERSION`/`XCODEGEN_SHA256` pair (kept in sync with
-`xcodeproj-sync` and `appintents-schema`, and with `MIN_XCODEGEN` in
-`scripts/check-xcodeproj-sync.sh`) needs updating together across all three
+`MIN_XCODEGEN` in `scripts/check-xcodeproj-sync.sh`) needs updating in both
 places, not just here.
 
-## `docs-docc` — DocC build (comment/doc-comment health check, macos-26)
+## DocC build — `build-test`'s documentation steps (macos-26)
+
+*Was the separate `docs-docc` job until #1865; it built the package cold for
+~7 minutes to spend ~20 seconds extracting symbol graphs. As two steps in
+`build-test` it reuses the warm debug build.*
 
 **What it runs:** `swift package generate-documentation --warnings-as-errors`
 against an explicit, deliberate target list (not "every target") via the
@@ -286,8 +322,8 @@ sweeps in dependency packages this repo doesn't own (e.g. MarkdownEngine's
 own doc comments) and `AnglesiteLANHost` fails symbol-graph extraction with
 an unrelated tooling issue. `AnglesiteAppCore` is `compiler(>=6.4)`-gated in
 `Package.swift`, so on a pre-Xcode-27 runner it's simply absent from the
-manifest — this lane detects that (`has27` step) and runs a *second*,
-gated documentation step for `AnglesiteAppCore` + `AnglesiteP2P` (the latter
+manifest — `build-test`'s Xcode-selection step detects that (`has27`
+output) and the job runs a *second*, gated documentation step for `AnglesiteAppCore` + `AnglesiteP2P` (the latter
 rides along because `swift-symbolgraph-extract` fails to load WebRTC's
 binary xcframework module on Xcode 26.6, confirmed clean under Xcode 27) —
 green with a `::warning::` until a runner ships Xcode 27, at which point it
@@ -300,14 +336,17 @@ this lane enforces via `--warnings-as-errors`. If the first (unconditional)
 step fails on a target you didn't touch, check whether a dependency version
 bump changed that target's exported symbol surface.
 
-## `xcodeproj-sync` — Anglesite.xcodeproj ↔ project.yml sync (macos-15)
+## Project sync check — `ios-build`'s first step
 
-**What it runs:** regenerates the Xcode project via pinned XcodeGen and
-asserts every app target still compiles the full `Sources/AnglesiteApp`
-tree — needs only `xcodegen` + `python3` (no Xcode 27 SDK, Node, or sibling
-plugin), so it's fast and runs in parallel with the heavier macOS lanes.
+*Was the separate `xcodeproj-sync` job (the last one on macos-15, #1795)
+until #1865.*
 
-**Why this lane exists:** `Anglesite.xcodeproj` is gitignored and
+**What it runs:** `scripts/check-xcodeproj-sync.sh` regenerates the Xcode
+project via pinned XcodeGen and asserts every app target still compiles the
+full tree under its `Sources/` root — needs only `xcodegen` + `python3`, and
+the regenerated project is what the AnglesiteMobile build step then builds.
+
+**Why this step exists:** `Anglesite.xcodeproj` is gitignored and
 regenerated from `project.yml` — a stale or drifted spec never trips `swift
 build` (which doesn't use the `.xcodeproj` at all), it only bites a
 contributor running `xcodebuild` locally with "cannot find … in scope"
@@ -319,7 +358,7 @@ errors. See [#123](https://github.com/Anglesite/Anglesite/issues/123).
 do this — edit `project.yml` and regenerate). Run
 `scripts/check-xcodeproj-sync.sh` locally to reproduce. If it fails at
 "Install XcodeGen (pinned)", see the `ios-build` note above about keeping
-`XCODEGEN_VERSION`/`XCODEGEN_SHA256` in sync across lanes.
+`XCODEGEN_VERSION`/`XCODEGEN_SHA256` in sync with `MIN_XCODEGEN`.
 
 ## `localization-catalog` — String Catalog checks (ubuntu-latest)
 
@@ -353,8 +392,8 @@ static grep over `Tests/*.swift` — no Xcode/xcodegen needed.
 **Why this lane exists:** catches the
 [#1727](https://github.com/Anglesite/Anglesite/issues/1727) bypass **at
 review time**, before any test even runs. The separate
-`check-test-userdefaults-leak.sh` step in `build-test`/
-`timing-sensitive-tests`/`concurrency-tsan` catches the *leak itself*,
+`check-test-userdefaults-leak.sh` step in `build-test` (after both of its
+test steps) and `concurrency-tsan` catches the *leak itself*,
 after the fact, from a process that already ran — see
 [#1745](https://github.com/Anglesite/Anglesite/issues/1745). The two checks
 are deliberately redundant (static lint + runtime leak detection).
@@ -364,20 +403,24 @@ directly instead of `AnglesiteTestSupport`'s `TemporaryUserDefaults` /
 `withTemporaryUserDefaults`. Fix at the source — see `CONTRIBUTING.md` ▸
 Testing.
 
-## `appintents-schema` — AppIntents schema conformance (macos-26)
+## AppIntents schema conformance — `ios-build`'s last step (macos-26)
+
+*Was the separate `appintents-schema` job until #1865 — a 12-second no-op on
+macos-26 (its Xcode 27 gate never fires there) that still queued up to 100
+minutes for a macOS runner.*
 
 **What it runs:** builds only the `AnglesiteIntents` target via `xcodebuild`
 (never `swift build`/`swift test`, since the AppIntents metadata processor
 only runs during an actual Xcode *build* phase), which runs
 `appintentsmetadataprocessor --validate-assistant-intents`.
 
-**Why this lane exists:** an `AppSchema` conformance regression (e.g.
+**Why this step exists:** an `AppSchema` conformance regression (e.g.
 `SiteEntity` dropping a required `.wordProcessor.document` property) passes
 every SwiftPM lane and would otherwise surface only on a contributor's
 local `xcodebuild`. The `AppSchema.WordProcessor` surface and its validator
 are macOS-27 symbols, so this needs the same `has27`-gated,
-skips-gracefully-until-Xcode-27 pattern as `docs-docc`'s `AnglesiteAppCore`
-step — green with a `::warning::` on older runners, auto-activating once
+skips-gracefully-until-Xcode-27 pattern as `build-test`'s `AnglesiteAppCore`
+DocC step — green with a `::warning::` on older runners, auto-activating once
 Xcode 27 is available.
 
 **What a red usually means:** a genuine required-property regression in an
@@ -429,11 +472,10 @@ target's Linux compatibility explicitly extended in `Package.swift`.
 ## Cache-key troubleshooting (all lanes)
 
 Every SwiftPM-caching lane (`linux-build-test`, `build-test`,
-`xcode27-compile`, `timing-sensitive-tests`, `ios-build`, `concurrency-tsan`)
+`xcode27-compile`, `concurrency-tsan`)
 keys its `.build` cache on a namespace specific to that lane (`swiftpm-linux-…`,
-`swiftpm-macos-…`, `swiftpm-xcode27-…`, `swiftpm-timing-sensitive-macos-…`,
-`swiftpm-ios-…`, `swiftpm-tsan-macos-…`) plus the toolchain version and
-`Package.resolved` hash — sharing a cache namespace across lanes that
+`swiftpm-macos-…`, `swiftpm-xcode27-…`, `swiftpm-tsan-macos-…`) plus the
+toolchain version and `Package.resolved` hash — sharing a cache namespace across lanes that
 produce genuinely different object files (different Xcode version,
 different sanitizer flags, different SDK) would just churn without ever
 hitting. If you ever see a cache-restore step pull in stale-looking object
@@ -443,12 +485,26 @@ this has happened once already, after the `Anglesite-app` → `Anglesite`
 repository rename baked the old workspace path into cached `.pcm` files;
 bump the segment again if it recurs after a similar structural change.
 
+**Caches are written only from `main` (#1865).** Each lane *restores* its
+cache on every run (`actions/cache/restore`, prefix `restore-keys`) but only
+*saves* it (`actions/cache/save`, keyed on the restore step's
+`cache-primary-key` output) when the run is a push to `main`. Before this
+split, every PR push saved a fresh ~1 GB sha-suffixed cache per lane and the
+repo's 10 GB cache cap evicted everything within a few pushes — and a cache
+saved on a `refs/pull/N/merge` ref is invisible to every other PR anyway.
+So "Cache not found" on a PR is expected until `main` has completed a run
+since the last `Package.resolved` or toolchain change; check
+`gh cache list` for entries on `refs/heads/main`. Because a cancelled `main`
+run never reaches its save step, `main` runs are no longer cancelled by the
+next push (GitHub keeps one running + one pending per concurrency group).
+
 ## Related tracking issues
 
 [#646](https://github.com/Anglesite/Anglesite/issues/646),
 [#855](https://github.com/Anglesite/Anglesite/issues/855),
 [#1344](https://github.com/Anglesite/Anglesite/issues/1344),
-[#1762](https://github.com/Anglesite/Anglesite/issues/1762) are the primary
+[#1762](https://github.com/Anglesite/Anglesite/issues/1762),
+[#1865](https://github.com/Anglesite/Anglesite/issues/1865) are the primary
 "why is this lane shaped this way" issues referenced above. Reopen the
 relevant one (rather than filing fresh) if a new failure matches its
 pattern exactly; file a new issue if it's a genuinely new failure mode for
