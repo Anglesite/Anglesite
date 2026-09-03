@@ -1,6 +1,18 @@
 import AuthenticationServices
 import AnglesiteCore
 
+/// Thrown by `CloudflareOAuthSignIn.defaultPresenter` when `ASWebAuthenticationSession.start()`
+/// returns `false` — the session never presented, so any completion the session later delivers
+/// (observed in practice: `ASWebAuthenticationSessionError.canceledLogin`, #1766) is not a real
+/// user cancel. The most common cause is a Debug build signed without the Associated Domains
+/// entitlement (`com.apple.developer.associated-domains`), which `.https(host:path:)` callback
+/// matching requires; that entitlement is deliberately absent from the default ad-hoc Debug
+/// entitlements (see `Resources/Anglesite-Debug.entitlements`) because it needs a real
+/// provisioning profile.
+enum CloudflareOAuthPresentationError: Error {
+    case sessionFailedToStart
+}
+
 // `CloudflareOAuthSignIn` itself lives in AnglesiteCore (shared with the iOS connect form,
 // #891); only the macOS presenter is app-target code, because it needs AppKit anchoring.
 extension CloudflareOAuthSignIn {
@@ -15,6 +27,20 @@ extension CloudflareOAuthSignIn {
     static let defaultPresenter: Presenter = { authorizeURL in
         let contextProvider = CloudflareOAuthPresentationContext()
         return try await withCheckedThrowingContinuation { continuation in
+            // `session.start()` returning `false` and the completion handler firing are not
+            // mutually exclusive in practice (#1766: a session that fails to start due to a
+            // missing entitlement still completes with `.canceledLogin`), so both paths can race
+            // to resume this continuation. Guard so only the first — deliberately the `start()`
+            // check, since it's synchronous and therefore always wins that race — takes effect.
+            var didResume = false
+            // `Result` alone would resolve to `CloudflareOAuthSignIn.Result` (this extension's
+            // enclosing type), not the standard library's — qualify it.
+            func resume(_ result: Swift.Result<URL, Error>) {
+                guard !didResume else { return }
+                didResume = true
+                continuation.resume(with: result)
+            }
+
             let session = ASWebAuthenticationSession(
                 url: authorizeURL,
                 callback: .https(
@@ -22,15 +48,17 @@ extension CloudflareOAuthSignIn {
                     path: CloudflareOAuthConfiguration.redirectURI.path)
             ) { callbackURL, error in
                 if let error {
-                    continuation.resume(throwing: error)
+                    resume(.failure(error))
                 } else if let callbackURL {
-                    continuation.resume(returning: callbackURL)
+                    resume(.success(callbackURL))
                 } else {
-                    continuation.resume(throwing: CloudflareOAuthError.missingAuthorizationCode)
+                    resume(.failure(CloudflareOAuthError.missingAuthorizationCode))
                 }
             }
             session.presentationContextProvider = contextProvider
-            session.start()
+            if !session.start() {
+                resume(.failure(CloudflareOAuthPresentationError.sessionFailedToStart))
+            }
         }
     }
 }
