@@ -177,6 +177,48 @@ struct ContentCreationWorkflowTests {
         #expect(document?.title == "Hello Typed")
     }
 
+    @Test("successful singleton create forwards to operations and refreshes the graph")
+    func createTypedSingletonForwardsAndRefreshesGraph() async throws {
+        let root = try makeTempDir(prefix: "content-workflow")
+        let graph = SiteContentGraph()
+        let emissions = Emissions()
+        await graph.setChangeHandler { siteID in await emissions.record(siteID) }
+        var seen: (siteID: String, typeID: String, title: String)?
+        let operations = FakeCreateOperations { _, _, _ in
+            .failed(reason: "unexpected")
+        } createPost: { _, _, _, _ in
+            .failed(reason: "unexpected")
+        } createTyped: { _, _, _, _ in
+            .failed(reason: "unexpected")
+        } createTypedSingleton: { siteID, typeID, title in
+            seen = (siteID, typeID, title)
+            let relativePath = "src/data/profile.json"
+            let url = root.appendingPathComponent(relativePath)
+            try FileManager.default.createDirectory(
+                at: url.deletingLastPathComponent(),
+                withIntermediateDirectories: true
+            )
+            try "{}".write(to: url, atomically: true, encoding: .utf8)
+            return .created(filePath: relativePath, identifier: "profile")
+        }
+        let workflow = ContentCreationWorkflow(
+            operations: operations,
+            contentGraph: graph,
+            siteDirectory: { _ in root }
+        )
+
+        // A caller holding only `any ContentOperationsService` — matching how App Intents and
+        // `Bootstrap.swift` reach this workflow — must be able to create a singleton (#1799).
+        let service: any ContentOperationsService = workflow
+        let result = await service.createTypedSingleton(siteID: Self.siteID, typeID: "businessProfile", title: "Acme")
+
+        #expect(result == .created(filePath: "src/data/profile.json", identifier: "profile"))
+        #expect(seen?.siteID == Self.siteID)
+        #expect(seen?.typeID == "businessProfile")
+        #expect(seen?.title == "Acme")
+        #expect(await emissions.values == [Self.siteID])
+    }
+
     @Test("successful delete reloads content graph so the deleted page is gone")
     func deleteContentRefreshesGraph() async throws {
         let root = try writeSiteTree(prefix: "content-workflow", [
@@ -463,19 +505,23 @@ private struct FakeCreateOperations: ContentOperationsService {
     typealias PageCreate = @Sendable (String, String, String?) async throws -> ContentCreateResult
     typealias PostCreate = @Sendable (String, String, String?, String?) async throws -> ContentCreateResult
     typealias TypedCreate = @Sendable (String, String, String, String?) async throws -> ContentCreateResult
+    typealias SingletonCreate = @Sendable (String, String, String) async throws -> ContentCreateResult
 
     let createPageHandler: PageCreate
     let createPostHandler: PostCreate
     let createTypedHandler: TypedCreate
+    let createTypedSingletonHandler: SingletonCreate
 
     init(
         createPage: @escaping PageCreate,
         createPost: @escaping PostCreate,
-        createTyped: @escaping TypedCreate
+        createTyped: @escaping TypedCreate,
+        createTypedSingleton: @escaping SingletonCreate = { _, _, _ in .failed(reason: "unexpected") }
     ) {
         self.createPageHandler = createPage
         self.createPostHandler = createPost
         self.createTypedHandler = createTyped
+        self.createTypedSingletonHandler = createTypedSingleton
     }
 
     func createPage(
@@ -522,6 +568,19 @@ private struct FakeCreateOperations: ContentOperationsService {
     ) async -> ContentCreateResult {
         do {
             return try await createTypedHandler(siteID, typeID, title, slug)
+        } catch {
+            return .failed(reason: String(describing: error))
+        }
+    }
+
+    func createTypedSingleton(
+        siteID: String,
+        typeID: String,
+        title: String,
+        onProgress: ProgressHandler?
+    ) async -> ContentCreateResult {
+        do {
+            return try await createTypedSingletonHandler(siteID, typeID, title)
         } catch {
             return .failed(reason: String(describing: error))
         }
