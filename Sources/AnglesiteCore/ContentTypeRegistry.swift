@@ -42,6 +42,12 @@ public struct ContentTypeField: Sendable, Equatable {
         case image
         /// A numeric value (e.g. a review rating).
         case number
+        /// A closed set of allowed string values (e.g. RSVP status: yes/no/maybe/interested).
+        /// Backed like `.string` (`TypedContentEditor.FieldValue.text`) — the only difference is
+        /// which editor control renders it (a `Picker` over `cases`, instead of a free-text
+        /// field) and which Zod expression the template layer generates (`z.enum([...])` instead
+        /// of `z.string()`). First declared by the `rsvp` content type's `rsvp` field (#1598).
+        case `enum`(cases: [String])
         /// An ordered list of strings (e.g. tags).
         case stringArray
         /// An ordered list of site-relative media paths (e.g. album photos).

@@ -58,6 +58,13 @@ struct MicropubContentSyncTests {
         #expect(result == .records([]))
     }
 
+    @Test("fieldValue reads an .enum field as plain text, same as .string")
+    func fieldValueReadsEnumAsPlainText() {
+        let field = ContentTypeField("rsvp", .enum(cases: ["yes", "no", "maybe", "interested"]))
+        let properties: [String: [JSONValue]] = ["rsvp": [.string("yes")]]
+        #expect(MicropubContentSync.fieldValue(for: field, rawProperty: "rsvp", properties: properties) == .text("yes"))
+    }
+
     // MARK: - values(for:properties:updatedAt:slug:)
 
     private static let anUpdatedAt = 1_753_300_000
