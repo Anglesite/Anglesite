@@ -212,6 +212,31 @@ responder — is a ~60-line `NSHostingView` probe of the same
 List › OutlineGroup › TextField nesting; the click-to-focus gap is not
 reproducible that way.
 
+### Cloudflare sign-in (Publish) needs a company-team-signed build
+
+The **Connect to Cloudflare ▸ Sign in with Cloudflare** flow (#1204) runs an
+`ASWebAuthenticationSession` whose https callback is matched through the
+**Associated Domains** entitlement (`webcredentials:auth.anglesite.dwk.io`). Two consequences
+for smoke runs (#1766, #1767):
+
+- **Ad-hoc Debug builds can't sign in.** The default `Resources/Anglesite-Debug.entitlements`
+  omits Associated Domains (it needs a real provisioning profile), so the session never
+  starts — today that surfaces as a spinner that clears with no message. To exercise the
+  deploy pipeline on such a build, paste a legacy API token in **Settings ▸ Advanced ▸
+  Cloudflare API token** instead; it's read whenever no OAuth credential is connected.
+- **The team must be `M34HBJZNYA`.** Xcode refuses to provision Associated Domains / iCloud
+  for a personal team ("Personal development teams … do not support the Associated Domains
+  and iCloud capabilities"), and the callback Worker's
+  `apple-app-site-association` (`Workers/anglesite-oauth-callback/src/worker.ts`) lists the
+  app IDs under that team only. Opt in via `xcconfig/Signing-Debug.local.xcconfig`
+  (`DEVELOPMENT_TEAM = M34HBJZNYA`, `CODE_SIGN_IDENTITY = Apple Development`,
+  `ANGLESITE_DEBUG_ENTITLEMENTS = Resources/Anglesite-Debug-iCloud.entitlements`) and build
+  with `-allowProvisioningUpdates`. The Mac must be registered as a device on that team.
+- **The Worker must be deployed.** `auth.anglesite.dwk.io` is a `custom_domain` route of
+  `Workers/anglesite-oauth-callback`; `wrangler deploy` there (from the Cloudflare account
+  that owns the `dwk.io` zone) creates it. Until then the host doesn't resolve and no build
+  can complete the flow.
+
 ## Xcode MCP (optional, richer control)
 
 Xcode 27 ships an MCP server (`xcrun mcpbridge`) that gives external agents
