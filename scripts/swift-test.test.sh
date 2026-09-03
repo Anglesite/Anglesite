@@ -18,10 +18,9 @@
 #     the other holder's lock alone
 #   * ANGLESITE_TEST_LOCK_WAIT=fail exits 75 immediately while the lock is held
 #
-# Not wired into CI (nothing there contends for a model); run it locally after
-# changing swift-test.sh:  bash scripts/swift-test.test.sh
-# It is plain POSIX-ish bash + perl, so it also runs on Linux — useful for the
-# GNU-coreutils side of the timestamp case.
+# Runs in CI's linux-build-test lane (ci.yml) — plain POSIX-ish bash + perl against a
+# stubbed `swift`, so it needs no live model contention to exercise the lock/retry logic.
+# Run it locally after changing swift-test.sh:  bash scripts/swift-test.test.sh
 
 set -euo pipefail
 
