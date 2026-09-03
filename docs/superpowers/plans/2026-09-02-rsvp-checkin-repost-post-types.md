@@ -665,6 +665,9 @@ EOF
 - Test: `Resources/Template/worker/post-type-discovery.test.ts`
 - Modify: `Resources/Template/src/lib/feeds.ts`
 - Test: `Resources/Template/src/lib/feeds.test.ts`
+- Create: `Resources/Template/src/pages/checkins/{index.astro,rss.xml.ts,atom.xml.ts,feed.json.ts}` — discovered in Task 3 (see Step 19), every `FEED_COLLECTIONS` member needs these
+- Modify: `Resources/Template/src/lib/mcp-search-entries.ts`, `Resources/Template/src/lib/indiemark.ts`, `Resources/Template/scripts/microformats.ts`, `Resources/Template/src/lib/collection-index.ts`, `Resources/Template/scripts/mcp-artifact.test.ts`, `Tests/AnglesiteCoreTests/POSSESyndicationTests.swift` — same Task-3-discovered coupling, detailed in Step 19
+- Test: `Resources/Template/src/lib/collection-index.test.ts`
 
 **Interfaces:**
 - Consumes: Task 1's `.enum` plumbing is not used by check-in (its fields are `.string`/`.url`/`.markdown`) — check-in only needs Task 1's Kind-switch exhaustiveness to already be settled, which it is.
@@ -1013,16 +1016,140 @@ test("toFeedItem gives a check-in with no venueUrl an empty content fallback (no
 Run: `cd Resources/Template && npm test`
 Expected: PASS.
 
-- [ ] **Step 19: Full-suite verification**
+- [ ] **Step 19: Add the coupling Task 3 discovered isn't in the design docs — every `FEED_COLLECTIONS` member needs its own route files plus several completeness-map entries**
+
+Task 3 (RSVP) discovered, by running the *full* `npm test` (not just `test:worker`/`npm test` run individually before this point), that adding a collection to `FEED_COLLECTIONS`/`HENTRY_COLLECTIONS` alone leaves several other places out of sync — each forced by a real test failure or build error, verified in Task 3's review as faithful mirrors of the existing pattern. Do the same here for `checkins`:
+
+1. **New route files**, mirroring `src/pages/likes/*` verbatim with `likes`/`COLLECTION = "likes"` replaced by `checkins`:
+
+`Resources/Template/src/pages/checkins/index.astro`:
+```astro
+---
+import CollectionIndex from "../../components/CollectionIndex.astro";
+---
+
+<CollectionIndex collection="checkins" />
+```
+
+`Resources/Template/src/pages/checkins/rss.xml.ts`:
+```ts
+import type { APIContext } from "astro";
+import { getCollectionItems, feedAuthor, feedRsl } from "../../lib/feed-data.ts";
+import { renderRss, FEED_COLLECTIONS, siteFrom } from "../../lib/feeds.ts";
+
+const COLLECTION = "checkins";
+
+export async function GET(context: APIContext) {
+  const site = siteFrom(context);
+  return renderRss({
+    title: FEED_COLLECTIONS[COLLECTION].title,
+    description: `${FEED_COLLECTIONS[COLLECTION].title} feed`,
+    site,
+    items: await getCollectionItems(COLLECTION, site),
+    author: feedAuthor(),
+    rsl: feedRsl(site),
+  });
+}
+```
+
+`Resources/Template/src/pages/checkins/atom.xml.ts`:
+```ts
+import type { APIContext } from "astro";
+import { getCollectionItems, feedAuthor, feedRsl } from "../../lib/feed-data.ts";
+import { renderAtom, FEED_COLLECTIONS, siteFrom } from "../../lib/feeds.ts";
+
+const COLLECTION = "checkins";
+
+export async function GET(context: APIContext) {
+  const site = siteFrom(context);
+  return renderAtom({
+    title: FEED_COLLECTIONS[COLLECTION].title,
+    site,
+    feedUrl: new URL(`/${COLLECTION}/atom.xml`, site).href,
+    items: await getCollectionItems(COLLECTION, site),
+    author: feedAuthor(),
+    rsl: feedRsl(site),
+  });
+}
+```
+
+`Resources/Template/src/pages/checkins/feed.json.ts`:
+```ts
+import type { APIContext } from "astro";
+import { getCollectionItems, feedAuthor } from "../../lib/feed-data.ts";
+import { renderJsonFeed, FEED_COLLECTIONS, siteFrom } from "../../lib/feeds.ts";
+
+const COLLECTION = "checkins";
+
+export async function GET(context: APIContext) {
+  const site = siteFrom(context);
+  return renderJsonFeed({
+    title: FEED_COLLECTIONS[COLLECTION].title,
+    site,
+    feedUrl: new URL(`/${COLLECTION}/feed.json`, site).href,
+    items: await getCollectionItems(COLLECTION, site),
+    author: feedAuthor(),
+  });
+}
+```
+
+2. **`Resources/Template/src/lib/mcp-search-entries.ts`** — add to `SEARCH_FIELDS`, right after the `rsvps` entry Task 3 added:
+
+```ts
+  checkins: { dateField: "publishDate", title: (d) => (typeof d.location === "string" ? `Checked in at ${d.location}` : undefined) },
+```
+
+3. **`Resources/Template/src/lib/indiemark.ts`** — add to `POST_TYPE_LABELS`, right after `rsvps`:
+
+```ts
+  checkins: "check-ins",
+```
+
+4. **`Resources/Template/scripts/microformats.ts`** — add `"checkins"` to both `ENTRY_DIRS` and `FEED_COLLECTION_DIRS` (right after `"rsvps"` in each), and bump their doc-comment counts by one (this feeds `pre-deploy-check.ts`'s mf2-validation gate — no test forces it, but omitting it is a real gap, not cosmetic, per Task 3's review).
+
+5. **`Resources/Template/src/lib/collection-index.ts`** — `checkins`' target is `venueUrl` (optional), not `inReplyTo` — it needs its own branch in both functions, not a shared case with `replies`/`rsvps`:
+
+```ts
+    case "checkins":
+      return "u-in-reply-to";
+```
+(add to `targetClassFor`'s switch, right after the `case "replies": case "rsvps":` block)
+
+```ts
+      : collection === "checkins"
+        ? data.venueUrl
+```
+(add to `targetUrlFor`'s ternary chain, right after the `replies`/`rsvps` branch)
+
+Add matching tests to `Resources/Template/src/lib/collection-index.test.ts`, mirroring the `rsvps` tests Task 3 added:
+
+```ts
+  assert.equal(targetClassFor("checkins"), "u-in-reply-to");
+```//add to the targetClassFor test
+```ts
+test("targetUrlFor: reads venueUrl for checkins", () => {
+  assert.equal(targetUrlFor("checkins", { venueUrl: "https://example.com/venue" }), "https://example.com/venue");
+});
+```
+
+6. **`Resources/Template/scripts/mcp-artifact.test.ts`** — bump the `FEED_COLLECTIONS` count assertion by one (9→10) and its comment.
+
+7. **`Tests/AnglesiteCoreTests/POSSESyndicationTests.swift`** — the `spreadCount` assertion (counts `"...socialFields,"` occurrences across `content.config.ts` + `content-schemas.ts`) increments by one for the new `checkins` collection block: bump from `14` (Task 3's value) to `15`.
+
+**Deliberately leave untouched**, matching Task 3's scope call: `src/lib/licensing.ts`'s `NON_ASSERTING_COLLECTIONS` and `worker/gated-content.ts`'s `KNOWN_COLLECTIONS` — no completeness test forces either, and both are product decisions beyond this vertical slice.
+
+Run `cd Resources/Template && npm test` again after these additions — it should now be clean (this is what surfaces any remaining gap; Task 3's report is a strong guide but re-verify rather than assuming checkin's coupling is identical in every last detail).
+
+- [ ] **Step 20: Full-suite verification**
 
 Run: `scripts/swift-test.sh`
 Run: `cd Resources/Template && npm run test:worker && npm test`
 Expected: both PASS.
 
-- [ ] **Step 20: Commit**
+- [ ] **Step 21: Commit**
 
 ```bash
-git add Sources/AnglesiteCore/ContentTypeRegistry.swift Sources/AnglesiteCore/MicropubContentSync.swift Sources/AnglesiteIntents/ContentTypeAppEnum.swift Tests/AnglesiteCoreTests/ContentTypeRegistryTests.swift Tests/AnglesiteCoreTests/MicropubContentSyncTests.swift Resources/Template/src/content.config.ts Resources/Template/src/lib/collections.ts Resources/Template/src/layouts/Hentry.astro Resources/Template/worker/post-type-discovery.ts Resources/Template/worker/post-type-discovery.test.ts Resources/Template/src/lib/feeds.ts Resources/Template/src/lib/feeds.test.ts
+git add Sources/AnglesiteCore/ContentTypeRegistry.swift Sources/AnglesiteCore/MicropubContentSync.swift Sources/AnglesiteIntents/ContentTypeAppEnum.swift Tests/AnglesiteCoreTests/ContentTypeRegistryTests.swift Tests/AnglesiteCoreTests/MicropubContentSyncTests.swift Tests/AnglesiteCoreTests/POSSESyndicationTests.swift Resources/Template/src/content.config.ts Resources/Template/src/lib/collections.ts Resources/Template/src/layouts/Hentry.astro Resources/Template/worker/post-type-discovery.ts Resources/Template/worker/post-type-discovery.test.ts Resources/Template/src/lib/feeds.ts Resources/Template/src/lib/feeds.test.ts Resources/Template/src/pages/checkins/ Resources/Template/src/lib/mcp-search-entries.ts Resources/Template/src/lib/indiemark.ts Resources/Template/scripts/microformats.ts Resources/Template/scripts/mcp-artifact.test.ts Resources/Template/src/lib/collection-index.ts Resources/Template/src/lib/collection-index.test.ts
 git commit -m "$(cat <<'EOF'
 feat(#1598): add check-in as a publishable post type
 
@@ -1045,6 +1172,9 @@ EOF
 - Test: `Resources/Template/worker/post-type-discovery.test.ts`
 - Modify: `Resources/Template/src/lib/feeds.ts`
 - Test: `Resources/Template/src/lib/feeds.test.ts`
+- Create: `Resources/Template/src/pages/reposts/{index.astro,rss.xml.ts,atom.xml.ts,feed.json.ts}` — same Task-3-discovered coupling as Task 4, detailed in Step 16
+- Modify: `Resources/Template/src/lib/mcp-search-entries.ts`, `Resources/Template/src/lib/indiemark.ts`, `Resources/Template/scripts/microformats.ts`, `Resources/Template/src/lib/collection-index.ts`, `Resources/Template/scripts/mcp-artifact.test.ts`, `Tests/AnglesiteCoreTests/POSSESyndicationTests.swift`
+- Test: `Resources/Template/src/lib/collection-index.test.ts`
 
 **Interfaces:**
 - Consumes: nothing new from Tasks 1-2 (repost's fields are all `.url`/`.markdown`, already-plumbed kinds).
@@ -1381,21 +1511,147 @@ test("toFeedItem leaves a repost title-less and falls back to an anchor to repos
 Run: `cd Resources/Template && npm test`
 Expected: PASS.
 
-- [ ] **Step 16: Full-suite verification (whole feature)**
+- [ ] **Step 16: Add the remaining discovered coupling for `reposts`**
+
+Same gap Task 3 (RSVP) discovered and Task 4 (check-in) repeated — see either task's equivalent step for the full rationale. Do it once more for `reposts`:
+
+1. **New route files**, mirroring `src/pages/likes/*` (or Task 3/4's `rsvps`/`checkins` versions) verbatim, `COLLECTION = "reposts"`:
+
+`Resources/Template/src/pages/reposts/index.astro`:
+```astro
+---
+import CollectionIndex from "../../components/CollectionIndex.astro";
+---
+
+<CollectionIndex collection="reposts" />
+```
+
+`Resources/Template/src/pages/reposts/rss.xml.ts`:
+```ts
+import type { APIContext } from "astro";
+import { getCollectionItems, feedAuthor, feedRsl } from "../../lib/feed-data.ts";
+import { renderRss, FEED_COLLECTIONS, siteFrom } from "../../lib/feeds.ts";
+
+const COLLECTION = "reposts";
+
+export async function GET(context: APIContext) {
+  const site = siteFrom(context);
+  return renderRss({
+    title: FEED_COLLECTIONS[COLLECTION].title,
+    description: `${FEED_COLLECTIONS[COLLECTION].title} feed`,
+    site,
+    items: await getCollectionItems(COLLECTION, site),
+    author: feedAuthor(),
+    rsl: feedRsl(site),
+  });
+}
+```
+
+`Resources/Template/src/pages/reposts/atom.xml.ts`:
+```ts
+import type { APIContext } from "astro";
+import { getCollectionItems, feedAuthor, feedRsl } from "../../lib/feed-data.ts";
+import { renderAtom, FEED_COLLECTIONS, siteFrom } from "../../lib/feeds.ts";
+
+const COLLECTION = "reposts";
+
+export async function GET(context: APIContext) {
+  const site = siteFrom(context);
+  return renderAtom({
+    title: FEED_COLLECTIONS[COLLECTION].title,
+    site,
+    feedUrl: new URL(`/${COLLECTION}/atom.xml`, site).href,
+    items: await getCollectionItems(COLLECTION, site),
+    author: feedAuthor(),
+    rsl: feedRsl(site),
+  });
+}
+```
+
+`Resources/Template/src/pages/reposts/feed.json.ts`:
+```ts
+import type { APIContext } from "astro";
+import { getCollectionItems, feedAuthor } from "../../lib/feed-data.ts";
+import { renderJsonFeed, FEED_COLLECTIONS, siteFrom } from "../../lib/feeds.ts";
+
+const COLLECTION = "reposts";
+
+export async function GET(context: APIContext) {
+  const site = siteFrom(context);
+  return renderJsonFeed({
+    title: FEED_COLLECTIONS[COLLECTION].title,
+    site,
+    feedUrl: new URL(`/${COLLECTION}/feed.json`, site).href,
+    items: await getCollectionItems(COLLECTION, site),
+    author: feedAuthor(),
+  });
+}
+```
+
+2. **`Resources/Template/src/lib/mcp-search-entries.ts`** — add to `SEARCH_FIELDS`, right after `checkins`:
+
+```ts
+  reposts: { dateField: "publishDate", title: () => undefined },
+```
+
+(No derived title, matching `feeds.ts`'s `deriveTitle` decision for `reposts` — it has no title/name field.)
+
+3. **`Resources/Template/src/lib/indiemark.ts`** — add to `POST_TYPE_LABELS`, right after `checkins`:
+
+```ts
+  reposts: "reposts",
+```
+
+4. **`Resources/Template/scripts/microformats.ts`** — add `"reposts"` to both `ENTRY_DIRS` and `FEED_COLLECTION_DIRS` (right after `"checkins"`), bump the doc-comment counts once more.
+
+5. **`Resources/Template/src/lib/collection-index.ts`** — `reposts`' target is its own mf2 class, `u-repost-of` (not shared with `replies`/`rsvps`/`checkins`, which are all `u-in-reply-to`):
+
+```ts
+    case "reposts":
+      return "u-repost-of";
+```
+(add to `targetClassFor`'s switch, right after the `checkins` case)
+
+```ts
+      : collection === "reposts"
+        ? data.repostOf
+```
+(add to `targetUrlFor`'s ternary chain, right after the `checkins` branch)
+
+Add matching tests to `collection-index.test.ts`:
+
+```ts
+  assert.equal(targetClassFor("reposts"), "u-repost-of");
+```
+```ts
+test("targetUrlFor: reads repostOf for reposts", () => {
+  assert.equal(targetUrlFor("reposts", { repostOf: "https://example.com/original" }), "https://example.com/original");
+});
+```
+
+6. **`Resources/Template/scripts/mcp-artifact.test.ts`** — bump the `FEED_COLLECTIONS` count assertion by one more (10→11) and its comment.
+
+7. **`Tests/AnglesiteCoreTests/POSSESyndicationTests.swift`** — bump `spreadCount` by one more (15→16, assuming Task 4 landed first; if this task runs before Task 4, use whatever the current baseline is — the point is "one higher than before this collection's block existed," not a specific literal number).
+
+**Deliberately leave untouched**, matching Tasks 3/4's scope call: `src/lib/licensing.ts`'s `NON_ASSERTING_COLLECTIONS` and `worker/gated-content.ts`'s `KNOWN_COLLECTIONS`.
+
+Re-run `cd Resources/Template && npm test` — should be clean.
+
+- [ ] **Step 17: Full-suite verification (whole feature)**
 
 Run: `scripts/swift-test.sh` (full suite)
 Run: `cd Resources/Template && npm run test:worker && npm test`
 Run: `scripts/build-app.sh -project Anglesite.xcodeproj -scheme Anglesite -configuration Debug build`
 Expected: all PASS / BUILD SUCCEEDED.
 
-- [ ] **Step 17: Manual smoke test**
+- [ ] **Step 18: Manual smoke test**
 
 Per `docs/testing-macos-app.md`: launch the built app, open (or create) a test site, use **File ▸ New Collection Entry…**, confirm RSVP/Check-in/Repost appear in the Type picker, create one of each, verify the file lands under `Source/src/content/{rsvps,checkins,reposts}/` with valid frontmatter, and that `npm run build` (in the site's `Source/`) succeeds against the new schemas.
 
-- [ ] **Step 18: Commit**
+- [ ] **Step 19: Commit**
 
 ```bash
-git add Sources/AnglesiteCore/ContentTypeRegistry.swift Sources/AnglesiteIntents/ContentTypeAppEnum.swift Tests/AnglesiteCoreTests/ContentTypeRegistryTests.swift Tests/AnglesiteCoreTests/SocialPublishPlanTests.swift Resources/Template/src/content.config.ts Resources/Template/src/lib/collections.ts Resources/Template/src/layouts/Hentry.astro Resources/Template/worker/post-type-discovery.ts Resources/Template/worker/post-type-discovery.test.ts Resources/Template/src/lib/feeds.ts Resources/Template/src/lib/feeds.test.ts
+git add Sources/AnglesiteCore/ContentTypeRegistry.swift Sources/AnglesiteIntents/ContentTypeAppEnum.swift Tests/AnglesiteCoreTests/ContentTypeRegistryTests.swift Tests/AnglesiteCoreTests/SocialPublishPlanTests.swift Tests/AnglesiteCoreTests/POSSESyndicationTests.swift Resources/Template/src/content.config.ts Resources/Template/src/lib/collections.ts Resources/Template/src/layouts/Hentry.astro Resources/Template/worker/post-type-discovery.ts Resources/Template/worker/post-type-discovery.test.ts Resources/Template/src/lib/feeds.ts Resources/Template/src/lib/feeds.test.ts Resources/Template/src/pages/reposts/ Resources/Template/src/lib/mcp-search-entries.ts Resources/Template/src/lib/indiemark.ts Resources/Template/scripts/microformats.ts Resources/Template/scripts/mcp-artifact.test.ts Resources/Template/src/lib/collection-index.ts Resources/Template/src/lib/collection-index.test.ts
 git commit -m "$(cat <<'EOF'
 feat(#1598): add repost as a publishable post type
 
