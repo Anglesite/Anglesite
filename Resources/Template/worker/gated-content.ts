@@ -20,6 +20,7 @@ const SLUG = /^[a-z0-9-]{1,80}$/;
 const KNOWN_COLLECTIONS = new Set([
   "notes", "articles", "photos", "albums",
   "bookmarks", "likes", "replies", "events", "reviews",
+  "rsvps", "checkins", "reposts",
 ]);
 
 /**

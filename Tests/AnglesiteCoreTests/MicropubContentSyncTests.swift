@@ -58,11 +58,21 @@ struct MicropubContentSyncTests {
         #expect(result == .records([]))
     }
 
-    @Test("fieldValue reads an .enum field as plain text, same as .string")
-    func fieldValueReadsEnumAsPlainText() {
+    @Test("fieldValue accepts an .enum value that matches the vocabulary exactly")
+    func fieldValueAcceptsValidEnumValue() {
         let field = ContentTypeField("rsvp", .enum(cases: ["yes", "no", "maybe", "interested"]))
         let properties: [String: [JSONValue]] = ["rsvp": [.string("yes")]]
         #expect(MicropubContentSync.fieldValue(for: field, rawProperty: "rsvp", properties: properties) == .text("yes"))
+    }
+
+    @Test(
+        "fieldValue rejects an .enum value outside the vocabulary (wrong case or unknown value), returning nil instead of writing invalid frontmatter",
+        arguments: ["Yes", "going", ""]
+    )
+    func fieldValueRejectsInvalidEnumValue(sent: String) {
+        let field = ContentTypeField("rsvp", .enum(cases: ["yes", "no", "maybe", "interested"]))
+        let properties: [String: [JSONValue]] = ["rsvp": [.string(sent)]]
+        #expect(MicropubContentSync.fieldValue(for: field, rawProperty: "rsvp", properties: properties) == nil)
     }
 
     // MARK: - values(for:properties:updatedAt:slug:)

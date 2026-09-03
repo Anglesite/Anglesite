@@ -1,6 +1,15 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { renderMarkdownMirror, MARKDOWN_MIRROR_CONTENT_TYPE } from "./markdown-mirror.ts";
+import { ENTRY_COLLECTIONS } from "./collections.ts";
+
+test("every ENTRY_COLLECTIONS member has a mirror field mapping", () => {
+  for (const c of ENTRY_COLLECTIONS) {
+    // renderMarkdownMirror throws for an unmapped collection — this call succeeding for every
+    // member is the assertion.
+    renderMarkdownMirror({ collection: c, id: "probe", data: {}, body: "b" });
+  }
+});
 
 test("renderMarkdownMirror: blog entry gets title + date frontmatter, no tags", () => {
   const out = renderMarkdownMirror({

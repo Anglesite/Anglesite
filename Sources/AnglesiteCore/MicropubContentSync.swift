@@ -117,7 +117,7 @@ public enum MicropubContentSync {
     ) -> TypedContentEditor.FieldValue? {
         let values = properties[rawProperty] ?? []
         switch field.kind {
-        case .string, .language, .text, .url, .image, .markdown, .enum:
+        case .string, .language, .text, .url, .image, .markdown:
             let raw = values.first
             // `itemReviewed` (h-review's `item`) and check-in's `location` are conventionally
             // nested mf2 objects (h-item/h-card), not plain strings. Each reads a *different*
@@ -129,6 +129,16 @@ public enum MicropubContentSync {
                 ?? (field.name == "itemReviewed" ? nestedItemName(from: raw) : nil)
                 ?? (field.name == "location" ? nestedItemName(from: properties["checkin"]?.first) : nil)
             guard let text else { return nil }
+            return .text(text)
+        case .enum(let cases):
+            // Unlike the string-like kinds above, an `.enum` value must match the vocabulary
+            // exactly (case-sensitive) — a Micropub client can send arbitrary text (wrong case,
+            // or a value outside the vocabulary entirely), and `z.enum([...])` at the template
+            // layer would reject it, breaking the whole site's `astro build`. Treat a non-matching
+            // value the same as any other unresolvable field: return `nil` so `values(for:)`'s
+            // existing required-field fallback (skip and log the post) handles it, rather than
+            // writing an invalid value into frontmatter (#1598 review).
+            guard let text = plainText(from: values.first), cases.contains(text) else { return nil }
             return .text(text)
         // No field in the built-in registry maps a raw mf2 property to `.bool` today (`draft` is
         // special-cased in `values(for:)` below, driven by `post-status` instead) — this arm

@@ -83,7 +83,7 @@ export const FEED_COLLECTIONS: Record<string, FeedCollectionConfig> = {
 /// Resolve the absolute site base URL from an Astro endpoint context, failing loudly when
 /// `site` is unset. `astro.config.ts` always provides a fallback, so in practice this never
 /// throws — but an `Invalid`/undefined site would otherwise surface as an opaque TypeError in
-/// all 27 feed routes, so we give one clear message instead.
+/// all 36 feed routes, so we give one clear message instead.
 export function siteFrom(context: { site?: URL }): string {
   if (!context.site) {
     throw new Error(

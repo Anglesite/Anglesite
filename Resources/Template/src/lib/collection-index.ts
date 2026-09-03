@@ -17,7 +17,6 @@ export function targetClassFor(collection: string): string | undefined {
       return "u-like-of";
     case "replies":
     case "rsvps":
-      return "u-in-reply-to";
     case "checkins":
       return "u-in-reply-to";
     case "reposts":
@@ -41,14 +40,16 @@ export function targetUrlFor(collection: string, data: Record<string, unknown>):
   const raw =
     collection === "likes"
       ? data.likeOf
-      : collection === "replies" || collection === "rsvps"
+      : collection === "replies"
         ? data.inReplyTo
-        : collection === "checkins"
-          ? data.venueUrl
-          : collection === "reposts"
-            ? data.repostOf
-            : collection === "bookmarks"
-              ? data.bookmarkOf
-              : undefined;
+        : collection === "bookmarks"
+          ? data.bookmarkOf
+          : collection === "rsvps"
+            ? data.inReplyTo
+            : collection === "checkins"
+              ? data.venueUrl
+              : collection === "reposts"
+                ? data.repostOf
+                : undefined;
   return typeof raw === "string" && raw.length > 0 ? raw : undefined;
 }

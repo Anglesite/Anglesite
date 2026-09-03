@@ -27,7 +27,8 @@ const { entry } = Astro.props;
 const { Content } = await render(entry);
 // Per-collection layout. Only non-h-entry vocabularies need their own; the `collection`
 // discriminant narrows `entry` to each layout's exact CollectionEntry type, so everything
-// else (notes, articles, photos, albums, bookmarks, replies, likes, announcements) is h-entry.
+// else (notes, articles, photos, albums, bookmarks, replies, likes, rsvps, checkins, reposts,
+// announcements) is h-entry.
 ---
 
 {

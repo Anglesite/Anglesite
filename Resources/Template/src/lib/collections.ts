@@ -19,8 +19,8 @@ export type EntryCollection = (typeof ENTRY_COLLECTIONS)[number];
 /**
  * The collections whose schema declares a `tags` field (see `content.config.ts` /
  * `content-schemas.ts`) — the set `/tags/[tag]/` and `/tags/` aggregate over. `blog`, `replies`,
- * and `likes` are h-entry collections but have no `tags` field, so they're deliberately excluded
- * here even though they're in `HENTRY_COLLECTIONS` above.
+ * `likes`, `rsvps`, `checkins`, and `reposts` are h-entry collections but have no `tags` field,
+ * so they're deliberately excluded here even though they're in `HENTRY_COLLECTIONS` above.
  */
 export const TAGGED_COLLECTIONS = ["notes", "articles", "photos", "albums", "bookmarks"] as const;
 export type TaggedCollection = (typeof TAGGED_COLLECTIONS)[number];

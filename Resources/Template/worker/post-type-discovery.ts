@@ -39,9 +39,9 @@ export function discoverCollection(mf2: Mf2Object): string | null {
   if (type === "h-review") return "reviews";
   if (type !== undefined && type !== "h-entry") return null;
 
-  // Unsupported post types — these should be skipped, not miscategorized as notes/articles.
-  // Check these before supported types (e.g., in-reply-to) to prevent combinations like
-  // RSVP + in-reply-to from being miscategorized.
+  // Checked before the supported types below (bookmark-of/like-of/in-reply-to) so a combination
+  // like RSVP + in-reply-to classifies as an RSVP, not a reply. `video` is still unsupported —
+  // skipped rather than miscategorized as a note/article.
   if (hasProperty(mf2, "repost-of")) return "reposts";
   if (hasProperty(mf2, "rsvp")) return "rsvps";
   if (hasProperty(mf2, "checkin")) return "checkins";

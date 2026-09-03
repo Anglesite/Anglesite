@@ -255,7 +255,7 @@ export function validateDist(distDir: string): string[] {
     }
   }
 
-  // /timeline/ combines all eight feed collections into one h-feed page. It has no per-entry
+  // /timeline/ combines all eleven feed collections into one h-feed page. It has no per-entry
   // subpages of its own, so it isn't walked via ENTRY_DIRS above — check its single file directly.
   const timelineFile = join(distDir, "timeline", "index.html");
   const resumeFile = join(distDir, "resume", "index.html");
