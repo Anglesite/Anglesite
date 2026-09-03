@@ -216,7 +216,7 @@ reproducible that way.
 
 The **Connect to Cloudflare ▸ Sign in with Cloudflare** flow (#1204) runs an
 `ASWebAuthenticationSession` whose https callback is matched through the
-**Associated Domains** entitlement (`webcredentials:auth.anglesite.dwk.io`). Two consequences
+**Associated Domains** entitlement (`webcredentials:auth.anglesite.dwk.io`). Three consequences
 for smoke runs (#1766, #1767):
 
 - **Ad-hoc Debug builds can't sign in.** The default `Resources/Anglesite-Debug.entitlements`
