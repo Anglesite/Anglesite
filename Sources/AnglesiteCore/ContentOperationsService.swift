@@ -16,8 +16,11 @@ public protocol ContentOperationsService: Sendable {
     /// slug. Collection-stored types only — non-collection types (e.g. the `profile` identity singleton)
     /// report `.failed` — use `createTypedSingleton`.
     func createTyped(siteID: String, typeID: String, title: String, onProgress: ProgressHandler?) async -> ContentCreateResult
-    // TODO: add `createTypedSingleton` here when remote runtimes land (#66/#69). It lives only on the
-    // concrete `NativeContentOperations` today; protocol-typed call sites can't create singletons yet.
+    /// Scaffold a per-site singleton content entry (e.g. the `profile` identity). `typeID` is a
+    /// registry id whose descriptor has a `singletonSlot`; `title` seeds the name field. Singleton
+    /// types only — collection-stored types report `.failed` — use `createTyped`. Runtimes that
+    /// can't create singletons inherit the default implementation below, which reports `.failed`.
+    func createTypedSingleton(siteID: String, typeID: String, title: String, onProgress: ProgressHandler?) async -> ContentCreateResult
 }
 
 public extension ContentOperationsService {
@@ -33,6 +36,17 @@ public extension ContentOperationsService {
     /// Progress-less convenience — the requirement with `onProgress: nil`.
     func createTyped(siteID: String, typeID: String, title: String) async -> ContentCreateResult {
         await createTyped(siteID: siteID, typeID: typeID, title: title, onProgress: nil)
+    }
+    /// Progress-less convenience — the requirement with `onProgress: nil`.
+    func createTypedSingleton(siteID: String, typeID: String, title: String) async -> ContentCreateResult {
+        await createTypedSingleton(siteID: siteID, typeID: typeID, title: title, onProgress: nil)
+    }
+
+    /// Default witness for runtimes with no path to create singleton content (e.g.
+    /// `RemoteSandboxSiteRuntime`, `LocalContainerSiteRuntime`) — `NativeContentOperations` overrides
+    /// this with the real implementation.
+    func createTypedSingleton(siteID: String, typeID: String, title: String, onProgress: ProgressHandler?) async -> ContentCreateResult {
+        .failed(reason: "This runtime cannot create singleton content types")
     }
 }
 
