@@ -573,4 +573,12 @@ describe("RichTextEditor", () => {
     expect(documentListener).not.toHaveBeenCalled();
     document.removeEventListener("keydown", documentListener);
   });
+
+  describe("RichTextEditor.currentSelectionContext", () => {
+    it("returns null when there is no active block being edited", () => {
+      const engine = { modelSync: { getBlock: () => undefined }, submit: async () => {} } as any;
+      const editor = new RichTextEditor(engine);
+      expect(editor.currentSelectionContext(document)).toBeNull();
+    });
+  });
 });

@@ -239,6 +239,51 @@ export class RichTextEditor {
     return this.#activeElement;
   }
 
+  /**
+   * The current text selection's context, if one exists inside the block currently being edited
+   * (#1227 PR 2) — `null` when nothing is active, the selection is collapsed (a caret, not a
+   * range), or the selection lies outside the active element. Selection-live-behavior is exactly
+   * `toggleInlineFormat`'s own guard shape (this file, above) — same reasoning, same Selection
+   * API usage.
+   */
+  currentSelectionContext(doc: Document = document): { blockId: BlockId; range: Range; text: string } | null {
+    if (this.#activeBlockId === null || this.#activeElement === null) return null;
+    const selection = doc.getSelection();
+    if (!selection || selection.rangeCount === 0 || selection.isCollapsed) return null;
+    const range = selection.getRangeAt(0);
+    if (!this.#activeElement.contains(range.commonAncestorContainer)) return null;
+    const text = range.toString();
+    if (text.length === 0) return null;
+    return { blockId: this.#activeBlockId, range, text };
+  }
+
+  /**
+   * Replaces `range`'s live DOM content with `newText`, then re-serializes and submits an
+   * `editText` op through the same commit path typing already uses — no positional run-splicing
+   * (see plan Global Constraints): the DOM mutation plus `runsFromElement` re-serialization is
+   * the "diff." `previousRuns` is this editor's `enter()`-time baseline, same invariant `#commit()`
+   * already preserves — a version-mismatch rejection mid-flow still discards the whole pending
+   * edit in one step.
+   */
+  applyTextReplacement(range: Range, newText: string): void {
+    if (this.#activeBlockId === null || this.#activeElement === null) return;
+    range.deleteContents();
+    range.insertNode(document.createTextNode(newText));
+    // Collapse and clear the live selection so a stray leftover Range doesn't confuse the next
+    // selectionchange listener (the toolbar's own trigger, added in Task 6) into reopening itself
+    // immediately after Accept.
+    const selection = document.getSelection();
+    selection?.removeAllRanges();
+    const runs = runsFromElement(this.#activeElement);
+    void this.#engine.submit({
+      kind: "editText",
+      blockId: this.#activeBlockId,
+      runs,
+      previousRuns: this.#baselineRuns,
+    });
+    this.#baselineRuns = runs;
+  }
+
   enter(blockId: BlockId, root: ParentNode = document): void {
     // `root` exists precisely so a caller can pass another frame's Document (BreakpointCanvas), and
     // an element from another realm is not `instanceof` *this* realm's HTMLElement — an
