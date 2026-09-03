@@ -12,6 +12,13 @@ import AnglesiteCore
 @Observable
 final class ModerationModel {
     private(set) var members: [CommunityMember] = []
+    /// Members banned this session (#1742), kept so the Moderation UI has something to show an
+    /// "Unban" action against. Not persisted: a banned member's snapshot file is deleted from
+    /// `Source/` on the next `CommunityMembersSync` reconcile (see the type-level doc), so there
+    /// is nothing on disk to reload this from after the window closes — same as `members`/`posts`,
+    /// this is only ever populated by ``ban(_:)`` running in the current session, and
+    /// ``reload()`` reconciles it against whatever the snapshot scan just found.
+    private(set) var bannedMembers: [CommunityMember] = []
     private(set) var posts: [AnnouncedPost] = []
     private(set) var moderators: [String] = []
     private(set) var pendingFollowers: [PendingFollower] = []
@@ -86,6 +93,10 @@ final class ModerationModel {
         members = await loadedMembers
         posts = await loadedPosts
         pendingFollowers = await loadedPending
+        // A member banned in-app and then restored some other way (direct Worker/git access,
+        // another Anglesite session) would otherwise show up in both lists at once.
+        let currentMemberIDs = Set(members.map(\.id))
+        bannedMembers.removeAll { currentMemberIDs.contains($0.id) }
     }
 
     /// Fetches pending join requests from this site's own Worker
@@ -145,6 +156,7 @@ final class ModerationModel {
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
         try await client.remove(target: member.actorURL)
         members.removeAll { $0.id == member.id }
+        bannedMembers.append(member)
     }
 
     func confirmBan() async {
@@ -152,6 +164,26 @@ final class ModerationModel {
         banConfirmation = nil
         do { try await ban(member) }
         catch { errorMessage = "Couldn't ban \(member.name ?? member.actorURL.absoluteString): \(error.localizedDescription)" }
+    }
+
+    /// Reverses a ban (#1742) — posts `Add` (``CommunityMembershipClient/add(target:)``, the AS2
+    /// inverse of the `Remove` ``ban(_:)`` sends) and moves the member back from
+    /// ``bannedMembers`` to ``members``. No confirmation dialog: same "not destructive, and a bad
+    /// call is reversible via the existing ban action" rationale ``approve(_:)`` and
+    /// ``addModerator(_:)`` already use.
+    func unban(_ member: CommunityMember) async {
+        guard let ownActorURL, let publishToken else {
+            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            return
+        }
+        let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
+        do {
+            try await client.add(target: member.actorURL)
+            bannedMembers.removeAll { $0.id == member.id }
+            members.append(member)
+        } catch {
+            errorMessage = "Couldn't unban \(member.name ?? member.actorURL.absoluteString): \(error.localizedDescription)"
+        }
     }
 
     /// Confirms a pending join request. No confirmation dialog (unlike ``ban(_:)``/

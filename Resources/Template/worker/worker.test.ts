@@ -1698,7 +1698,7 @@ test("micropub-to-activitypub fan-out: an html-only mf2 rich-text content object
   expect(outboxPage.orderedItems?.some((item) => item.object?.content?.includes("Hello, html-only fediverse"))).toBe(true);
 });
 
-type FanOutAttachment = { type?: string; url?: string; name?: string };
+type FanOutAttachment = { type?: string; url?: string; name?: string; mediaType?: string };
 type FanOutOutboxItem = { object?: { content?: string; attachment?: FanOutAttachment[] } };
 
 test("micropub-to-activitypub fan-out (#1240): a JSON create with photos lands a Note carrying the expected attachment array", async () => {
@@ -1729,8 +1729,8 @@ test("micropub-to-activitypub fan-out (#1240): a JSON create with photos lands a
   const outboxPage = await outboxPageResponse.json() as { orderedItems?: FanOutOutboxItem[] };
   const published = outboxPage.orderedItems?.find((item) => item.object?.content?.includes("A photo for Pixelfed"));
   expect(published?.object?.attachment).toEqual([
-    { type: "Image", url: "https://media.example/plain.jpg" },
-    { type: "Image", url: "https://media.example/alt.jpg", name: "A view" },
+    { type: "Image", url: "https://media.example/plain.jpg", mediaType: "image/jpeg" },
+    { type: "Image", url: "https://media.example/alt.jpg", mediaType: "image/jpeg", name: "A view" },
   ]);
 });
 
@@ -1757,6 +1757,48 @@ test("micropub-to-activitypub fan-out (#1240): a photo-less JSON create publishe
   const outboxPage = await outboxPageResponse.json() as { orderedItems?: FanOutOutboxItem[] };
   const published = outboxPage.orderedItems?.find((item) => item.object?.content?.includes("No photo here"));
   expect(published?.object?.attachment).toBeUndefined();
+});
+
+test("micropub-to-activitypub fan-out (#1770): each Image attachment carries a mediaType derived from the photo URL's extension, omitted when unknown", async () => {
+  // Pixelfed's inbox validator requires `mediaType` on every attachment (`required|in(media_types)`),
+  // so a Note whose Image attachments carry only `url` is silently dropped — the very outcome
+  // #1240 set out to fix. The mf2 `photo` value is a bare URL, so the MIME type comes from its
+  // extension; an unrecognized extension omits the field rather than guessing.
+  const { token, keyPair } = await mintAccessToken("create");
+  const url = "https://owner.example/micropub";
+  const ctx = createExecutionContext();
+  const createResponse = await worker.fetch(new Request(url, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      authorization: `DPoP ${token}`,
+      DPoP: await dpopProof(url, "POST", keyPair, token),
+    },
+    body: JSON.stringify({
+      type: ["h-entry"],
+      properties: {
+        content: ["Typed attachments for Pixelfed"],
+        photo: [
+          "https://media.example/pipeline.webp",
+          "https://media.example/Upper.PNG?w=1200#hero",
+          { value: "https://media.example/phone.heic", alt: "From my phone" },
+          "https://media.example/opaque-id",
+        ],
+      },
+    }),
+  }), testEnv, ctx);
+  expect(createResponse.status).toBe(201);
+  await waitOnExecutionContext(ctx);
+
+  const outboxPageResponse = await fetchWorker(new Request("https://owner.example/users/site/outbox?page=1"));
+  const outboxPage = await outboxPageResponse.json() as { orderedItems?: FanOutOutboxItem[] };
+  const published = outboxPage.orderedItems?.find((item) => item.object?.content?.includes("Typed attachments for Pixelfed"));
+  expect(published?.object?.attachment).toEqual([
+    { type: "Image", url: "https://media.example/pipeline.webp", mediaType: "image/webp" },
+    { type: "Image", url: "https://media.example/Upper.PNG?w=1200#hero", mediaType: "image/png" },
+    { type: "Image", url: "https://media.example/phone.heic", mediaType: "image/heic", name: "From my phone" },
+    { type: "Image", url: "https://media.example/opaque-id" },
+  ]);
 });
 
 test("micropub-to-activitypub fan-out (#1240, #1325 review): a photo-only create with no caption still fans out", async () => {
@@ -1787,7 +1829,7 @@ test("micropub-to-activitypub fan-out (#1240, #1325 review): a photo-only create
     item.object?.attachment?.some((attachment) => attachment.url === "https://media.example/caption-less.jpg"),
   );
   expect(published?.object?.attachment).toEqual([
-    { type: "Image", url: "https://media.example/caption-less.jpg" },
+    { type: "Image", url: "https://media.example/caption-less.jpg", mediaType: "image/jpeg" },
   ]);
 });
 
@@ -1816,8 +1858,8 @@ test("micropub-to-activitypub fan-out (#1240): a form-encoded create with photo 
   const outboxPage = await outboxPageResponse.json() as { orderedItems?: FanOutOutboxItem[] };
   const published = outboxPage.orderedItems?.find((item) => item.object?.content?.includes("Form-encoded photo post"));
   expect(published?.object?.attachment).toEqual([
-    { type: "Image", url: "https://media.example/form-a.jpg" },
-    { type: "Image", url: "https://media.example/form-b.jpg" },
+    { type: "Image", url: "https://media.example/form-a.jpg", mediaType: "image/jpeg" },
+    { type: "Image", url: "https://media.example/form-b.jpg", mediaType: "image/jpeg" },
   ]);
 });
 
@@ -1848,7 +1890,7 @@ test("micropub-to-activitypub fan-out (#1240, #1325 review): a form-encoded crea
   const outboxPage = await outboxPageResponse.json() as { orderedItems?: FanOutOutboxItem[] };
   const published = outboxPage.orderedItems?.find((item) => item.object?.content?.includes("Nested-properties photo post"));
   expect(published?.object?.attachment).toEqual([
-    { type: "Image", url: "https://media.example/nested.jpg" },
+    { type: "Image", url: "https://media.example/nested.jpg", mediaType: "image/jpeg" },
   ]);
 });
 

@@ -311,11 +311,22 @@ public struct ContainerizationControl: LocalContainerControl {
         // from `siteID` rather than the display name so it's stable across renames (restarts
         // reuse the same Miniflare state) and unique per site (a lowercased UUID still is).
         let workerName = WorkerSiteName.derive(from: siteID)
-        let toml = try WorkerComposition.generateWranglerToml(siteName: workerName, workers: workers)
+        // #1774: this config is composed for the ephemeral local-dev location below
+        // (/tmp/anglesite-workers-dev/<siteID>), which is deliberately outside /workspace/site —
+        // so its relative path fields (main, [assets].directory, migrations_dir) can never
+        // resolve against wrangler's own rule of "relative to the config file's directory".
+        // `projectRoot` roots them at the real site checkout instead.
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: workerName, workers: workers, projectRoot: "/workspace/site")
         let configDir = "/tmp/anglesite-workers-dev/\(siteID)"
         let configPath = "\(configDir)/wrangler.toml"
+        // wrangler refuses to start unless `[assets].directory` exists on disk, even though local
+        // dev never actually serves through it — the live preview goes straight to Astro's own
+        // dev server (astro-dev's :4321, wired up separately), not through this Worker's ASSETS
+        // binding. `astro build` (which populates the real `dist/`) only ever runs at deploy
+        // time, so an empty placeholder is exactly what a dev session needs here.
         try await runToCompletion(container, id: "workers-dev-mkdir", onOutput: onOutput,
-            ["mkdir", "-p", configDir])
+            ["mkdir", "-p", configDir, "/workspace/site/dist"])
         try await writeGuestFile(container, path: configPath, contents: toml, onOutput: onOutput)
 
         let launcher = LinuxContainerProcessLauncher(container: container)

@@ -5,9 +5,9 @@
 
 /// Apple App Site Association document. `webcredentials` is the service
 /// `ASWebAuthenticationSession`'s `.https(host:path:)` callback matching requires;
-/// each entry is `<Team ID>.<bundle ID>`: the iOS app (#891) and the macOS app (#1204,
-/// #1767). Both must be signed with team M34HBJZNYA — a personal team can't hold the
-/// Associated Domains capability, so ad-hoc/personal-team Debug builds never match here.
+/// each entry is `<Team ID>.<bundle ID>`. The macOS app must be signed with the
+/// `M34HBJZNYA` company team — Associated Domains isn't available to personal teams
+/// (#1767) — so a personal-team Debug build can't complete this callback match.
 const APPLE_APP_SITE_ASSOCIATION = {
   webcredentials: {
     apps: ["M34HBJZNYA.io.dwk.anglesite.ios", "M34HBJZNYA.io.dwk.anglesite"],

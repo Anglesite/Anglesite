@@ -279,6 +279,17 @@ public enum WorkerComposition {
     ///     composes a Worker, claims `/mcp` in `[assets].run_worker_first` via `mcpRouteClaim`, and
     ///     emits the `SOCIAL_KV` `[[kv_namespaces]]` binding the site's MCP rate limiter needs.
     ///     Defaults to `false` (inert).
+    ///   - projectRoot: Absolute guest path the composed file's `main`, `[assets].directory`, and
+    ///     `migrations_dir` fields are rooted at, or `nil` (default) to leave them relative to the
+    ///     wrangler.toml's own location — wrangler's normal resolution and what the deploy path
+    ///     wants, since it writes its config inside the site root. The local-dev path (#1774)
+    ///     writes its ephemeral config *outside* the site tree
+    ///     (`/tmp/anglesite-workers-dev/<siteID>/wrangler.toml`, `ContainerizationControl
+    ///     .startWorkersDev`) so a transient session can never dirty the site's real, git-tracked
+    ///     config — but that means wrangler, which resolves every relative path field against the
+    ///     config file's own directory (not the process's CWD), can never find the real
+    ///     `worker/worker.ts` at `/workspace/site` with a bare relative path. Pass
+    ///     `"/workspace/site"` there to root every such field absolutely instead.
     /// - Returns: A complete wrangler.toml string.
     /// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` fails wrangler's lowercase
     ///   `name` rule, ``ConfigError/invalidR2BucketName(_:)`` if an emitted `bucket_name` fails
@@ -298,7 +309,8 @@ public enum WorkerComposition {
         moderators: [String]? = nil,
         apUsername: String? = nil,
         experiments: [DomainConfig.Experiments.Experiment] = [],
-        mcpEnabled: Bool = false
+        mcpEnabled: Bool = false,
+        projectRoot: String? = nil
     ) throws -> String {
         guard isValidSiteName(siteName) else {
             throw ConfigError.invalidSiteName(siteName)
@@ -389,11 +401,11 @@ public enum WorkerComposition {
         // running experiment gets a Worker for exactly its paths and nothing else (design §3).
         let composesWorker = hasSocialFeatures || inboxCaptureEnabled || hasRunningExperiment || mcpEnabled
         if composesWorker {
-            lines.append("main = \"worker/worker.ts\"")
+            lines.append("main = \"\(rooted("worker/worker.ts", projectRoot: projectRoot))\"")
         }
         lines.append("")
         lines.append("[assets]")
-        lines.append("directory = \"dist\"")
+        lines.append("directory = \"\(rooted("dist", projectRoot: projectRoot))\"")
         if composesWorker {
             lines.append("binding = \"ASSETS\"")
             var patterns = Set(WorkerRouteClaims.runWorkerFirstPatterns(effectiveClaims))
@@ -426,7 +438,7 @@ public enum WorkerComposition {
             lines.append("[[d1_databases]]")
             lines.append("binding = \"EXPERIMENTS_DB\"")
             lines.append("database_name = \"\(siteName)-social\"")
-            lines.append("migrations_dir = \"worker/migrations\"")
+            lines.append("migrations_dir = \"\(rooted("worker/migrations", projectRoot: projectRoot))\"")
             if let id = resources.d1DatabaseID, !id.isEmpty {
                 lines.append("database_id = \"\(id)\"")
             } else {
@@ -441,7 +453,7 @@ public enum WorkerComposition {
             lines.append("[[d1_databases]]")
             lines.append("binding = \"AUTH_DB\"")
             lines.append("database_name = \"\(siteName)-social\"")
-            lines.append("migrations_dir = \"worker/migrations\"")
+            lines.append("migrations_dir = \"\(rooted("worker/migrations", projectRoot: projectRoot))\"")
             if let id = resources.d1DatabaseID, !id.isEmpty {
                 lines.append("database_id = \"\(id)\"")
             } else {
@@ -756,6 +768,15 @@ public enum WorkerComposition {
     /// name that would fail here never reaches `.site-config`/`wrangler.toml` either.
     static func isValidSiteName(_ siteName: String) -> Bool {
         WorkerSiteName.isValidWorkerName(siteName)
+    }
+
+    /// `relativePath` unchanged when `projectRoot` is `nil` (the deploy path's normal, wrangler-
+    /// relative-to-the-config-file resolution); otherwise `projectRoot` joined to it with exactly
+    /// one `/`, so a caller-supplied trailing slash on `projectRoot` never doubles up (#1774).
+    static func rooted(_ relativePath: String, projectRoot: String?) -> String {
+        guard let projectRoot else { return relativePath }
+        let trimmed = projectRoot.hasSuffix("/") ? String(projectRoot.dropLast()) : projectRoot
+        return "\(trimmed)/\(relativePath)"
     }
 
     /// Whether `value` is safe to interpolate as-is into a TOML basic string (`"..."`) — no

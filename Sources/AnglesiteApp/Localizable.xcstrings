@@ -766,6 +766,9 @@
     "Ban this member?" : {
 
     },
+    "Banned" : {
+
+    },
     "Base URL" : {
 
     },
@@ -2524,6 +2527,9 @@
     "No anglesite-lan-host instances found on the local network." : {
 
     },
+    "No banned members." : {
+
+    },
     "No changes needed." : {
 
     },
@@ -4155,6 +4161,9 @@
 
     },
     "Unavailable — newer edits have been made since" : {
+
+    },
+    "Unban" : {
 
     },
     "Underline" : {

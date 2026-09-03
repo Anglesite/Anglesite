@@ -102,6 +102,22 @@ public struct CommunityMembershipClient: Sendable {
         _ = try await post(body)
     }
 
+    /// Un-bans a member — the AS2 inverse of ``remove(target:)``'s ban effect (#1742): same
+    /// bearer-`publishToken`-to-`/outbox` POST, same bare-actor-IRI `object` shape, just `"Add"`
+    /// instead of `"Remove"`. Unlike `remove(target:)` this has only one moderation effect (there
+    /// is no "un-remove a post" concept to disambiguate), so there's no risk of the Worker
+    /// resolving `object` against the wrong collection the way a hypothetical generic "Undo"
+    /// might.
+    public func add(target: URL) async throws {
+        let body: [String: Any] = [
+            "@context": "https://www.w3.org/ns/activitystreams",
+            "type": "Add",
+            "actor": ownActorURL.absoluteString,
+            "object": target.absoluteString,
+        ]
+        _ = try await post(body)
+    }
+
     /// Confirms a pending join request — the owner-triggered half of workers#473's `Accept`
     /// routing, which already ships in `dwk-server-v1.0.0-beta.3`. Same shorthand `object` shape
     /// as ``remove(target:)``: a bare actor IRI, which the Worker's `#singleFollowTarget` resolves

@@ -158,13 +158,20 @@ canonical handle, so stale references resolve rather than 404.
 
 What each platform's users see is a function of the AS2 objects the actor publishes:
 
-| Platform | Follows a `Person`? | Renders |
-|---|---|---|
-| Mastodon, Misskey/*key, Threads | yes | `Note`; `Article` as title+link |
-| Pixelfed | yes | **only posts with media attachments** ([Fedi.Tips](https://fedi.tips/pixelfed-photo-sharing-on-the-fediverse/)) |
-| Friendica | yes | nearly everything |
-| Lemmy / PieFed / Mbin | no (groups only) | `Page` announced into a `Group` — already the v5 Communities path |
-| PeerTube | yes | `Video` only |
+| Platform | Follows a `Person`? | Renders | Checked (#1241) |
+|---|---|---|---|
+| Mastodon, Threads | yes | `Note`; `Article` as title+link | live (prior) |
+| Misskey / *key forks | yes | `Note` (HTML → MFM); images need only a `url` | static |
+| Pixelfed | yes | **only posts with media attachments** ([Fedi.Tips](https://fedi.tips/pixelfed-photo-sharing-on-the-fediverse/)) — and only when each attachment carries a `mediaType` in the instance's allow-list (default: JPEG/PNG/GIF, **no WebP**) | static |
+| Friendica | yes | nearly everything; repairs a missing `mediaType` by fetching the URL | static |
+| Pleroma / Akkoma | yes | `Note` | Akkoma static; Pleroma inferred |
+| Lemmy / PieFed / Mbin | no (groups only) | `Page` announced into a `Group` — already the v5 Communities path | out of scope |
+| PeerTube | yes | `Video` only | out of scope |
+
+*Corrected 2026-09-02 from the static conformance pass — see
+[`2026-09-02-fediverse-interop-conformance.md`](2026-09-02-fediverse-interop-conformance.md) for
+the per-platform evidence, the exact actor/Note shapes checked, and the live runbook that turns
+"static" into "live".*
 
 The one concrete defect this table exposes: the Micropub→AP fan-out builds a bare `Note`
 from `content` only — it drops Micropub's `photo` property, so **a Pixelfed follower of an
@@ -224,10 +231,15 @@ handles like `@photos@example.com`, never as the primary identity splitting.
   Mastodon still serves it). Verify whether `@dwk/webfinger` answers it; if not, a tiny
   XRD pointer is a candidate addition *in that package*, entering the well-known claim
   inventory like any other feature route.
-- **Strict-validator interop:** dotted `preferredUsername` is proven against Mastodon,
-  Pixelfed, and Threads; sweep Pleroma/Akkoma behavior during the conformance pass below.
-- **Interop conformance pass:** follow + render verification of the actor from Pixelfed,
-  Friendica, and Misskey (not just Mastodon), documenting what each platform's users see.
+- **Strict-validator interop:** dotted `preferredUsername` is proven live against Mastodon,
+  Pixelfed, and Threads, and statically against Misskey/Sharkey (`/^\w([\w-.]*\w)?$/`, ≤128),
+  Pixelfed, Friendica, and Akkoma (#1241,
+  [conformance doc](2026-09-02-fediverse-interop-conformance.md)). Pleroma is inferred from
+  Akkoma's shared validator until the live sweep runs.
+- **Interop conformance pass (#1241):** the static half is done; it found that the #1240 photo
+  fan-out omits `mediaType`, which Pixelfed requires, and that the actor lacks `icon`/`url`.
+  The live follow + render half (Pixelfed, Friendica, Misskey) is scripted in the conformance
+  doc's runbook and still needs accounts on those platforms.
 
 ## Proposed issue decomposition
 
