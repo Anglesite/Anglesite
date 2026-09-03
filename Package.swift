@@ -418,7 +418,7 @@ packageDependencies.append(
 )
 
 #if canImport(Darwin)
-// Anglesite's patched fork of mbernson/SwiftGit2 — see #640 and Spikes/GitPackageSpike. Pinned
+// Anglesite's patched fork of mbernson/SwiftGit2 — see #640. Pinned
 // to a commit rather than a tag or branch: SwiftGit2 upstream has no tagged SPM release yet, and
 // pinning to anglesite/main's tip would silently pick up unreviewed future commits. Bump
 // deliberately.

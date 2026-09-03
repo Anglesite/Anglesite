@@ -2,7 +2,7 @@
 
 > **Status:** in progress. Scaffold + local image validation done; live Cloudflare
 > measurements pending (need the account's Containers/Sandbox + a browser for HMR).
-> Spike code: [`Spikes/CloudflareSandboxSpike/`](../../Spikes/CloudflareSandboxSpike/).
+> Spike code: `Spikes/CloudflareSandboxSpike/` (deleted once its findings landed here — see #1802).
 > Part of #59 · feeds **Q-D** (image distribution) and **#5b** (cold-start strategy).
 
 Throwaway spike to prove the **remote substrate** end-to-end: run the shared OCI image
@@ -11,7 +11,7 @@ desktop browser, and measure. No app changes.
 
 ## Setup as built
 
-- **Worker + `@cloudflare/sandbox` 0.12.1** drives one sandbox (`Spikes/CloudflareSandboxSpike/`).
+- **Worker + `@cloudflare/sandbox` 0.12.1** drives one sandbox (formerly `Spikes/CloudflareSandboxSpike/`, since deleted).
 - **Image** = canonical Anglesite image (#62) + the Cloudflare `/sandbox` init binary
   (`docker.io/cloudflare/sandbox:0.12.1`) + `cloudflared`. Pinned the sandbox version in
   `container/Dockerfile.cloudflare` (was the `:latest` TODO #61 owned).
