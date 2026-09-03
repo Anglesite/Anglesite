@@ -16,4 +16,10 @@
 # real wall-clock budgets (a Task.sleep-raced response timeout; an unstructured-Task
 # reindex poll) and were seen missing those budgets under build-test's full-parallel
 # scheduler contention — the same class of flake #1344 isolated this lane for.
-export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LANHostScanCoordinatorTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests'
+#
+# ProcessSupervisorShutdownTests (#1602 CI run): its `awaitMarker` helper spawns a real
+# `/bin/sh` child and polls `LogCenter` for a startup marker against a hard 10s
+# `ContinuousClock` deadline — seen missing that budget (3 tests, `Expectation failed:
+# await awaitMarker("__STARTED__", in: center)`) under build-test's full-parallel
+# scheduler contention, unrelated to the PR's actual diff. Same class of flake as above.
+export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LANHostScanCoordinatorTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests|ProcessSupervisorShutdownTests'

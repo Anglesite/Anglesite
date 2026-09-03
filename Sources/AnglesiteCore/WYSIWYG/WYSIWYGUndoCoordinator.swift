@@ -3,26 +3,36 @@
 #if canImport(Darwin)
 import Foundation
 
+/// What a `WYSIWYGUndoCoordinator.Performer` reports back after replaying one `WYSIWYGReversal`.
+public enum WYSIWYGPerformOutcome: Sendable {
+    /// The replay was refused (e.g. a version-mismatch conflict) — nothing changed.
+    case rejected
+    /// The replay landed. `freshInverse`, when non-nil, is the accurate reversal of what was
+    /// just performed — computed by the transport against the post-write tree (#1602 item 2).
+    /// `nil` means the transport has no better answer than the client-computed guess already
+    /// registered as the next undo/redo step (e.g. `StubWYSIWYGHostTransport`, or the rare op
+    /// family the sidecar doesn't compute an inverse for) — the existing optimistic registration
+    /// is left as-is in that case.
+    case applied(freshInverse: WYSIWYGReversal?)
+}
+
 /// Bridges applied WYSIWYG ops into a window's `UndoManager` with **real redo** — unlike
 /// `EditUndoCoordinator` (git-revert LIFO, no redo), every op ships its own inverse (spec §3.2),
 /// so undoing an action re-registers the forward op as the next redo/undo step: standard
 /// `UndoManager` usage for a redo-capable client.
 @MainActor
 public final class WYSIWYGUndoCoordinator {
-    /// Applies one op against the live canvas — the injected effect side. Typically
-    /// `WYSIWYGCanvasController.submit(_:)`'s non-notifying twin (see that type's doc for why it
-    /// must not be `submit(_:)` itself), awaited to completion and collapsed to whether the op
-    /// actually landed (`true`) or was rejected (`false`, e.g. a version-mismatch conflict). The
-    /// `Bool` return is load-bearing: `register(op:redoOp:)` rolls back its *optimistic*
-    /// registration of the opposite direction when this reports `false`, so a rejected op doesn't
-    /// leave a stale, now-wrong undo/redo step on the stack (a real document round trip, not a
-    /// same-thread revert — see `EditUndoCoordinator` for the analogous "failure re-arms instead
-    /// of pretending it happened" policy).
-    public typealias Performer = @MainActor (Op) async -> Bool
+    /// Replays one reversal step against the live canvas — the injected effect side. Typically
+    /// `WYSIWYGCanvasController.apply(_:)` — `submit(_:)`'s non-notifying twin (see that type's
+    /// doc for why this must not be `submit(_:)` itself), awaited to completion. See
+    /// `WYSIWYGPerformOutcome` for what the return value drives: `register`'s optimistic
+    /// re-registration is corrected on `.applied(freshInverse:)` and rolled back entirely on
+    /// `.rejected`.
+    public typealias Performer = @MainActor (WYSIWYGReversal) async -> WYSIWYGPerformOutcome
 
     /// The focused window's undo manager. Weak: the window owns it.
     ///
-    /// Deliberately **not** captured by `register(op:redoOp:)`'s registration closure — the
+    /// Deliberately **not** captured by `register(step:redoStep:)`'s registration closure — the
     /// closure re-reads this property each time it needs the manager instead. Capturing the
     /// `UndoManager` instance directly in the closure would create a retain cycle: the closure is
     /// itself held by that same `UndoManager`'s undo stack, and since every fire re-registers the
@@ -36,22 +46,50 @@ public final class WYSIWYGUndoCoordinator {
     /// comment, so it's identical across every debounced commit in that session), and `Token` —
     /// used by `registerApplied(op:inverse:)` to coalesce a burst of same-session debounced
     /// commits into a single undo entry ("typing coalescing"; #1225 final-review fix wave, Finding
-    /// 5). Cleared the instant an undo/redo actually fires (`register(op:redoOp:)`'s handler
+    /// 5). Cleared the instant an undo/redo actually fires (`register(step:redoStep:)`'s handler
     /// below), so coalescing never crosses that boundary.
     private var lastEditTextRegistration: (blockId: BlockId, previousRuns: [RichTextRun], token: Token)?
 
-    /// Per-registration marker object, one per call to `register(op:redoOp:)`. `UndoManager`
+    /// Per-registration marker object, one per call to `register(step:redoStep:)`. `UndoManager`
     /// doesn't retain targets, so each token is kept alive for exactly as long as its stack entry
     /// exists by its own handler capturing it strongly (see `EditUndoCoordinator.Token` for the
     /// identical rationale). A *unique* token per registration — rather than reusing `self` as
     /// the target — is what makes one specific registration selectively removable via
     /// `removeAllActions(withTarget:)` without discarding every other pending undo/redo step for
-    /// this coordinator; see `register(op:redoOp:)`'s rollback path.
-    private final class Token {}
+    /// this coordinator; see `register(step:redoStep:)`'s rollback path.
+    private final class Token {
+        /// Set only when `perform` reports a `freshInverse` for the reversal THIS token's own
+        /// registration performs (see `register(step:redoStep:)`'s `.applied(freshInverse:)`
+        /// handling) — read by that same registration's handler in place of its originally
+        /// captured `step`, the next time (and every time) it fires.
+        ///
+        /// This indirection exists because a correction can't take effect by removing this
+        /// registration and creating a fresh one in its place, the seemingly obvious approach:
+        /// `perform`'s result — and so the correction — is only known after an `await`, by which
+        /// point `isUndoing`/`isRedoing` have already reverted to `false` (see
+        /// `register(step:redoStep:)`'s doc comment on why the *optimistic* registration itself
+        /// must happen synchronously, before any `await`, for the identical reason). A
+        /// `registerUndo` call made post-`await` therefore always lands on whichever stack is
+        /// current default (i.e. the undo stack) — verified empirically: correcting a
+        /// redo-stack registration this way silently left `canRedo == false` instead of `true`.
+        /// Mutating this field instead changes nothing about *when* the correction takes effect,
+        /// only *which* reversal the already-correctly-placed registration performs — and that
+        /// registration's handler only ever runs from inside a live `undo()`/`redo()` call, where
+        /// the ambient flags are accurate again.
+        ///
+        /// Narrow race window: if the opposite undo/redo direction fires again before this
+        /// registration's still-in-flight `pendingPerform` `Task` completes and writes here, the
+        /// correction is silently dropped — the next fire in this direction performs the
+        /// already-stale captured `step` instead. This degrades safely rather than corrupting
+        /// anything: the sidecar refuses the stale replay as a version mismatch (surfaced via
+        /// `.rejected`, logged and rolled back like any other rejection), it just doesn't self-heal
+        /// the way a non-racing fire would.
+        var correctedStep: WYSIWYGReversal?
+    }
 
     /// The in-flight `perform` spawned by the most recent undo/redo fire. Exposed for tests
     /// (and any other caller that needs to observe completion), which `await` it to see the
-    /// conditional-registration-rollback behavior deterministically — mirrors
+    /// conditional-registration-rollback/-correction behavior deterministically — mirrors
     /// `EditUndoCoordinator.pendingPerform`.
     private(set) var pendingPerform: Task<Void, Never>?
 
@@ -64,7 +102,14 @@ public final class WYSIWYGUndoCoordinator {
     /// `fireOpApplied`), right after a real, already-confirmed success —
     /// this entry point never calls `perform` itself, it only records the step. No-op when no
     /// `undoManager` is attached.
-    public func registerApplied(op: Op, inverse: Op) {
+    ///
+    /// `op` stays a plain `Op` — it's the forward direction the user just successfully submitted
+    /// against an in-sync model, so its embedded ids are valid at the moment of registration (no
+    /// id-drift concern there). `inverse` is a `WYSIWYGReversal` because the UNDO direction is
+    /// exactly where #1602 item 2's id-drift bug lives: whenever the applying transport reported a
+    /// server-computed `WireInverse` (Task 5), the caller passes `.wire(_:)` here instead of
+    /// `.op(WYSIWYGOpInverter.invert(op))`.
+    public func registerApplied(op: Op, inverse: WYSIWYGReversal) {
         // Typing coalescing (design doc; #1225 final-review fix wave, Finding 5): without this, a
         // long typing session emitted one undo entry per debounced commit, every one of them
         // sharing the SAME `enter()`-time baseline as `previousRuns` — so N stacked undo entries
@@ -91,7 +136,7 @@ public final class WYSIWYGUndoCoordinator {
            let last = lastEditTextRegistration, last.blockId == blockId, last.previousRuns == previousRuns {
             undoManager?.removeAllActions(withTarget: last.token)
         }
-        let token = register(op: inverse, redoOp: op)
+        let token = register(step: inverse, redoStep: .op(op))
         if case .editText(let blockId, _, let previousRuns) = op, let token {
             lastEditTextRegistration = (blockId, previousRuns, token)
         } else {
@@ -99,9 +144,9 @@ public final class WYSIWYGUndoCoordinator {
         }
     }
 
-    /// Registers `op` as the action a future `undo()`/`redo()` performs. When it fires:
+    /// Registers `step` as the action a future `undo()`/`redo()` performs. When it fires:
     ///
-    /// 1. **Synchronously**, before any `await`, re-registers `redoOp` as the next step in the
+    /// 1. **Synchronously**, before any `await`, re-registers `redoStep` as the next step in the
     ///    opposite direction (optimistically — see below). This has to happen synchronously:
     ///    `UndoManager.registerUndo` decides whether a registration lands on the undo or redo
     ///    stack from `isUndoing`/`isRedoing` *at the moment it's called*, and both flags revert to
@@ -111,10 +156,21 @@ public final class WYSIWYGUndoCoordinator {
     ///    lands the registration on the wrong stack in practice — verified empirically: with that
     ///    ordering, `canRedo` never becomes `true` after an undo, in both a bare synchronous
     ///    `Performer` and the real `WYSIWYGCanvasController`-backed one.
-    /// 2. Only *then* asynchronously calls `perform(op)` — the actual document mutation. If it
-    ///    reports the op didn't land, the optimistic registration from step 1 is now describing a
-    ///    step that never happened; it's removed via `removeAllActions(withTarget:)`, scoped to
-    ///    that one registration's `Token` so nothing else already on either stack is disturbed.
+    /// 2. Only *then* asynchronously calls `perform(step)` — the actual document mutation.
+    ///    - `.rejected`: the optimistic registration from step 1 is now describing a step that
+    ///      never happened; it's removed via `removeAllActions(withTarget:)`, scoped to that one
+    ///      registration's `Token` so nothing else already on either stack is disturbed.
+    ///    - `.applied(freshInverse: someReversal)`: `someReversal` is the ACCURATE reversal of
+    ///      what `step` just did — more accurate than the `redoStep` guess the optimistic
+    ///      registration used, since it was computed by the transport against the post-write
+    ///      tree (#1602 item 2). Stored on the optimistic registration's own `Token` as
+    ///      `correctedStep` (see that type's doc comment for why this can't instead be a
+    ///      remove-and-re-register, the way the rejection path just above handles its case) —
+    ///      that registration's handler substitutes it for the originally captured `step` the
+    ///      next time it fires.
+    ///    - `.applied(freshInverse: nil)`: the transport had no better answer — leave the
+    ///      optimistic registration exactly as it is (this is the ONLY outcome
+    ///      `StubWYSIWYGHostTransport`-backed callers ever produce).
     ///
     /// Explicit group per registration: without one, `registerUndo` throws under
     /// `groupsByEvent = false` ("must begin a group before registering undo") — unit tests and
@@ -122,7 +178,7 @@ public final class WYSIWYGUndoCoordinator {
     /// the app's default `groupsByEvent = true` this nests harmlessly inside the enclosing event
     /// group, same as `EditUndoCoordinator.registerApplied(_:)`.
     @discardableResult
-    private func register(op: Op, redoOp: Op) -> Token? {
+    private func register(step: WYSIWYGReversal, redoStep: WYSIWYGReversal) -> Token? {
         guard let undoManager else { return nil }
         let token = Token()
         undoManager.beginUndoGrouping()
@@ -132,18 +188,29 @@ public final class WYSIWYGUndoCoordinator {
         // `self`) for exactly as long as this stack entry exists.
         undoManager.registerUndo(withTarget: token) { [weak self, token] _ in
             guard let self else { return }
+            // `token.correctedStep`, when set, is a previous fire's server-corrected reversal for
+            // this exact registration (see `Token`'s doc comment) — always preferred over the
+            // `step` this closure originally captured.
+            let stepToPerform = token.correctedStep ?? step
             // Finding 5: an undo/redo just fired — a same-block `editText` commit that arrives
             // after this point must start a fresh undo entry, never coalesce into whatever this
             // fire just put back on top of the stack.
             self.lastEditTextRegistration = nil
-            let optimisticallyRegistered = self.register(op: redoOp, redoOp: op)
+            let optimisticallyRegistered = self.register(step: redoStep, redoStep: stepToPerform)
             self.pendingPerform = Task { @MainActor [weak self] in
                 guard let self else { return }
-                if await self.perform(op) == false, let optimisticallyRegistered {
-                    self.undoManager?.removeAllActions(withTarget: optimisticallyRegistered)
+                switch await self.perform(stepToPerform) {
+                case .rejected:
+                    if let optimisticallyRegistered {
+                        self.undoManager?.removeAllActions(withTarget: optimisticallyRegistered)
+                    }
+                case .applied(let freshInverse):
+                    if let freshInverse, let optimisticallyRegistered {
+                        optimisticallyRegistered.correctedStep = freshInverse
+                    }
                 }
+                _ = token // keep the fired entry's own token referenced; see the capture-list comment above
             }
-            _ = token // keep the fired entry's own token referenced; see the capture-list comment above
         }
         // Named while the group is still open — the name attaches to the open group; after
         // `endUndoGrouping` there may be no group left to attach to.

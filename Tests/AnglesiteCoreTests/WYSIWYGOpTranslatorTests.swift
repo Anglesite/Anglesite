@@ -139,4 +139,29 @@ struct WYSIWYGOpTranslatorTests {
         guard case .object(let component)? = message.component else { Issue.record("expected component"); return }
         #expect(component["value"] == .string("5.5"))
     }
+
+    @Test func insertBlockWithKnownManifestNameUsesManifestBlockWireForm() {
+        let content = BlockNodeContent(
+            kind: .astro, componentName: "Hcard", props: [:], slots: [:], sourceSpan: [0, 0], manifestName: "H-Card")
+        let op = Op.insertBlock(parentId: "n2", slot: "default", index: 1, newId: "n7", block: content)
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-1", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
+        #expect(message.op == "insertBlock")
+        guard case .object(let component)? = message.component else {
+            Issue.record("expected component object"); return
+        }
+        #expect(component["manifestBlock"] == .string("H-Card"))
+        #expect(component["node"] == nil) // manifestBlock and node are mutually exclusive wire forms
+    }
+
+    @Test func insertBlockWithNoManifestNameStillFallsBackToRawNodeInsert() {
+        let content = BlockNodeContent(
+            kind: .astro, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0])
+        let op = Op.insertBlock(parentId: "n2", slot: "default", index: 1, newId: "n7", block: content)
+        let message = WYSIWYGOpTranslator.translate(op, requestId: "req-2", path: "src/pages/index.astro", baseVersion: "sha256:abc", rootId: "n0")
+        guard case .object(let component)? = message.component, case .object(let node)? = component["node"] else {
+            Issue.record("expected component.node object"); return
+        }
+        #expect(node["kind"] == .string("component"))
+        #expect(component["manifestBlock"] == nil)
+    }
 }

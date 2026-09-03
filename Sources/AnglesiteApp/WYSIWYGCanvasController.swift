@@ -67,22 +67,25 @@ final class WYSIWYGCanvasController {
     /// `self`, which isn't available yet inside `init` before all stored properties are set.
     /// `@ObservationIgnored`: not view-relevant state, same as `SiteWindowModel`'s coordinators.
     ///
-    /// Awaits `apply(_:)` — not `submit(_:)` — to completion and reports whether the op actually
-    /// landed. Using `apply(_:)` (which skips `fireOpApplied`) is load-bearing, not a style choice:
-    /// `WYSIWYGUndoCoordinator.register` already re-registers the opposite undo/redo direction
-    /// itself once this `Performer` returns `true`. If this replayed through `submit(_:)`
-    /// instead, `submit`'s own `fireOpApplied` call would *also* reach `registerApplied`, double-
-    /// registering the same step and corrupting `UndoManager`'s undo/redo stacks. `.applied` vs.
-    /// `.rejected` (e.g. a version-mismatch conflict) decides `true`/`false`, so a rejection that
-    /// left the document unchanged never re-registers a (now-wrong) next step either.
+    /// Awaits `apply(_:)` — not `submit(_:)` — to completion and reports a `WYSIWYGPerformOutcome`
+    /// describing whether the op actually landed. Using `apply(_:)` (which skips `fireOpApplied`)
+    /// is load-bearing, not a style choice: `WYSIWYGUndoCoordinator.register` already re-registers
+    /// the opposite undo/redo direction itself once this `Performer` returns `.applied`. If this
+    /// replayed through `submit(_:)` instead, `submit`'s own `fireOpApplied` call would *also*
+    /// reach `registerApplied`, double-registering the same step and corrupting `UndoManager`'s
+    /// undo/redo stacks. `.applied(freshInverse:)` carries the transport's more accurate reversal
+    /// of what was just performed (or `nil` when it has no better answer than the already-
+    /// registered guess), while `.rejected` (e.g. a version-mismatch conflict) means the document
+    /// didn't change, so a rejection never re-registers a (now-wrong) next step either.
     @ObservationIgnored
-    lazy var undoCoordinator = WYSIWYGUndoCoordinator { [weak self] op in
-        guard let self else { return false }
-        switch await self.apply(op) {
+    lazy var undoCoordinator = WYSIWYGUndoCoordinator { [weak self] step in
+        guard let self else { return .rejected }
+        let (result, freshInverse) = await self.apply(step)
+        switch result {
         case .applied:
-            return true
+            return .applied(freshInverse: freshInverse)
         case .rejected:
-            return false
+            return .rejected
         }
     }
 
@@ -93,14 +96,16 @@ final class WYSIWYGCanvasController {
     /// failure mode a single-closure property would have.
     ///
     /// Quality-gate re-analysis is **not** wired here: it has to fire on every model change,
-    /// including undo/redo, so it hangs off `sendAndApply(_:)` instead — see `runQualityGates`.
-    private var opAppliedListeners: [(Op, Op, BlockModel) -> Void] = []
+    /// including undo/redo, so it hangs off `absorb(_:)` instead — the shared "model changed"
+    /// funnel both `sendAndApply(_:)` and `sendAndApplyServerInverse(_:)` return through — see
+    /// `runQualityGates`.
+    private var opAppliedListeners: [(Op, WYSIWYGReversal, BlockModel) -> Void] = []
 
-    func addOpAppliedListener(_ listener: @escaping (Op, Op, BlockModel) -> Void) {
+    func addOpAppliedListener(_ listener: @escaping (Op, WYSIWYGReversal, BlockModel) -> Void) {
         opAppliedListeners.append(listener)
     }
 
-    private func fireOpApplied(_ op: Op, _ inverse: Op, _ model: BlockModel) {
+    private func fireOpApplied(_ op: Op, _ inverse: WYSIWYGReversal, _ model: BlockModel) {
         for listener in opAppliedListeners { listener(op, inverse, model) }
     }
 
@@ -146,41 +151,88 @@ final class WYSIWYGCanvasController {
 
     @discardableResult
     func submit(_ op: Op) async -> OpResult {
-        let result = await apply(op)
+        let (result, freshInverse) = await apply(.op(op))
         if case .applied(let newModel) = result {
             hasUncommittedOps = true
-            fireOpApplied(op, WYSIWYGOpInverter.invert(op), newModel)
+            fireOpApplied(op, Self.registeredReversal(for: op, freshInverse: freshInverse), newModel)
         }
         return result
     }
 
-    /// Sends `op` to the transport and updates `model` — the shared core of `submit(_:)`, minus
-    /// the applied-op notification. `submit(_:)` is for ops with a *new* opposite direction to
-    /// register (user edits); `undoCoordinator`'s `Performer` calls this directly instead, since
-    /// undo/redo replays must not re-fire `fireOpApplied` — see `undoCoordinator`'s doc comment for
-    /// why that would double-register. Builds its own envelope from the *current* `model.version`
-    /// (or `forceTargetVersion`'s test-only override) — unlike `sendOp(_:)` below, which already
-    /// has a real envelope from the JS engine and must not re-derive one.
-    private func apply(_ op: Op) async -> OpResult {
-        let envelope = OpEnvelope(id: UUID().uuidString, targetVersion: forceTargetVersion ?? model.version, op: op)
-        return await sendAndApply(envelope)
+    /// Decides which reversal to register for an applied `op`. `editText` always uses the
+    /// client-computed inverse, never a transport-supplied `freshInverse` — server-computed editText
+    /// inverses drop `previousRuns` on the wire (`WYSIWYGOpTranslator`'s editText encoding carries
+    /// only `runs`), so a `.wire` reversal would break `WYSIWYGUndoCoordinator`'s typing-coalescing
+    /// invariant (a coalesced multi-tick undo session would restore to the wrong intermediate tick
+    /// instead of the session's true baseline — #1225 Finding 5). editText also has no structural
+    /// id-drift risk in the first place: editing a text node's content doesn't change the tree shape
+    /// or renumber any node's id, unlike insert/delete/move, so there's no correctness reason to
+    /// prefer the server inverse here.
+    private static func registeredReversal(for op: Op, freshInverse: WYSIWYGReversal?) -> WYSIWYGReversal {
+        if case .editText = op {
+            return .op(WYSIWYGOpInverter.invert(op))
+        }
+        return freshInverse ?? .op(WYSIWYGOpInverter.invert(op))
+    }
+
+    /// Replays one reversal step against the transport and updates `model` — the shared core
+    /// used by `submit(_:)` (wrapping a fresh user-issued `Op`) and `undoCoordinator`'s
+    /// `Performer` (replaying whatever `WYSIWYGReversal` is registered for an undo/redo fire).
+    /// Does not fire `fireOpApplied`; callers that need the notification do so themselves after
+    /// inspecting the result, same division of responsibility `apply(_:)`/`submit(_:)` already
+    /// had before #1602.
+    private func apply(_ reversal: WYSIWYGReversal) async -> (result: OpResult, freshInverse: WYSIWYGReversal?) {
+        switch reversal {
+        case .op(let op):
+            let envelope = OpEnvelope(id: UUID().uuidString, targetVersion: forceTargetVersion ?? model.version, op: op)
+            return await sendAndApply(envelope)
+        case .wire(let inverse):
+            return await sendAndApplyServerInverse(inverse)
+        }
     }
 
     /// Sends `envelope` to the transport verbatim and applies the result to `model` — the shared
-    /// core of both `apply(_:)` (which builds a fresh envelope from `model.version`) and
-    /// `sendOp(_:)` (the `WYSIWYGHostTransport` conformance below, whose caller — the JS engine —
-    /// already computed `targetVersion` and must not have it silently replaced). Does not fire
-    /// `fireOpApplied`; callers that need the notification do so themselves after inspecting the
-    /// result, same division of responsibility `apply(_:)`/`submit(_:)` already had.
-    ///
-    /// It *does* re-run the quality gates, though, on every path that actually changes `model` —
-    /// this is the one funnel every mutation passes through (`submit(_:)`'s user edits, the undo
-    /// coordinator's `apply(_:)` replays, and JS-originated `sendOp(_:)` alike). Hanging the gates
-    /// off `addOpAppliedListener` instead left undo/redo silently un-analyzed: undoing a heading
-    /// fix put the skip back in the model while its chip stayed cleared, because the undo path
-    /// bypasses the listener list on purpose.
-    private func sendAndApply(_ envelope: OpEnvelope) async -> OpResult {
-        let result = await transport.sendOp(envelope)
+    /// core of both `apply(_:)`'s `.op` case (which builds a fresh envelope from `model.version`)
+    /// and `sendOp(_:)` (the `WYSIWYGHostTransport` conformance below, whose caller — the JS engine
+    /// — already computed `targetVersion` and must not have it silently replaced). When `transport`
+    /// conforms to `WYSIWYGServerInvertibleTransport` (true for `SidecarWYSIWYGHostTransport`,
+    /// false for `StubWYSIWYGHostTransport`), also surfaces the server-computed reversal for the
+    /// applied op (#1602 item 2) instead of leaving the caller to fall back to
+    /// `WYSIWYGOpInverter.invert` unconditionally.
+    private func sendAndApply(_ envelope: OpEnvelope) async -> (result: OpResult, freshInverse: WYSIWYGReversal?) {
+        if let invertible = transport as? any WYSIWYGServerInvertibleTransport {
+            let (result, serverInverse) = await invertible.sendOpReportingServerInverse(envelope)
+            return (await absorb(result), serverInverse.map(WYSIWYGReversal.wire))
+        }
+        return (await absorb(transport.sendOp(envelope)), nil)
+    }
+
+    /// The `WireInverse` counterpart to `sendAndApply(_:)` — replays a server-computed reversal
+    /// verbatim via `WYSIWYGServerInvertibleTransport.applyServerInverse(_:requestId:)`, bypassing
+    /// `WYSIWYGOpTranslator` entirely. A `.wire` reversal is only ever constructed (Task 6's
+    /// `WYSIWYGUndoCoordinator`) from a reply THIS SAME transport produced, and the transport
+    /// doesn't change mid-session, so the `as?` cast failing here is defensive, not an expected
+    /// path — there's no `Op` to fall back to for a raw wire payload if it somehow did.
+    private func sendAndApplyServerInverse(_ inverse: WireInverse) async -> (result: OpResult, freshInverse: WYSIWYGReversal?) {
+        guard let invertible = transport as? any WYSIWYGServerInvertibleTransport else {
+            return (.rejected(reason: .hostError, message: "transport cannot replay a server-computed inverse", freshModel: nil), nil)
+        }
+        let (result, serverInverse) = await invertible.applyServerInverse(inverse, requestId: UUID().uuidString)
+        if case .rejected(let reason, let message, _) = result {
+            await LogCenter.shared.append(
+                source: "wysiwyg", stream: .stderr,
+                text: "undo/redo replay rejected: \(reason.rawValue) — \(message ?? "no detail")")
+        }
+        return (await absorb(result), serverInverse.map(WYSIWYGReversal.wire))
+    }
+
+    /// Applies `result` to `model` (on `.applied`, or on `.rejected` when a `freshModel` came
+    /// along for the ride) and re-runs the quality gates — factored out of `sendAndApply(_:)`/
+    /// `sendAndApplyServerInverse(_:)` so both share the exact same "model changed" handling
+    /// `sendAndApply(_:)` always had (see its pre-#1602 doc comment for why the gates hang off
+    /// this funnel rather than the applied-op listener list). Returns `result` unchanged, so
+    /// callers can chain `await absorb(...)` directly into their own return expression.
+    private func absorb(_ result: OpResult) async -> OpResult {
         switch result {
         case .applied(let newModel):
             model = newModel
@@ -203,7 +255,7 @@ final class WYSIWYGCanvasController {
         let newId = UUID().uuidString
         let content = BlockNodeContent(
             kind: node.kind, componentName: node.componentName, props: node.props,
-            slots: node.slots, sourceSpan: node.sourceSpan, richText: node.richText)
+            slots: node.slots, sourceSpan: node.sourceSpan, richText: node.richText, manifestName: node.manifestName)
         await submit(.insertBlock(parentId: location.parentId, slot: location.slot, index: location.index + 1, newId: newId, block: content))
     }
 
@@ -519,9 +571,9 @@ extension WYSIWYGCanvasController: WYSIWYGHostTransport {
     /// `submit(_:)`'s own "apply, then notify" shape rather than calling `submit(_:)` itself, since
     /// `submit(_:)` builds its own envelope from `model.version`.
     func sendOp(_ envelope: OpEnvelope) async -> OpResult {
-        let result = await sendAndApply(envelope)
+        let (result, freshInverse) = await sendAndApply(envelope)
         if case .applied(let newModel) = result {
-            fireOpApplied(envelope.op, WYSIWYGOpInverter.invert(envelope.op), newModel)
+            fireOpApplied(envelope.op, Self.registeredReversal(for: envelope.op, freshInverse: freshInverse), newModel)
         }
         return result
     }
