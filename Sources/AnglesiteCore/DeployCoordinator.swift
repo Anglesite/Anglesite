@@ -332,10 +332,14 @@ public enum DeployCoordinator {
     /// always does, and Settings ▸ Website Icon (`WebsiteIconInstaller`, #1525) overwrites that
     /// exact file in place, so the federated avatar tracks the owner's chosen icon with no extra
     /// setting to discover. `nil` only when neither exists; `WorkerComposition.generateWranglerToml`
-    /// then omits the var and every platform shows its placeholder avatar. Read-through,
-    /// unvalidated, same as ``DeployCoordinator/resolveActivityPubUsername(siteDirectory:)``: the
-    /// root-relative default is resolved against the serving origin, and an unusable override
-    /// (non-`http(s)`, unparseable) is dropped, at *request* time (`worker.ts`'s `resolveApIcon`).
+    /// then omits the var and every platform shows its placeholder avatar. The default requires a
+    /// non-empty file, not just an existing path — a 0-byte `apple-touch-icon.png` (an interrupted
+    /// icon install) would otherwise advertise an avatar every peer fetches and fails to render; a
+    /// corrupt-but-non-empty file is not detected here (this module has no image decoder and is
+    /// portable). The override is read-through, unvalidated, same as
+    /// ``DeployCoordinator/resolveActivityPubUsername(siteDirectory:)``: the root-relative default
+    /// is resolved against the serving origin, and an unusable override (non-`http(s)`,
+    /// unparseable) is dropped, at *request* time (`worker.ts`'s `resolveApIcon`).
     public static func resolveActivityPubIcon(siteDirectory: URL, fileManager: FileManager = .default) -> String? {
         let config = (try? WebsiteAnalyticsAsset.loadConfig(siteDirectory: siteDirectory, fileManager: fileManager)) ?? ""
         if let value = WebsiteAnalyticsAsset.configValue("AP_ICON", in: config) {
@@ -345,7 +349,8 @@ public enum DeployCoordinator {
         let appleTouchIcon = siteDirectory
             .appendingPathComponent(WebsiteIconAsset.publicDirectoryRelativePath, isDirectory: true)
             .appendingPathComponent(WebsiteIconAsset.appleTouchIconName)
-        return fileManager.fileExists(atPath: appleTouchIcon.path) ? "/\(WebsiteIconAsset.appleTouchIconName)" : nil
+        let size = (try? fileManager.attributesOfItem(atPath: appleTouchIcon.path)[.size] as? NSNumber)?.intValue ?? 0
+        return size > 0 ? "/\(WebsiteIconAsset.appleTouchIconName)" : nil
     }
 
     /// RFC 7565 `acct:` userpart ∩ Mastodon remote-username grammar (#1239, design doc

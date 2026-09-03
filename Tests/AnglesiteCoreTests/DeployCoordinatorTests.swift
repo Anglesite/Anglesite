@@ -451,6 +451,16 @@ struct DeployCoordinatorTests {
         #expect(DeployCoordinator.resolveActivityPubIcon(siteDirectory: dir) == nil)
     }
 
+    @Test("resolveActivityPubIcon ignores a 0-byte apple-touch-icon rather than advertising an unrenderable avatar")
+    func resolveActivityPubIconIgnoresEmptyAppleTouchIcon() throws {
+        let dir = try temporaryDirectory()
+        let publicDir = dir.appendingPathComponent("public")
+        try FileManager.default.createDirectory(at: publicDir, withIntermediateDirectories: true)
+        try Data().write(to: publicDir.appendingPathComponent("apple-touch-icon.png"))
+
+        #expect(DeployCoordinator.resolveActivityPubIcon(siteDirectory: dir) == nil)
+    }
+
     @Test("resolveActivityPubIcon treats a blank AP_ICON as unset and falls back to the default")
     func resolveActivityPubIconBlankOverrideFallsBack() throws {
         let dir = try temporaryDirectory()
