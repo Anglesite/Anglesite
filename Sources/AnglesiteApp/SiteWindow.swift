@@ -1751,7 +1751,7 @@ struct SiteWindow: View {
             // error presentation is deferred with the rest of the drop UX.
             .onDrop(of: [UTType.image.identifier, UTType.fileURL.identifier], isTargeted: nil) { providers, location in
                 guard let canvas = model.preview.wysiwygCanvas, let webView = model.preview.webView,
-                      let siteDirectory = model.preview.openSiteDirectory
+                      let siteDirectory = model.preview.openSiteDirectory, let siteID = model.preview.openSiteID
                 else { return false }
                 let route = model.preview.activeRoute ?? "/"
                 Task {
@@ -1788,11 +1788,73 @@ struct SiteWindow: View {
                     guard let assetPath else { return }
                     guard let target = await resolveWYSIWYGDropTarget(at: location, webView: webView) else { return }
                     let newId = UUID().uuidString
-                    // Alt-text proposal is stubbed empty — the real proposal is on-device AI
-                    // (#1227, out of scope here per the design doc).
+
+                    // #1227: propose alt text with the on-device vision model, seeding it straight
+                    // into the insertBlock op below rather than a follow-up edit — one op, one
+                    // undo entry, reviewable live in the inspector. Silent degrade to empty alt
+                    // text on any failure (model unavailable, vision call error).
+                    //
+                    // Gated on `#if compiler(>=6.4) && canImport(FoundationModels)`, matching
+                    // `WYSIWYGAltTextProposer`'s own gate in AnglesiteCore (and the spirit of
+                    // ChatView.swift / SiteAnnotationModifier.swift — the latter's doc comment:
+                    // "gated ... because the macOS 27 APIs they call don't exist on Xcode 26.3. On
+                    // the fallback toolchain the modifier becomes a no-op"). `WYSIWYGAltTextProposer`,
+                    // `FoundationModelAssistant`, and `GeneratedAltText` only exist under that same
+                    // gate inside AnglesiteCore. Package.swift's own `#if compiler(>=6.4) &&
+                    // canImport(Darwin)` around the `AnglesiteAppCore` target keeps this file out of
+                    // the SwiftPM package graph entirely on an older compiler, but that gate is
+                    // manifest-only: `project.yml`'s `sources: - path: Sources/AnglesiteApp` for the
+                    // Xcode `Anglesite` app scheme lists this file unconditionally, and
+                    // `scripts/build-app.sh` doesn't select or verify the active toolchain before
+                    // calling `xcodebuild` — so a local build with an older Xcode selected (a missed
+                    // docs/testing-macos-app.md preflight) would otherwise hard-fail with "cannot find
+                    // 'GeneratedAltText' in scope" instead of degrading gracefully. This file's gate
+                    // is necessary but not yet sufficient for that protection on its own:
+                    // `SiteAssistantSessionFactory.swift` references the same three types completely
+                    // unguarded, so the `AnglesiteApp` target as a whole still can't compile on an
+                    // older toolchain until that file gets the equivalent gate too.
+                    let altText: String
+                    let isDecorative: Bool
+                    #if compiler(>=6.4) && canImport(FoundationModels)
+                    let proposer = WYSIWYGAltTextProposer(
+                        produce: { imageURL, context in
+                            let conventions = await model.currentProjectConventions()
+                            return try await FoundationModelAssistant(tier: .onDevice).generateStructured(
+                                prompt: AltTextPromptBuilder.build(
+                                    basePrompt: AltTextPromptBuilder.defaultBasePrompt,
+                                    conventions: conventions
+                                ),
+                                imageURL: imageURL,
+                                context: context,
+                                resultType: GeneratedAltText.self
+                            )
+                        },
+                        log: { text in
+                            await logCenter.append(
+                                source: WYSIWYGImageAssetIngestor.logSource, stream: .stderr, text: text)
+                        }
+                    )
+                    let proposedAlt = await proposer.propose(
+                        imageURL: WYSIWYGImageAssetIngestor.fileURL(forAssetPath: assetPath, siteDirectory: siteDirectory),
+                        context: AssistantContext(siteID: siteID, siteDirectory: siteDirectory, currentPageRoute: route)
+                    )
+                    isDecorative = proposedAlt?.isDecorative == true
+                    altText = isDecorative ? "" : (proposedAlt?.altText ?? "")
+                    #else
+                    // Fallback (pre-Xcode-27, or FoundationModels unavailable): the exact pre-#1227
+                    // stub — empty alt, no decorative role.
+                    isDecorative = false
+                    altText = ""
+                    #endif
+                    var props: [String: PropValue] = [
+                        "src": .string(assetPath),
+                        "alt": .string(altText),
+                    ]
+                    if isDecorative {
+                        props["role"] = .string("presentation")
+                    }
                     let content = BlockNodeContent(
-                        kind: .astro, componentName: "img", props: ["src": .string(assetPath), "alt": .string("")],
-                        slots: [:], sourceSpan: [0, 0])
+                        kind: .astro, componentName: "img", props: props, slots: [:], sourceSpan: [0, 0])
                     await canvas.insertBlockAndSelect(parentId: target.parentId, slot: target.slot, index: target.index, newId: newId, block: content)
                 }
                 return true

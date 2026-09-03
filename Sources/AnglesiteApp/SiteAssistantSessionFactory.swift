@@ -97,7 +97,7 @@ enum SiteAssistantSessionFactory {
                         produce: { imageURL, context in
                             let conventions = await conventionsEngine?.conventions(siteID: siteID)
                             let prompt = AltTextPromptBuilder.build(
-                                basePrompt: "Generate concise, descriptive alt text for this image as it would appear on a website. If the image is purely decorative, mark it decorative and use empty alt text.",
+                                basePrompt: AltTextPromptBuilder.defaultBasePrompt,
                                 conventions: conventions
                             )
                             return try await FoundationModelAssistant(tier: .onDevice).generateStructured(
