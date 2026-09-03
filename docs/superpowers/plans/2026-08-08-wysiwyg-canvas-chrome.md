@@ -1,5 +1,7 @@
 # WYSIWYG Canvas Chrome (Slice 3) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the interactive canvas chrome for the WYSIWYG editor (issue #1224, epic #1221): inline rich-text editing writing honest runs, drag/drop handling (in-canvas reorder and external palette/Finder drops) landing as `insertBlock`/`moveBlock` at an engine-computed index, and a responsive breakpoint canvas that drives multiple frame documents from one shared engine.

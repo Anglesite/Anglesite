@@ -1,5 +1,7 @@
 # Micropub Content Sync Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A Micropub-created post (note/article/photo/album/bookmark/reply/like/event/review) becomes a typed content file under `Source/`, rendering at the same URL the Micropub client's `Location` header promised, per `docs/superpowers/specs/2026-07-24-micropub-content-sync-design.md`.

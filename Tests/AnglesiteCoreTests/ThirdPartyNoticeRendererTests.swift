@@ -1,32 +1,35 @@
-import XCTest
+import Testing
 @testable import AnglesiteCore
 
-final class ThirdPartyNoticeRendererTests: XCTestCase {
-    func testRendersNameVersionLicenseAndHomepage() {
+struct ThirdPartyNoticeRendererTests {
+    @Test("renders name, version, license, and homepage")
+    func rendersNameVersionLicenseAndHomepage() {
         let attribution = OSSAttribution(
             name: "astro", version: "7.1.3", licenseSPDXId: "MIT",
             licenseText: "MIT License\n\nCopyright (c) …", homepage: "https://astro.build"
         )
         let markdown = ThirdPartyNoticeRenderer.render([attribution])
-        XCTAssertTrue(markdown.contains("## astro 7.1.3"))
-        XCTAssertTrue(markdown.contains("License: MIT"))
-        XCTAssertTrue(markdown.contains("Homepage: https://astro.build"))
-        XCTAssertTrue(markdown.contains("MIT License"))
+        #expect(markdown.contains("## astro 7.1.3"))
+        #expect(markdown.contains("License: MIT"))
+        #expect(markdown.contains("Homepage: https://astro.build"))
+        #expect(markdown.contains("MIT License"))
     }
 
-    func testOmitsMissingFieldsGracefully() {
+    @Test("omits missing fields gracefully")
+    func omitsMissingFieldsGracefully() {
         let attribution = OSSAttribution(
             name: "some-fork", version: "abc123", licenseSPDXId: nil,
             licenseText: "Custom text.", homepage: nil
         )
         let markdown = ThirdPartyNoticeRenderer.render([attribution])
-        XCTAssertFalse(markdown.contains("License: "))
-        XCTAssertFalse(markdown.contains("Homepage: "))
-        XCTAssertTrue(markdown.contains("Custom text."))
+        #expect(!markdown.contains("License: "))
+        #expect(!markdown.contains("Homepage: "))
+        #expect(markdown.contains("Custom text."))
     }
 
-    func testEmptyListRendersJustTheHeader() {
+    @Test("an empty list renders just the header")
+    func emptyListRendersJustTheHeader() {
         let markdown = ThirdPartyNoticeRenderer.render([])
-        XCTAssertTrue(markdown.hasPrefix("# Third-Party Notices"))
+        #expect(markdown.hasPrefix("# Third-Party Notices"))
     }
 }

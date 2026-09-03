@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 struct ContactsAllowlistSyncTests {
     private static func response(_ status: Int) -> HTTPURLResponse {
@@ -59,7 +60,7 @@ struct ContactsAllowlistSyncTests {
 
         await ContactsAllowlistSync.pushIfConfigured(
             configDirectory: configDir,
-            secretStore: FakeSecretStore(token: "unused"),
+            secretStore: InMemorySecretStore(token: "unused"),
             transport: { _ in
                 Issue.record("transport must not be called with no provisioned SOCIAL_KV namespace")
                 struct UnexpectedNetworkCall: Error {}
@@ -79,7 +80,7 @@ struct ContactsAllowlistSyncTests {
 
         await ContactsAllowlistSync.pushIfConfigured(
             configDirectory: configDir,
-            secretStore: FakeSecretStore(token: nil),
+            secretStore: InMemorySecretStore(token: nil),
             transport: { _ in
                 Issue.record("transport must not be called with no Cloudflare token")
                 struct UnexpectedNetworkCall: Error {}
@@ -107,7 +108,7 @@ struct ContactsAllowlistSyncTests {
 
         await ContactsAllowlistSync.pushIfConfigured(
             configDirectory: configDir,
-            secretStore: FakeSecretStore(token: "token"),
+            secretStore: InMemorySecretStore(token: "token"),
             transport: { request in
                 await seenAuthorization.record(request.value(forHTTPHeaderField: "Authorization"))
                 if request.url!.path.hasSuffix("/accounts") { return (accountsBody, Self.response(200)) }
@@ -123,13 +124,6 @@ struct ContactsAllowlistSyncTests {
         #expect(await capturedPUT.value == ["alice.example"])
         #expect(await seenAuthorization.value == "Bearer token")
     }
-}
-
-private struct FakeSecretStore: SecretStore {
-    let token: String?
-    func read(account: String) throws -> String? { account == SecretAccounts.cloudflareToken ? token : nil }
-    func write(_ value: String, account: String) throws {}
-    func delete(account: String) throws {}
 }
 
 private actor CapturedURLs {

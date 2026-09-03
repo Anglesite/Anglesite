@@ -1519,6 +1519,32 @@ test("activitypub: actor document is served as activity+json", async () => {
   expect(body.preferredUsername).toBe("owner.example");
 });
 
+test("activitypub: actor document links the site home page as url, not the AS2 document (#1771)", async () => {
+  const response = await fetchWorker(new Request("https://owner.example/users/site"));
+  const body = await response.json() as { id: string; url?: string };
+  // @dwk/activitypub ≥ 1.0.0-beta.5 defaults `url` to the baseUrl root — the page a peer's
+  // "open original profile" action lands on. It must not be the actor `id` (the JSON itself).
+  expect(body.url).toBe("https://owner.example/");
+  expect(body.url).not.toBe(body.id);
+});
+
+test("activitypub: actor document carries AP_ICON as an Image resolved against the origin (#1771)", async () => {
+  const response = await worker.fetch(
+    new Request("https://owner.example/users/site"),
+    { ...testEnv, AP_ICON: "/apple-touch-icon.png" } as WorkerEnv,
+    createExecutionContext(),
+  );
+  expect(response.status).toBe(200);
+  const body = await response.json() as { icon?: { type: string; url: string } };
+  expect(body.icon).toEqual({ type: "Image", url: "https://owner.example/apple-touch-icon.png" });
+});
+
+test("activitypub: actor document omits icon when AP_ICON is unset (#1771)", async () => {
+  const response = await fetchWorker(new Request("https://owner.example/users/site"));
+  const body = await response.json() as { icon?: unknown };
+  expect(body.icon).toBeUndefined();
+});
+
 // --- Fediverse handle: AP_USERNAME default/override/validation (#1239) ---------------------
 // `preferredUsername` and the WebFinger map both derive from `resolvePreferredUsername`; the
 // actor IRI (`/users/site`) never changes regardless of the resolved handle.
@@ -2490,6 +2516,45 @@ test("activityPubConfig: AP_MODERATORS is ignored (undefined) for a Person actor
     makeActivityPubEnv({ AP_MODERATORS: "https://mod1.example/actor" }),
   );
   expect(config?.moderators).toBeUndefined();
+});
+
+// activityPubConfig: AP_ICON → actor.icon (#1771). The var is either an absolute URL or a
+// root-relative path; both resolve against the request origin so the served avatar always
+// points at the host the actor is being fetched from.
+test("activityPubConfig: a root-relative AP_ICON resolves against the request origin", () => {
+  const request = new Request("https://example.com/users/site");
+  const config = activityPubConfig(request, makeActivityPubEnv({ AP_ICON: "/apple-touch-icon.png" }));
+  expect(config?.actor.icon).toBe("https://example.com/apple-touch-icon.png");
+});
+
+test("activityPubConfig: an absolute https AP_ICON is passed through unchanged", () => {
+  const request = new Request("https://example.com/users/site");
+  const config = activityPubConfig(
+    request,
+    makeActivityPubEnv({ AP_ICON: "https://cdn.example/avatars/me.jpg" }),
+  );
+  expect(config?.actor.icon).toBe("https://cdn.example/avatars/me.jpg");
+});
+
+test("activityPubConfig: actor.icon is undefined when AP_ICON is unset or blank", () => {
+  const request = new Request("https://example.com/users/site");
+  expect(activityPubConfig(request, makeActivityPubEnv())?.actor.icon).toBeUndefined();
+  expect(activityPubConfig(request, makeActivityPubEnv({ AP_ICON: "   " }))?.actor.icon).toBeUndefined();
+});
+
+test("activityPubConfig: a non-http(s) or unparseable AP_ICON is dropped rather than federated", () => {
+  const request = new Request("https://example.com/users/site");
+  // `.site-config` is hand-editable, so a stray value must degrade to "no avatar", never to a
+  // `javascript:`/`data:` IRI in a document every peer fetches.
+  expect(
+    activityPubConfig(request, makeActivityPubEnv({ AP_ICON: "javascript:alert(1)" }))?.actor.icon,
+  ).toBeUndefined();
+  expect(
+    activityPubConfig(request, makeActivityPubEnv({ AP_ICON: "data:image/png;base64,AAAA" }))?.actor.icon,
+  ).toBeUndefined();
+  expect(
+    activityPubConfig(request, makeActivityPubEnv({ AP_ICON: "http://[not a url" }))?.actor.icon,
+  ).toBeUndefined();
 });
 
 // --- Worker read gate (#1568) ------------------------------------------------------------

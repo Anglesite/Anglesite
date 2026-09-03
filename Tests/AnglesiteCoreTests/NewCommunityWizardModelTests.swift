@@ -1,35 +1,40 @@
-import XCTest
+import Testing
+import Foundation
 @testable import AnglesiteCore
 
 @MainActor
-final class NewCommunityWizardModelTests: XCTestCase {
-
-    func testStartsOnChooserWithEmptyNameAndCannotCreate() {
+struct NewCommunityWizardModelTests {
+    @Test("starts on chooser with an empty name and cannot create")
+    func startsOnChooserWithEmptyNameAndCannotCreate() {
         let m = NewCommunityWizardModel(isNameTaken: { _ in false })
-        XCTAssertEqual(m.step, .chooser)
-        XCTAssertEqual(m.communityName, "")
-        XCTAssertFalse(m.canCreate)
+        #expect(m.step == .chooser)
+        #expect(m.communityName == "")
+        #expect(!m.canCreate)
     }
 
-    func testCanCreateOnceNameIsNonEmptyAndNotTaken() {
+    @Test("can create once the name is non-empty and not taken")
+    func canCreateOnceNameIsNonEmptyAndNotTaken() {
         let m = NewCommunityWizardModel(isNameTaken: { _ in false })
         m.communityName = "Birding Club"
-        XCTAssertTrue(m.canCreate)
+        #expect(m.canCreate)
     }
 
-    func testCannotCreateWhenNameIsTaken() {
+    @Test("cannot create when the name is taken")
+    func cannotCreateWhenNameIsTaken() {
         let m = NewCommunityWizardModel(isNameTaken: { $0 == "Birding Club" })
         m.communityName = "Birding Club"
-        XCTAssertFalse(m.canCreate)
+        #expect(!m.canCreate)
     }
 
-    func testCannotCreateWithWhitespaceOnlyName() {
+    @Test("cannot create with a whitespace-only name")
+    func cannotCreateWithWhitespaceOnlyName() {
         let m = NewCommunityWizardModel(isNameTaken: { _ in false })
         m.communityName = "   "
-        XCTAssertFalse(m.canCreate)
+        #expect(!m.canCreate)
     }
 
-    func testBuildDrivesScaffolderWithCommunitySiteTypeAndFixedTheme() async throws {
+    @Test("build drives the scaffolder with the community site type and a fixed theme")
+    func buildDrivesScaffolderWithCommunitySiteTypeAndFixedTheme() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let m = NewCommunityWizardModel(isNameTaken: { _ in false })
         m.communityName = "Birding Club"
@@ -61,20 +66,21 @@ final class NewCommunityWizardModelTests: XCTestCase {
 
         let id = await m.build(using: scaffolder)
 
-        XCTAssertNotNil(id)
-        XCTAssertNotNil(m.completedSiteID)
-        XCTAssertEqual(m.draft.siteType, .community)
-        XCTAssertEqual(m.draft.name, "Birding Club")
-        XCTAssertEqual(m.draft.themeID, "community")
-        XCTAssertEqual(m.draft.headline, "")   // skip homepage write, matches NewSiteWizardModel's convention
+        #expect(id != nil)
+        #expect(m.completedSiteID != nil)
+        #expect(m.draft.siteType == .community)
+        #expect(m.draft.name == "Birding Club")
+        #expect(m.draft.themeID == "community")
+        #expect(m.draft.headline == "")   // skip homepage write, matches NewSiteWizardModel's convention
         seenDraft = m.draft
-        XCTAssertNotNil(seenDraft)
+        #expect(seenDraft != nil)
     }
 
     /// #1263 final review finding 2: a freshly-scaffolded community must come out of the wizard
     /// with a live ActivityPub worker — no manual Workers-tab step — since the whole point of
     /// "New Community" is a working Group actor with no extra owner action.
-    func testBuildActivatesActivityPubWorkerAfterScaffold() async throws {
+    @Test("build activates the ActivityPub worker after scaffolding")
+    func buildActivatesActivityPubWorkerAfterScaffold() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         var registeredConfigDirectory: URL?
         let m = NewCommunityWizardModel(
@@ -110,8 +116,8 @@ final class NewCommunityWizardModelTests: XCTestCase {
 
         _ = await m.build(using: scaffolder)
 
-        let configDirectory = try XCTUnwrap(registeredConfigDirectory)
+        let configDirectory = try #require(registeredConfigDirectory)
         let settings = try await SiteConfigStore(configDirectory: configDirectory).load()
-        XCTAssertEqual(settings.activeWorkerIDs, [WorkerComposition.activitypubWorkerID])
+        #expect(settings.activeWorkerIDs == [WorkerComposition.activitypubWorkerID])
     }
 }

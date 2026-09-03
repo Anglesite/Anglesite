@@ -1,5 +1,7 @@
 # h-resume Content Type Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a new built-in `resume` content type — a per-site singleton (like `businessProfile`/`personalProfile`) that projects to the `h-resume` microformat and a `schema.org` `Person` JSON-LD node, with `experience`/`education` as the first real user of the `objectArray` field kind (#1117).

@@ -1,5 +1,7 @@
 # ExternalLLMBackend Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement `ExternalLLMBackend`, a `URLSession`-based `ConversationalAssistant` that speaks a single OpenAI-compatible chat-completions protocol against a user-configured base URL + API key, and wire it into Settings and the chat backend selector (issue #1482).

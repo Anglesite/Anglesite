@@ -1,5 +1,7 @@
 # Blogroll via standard.site graph lexicons — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a site owner maintain a blogroll (sites they follow) as typed content, publish each entry as a `site.standard.graph.subscription` atproto record, and render a `/blogroll/` page with a CSS-only OPML subscribe badge and a `/blogroll.opml` feed.

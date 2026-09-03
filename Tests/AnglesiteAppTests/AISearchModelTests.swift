@@ -1,40 +1,8 @@
 import Foundation
 import Testing
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
-
-private final class StubReader: CloudflareReading, @unchecked Sendable {
-    private let zoneID: String?
-    private let state: CloudflareZoneState
-    init(zoneID: String? = "z1", state: CloudflareZoneState = StubReader.defaultState) {
-        self.zoneID = zoneID
-        self.state = state
-    }
-    static let defaultState = CloudflareZoneState(
-        dnssecActive: false, sslMode: "flexible", alwaysUseHTTPS: false, hsts: nil,
-        caaRecords: [], mxRecords: [], spfRecords: [], dmarcRecords: [])
-    func resolveZoneID(domain: String, apiToken: String) async throws -> String? { zoneID }
-    func zoneState(zoneID: String, domain: String, apiToken: String) async throws -> CloudflareZoneState { state }
-    func listDNSRecords(zoneID: String, apiToken: String) async throws -> [DNSRecord] { [] }
-    func workerScriptNames(apiToken: String) async throws -> [String] { [] }
-}
-
-private final class StubWriter: CloudflareWriting, @unchecked Sendable {
-    func enableDNSSEC(zoneID: String, apiToken: String) async throws {}
-    func setAlwaysUseHTTPS(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func setHSTS(zoneID: String, maxAge: Int, includeSubdomains: Bool, preload: Bool, apiToken: String) async throws {}
-    func addDNSRecord(zoneID: String, record: DNSRecordPayload, apiToken: String) async throws {}
-    func deleteDNSRecord(zoneID: String, recordID: String, apiToken: String) async throws {}
-    func setBotFightMode(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func createWAFCustomRule(zoneID: String, rule: WAFRulePayload, apiToken: String) async throws {}
-    func setSpeedBrain(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func setECH(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func enableZstandardCompression(zoneID: String, apiToken: String) async throws {}
-    func setPageShield(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func enableOnionRouting(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func attachWorkersCustomDomain(hostname: String, workerScriptName: String, apiToken: String) async throws -> CustomDomainAttachResult { .attached }
-    func setMarkdownForAgents(hostname: String, enabled: Bool, apiToken: String) async throws -> Bool { true }
-}
 
 private final class StubProvisioner: AISearchProvisioning, @unchecked Sendable {
     func createAISearchInstance(domain: String, instanceID: String, apiToken: String) async throws -> AISearchInstance {
@@ -83,7 +51,7 @@ private actor ControllableReader: CloudflareReading {
     private var continuations: [(domain: String, continuation: CheckedContinuation<String?, any Error>)] = []
     private let state: CloudflareZoneState
 
-    init(state: CloudflareZoneState = StubReader.defaultState) {
+    init(state: CloudflareZoneState = StubCloudflareReader.defaultState) {
         self.state = state
     }
 
@@ -123,7 +91,7 @@ struct AISearchModelTests {
     @MainActor
     @Test("checkPolicyAndResolveZone ignores blank domain input")
     func ignoresBlankDomain() throws {
-        let model = AISearchModel(reader: StubReader(), writer: StubWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
+        let model = AISearchModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "   "
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
         #expect(model.phase == .idle)
@@ -134,7 +102,7 @@ struct AISearchModelTests {
     func noPolicyFilePassesThrough() async throws {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
-        let model = AISearchModel(reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
+        let model = AISearchModel(reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "Example.com"
 
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
@@ -157,7 +125,7 @@ struct AISearchModelTests {
         policy.usage.aiInput = .no
         try LicensingStore(sourceDirectory: dir).save(policy)
 
-        let model = AISearchModel(reader: StubReader(), writer: StubWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
+        let model = AISearchModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: dir)
         while model.isRunning { await Task.yield() }
@@ -173,7 +141,7 @@ struct AISearchModelTests {
     func confirmCostProvisions() async throws {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
-        let model = AISearchModel(reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
+        let model = AISearchModel(reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(), provisioner: StubProvisioner(), preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
         while model.isRunning { await Task.yield() }
@@ -195,7 +163,7 @@ struct AISearchModelTests {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
         let model = AISearchModel(
-            reader: StubReader(zoneID: "z1"), writer: StubWriter(),
+            reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(),
             provisioner: FailingProvisioner(throwing: AISearchProvisionError.missingSitemap),
             preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "example.com"
@@ -223,7 +191,7 @@ struct AISearchModelTests {
         defer { cfToken.release() }
         let preflight = StubPreflight(.unreachable)
         let model = AISearchModel(
-            reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(),
+            reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(), provisioner: StubProvisioner(),
             preflight: preflight, keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
@@ -244,7 +212,7 @@ struct AISearchModelTests {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
         let model = AISearchModel(
-            reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(),
+            reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(), provisioner: StubProvisioner(),
             preflight: StubPreflight(.indeterminate), keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
@@ -265,7 +233,7 @@ struct AISearchModelTests {
 
         let preflight = StubPreflight(.unreachable)
         let model = AISearchModel(
-            reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(),
+            reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(), provisioner: StubProvisioner(),
             preflight: preflight, keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: dir)
@@ -285,7 +253,7 @@ struct AISearchModelTests {
         defer { cfToken.release() }
         let preflight = HangUntilCancelledPreflight()
         let model = AISearchModel(
-            reader: StubReader(zoneID: "z1"), writer: StubWriter(), provisioner: StubProvisioner(),
+            reader: StubCloudflareReader(zoneID: "z1"), writer: StubCloudflareWriter(), provisioner: StubProvisioner(),
             preflight: preflight, keychain: keychain)
         model.domainInput = "example.com"
         model.checkPolicyAndResolveZone(sourceDirectory: try tempSourceDirectory())
@@ -313,7 +281,7 @@ struct AISearchModelTests {
         defer { cfToken.release() }
         let reader = ControllableReader()
         let model = AISearchModel(
-            reader: reader, writer: StubWriter(), provisioner: StubProvisioner(),
+            reader: reader, writer: StubCloudflareWriter(), provisioner: StubProvisioner(),
             preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "example.com"
 
@@ -344,7 +312,7 @@ struct AISearchModelTests {
         defer { cfToken.release() }
         let reader = ControllableReader()
         let model = AISearchModel(
-            reader: reader, writer: StubWriter(), provisioner: StubProvisioner(),
+            reader: reader, writer: StubCloudflareWriter(), provisioner: StubProvisioner(),
             preflight: StubPreflight(.reachable), keychain: keychain)
         model.domainInput = "stale.example"
 

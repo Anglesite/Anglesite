@@ -1,5 +1,7 @@
 # In-app analytics data viewing (Web Analytics / RUM) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Surface a 7-day Cloudflare Web Analytics (RUM) summary — total pageviews, total visits, and a daily trend — in Site Settings ▸ Analytics, for sites with Cloudflare Analytics enabled.

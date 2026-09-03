@@ -1,5 +1,7 @@
 # Menu Bar Skeleton (Phase 1) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the full north-star menu bar skeleton — every menu and item from the approved spec, with unbacked items disabled — plus the shortcut re-keys and renames, in one release.

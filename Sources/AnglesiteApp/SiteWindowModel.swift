@@ -80,6 +80,17 @@ final class SiteWindowModel {
     private let knowledgeIndex: SiteKnowledgeIndex
     private let semanticRanker: SemanticRanker?
     private let conventionsEngine: ProjectConventionsEngine
+
+    /// The current site's learned voice/style conventions, if any — reused by WYSIWYG AI
+    /// services (alt-text proposals, #1227 PR 1; writing help, #1227 PR 2) that need
+    /// `AltTextPromptBuilder`/`BrandVoiceGuidance`-style guidance but sit outside
+    /// `SiteAssistantSessionFactory`'s chat/postProcessor wiring. `nil` before a site has finished
+    /// opening. `async` because `conventionsEngine` is an actor — same cross-actor `await`
+    /// `SiteAssistantSessionFactory` already does for this lookup.
+    func currentProjectConventions() async -> ProjectConventions? {
+        guard let siteID = site?.id else { return nil }
+        return await conventionsEngine.conventions(siteID: siteID)
+    }
     private let contentIndexerStore: ContentIndexerStore
     private let integrationOps = IntegrationOperations.live()
     private let restrictedPostPublisher = RestrictedPostPublisher()
@@ -2296,7 +2307,7 @@ final class SiteWindowModel {
     /// when `navigator` itself no longer has the row either (e.g. no `loadAndStart()` ran, as in
     /// most of this file's own tests).
     private func reportUnresolvedRow(id: String) {
-        contentActionError = "\(navigator?.item(for: id)?.title ?? "This item") is no longer part of this site's content."
+        contentActionError = String(localized: "\(navigator?.item(for: id)?.title ?? "This item") is no longer part of this site's content.")
     }
 
     /// The `ContentUndoCoordinator` applier: realize `mutation.before` at its path — write those
@@ -2390,7 +2401,7 @@ final class SiteWindowModel {
             // Reachable whenever the row outlived the graph entry behind it (a page deleted
             // outside the app, a rescan mid-dialog). Reported rather than returned silently:
             // an unexplained no-op here is exactly what #968 was raised about.
-            contentActionError = "\(item.title) is no longer part of this site's content."
+            contentActionError = String(localized: "\(item.title) is no longer part of this site's content.")
             return
         }
 

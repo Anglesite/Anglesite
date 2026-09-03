@@ -1,5 +1,7 @@
 # Privacy-Preserving Embeds Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a site owner embed a post from X, Bluesky, Mastodon, YouTube, or any URL by snapshotting it once into their own git repo and rendering it as a first-party card, with zero third-party JavaScript and zero third-party image requests.

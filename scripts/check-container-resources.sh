@@ -87,7 +87,9 @@ check_mcp_protocol_stamp() {
         missing+=("$label has no vendor-manifest.json (vendored before the MCP-protocol staleness check existed) — re-run scripts/vendor-container-image.sh so the bundled sidecar matches MCP-Protocol-Version $expected.")
         return
     fi
-    actual="$(grep -m1 '"mcpProtocolVersion"' "$manifest" | sed -E 's/.*"mcpProtocolVersion"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+    # `|| true`: under `set -e`/pipefail, a manifest with no mcpProtocolVersion field would make
+    # grep exit 1 and abort the whole script instead of falling through to the missing+=() below.
+    actual="$(grep -m1 '"mcpProtocolVersion"' "$manifest" | sed -E 's/.*"mcpProtocolVersion"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')" || true
     if [[ "$actual" != "$expected" ]]; then
         missing+=("$label was vendored for MCP protocol $actual but this app build now expects $expected — re-run scripts/vendor-container-image.sh, or the local preview's MCP handshake will fail with an opaque HTTP error.")
     fi

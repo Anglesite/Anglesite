@@ -1,5 +1,7 @@
 # Internal Link Assistant (#312) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the #312 Internal Link Assistant — a `LinkGraph` backend, two Foundation Models tools (`suggest_links`, `find_link_opportunities`), and a Related-Pages panel UI.

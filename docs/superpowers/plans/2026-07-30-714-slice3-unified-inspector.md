@@ -1,5 +1,7 @@
 # #714 Slice 3 — Unified Inspector Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the window `.inspector` the app's only inspector — a Pages-style tabbed (**Metadata | Style**) panel that follows the current selection: an HTML element (Component Editor canvas), the page itself, or a collection (feed-bearing directory).

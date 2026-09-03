@@ -5,8 +5,10 @@ import { ROOT_PARENT_ID } from "../src/types.js";
 import { RichTextEditor } from "../src/rich-text.js";
 import { DragReorderController, wireExternalDrop, submitDrop } from "../src/drag-drop.js";
 import { QualityGateChips } from "../src/quality-gates.js";
+import { SelectionToolbar } from "../src/host/selection-toolbar.js";
+import type { WritingHelpTransport } from "../src/host/selection-toolbar.js";
 import type { HandleRect } from "../src/selection.js";
-import type { BlockModel, OpResult, RichTextRun, BlockNode } from "../src/types.js";
+import type { BlockModel, OpResult, RichTextRun, BlockNode, OpEnvelope, WritingHelpReply } from "../src/types.js";
 import type { DropTarget } from "../src/drag-drop.js";
 import type { FormatKind } from "../src/rich-text.js";
 import type { Finding } from "../src/quality-gates.js";
@@ -129,6 +131,43 @@ class FixtureQualityGateTransport {
 const qualityGateTransport = new FixtureQualityGateTransport();
 const qualityGateChips = new QualityGateChips(engine, qualityGateTransport, canvas());
 
+/** Delegates the ops half of `WritingHelpTransport` to `host` (same instance the engine itself
+ *  uses) and leaves `requestWritingHelp` resolvable on demand from Playwright via
+ *  `window.__resolveWritingHelp`, so a spec can assert on the toolbar's loading state before the
+ *  reply lands rather than only ever observing the settled result. */
+class FixtureWritingHelpTransport implements WritingHelpTransport {
+  #host: FixtureHost;
+  #pending: Array<(reply: WritingHelpReply) => void> = [];
+
+  constructor(host: FixtureHost) {
+    this.#host = host;
+  }
+
+  sendOp(envelope: OpEnvelope): Promise<OpResult> {
+    return this.#host.sendOp(envelope);
+  }
+
+  onModelUpdate(listener: (model: BlockModel) => void): () => void {
+    return this.#host.onModelUpdate(listener);
+  }
+
+  requestWritingHelp(): Promise<WritingHelpReply> {
+    return new Promise((resolve) => {
+      this.#pending.push(resolve);
+    });
+  }
+
+  /** Resolves the oldest still-pending `requestWritingHelp()` call. */
+  resolveNext(reply: WritingHelpReply): void {
+    const resolve = this.#pending.shift();
+    if (!resolve) throw new Error("no pending requestWritingHelp() call to resolve");
+    resolve(reply);
+  }
+}
+
+const writingHelpTransport = new FixtureWritingHelpTransport(host);
+const selectionToolbar = new SelectionToolbar(richText, writingHelpTransport, document);
+
 engine.onEvent((event) => {
   // A `rejected` event that carries a model carries the host's *fresh* one — the engine has already
   // adopted it, so the host has to re-render from it too or the DOM silently drifts from the model.
@@ -161,6 +200,8 @@ declare global {
     __disposeExternalDrop: () => void;
     __qualityGateChips: QualityGateChips;
     __pushQualityFindings: (findings: Finding[]) => void;
+    __selectionToolbar: SelectionToolbar;
+    __resolveWritingHelp: (reply: WritingHelpReply) => void;
   }
 }
 
@@ -177,6 +218,8 @@ window.__toggleFormat = (kind) => richText.toggleFormat(kind);
 window.__disposeExternalDrop = disposeExternalDrop;
 window.__qualityGateChips = qualityGateChips;
 window.__pushQualityFindings = (findings) => qualityGateTransport.push(findings);
+window.__selectionToolbar = selectionToolbar;
+window.__resolveWritingHelp = (reply) => writingHelpTransport.resolveNext(reply);
 window.__moveBlock = (blockId, toIndex) => {
   const model = engine.modelSync.current;
   const fromIndex = model.rootIds.indexOf(blockId);

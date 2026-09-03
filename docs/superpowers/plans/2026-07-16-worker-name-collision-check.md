@@ -1,5 +1,7 @@
 # Worker-name collision check at first deploy Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Detect a Worker-name collision against the connected Cloudflare account before a site's first deploy, and block with a rename-and-retry prompt instead of letting `wrangler deploy` silently take over an unrelated Worker.

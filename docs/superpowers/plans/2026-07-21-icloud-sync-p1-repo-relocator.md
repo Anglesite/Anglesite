@@ -1,5 +1,7 @@
 # iCloud Sync P1: Split-Repo Layout + RepoRelocator Migration — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Split a `.anglesite` package's live git repository out of the iCloud-synced `Source/` tree into a `*.nosync` directory under `Config/`, replacing it with a relative gitfile — the entry-point slice of the iCloud git-sync epic (#876), tracked as issue #877.

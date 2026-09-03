@@ -1,5 +1,7 @@
 # Site Settings: Workers Tab (#710) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the Workers tab in the per-site Settings surface (`PlistEditorView`) — epic #700's last slice (700c) — plus the prerequisite catalog-decoder fix that currently leaves the app with an empty worker catalog in production.

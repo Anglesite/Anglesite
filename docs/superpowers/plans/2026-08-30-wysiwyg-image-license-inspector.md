@@ -1,5 +1,7 @@
 # WYSIWYG Image License Inspector Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the two gaps #1672 flags in #999's drop-and-inspect flow — a dropped image isn't selected, and there's no way to read an embedded license back — so the Info panel can show and change a selected image block's embedded license.

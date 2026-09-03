@@ -1,5 +1,7 @@
 # V-4.2 Follower Management UI Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a **Website ▸ Followers…** pane that lists who follows this site in the Fediverse, reading the public ActivityPub followers collection the site's own deployed Worker already serves.

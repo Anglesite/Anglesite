@@ -1,5 +1,7 @@
 # IndieWeb Safari Extension Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a standalone Safari Web Extension, embedded in `Anglesite.app`, that detects h-cards, feeds, webmentions, ActivityPub links, and general microformats2 on the page the user is viewing in Safari and shows them in a popup toolbar.

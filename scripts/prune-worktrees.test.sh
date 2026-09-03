@@ -11,8 +11,10 @@
 #   * orphaned dir (unregistered)-> candidate, rm -rf'd by --remove
 #   * DerivedData with dead/live WorkspacePath -> removed / kept
 #
-# Not wired into CI (the script maintains host-machine state CI doesn't have);
-# run it locally after changing prune-worktrees.sh.
+# Runs in CI's linux-build-test lane (ci.yml) — every external dependency (gh, lsof,
+# plutil) and the worktree/DerivedData fixtures above are stubbed or thrown away, so the
+# script's real host-machine state is never touched. Run it locally after changing
+# prune-worktrees.sh.
 
 set -euo pipefail
 

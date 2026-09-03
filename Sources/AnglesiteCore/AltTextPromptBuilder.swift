@@ -6,6 +6,10 @@ import Foundation
 /// from `AltTextGenerator` and `SiteAssistantSessionFactory` so it's directly unit-testable
 /// without constructing either.
 public enum AltTextPromptBuilder {
+    /// The default alt-text generation instruction, shared by every alt-text call site so the
+    /// legacy overlay and WYSIWYG paths stay consistent when tuned.
+    public static let defaultBasePrompt = "Generate concise, descriptive alt text for this image as it would appear on a website. If the image is purely decorative, mark it decorative and use empty alt text."
+
     /// Returns `basePrompt` prefixed with a guidance preamble when the site's conventions carry
     /// real signal; otherwise the bare prompt unchanged. Each guidance line is gated on an
     /// override or a positive sample size so a freshly created site's zero-valued defaults never

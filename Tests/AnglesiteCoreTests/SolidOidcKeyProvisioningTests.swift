@@ -2,21 +2,13 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
-
-private final class FakeSecretStore: SecretStore, @unchecked Sendable {
-    private var storage: [String: String] = [:]
-    func read(account: String) throws -> String? { storage[account] }
-    func write(_ value: String, account: String) throws {
-        if value.isEmpty { storage.removeValue(forKey: account) } else { storage[account] = value }
-    }
-    func delete(account: String) throws { storage.removeValue(forKey: account) }
-}
+import AnglesiteTestSupport
 
 @Suite("SolidOidcKeyProvisioning")
 struct SolidOidcKeyProvisioningTests {
     @Test("signingKeyJWK generates a private EC P-256 JWK with the expected members")
     func generatesJWK() throws {
-        let store = FakeSecretStore()
+        let store = InMemorySecretStore()
         let jwk = try SolidOidcKeyProvisioning.signingKeyJWK(siteID: "site-1", secretStore: store)
         let object = try #require(try JSONSerialization.jsonObject(with: Data(jwk.utf8)) as? [String: String])
         #expect(object["kty"] == "EC")
@@ -28,7 +20,7 @@ struct SolidOidcKeyProvisioningTests {
 
     @Test("signingKeyJWK returns the same key on a second call — never regenerated")
     func neverRegenerates() throws {
-        let store = FakeSecretStore()
+        let store = InMemorySecretStore()
         let first = try SolidOidcKeyProvisioning.signingKeyJWK(siteID: "site-1", secretStore: store)
         let second = try SolidOidcKeyProvisioning.signingKeyJWK(siteID: "site-1", secretStore: store)
         #expect(first == second)
@@ -36,7 +28,7 @@ struct SolidOidcKeyProvisioningTests {
 
     @Test("signingKeyJWK generates independent keys for different sites")
     func independentPerSite() throws {
-        let store = FakeSecretStore()
+        let store = InMemorySecretStore()
         let siteA = try SolidOidcKeyProvisioning.signingKeyJWK(siteID: "site-a", secretStore: store)
         let siteB = try SolidOidcKeyProvisioning.signingKeyJWK(siteID: "site-b", secretStore: store)
         #expect(siteA != siteB)
@@ -44,7 +36,7 @@ struct SolidOidcKeyProvisioningTests {
 
     @Test("webdavPepper generates a non-empty secret and never regenerates")
     func webdavPepperStable() throws {
-        let store = FakeSecretStore()
+        let store = InMemorySecretStore()
         let first = try SolidOidcKeyProvisioning.webdavPepper(siteID: "site-1", secretStore: store)
         let second = try SolidOidcKeyProvisioning.webdavPepper(siteID: "site-1", secretStore: store)
         #expect(!first.isEmpty)

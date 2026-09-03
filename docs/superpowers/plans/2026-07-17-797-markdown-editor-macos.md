@@ -1,5 +1,7 @@
 # Markdown Editor for Post Bodies on macOS (#797) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Live-styled Markdown editing for post bodies and `.md`/`.mdx` files — attribute-only styling of raw source, interactive checkboxes, Format menu (⌘B/⌘I/⌘K, headings) and Edit ▸ Find — with zero behavior change to saving/dirty-tracking/conflict handling.

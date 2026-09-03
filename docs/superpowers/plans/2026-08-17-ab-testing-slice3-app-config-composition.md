@@ -1,5 +1,7 @@
 # A/B slice 3: app config model + wrangler composition — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the Swift app a `DomainConfig.Experiments` model that mirrors the template's already-shipped `anglesite.json` schema, teach `WorkerComposition.generateWranglerToml` to compose a Worker for a running experiment (third enabler, `run_worker_first`, its own `EXPERIMENTS_DB` D1 binding), and make `SocialWorkerProvisionCommand.provision` provision that shared D1 database on a static-only site's first running experiment.

@@ -1,5 +1,7 @@
 # WYSIWYG Mac Host Chrome — PR2 (Panels) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the chrome around the WYSIWYG canvas native, per design doc §4 (issue #1588, PR2 of 3): a native inspector for typed block props, a native palette (source list) with drag-in reorder and cross-boundary insert, Finder/Photos drag-in asset ingestion, semantic paste + block copy, and document conventions (window title/proxy icon, edited-dot, native find bar, `.toolbar(id:)`).

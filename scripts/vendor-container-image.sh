@@ -42,7 +42,7 @@ mkdir -p "$OUT"
 ARCHIVE="$OUT/image.tar"
 # Pass only the arm64 base digest. Apple container 1.1 tries to resolve every declared FROM stage,
 # including an unused amd64 stage, against the requested platform.
-ARM64_BASE="node:22-bookworm-slim@sha256:6db9be2ebb4bafb687a078ef5ba1b1dd256e8004d246a31fd210b6b848ab6be2"
+ARM64_BASE="node:24-bookworm-slim@sha256:e9b5516b06baeaea9a8e65a7aec6a85fbb960a30b52b66968f2c8092b3e2a3eb"
 # Stamped into vendor-manifest.json below so check-container-resources.sh can catch this pin
 # drifting from scripts/node-version.txt (#1815) — this image's Node base is pinned
 # independently of container/Dockerfile's NODE_VERSION build-arg (which reads that file

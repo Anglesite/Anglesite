@@ -51,4 +51,12 @@ struct WYSIWYGImageAssetIngestorTests {
         #expect(line?.stream == .stderr)
         #expect(line?.text.contains("matched no known image signature") == true)
     }
+
+    @Test("resolves an ingested asset path back to its on-disk file under public/")
+    func resolvesFileURLForAssetPath() {
+        let siteDirectory = URL(fileURLWithPath: "/tmp/my-site", isDirectory: true)
+        let url = WYSIWYGImageAssetIngestor.fileURL(
+            forAssetPath: "/images/wysiwyg-abcd1234.jpg", siteDirectory: siteDirectory)
+        #expect(url.path == "/tmp/my-site/public/images/wysiwyg-abcd1234.jpg")
+    }
 }

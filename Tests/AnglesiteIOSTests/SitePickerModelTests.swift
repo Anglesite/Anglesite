@@ -3,11 +3,7 @@ import Foundation
 @testable import AnglesiteIOS
 import AnglesiteCore
 import AnglesiteSiteModel
-
-private struct FakeUbiquityContainerResolver: UbiquityContainerResolving {
-    let result: URL?
-    func url(forUbiquityContainerIdentifier containerIdentifier: String?) -> URL? { result }
-}
+import AnglesiteTestSupport
 
 private struct FakeUbiquitousPackageDiscovery: UbiquitousPackageDiscovering {
     let urls: [URL]

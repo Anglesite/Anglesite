@@ -1,5 +1,7 @@
 # Software Factory Phase E Implementation Plan
 
+**Status:** historical
+
 > **Status: executed and superseded — do not re-run literally.** This plan is the historical
 > record of what was executed (all 8 tasks completed, then a final whole-branch review found
 > and fixed several bugs its own text still shows uncorrected: Task 4's step 1 comment-lookup

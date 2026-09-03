@@ -1,4 +1,5 @@
-import XCTest
+import Testing
+import Foundation
 @testable import AnglesiteCore
 
 /// Regression coverage for #548's review follow-up: the fail-fast `.git` guard added to
@@ -11,31 +12,33 @@ import XCTest
 /// #903 extended the guard into `cloneSource(for:)`: it now also resolves the split-repo layout
 /// (#888, `Source/.git` is a gitfile pointing at `Config/repo.nosync/`) to the directory a
 /// container runtime must actually share and clone.
-final class SourceRepoPreconditionTests: XCTestCase {
-
+struct SourceRepoPreconditionTests {
     private func tmpDir() -> URL {
         let d = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try? FileManager.default.createDirectory(at: d, withIntermediateDirectories: true)
         return d
     }
 
-    func testThrowsCloneFailedWhenNoGitDirectory() {
+    @Test("throws cloneFailed when there is no git directory")
+    func throwsCloneFailedWhenNoGitDirectory() {
         let dir = tmpDir()
-        XCTAssertThrowsError(try SourceRepoPrecondition.cloneSource(for: dir)) { error in
-            guard case LocalContainerError.cloneFailed(let message) = error else {
-                return XCTFail("expected .cloneFailed, got \(error)")
-            }
-            XCTAssertTrue(message.contains("no git repository"), "unexpected message: \(message)")
+        #expect {
+            try SourceRepoPrecondition.cloneSource(for: dir)
+        } throws: { error in
+            guard case LocalContainerError.cloneFailed(let message) = error else { return false }
+            return message.contains("no git repository")
         }
     }
 
-    func testEmbeddedGitDirectoryResolvesToSourceItself() throws {
+    @Test("an embedded .git directory resolves to Source itself")
+    func embeddedGitDirectoryResolvesToSourceItself() throws {
         let dir = tmpDir()
         try FileManager.default.createDirectory(at: dir.appendingPathComponent(".git"), withIntermediateDirectories: true)
-        XCTAssertEqual(try SourceRepoPrecondition.cloneSource(for: dir), dir)
+        #expect(try SourceRepoPrecondition.cloneSource(for: dir) == dir)
     }
 
-    func testSplitLayoutGitfileResolvesToLiveRepository() throws {
+    @Test("a split-layout gitfile resolves to the live repository")
+    func splitLayoutGitfileResolvesToLiveRepository() throws {
         // Package shape from RepoRelocator (#888): Source/.git is a gitfile whose relative
         // target is Config/repo.nosync/ — a real git dir (HEAD present) beside Source/.
         let pkg = tmpDir()
@@ -46,35 +49,37 @@ final class SourceRepoPreconditionTests: XCTestCase {
         try "ref: refs/heads/main\n".write(to: live.appendingPathComponent("HEAD"), atomically: true, encoding: .utf8)
         try "gitdir: ../Config/repo.nosync\n".write(to: source.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
 
-        XCTAssertEqual(
-            try SourceRepoPrecondition.cloneSource(for: source).standardizedFileURL.path,
+        #expect(
+            try SourceRepoPrecondition.cloneSource(for: source).standardizedFileURL.path ==
             live.standardizedFileURL.path)
     }
 
-    func testDanglingGitfileThrowsLegibleError() throws {
+    @Test("a dangling gitfile throws a legible error")
+    func danglingGitfileThrowsLegibleError() throws {
         // The #879 "fresh peer" shape: gitfile present, its target never synced to this machine.
         let pkg = tmpDir()
         let source = pkg.appendingPathComponent("Source", isDirectory: true)
         try FileManager.default.createDirectory(at: source, withIntermediateDirectories: true)
         try "gitdir: ../Config/repo.nosync\n".write(to: source.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
 
-        XCTAssertThrowsError(try SourceRepoPrecondition.cloneSource(for: source)) { error in
-            guard case LocalContainerError.cloneFailed(let message) = error else {
-                return XCTFail("expected .cloneFailed, got \(error)")
-            }
-            XCTAssertTrue(message.contains("repo.nosync"), "should name the missing gitdir: \(message)")
+        #expect {
+            try SourceRepoPrecondition.cloneSource(for: source)
+        } throws: { error in
+            guard case LocalContainerError.cloneFailed(let message) = error else { return false }
+            return message.contains("repo.nosync")
         }
     }
 
-    func testMalformedGitfileThrowsLegibleError() throws {
+    @Test("a malformed gitfile throws a legible error")
+    func malformedGitfileThrowsLegibleError() throws {
         let dir = tmpDir()
         try "not a gitdir pointer\n".write(to: dir.appendingPathComponent(".git"), atomically: true, encoding: .utf8)
 
-        XCTAssertThrowsError(try SourceRepoPrecondition.cloneSource(for: dir)) { error in
-            guard case LocalContainerError.cloneFailed(let message) = error else {
-                return XCTFail("expected .cloneFailed, got \(error)")
-            }
-            XCTAssertTrue(message.contains("gitdir pointer"), "unexpected message: \(message)")
+        #expect {
+            try SourceRepoPrecondition.cloneSource(for: dir)
+        } throws: { error in
+            guard case LocalContainerError.cloneFailed(let message) = error else { return false }
+            return message.contains("gitdir pointer")
         }
     }
 }

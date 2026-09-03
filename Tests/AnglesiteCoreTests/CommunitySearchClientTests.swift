@@ -1,37 +1,13 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 
 @Suite("CommunitySearchClient")
 struct CommunitySearchClientTests {
-    /// Answers each requested URL from a fixed table; unmatched URLs 404. Mirrors
-    /// `CommunityActorResolverTests.FakeTransport` — search is a single request, but the same
-    /// per-URL routing keeps the fixture URL visible at the call site instead of hidden behind a
-    /// single-response stub.
-    actor FakeTransport {
-        private var responses: [String: (status: Int, body: String)]
-        private(set) var requestedURLs: [URL] = []
-
-        init(_ responses: [String: (status: Int, body: String)]) {
-            self.responses = responses
-        }
-
-        private func respond(to request: URLRequest) throws -> (Data, HTTPURLResponse) {
-            let url = request.url!
-            requestedURLs.append(url)
-            let (status, body) = responses[url.absoluteString] ?? (404, "not found")
-            let http = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!
-            return (Data(body.utf8), http)
-        }
-
-        nonisolated var transport: CommunitySearchClient.Transport {
-            { request in try await self.respond(to: request) }
-        }
-    }
-
     private static let searchURL =
         "https://lemmy.world/api/v3/search?q=birding&type_=Communities&listing_type=All&sort=TopAll&limit=20"
 

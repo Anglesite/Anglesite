@@ -6,11 +6,11 @@
   "note": "IndieAuth, Webmention (inbound receive, V-3.1), Micropub (V-3.2), WebSub (hub, V-3.3), Microsub (reader, V-4.3), and ActivityPub (actor, V-4.1) are pinned to the exact published betas composed into worker.ts and verified by the template Worker integration suite; the remaining social packages remain gated on their conformance status until composed.",
   "packages": {
     "@dwk/indieauth": "1.0.0-beta.1",
-    "@dwk/webmention": "1.0.0-beta.1",
-    "@dwk/micropub": "1.0.0-beta.1",
+    "@dwk/webmention": "1.0.0-beta.2",
+    "@dwk/micropub": "1.0.0-beta.3",
     "@dwk/websub": "1.0.0-beta.1",
     "@dwk/microsub": "1.0.0-beta.1",
-    "@dwk/activitypub": "1.0.0-beta.2",
+    "@dwk/activitypub": "1.0.0-beta.5",
     "@dwk/webfinger": "1.0.0-beta.1"
   }
 }

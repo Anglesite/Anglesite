@@ -14,6 +14,11 @@ export interface RichTextRun {
   children?: RichTextRun[];
 }
 
+/** Reply to a writing-help request (#1227 PR 2) — mirrors Swift's `WritingHelpOutcome`. */
+export type WritingHelpReply =
+  | { status: "rewritten"; text: string }
+  | { status: "unavailable"; message: string };
+
 export type BlockKind =
   | "astro"
   | "custom-element"

@@ -672,6 +672,57 @@ struct WorkerCompositionTests {
         #expect(!toml.contains("AP_USERNAME"))
     }
 
+    // AP_ICON (#1771): the actor's avatar, threaded the same way as AP_USERNAME.
+
+    @Test("activitypub with a known icon emits an AP_ICON var")
+    func activitypubWithIconEmitsVar() throws {
+        let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [activitypub], apIcon: "/apple-touch-icon.png"
+        )
+        #expect(toml.contains("[vars]"))
+        #expect(toml.contains("AP_ICON = \"/apple-touch-icon.png\""))
+    }
+
+    @Test("activitypub with no known icon omits AP_ICON")
+    func activitypubWithoutIconOmitsVar() throws {
+        let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [activitypub])
+        #expect(!toml.contains("AP_ICON"))
+    }
+
+    @Test("apIcon is ignored when activitypub isn't an active worker")
+    func apIconIgnoredWithoutActivitypub() throws {
+        let webmention = worker(WorkerComposition.webmentionWorkerID, d1: false, kv: false, r2: false)
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [webmention], apIcon: "/apple-touch-icon.png"
+        )
+        #expect(!toml.contains("AP_ICON"))
+    }
+
+    @Test("apIcon, apUsername, and displayName vars coexist in one [vars] block")
+    func apIconCoexistsWithOtherActorVars() throws {
+        let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [activitypub],
+            displayName: "Alice's Blog", apUsername: "alice", apIcon: "https://example.com/me.png"
+        )
+        let varsRange = try #require(toml.range(of: "[vars]"))
+        let afterVars = toml[varsRange.upperBound...]
+        #expect(afterVars.contains("AP_DISPLAY_NAME = \"Alice's Blog\""))
+        #expect(afterVars.contains("AP_USERNAME = \"alice\""))
+        #expect(afterVars.contains("AP_ICON = \"https://example.com/me.png\""))
+    }
+
+    @Test("an apIcon containing a double quote is rejected, not interpolated raw into TOML")
+    func apIconWithDoubleQuoteIsRejected() throws {
+        let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
+        let toml = try WorkerComposition.generateWranglerToml(
+            siteName: "my-site", workers: [activitypub], apIcon: "/me.png\" INJECTED"
+        )
+        #expect(!toml.contains("AP_ICON"))
+    }
+
     @Test("siteURL is ignored when webmention receive isn't active")
     func siteURLIgnoredWithoutWebmention() throws {
         let toml = try WorkerComposition.generateWranglerToml(

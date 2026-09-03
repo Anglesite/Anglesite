@@ -1,5 +1,7 @@
 # POSSE Syndication Implementation Plan
 
+**Status:** historical
+
 **Goal:** Cross-post explicitly opted-in entries to Mastodon/Bluesky after deploy and write the
 returned URLs back to canonical source as published `u-syndication` metadata.
 

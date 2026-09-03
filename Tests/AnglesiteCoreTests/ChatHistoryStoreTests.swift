@@ -1,32 +1,36 @@
-import XCTest
+import Testing
+import Foundation
 @testable import AnglesiteCore
 
-final class ChatHistoryStoreTests: XCTestCase {
-    private var tmpDir: URL!
+final class ChatHistoryStoreTests {
+    private let tmpDir: URL
 
-    override func setUp() async throws {
+    init() throws {
         tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("chat-history-tests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: tmpDir, withIntermediateDirectories: true)
     }
 
-    override func tearDown() async throws {
+    deinit {
         try? FileManager.default.removeItem(at: tmpDir)
     }
 
-    func testLoadReturnsEmptyWhenFileMissing() async throws {
+    @Test("load returns empty when file missing")
+    func loadReturnsEmptyWhenFileMissing() async throws {
         let store = ChatHistoryStore(configDirectory: tmpDir)
         let entries = try await store.load()
-        XCTAssertEqual(entries, [])
+        #expect(entries == [])
     }
 
-    func testAppendCreatesDirectoryAndFile() async throws {
+    @Test("append creates the directory and file")
+    func appendCreatesDirectoryAndFile() async throws {
         let store = ChatHistoryStore(configDirectory: tmpDir)
         try await store.append(.init(role: .user, content: "Hello"))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: tmpDir.appendingPathComponent("chat-history.jsonl").path))
+        #expect(FileManager.default.fileExists(atPath: tmpDir.appendingPathComponent("chat-history.jsonl").path))
     }
 
-    func testAppendThenLoadRoundTrips() async throws {
+    @Test("append then load round trips")
+    func appendThenLoadRoundTrips() async throws {
         let store = ChatHistoryStore(configDirectory: tmpDir)
         let entries: [ChatHistoryStore.Entry] = [
             .init(role: .user, content: "Hi"),
@@ -35,13 +39,14 @@ final class ChatHistoryStoreTests: XCTestCase {
         ]
         for entry in entries { try await store.append(entry) }
         let loaded = try await store.load()
-        XCTAssertEqual(loaded.count, 3)
-        XCTAssertEqual(loaded.map(\.role), [.user, .assistant, .tool])
-        XCTAssertEqual(loaded.map(\.content), ["Hi", "Hello there.", "file contents"])
-        XCTAssertEqual(loaded[2].metadata?["toolUseID"], "t1")
+        #expect(loaded.count == 3)
+        #expect(loaded.map(\.role) == [.user, .assistant, .tool])
+        #expect(loaded.map(\.content) == ["Hi", "Hello there.", "file contents"])
+        #expect(loaded[2].metadata?["toolUseID"] == "t1")
     }
 
-    func testCorruptLineDoesNotDestroyHistory() async throws {
+    @Test("a corrupt line does not destroy the rest of the history")
+    func corruptLineDoesNotDestroyHistory() async throws {
         let store = ChatHistoryStore(configDirectory: tmpDir)
         try await store.append(.init(role: .user, content: "good"))
         // Inject a junk line between two good ones.
@@ -53,27 +58,30 @@ final class ChatHistoryStoreTests: XCTestCase {
         try await store.append(.init(role: .assistant, content: "bye"))
 
         let loaded = try await store.load()
-        XCTAssertEqual(loaded.map(\.content), ["good", "bye"], "corrupt line skipped, valid entries preserved")
+        #expect(loaded.map(\.content) == ["good", "bye"], "corrupt line skipped, valid entries preserved")
     }
 
-    func testClearEmptiesTheFile() async throws {
+    @Test("clear empties the file")
+    func clearEmptiesTheFile() async throws {
         let store = ChatHistoryStore(configDirectory: tmpDir)
         try await store.append(.init(role: .user, content: "transient"))
         try await store.clear()
         let loaded = try await store.load()
-        XCTAssertEqual(loaded, [])
+        #expect(loaded == [])
     }
 
-    func testClearIsNoOpWhenFileMissing() async throws {
+    @Test("clear is a no-op when the file is missing")
+    func clearIsNoOpWhenFileMissing() async throws {
         let store = ChatHistoryStore(configDirectory: tmpDir)
         try await store.clear()  // should not throw
         let loaded = try await store.load()
-        XCTAssertEqual(loaded, [])
+        #expect(loaded == [])
     }
 
     // MARK: edit rows + undone records
 
-    func testEditEntryRoundTripsWithMetadata() async throws {
+    @Test("an edit entry round trips with metadata")
+    func editEntryRoundTripsWithMetadata() async throws {
         let store = ChatHistoryStore(configDirectory: tmpDir)
         let edit = ChatHistoryStore.Entry(
             role: .edit,
@@ -82,13 +90,14 @@ final class ChatHistoryStoreTests: XCTestCase {
         )
         try await store.append(edit)
         let loaded = try await store.load()
-        XCTAssertEqual(loaded.count, 1)
-        XCTAssertEqual(loaded[0].role, .edit)
-        XCTAssertEqual(loaded[0].metadata?["file"], "src/pages/about.astro")
-        XCTAssertEqual(loaded[0].metadata?["commit"], "abc123")
+        #expect(loaded.count == 1)
+        #expect(loaded[0].role == .edit)
+        #expect(loaded[0].metadata?["file"] == "src/pages/about.astro")
+        #expect(loaded[0].metadata?["commit"] == "abc123")
     }
 
-    func testUndoneRecordFlipsTheReferencedEditsUndoneFlag() async throws {
+    @Test("an undone record flips the referenced edit's undone flag")
+    func undoneRecordFlipsTheReferencedEditsUndoneFlag() async throws {
         let store = ChatHistoryStore(configDirectory: tmpDir)
         let editID = UUID()
         let edit = ChatHistoryStore.Entry(
@@ -100,19 +109,21 @@ final class ChatHistoryStoreTests: XCTestCase {
         try await store.appendUndone(messageID: editID, newCommit: "def456")
 
         let loaded = try await store.load()
-        XCTAssertEqual(loaded.count, 1, "undone records collapse onto the referenced edit, not as separate rows")
-        XCTAssertEqual(loaded[0].metadata?["undone"], "true")
-        XCTAssertEqual(loaded[0].metadata?["undoneNewCommit"], "def456")
+        #expect(loaded.count == 1, "undone records collapse onto the referenced edit, not as separate rows")
+        #expect(loaded[0].metadata?["undone"] == "true")
+        #expect(loaded[0].metadata?["undoneNewCommit"] == "def456")
     }
 
-    func testUndoneRecordWithoutMatchingEditIsIgnored() async throws {
+    @Test("an undone record without a matching edit is ignored")
+    func undoneRecordWithoutMatchingEditIsIgnored() async throws {
         let store = ChatHistoryStore(configDirectory: tmpDir)
         try await store.appendUndone(messageID: UUID(), newCommit: "orphan")
         let loaded = try await store.load()
-        XCTAssertEqual(loaded, [])
+        #expect(loaded == [])
     }
 
-    func testMixedHistoryPreservesOrderAndAppliesUndone() async throws {
+    @Test("mixed history preserves order and applies undone")
+    func mixedHistoryPreservesOrderAndAppliesUndone() async throws {
         let store = ChatHistoryStore(configDirectory: tmpDir)
         let editID = UUID()
         try await store.append(.init(role: .user, content: "Hi"))
@@ -125,8 +136,8 @@ final class ChatHistoryStoreTests: XCTestCase {
         try await store.appendUndone(messageID: editID, newCommit: "def456")
 
         let loaded = try await store.load()
-        XCTAssertEqual(loaded.count, 3)
-        XCTAssertEqual(loaded.map(\.role), [.user, .edit, .assistant])
-        XCTAssertEqual(loaded[1].metadata?["undone"], "true")
+        #expect(loaded.count == 3)
+        #expect(loaded.map(\.role) == [.user, .edit, .assistant])
+        #expect(loaded[1].metadata?["undone"] == "true")
     }
 }

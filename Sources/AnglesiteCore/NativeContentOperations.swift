@@ -194,8 +194,8 @@ public struct NativeContentOperations: ContentOperationsService {
     /// the boundary that makes a schema-invalid entry unwritable by *any* caller, not just the
     /// sheet (#916). Note the `ContentOperationsService` protocol witness above is title-only, so a
     /// non-native runtime cannot carry field values; unreachable today, and widening the protocol
-    /// would ripple into `RemoteSandboxSiteRuntime` (#66) / `LocalContainerSiteRuntime` (#69) for no
-    /// present benefit — same reasoning as the `createTypedSingleton` TODO below.
+    /// for that would ripple into `RemoteSandboxSiteRuntime` (#66) / `LocalContainerSiteRuntime`
+    /// (#69) for no present benefit.
     public func createTyped(
         siteID: String,
         typeID: String,
@@ -273,15 +273,18 @@ public struct NativeContentOperations: ContentOperationsService {
         return .created(filePath: relPath, identifier: finalSlug)
     }
 
+    /// `ContentOperationsService` witness: forward to the `name:`-labeled implementation below,
+    /// matching the protocol's `title:`-labeled shape (mirrors `createTyped`'s title-only witness
+    /// above).
+    public func createTypedSingleton(siteID: String, typeID: String, title: String, onProgress: ProgressHandler? = nil) async -> ContentCreateResult {
+        await createTypedSingleton(siteID: siteID, typeID: typeID, name: title, onProgress: onProgress)
+    }
+
     /// Create a per-site singleton (V-1.3 follow-up, #388) — e.g. the representative h-card.
     /// Looks the type up, resolves its `singletonSlot`, renders the JSON data module via
     /// `ContentScaffold.renderSingleton`, and writes it — refusing if the slot file already exists,
     /// which enforces one identity per site across both `businessProfile` and `personalProfile`
     /// (they share the `"profile"` slot). Same write/commit path as `createTyped`.
-    ///
-    /// TODO: add to the `ContentOperationsService` protocol when remote runtimes land
-    /// (`RemoteSandboxSiteRuntime` #66, `LocalContainerSiteRuntime` #69) — they implement the
-    /// protocol and currently have no path to create singletons.
     public func createTypedSingleton(
         siteID: String,
         typeID: String,

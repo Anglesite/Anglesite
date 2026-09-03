@@ -1,5 +1,7 @@
 # Embedded License Metadata Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add `LicenseMetadataEmbedder`, an `AnglesiteCore` utility that writes a chosen license into a media file's own bytes (image XMP via ImageIO, PDF Info dictionary via PDFKit), so the license survives the file leaving the page that stated it — issue #999, scope item 2 ("Embedded per-file license metadata").

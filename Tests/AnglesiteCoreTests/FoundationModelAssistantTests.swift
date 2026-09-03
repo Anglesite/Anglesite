@@ -7,8 +7,9 @@ import UniformTypeIdentifiers
 import AnglesiteSiteModel
 
 // Gated like the type under test (#128). Capability/tier assertions run on any toolchain≥6.4;
-// the generate/generateStructured tests are live-model and skip when unavailable.
-// TODO(#104/#161): migrate the live tests to the mock LanguageModel session once #104 lands.
+// the generate/generateStructured tests are live-model by design (Apple's FoundationModels
+// exposes no fake/mock session to substitute) and skip when unavailable. Registered in
+// scripts/lib/live-model-tests.sh so local full runs serialize on the on-device model (#1594).
 #if compiler(>=6.4) && canImport(FoundationModels)
 import FoundationModels
 
@@ -160,6 +161,31 @@ struct FoundationModelAssistantTests {
         #expect(tools.contains { $0 is DesignInterviewTool })
         // Attaching the tool must not eagerly build the interview model.
         #expect(await counter.count == 0)
+    }
+
+    // MARK: WYSIWYG rewrite tool (#1227 PR 2) — no model required
+
+    @Test("no wysiwygBlockAccessProvider means no RewriteBlockTool and no advertised tool")
+    func rewriteBlockAbsentWithoutProvider() async {
+        let assistant = FoundationModelAssistant()
+        #expect(await !assistant.attachedToolNamesForTesting.contains(RewriteBlockTool.toolName))
+        let tools = await assistant.conversationToolsForTesting(for: makeContext())
+        #expect(!tools.contains { $0 is RewriteBlockTool })
+    }
+
+    /// `conversationTools` attaches `RewriteBlockTool` purely on the provider's *presence*, whether
+    /// or not it currently resolves to a live canvas — fix round 2 (#1227 PR 2 final review, Finding
+    /// 2) moved the actual per-turn resolution into `RewriteBlockTool.call` itself (covered by
+    /// `RewriteBlockToolTests`'s `repliesCanvasNotOpenWhenProviderResolvesNil`), because the cached,
+    /// multi-turn `LanguageModelSession` reuses tool instances across turns — resolving inside
+    /// `conversationTools`, as fix round 1 did, only takes effect when a session is rebuilt, not on
+    /// every turn of an already-cached conversation.
+    @Test("attachedToolNames and conversationTools both report the provider is wired, independent of what it currently resolves to")
+    func rewriteBlockAdvertisedWheneverProviderSupplied() async {
+        let assistant = FoundationModelAssistant(wysiwygBlockAccessProvider: { nil })
+        #expect(await assistant.attachedToolNamesForTesting.contains(RewriteBlockTool.toolName))
+        let tools = await assistant.conversationToolsForTesting(for: makeContext())
+        #expect(tools.contains { $0 is RewriteBlockTool })
     }
 
     @Test("PCC-tier assistant constructs and remains usable (falls back to on-device)")

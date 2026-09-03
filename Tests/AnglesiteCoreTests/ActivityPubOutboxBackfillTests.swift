@@ -6,6 +6,7 @@ import FoundationNetworking
 
 import Testing
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 private final class RequestRecorder: @unchecked Sendable {
     private let lock = NSLock()
@@ -19,15 +20,14 @@ private final class RequestRecorder: @unchecked Sendable {
     }
 }
 
-private struct FakeSecretStore: SecretStore {
-    let token: String?
-    func read(account: String) throws -> String? { token }
-    func write(_ value: String, account: String) throws {}
-    func delete(account: String) throws {}
-}
-
 @Suite("ActivityPubOutboxBackfill")
 struct ActivityPubOutboxBackfillTests {
+    /// Every test in this suite uses `siteID: "site-1"` — the account the token needs to be
+    /// seeded under for `ActivityPubOutboxBackfill` to find it.
+    private func secretStore(token: String?) -> InMemorySecretStore {
+        InMemorySecretStore(token: token, account: SecretAccounts.activityPubPublishToken(siteID: "site-1"))
+    }
+
     func makeTempDir() throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -62,7 +62,7 @@ struct ActivityPubOutboxBackfillTests {
 
         let outcomes = await backfill.backfill(
             siteID: "site-1", siteDirectory: siteDirectory, configDirectory: configDirectory,
-            siteBase: URL(string: "https://owner.example")!, secretStore: FakeSecretStore(token: "test-token"),
+            siteBase: URL(string: "https://owner.example")!, secretStore: secretStore(token: "test-token"),
             referenceDate: ISO8601DateFormatter().date(from: "2026-07-24T00:00:00Z")!
         )
 
@@ -105,7 +105,7 @@ struct ActivityPubOutboxBackfillTests {
 
         let outcomes = await backfill.backfill(
             siteID: "site-1", siteDirectory: siteDirectory, configDirectory: configDirectory,
-            siteBase: URL(string: "https://owner.example")!, secretStore: FakeSecretStore(token: "test-token")
+            siteBase: URL(string: "https://owner.example")!, secretStore: secretStore(token: "test-token")
         )
 
         #expect(outcomes.isEmpty)
@@ -131,7 +131,7 @@ struct ActivityPubOutboxBackfillTests {
 
         let outcomes = await backfill.backfill(
             siteID: "site-1", siteDirectory: siteDirectory, configDirectory: configDirectory,
-            siteBase: URL(string: "https://owner.example")!, secretStore: FakeSecretStore(token: nil)
+            siteBase: URL(string: "https://owner.example")!, secretStore: secretStore(token: nil)
         )
 
         #expect(outcomes.isEmpty)
@@ -155,7 +155,7 @@ struct ActivityPubOutboxBackfillTests {
 
         let outcomes = await backfill.backfill(
             siteID: "site-1", siteDirectory: siteDirectory, configDirectory: configDirectory,
-            siteBase: URL(string: "https://owner.example")!, secretStore: FakeSecretStore(token: "test-token")
+            siteBase: URL(string: "https://owner.example")!, secretStore: secretStore(token: "test-token")
         )
 
         #expect(outcomes.count == 1)
@@ -185,7 +185,7 @@ struct ActivityPubOutboxBackfillTests {
 
         _ = await backfill.backfill(
             siteID: "site-1", siteDirectory: siteDirectory, configDirectory: configDirectory,
-            siteBase: URL(string: "https://owner.example")!, secretStore: FakeSecretStore(token: "test-token")
+            siteBase: URL(string: "https://owner.example")!, secretStore: secretStore(token: "test-token")
         )
 
         let request = try #require(recorder.requests.first)
@@ -221,7 +221,7 @@ struct ActivityPubOutboxBackfillTests {
 
         let outcomes = await backfill.backfill(
             siteID: "site-1", siteDirectory: siteDirectory, configDirectory: configDirectory,
-            siteBase: URL(string: "https://owner.example")!, secretStore: FakeSecretStore(token: "test-token")
+            siteBase: URL(string: "https://owner.example")!, secretStore: secretStore(token: "test-token")
         )
 
         #expect(outcomes.count == 1)

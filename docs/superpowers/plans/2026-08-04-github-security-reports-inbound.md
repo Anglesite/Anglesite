@@ -1,5 +1,7 @@
 # Inbound GitHub Security Reports Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Surface a GitHub-backed site's open security advisories and Dependabot alerts inside Anglesite — a toolbar badge, a Website Settings section, a route into the existing dependency-sync sheet for fixable alerts, and a clipboard+browser action for forwarding a report that's actually about Anglesite itself.
