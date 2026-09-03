@@ -12,18 +12,25 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
     private let onContextMenu: (@Sendable (BlockId, CGPoint) -> Void)?
     private let onSelectionChanged: (@Sendable (BlockId?) -> Void)?
     private let onFocusInspectorRequested: (@Sendable (WYSIWYGOpsDispatcher.FocusDirection, BlockId) -> Void)?
+    /// Answers a `writing-help-request` message with a rewrite outcome (#1227 PR 2). `nil` when
+    /// the app layer has no site context to build a `WritingHelpAssisting` call with (e.g. outside
+    /// edit mode) — `WYSIWYGOpsDispatcher.dispatch` already falls back to `.unavailable` on its own
+    /// when `writingHelp` is nil, so this handler doesn't need its own fallback branch.
+    private let onWritingHelpRequested: (@Sendable (_ text: String, _ instruction: String) async -> WritingHelpOutcome)?
 
     public init(
         transport: any WYSIWYGHostTransport, logCenter: LogCenter = .shared,
         onContextMenu: (@Sendable (BlockId, CGPoint) -> Void)? = nil,
         onSelectionChanged: (@Sendable (BlockId?) -> Void)? = nil,
-        onFocusInspectorRequested: (@Sendable (WYSIWYGOpsDispatcher.FocusDirection, BlockId) -> Void)? = nil
+        onFocusInspectorRequested: (@Sendable (WYSIWYGOpsDispatcher.FocusDirection, BlockId) -> Void)? = nil,
+        onWritingHelpRequested: (@Sendable (_ text: String, _ instruction: String) async -> WritingHelpOutcome)? = nil
     ) {
         self.transport = transport
         self.logCenter = logCenter
         self.onContextMenu = onContextMenu
         self.onSelectionChanged = onSelectionChanged
         self.onFocusInspectorRequested = onFocusInspectorRequested
+        self.onWritingHelpRequested = onWritingHelpRequested
         super.init()
     }
 
@@ -36,8 +43,9 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
         let onContextMenu = self.onContextMenu
         let onSelectionChanged = self.onSelectionChanged
         let onFocusInspectorRequested = self.onFocusInspectorRequested
+        let onWritingHelpRequested = self.onWritingHelpRequested
         Task {
-            switch await WYSIWYGOpsDispatcher.dispatch(body: body, via: transport) {
+            switch await WYSIWYGOpsDispatcher.dispatch(body: body, via: transport, writingHelp: onWritingHelpRequested) {
             case .contextMenu(let blockId, let point):
                 onContextMenu?(blockId, CGPoint(x: point.x, y: point.y))
             case .selectionChanged(let blockId):

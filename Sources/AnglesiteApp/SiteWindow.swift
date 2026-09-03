@@ -1690,6 +1690,17 @@ struct SiteWindow: View {
                 router: model.preview.editRouter,
                 annotationProvider: model.annotationProvider,
                 wysiwygTransport: model.preview.wysiwygCanvas,
+                // #1227 PR 2: the writing-help toolbar's site context. `conventions` is a deferred
+                // lookup (weak `model` capture) rather than a resolved value — see
+                // `PreviewView.writingHelpSiteContext`'s doc comment for why a synchronous
+                // `@ViewBuilder` can't snapshot an actor-backed value here.
+                writingHelpSiteContext: model.preview.openSiteID.map { siteID in
+                    (
+                        siteID: siteID,
+                        siteDirectory: model.preview.openSiteDirectory ?? URL(fileURLWithPath: "/"),
+                        conventions: { [weak model] in await model?.currentProjectConventions() }
+                    )
+                },
                 onPlacementPick: { message in
                     await model.effectPlacementController.handlePick(message)
                 },
