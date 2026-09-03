@@ -8,13 +8,16 @@ function get(path: string): Promise<Response> {
 }
 
 describe("GET /.well-known/apple-app-site-association", () => {
-  it("serves the webcredentials entry for the app", async () => {
+  it("serves the webcredentials entries for the iOS and macOS apps", async () => {
     const response = await get("/.well-known/apple-app-site-association");
     expect(response.status).toBe(200);
     const body = (await response.json()) as {
       webcredentials: { apps: string[] };
     };
-    expect(body.webcredentials.apps).toEqual(["M34HBJZNYA.io.dwk.anglesite.ios"]);
+    expect(body.webcredentials.apps).toEqual([
+      "M34HBJZNYA.io.dwk.anglesite.ios",
+      "M34HBJZNYA.io.dwk.anglesite",
+    ]);
   });
 
   it("declares an application/json content type", async () => {
