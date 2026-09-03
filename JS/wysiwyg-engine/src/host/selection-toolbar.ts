@@ -113,8 +113,10 @@ export class SelectionToolbar {
    * (`applyTextReplacement` then silently no-ops on the cleared state; confirmed live in the
    * Playwright golden, not reachable from the jsdom-only unit tests). `mousedown` fires — and can
    * be prevented — before the browser moves focus on `click`, so `preventDefault()` here keeps
-   * focus (and the live selection/edit) on the block, the same technique `mount.ts`'s drag-handle
-   * `onPointerDown` already uses to avoid a comparable steal.
+   * focus (and the live selection/edit) on the block — the standard technique for a UI control
+   * that must not steal focus from an active edit (not an existing pattern elsewhere in this
+   * package — `mount.ts`'s drag-handle `onPointerDown`/`preventDefault()` solves a different
+   * problem, suppressing compatibility mouse events for drag start).
    */
   #preventFocusSteal(button: HTMLButtonElement): void {
     button.addEventListener("mousedown", (event) => event.preventDefault());
