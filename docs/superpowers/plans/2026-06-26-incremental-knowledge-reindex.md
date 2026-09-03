@@ -1,5 +1,7 @@
 # Incremental Knowledge Reindex Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Keep the `SiteKnowledgeIndex` fresh while a site is open by watching the package's `Source/` directory and feeding changed files to the index's existing `upsertFile`/`removeFile` seams.

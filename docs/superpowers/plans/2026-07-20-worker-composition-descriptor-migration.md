@@ -1,5 +1,7 @@
 # WorkerComposition.Feature → WorkerDescriptor Migration Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Migrate `WorkerComposition.generateWranglerToml` and `SocialWorkerProvisionCommand.provision` from the closed, 7-case `WorkerComposition.Feature` enum to the catalog-driven `WorkerDescriptor` (landed in PR #712), deleting the `WorkerActivation.mapToFeatures` interim shim — the first of #708's two remaining sub-tasks (design doc `docs/superpowers/specs/2026-07-13-workers-local-debugging-design.md` §3).

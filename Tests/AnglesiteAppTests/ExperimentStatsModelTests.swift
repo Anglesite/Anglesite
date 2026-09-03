@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import AnglesiteAppCore
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 @MainActor
 @Suite struct ExperimentStatsModelTests {
@@ -106,7 +107,7 @@ import Foundation
         let model = ExperimentStatsModel(
             siteID: "s1", sourceDirectory: sourceDirectory, configDirectory: configDirectory, currentRoute: "/")
         await model.loadLivePrefillIfAvailable(
-            secretStore: FakeSecretStore(token: "token"),
+            secretStore: InMemorySecretStore(token: "token"),
             transport: { request in
                 let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
                 if request.url!.path.hasSuffix("/accounts") { return (accountsBody, response) }
@@ -163,7 +164,7 @@ import Foundation
             siteID: "s1", sourceDirectory: sourceDirectory, configDirectory: configDirectory, currentRoute: "/")
         model.controlImpressions = 42
         await model.loadLivePrefillIfAvailable(
-            secretStore: FakeSecretStore(token: "token"),
+            secretStore: InMemorySecretStore(token: "token"),
             transport: { request in
                 let response = HTTPURLResponse(url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
                 if request.url!.path.hasSuffix("/accounts") { return (accountsBody, response) }
@@ -836,11 +837,4 @@ import Foundation
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)
         return tmp
     }
-}
-
-private struct FakeSecretStore: SecretStore {
-    let token: String?
-    func read(account: String) throws -> String? { account == SecretAccounts.cloudflareToken ? token : nil }
-    func write(_ value: String, account: String) throws {}
-    func delete(account: String) throws {}
 }

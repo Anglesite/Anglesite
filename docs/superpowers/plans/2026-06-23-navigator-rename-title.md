@@ -1,5 +1,7 @@
 # Navigator Page/Post Re-titling Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let the user re-title a page or post in the project navigator by control-clicking the name and editing it in place (Finder-style), writing the new title to the correct location for the file type without moving the file or changing its URL.

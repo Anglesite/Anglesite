@@ -1,5 +1,7 @@
 # Embedded Node Removal (#70) — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **⛔ DO NOT START PHASE B (teardown) until the Gating Checklist below is fully satisfied.** Every item in #70's scope is currently load-bearing — the host `LocalSiteRuntime` is the *active* preview runtime on every build today (the container path is gated behind `BundledImage.isProvisioned` + the virtualization entitlement and is selected on zero builds), and embedded Node is also used by deploy, audit, scaffold, and Cloudflare-token-verify, none of which have moved into a container. Removing it before the preconditions are met leaves builds with **no runtime**.

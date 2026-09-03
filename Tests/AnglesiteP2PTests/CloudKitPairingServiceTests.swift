@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 #if canImport(CloudKit)
 import CloudKit
 @testable import AnglesiteP2P
@@ -102,9 +103,8 @@ struct CloudKitPairingServiceLifecycleTests {
     @Test func stopObservingHaltsThePollLoop() async throws {
         let service = CloudKitPairingService(offlinePollInterval: .milliseconds(5))
         await service.startObserving()
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil("the poll loop to tick at least once") { await service.pollCount > 0 }
         #expect(await service.isObserving == true)
-        #expect(await service.pollCount > 0)
 
         await service.stopObserving()
         // Let any in-flight iteration finish before sampling, so the baseline isn't racy.
@@ -122,12 +122,12 @@ struct CloudKitPairingServiceLifecycleTests {
     @Test func consumerCancellationStopsThePollLoop() async throws {
         let service = CloudKitPairingService(offlinePollInterval: .milliseconds(5))
         let consumer = Task { for await _ in service.announcedDevices() {} }
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(await service.isObserving == true)
+        try await waitUntil("observation to start") { await service.isObserving == true }
 
         consumer.cancel()
-        // `onTermination` hops back onto the actor, so give that hop room to land.
-        try await Task.sleep(for: .milliseconds(200))
+        // `onTermination` hops back onto the actor; wait for that hop to land instead of
+        // guessing how long it takes under load.
+        try await waitUntil("cancellation to stop the poll loop") { await service.isObserving == false }
         let settled = await service.pollCount
         try await Task.sleep(for: .milliseconds(100))
 
@@ -146,12 +146,10 @@ struct CloudKitPairingServiceLifecycleTests {
             let service = CloudKitPairingService(offlinePollInterval: .milliseconds(5))
             weakService = service
             await service.startObserving()
-            try await Task.sleep(for: .milliseconds(50))
+            try await waitUntil("the poll loop to tick at least once") { await service.pollCount > 0 }
         }
 
-        try await Task.sleep(for: .milliseconds(300))
-
-        #expect(weakService == nil)
+        try await waitUntil("the service to deallocate once dropped") { weakService == nil }
     }
 
     /// Stopping twice must be harmless — `continuation.finish()` itself re-enters `stopObserving()`

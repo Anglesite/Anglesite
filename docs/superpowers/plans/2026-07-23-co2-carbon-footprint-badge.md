@@ -1,5 +1,7 @@
 # Carbon Footprint Badge (CO2.js) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a `.co2Badge` Bucket-3 integration that shows an estimated per-page CO2 footprint, computed from each built page's byte weight via `@tgwf/co2`, recomputed on every `astro build` — no client-side JS shipped to visitors.

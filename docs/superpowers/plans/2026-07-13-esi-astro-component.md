@@ -1,5 +1,7 @@
 # ESI Astro Components + Local Fallback Preview — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship three Astro template components (`EsiInclude`, `EsiComment`, `EsiRemove`) that let a site owner author Edge Side Includes markup, plus a global Live/Unprocessed preview toggle in the app's Debug Pane so the fallback state can be previewed on demand.

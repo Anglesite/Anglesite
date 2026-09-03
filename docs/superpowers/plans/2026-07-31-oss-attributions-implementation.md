@@ -1,5 +1,7 @@
 # Open-Source Attributions Framework Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give Anglesite an "Open Source Acknowledgments" window (reachable from the App menu, next to About) that discloses every third-party package shipped in the app binary, the container image/sidecar, and the website template — backed by generated, CI-verified manifests, plus a generated notice file in every new site.

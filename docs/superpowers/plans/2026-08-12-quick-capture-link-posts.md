@@ -1,5 +1,7 @@
 # Quick-Capture Link Posts (#531) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** A pasted/dragged URL becomes a published link post (an entry in the template's existing `bookmarks` collection) in seconds — via a compose sheet, drag/paste entry points, a menu command, and a new App Intent.

@@ -14,11 +14,6 @@ struct SiteActionsScaffoldingContextTests {
     /// fail). Reporting an iCloud container also keeps `resolveScaffoldingContext()` off the
     /// `#if ANGLESITE_MAS` sites-root access-grant path, which would otherwise pop a real
     /// `NSOpenPanel` under `swift test`.
-    private struct FakeUbiquityContainerResolver: UbiquityContainerResolving {
-        let result: URL?
-        func url(forUbiquityContainerIdentifier containerIdentifier: String?) -> URL? { result }
-    }
-
     /// An isolated `AppSettings` backed by its own `UserDefaults` suite and a fake ubiquity
     /// resolver — mirrors `SiteWindowModelTests.makeIsolatedSettings()`. Never mutate
     /// `AppSettings.shared` directly, since that's a real singleton other tests/suites could

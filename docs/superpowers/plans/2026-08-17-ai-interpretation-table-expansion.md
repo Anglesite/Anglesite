@@ -1,5 +1,7 @@
 # AI-Interpretation Table Expansion Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace `LicenseCatalog`'s boolean `permitsAIUse` classification with a three-state `AIInterpretation` (permits / unclear / prohibits), add one new catalog entry (Public Domain Mark 1.0), and give "All rights reserved" and "Custom…" their own explicit interpretation in the first-publish license gate's comparison table — closing part of #999 ("expand the AI-interpretation column beyond CC0/CC BY/CC BY-SA").

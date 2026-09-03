@@ -1,5 +1,7 @@
 # `.anglesite` Package Model — Phase 2 (Open / Create + Runtime) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `.anglesite` packages the unit the app opens, creates, and runs: convert `SiteStore` from a `~/Sites` scanner into a recents registry keyed by the package's stable marker UUID, route Finder/`Open With` opens of a package to a site window, scaffold new sites into the package's `Source/`, retarget every subprocess working directory to `Source/`, and (MAS) hold the security-scoped grant on the package.

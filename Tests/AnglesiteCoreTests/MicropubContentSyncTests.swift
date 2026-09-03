@@ -2,6 +2,7 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 struct MicropubContentSyncTests {
     // MARK: - collectionAndSlug
@@ -415,7 +416,7 @@ extension MicropubContentSyncTests {
         let count = await MicropubContentSync.pullAndCommitIfConfigured(
             siteDirectory: URL(fileURLWithPath: "/nonexistent"),
             configDirectory: configDir,
-            secretStore: FakeSecretStore(token: "unused"),
+            secretStore: InMemorySecretStore(token: "unused"),
             transport: { _ in
                 Issue.record("transport must not be called with no provisioned D1 database")
                 struct UnexpectedNetworkCall: Error {}
@@ -447,7 +448,7 @@ extension MicropubContentSyncTests {
         let count = await MicropubContentSync.pullAndCommitIfConfigured(
             siteDirectory: siteDirectory,
             configDirectory: configDir,
-            secretStore: FakeSecretStore(token: "token"),
+            secretStore: InMemorySecretStore(token: "token"),
             transport: { request in
                 if request.url!.path.hasSuffix("/accounts") { return (accountsBody, Self.response(200)) }
                 if request.url!.path.contains("/d1/database/db1/query") { return (body, Self.response(200)) }
@@ -492,11 +493,4 @@ extension MicropubContentSyncTests {
         try git(["commit", "-q", "-m", "initial"])
         return (siteDirectory, configDirectory)
     }
-}
-
-private struct FakeSecretStore: SecretStore {
-    let token: String?
-    func read(account: String) throws -> String? { account == SecretAccounts.cloudflareToken ? token : nil }
-    func write(_ value: String, account: String) throws {}
-    func delete(account: String) throws {}
 }

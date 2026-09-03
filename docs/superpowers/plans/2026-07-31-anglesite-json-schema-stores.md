@@ -1,5 +1,7 @@
 # anglesite.json Schema + Swift/TS Stores Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Introduce the git-tracked declared-intent file `Source/anglesite.json` — a versioned, unknown-key-preserving JSON schema with a Swift `DomainConfig` model + `DomainConfigStore`, a template-side TypeScript reader, and a schema doc. Ships inert: nothing calls the writer or reads a section into the build yet.

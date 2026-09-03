@@ -1,5 +1,7 @@
 # Anywhere Runtime P0 — `AnglesiteP2P` Transport Core Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 >
 > **As-built note (2026-08-04):** P0 landed via PR #1219; the exit criterion passed on macOS (confirming stasel/WebRTC 150.0.0 ships a `macos-x86_64_arm64` slice). This plan text was updated post-review to match as-built decisions: commit-revision dependency pin, percent-decode-then-check traversal guard, and load-tolerant (event-driven) heartbeat timing tests.

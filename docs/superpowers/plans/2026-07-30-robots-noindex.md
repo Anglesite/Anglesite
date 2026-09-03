@@ -1,5 +1,7 @@
 # Robots.txt and noindex Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give the app's page inspector two independent per-page controls — "Hide from search results" (`noindex`) and "Block crawling entirely" (`disallowCrawl`) — backed by one shared, git-tracked config file that the Astro template reads at build time to emit the `noindex` meta tag, the `X-Robots-Tag` header, and `robots.txt` `Disallow` lines.

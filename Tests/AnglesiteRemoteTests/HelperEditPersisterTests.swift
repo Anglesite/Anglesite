@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import AnglesiteCore
 import AnglesiteP2P
+import AnglesiteTestSupport
 @testable import AnglesiteRemote
 
 @Suite struct HelperEditPersisterTests {

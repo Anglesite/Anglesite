@@ -1,5 +1,7 @@
 # Anywhere Runtime P1 — Mac Helper Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship `Anglesite Remote.app` — a faceless (`LSUIElement`) helper, registered as a login item via `SMAppService.agent` and embedded in the main app's bundle, that boots a site's container on demand and bridges it over the P0 `AnglesiteP2P` transport core (file signaling, matching P0's own E2E harness — CloudKit signaling is P2) — proven by a second Mac process editing a site with the main `Anglesite.app` never launched.

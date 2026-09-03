@@ -24,10 +24,10 @@
 # sufficient: it complements, not replaces, the manual `.xcstrings` diff review CONTRIBUTING.md
 # asks for.
 #
-# It separately flags model-layer error/status properties (`errorMessage`, `lastError`,
-# `loadError`, `saveError`, `renameError`) assigned a bare string literal instead of going through
-# `String(localized:)` — that shape has no SwiftUI call site for either Xcode's real extractor or
-# the checks above to see, so it silently ships untranslated (#1800).
+# It separately flags model-layer error/status properties (see ERROR_PROPERTY_NAMES below)
+# assigned a bare string literal instead of going through `String(localized:)` — that shape has
+# no SwiftUI call site for either Xcode's real extractor or the checks above to see, so it
+# silently ships untranslated (#1800, #1852).
 #
 # For a string literal containing interpolation (`\(expr)`), Xcode's real extractor turns each
 # interpolation into a positional format specifier (%@, %lld, ...) chosen from the interpolated
@@ -73,12 +73,16 @@ KEY_PATTERN = re.compile(r'LocalizedStringKey\(\s*"')
 # String(localized: "...") are invisible to every pattern above (they're not one of the
 # recognized call sites, and Xcode's real extractor never sees them either) - so they ship
 # untranslated the moment a second locale lands (#1800). This list is deliberately just the
-# handful of property names #1800's audit actually found bypassing the catalog, not a general
-# "*Error" heuristic - matching on name suffix alone would also flag the several other
-# similarly-named error properties already known to exist (e.g. `licenseGateError`,
-# `redirectsError`) that no one has migrated yet, which would fail this check for code no
-# current change touches. Extend this list deliberately as more properties are migrated.
-ERROR_PROPERTY_NAMES = ["errorMessage", "lastError", "loadError", "saveError", "renameError"]
+# handful of property names audited so far, not a general "*Error" heuristic - matching on name
+# suffix alone would also flag every other similarly-named error property that hasn't been
+# migrated yet, which would fail this check for code no current change touches. Extend this list
+# deliberately as more properties are migrated (#1800 added the first batch, #1852 the second).
+ERROR_PROPERTY_NAMES = [
+    "errorMessage", "lastError", "loadError", "saveError", "renameError",
+    "licenseGateError", "workerNameConflictError", "redirectsError", "utmCodesError",
+    "licensingError", "langError", "mtaStsError", "securityReportingError", "deleteError",
+    "redirectSaveError", "contentActionError",
+]
 BARE_ERROR_ASSIGN_PATTERN = re.compile(r'\b(?:' + "|".join(ERROR_PROPERTY_NAMES) + r')\s*=\s*"')
 
 # Any interpolation could extract to %@, %lld, %ld, %d, %f, %u, or a positional variant
@@ -222,7 +226,7 @@ if bare_assignments:
     print(
         f"error: {len(bare_assignments)} assignment(s) in {sources_root} give "
         + "/".join(ERROR_PROPERTY_NAMES)
-        + " a bare string literal instead of String(localized: \"...\") (#1800):",
+        + " a bare string literal instead of String(localized: \"...\") (#1800, #1852):",
         file=sys.stderr,
     )
     for path, line, raw in bare_assignments:

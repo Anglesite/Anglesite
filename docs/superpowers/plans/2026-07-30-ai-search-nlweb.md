@@ -1,5 +1,7 @@
 # AI Search / NLWeb Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a site owner provision a Cloudflare AI Search instance for their site directly from the app, with a crawler-policy preflight check, an at-cost/model disclosure, an automatic WAF skip rule when Bot Fight Mode is on, and a handoff to the Cloudflare dashboard for the still-preview, still-manual NLWeb enablement step.

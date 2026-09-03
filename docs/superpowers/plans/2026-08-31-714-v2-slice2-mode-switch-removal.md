@@ -1,5 +1,7 @@
 # Website Design Window v2 — Slice 2: Mode-Switch Removal Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Retire the toolbar's `panes` Preview/Editor/Graph segmented control and turn Editor, Graph, and Cleanup into drill-in "takeovers" with a shared Done header that returns to the canvas, per [#714](https://github.com/Anglesite/Anglesite/issues/714) v2 slice 2 (spec §2, §4–5, Slices item 2).

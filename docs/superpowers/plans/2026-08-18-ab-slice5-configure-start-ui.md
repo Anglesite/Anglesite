@@ -1,5 +1,7 @@
 # A/B slice 5: configure/start lifecycle UI — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Extend the Experiment Results sheet (#769) with a propose → configure → start → running lifecycle, so a site owner can turn an A/B test idea into a live, deployed experiment without leaving the app — per issue [#1518](https://github.com/Anglesite/Anglesite/issues/1518) and the design at `docs/superpowers/specs/2026-08-18-ab-slice5-configure-start-ui-design.md`.

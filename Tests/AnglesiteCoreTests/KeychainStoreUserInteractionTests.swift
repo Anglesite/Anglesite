@@ -1,9 +1,10 @@
 // Exercises `KeychainStore`'s non-interactive mode (#1717); compiles out with the Security
 // framework off-Darwin, like `KeychainStoreTests`.
 #if canImport(Security)
+import Testing
 import Foundation
 import Security
-import XCTest
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 /// The login-keychain authorization dialog ("Anglesite wants to use your confidential
@@ -11,69 +12,93 @@ import XCTest
 /// item's ACL. Background work must never raise it (#1717), so `KeychainStore` offers a
 /// `withoutUserInteraction` face whose reads fail fast instead. These tests pin that contract.
 ///
-/// Same environment handling as `KeychainStoreTests`: a unique service per test, and a clean
-/// `XCTSkip` when the keychain isn't reachable at all.
-final class KeychainStoreUserInteractionTests: XCTestCase {
-    private var service = ""
-    private var store: KeychainStore!
+/// Kept at file scope rather than as a static member of `KeychainStoreUserInteractionTests`
+/// itself — referencing a type's own static from its `@Suite` trait creates a circular
+/// macro-expansion error.
+private let keychainUserInteractionTestsKeychainReachable: Bool = {
+    let probe = KeychainStore(service: "io.dwk.anglesite.tests.probe-\(UUID().uuidString)")
+    do {
+        try probe.write("probe", account: "__probe__")
+        try probe.delete(account: "__probe__")
+        return true
+    } catch {
+        return false
+    }
+}()
 
-    override func setUp() async throws {
+/// Same environment handling as `KeychainStoreTests`: a unique service per test, and a clean
+/// suite skip (via `.enabled(if:)`) when the keychain isn't reachable at all.
+@Suite(.enabled(if: keychainUserInteractionTestsKeychainReachable, "keychain not reachable in this environment"))
+final class KeychainStoreUserInteractionTests {
+    private let service: String
+    private let store: KeychainStore
+
+    /// Whether `/usr/bin/security` can create a keychain item here — some CI images can't.
+    /// Evaluated once by creating and immediately deleting a scratch item.
+    static let securityToolAvailable: Bool = {
+        let probeService = "io.dwk.anglesite.tests.security-probe-\(UUID().uuidString)"
+        let status = runSecurity(["add-generic-password", "-s", probeService, "-a", "__probe__", "-w", "probe", "-U"])
+        _ = runSecurity(["delete-generic-password", "-s", probeService, "-a", "__probe__"])
+        return status == 0
+    }()
+
+    init() {
         service = "io.dwk.anglesite.tests." + UUID().uuidString
         store = KeychainStore(service: service)
-        do {
-            try store.write("probe", account: "__probe__")
-            try store.delete(account: "__probe__")
-        } catch KeychainStore.Error.unhandled(let status) {
-            throw XCTSkip("keychain not reachable in this environment (OSStatus \(status))")
-        }
     }
 
-    override func tearDown() async throws {
+    deinit {
         try? store.delete(account: "alpha")
         Self.deleteForeignItem(service: service, account: "foreign")
     }
 
     // MARK: Mode plumbing
 
-    func testDefaultStoreAllowsUserInteraction() {
-        XCTAssertTrue(store.allowsUserInteraction)
-        XCTAssertTrue(KeychainStore().allowsUserInteraction)
+    @Test("the default store allows user interaction")
+    func defaultStoreAllowsUserInteraction() {
+        #expect(store.allowsUserInteraction)
+        #expect(KeychainStore().allowsUserInteraction)
     }
 
     /// The derived store addresses exactly the same items: same service, same access group, same
     /// query shape. The mode is a call-time policy, never an attribute of the stored item.
-    func testWithoutUserInteractionPreservesServiceAccessGroupAndQuery() {
+    @Test("withoutUserInteraction preserves the service, access group, and query")
+    func withoutUserInteractionPreservesServiceAccessGroupAndQuery() throws {
         let scoped = KeychainStore(service: service, accessGroup: "TESTPREFIX.io.dwk.anglesite.shared")
         guard let quiet = scoped.withoutUserInteraction as? KeychainStore else {
-            return XCTFail("expected a KeychainStore, got \(type(of: scoped.withoutUserInteraction))")
+            Issue.record("expected a KeychainStore, got \(type(of: scoped.withoutUserInteraction))")
+            return
         }
-        XCTAssertEqual(quiet.service, service)
-        XCTAssertEqual(quiet.accessGroup, scoped.accessGroup)
-        XCTAssertFalse(quiet.allowsUserInteraction)
-        XCTAssertEqual(
-            quiet.baseQuery(account: "alpha").keys.sorted(),
+        #expect(quiet.service == service)
+        #expect(quiet.accessGroup == scoped.accessGroup)
+        #expect(!quiet.allowsUserInteraction)
+        #expect(
+            quiet.baseQuery(account: "alpha").keys.sorted() ==
             scoped.baseQuery(account: "alpha").keys.sorted())
     }
 
     /// Through the `SecretStore` existential (how `DeployModel` holds its store) the same face is
     /// reachable, and it's still a `KeychainStore` — not the protocol's identity default.
-    func testWithoutUserInteractionIsReachableThroughTheProtocol() {
+    @Test("withoutUserInteraction is reachable through the protocol")
+    func withoutUserInteractionIsReachableThroughTheProtocol() {
         let erased: any SecretStore = store
         guard let quiet = erased.withoutUserInteraction as? KeychainStore else {
-            return XCTFail("expected a KeychainStore, got \(type(of: erased.withoutUserInteraction))")
+            Issue.record("expected a KeychainStore, got \(type(of: erased.withoutUserInteraction))")
+            return
         }
-        XCTAssertFalse(quiet.allowsUserInteraction)
-        XCTAssertEqual(quiet.service, service)
+        #expect(!quiet.allowsUserInteraction)
+        #expect(quiet.service == service)
     }
 
     // MARK: Behavior
 
     /// Items this binary wrote are on the ACL already, so the quiet face reads them exactly like
     /// the default one — misses included. Nothing about "no prompting" may cost a legitimate read.
-    func testWithoutUserInteractionReadsOurOwnItems() throws {
+    @Test("withoutUserInteraction reads our own items")
+    func withoutUserInteractionReadsOurOwnItems() throws {
         try store.write("mine", account: "alpha")
-        XCTAssertEqual(try store.withoutUserInteraction.read(account: "alpha"), "mine")
-        XCTAssertNil(try store.withoutUserInteraction.read(account: "never-written"))
+        #expect(try store.withoutUserInteraction.read(account: "alpha") == "mine")
+        #expect(try store.withoutUserInteraction.read(account: "never-written") == nil)
     }
 
     /// The property this mode exists for: an item this binary is *not* on the ACL of — created by
@@ -81,41 +106,49 @@ final class KeychainStoreUserInteractionTests: XCTestCase {
     /// immediately rather than blocking on the authorization dialog. The read runs on its own thread
     /// with a deadline so a regression fails the test instead of hanging the whole run on a modal
     /// prompt (the interactive default would block there until someone clicked).
-    func testWithoutUserInteractionRefusesInsteadOfPromptingForForeignItem() async throws {
+    @Test(
+        "withoutUserInteraction refuses instead of prompting for a foreign item",
+        .enabled(if: KeychainStoreUserInteractionTests.securityToolAvailable,
+                  "/usr/bin/security couldn't create a keychain item here")
+    )
+    func withoutUserInteractionRefusesInsteadOfPromptingForForeignItem() async throws {
         try Self.createForeignItem(service: service, account: "foreign")
         let quiet = store.withoutUserInteraction
-        let finished = expectation(description: "read returned without prompting")
         let outcome = OutcomeBox()
         Thread.detachNewThread {
             outcome.set(Result { try quiet.read(account: "foreign") })
-            finished.fulfill()
         }
-        await fulfillment(of: [finished], timeout: 5)
+        try await waitUntil("read returned without prompting", timeout: .seconds(5)) {
+            outcome.get() != nil
+        }
 
         guard let result = outcome.get() else {
-            return XCTFail("the read is still blocked — a keychain authorization prompt was shown")
+            Issue.record("the read is still blocked — a keychain authorization prompt was shown")
+            return
         }
         switch result {
         case .success(let value):
-            XCTFail("expected the read to be refused, got \(value == nil ? "nil" : "a value")")
+            Issue.record("expected the read to be refused, got \(value == nil ? "nil" : "a value")")
         case .failure(let error):
             guard let keychainError = error as? KeychainStore.Error else {
-                return XCTFail("expected KeychainStore.Error, got \(error)")
+                Issue.record("expected KeychainStore.Error, got \(error)")
+                return
             }
-            XCTAssertTrue(keychainError.requiresUserInteraction, "unexpected error \(keychainError)")
+            #expect(keychainError.requiresUserInteraction, "unexpected error \(keychainError)")
         }
     }
 
     /// `requiresUserInteraction` is the exact status set the non-interactive read (and a user's
     /// "Deny" on the interactive one) produce — nothing else, so a genuinely broken keychain isn't
     /// misreported as "just needs permission".
-    func testRequiresUserInteractionCoversOnlyAuthorizationStatuses() {
-        XCTAssertTrue(KeychainStore.Error.unhandled(errSecAuthFailed).requiresUserInteraction)
-        XCTAssertTrue(KeychainStore.Error.unhandled(errSecInteractionNotAllowed).requiresUserInteraction)
-        XCTAssertTrue(KeychainStore.Error.unhandled(errSecUserCanceled).requiresUserInteraction)
-        XCTAssertFalse(KeychainStore.Error.unhandled(errSecMissingEntitlement).requiresUserInteraction)
-        XCTAssertFalse(KeychainStore.Error.unhandled(errSecParam).requiresUserInteraction)
-        XCTAssertFalse(KeychainStore.Error.invalidUTF8.requiresUserInteraction)
+    @Test("requiresUserInteraction covers only authorization statuses")
+    func requiresUserInteractionCoversOnlyAuthorizationStatuses() {
+        #expect(KeychainStore.Error.unhandled(errSecAuthFailed).requiresUserInteraction)
+        #expect(KeychainStore.Error.unhandled(errSecInteractionNotAllowed).requiresUserInteraction)
+        #expect(KeychainStore.Error.unhandled(errSecUserCanceled).requiresUserInteraction)
+        #expect(!KeychainStore.Error.unhandled(errSecMissingEntitlement).requiresUserInteraction)
+        #expect(!KeychainStore.Error.unhandled(errSecParam).requiresUserInteraction)
+        #expect(!KeychainStore.Error.invalidUTF8.requiresUserInteraction)
     }
 
     // MARK: Helpers
@@ -129,13 +162,9 @@ final class KeychainStoreUserInteractionTests: XCTestCase {
         func get() -> Result<String?, Error>? { lock.withLock { value } }
     }
 
-    /// Creates a generic-password item whose ACL trusts `/usr/bin/security` only. Skips the test
-    /// when the tool can't write to the default keychain (some CI images).
+    /// Creates a generic-password item whose ACL trusts `/usr/bin/security` only.
     private static func createForeignItem(service: String, account: String) throws {
-        let status = runSecurity(["add-generic-password", "-s", service, "-a", account, "-w", "foreign-secret", "-U"])
-        if status != 0 {
-            throw XCTSkip("/usr/bin/security couldn't create a keychain item here (exit \(status))")
-        }
+        _ = runSecurity(["add-generic-password", "-s", service, "-a", account, "-w", "foreign-secret", "-U"])
     }
 
     private static func deleteForeignItem(service: String, account: String) {

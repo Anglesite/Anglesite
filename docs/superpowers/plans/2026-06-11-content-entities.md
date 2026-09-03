@@ -1,5 +1,7 @@
 # Content Entities Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Land issue [#137](https://github.com/Anglesite/Anglesite-app/issues/137) — three `AppEntity` types (`PageEntity`, `PostEntity`, `ImageEntity`) and their `EntityStringQuery` companions in `AnglesiteIntents`, plus the `ContentGraphOverride` test seam and the `AnglesiteIntents.bootstrap` signature change that threads a single `SiteContentGraph` instance through `AppDependencyManager`.

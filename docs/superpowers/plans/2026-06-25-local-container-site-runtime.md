@@ -1,5 +1,7 @@
 # LocalContainerSiteRuntime (#69) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the local macOS runtime that runs a site's `astro dev` + Node MCP sidecar inside an Apple-Containerization Linux VM, hydrated from the site's `Source/` git repo, exposed to the host over a vsock→TCP proxy.

@@ -1,59 +1,8 @@
 import Foundation
 import Testing
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
-
-private final class StubReader: CloudflareReading, @unchecked Sendable {
-    private let zoneID: String?
-    private let state: CloudflareZoneState
-    private(set) var resolvedDomain: String?
-
-    init(zoneID: String? = "z1", state: CloudflareZoneState = StubReader.defaultState) {
-        self.zoneID = zoneID
-        self.state = state
-    }
-
-    static let defaultState = CloudflareZoneState(
-        dnssecActive: false, sslMode: "flexible", alwaysUseHTTPS: false, hsts: nil,
-        caaRecords: [], mxRecords: [], spfRecords: [], dmarcRecords: [])
-
-    func resolveZoneID(domain: String, apiToken: String) async throws -> String? {
-        resolvedDomain = domain
-        return zoneID
-    }
-    func zoneState(zoneID: String, domain: String, apiToken: String) async throws -> CloudflareZoneState {
-        state
-    }
-    func listDNSRecords(zoneID: String, apiToken: String) async throws -> [DNSRecord] { [] }
-    func workerScriptNames(apiToken: String) async throws -> [String] { [] }
-}
-
-private final class StubWriter: CloudflareWriting, @unchecked Sendable {
-    private(set) var lastZoneID: String?
-    private(set) var lastEnabled: Bool?
-    var errorToThrow: CloudflareError?
-
-    func enableDNSSEC(zoneID: String, apiToken: String) async throws {}
-    func setAlwaysUseHTTPS(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func setHSTS(zoneID: String, maxAge: Int, includeSubdomains: Bool, preload: Bool, apiToken: String) async throws {}
-    func addDNSRecord(zoneID: String, record: DNSRecordPayload, apiToken: String) async throws {}
-    func deleteDNSRecord(zoneID: String, recordID: String, apiToken: String) async throws {}
-    func setBotFightMode(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func createWAFCustomRule(zoneID: String, rule: WAFRulePayload, apiToken: String) async throws {}
-    func setSpeedBrain(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func setECH(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func enableZstandardCompression(zoneID: String, apiToken: String) async throws {}
-    func setPageShield(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func setMarkdownForAgents(hostname: String, enabled: Bool, apiToken: String) async throws -> Bool { true }
-    func enableOnionRouting(zoneID: String, enabled: Bool, apiToken: String) async throws {
-        if let errorToThrow { throw errorToThrow }
-        lastZoneID = zoneID
-        lastEnabled = enabled
-    }
-    func attachWorkersCustomDomain(hostname: String, workerScriptName: String, apiToken: String) async throws -> CustomDomainAttachResult {
-        return .attached
-    }
-}
 
 /// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
 /// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
@@ -68,8 +17,8 @@ struct OnionRoutingModelTests {
         // so these tests are deterministic regardless of what's provisioned on the host.
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
-        let reader = StubReader()
-        let model = OnionRoutingModel(reader: reader, writer: StubWriter())
+        let reader = StubCloudflareReader()
+        let model = OnionRoutingModel(reader: reader, writer: StubCloudflareWriter())
         model.domainInput = "   "
         model.load()
         #expect(model.phase == .idle)
@@ -84,8 +33,8 @@ struct OnionRoutingModelTests {
         let state = CloudflareZoneState(
             dnssecActive: false, sslMode: "flexible", alwaysUseHTTPS: false, hsts: nil,
             caaRecords: [], mxRecords: [], spfRecords: [], dmarcRecords: [], onionRouting: true)
-        let reader = StubReader(zoneID: "z1", state: state)
-        let model = OnionRoutingModel(reader: reader, writer: StubWriter())
+        let reader = StubCloudflareReader(zoneID: "z1", state: state)
+        let model = OnionRoutingModel(reader: reader, writer: StubCloudflareWriter())
 
         model.domainInput = "  Example.com "
         model.load()
@@ -100,8 +49,8 @@ struct OnionRoutingModelTests {
     func loadZoneNotFound() async throws {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
-        let reader = StubReader(zoneID: nil)
-        let model = OnionRoutingModel(reader: reader, writer: StubWriter())
+        let reader = StubCloudflareReader(zoneID: nil)
+        let model = OnionRoutingModel(reader: reader, writer: StubCloudflareWriter())
 
         model.domainInput = "missing.com"
         model.load()
@@ -122,8 +71,8 @@ struct OnionRoutingModelTests {
         let state = CloudflareZoneState(
             dnssecActive: false, sslMode: "flexible", alwaysUseHTTPS: false, hsts: nil,
             caaRecords: [], mxRecords: [], spfRecords: [], dmarcRecords: [], onionRouting: false)
-        let reader = StubReader(zoneID: "z1", state: state)
-        let writer = StubWriter()
+        let reader = StubCloudflareReader(zoneID: "z1", state: state)
+        let writer = StubCloudflareWriter()
         let model = OnionRoutingModel(reader: reader, writer: writer)
 
         model.domainInput = "example.com"
@@ -133,8 +82,8 @@ struct OnionRoutingModelTests {
         model.toggle()
         while model.isRunning { await Task.yield() }
 
-        #expect(writer.lastZoneID == "z1")
-        #expect(writer.lastEnabled == true)
+        #expect(writer.lastOnionRoutingZoneID == "z1")
+        #expect(writer.lastOnionRoutingEnabled == true)
         #expect(model.phase == .configured(domain: "example.com", enabled: true))
     }
 
@@ -143,13 +92,13 @@ struct OnionRoutingModelTests {
     func toggleNoopWhenIdle() async throws {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
-        let writer = StubWriter()
-        let model = OnionRoutingModel(reader: StubReader(), writer: writer)
+        let writer = StubCloudflareWriter()
+        let model = OnionRoutingModel(reader: StubCloudflareReader(), writer: writer)
 
         model.toggle()
         while model.isRunning { await Task.yield() }
 
-        #expect(writer.lastEnabled == nil)
+        #expect(writer.lastOnionRoutingEnabled == nil)
         #expect(model.phase == .idle)
     }
 
@@ -157,7 +106,7 @@ struct OnionRoutingModelTests {
     @Test("openSheet() resets phase and clears any previously entered domain")
     func openSheetResets() {
         // No CloudflareAPITokenTestEnvironment claim needed: openSheet() never calls apiToken().
-        let model = OnionRoutingModel(reader: StubReader(), writer: StubWriter())
+        let model = OnionRoutingModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter())
         model.domainInput = "leftover.com"
 
         model.openSheet()
@@ -171,7 +120,7 @@ struct OnionRoutingModelTests {
     @Test("dismissSheet() clears the presented flag")
     func dismissSheetClearsPresented() {
         // No CloudflareAPITokenTestEnvironment claim needed: neither method calls apiToken().
-        let model = OnionRoutingModel(reader: StubReader(), writer: StubWriter())
+        let model = OnionRoutingModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter())
         model.openSheet()
 
         model.dismissSheet()

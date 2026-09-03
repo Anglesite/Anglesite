@@ -1,5 +1,7 @@
 # WYSIWYG Mac Host Chrome — PR1 (Plumbing) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Get an op from a menu command or in-canvas gesture across a new Swift↔JS bridge, applied against a local stub backend, and undoable through `NSUndoManager` — the vertical slice that proves the whole host seam works before any native panel UI exists (issue #1225, PR1 of 3).

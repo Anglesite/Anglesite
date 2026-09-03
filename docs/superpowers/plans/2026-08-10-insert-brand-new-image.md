@@ -1,5 +1,7 @@
 # Insert a brand-new image Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let an owner add a brand-new image to a page that has none — via drag-and-drop and via `Insert ▸ Image` — by adding one new sidecar op (`insert-image`) and wiring both app-side entry points to it.

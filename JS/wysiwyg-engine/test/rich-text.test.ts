@@ -573,4 +573,74 @@ describe("RichTextEditor", () => {
     expect(documentListener).not.toHaveBeenCalled();
     document.removeEventListener("keydown", documentListener);
   });
+
+  describe("RichTextEditor.currentSelectionContext", () => {
+    it("returns null when there is no active block being edited", () => {
+      const engine = { modelSync: { getBlock: () => undefined }, submit: async () => {} } as any;
+      const editor = new RichTextEditor(engine);
+      expect(editor.currentSelectionContext(document)).toBeNull();
+    });
+  });
+
+  describe("RichTextEditor.applyTextReplacement", () => {
+    it("uses the active element's ownerDocument, not the global document", async () => {
+      document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello world</div>`;
+      const model = makeTextModel();
+      const engine = new WysiwygEngine(model, new FixtureHost(model));
+      const editor = new RichTextEditor(engine);
+
+      editor.enter("t1");
+      const el = document.querySelector(`[${BLOCK_ID_ATTR}="t1"]`) as HTMLElement;
+      if (!el) throw new Error("fixture missing");
+
+      // Spy on the ownerDocument's methods to verify they're being used
+      const createTextNodeSpy = vi.spyOn(el.ownerDocument, "createTextNode");
+      const getSelectionSpy = vi.spyOn(el.ownerDocument, "getSelection");
+
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      editor.applyTextReplacement(range, "replaced text");
+
+      // Verify that the ownerDocument's methods were called (proving the method uses ownerDocument)
+      expect(createTextNodeSpy).toHaveBeenCalledWith("replaced text");
+      expect(getSelectionSpy).toHaveBeenCalled();
+
+      createTextNodeSpy.mockRestore();
+      getSelectionSpy.mockRestore();
+    });
+
+    it("submits an editText op carrying the replaced runs and the entry-time baseline as previousRuns (#1227 PR 2)", async () => {
+      document.body.innerHTML = `<div ${BLOCK_ID_ATTR}="t1">Hello world</div>`;
+      const model = makeTextModel();
+      const engine = new WysiwygEngine(model, new FixtureHost(model));
+      const editor = new RichTextEditor(engine);
+      const applied: { op: unknown }[] = [];
+      engine.onEvent((event) => {
+        if (event.type === "applied") applied.push({ op: event.op });
+      });
+
+      editor.enter("t1");
+      const el = document.querySelector(`[${BLOCK_ID_ATTR}="t1"]`) as HTMLElement;
+      const range = document.createRange();
+      range.selectNodeContents(el);
+      editor.applyTextReplacement(range, "replaced text");
+      // `#engine.submit` inside `applyTextReplacement` is fired with `void` (not awaited), so let
+      // its microtask queue drain before asserting — same reasoning as the debounced-commit tests
+      // above, minus the fake-timer advance since this path is immediate, not debounced.
+      await Promise.resolve();
+      await Promise.resolve();
+
+      expect(applied).toEqual([
+        {
+          op: {
+            kind: "editText",
+            blockId: "t1",
+            runs: [{ kind: "text", text: "replaced text" }],
+            previousRuns: [{ kind: "text", text: "Hello" }],
+          },
+        },
+      ]);
+      expect(engine.modelSync.getBlock("t1")?.richText).toEqual([{ kind: "text", text: "replaced text" }]);
+    });
+  });
 });

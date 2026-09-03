@@ -1,5 +1,7 @@
 # Bucket 3 — Integration Wizard Framework Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the prose integration skills with a deterministic Swift framework that sets up the stateless integrations (booking, donations, giscus) via one engine exposed through a GUI wizard, App Intents, and a Foundation Models chat tool.

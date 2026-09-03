@@ -1,5 +1,7 @@
 # Comment Style Guide + DocC Catalog + CI Check Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give Anglesite-app a written comment style guide, a working DocC catalog, and a CI check that fails the build on broken doc comments — so `swift package generate-documentation` (and, locally, `xcodebuild docbuild`) produce a real, browsable Xcode docset.

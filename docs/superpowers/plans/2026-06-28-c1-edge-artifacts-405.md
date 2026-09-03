@@ -1,5 +1,7 @@
 # Repo-Owned Edge Artifacts (Layer C1) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Generate the two repo-owned edge artifacts every Anglesite site should ship — `public/robots.txt` and `public/.well-known/security.txt` — at build time, driven by `.site-config`.

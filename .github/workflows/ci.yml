@@ -1,5 +1,9 @@
 name: CI
 
+# Lane went red? See ../../docs/ci-troubleshooting.md for a per-job runbook (what each
+# lane runs, what a red usually means, what to check first) lifted from this file's own
+# inline comments — read that first before re-deriving a diagnosis from scratch here.
+
 on:
   push:
     branches: [main]
@@ -14,8 +18,8 @@ concurrency:
   cancel-in-progress: true
 
 # Drop AnglesiteContainer (and its native apple/containerization graph) from every SwiftPM/xcodebuild
-# manifest evaluation in CI. `swift build`/`swift test` compile all products, so without this the
-# macos-15 runner would try to build the Swift-6.2/native container stack it can neither build nor
+# manifest evaluation in CI. `swift build`/`swift test` compile all products, so without this CI's
+# macOS runners would try to build the Swift-6.2/native container stack they can neither build nor
 # run. No CI lane builds the container runtime yet; a future app-build lane (#69 Task 8) that needs
 # it can override this at the job level. Mechanism: Package.swift gates target+product+dependency on
 # this var.
@@ -38,6 +42,7 @@ jobs:
       template: ${{ steps.filter.outputs.template }}
       helpBook: ${{ steps.filter.outputs.helpBook }}
       workers: ${{ steps.filter.outputs.workers }}
+      docsIndex: ${{ steps.filter.outputs.docsIndex }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -94,7 +99,7 @@ jobs:
             return 1
           }
 
-          swift=false; js=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false
+          swift=false; js=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false; docsIndex=false
           matches 'Package.swift' 'Package.resolved' 'project.yml' 'Sources/**' 'Tests/**' 'Resources/Template/**' 'Resources/Attributions/**' 'scripts/**' 'packaging/flatpak/**' '.github/workflows/ci.yml' && swift=true
           matches 'JS/edit-overlay/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && js=true
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
@@ -102,6 +107,7 @@ jobs:
           matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
           matches 'Resources/Anglesite.help/**' 'scripts/check-help-links.sh' '.github/workflows/ci.yml' && helpBook=true
           matches 'Workers/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && workers=true
+          matches 'docs/specs/**' 'docs/superpowers/**' 'scripts/generate-docs-index.py' 'scripts/test-generate-docs-index.py' '.github/workflows/ci.yml' && docsIndex=true
 
           echo "swift=$swift" >> "$GITHUB_OUTPUT"
           echo "js=$js" >> "$GITHUB_OUTPUT"
@@ -110,6 +116,7 @@ jobs:
           echo "template=$template" >> "$GITHUB_OUTPUT"
           echo "helpBook=$helpBook" >> "$GITHUB_OUTPUT"
           echo "workers=$workers" >> "$GITHUB_OUTPUT"
+          echo "docsIndex=$docsIndex" >> "$GITHUB_OUTPUT"
 
   edit-overlay:
     name: JS edit-overlay (lint/typecheck/test)
@@ -199,6 +206,15 @@ jobs:
       # ubuntu-latest doesn't ship it.
       - run: sudo apt-get update && sudo apt-get install -y zsh
 
+      # scripts/generate-npm-attributions.mjs lives at the repo root, not under
+      # Resources/Template, so it needs its own node:test invocation outside this job's
+      # working-directory default — this `template` filter already triggers on changes to
+      # that file (see the `changes` job), and setup-node above already put the right Node
+      # on PATH, so this is the natural lane for it (#1797).
+      - name: Test generate-npm-attributions.mjs
+        working-directory: ${{ github.workspace }}
+        run: node --test scripts/generate-npm-attributions.test.mjs
+
       # The website-template attributions manifest check lives in build-test (macos-26), not
       # here (ubuntu-latest) — see that job's "Check website-template attributions manifest"
       # step for why: the committed manifest is arm64-only and can never match a linux-x64
@@ -256,6 +272,24 @@ jobs:
       - name: Check Help Book links
         run: scripts/check-help-links.sh
 
+  docs-index:
+    name: Docs index (specs/plans README + Status header)
+    needs: changes
+    if: needs.changes.outputs.docsIndex == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # docs/specs/README.md and docs/superpowers/README.md are generated from the design
+    # docs' header lines (#1816). Same shape as help-book-links: stdlib python3 only, no
+    # installs. Fails when a README is stale or a doc dated on/after the convention start
+    # has no recognised `Status:` line; warns (non-fatal) when CLAUDE.md & co. point at a
+    # superseded spec.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generator unit tests
+        run: python3 scripts/test-generate-docs-index.py
+      - name: Check docs indexes are current
+        run: scripts/generate-docs-index.py --check
+
   linux-build-test:
     name: Linux (portable SwiftPM targets)
     needs: changes
@@ -311,6 +345,19 @@ jobs:
       # though stage-dev-image-context.sh backs the macOS/podman image-vendoring scripts.
       - name: Test stage-dev-image-context.sh sidecar version guard
         run: scripts/lib/stage-dev-image-context.test.sh
+
+      # Stubs `swift` on PATH and uses a throwaway lock dir, so it never touches the real
+      # /tmp/anglesite-swift-test.lock or compiles anything (#1594). No model contention here
+      # (this lane never calls the live-model suites), but the lock/retry logic under test is
+      # exercised entirely through the stub, so CI coverage doesn't need real contention.
+      - name: Test swift-test.sh lock/retry logic
+        run: scripts/swift-test.test.sh
+
+      # Stubs `gh`, `lsof`, and `plutil` and runs against a throwaway git repo, so every
+      # safety branch (merged/dirty/busy/orphaned worktrees, live/dead DerivedData) is
+      # exercised without touching this machine's real worktrees or DerivedData (#1461).
+      - name: Test prune-worktrees.sh safety rails
+        run: scripts/prune-worktrees.test.sh
 
   linux-flatpak-build:
     name: Linux (Flatpak manifest + AnglesiteLinux)
@@ -761,7 +808,7 @@ jobs:
 
   ios-build:
     name: iOS app target (AnglesiteMobile)
-    # #864: no other lane ever actually compiles an iOS app target. xcodeproj-sync (macos-15)
+    # #864: no other lane ever actually compiles an iOS app target. xcodeproj-sync (macos-26)
     # only checks source-file membership in the generated project — its own header says
     # explicitly that it "deliberately does NOT run a full xcodebuild" — and every other
     # xcodebuild-based lane (build-test, concurrency-tsan, appintents-schema) builds only the
@@ -993,7 +1040,7 @@ jobs:
     name: Anglesite.xcodeproj ↔ project.yml in sync
     needs: changes
     if: needs.changes.outputs.swift == 'true'
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 10
     permissions:
       contents: read
@@ -1192,6 +1239,7 @@ jobs:
       - wysiwyg-engine
       - safari-extension
       - help-book-links
+      - docs-index
       - workers-tests
       - linux-build-test
       - linux-flatpak-build

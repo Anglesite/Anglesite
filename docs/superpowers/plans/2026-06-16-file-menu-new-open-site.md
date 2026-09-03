@@ -1,5 +1,7 @@
 # File menu: New Site / Open Site / Open Recent — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add **New Site** (`⌘N`), **Open Site…** (`⌘O`), and an **Open Recent ▸** submenu to the macOS File menu, available from any window, reusing the launcher's existing create/import logic.

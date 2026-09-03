@@ -1,5 +1,7 @@
 # V-5.1a Communities — Join/Leave + Group Timeline Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let an Anglesite site join and leave existing fediverse `Group` actors (Lemmy, PieFed, Mbin, Friendica communities) by handle or URL, and read a per-group timeline, from a new Communities pane in the site window.

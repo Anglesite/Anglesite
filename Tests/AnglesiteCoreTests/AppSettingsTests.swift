@@ -15,11 +15,6 @@ final class AppSettingsTests {
     /// Deterministic stand-in for `FileManager` so these tests don't depend on the real iCloud
     /// account state of the machine running `swift test` (which never has the app's entitlement
     /// anyway, but should never be the thing making the test pass or fail).
-    private struct FakeUbiquityContainerResolver: UbiquityContainerResolving {
-        let result: URL?
-        func url(forUbiquityContainerIdentifier containerIdentifier: String?) -> URL? { result }
-    }
-
     /// Same fixed answer as `FakeUbiquityContainerResolver`, but counts calls so a test can prove
     /// `AppSettings` resolves the (documented-as-slow) ubiquity container only once per instance.
     /// A `final class` because `UbiquityContainerResolving.url(forUbiquityContainerIdentifier:)`

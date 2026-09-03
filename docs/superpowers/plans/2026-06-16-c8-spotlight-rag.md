@@ -1,5 +1,7 @@
 # C.8 — Local RAG via SpotlightSearchTool Implementation Plan (v2)
 
+**Status:** historical
+
 > **Status: Executed in PR #220.** Steps are checked below. Two deviations from the steps as written: the work landed as separate commits (not the single amended commit the steps suggested), and PR review added a `spotlightToolDisplayName` constant for the `.started` label plus clarifying comments on the `tools.isEmpty` branch, the `supportsTools` MAS caveat, and the budget-fit test's `guard case`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

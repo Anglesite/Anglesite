@@ -1,5 +1,7 @@
 # WYSIWYG Undo Correctness + Component-Insert Manifest Path Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the three WYSIWYG sidecar-transport gaps tracked in [#1602](https://github.com/Anglesite/Anglesite/issues/1602): (1) undoing a text edit restores to empty content instead of the original text, (2) undo of insert/delete can address the wrong node because the sidecar renumbers every node's id on each re-parse, and (3) inserting a component block writes an import statement pointing at a bare tag name instead of a real path.

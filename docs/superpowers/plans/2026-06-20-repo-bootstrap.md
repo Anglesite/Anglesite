@@ -1,5 +1,7 @@
 # Repo Bootstrap Implementation Plan (#68)
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a one-tap "Publish to GitHub" action that creates a private GitHub repo and pushes a site's `Source/` to it, so container runtimes (#66/#69) can hydrate by `git clone`.

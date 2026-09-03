@@ -1,9 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 import os
 import AnglesiteTestSupport
 @testable import AnglesiteCore
 
-final class SiteScaffolderTests: XCTestCase {
+struct SiteScaffolderTests {
 
     private func tmpDir() -> URL {
         let d = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
@@ -84,48 +85,60 @@ final class SiteScaffolderTests: XCTestCase {
         }
     }
 
-    func testHappyPathEmitsStepsInOrderAndRegisters() async throws {
+    @Test("the happy path emits steps in order and registers")
+    func happyPathEmitsStepsInOrderAndRegisters() async throws {
         let root = tmpDir()
-        let scaffolder = makeScaffolder(root: root)
+        // appVersion is injected (rather than defaulting to AppVersion.current()) so the
+        // ANGLESITE_VERSION assertion below is deterministic: Bundle.main has no
+        // CFBundleShortVersionString under some test hosts, which would otherwise leave the
+        // scaffold.sh placeholder unstamped depending on which runner executes this test.
+        let scaffolder = SiteScaffolder(
+            sitesRoot: root, templateURL: URL(fileURLWithPath: "/template"), catalog: ThemeCatalog(themes: [theme]),
+            run: fakeRunner(calls: CallRecorder()),
+            gitInit: { _ in },
+            gitCommit: { _ in },
+            register: { pkg in try SiteStore.Site.make(package: pkg) },
+            appVersion: { "9.9.9" }
+        )
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(makeDraft()) { steps.append(s) }
 
-        XCTAssertEqual(steps.first, .creatingFolder)
+        #expect(steps.first == .creatingFolder)
         let pkgURL = root.appendingPathComponent("acme-co.anglesite")
         let expectedID = try AnglesitePackage(url: pkgURL).readMarker().siteID.uuidString
-        if case .done(let id) = steps.last { XCTAssertEqual(id, expectedID) }
-        else { XCTFail("expected .done last, got \(String(describing: steps.last))") }
+        if case .done(let id) = steps.last { #expect(id == expectedID) }
+        else { Issue.record("expected .done last, got \(String(describing: steps.last))") }
         // .site-config gained SITE_NAME. The ANGLESITE_VERSION scaffold.sh's placeholder wrote
-        // ("1.0.0") gets corrected to the real running app/bundle version by SiteScaffolder itself
-        // (see testHappyPathWritesADependencyBaselineAndStampsTheRealAppVersion) — here we only
-        // assert it's no longer the placeholder, since the actual value is whatever Bundle.main
-        // resolves to inside the XCTest host and isn't this test's concern.
+        // ("1.0.0") gets corrected to the injected app version by SiteScaffolder itself.
         let cfg = try String(contentsOf: pkgURL.appendingPathComponent("Source/.site-config"), encoding: .utf8)
-        XCTAssertFalse(cfg.contains("ANGLESITE_VERSION=1.0.0"))
-        XCTAssertTrue(cfg.contains("SITE_NAME=Acme Co"))
-        XCTAssertTrue(cfg.contains("CF_PROJECT_NAME=acme-co"))
+        #expect(!cfg.contains("ANGLESITE_VERSION=1.0.0"))
+        #expect(cfg.contains("ANGLESITE_VERSION=9.9.9"))
+        #expect(cfg.contains("SITE_NAME=Acme Co"))
+        #expect(cfg.contains("CF_PROJECT_NAME=acme-co"))
         // Theme + homepage applied in Source/:
         let css = try String(contentsOf: pkgURL.appendingPathComponent("Source/src/styles/global.css"), encoding: .utf8)
-        XCTAssertTrue(css.contains("--color-primary: #1e3a5f;"))
+        #expect(css.contains("--color-primary: #1e3a5f;"))
     }
 
-    func testHappyPathWritesADeployableWranglerConfig() async throws {
+    @Test("the happy path writes a deployable wrangler config")
+    func happyPathWritesADeployableWranglerConfig() async throws {
         let root = tmpDir()
         let scaffolder = makeScaffolder(root: root)
         for await _ in scaffolder.scaffold(makeDraft()) {}
 
         let pkgURL = root.appendingPathComponent("acme-co.anglesite")
         let toml = try String(contentsOf: pkgURL.appendingPathComponent("Source/wrangler.toml"), encoding: .utf8)
-        XCTAssertTrue(toml.contains(#"name = "acme-co""#))
-        XCTAssertTrue(toml.contains(#"directory = "dist""#))
+        #expect(toml.contains(#"name = "acme-co""#))
+        #expect(toml.contains(#"directory = "dist""#))
         // Static-only: no social-feature bindings and no Worker entrypoint.
-        XCTAssertFalse(toml.contains("main ="))
-        XCTAssertFalse(toml.contains("d1_databases"))
+        #expect(!toml.contains("main ="))
+        #expect(!toml.contains("d1_databases"))
     }
 
     /// Two sites with different names must never share a Worker name (#701 case 11):
     /// the slug is derived the same way the wizard's `slugTaken` uniqueness check runs against.
-    func testTwoSitesGetDistinctWorkerNames() async throws {
+    @Test("two sites get distinct Worker names")
+    func twoSitesGetDistinctWorkerNames() async throws {
         let root = tmpDir()
         let scaffolder = makeScaffolder(root: root)
         var second = makeDraft()
@@ -137,11 +150,12 @@ final class SiteScaffolderTests: XCTestCase {
             contentsOf: root.appendingPathComponent("acme-co.anglesite/Source/.site-config"), encoding: .utf8)
         let secondCfg = try String(
             contentsOf: root.appendingPathComponent("beta-co.anglesite/Source/.site-config"), encoding: .utf8)
-        XCTAssertTrue(firstCfg.contains("CF_PROJECT_NAME=acme-co"))
-        XCTAssertTrue(secondCfg.contains("CF_PROJECT_NAME=beta-co"))
+        #expect(firstCfg.contains("CF_PROJECT_NAME=acme-co"))
+        #expect(secondCfg.contains("CF_PROJECT_NAME=beta-co"))
     }
 
-    func testSiteConfigValuesAreSanitizedAndBlurbBackfillsTagline() async throws {
+    @Test("site config values are sanitized and blurb backfills tagline")
+    func siteConfigValuesAreSanitizedAndBlurbBackfillsTagline() async throws {
         let root = tmpDir()
         let scaffolder = makeScaffolder(root: root)
         let draft = NewSiteDraft(siteType: .business,
@@ -155,19 +169,23 @@ final class SiteScaffolderTests: XCTestCase {
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(draft) { steps.append(s) }
 
-        guard case .done? = steps.last else { return XCTFail("expected .done") }
+        guard case .done? = steps.last else {
+            Issue.record("expected .done")
+            return
+        }
         let pkgURL = root.appendingPathComponent("acme-evil-1.anglesite")
         let cfg = try String(contentsOf: pkgURL.appendingPathComponent("Source/.site-config"), encoding: .utf8)
-        XCTAssertTrue(cfg.contains("SITE_NAME=Acme"))
-        XCTAssertTrue(cfg.contains("DOMAIN=example.com"))
-        XCTAssertTrue(cfg.contains("TAGLINE=Short description"))
-        XCTAssertFalse(cfg.contains("EVIL=1"))
+        #expect(cfg.contains("SITE_NAME=Acme"))
+        #expect(cfg.contains("DOMAIN=example.com"))
+        #expect(cfg.contains("TAGLINE=Short description"))
+        #expect(!cfg.contains("EVIL=1"))
     }
 
     /// The chooser flow (#1071) hands over a fully-defaulted Untitled draft: blank type, no
     /// headline/blurb. The template's placeholder homepage must survive untouched, and
     /// `.site-config` must defer the domain (`later`) and omit `SITE_TYPE` entirely.
-    func testChooserDraftKeepsTemplatePlaceholderAndOmitsSiteType() async throws {
+    @Test("a chooser draft keeps the template placeholder and omits the site type")
+    func chooserDraftKeepsTemplatePlaceholderAndOmitsSiteType() async throws {
         let root = tmpDir()
         let scaffolder = makeScaffolder(root: root)
         let draft = NewSiteDraft(siteType: .blank, name: "Untitled",
@@ -178,19 +196,20 @@ final class SiteScaffolderTests: XCTestCase {
         let pkgURL = root.appendingPathComponent("Untitled.anglesite")
         // Homepage untouched: exactly the placeholder the fake scaffold.sh wrote.
         let home = try String(contentsOf: pkgURL.appendingPathComponent("Source/src/pages/index.astro"), encoding: .utf8)
-        XCTAssertEqual(home, "<section class=\"hero\">\n  <h1>Welcome</h1>\n</section>")
+        #expect(home == "<section class=\"hero\">\n  <h1>Welcome</h1>\n</section>")
 
         let cfg = try String(contentsOf: pkgURL.appendingPathComponent("Source/.site-config"), encoding: .utf8)
-        XCTAssertTrue(cfg.contains("SITE_NAME=Untitled"))
-        XCTAssertTrue(cfg.contains("CF_PROJECT_NAME=untitled"))
-        XCTAssertTrue(cfg.contains("DOMAIN_CHOICE=later"))
-        XCTAssertFalse(cfg.contains("SITE_TYPE="))
-        XCTAssertFalse(cfg.contains("TAGLINE="))
+        #expect(cfg.contains("SITE_NAME=Untitled"))
+        #expect(cfg.contains("CF_PROJECT_NAME=untitled"))
+        #expect(cfg.contains("DOMAIN_CHOICE=later"))
+        #expect(!cfg.contains("SITE_TYPE="))
+        #expect(!cfg.contains("TAGLINE="))
     }
 
     /// The chooser's category sidebar (#1452) can now produce a non-blank `siteType` — prove
     /// the scaffolder actually writes it. Complements the Blank case above, which omits it.
-    func testNonBlankSiteTypeWritesSiteConfigKey() async throws {
+    @Test("a non-blank site type writes the SITE_TYPE config key")
+    func nonBlankSiteTypeWritesSiteConfigKey() async throws {
         let root = tmpDir()
         let scaffolder = makeScaffolder(root: root)
         let draft = makeDraft()   // siteType: .business
@@ -199,10 +218,11 @@ final class SiteScaffolderTests: XCTestCase {
         let cfg = try String(
             contentsOf: root.appendingPathComponent("acme-co.anglesite/Source/.site-config"),
             encoding: .utf8)
-        XCTAssertTrue(cfg.contains("SITE_TYPE=business"))
+        #expect(cfg.contains("SITE_TYPE=business"))
     }
 
-    func testCustomColorSchemeAndLogoAreApplied() async throws {
+    @Test("a custom color scheme and logo are applied")
+    func customColorSchemeAndLogoAreApplied() async throws {
         let root = tmpDir()
         let logo = root.appendingPathComponent("brand.PNG")
         try Data("logo".utf8).write(to: logo)
@@ -216,23 +236,27 @@ final class SiteScaffolderTests: XCTestCase {
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(draft) { steps.append(s) }
 
-        guard case .done? = steps.last else { return XCTFail("expected .done") }
+        guard case .done? = steps.last else {
+            Issue.record("expected .done")
+            return
+        }
         let pkgURL = root.appendingPathComponent("acme-co.anglesite")
         let css = try String(contentsOf: pkgURL.appendingPathComponent("Source/src/styles/global.css"), encoding: .utf8)
-        XCTAssertTrue(css.contains("--color-primary: #123456;"))
-        XCTAssertTrue(css.contains("--color-accent: #abcdef;"))
-        XCTAssertTrue(FileManager.default.fileExists(atPath: pkgURL.appendingPathComponent("Source/public/logo.png").path))
+        #expect(css.contains("--color-primary: #123456;"))
+        #expect(css.contains("--color-accent: #abcdef;"))
+        #expect(FileManager.default.fileExists(atPath: pkgURL.appendingPathComponent("Source/public/logo.png").path))
         let home = try String(contentsOf: pkgURL.appendingPathComponent("Source/src/pages/index.astro"), encoding: .utf8)
-        XCTAssertTrue(home.contains(#"src="/logo.png""#))
-        XCTAssertTrue(home.contains(#"class="site-logo""#))
+        #expect(home.contains(#"src="/logo.png""#))
+        #expect(home.contains(#"class="site-logo""#))
         let cfg = try String(contentsOf: pkgURL.appendingPathComponent("Source/.site-config"), encoding: .utf8)
-        XCTAssertTrue(cfg.contains("THEME=__custom"))
-        XCTAssertTrue(cfg.contains("COLOR_PRIMARY=#123456"))
-        XCTAssertTrue(cfg.contains("COLOR_ACCENT=#abcdef"))
-        XCTAssertTrue(cfg.contains("LOGO=/logo.png"))
+        #expect(cfg.contains("THEME=__custom"))
+        #expect(cfg.contains("COLOR_PRIMARY=#123456"))
+        #expect(cfg.contains("COLOR_ACCENT=#abcdef"))
+        #expect(cfg.contains("LOGO=/logo.png"))
     }
 
-    func testCustomSaveLocationAndDomainAreUsed() async throws {
+    @Test("a custom save location and domain are used")
+    func customSaveLocationAndDomainAreUsed() async throws {
         let root = tmpDir()
         let saveDirectory = root.appendingPathComponent("Chosen", isDirectory: true)
         try FileManager.default.createDirectory(at: saveDirectory, withIntermediateDirectories: true)
@@ -246,30 +270,41 @@ final class SiteScaffolderTests: XCTestCase {
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(draft) { steps.append(s) }
 
-        guard case .done? = steps.last else { return XCTFail("expected .done") }
+        guard case .done? = steps.last else {
+            Issue.record("expected .done")
+            return
+        }
         let pkgURL = saveDirectory.appendingPathComponent("Example Website.anglesite")
-        XCTAssertTrue(FileManager.default.fileExists(atPath: pkgURL.path))
+        #expect(FileManager.default.fileExists(atPath: pkgURL.path))
         let cfg = try String(contentsOf: pkgURL.appendingPathComponent("Source/.site-config"), encoding: .utf8)
-        XCTAssertTrue(cfg.contains("DOMAIN_CHOICE=transfer"))
-        XCTAssertTrue(cfg.contains("DOMAIN=example.com"))
+        #expect(cfg.contains("DOMAIN_CHOICE=transfer"))
+        #expect(cfg.contains("DOMAIN=example.com"))
     }
 
-    func testScaffoldFailureIsFatal() async throws {
+    @Test("a scaffold failure is fatal")
+    func scaffoldFailureIsFatal() async throws {
         let root = tmpDir()
         let scaffolder = SiteScaffolder(
             sitesRoot: root, templateURL: URL(fileURLWithPath: "/template"), catalog: ThemeCatalog(themes: [theme]),
             run: fakeRunner(scaffoldExit: 1, calls: CallRecorder()),
             gitInit: { _ in },
             gitCommit: { _ in },
-            register: { _ in XCTFail("must not register on scaffold failure"); fatalError() }
+            register: { _ in
+                Issue.record("must not register on scaffold failure")
+                fatalError()
+            }
         )
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(makeDraft()) { steps.append(s) }
-        guard case .failed(let step, _)? = steps.last else { return XCTFail("expected .failed") }
-        XCTAssertEqual(step, "copyingTemplate")
+        guard case .failed(let step, _)? = steps.last else {
+            Issue.record("expected .failed")
+            return
+        }
+        #expect(step == "copyingTemplate")
     }
 
-    func testHappyPathWritesADependencyBaselineAndStampsTheRealAppVersion() async throws {
+    @Test("the happy path writes a dependency baseline and stamps the real app version")
+    func happyPathWritesADependencyBaselineAndStampsTheRealAppVersion() async throws {
         let root = tmpDir()
         let templateURL = try templateRoot()
         let calls = CallRecorder()
@@ -286,17 +321,18 @@ final class SiteScaffolderTests: XCTestCase {
         let pkgURL = root.appendingPathComponent("acme-co.anglesite")
         let configDir = pkgURL.appendingPathComponent("Config")
         let baseline = DependencyBaseline.load(from: configDir)
-        XCTAssertNotNil(baseline)
-        XCTAssertEqual(baseline?["astro"], "^7.1.3")  // matches Resources/Template/package.json today
+        #expect(baseline != nil)
+        #expect(baseline?["astro"] == "^7.1.3")  // matches Resources/Template/package.json today
 
         let siteConfig = try String(
             contentsOf: pkgURL.appendingPathComponent("Source/.site-config"), encoding: .utf8)
         let stampedVersion = SiteConfigFile.value(forKey: "ANGLESITE_VERSION", in: siteConfig)
-        XCTAssertEqual(stampedVersion, "9.9.9")
-        XCTAssertNotEqual(stampedVersion, "1.0.0")  // no longer the scaffold.sh placeholder
+        #expect(stampedVersion == "9.9.9")
+        #expect(stampedVersion != "1.0.0")  // no longer the scaffold.sh placeholder
     }
 
-    func testHappyPathWritesThirdPartyNoticesFileFromTemplateAttributions() async throws {
+    @Test("the happy path writes a third-party notices file from template attributions")
+    func happyPathWritesThirdPartyNoticesFileFromTemplateAttributions() async throws {
         let root = tmpDir()
         let scaffolder = SiteScaffolder(
             sitesRoot: root, templateURL: URL(fileURLWithPath: "/template"), catalog: ThemeCatalog(themes: [theme]),
@@ -314,11 +350,12 @@ final class SiteScaffolderTests: XCTestCase {
 
         let pkgURL = root.appendingPathComponent("acme-co.anglesite")
         let notice = try String(contentsOf: pkgURL.appendingPathComponent("Source/THIRD-PARTY-NOTICES.md"), encoding: .utf8)
-        XCTAssertTrue(notice.contains("astro 7.1.3"))
-        XCTAssertTrue(notice.contains("MIT License text"))
+        #expect(notice.contains("astro 7.1.3"))
+        #expect(notice.contains("MIT License text"))
     }
 
-    func testMissingAttributionsCatalogWarnsButStillRegisters() async throws {
+    @Test("a missing attributions catalog warns but still registers")
+    func missingAttributionsCatalogWarnsButStillRegisters() async throws {
         let root = tmpDir()
         let scaffolder = SiteScaffolder(
             sitesRoot: root, templateURL: URL(fileURLWithPath: "/template"), catalog: ThemeCatalog(themes: [theme]),
@@ -331,17 +368,21 @@ final class SiteScaffolderTests: XCTestCase {
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(makeDraft()) { steps.append(s) }
 
-        XCTAssertTrue(steps.contains {
+        #expect(steps.contains {
             if case .warning(let s, let m) = $0 { return s == "copyingTemplate" && m.contains("Third-party notice") }
             return false
         })
-        guard case .done? = steps.last else { return XCTFail("expected .done despite missing attributions catalog") }
+        guard case .done? = steps.last else {
+            Issue.record("expected .done despite missing attributions catalog")
+            return
+        }
     }
 
     /// #956: a newly scaffolded site's `<html lang>` must default to the owner's actual
     /// language, not a hardcoded "en" — `hostLanguage` is injected here since the real host
     /// locale running `swift test` varies by machine.
-    func testHappyPathStampsLangFromHostLanguage() async throws {
+    @Test("the happy path stamps lang from the host language")
+    func happyPathStampsLangFromHostLanguage() async throws {
         let root = tmpDir()
         let scaffolder = SiteScaffolder(
             sitesRoot: root, templateURL: URL(fileURLWithPath: "/template"), catalog: ThemeCatalog(themes: [theme]),
@@ -355,10 +396,11 @@ final class SiteScaffolderTests: XCTestCase {
 
         let pkgURL = root.appendingPathComponent("acme-co.anglesite")
         let cfg = try String(contentsOf: pkgURL.appendingPathComponent("Source/.site-config"), encoding: .utf8)
-        XCTAssertTrue(cfg.contains("LANG=fr-CA"))
+        #expect(cfg.contains("LANG=fr-CA"))
     }
 
-    func testMissingTemplatePackageJSONWarnsButStillRegisters() async throws {
+    @Test("a missing template package.json warns but still registers")
+    func missingTemplatePackageJSONWarnsButStillRegisters() async throws {
         // makeScaffolder's default templateURL ("/template") has no package.json,
         // so reading it for the dependency baseline fails — this must surface as a
         // warning rather than disappearing silently (the site would otherwise never
@@ -368,10 +410,13 @@ final class SiteScaffolderTests: XCTestCase {
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(makeDraft()) { steps.append(s) }
 
-        XCTAssertTrue(steps.contains { if case .warning(let s, _) = $0 { return s == "copyingTemplate" }; return false })
+        #expect(steps.contains { if case .warning(let s, _) = $0 { return s == "copyingTemplate" }; return false })
         let pkgURL = root.appendingPathComponent("acme-co.anglesite")
-        XCTAssertNil(DependencyBaseline.load(from: pkgURL.appendingPathComponent("Config")))
-        guard case .done? = steps.last else { return XCTFail("expected .done despite missing template package.json") }
+        #expect(DependencyBaseline.load(from: pkgURL.appendingPathComponent("Config")) == nil)
+        guard case .done? = steps.last else {
+            Issue.record("expected .done despite missing template package.json")
+            return
+        }
     }
 
     /// Resolve the real scaffold.sh from the in-repo template (Resources/Template/), mirroring
@@ -382,15 +427,20 @@ final class SiteScaffolderTests: XCTestCase {
         return repoRoot.appendingPathComponent("Resources/Template/scripts/scaffold.sh")
     }
 
+    private static var realScaffoldScriptExists: Bool {
+        FileManager.default.fileExists(atPath: Self.realScaffoldScriptURL().path)
+    }
+
     /// Regression coverage for #501: exercises the real scaffold.sh subprocess (not the mocked
     /// CommandRunner the other tests use) to confirm .site-config is still generated correctly
     /// now that the heredoc has been replaced with printf. Other tests in this file mock
     /// scaffold.sh entirely, so they wouldn't catch a reintroduced heredoc-shaped regression here.
-    func testRealScaffoldScriptWritesSiteConfigWithoutHeredoc() throws {
+    @Test(
+        "the real scaffold.sh script writes .site-config without a heredoc",
+        .enabled(if: SiteScaffolderTests.realScaffoldScriptExists, "scaffold.sh not found")
+    )
+    func realScaffoldScriptWritesSiteConfigWithoutHeredoc() throws {
         let script = Self.realScaffoldScriptURL()
-        guard FileManager.default.fileExists(atPath: script.path) else {
-            throw XCTSkip("scaffold.sh not found at \(script.path)")
-        }
         let target = tmpDir().appendingPathComponent("scaffold-test")
 
         let process = Process()
@@ -402,15 +452,16 @@ final class SiteScaffolderTests: XCTestCase {
         process.waitUntilExit()
 
         let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        XCTAssertEqual(process.terminationStatus, 0, "scaffold.sh failed: \(stderr)")
-        XCTAssertFalse(stderr.contains("here document"), "heredoc scratch-file error reintroduced: \(stderr)")
+        #expect(process.terminationStatus == 0, "scaffold.sh failed: \(stderr)")
+        #expect(!stderr.contains("here document"), "heredoc scratch-file error reintroduced: \(stderr)")
 
         let cfg = try String(contentsOf: target.appendingPathComponent(".site-config"), encoding: .utf8)
-        XCTAssertTrue(cfg.contains("ANGLESITE_VERSION=1.0.0"))
-        XCTAssertTrue(cfg.contains("# SITE_URL=https://example.com"))
+        #expect(cfg.contains("ANGLESITE_VERSION=1.0.0"))
+        #expect(cfg.contains("# SITE_URL=https://example.com"))
     }
 
-    func testGitInitFailureIsNonFatalAndStillRegisters() async throws {
+    @Test("a git init failure is non-fatal and still registers")
+    func gitInitFailureIsNonFatalAndStillRegisters() async throws {
         let root = tmpDir()
         let registered = OSAllocatedUnfairLock<Bool>(initialState: false)
         let scaffolder = SiteScaffolder(
@@ -425,12 +476,16 @@ final class SiteScaffolderTests: XCTestCase {
         )
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(makeDraft()) { steps.append(s) }
-        XCTAssertTrue(registered.withLock { $0 }, "git init failure should not block registration")
-        XCTAssertTrue(steps.contains { if case .warning(let s, _) = $0 { return s == "copyingTemplate" }; return false })
-        guard case .done? = steps.last else { return XCTFail("expected .done despite git init failure") }
+        #expect(registered.withLock { $0 }, "git init failure should not block registration")
+        #expect(steps.contains { if case .warning(let s, _) = $0 { return s == "copyingTemplate" }; return false })
+        guard case .done? = steps.last else {
+            Issue.record("expected .done despite git init failure")
+            return
+        }
     }
 
-    func testGitCommitFailureIsNonFatalAndStillRegisters() async throws {
+    @Test("a git commit failure is non-fatal and still registers")
+    func gitCommitFailureIsNonFatalAndStillRegisters() async throws {
         let root = tmpDir()
         let registered = OSAllocatedUnfairLock<Bool>(initialState: false)
         let scaffolder = SiteScaffolder(
@@ -445,9 +500,12 @@ final class SiteScaffolderTests: XCTestCase {
         )
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(makeDraft()) { steps.append(s) }
-        XCTAssertTrue(registered.withLock { $0 }, "initial-commit failure should not block registration")
-        XCTAssertTrue(steps.contains { if case .warning(let s, let m) = $0 { return s == "writingContent" && m.contains("Initial commit skipped") }; return false })
-        guard case .done? = steps.last else { return XCTFail("expected .done despite initial-commit failure") }
+        #expect(registered.withLock { $0 }, "initial-commit failure should not block registration")
+        #expect(steps.contains { if case .warning(let s, let m) = $0 { return s == "writingContent" && m.contains("Initial commit skipped") }; return false })
+        guard case .done? = steps.last else {
+            Issue.record("expected .done despite git commit failure")
+            return
+        }
     }
 
     /// Regression coverage for the missing-initial-commit bug: a brand-new site's `gitInit`
@@ -456,7 +514,8 @@ final class SiteScaffolderTests: XCTestCase {
     /// scaffolded repo actually has a `HEAD` afterward, not just that the closures were called.
     /// Without the fix, `Source/` had a `.git` but zero commits, so a container runtime cloning
     /// it and running `git checkout HEAD` failed and the site could never preview.
-    func testHappyPathLandsARealInitialCommit() async throws {
+    @Test("the happy path lands a real initial commit")
+    func happyPathLandsARealInitialCommit() async throws {
         let root = tmpDir()
         let scaffolder = SiteScaffolder(
             sitesRoot: root, templateURL: URL(fileURLWithPath: "/template"), catalog: ThemeCatalog(themes: [theme]),
@@ -469,19 +528,23 @@ final class SiteScaffolderTests: XCTestCase {
         )
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(makeDraft()) { steps.append(s) }
-        guard case .done? = steps.last else { return XCTFail("expected .done, got \(String(describing: steps.last))") }
+        guard case .done? = steps.last else {
+            Issue.record("expected .done, got \(String(describing: steps.last))")
+            return
+        }
 
         let pkgURL = root.appendingPathComponent("acme-co.anglesite")
         let sourceDir = pkgURL.appendingPathComponent("Source")
         let git = URL(fileURLWithPath: "/usr/bin/git")
         let log = try await ProcessSupervisor.shared.run(
             executable: git, arguments: ["log", "--oneline"], currentDirectoryURL: sourceDir)
-        XCTAssertEqual(log.exitCode, 0, "git log failed — no initial commit was created: \(log.stderr)")
-        XCTAssertFalse(log.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        #expect(log.exitCode == 0, "git log failed — no initial commit was created: \(log.stderr)")
+        #expect(!log.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
                        "expected at least one commit in the freshly scaffolded Source/ repo")
     }
 
-    func testPackThemeOverlaysFilesAndCopiesLicense() async throws {
+    @Test("a pack theme overlays files and copies the LICENSE")
+    func packThemeOverlaysFilesAndCopiesLicense() async throws {
         let root = tmpDir()
         let scaffolder = try makePackScaffolder(root: root)
         var draft = makeDraft()
@@ -489,17 +552,21 @@ final class SiteScaffolderTests: XCTestCase {
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(draft) { steps.append(s) }
 
-        guard case .done? = steps.last else { return XCTFail("expected .done, got \(String(describing: steps.last))") }
+        guard case .done? = steps.last else {
+            Issue.record("expected .done, got \(String(describing: steps.last))")
+            return
+        }
         let source = root.appendingPathComponent("acme-co.anglesite/Source")
         let css = try String(contentsOf: source.appendingPathComponent("src/styles/global.css"), encoding: .utf8)
         // The pack's css landed, then ThemeApplier reaffirmed the palette over it.
-        XCTAssertTrue(css.contains("--pack-marker: 1"))
-        XCTAssertTrue(css.contains("--color-primary: #101010;"))
+        #expect(css.contains("--pack-marker: 1"))
+        #expect(css.contains("--color-primary: #101010;"))
         let license = try String(contentsOf: source.appendingPathComponent(PackApplier.licenseFileName), encoding: .utf8)
-        XCTAssertEqual(license, "MIT — upstream")
+        #expect(license == "MIT — upstream")
     }
 
-    func testMissingPackDirWarnsButStillScaffolds() async throws {
+    @Test("a missing pack directory warns but still scaffolds")
+    func missingPackDirWarnsButStillScaffolds() async throws {
         let root = tmpDir()
         let scaffolder = try makePackScaffolder(root: root, includePackDir: false)
         var draft = makeDraft()
@@ -507,17 +574,20 @@ final class SiteScaffolderTests: XCTestCase {
         var steps: [SiteScaffolder.ScaffoldStep] = []
         for await s in scaffolder.scaffold(draft) { steps.append(s) }
 
-        guard case .done? = steps.last else { return XCTFail("expected .done, got \(String(describing: steps.last))") }
+        guard case .done? = steps.last else {
+            Issue.record("expected .done, got \(String(describing: steps.last))")
+            return
+        }
         let sawPackWarning = steps.contains { step in
             if case .warning(let s, _) = step { return s == "applyingTheme" }
             return false
         }
-        XCTAssertTrue(sawPackWarning, "expected a non-fatal applyingTheme warning for the missing pack")
+        #expect(sawPackWarning, "expected a non-fatal applyingTheme warning for the missing pack")
         // ThemeApplier still ran on the base css the fake runner wrote.
         let css = try String(
             contentsOf: root.appendingPathComponent("acme-co.anglesite/Source/src/styles/global.css"),
             encoding: .utf8)
-        XCTAssertTrue(css.contains("--color-primary: #101010;"))
+        #expect(css.contains("--color-primary: #101010;"))
     }
 }
 

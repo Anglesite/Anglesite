@@ -363,7 +363,7 @@ final class SiteNavigatorModel {
             try store.save(entries)
             return true
         } catch {
-            redirectSaveError = "Couldn't save the redirect: \(error.localizedDescription)"
+            redirectSaveError = String(localized: "Couldn't save the redirect: \(error.localizedDescription)")
             return false
         }
     }

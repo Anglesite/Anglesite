@@ -1,5 +1,7 @@
 # Pre-deploy Scan JSON Envelope Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `pre-deploy-check.ts --json` and both Swift decoders agree on one versioned JSON envelope, so a real deploy's pre-deploy scan actually decodes (today it always fails to decode and maps to `.error`), and add a real producer→consumer test so this can't silently drift again.

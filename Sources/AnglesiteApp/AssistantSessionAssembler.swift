@@ -34,6 +34,12 @@ enum AssistantSessionAssembler {
         let containerControlProvider: SiteAssistantSessionFactory.ContainerControlProvider = { [preview] in
             await preview.activeContainerControl()
         }
+        // Resolved lazily, same reasoning as `mcpClient`/`containerControlProvider` above: the
+        // canvas mounts/unmounts as the owner toggles Site ▸ Edit Page, so this must re-check
+        // `preview.wysiwygCanvas` at call time, not capture a possibly-nil snapshot now (#1227 PR 2).
+        let wysiwygBlockAccess: @Sendable () async -> (any WYSIWYGBlockTextAccess)? = { [preview] in
+            await preview.wysiwygCanvas
+        }
         // Best-effort: SetupThemeTool only attaches to the chat assistant when a catalog loads
         // successfully. A missing/unreadable template must not block opening the site — the
         // assistant simply runs without the theme-apply tool, same as before this catalog existed.
@@ -54,6 +60,7 @@ enum AssistantSessionAssembler {
             conventionsEngine: conventionsEngine,
             integrationService: integrationService,
             themeCatalog: themeCatalog,
+            wysiwygBlockAccess: wysiwygBlockAccess,
             graphSnapshotProvider: graphSnapshotProvider
         )
     }
