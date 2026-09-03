@@ -41,6 +41,14 @@ struct ContentScaffoldTests {
         #expect(ContentScaffold.postRelativePath(collection: "posts", slug: "hello") == "src/content/posts/hello.md")
     }
 
+    @Test("path builders honor an explicit extension override (#1786)")
+    func pathsWithExplicitExtension() {
+        #expect(ContentScaffold.pageRelativePath(normalizedRoute: "/about", extension: "md") == "src/pages/about.md")
+        #expect(
+            ContentScaffold.postRelativePath(collection: "posts", slug: "hello", extension: "mdx")
+                == "src/content/posts/hello.mdx")
+    }
+
     @Test("renderPage escapes attrs and html and ends with one newline")
     func renderPage() {
         let out = ContentScaffold.renderPage(title: "A & \"B\"", layoutImport: "../layouts/BaseLayout.astro")
