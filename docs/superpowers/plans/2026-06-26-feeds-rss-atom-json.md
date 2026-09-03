@@ -1,5 +1,7 @@
 # V-1.6 Feeds (RSS / Atom / JSON) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Every content collection in `Resources/Template/` publishes RSS 2.0, Atom 1.0, and JSON Feed 1.1 — co-located inside the collection — plus a site-wide combined feed, all valid at build and green through `pre-deploy-check`.

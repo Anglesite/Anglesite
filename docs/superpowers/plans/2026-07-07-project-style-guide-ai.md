@@ -1,5 +1,7 @@
 # Project Style Guide & AI Consistency Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Learn a site's writing/image/component/naming/SEO conventions from its existing content, feed them into `AltTextGenerator`'s on-device prompt, and ship a "Project Style Guide" inspector view where the owner can see and override what was learned.

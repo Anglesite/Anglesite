@@ -1,5 +1,7 @@
 # Audience Field on Typed Content (#369, V-5.2a Stage 1) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add an optional, federation-only `audience` field (a Group actor IRI) to the `note` and `article` typed-content types — template schema, content-type registry, and a locked (but unwired) projection to the future outbox `PostInput` shape — landing feature-inert until the V-4 outbox (#363) exists.

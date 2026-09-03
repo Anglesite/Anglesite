@@ -1,5 +1,7 @@
 # WYSIWYG Sidecar-Backed Transport Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace `StubWYSIWYGHostTransport` (the in-memory fixture the WYSIWYG editor's Mac host layer — slices 2-5, all merged — was deliberately built against) with a real transport backed by the sidecar's `get_page_model` tool and its six new `apply_edit` ops, so the editor round-trips through actual source files instead of an in-memory model that resets on every launch.

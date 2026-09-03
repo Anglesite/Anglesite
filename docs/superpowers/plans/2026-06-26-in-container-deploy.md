@@ -1,5 +1,7 @@
 # In-Container Deploy Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** When a site runs in a `LocalContainerSiteRuntime` (#69), deploy it by running the build + the plugin pre-deploy scan + `wrangler deploy` **inside that same running container** (where Node already lives), instead of host-side embedded Node — so deploy works on the container runtime and the host embedded-Node deploy path can eventually retire (#70 Phase A1).

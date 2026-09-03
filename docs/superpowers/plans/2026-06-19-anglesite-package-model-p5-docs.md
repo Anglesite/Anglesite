@@ -1,5 +1,7 @@
 # `.anglesite` Package Model — Phase 5 (Docs Reconciliation) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Reconcile the project docs with the now-shipped `.anglesite` package model: update CLAUDE.md's "source of truth" wording and module-layout/`~/Sites` references so they describe the package world (a `Source/` git repo wrapped in a Finder-opaque package), while staying compatible with the #72 ordering note (final filesystem→Git wording waits on the container epics).

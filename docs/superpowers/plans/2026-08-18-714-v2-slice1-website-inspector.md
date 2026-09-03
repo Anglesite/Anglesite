@@ -1,5 +1,7 @@
 # #714 v2 Slice 1: Website Inspector + Row Removal — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the Pages-style Website inspector (Document analog) with mutually-exclusive activation against the selection inspector, and remove the navigator's website-title row.

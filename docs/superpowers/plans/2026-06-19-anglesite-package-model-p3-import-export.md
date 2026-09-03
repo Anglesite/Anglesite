@@ -1,5 +1,7 @@
 # `.anglesite` Package Model — Phase 3 (Import / Export) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add **File ▸ Import** (copy a plain Anglesite directory into a new `.anglesite` package's `Source/`, the migration path for pre-package sites) and **File ▸ Export** (copy a package's `Source/` working tree back out to a plain directory).

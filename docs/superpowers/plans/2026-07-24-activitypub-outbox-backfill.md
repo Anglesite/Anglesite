@@ -1,5 +1,7 @@
 # ActivityPub Outbox Backfill Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Sync a site's existing content-collection posts into its ActivityPub actor's outbox at deploy time, so a fediverse follower sees the site's real history, not just posts made after activation.

@@ -1,5 +1,7 @@
 # UTM Code Management UI Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a site owner define named UTM campaigns and assign them to RSS collections and/or the Fediverse outbox, so links that reach the site through those channels carry attribution parameters automatically.

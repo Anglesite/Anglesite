@@ -1,5 +1,7 @@
 # Suspend Container Instead of Shutdown on Window Close — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** When a site window closes, pause the site's Apple-Containerization VM (freezing astro/mcp/the guest processes in memory) instead of fully tearing it down, so reopening the same site moments later resumes in seconds instead of paying the ~186–300s cold-boot cost again.

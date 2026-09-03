@@ -1,5 +1,7 @@
 # Pre-Deploy Audit Extensions (Layer B) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Extend the pre-deploy security scan with four content/artifact checks — mixed content, missing SRI, unsafe `target="_blank"` links, and presence of `robots.txt` / `security.txt`.

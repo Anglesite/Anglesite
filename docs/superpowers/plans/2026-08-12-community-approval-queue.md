@@ -1,5 +1,7 @@
 # Community Approval Queue (V-5.3 slice) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a community owner see who is waiting to join their hosted `Group` and approve them from the Moderation pane — the approval-queue slice of #370 that design-doc decision D4 deferred pending an upstream listing endpoint, which has since shipped (`davidwkeith/workers` PR #488, closing workers#487).

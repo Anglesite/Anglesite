@@ -1,5 +1,7 @@
 # Content Licensing — Phase 1 Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give an Anglesite site a per-content-type content license, and project it into the three licensing vocabularies that consumers actually read today — schema.org `license`, Microformats2 `u-license`, and `<link rel="license">`.

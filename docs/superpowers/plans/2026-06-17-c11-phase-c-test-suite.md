@@ -1,5 +1,7 @@
 # C.11 — Phase C Test Suite (Audit + Gap-Fill) Implementation Plan
 
+**Status:** historical
+
 > **Status: Executed in PR #223.** The test landed as `mapsEveryOperationToItsOpString(operation:expectedOp:)` — the names in the steps below were the proposal (`opMappingCoversAllCases(operation:expected:)`) and have since been reconciled to what shipped. The redundant op assertion was removed from both `usesContextSelectorAndMapsOp` and `bareTagBuildsMinimalElementInfo`.
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.

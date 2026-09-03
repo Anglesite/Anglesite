@@ -1,5 +1,7 @@
 # V-1.5 Content-Collections Hardening Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make the existing Astro content collections genuinely satisfy #347 — strict schemas, type errors that fail the build, and a drift guard that locks config↔registry in both directions.

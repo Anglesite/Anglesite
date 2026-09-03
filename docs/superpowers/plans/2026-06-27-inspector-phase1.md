@@ -1,5 +1,7 @@
 # Inspector Phase 1 — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move the typed content form into a Pages/Xcode-style right-hand inspector with the live preview in the center, and add title/description editing for plain frontmatter pages.

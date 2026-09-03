@@ -1,5 +1,7 @@
 # Local `wrangler dev` Runtime Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a local `wrangler dev --local` guest process to `LocalContainerSiteRuntime`, started only when a site's effective active-worker set is non-empty, crash-restart-capable via a new generic guest-process supervisor, and reachable through the runtime's existing state/session payloads — the last of #708's three prerequisites.

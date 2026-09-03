@@ -1,5 +1,7 @@
 # Add Store Wizard Router Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a deterministic "Add a Store" router — reachable from the GUI integration wizard and from Siri — that asks 1-2 questions about what the owner is selling and routes into the existing `buyButton`/`donations`/`lemonSqueezy`/`snipcart`/`shopifyBuyButton`/`paddle` wizard flows, per #462.

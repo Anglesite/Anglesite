@@ -1,5 +1,7 @@
 # CI: Isolate Timing-Sensitive Test Suites Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Move the Swift Testing suites that flake under `build-test`'s full-parallel scheduler contention (real sockets, real subprocess spawns, wall-clock budget assertions) into their own low-concurrency CI job, so they stop fighting ~3,500 other tests for the same thread pool.

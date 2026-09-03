@@ -1,5 +1,7 @@
 # Local Container Productionization (#69) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `LocalContainerSiteRuntime` the sole preview runtime for launch: isolate/fix the vsock handshake mystery with a minimal repro, replace custom guest plumbing with off-the-shelf socat, bake the template's npm dependencies into the OCI image (no cold in-guest `npm install`), and remove the proof-of-concept host-runtime fallback.

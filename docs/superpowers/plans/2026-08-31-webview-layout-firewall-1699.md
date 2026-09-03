@@ -1,5 +1,7 @@
 # WebViewLayoutFirewall (Stage 2 of #1699) Implementation Plan
 
+**Status:** superseded by 2026-09-01-site-window-appkit-shell-design.md — the firewall was never built; the AppKit shell rewrite replaced it (#1699)
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Starve the macOS 27 beta `SplitViewChildController` min/max-size negotiation loop by giving the Component Editor canvas's `NSViewRepresentable` constant sizing metrics at both the AppKit layer (a frame-based container `NSView`) and the SwiftUI layer (`sizeThatFits` returning a pure function of the proposal).

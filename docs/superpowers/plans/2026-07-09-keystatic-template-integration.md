@@ -1,5 +1,7 @@
 # Keystatic template integration (#462) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Wire Keystatic into `Resources/Template` and ship `inbox` and `membership` — the last

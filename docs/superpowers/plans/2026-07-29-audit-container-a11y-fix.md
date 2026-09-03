@@ -1,5 +1,7 @@
 # Fix Website ▸ Audit and AuditSiteIntent (#958) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `Website ▸ Audit` and `AuditSiteIntent` actually succeed by restoring the deleted accessibility-audit script and routing the audit build through the container runtime, the same way `DeployCommand` already does.

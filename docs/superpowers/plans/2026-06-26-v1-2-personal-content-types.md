@@ -1,5 +1,7 @@
 # V-1.2 Personal Content Types Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the personal IndieWeb post types (Note, Article, Photo, Album, Bookmark, Reply, Like) end-to-end so each scaffolds, `astro build`s green, and renders correct microformats2.

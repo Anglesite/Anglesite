@@ -1,5 +1,7 @@
 # CloudflareClient Seam + Security Audit (Layer C2 core) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a read-only Cloudflare API seam and a pure security-audit evaluator to `AnglesiteCore` — fetch a zone's security-relevant edge/DNS state and grade it into `AuditReport.Finding`s — with no UI and no account writes.
