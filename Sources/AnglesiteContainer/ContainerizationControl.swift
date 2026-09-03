@@ -318,6 +318,20 @@ public struct ContainerizationControl: LocalContainerControl {
             ["mkdir", "-p", configDir])
         try await writeGuestFile(container, path: configPath, contents: toml, onOutput: onOutput)
 
+        // `wrangler dev` is launched directly below, never through the template's `npm run
+        // build` (which chains `prebuild` via npm's lifecycle convention) — so the two gitignored
+        // JSON files `worker/worker.ts`/`worker/mcp-server.ts` statically import,
+        // `experiments.json` and `mcp-config.json`, are never generated for this path, and the
+        // bundle step below fails to resolve them (#1777). Mirrors `pretest:worker`'s pair of
+        // scripts rather than the full `prebuild`: `well-known.ts check`/`csp.ts`/
+        // `edge-artifacts.ts` generate public static-site output, not anything the Worker bundle
+        // needs. Re-run on every call (including a toggle-restart via `updateActiveWorkers`) so
+        // an `anglesite.json` edit (e.g. flipping `experimental.mcp`) is reflected without a full
+        // container restart.
+        try await runToCompletion(container, id: "workers-dev-artifacts", onOutput: onOutput,
+            ["sh", "-lc",
+                "cd /workspace/site && npx tsx scripts/experiments-artifact.ts && npx tsx scripts/mcp-artifact.ts"])
+
         let launcher = LinuxContainerProcessLauncher(container: container)
         let supervisor = GuestProcessSupervisor(
             launcher: launcher,
