@@ -199,6 +199,15 @@ jobs:
       # ubuntu-latest doesn't ship it.
       - run: sudo apt-get update && sudo apt-get install -y zsh
 
+      # scripts/generate-npm-attributions.mjs lives at the repo root, not under
+      # Resources/Template, so it needs its own node:test invocation outside this job's
+      # working-directory default — this `template` filter already triggers on changes to
+      # that file (see the `changes` job), and setup-node above already put the right Node
+      # on PATH, so this is the natural lane for it (#1797).
+      - name: Test generate-npm-attributions.mjs
+        working-directory: ${{ github.workspace }}
+        run: node --test scripts/generate-npm-attributions.test.mjs
+
       # The website-template attributions manifest check lives in build-test (macos-26), not
       # here (ubuntu-latest) — see that job's "Check website-template attributions manifest"
       # step for why: the committed manifest is arm64-only and can never match a linux-x64
@@ -311,6 +320,19 @@ jobs:
       # though stage-dev-image-context.sh backs the macOS/podman image-vendoring scripts.
       - name: Test stage-dev-image-context.sh sidecar version guard
         run: scripts/lib/stage-dev-image-context.test.sh
+
+      # Stubs `swift` on PATH and uses a throwaway lock dir, so it never touches the real
+      # /tmp/anglesite-swift-test.lock or compiles anything (#1594). No model contention here
+      # (this lane never calls the live-model suites), but the lock/retry logic under test is
+      # exercised entirely through the stub, so CI coverage doesn't need real contention.
+      - name: Test swift-test.sh lock/retry logic
+        run: scripts/swift-test.test.sh
+
+      # Stubs `gh`, `lsof`, and `plutil` and runs against a throwaway git repo, so every
+      # safety branch (merged/dirty/busy/orphaned worktrees, live/dead DerivedData) is
+      # exercised without touching this machine's real worktrees or DerivedData (#1461).
+      - name: Test prune-worktrees.sh safety rails
+        run: scripts/prune-worktrees.test.sh
 
   linux-flatpak-build:
     name: Linux (Flatpak manifest + AnglesiteLinux)
