@@ -219,18 +219,31 @@ responder — is a ~60-line `NSHostingView` probe of the same
 List › OutlineGroup › TextField nesting; the click-to-focus gap is not
 reproducible that way.
 
-### Cloudflare OAuth sign-in needs a company-team build (#1767)
+### Cloudflare sign-in (Publish) needs a company-team-signed build
 
-"Sign in with Cloudflare" (#1204) round-trips through `ASWebAuthenticationSession`'s
-`.https(host:path:)` callback matching, which Apple resolves via Associated
-Domains — a capability Xcode refuses to provision for a personal development
-team ("Personal development teams... do not support the Associated Domains and
-iCloud capabilities"). Only a build signed with the `M34HBJZNYA` company team
-can complete the flow; an ad-hoc/personal-team Debug build cannot, regardless
-of whether the callback Worker's DNS and deployment (tracked separately in
-#1767) are otherwise in place. On a personal-team Debug build, use the legacy
-pasted API token instead (Settings ▸ Advanced) to exercise deploy/harden flows
-that need a Cloudflare credential.
+The **Connect to Cloudflare ▸ Sign in with Cloudflare** flow (#1204) runs an
+`ASWebAuthenticationSession` whose https callback is matched through the
+**Associated Domains** entitlement (`webcredentials:auth.anglesite.dwk.io`). Three consequences
+for smoke runs (#1766, #1767):
+
+- **Ad-hoc Debug builds can't sign in.** The default `Resources/Anglesite-Debug.entitlements`
+  omits Associated Domains (it needs a real provisioning profile), so the session never
+  starts — today that surfaces as a spinner that clears with no message. To exercise the
+  deploy pipeline on such a build, paste a legacy API token in **Settings ▸ Advanced ▸
+  Cloudflare API token** instead; it's read whenever no OAuth credential is connected.
+- **The team must be `M34HBJZNYA`.** Xcode refuses to provision Associated Domains / iCloud
+  for a personal team ("Personal development teams … do not support the Associated Domains
+  and iCloud capabilities"), and the callback Worker's
+  `apple-app-site-association` (`Workers/anglesite-oauth-callback/src/worker.ts`) lists the
+  app IDs under that team only. Opt in via `xcconfig/Signing-Debug.local.xcconfig`
+  (`DEVELOPMENT_TEAM = M34HBJZNYA`, `CODE_SIGN_IDENTITY = Apple Development`,
+  `ANGLESITE_DEBUG_ENTITLEMENTS = Resources/Anglesite-Debug-iCloud.entitlements`) and build
+  with `-allowProvisioningUpdates`. The Mac must be registered as a device on that team.
+- **The Worker must be deployed.** `auth.anglesite.dwk.io` is a `custom_domain` route of
+  `Workers/anglesite-oauth-callback`, deployed (2026-09-02, #1767) from the Cloudflare
+  account that owns the `dwk.io` zone. If the host stops resolving or the AASA at
+  `/.well-known/apple-app-site-association` doesn't list both app IDs, re-run
+  `wrangler deploy` there while signed in to that account.
 
 ## Xcode MCP (optional, richer control)
 

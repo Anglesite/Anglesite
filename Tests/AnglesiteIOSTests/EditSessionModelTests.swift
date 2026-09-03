@@ -53,7 +53,8 @@ struct EditSessionModelTests {
         paired: [PairedDevice],
         runtime: FakeP2PSiteRuntime,
         factoryCalls: SharedCount = SharedCount(),
-        lastMacContact: @escaping @Sendable () async -> Date? = { nil }
+        lastMacContact: @escaping @Sendable () async -> Date? = { nil },
+        onPhaseChange: @escaping @MainActor (EditSessionModel.Phase) -> Void = { _ in }
     ) -> EditSessionModel {
         EditSessionModel(
             siteID: Self.siteID,
@@ -63,7 +64,8 @@ struct EditSessionModelTests {
                 factoryCalls.value += 1
                 return runtime
             },
-            lastMacContact: lastMacContact
+            lastMacContact: lastMacContact,
+            onPhaseChange: onPhaseChange
         )
     }
 
@@ -185,5 +187,30 @@ struct EditSessionModelTests {
     @MainActor
     final class StoreBox {
         var devices: [PairedDevice] = []
+    }
+
+    @MainActor
+    final class PhaseLog {
+        var phases: [EditSessionModel.Phase] = []
+    }
+
+    @Test("onPhaseChange fires for every phase transition, in order")
+    func onPhaseChangeFiresInOrder() async {
+        let log = PhaseLog()
+        let runtime = FakeP2PSiteRuntime(
+            script: [
+                .starting(siteID: Self.siteID.uuidString),
+                .ready(siteID: Self.siteID.uuidString, url: Self.previewURL),
+            ])
+        let model = makeModel(
+            paired: [Self.pairedMac()], runtime: runtime,
+            onPhaseChange: { log.phases.append($0) })
+
+        await model.open()
+        _ = await waitForPhase(model) { $0 == .ready(Self.previewURL) }
+        #expect(log.phases == [.waking, .starting, .ready(Self.previewURL)])
+
+        await model.stop()
+        #expect(log.phases.last == .idle)
     }
 }

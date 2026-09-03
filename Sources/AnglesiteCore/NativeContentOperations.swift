@@ -448,21 +448,26 @@ public struct NativeContentOperations: ContentOperationsService {
         do { contents = try FileDocumentIO.load(sourceAbs, fileManager: fileManager).contents }
         catch { return .failed(reason: "\(error)") }
 
+        // Preserve the source's extension so a duplicated Markdown page stays Markdown instead of
+        // Astro trying to compile its YAML frontmatter as component script (#1786). Falls back to
+        // the scaffold default ("astro") only if the source file has no extension at all.
+        let ext = (relativePath as NSString).pathExtension
+        let destExt = ext.isEmpty ? "astro" : ext
+
         let baseTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let copyTitle = baseTitle.isEmpty ? "Copy" : "\(baseTitle) Copy"
         var attempt = 1
         var route = ContentScaffold.normalizeRoute(ContentScaffold.slugify(copyTitle))
-        var relPath = ContentScaffold.pageRelativePath(normalizedRoute: route)
+        var relPath = ContentScaffold.pageRelativePath(normalizedRoute: route, extension: destExt)
         while attempt < 1000, fileManager.fileExists(atPath: root.appendingPathComponent(relPath).path) {
             attempt += 1
             route = ContentScaffold.normalizeRoute(ContentScaffold.slugify("\(copyTitle) \(attempt)"))
-            relPath = ContentScaffold.pageRelativePath(normalizedRoute: route)
+            relPath = ContentScaffold.pageRelativePath(normalizedRoute: route, extension: destExt)
         }
         guard !fileManager.fileExists(atPath: root.appendingPathComponent(relPath).path) else {
             return .failed(reason: "Couldn't find an available name for the duplicate after 1000 attempts")
         }
 
-        let ext = (relativePath as NSString).pathExtension
         let rewritten: String
         switch PageTitleEditor.rewrite(contents: contents, fileExtension: ext, newTitle: copyTitle) {
         case .success(let s): rewritten = s
@@ -644,21 +649,26 @@ public struct NativeContentOperations: ContentOperationsService {
         do { contents = try FileDocumentIO.load(sourceAbs, fileManager: fileManager).contents }
         catch { return .failed(reason: "\(error)") }
 
+        // Preserve the source's extension so a duplicated non-Markdown entry (e.g. `.mdx`/`.astro`)
+        // doesn't get silently mis-extensioned to `.md` (#1786). Falls back to the scaffold
+        // default ("md") only if the source file has no extension at all.
+        let ext = (relativePath as NSString).pathExtension
+        let destExt = ext.isEmpty ? "md" : ext
+
         let baseTitle = title.trimmingCharacters(in: .whitespacesAndNewlines)
         let copyTitle = baseTitle.isEmpty ? "Copy" : "\(baseTitle) Copy"
         var attempt = 1
         var slug = ContentScaffold.slugify(copyTitle)
-        var relPath = ContentScaffold.postRelativePath(collection: collection, slug: slug)
+        var relPath = ContentScaffold.postRelativePath(collection: collection, slug: slug, extension: destExt)
         while attempt < 1000, fileManager.fileExists(atPath: root.appendingPathComponent(relPath).path) {
             attempt += 1
             slug = ContentScaffold.slugify("\(copyTitle) \(attempt)")
-            relPath = ContentScaffold.postRelativePath(collection: collection, slug: slug)
+            relPath = ContentScaffold.postRelativePath(collection: collection, slug: slug, extension: destExt)
         }
         guard !fileManager.fileExists(atPath: root.appendingPathComponent(relPath).path) else {
             return .failed(reason: "Couldn't find an available name for the duplicate after 1000 attempts")
         }
 
-        let ext = (relativePath as NSString).pathExtension
         let rewritten: String
         switch PageTitleEditor.rewrite(contents: contents, fileExtension: ext, newTitle: copyTitle) {
         case .success(let s): rewritten = s

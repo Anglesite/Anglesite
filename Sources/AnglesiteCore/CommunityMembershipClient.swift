@@ -189,6 +189,97 @@ public struct CommunityMembershipClient: Sendable {
         }
     }
 
+    /// Lists open abuse reports against this actor — the bearer-gated `GET <actor>/reports`
+    /// `davidwkeith/workers` PR #500 added (closing workers#489), paginated like `/outbox` but
+    /// fetched here as a single first page: a hosted community's open-report queue is expected to
+    /// stay small enough for one page in practice, and paging further is easy to add once a real
+    /// deployment needs it. **Not yet in a tagged `@dwk/workers` release** as of
+    /// `dwk-server-v1.0.0-beta.3` (PR #500 merged after that tag) — same "treat a failure here as
+    /// nothing pending, never a user-facing error" contract as ``listFollowRequests()``; see
+    /// `ModerationModel.loadReports()`.
+    public func listReports() async throws -> [FlagReport] {
+        var request = URLRequest(url: ownActorURL.appendingPathComponent("reports"))
+        request.httpMethod = "GET"
+        request.setValue("Bearer \(publishToken)", forHTTPHeaderField: "Authorization")
+        request.setValue("application/json", forHTTPHeaderField: "Accept")
+        request.timeoutInterval = ActorProfileFetcher.timeout
+        let data = try await send(request)
+        return Self.decodeReports(data)
+    }
+
+    /// Dismisses an open report — POSTs `Ignore` referencing the `Flag` activity's own id, the
+    /// resolve half of workers#489's design (`#publish`'s new `Ignore` branch:
+    /// `UPDATE inbox SET resolved_at = ... WHERE id = ? AND type = 'Flag'`). An unknown or
+    /// already-resolved id is a documented silent no-op on the Worker side (still `202`) — the
+    /// same "unroutable → dropped" convention `Accept`/`Reject`/`Block` already use for a normal
+    /// race (e.g. another client dismissed it first).
+    ///
+    /// - Parameter activityID: ``FlagReport/activityID``, not ``FlagReport/target`` — dismissing
+    ///   a report is about the report itself, not the content/actor it names.
+    public func resolveReport(activityID: String) async throws {
+        let body: [String: Any] = [
+            "@context": "https://www.w3.org/ns/activitystreams",
+            "type": "Ignore",
+            "actor": ownActorURL.absoluteString,
+            "object": activityID,
+        ]
+        _ = try await post(body)
+    }
+
+    /// Decodes the Worker's `{items: [<Flag activity JSON>, ...], total, page, pageSize}`
+    /// response (workers#489's design doc §3: raw AS2 `Flag` JSON, not a narrowed projection). A
+    /// response that doesn't parse as this shape at all yields an empty list, and an individual
+    /// item missing a usable `id` is skipped entirely — without an `id` there is no way to
+    /// dismiss it later via ``resolveReport(activityID:)``, so showing it would be a dead end.
+    /// Every other field degrades independently instead: a malformed/missing `actor` or `object`
+    /// still yields a report (with `reporter`/`target` `nil`), since the reason text alone can be
+    /// enough for the owner to act on.
+    private static func decodeReports(_ data: Data) -> [FlagReport] {
+        guard let root = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+            let items = root["items"] as? [[String: Any]]
+        else { return [] }
+        let withFractional: ISO8601DateFormatter = {
+            let formatter = ISO8601DateFormatter()
+            formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
+            return formatter
+        }()
+        let plain = ISO8601DateFormatter()
+        return items.compactMap { item -> FlagReport? in
+            guard let id = item["id"] as? String else { return nil }
+            let receivedAt = (item["published"] as? String).flatMap {
+                withFractional.date(from: $0) ?? plain.date(from: $0)
+            }
+            return FlagReport(
+                activityID: id,
+                reporter: Self.iri(from: item["actor"]),
+                target: Self.targetIRI(from: item["object"]),
+                reason: item["content"] as? String,
+                receivedAt: receivedAt)
+        }
+    }
+
+    /// Resolves an AS2 value that's either a bare IRI string or an embedded object's `id` field —
+    /// the same shape `CommunityMembersSync.actorURL(from:)` already handles for `Follow.actor`.
+    private static func iri(from value: Any?) -> URL? {
+        if let string = value as? String { return URL(string: string) }
+        if let object = value as? [String: Any], let id = object["id"] as? String { return URL(string: id) }
+        return nil
+    }
+
+    /// `Flag.object` additionally permits an array (AS2 leaves multi-target reports to the
+    /// sender) — unlike ``iri(from:)``'s single-value shape, this also accepts `[Any]` and
+    /// resolves the first element that parses, since ``FlagReport/target`` is a single best-effort
+    /// IRI for display and for ``remove(target:)``, not an exhaustive list.
+    private static func targetIRI(from value: Any?) -> URL? {
+        if let array = value as? [Any] {
+            for element in array {
+                if let url = Self.iri(from: element) { return url }
+            }
+            return nil
+        }
+        return Self.iri(from: value)
+    }
+
     /// Shared POST/GET status handling: maps a transport error or non-2xx response to
     /// ``CommunityMembershipError/requestFailed(status:body:)``, otherwise returns the raw body.
     /// Factored out of `post(_:)` so ``listFollowRequests()``'s GET reuses the exact same mapping

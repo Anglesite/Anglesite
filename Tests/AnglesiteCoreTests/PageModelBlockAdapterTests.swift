@@ -56,4 +56,56 @@ struct PageModelBlockAdapterTests {
         let model = PageModelBlockAdapter.adapt(pageModel)
         #expect(model.blocks["n0"]?.sourceSpan == [0, 0])
     }
+
+    @Test func populatesRichTextFromNodeTextAsASingleTextRun() {
+        let pageModel = PageModel(
+            version: "sha256:abc", path: "src/pages/index.astro",
+            tree: .init(
+                id: "n0", kind: .fragment, tag: nil, attrs: [], span: .init(start: 0, end: 10), loc: nil, text: nil,
+                children: [
+                    .init(id: "n1", kind: .element, tag: "p", attrs: [], span: .init(start: 1, end: 9), loc: nil,
+                          text: "Hello, world", children: [], block: nil),
+                ],
+                block: nil))
+
+        let model = PageModelBlockAdapter.adapt(pageModel)
+
+        #expect(model.blocks["n1"]?.richText == [RichTextRun(kind: .text, text: "Hello, world")])
+    }
+
+    @Test func leavesRichTextNilWhenNodeHasNoText() {
+        let pageModel = PageModel(
+            version: "sha256:abc", path: "src/pages/index.astro",
+            tree: .init(id: "n0", kind: .fragment, tag: nil, attrs: [], span: .init(start: 0, end: 10), loc: nil, text: nil, children: [], block: nil))
+
+        let model = PageModelBlockAdapter.adapt(pageModel)
+
+        #expect(model.blocks["n0"]?.richText == nil)
+    }
+
+    @Test func populatesManifestNameForAResolvedManifestBlock() {
+        let pageModel = PageModel(
+            version: "sha256:abc", path: "src/pages/index.astro",
+            tree: .init(
+                id: "n0", kind: .fragment, tag: nil, attrs: [], span: .init(start: 0, end: 10), loc: nil, text: nil,
+                children: [
+                    .init(id: "n1", kind: .component, tag: "Hcard", attrs: [], span: .init(start: 0, end: 10), loc: nil, text: nil, children: [],
+                          block: .init(manifestPath: "src/components/Hcard.astro", name: "H-Card", description: "", icon: nil, slots: [])),
+                ],
+                block: nil))
+
+        let model = PageModelBlockAdapter.adapt(pageModel)
+
+        #expect(model.blocks["n1"]?.manifestName == "H-Card")
+    }
+
+    @Test func leavesManifestNameNilForANonManifestNode() {
+        let pageModel = PageModel(
+            version: "sha256:abc", path: "src/pages/index.astro",
+            tree: .init(id: "n0", kind: .fragment, tag: nil, attrs: [], span: .init(start: 0, end: 10), loc: nil, text: nil, children: [], block: nil))
+
+        let model = PageModelBlockAdapter.adapt(pageModel)
+
+        #expect(model.blocks["n0"]?.manifestName == nil)
+    }
 }

@@ -28,7 +28,13 @@ public enum PageModelBlockAdapter {
             props: props,
             slots: node.children.isEmpty ? [:] : ["default": node.children.map(\.id)],
             sourceSpan: [node.span.start ?? 0, node.span.end ?? 0],
-            richText: nil) // rich-text runs come from a dedicated read, not the page-model tree; see Task 5's caveat
+            // A lossy-but-honest baseline: the page model carries only a flat plain-text
+            // snapshot, no bold/italic/link marks, so a single `.text` run is the most this can
+            // ever be — but it's a strict improvement over the previous hardcoded `nil`, which
+            // made `RichTextEditor`'s undo baseline (`rich-text.ts:257`) always empty, so undoing
+            // any text edit restored to nothing rather than the original text (#1602 item 1).
+            richText: node.text.map { [RichTextRun(kind: .text, text: $0)] },
+            manifestName: node.block?.name)
         for child in node.children {
             walk(child, into: &blocks)
         }

@@ -40,6 +40,12 @@
     "Content" : {
 
     },
+    "Continue" : {
+
+    },
+    "Continue editing %@?" : {
+
+    },
     "Couldn't Load Posts" : {
 
     },
@@ -110,6 +116,9 @@
 
     },
     "Not Deployed Yet" : {
+
+    },
+    "Not Now" : {
 
     },
     "Nothing Selected" : {

@@ -319,6 +319,7 @@ if includeContainer && ProcessInfo.processInfo.environment["ANGLESITE_CONTAINER_
             dependencies: [
                 "AnglesiteContainer",
                 "AnglesiteCore",
+                "AnglesiteTestSupport",
                 .product(name: "Containerization", package: "containerization"),
                 .product(name: "ContainerizationExtras", package: "containerization")
             ],

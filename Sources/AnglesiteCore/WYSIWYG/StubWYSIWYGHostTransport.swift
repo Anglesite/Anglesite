@@ -79,7 +79,7 @@ public actor StubWYSIWYGHostTransport: WYSIWYGHostTransport {
 
         switch op {
         case .insertBlock(let parentId, let slot, let index, let newId, let content):
-            blocks[newId] = BlockNode(id: newId, kind: content.kind, componentName: content.componentName, props: content.props, slots: content.slots, sourceSpan: content.sourceSpan, richText: content.richText)
+            blocks[newId] = BlockNode(id: newId, kind: content.kind, componentName: content.componentName, props: content.props, slots: content.slots, sourceSpan: content.sourceSpan, richText: content.richText, manifestName: content.manifestName)
             guard spliceIn(parentId: parentId, slot: slot, index: index, blockId: newId) else { return nil }
 
         case .deleteBlock(let parentId, let slot, _, let blockId, _):

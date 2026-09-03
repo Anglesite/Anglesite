@@ -11,7 +11,7 @@ struct WYSIWYGCanvasControllerTests {
         let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
         let transport = StubWYSIWYGHostTransport(model: initial)
         let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
-        var reported: (op: Op, inverse: Op, model: BlockModel)?
+        var reported: (op: Op, inverse: WYSIWYGReversal, model: BlockModel)?
         controller.addOpAppliedListener { op, inverse, model in reported = (op, inverse, model) }
 
         let op = Op.insertBlock(parentId: rootParentID, slot: "main", index: 0, newId: "b1", block: BlockNodeContent(kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0]))
@@ -20,7 +20,7 @@ struct WYSIWYGCanvasControllerTests {
         #expect(result.isApplied)
         #expect(controller.model.rootIds == ["b1"])
         #expect(reported?.op == op)
-        #expect(reported?.inverse == WYSIWYGOpInverter.invert(op))
+        #expect(reported?.inverse == .op(WYSIWYGOpInverter.invert(op)))
     }
 
     @Test("submit adopts the fresh model on a version-mismatch rejection without calling onOpApplied")
@@ -172,7 +172,7 @@ struct WYSIWYGCanvasControllerTests {
         #expect(controller.model.rootIds.isEmpty) // the stale insert must not have landed
 
         // A correctly-versioned envelope still applies and fires onOpApplied with the real op.
-        var reported: (op: Op, inverse: Op)?
+        var reported: (op: Op, inverse: WYSIWYGReversal)?
         controller.addOpAppliedListener { op, inverse, _ in reported = (op, inverse) }
         let freshEnvelope = OpEnvelope(id: "req-2", targetVersion: controller.model.version, op: staleOp)
         let freshResult = await controller.sendOp(freshEnvelope)
@@ -180,7 +180,7 @@ struct WYSIWYGCanvasControllerTests {
         #expect(freshResult.isApplied)
         #expect(controller.model.rootIds == ["b1"])
         #expect(reported?.op == staleOp)
-        #expect(reported?.inverse == WYSIWYGOpInverter.invert(staleOp))
+        #expect(reported?.inverse == .op(WYSIWYGOpInverter.invert(staleOp)))
     }
 
     @Test("mountScript(for:displayNames:) builds a mount(...) call carrying the model's and display names' exact JSON")
@@ -365,4 +365,104 @@ struct WYSIWYGCanvasControllerTests {
 
 private extension OpResult {
     var isApplied: Bool { if case .applied = self { true } else { false } }
+}
+
+private final class FakeInvertibleTransport: WYSIWYGServerInvertibleTransport, @unchecked Sendable {
+    private var model: BlockModel
+    var nextServerInverse: WireInverse?
+    /// Test-only override for `applyServerInverse`'s result — `nil` means "just report `.applied`
+    /// against the current `model`" (the default every test but the stale-replay one wants).
+    var nextApplyServerInverseResult: OpResult?
+
+    init(model: BlockModel) {
+        self.model = model
+    }
+
+    func sendOp(_ envelope: OpEnvelope) async -> OpResult {
+        await sendOpReportingServerInverse(envelope).result
+    }
+
+    func sendOpReportingServerInverse(_ envelope: OpEnvelope) async -> (result: OpResult, serverInverse: WireInverse?) {
+        guard let next = StubWYSIWYGHostTransport.applying(envelope.op, to: model) else {
+            return (.rejected(reason: .invalidTarget, message: "target block not found", freshModel: nil), nil)
+        }
+        model = next
+        return (.applied(model: next), nextServerInverse)
+    }
+
+    func applyServerInverse(_ inverse: WireInverse, requestId: String) async -> (result: OpResult, serverInverse: WireInverse?) {
+        if let nextApplyServerInverseResult {
+            return (nextApplyServerInverseResult, nil)
+        }
+        return (.applied(model: model), nil)
+    }
+
+    func onModelUpdate(_ listener: @escaping @Sendable (BlockModel) -> Void) async -> () -> Void { {} }
+}
+
+extension WYSIWYGCanvasControllerTests {
+    @Test("submit reports a WireInverse from a WYSIWYGServerInvertibleTransport instead of the local guess (#1602 item 2)")
+    func submitPrefersServerComputedInverseWhenAvailable() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let transport = FakeInvertibleTransport(model: initial)
+        let serverInverse = WireInverse(op: "deleteBlock", component: .object(["nodeId": .string("real-n7")]))
+        transport.nextServerInverse = serverInverse
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        var reported: WYSIWYGReversal?
+        controller.addOpAppliedListener { _, inverse, _ in reported = inverse }
+
+        let op = Op.insertBlock(parentId: rootParentID, slot: "main", index: 0, newId: "b1", block: BlockNodeContent(kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0]))
+        _ = await controller.submit(op)
+
+        #expect(reported == .wire(serverInverse))
+    }
+
+    @Test("submit always registers the client-computed inverse for editText, even when the transport offers a server one (#1225 Finding 5)")
+    func submitAlwaysUsesClientInverseForEditText() async {
+        let node = BlockNode(id: "b1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 5], richText: [RichTextRun(kind: .text, text: "Hello")])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["b1"], blocks: ["b1": node])
+        let transport = FakeInvertibleTransport(model: initial)
+        // The transport WOULD supply a server-computed inverse — one that, in the real
+        // sidecar wire schema, could never carry `previousRuns` and would silently break
+        // typing-coalescing if it were ever registered for editText.
+        transport.nextServerInverse = WireInverse(op: "editText", component: .object(["runs": .string("[stale]")]))
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        var reported: WYSIWYGReversal?
+        controller.addOpAppliedListener { _, inverse, _ in reported = inverse }
+
+        let op = Op.editText(
+            blockId: "b1",
+            runs: [RichTextRun(kind: .text, text: "Hello, world")],
+            previousRuns: [RichTextRun(kind: .text, text: "Hello")])
+        _ = await controller.submit(op)
+
+        #expect(reported == .op(WYSIWYGOpInverter.invert(op)))
+    }
+
+    @Test("a stale .wire undo/redo replay logs via LogCenter instead of failing silently (#1602 final review, Finding 2)")
+    func staleWireReplayLogsRejection() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let transport = FakeInvertibleTransport(model: initial)
+        let serverInverse = WireInverse(op: "deleteBlock", component: .object(["nodeId": .string("real-n7")]))
+        transport.nextServerInverse = serverInverse
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        let undoManager = UndoManager()
+        undoManager.groupsByEvent = false // no run loop in a test; see WYSIWYGUndoCoordinator's doc
+        controller.undoCoordinator.undoManager = undoManager
+
+        let op = Op.insertBlock(parentId: rootParentID, slot: "main", index: 0, newId: "b1", block: BlockNodeContent(kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0]))
+        _ = await controller.submit(op) // registers the `.wire(serverInverse)` reversal as the undo step
+
+        // Once undo actually fires, replaying that `.wire` reversal goes stale — a marker unique
+        // to this test run distinguishes its log line from any other test appending to the shared
+        // "wysiwyg" LogCenter source concurrently.
+        let marker = "staleWireReplayLogsRejection-\(UUID().uuidString)"
+        transport.nextApplyServerInverseResult = .rejected(reason: .versionMismatch, message: marker, freshModel: nil)
+
+        undoManager.undo()
+        await controller.undoCoordinator.pendingPerform?.value
+
+        let lines = await LogCenter.shared.snapshot()
+        #expect(lines.contains { $0.source == "wysiwyg" && $0.stream == .stderr && $0.text.contains(marker) })
+    }
 }

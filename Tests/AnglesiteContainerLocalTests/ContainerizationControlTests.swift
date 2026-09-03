@@ -2,6 +2,7 @@ import Testing
 import Foundation
 @testable import AnglesiteContainer
 import AnglesiteCore
+import AnglesiteTestSupport
 
 /// Local-only, entitlement-gated integration test for the real Apple-Containerization driver.
 ///
@@ -177,23 +178,65 @@ struct ContainerizationControlTests {
 
     /// Create a throwaway on-disk git repo containing a minimal Astro site and an initial commit.
     /// Returns the repo directory URL (a `file://` path the driver clones into the guest).
+    ///
+    /// Stages a real `worker/` (plus the handful of files it imports from outside that directory)
+    /// and a `dist/` placeholder so `startWorkersDev` tests actually reach `wrangler dev`'s
+    /// bundling step instead of failing earlier at "entry point not found" / assets-directory
+    /// resolution (#1780) — real sites get this from `SiteScaffolder`'s template copy
+    /// (`scripts/scaffold.sh`), which this mirrors for the throwaway fixture.
     private func makeThrowawayAstroRepo() throws -> URL {
         let fm = FileManager.default
         let dir = fm.temporaryDirectory.appendingPathComponent("anglesite-e2e-\(UUID().uuidString)", isDirectory: true)
         try fm.createDirectory(at: dir, withIntermediateDirectories: true)
+        let templateRoot = try AnglesiteTestSupport.templateRoot()
 
-        try """
-        {
-          "name": "anglesite-e2e",
-          "private": true,
-          "dependencies": { "astro": "*" }
+        // package.json + package-lock.json verbatim from the template: the exact dependency
+        // versions (including the `@dwk/*` worker packages and `wrangler` itself) the container
+        // image's baked node_modules archive was built from — `container/hydrate.sh` matches this
+        // lockfile byte-for-byte to take its zero-install fast path instead of an offline `npm
+        // install` that could never resolve these packages from a from-scratch `astro`-only
+        // manifest.
+        for name in ["package.json", "package-lock.json"] {
+            try fm.copyItem(at: templateRoot.appendingPathComponent(name), to: dir.appendingPathComponent(name))
         }
-        """.write(to: dir.appendingPathComponent("package.json"), atomically: true, encoding: .utf8)
 
         let pages = dir.appendingPathComponent("src/pages", isDirectory: true)
         try fm.createDirectory(at: pages, withIntermediateDirectories: true)
         try "<html><body><h1>Anglesite e2e</h1></body></html>\n"
             .write(to: pages.appendingPathComponent("index.astro"), atomically: true, encoding: .utf8)
+
+        // `worker/` verbatim — `worker.ts` and `mcp-server.ts` statically import sibling files
+        // (`experiments.ts`, `render-utils.ts`, …) throughout this directory, and
+        // `WorkerComposition.generateWranglerToml` emits `migrations_dir = "worker/migrations"`
+        // for every active D1-backed worker, so nothing less than the whole directory resolves.
+        try fm.copyItem(at: templateRoot.appendingPathComponent("worker"), to: dir.appendingPathComponent("worker"))
+
+        // The handful of files `worker.ts`/`mcp-server.ts` import from *outside* `worker/` — the
+        // gap #1780 called out: staging `worker/` alone still leaves these unresolved.
+        let srcLib = dir.appendingPathComponent("src/lib", isDirectory: true)
+        try fm.createDirectory(at: srcLib, withIntermediateDirectories: true)
+        for name in ["html-to-plain-text.ts", "mcp-search-entries.ts", "feeds.ts"] {
+            try fm.copyItem(
+                at: templateRoot.appendingPathComponent("src/lib/\(name)"),
+                to: srcLib.appendingPathComponent(name))
+        }
+        try fm.copyItem(
+            at: templateRoot.appendingPathComponent("utm-codes.json"), to: dir.appendingPathComponent("utm-codes.json"))
+
+        let scripts = dir.appendingPathComponent("scripts", isDirectory: true)
+        try fm.createDirectory(at: scripts, withIntermediateDirectories: true)
+        for name in ["experiments-paths.ts", "anglesite-config.ts", "experiments-artifact.ts", "mcp-artifact.ts"] {
+            try fm.copyItem(
+                at: templateRoot.appendingPathComponent("scripts/\(name)"), to: scripts.appendingPathComponent(name))
+        }
+
+        // `dist/` is Astro's build output — gitignored, so the template checkout never has one —
+        // but `generateWranglerToml` unconditionally emits `[assets] directory = "dist"`, and
+        // wrangler needs that directory to exist on disk even for a worker-only dev session.
+        let dist = dir.appendingPathComponent("dist", isDirectory: true)
+        try fm.createDirectory(at: dist, withIntermediateDirectories: true)
+        try "<!doctype html><title>e2e placeholder</title>\n"
+            .write(to: dist.appendingPathComponent("index.html"), atomically: true, encoding: .utf8)
 
         func git(_ args: [String]) throws {
             let p = Process()

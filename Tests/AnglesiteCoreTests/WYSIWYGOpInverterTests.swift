@@ -62,4 +62,22 @@ struct WYSIWYGOpInverterTests {
             #expect(Bool(false), "Expected insertBlock but got \(roundTrip)")
         }
     }
+
+    @Test("insertBlock/deleteBlock round-trip preserves manifestName")
+    func manifestNamePreservedInRoundTrip() {
+        let content = BlockNodeContent(kind: .astro, componentName: "Hcard", props: [:], slots: [:], sourceSpan: [0, 0], manifestName: "H-Card")
+        let insertOp = Op.insertBlock(parentId: rootParentID, slot: "main", index: 0, newId: "b9", block: content)
+
+        let deleteOp = WYSIWYGOpInverter.invert(insertOp)
+        guard case .deleteBlock(_, _, _, _, let block) = deleteOp else {
+            Issue.record("Expected deleteBlock but got \(deleteOp)"); return
+        }
+        #expect(block.manifestName == "H-Card")
+
+        let roundTrip = WYSIWYGOpInverter.invert(deleteOp)
+        guard case .insertBlock(_, _, _, _, let roundTripContent) = roundTrip else {
+            Issue.record("Expected insertBlock but got \(roundTrip)"); return
+        }
+        #expect(roundTripContent.manifestName == "H-Card")
+    }
 }

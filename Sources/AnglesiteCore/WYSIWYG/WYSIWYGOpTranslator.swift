@@ -24,6 +24,16 @@ public enum WYSIWYGOpTranslator {
     public static func translate(_ op: Op, requestId: String, path: String, baseVersion: String, rootId: BlockId) -> EditMessage {
         switch op {
         case .insertBlock(let parentId, _, let index, _, let block):
+            if let manifestName = block.manifestName {
+                // The sidecar resolves `manifestBlock` against its own `blocks.manifest.json`
+                // and computes the correct `{tag, componentPath}` + frontmatter import itself —
+                // preferred over `nodeSpec(for:)`'s guess whenever a manifest identity is known
+                // (#1602 item 3; see `ComponentStructureEditBuilder.insertBlock(manifestBlock:)`'s
+                // doc comment and this plan's design decision 2).
+                return ComponentStructureEditBuilder.insertBlock(
+                    id: requestId, path: path, baseVersion: baseVersion,
+                    parentId: resolveParent(parentId, rootId: rootId), index: index, manifestBlock: manifestName)
+            }
             return ComponentStructureEditBuilder.insertBlockNode(
                 id: requestId, path: path, baseVersion: baseVersion,
                 parentId: resolveParent(parentId, rootId: rootId), index: index, node: nodeSpec(for: block))

@@ -87,3 +87,17 @@ enum PostListItemSelection: Hashable {
     case new(typeID: String)
     case existing(PostListModel.Item)
 }
+
+extension PersistedSelection {
+    /// The portable form worth persisting (#1436): an existing post's URL rather than its whole
+    /// `PostListModel.Item`, since only the URL survives a relaunch — the item itself is
+    /// re-resolved once the post list reloads.
+    init(_ selection: PostListItemSelection) {
+        switch selection {
+        case .new(let typeID):
+            self = .new(typeID: typeID)
+        case .existing(let item):
+            self = .existing(postURL: item.id)
+        }
+    }
+}

@@ -9,6 +9,15 @@ struct SidecarWYSIWYGHostTransportTests {
         func apply(_ message: EditMessage) async -> EditReply { reply }
     }
 
+    struct RecordingEditRouter: EditRouter {
+        let reply: EditReply
+        let onApply: (EditMessage) -> Void
+        func apply(_ message: EditMessage) async -> EditReply {
+            onApply(message)
+            return reply
+        }
+    }
+
     /// Captures the last `EditMessage` it was asked to apply — lets a test inspect the actual
     /// wire payload `SidecarWYSIWYGHostTransport` built, not just the canned reply it gets back.
     final class CapturingEditRouter: EditRouter, @unchecked Sendable {
@@ -348,5 +357,103 @@ struct SidecarWYSIWYGHostTransportTests {
         #expect(model.version == "sha256:fresh222222")
         #expect(editRouter.messages.count == 1)
         #expect(editRouter.messages[0].op == EditMessage.Op.insertBlock)
+    }
+
+    @Test func sendOpReportingServerInverseSurfacesTheDecodedInverse() async {
+        let pageModelClient = PageModelClient(toolCaller: { name, _ in
+            #expect(name == "get_page_model")
+            let data = try! JSONEncoder().encode(emptyPageModel(version: "sha256:fresh111111"))
+            return MCPClient.ToolCallResult(content: [.init(type: "text", text: String(data: data, encoding: .utf8))], isError: false)
+        })
+        let editRouter = FakeEditRouter(reply: EditReply(
+            id: "req-1", status: .applied, message: nil,
+            inverseOp: "deleteBlock", inverseComponent: .object(["nodeId": .string("n7"), "baseVersion": .string("sha256:fresh111111")])))
+        let transport = SidecarWYSIWYGHostTransport(path: "src/pages/index.astro", pageModelClient: pageModelClient, editRouter: editRouter, rootId: "n0")
+
+        let op = Op.setDesignToken(tokenName: "--color-primary", value: "#111", previousValue: "#000")
+        let (result, serverInverse) = await transport.sendOpReportingServerInverse(OpEnvelope(id: "req-1", targetVersion: "sha256:stale000000", op: op))
+
+        guard case .applied = result else { Issue.record("expected .applied, got \(result)"); return }
+        #expect(serverInverse?.op == "deleteBlock")
+        #expect(serverInverse?.component == .object(["nodeId": .string("n7"), "baseVersion": .string("sha256:fresh111111")]))
+    }
+
+    @Test func sendOpReportingServerInverseIsNilWhenReplyCarriesNoInverse() async {
+        let pageModelClient = PageModelClient(toolCaller: { _, _ in
+            let data = try! JSONEncoder().encode(emptyPageModel(version: "sha256:fresh111111"))
+            return MCPClient.ToolCallResult(content: [.init(type: "text", text: String(data: data, encoding: .utf8))], isError: false)
+        })
+        let editRouter = FakeEditRouter(reply: EditReply(id: "req-1", status: .applied, message: nil))
+        let transport = SidecarWYSIWYGHostTransport(path: "src/pages/index.astro", pageModelClient: pageModelClient, editRouter: editRouter, rootId: "n0")
+
+        let op = Op.setDesignToken(tokenName: "--color-primary", value: "#111", previousValue: "#000")
+        let (_, serverInverse) = await transport.sendOpReportingServerInverse(OpEnvelope(id: "req-1", targetVersion: "sha256:stale000000", op: op))
+
+        #expect(serverInverse == nil)
+    }
+
+    @Test func applyServerInverseReplaysVerbatimAndReportsItsOwnFreshInverse() async {
+        let pageModelClient = PageModelClient(toolCaller: { _, _ in
+            let data = try! JSONEncoder().encode(emptyPageModel(version: "sha256:afterundo111"))
+            return MCPClient.ToolCallResult(content: [.init(type: "text", text: String(data: data, encoding: .utf8))], isError: false)
+        })
+        var capturedMessage: EditMessage?
+        let editRouter = RecordingEditRouter(reply: EditReply(
+            id: "undo-1", status: .applied, message: nil,
+            inverseOp: "insertBlock", inverseComponent: .object(["parentId": .string("n2")]))) { capturedMessage = $0 }
+        let transport = SidecarWYSIWYGHostTransport(path: "src/pages/index.astro", pageModelClient: pageModelClient, editRouter: editRouter, rootId: "n0")
+
+        let inverse = WireInverse(op: "deleteBlock", component: .object(["nodeId": .string("n7"), "baseVersion": .string("sha256:beforeundo")]))
+        let (result, freshInverse) = await transport.applyServerInverse(inverse, requestId: "undo-1")
+
+        guard case .applied = result else { Issue.record("expected .applied, got \(result)"); return }
+        #expect(capturedMessage?.op == "deleteBlock")
+        #expect(capturedMessage?.component == .object(["nodeId": .string("n7"), "baseVersion": .string("sha256:beforeundo")]))
+        #expect(capturedMessage?.id == "undo-1")
+        #expect(freshInverse?.op == "insertBlock")
+    }
+
+    @Test func applyServerInverseRejectsWhenComponentPathTargetsADifferentFile() async {
+        let pageModelClient = PageModelClient(toolCaller: { _, _ in
+            Issue.record("should not re-fetch the model — the mismatch must reject before any apply")
+            let data = try! JSONEncoder().encode(emptyPageModel(version: "sha256:unused"))
+            return MCPClient.ToolCallResult(content: [.init(type: "text", text: String(data: data, encoding: .utf8))], isError: false)
+        })
+        var applyWasCalled = false
+        let editRouter = RecordingEditRouter(reply: EditReply(id: "undo-1", status: .applied, message: nil)) { _ in applyWasCalled = true }
+        let transport = SidecarWYSIWYGHostTransport(path: "src/pages/index.astro", pageModelClient: pageModelClient, editRouter: editRouter, rootId: "n0")
+
+        // `component.path` names a different file than this transport's own `path` — the sidecar's
+        // resolvers key their file-write off this field, so replaying it verbatim here would write
+        // to the wrong file.
+        let inverse = WireInverse(op: "deleteBlock", component: .object(["path": .string("src/pages/about.astro"), "nodeId": .string("n7")]))
+        let (result, freshInverse) = await transport.applyServerInverse(inverse, requestId: "undo-1")
+
+        guard case .rejected(let reason, _, let freshModel) = result else {
+            Issue.record("expected .rejected, got \(result)")
+            return
+        }
+        #expect(reason == .hostError)
+        #expect(freshModel == nil)
+        #expect(freshInverse == nil)
+        #expect(applyWasCalled == false)
+    }
+
+    @Test func applyServerInverseAllowsAComponentWithNoPathKey() async {
+        let pageModelClient = PageModelClient(toolCaller: { _, _ in
+            let data = try! JSONEncoder().encode(emptyPageModel(version: "sha256:afterundo222"))
+            return MCPClient.ToolCallResult(content: [.init(type: "text", text: String(data: data, encoding: .utf8))], isError: false)
+        })
+        let editRouter = FakeEditRouter(reply: EditReply(id: "undo-1", status: .applied, message: nil))
+        let transport = SidecarWYSIWYGHostTransport(path: "src/pages/index.astro", pageModelClient: pageModelClient, editRouter: editRouter, rootId: "n0")
+
+        // No "path" key at all — absence isn't evidence of a mismatch, so this must still replay.
+        let inverse = WireInverse(op: "deleteBlock", component: .object(["nodeId": .string("n7")]))
+        let (result, _) = await transport.applyServerInverse(inverse, requestId: "undo-1")
+
+        guard case .applied = result else {
+            Issue.record("expected .applied, got \(result)")
+            return
+        }
     }
 }
