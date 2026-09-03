@@ -62,6 +62,21 @@ public struct EditReply: Sendable, Equatable, Encodable {
     /// re-fetch the model. Same narrow-exception scope as ``inverseNodeId`` — not part of
     /// general inverse-for-undo. `nil` under the same conditions as ``inverseNodeId``.
     public let postWriteVersion: String?
+    /// Decoded verbatim from the apply_edit reply's `inverse.op` — the wire op name to replay to
+    /// undo this exact write (e.g. `"deleteBlock"`). Unlike ``inverseNodeId``/``postWriteVersion``
+    /// (a narrow, pre-existing decode for one specific insert-follow-up use), this is the general
+    /// server-computed inverse this repo's WYSIWYG undo path now consumes (#1602 item 2, reversing
+    /// `docs/superpowers/plans/2026-08-19-wysiwyg-sidecar-backed-transport.md`'s design decision
+    /// 1) — see `SidecarWYSIWYGHostTransport`'s `WYSIWYGServerInvertibleTransport` conformance.
+    /// `nil` when the reply carries no `inverse` key at all.
+    public let inverseOp: String?
+    /// Decoded verbatim from the apply_edit reply's `inverse.component` — the wire payload to
+    /// send back through `EditRouter.apply(_:)` (paired with ``inverseOp`` as the `op`) to replay
+    /// this inverse, bypassing `WYSIWYGOpTranslator`/`ComponentStructureEditBuilder` entirely. The
+    /// sidecar stamps a fresh `baseVersion` onto this against the file's post-write hash
+    /// (`apply-edit-dispatcher.mjs`), so it's always safe to send as-is without recomputing one.
+    /// `nil` under the same condition as ``inverseOp``.
+    public let inverseComponent: JSONValue?
 
     /// `replace-image-src` metadata: the final asset URLs the plugin wrote, which the overlay
     /// swaps into the live `<img>` so the page reflects the edit without a full reload.
@@ -110,7 +125,9 @@ public struct EditReply: Sendable, Equatable, Encodable {
         reason: String? = nil,
         newFile: String? = nil,
         inverseNodeId: String? = nil,
-        postWriteVersion: String? = nil
+        postWriteVersion: String? = nil,
+        inverseOp: String? = nil,
+        inverseComponent: JSONValue? = nil
     ) {
         self.id = id
         self.status = status
@@ -126,6 +143,8 @@ public struct EditReply: Sendable, Equatable, Encodable {
         self.newFile = newFile
         self.inverseNodeId = inverseNodeId
         self.postWriteVersion = postWriteVersion
+        self.inverseOp = inverseOp
+        self.inverseComponent = inverseComponent
     }
 }
 

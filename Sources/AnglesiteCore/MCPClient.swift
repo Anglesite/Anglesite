@@ -77,6 +77,25 @@ public indirect enum JSONValue: Sendable, Equatable {
     }
 }
 
+/// Encodes each case as the JSON value it represents (a bare string/number/array/object), not a
+/// tagged-case wrapper — needed so a `JSONValue` nested inside an `Encodable` type (e.g.
+/// `EditReply.inverseComponent`) round-trips as ordinary JSON on the wire, matching how
+/// ``rawValue``/``from(_:)`` already treat it.
+extension JSONValue: Encodable {
+    public func encode(to encoder: Encoder) throws {
+        var container = encoder.singleValueContainer()
+        switch self {
+        case .null: try container.encodeNil()
+        case .bool(let value): try container.encode(value)
+        case .int(let value): try container.encode(value)
+        case .double(let value): try container.encode(value)
+        case .string(let value): try container.encode(value)
+        case .array(let value): try container.encode(value)
+        case .object(let value): try container.encode(value)
+        }
+    }
+}
+
 /// JSON-RPC 2.0 client speaking the Model Context Protocol (2026-07-28, stateless) over a
 /// pluggable `MCPTransport`.
 ///

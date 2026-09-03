@@ -117,7 +117,9 @@ public struct MCPApplyEditRouter: EditRouter {
                 model: parsed?.model,
                 newFile: parsed?.newFile,
                 inverseNodeId: parsed?.inverseNodeId,
-                postWriteVersion: parsed?.postWriteVersion
+                postWriteVersion: parsed?.postWriteVersion,
+                inverseOp: parsed?.inverseOp,
+                inverseComponent: parsed?.inverseComponent
             )
             if let persistEdit {
                 do {
@@ -221,16 +223,21 @@ public struct MCPApplyEditRouter: EditRouter {
         // key — decode defensively, `nil` on any shape mismatch, never throw.
         var inverseNodeId: String?
         var postWriteVersion: String?
+        var inverseOp: String?
+        var inverseComponent: JSONValue?
         if let inverse = json["inverse"] as? [String: Any],
-           let inverseComponent = inverse["component"] as? [String: Any] {
-            inverseNodeId = inverseComponent["nodeId"] as? String
-            postWriteVersion = inverseComponent["baseVersion"] as? String
+           let inverseComponentDict = inverse["component"] as? [String: Any] {
+            inverseNodeId = inverseComponentDict["nodeId"] as? String
+            postWriteVersion = inverseComponentDict["baseVersion"] as? String
+            inverseOp = inverse["op"] as? String
+            inverseComponent = JSONValue.from(inverseComponentDict)
         }
         if file == nil && commit == nil && image == nil && newFile == nil && model == nil && reason == nil
-            && inverseNodeId == nil && postWriteVersion == nil { return nil }
+            && inverseNodeId == nil && postWriteVersion == nil && inverseOp == nil && inverseComponent == nil { return nil }
         return Parsed(
             file: file, commit: commit, result: image, newFile: newFile, model: model, reason: reason,
-            inverseNodeId: inverseNodeId, postWriteVersion: postWriteVersion)
+            inverseNodeId: inverseNodeId, postWriteVersion: postWriteVersion,
+            inverseOp: inverseOp, inverseComponent: inverseComponent)
     }
 
     struct Parsed: Equatable {
@@ -242,5 +249,7 @@ public struct MCPApplyEditRouter: EditRouter {
         let reason: String?
         let inverseNodeId: String?
         let postWriteVersion: String?
+        let inverseOp: String?
+        let inverseComponent: JSONValue?
     }
 }

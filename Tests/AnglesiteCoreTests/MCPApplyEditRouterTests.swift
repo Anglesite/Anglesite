@@ -163,6 +163,36 @@ struct MCPApplyEditRouterTests {
         #expect(reply.postWriteVersion == nil)
     }
 
+    @Test("Structured reply with inverse exposes the full inverseOp/inverseComponent")
+    func structuredReplyWithInverseExposesFullInverse() async {
+        let body = #"{"type":"anglesite:edit-applied","id":"e-1","file":"src/pages/about.astro","range":{"start":12,"end":25},"commit":"abc1234567890abcdef1234567890abcdef12345","inverse":{"op":"deleteBlock","component":{"path":"src/pages/about.astro","nodeId":"n42","baseVersion":"sha256:postwrite111"}}}"#
+        let recorder = ToolCallRecorder(result: .success(MCPClient.ToolCallResult(
+            content: [.init(type: "text", text: body)],
+            isError: false
+        )))
+        let router = MCPApplyEditRouter(toolCaller: { try await recorder.call(name: $0, arguments: $1) })
+        let reply = await router.apply(sampleMessage)
+        #expect(reply.inverseOp == "deleteBlock")
+        guard case .object(let component)? = reply.inverseComponent else {
+            Issue.record("expected inverseComponent to decode as an object"); return
+        }
+        #expect(component["nodeId"] == .string("n42"))
+        #expect(component["baseVersion"] == .string("sha256:postwrite111"))
+    }
+
+    @Test("Structured reply with no inverse key decodes nil inverseOp/inverseComponent")
+    func structuredReplyWithNoInverseDecodesNilFullInverse() async {
+        let body = #"{"type":"anglesite:edit-applied","id":"e-1","file":"src/pages/about.astro","range":{"start":12,"end":25},"commit":"abc1234567890abcdef1234567890abcdef12345"}"#
+        let recorder = ToolCallRecorder(result: .success(MCPClient.ToolCallResult(
+            content: [.init(type: "text", text: body)],
+            isError: false
+        )))
+        let router = MCPApplyEditRouter(toolCaller: { try await recorder.call(name: $0, arguments: $1) })
+        let reply = await router.apply(sampleMessage)
+        #expect(reply.inverseOp == nil)
+        #expect(reply.inverseComponent == nil)
+    }
+
     @Test("Malformed reply text falls back to message string") func malformedReplyTextFallsBackToMessageString() async {
         let recorder = ToolCallRecorder(result: .success(MCPClient.ToolCallResult(
             content: [.init(type: "text", text: "not valid json {")],
