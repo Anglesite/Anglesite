@@ -12,20 +12,20 @@ export type EntryType = (typeof ENTRY_TYPES)[number];
 /** Routed collection dirs whose built pages carry an entry microformat. */
 export const ENTRY_DIRS = [
   "blog", "notes", "articles", "photos", "albums",
-  "bookmarks", "replies", "likes", "rsvps", "checkins", "announcements", "events", "reviews",
+  "bookmarks", "replies", "likes", "rsvps", "checkins", "reposts", "announcements", "events", "reviews",
 ];
 
 /** The mf2 root type for a page-level feed of entries (`CollectionIndex.astro`, `/timeline/`). */
 const FEED_TYPE = "h-feed";
 
 /**
- * The 9 micropost/titled collections whose own list page (`<collection>/index.html`) is an
+ * The 10 micropost/titled collections whose own list page (`<collection>/index.html`) is an
  * h-feed of h-entry children, rendered by `CollectionIndex.astro`. `blog`'s list page carries
  * no mf2 markup at all, so it's deliberately excluded here — its index.html stays a plain,
  * unvalidated page rather than being held to the h-feed shape.
  */
 export const FEED_COLLECTION_DIRS = [
-  "notes", "articles", "photos", "albums", "bookmarks", "replies", "likes", "rsvps", "checkins",
+  "notes", "articles", "photos", "albums", "bookmarks", "replies", "likes", "rsvps", "checkins", "reposts",
 ];
 
 type Mf2Item = { type: string[]; properties: Record<string, unknown[]>; children?: Mf2Item[] };

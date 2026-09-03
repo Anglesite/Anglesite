@@ -21,10 +21,10 @@ function entry(collection: string, data: Record<string, any>, body = ""): FeedEn
   return { id: "hello", collection, data, body };
 }
 
-test("config covers all ten collections", () => {
+test("config covers all eleven collections", () => {
   assert.deepEqual(
     Object.keys(FEED_COLLECTIONS).sort(),
-    ["albums", "articles", "blog", "bookmarks", "checkins", "likes", "notes", "photos", "replies", "rsvps"],
+    ["albums", "articles", "blog", "bookmarks", "checkins", "likes", "notes", "photos", "replies", "reposts", "rsvps"],
   );
 });
 
@@ -464,6 +464,20 @@ test("toFeedItem gives a check-in with no venueUrl an empty content fallback (no
     "",
   );
   assert.equal(checkin.contentHtml, "");
+});
+
+test("toFeedItem leaves a repost title-less and falls back to an anchor to repostOf when empty", () => {
+  const repost = toFeedItem(
+    "reposts",
+    entry("reposts", { repostOf: "https://example.com/original", publishDate: "2026-01-02" }, ""),
+    SITE,
+    "",
+  );
+  assert.equal(repost.title, undefined);
+  assert.equal(
+    repost.contentHtml,
+    `<a href="https://example.com/original">https://example.com/original</a>`,
+  );
 });
 
 test("toFeedItem falls back to an escaped anchor to bookmarkOf when the bookmark has no body", () => {

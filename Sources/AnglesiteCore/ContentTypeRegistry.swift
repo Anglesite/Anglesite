@@ -300,7 +300,7 @@ extension ContentTypeRegistry {
 
     // MARK: Personal (h-entry family)
 
-    static let personalTypes: [ContentTypeDescriptor] = [note, article, photo, album, bookmark, reply, like, rsvp, checkin]
+    static let personalTypes: [ContentTypeDescriptor] = [note, article, photo, album, bookmark, reply, like, rsvp, checkin, repost]
 
     static let note = ContentTypeDescriptor(
         id: "note",
@@ -523,6 +523,34 @@ extension ContentTypeRegistry {
             microformatProperties: [
                 "location": "p-location",
                 "venueUrl": "u-in-reply-to",
+                "body": "e-content",
+                "publishDate": "dt-published",
+            ],
+            schemaType: nil
+        )
+    )
+
+    /// A share of someone else's post, with optional commentary — the IndieWeb repost post type
+    /// (indieweb.org/repost). `repostOf` names the reposted entry's URL. No schema.org
+    /// projection, matching `reply`/`like`/`rsvp`/`checkin` (#1598). POSSE-eligible via the
+    /// existing frontmatter-driven `SocialPublishPlan` pipeline — no new eligibility code needed;
+    /// `webmentionTargets` already reads a `repostOf` frontmatter key (a dangling hook from
+    /// earlier scaffolding), this descriptor is what finally makes it reachable.
+    static let repost = ContentTypeDescriptor(
+        id: "repost",
+        displayName: "Repost",
+        storage: .collection("reposts"),
+        fields: [
+            ContentTypeField("lang", .language),
+            ContentTypeField("repostOf", .url, required: true),
+            ContentTypeField("body", .markdown),
+            ContentTypeField("publishDate", .datetime, required: true),
+            ContentTypeField("draft", .bool),
+        ],
+        projections: ContentTypeProjections(
+            microformat: "h-entry",
+            microformatProperties: [
+                "repostOf": "u-repost-of",
                 "body": "e-content",
                 "publishDate": "dt-published",
             ],

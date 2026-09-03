@@ -176,10 +176,10 @@ struct ContentTypeRegistryTests {
         #expect(skills.kind == .stringArray)
     }
 
-    @Test("personalTypes include album, like, rsvp, and checkin in canonical order")
+    @Test("personalTypes include album, like, rsvp, checkin, and repost in canonical order")
     func personalTypeOrder() {
         #expect(ContentTypeRegistry.personalTypes.map(\.id)
-            == ["note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin"])
+            == ["note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin", "repost"])
     }
 
     @Test("album is an h-entry image gallery with an imageArray field")
@@ -284,6 +284,25 @@ struct ContentTypeRegistryTests {
         #expect(checkin.requiredURLFields.isEmpty)
     }
 
+    @Test("repost is an h-entry with u-repost-of and no schema.org type")
+    func repostDescriptor() {
+        let repost = try! #require(ContentTypeRegistry().descriptor(id: "repost"))
+        #expect(repost.displayName == "Repost")
+        #expect(repost.collection == "reposts")
+        #expect(repost.projections.microformat == "h-entry")
+        #expect(repost.projections.schemaType == nil)
+
+        let repostOf = try! #require(repost.fields.first { $0.name == "repostOf" })
+        #expect(repostOf.kind == .url)
+        #expect(repostOf.required)
+        #expect(repost.projections.microformatProperties["repostOf"] == "u-repost-of")
+
+        #expect(repost.fields.first?.name == "lang")
+        #expect(repost.fields.last?.name == "draft")
+        #expect(repost.titleField == nil)   // identified by repostOf, like reply/like/rsvp (#916)
+        #expect(repost.requiredURLFields.map(\.name) == ["repostOf"])
+    }
+
     @Test("blogroll is an h-card directory entry with no draft field and no schema.org type")
     func blogrollDescriptor() {
         let blogroll = try! #require(ContentTypeRegistry().descriptor(id: "blogroll"))
@@ -322,7 +341,7 @@ struct ContentTypeRegistryTests {
     @Test("every post-family descriptor has a trailing draft field")
     func postFamilyHasDraft() {
         let registry = ContentTypeRegistry()
-        for id in ["note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin"] {
+        for id in ["note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin", "repost"] {
             let descriptor = try! #require(registry.descriptor(id: id))
             #expect(descriptor.fields.last?.name == "draft", "\(id): draft should be the last field")
             #expect(descriptor.fields.last?.kind == .bool, "\(id): draft should be .bool")
@@ -364,7 +383,7 @@ struct ContentTypeRegistryTests {
     @Test("collectionBackedTypeIDs lists exactly the .collection-stored built-ins, in order")
     func collectionBackedIDs() {
         #expect(ContentTypeRegistry.default.collectionBackedTypeIDs == [
-            "note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin",
+            "note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin", "repost",
             "announcement", "event", "review", "member", "blogroll",
         ])
     }
@@ -473,7 +492,7 @@ struct ContentTypeRegistryTests {
 
     @Test("every ENTRY_COLLECTIONS-backed descriptor declares a lang field")
     func entryCollectionDescriptorsHaveLang() {
-        let idsExpectingLang = ["note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin", "announcement", "event", "review"]
+        let idsExpectingLang = ["note", "article", "photo", "album", "bookmark", "reply", "like", "rsvp", "checkin", "repost", "announcement", "event", "review"]
         let registry = ContentTypeRegistry()
         for id in idsExpectingLang {
             let descriptor = registry.descriptor(id: id)

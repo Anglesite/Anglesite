@@ -8,6 +8,7 @@ test("targetClassFor: maps each interaction collection to its mf2 u-* class", ()
   assert.equal(targetClassFor("bookmarks"), "u-bookmark-of");
   assert.equal(targetClassFor("rsvps"), "u-in-reply-to");
   assert.equal(targetClassFor("checkins"), "u-in-reply-to");
+  assert.equal(targetClassFor("reposts"), "u-repost-of");
 });
 
 test("targetClassFor: undefined for collections with no target-URL field", () => {
@@ -36,6 +37,10 @@ test("targetUrlFor: reads inReplyTo for rsvps", () => {
 
 test("targetUrlFor: reads venueUrl for checkins", () => {
   assert.equal(targetUrlFor("checkins", { venueUrl: "https://example.com/venue" }), "https://example.com/venue");
+});
+
+test("targetUrlFor: reads repostOf for reposts", () => {
+  assert.equal(targetUrlFor("reposts", { repostOf: "https://example.com/original" }), "https://example.com/original");
 });
 
 test("targetUrlFor: undefined for collections with no target-URL field", () => {

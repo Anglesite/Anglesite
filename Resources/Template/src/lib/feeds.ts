@@ -5,7 +5,7 @@ import { tagUrl, type UTMCampaign } from "./utm-codes.ts";
 
 export interface FeedItem {
   /** Absent for collections whose items have no natural title (notes, replies, likes, photos,
-   * and bookmarks without an explicit title) — a synthesized title (excerpt/"Re: host"/etc.) is
+   * reposts, and bookmarks without an explicit title) — a synthesized title (excerpt/"Re: host"/etc.) is
    * not a real title, so we omit the field rather than fake one. */
   title?: string;
   link: string; // absolute
@@ -77,6 +77,7 @@ export const FEED_COLLECTIONS: Record<string, FeedCollectionConfig> = {
     dateField: "publishDate",
     deriveTitle: (e) => (typeof e.data.location === "string" ? `Checked in at ${e.data.location}` : undefined),
   },
+  reposts: { title: "Reposts", dateField: "publishDate", deriveTitle: () => undefined },
 };
 
 /// Resolve the absolute site base URL from an Astro endpoint context, failing loudly when
@@ -139,7 +140,9 @@ function interactionContentFallback(collection: string, data: Record<string, any
             ? data.inReplyTo
             : collection === "checkins"
               ? data.venueUrl
-              : undefined;
+              : collection === "reposts"
+                ? data.repostOf
+                : undefined;
   if (!targetUrl) return "";
   const escaped = escapeXml(String(targetUrl));
   return `<a href="${escaped}">${escaped}</a>`;

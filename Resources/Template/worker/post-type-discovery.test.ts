@@ -86,8 +86,8 @@ describe("discoverCollection", () => {
     expect(discoverCollection(mf2("h-entry", { name: ["Untitled"] }))).toBe("notes");
   });
 
-  test("repost-of returns null", () => {
-    expect(discoverCollection(mf2("h-entry", { "repost-of": ["https://example.com/post"] }))).toBeNull();
+  test("repost-of maps to reposts", () => {
+    expect(discoverCollection(mf2("h-entry", { "repost-of": ["https://example.com/post"] }))).toBe("reposts");
   });
 
   test("rsvp maps to rsvps", () => {
