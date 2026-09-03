@@ -1,0 +1,141 @@
+name: Linux Flatpak drift canary
+
+# Runs the same steps as ci.yml's `linux-flatpak-build` job, but on a daily schedule against
+# `main` instead of on every PR. That job is `continue-on-error: true` there on purpose (#1385,
+# #1760): adwaita-swift's own transitive dependencies (Meta and friends) float on branch `main`
+# and can't be pinned from this repo, so an upstream push can break it with no change here, and
+# it must not block unrelated PRs. The tradeoff is that nobody notices until the lane goes red
+# on someone else's PR — sometimes after the runner cache has already kept a stale extension
+# green for a run or two, masking the real break (#1760). This workflow surfaces that drift on
+# its own schedule and its own tracking issue, before it lands on someone's unrelated PR (#1762).
+on:
+  schedule:
+    # Daily, off the hour to avoid GitHub's documented top-of-hour scheduling load.
+    - cron: '42 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: true
+
+jobs:
+  linux-flatpak-build:
+    name: Linux (Flatpak manifest + AnglesiteLinux)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Deliberately NOT continue-on-error: true here (unlike ci.yml's copy of this job) — this
+    # run has no PR to protect, and a real failure is what the reporting steps below react to.
+    permissions:
+      contents: read
+      issues: write
+    env:
+      CANARY_LOG: flatpak-canary.log
+      TRACKING_TITLE: 'CI: Linux Flatpak lane failing (upstream adwaita-swift drift)'
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: scripts/node-version.txt
+      - name: Build edit overlay
+        run: scripts/build-overlay.sh
+
+      - name: Install flatpak + flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder dbus-user-session
+
+      - name: Add flathub remote
+        run: flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
+
+      # Same cache key as ci.yml's job — sharing the cache means a fresh runtime download only
+      # has to happen once per manifest/runtime-version bump, not once per workflow file.
+      - name: Cache Flatpak runtimes
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.local/share/flatpak
+          key: flatpak-runtimes-gnome50-swift6-25.08-${{ hashFiles('packaging/flatpak/io.dwk.anglesite.linux.yml') }}
+
+      # From here on, steps tee their output into $CANARY_LOG so a failure can be reported with
+      # the actual `.build/checkouts` error lines below, without a second job re-fetching logs
+      # over the API. `{ ... } 2>&1 | tee -a` keeps pipefail propagating the real exit code.
+      - name: Install GNOME Platform/Sdk + Swift 6 SDK extension
+        run: |
+          { dbus-run-session -- flatpak install --user -y --noninteractive flathub \
+              org.gnome.Platform//50 org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.swift6//25.08
+          } 2>&1 | tee -a "$CANARY_LOG"
+
+      - name: Build the Flatpak manifest
+        run: |
+          { dbus-run-session -- flatpak-builder --user --install --force-clean \
+              packaging/flatpak/build-dir packaging/flatpak/io.dwk.anglesite.linux.yml
+          } 2>&1 | tee -a "$CANARY_LOG"
+
+      - name: Run AnglesiteLinuxTests inside the build sandbox
+        run: |
+          { dbus-run-session -- flatpak-builder --build-shell=anglesite-linux \
+              packaging/flatpak/build-dir packaging/flatpak/io.dwk.anglesite.linux.yml <<'SHELL_EOF'
+          set -e
+          ANGLESITE_LINUX_SHELL=1 swift test --filter AnglesiteLinuxTests
+          exit
+          SHELL_EOF
+          } 2>&1 | tee -a "$CANARY_LOG"
+
+      - name: Extract .build/checkouts failure lines
+        if: failure()
+        id: diag
+        run: |
+          set -uo pipefail
+          checkout_lines=""
+          if [ -f "$CANARY_LOG" ]; then
+            checkout_lines=$(grep -F '.build/checkouts' "$CANARY_LOG" | tail -n 40)
+          fi
+          if [ -z "$checkout_lines" ]; then
+            if [ -f "$CANARY_LOG" ]; then
+              checkout_lines=$(tail -n 60 "$CANARY_LOG")
+            else
+              checkout_lines="(no log captured before failure — see the workflow run for details)"
+            fi
+          fi
+          {
+            echo "checkout_lines<<CANARY_LOG_EOF"
+            echo "$checkout_lines"
+            echo "CANARY_LOG_EOF"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Open or update tracking issue
+        if: failure()
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+          PIN_URL: ${{ github.server_url }}/${{ github.repository }}/blob/${{ github.sha }}/Package.swift#L530-L554
+          CHECKOUT_LINES: ${{ steps.diag.outputs.checkout_lines }}
+        run: |
+          set -euo pipefail
+          body=$(cat <<BODY_EOF
+          The scheduled [Linux Flatpak drift canary]($RUN_URL) (\`linux-flatpak-canary.yml\`) failed running \`linux-flatpak-build\` against \`main\`.
+
+          adwaita-swift's own transitive dependencies (Meta and friends) float on branch \`main\` and can't be pinned from this repo (#1397), so an upstream push can break this lane with no change here — see #1385 and #1760 for prior incidents.
+
+          **Failure lines from \`.build/checkouts\`:**
+          \`\`\`
+          $CHECKOUT_LINES
+          \`\`\`
+
+          **Fix:** bump the \`adwaita-swift\` revision pin in [\`Package.swift\`]($PIN_URL) to the first \`adwaita-swift\` \`main\` commit that compiles against Meta's current \`main\` — see the comment above the pin for the full recipe.
+
+          This issue is filed and updated automatically by the canary. Close it once \`linux-flatpak-build\` is green again on \`main\`; the canary will reopen a new one if it regresses.
+          BODY_EOF
+          )
+
+          existing=$(gh issue list --search "\"$TRACKING_TITLE\" in:title" --state open --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body "$body"
+          else
+            gh issue create --title "$TRACKING_TITLE" --body "$body" --label "🧪 CI & Tests"
+          fi
