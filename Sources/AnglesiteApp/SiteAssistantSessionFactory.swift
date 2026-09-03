@@ -28,7 +28,7 @@ enum SiteAssistantSessionFactory {
         _ conventionsStore: ProjectConventionsStore,
         _ themeCatalog: ThemeCatalog?,
         _ designInterviewFactory: FoundationModelAssistant.DesignInterviewModelFactory?,
-        _ wysiwygBlockAccess: (any WYSIWYGBlockTextAccess)?,
+        _ wysiwygBlockAccess: @escaping WYSIWYGBlockAccessProvider,
         _ graphSnapshotProvider: @escaping GraphSnapshotProvider
     ) -> any ConversationalAssistant
 
@@ -72,7 +72,7 @@ enum SiteAssistantSessionFactory {
                         copyEditAuditor: CopyEditAuditorFactory.makeDefault(),
                         socialMediaPlanner: SocialMediaPlannerFactory.makeDefault(),
                         postRepurposer: PostRepurposerFactory.makeDefault(),
-                        wysiwygBlockAccess: wysiwygBlockAccess,
+                        wysiwygBlockAccessProvider: wysiwygBlockAccess,
                         themeCatalog: themeCatalog,
                         designInterviewFactory: designInterviewFactory
                     ),
@@ -147,7 +147,7 @@ enum SiteAssistantSessionFactory {
         wysiwygBlockAccess: @escaping WYSIWYGBlockAccessProvider,
         dependencies: Dependencies = .live,
         graphSnapshotProvider: @escaping GraphSnapshotProvider
-    ) async -> SiteAssistantSession {
+    ) -> SiteAssistantSession {
         let editBridge = IntentEditBridge(routerProvider: dependencies.editRouterProvider)
         // A second `ProjectConventionsStore` instance pointed at the same `configDirectory` as
         // `SiteWindowModel`'s Style Guide store (rather than threading that instance through this
@@ -177,7 +177,6 @@ enum SiteAssistantSessionFactory {
                 }
             }
         }
-        let resolvedWysiwygAccess = await wysiwygBlockAccess()
         let resolvedAssistant: any ConversationalAssistant = AssistantBackendResolver.resolveActiveExternalLLMAssistant()
             ?? AssistantBackendResolver.resolveActiveACPAssistant(
                 siteID: siteID,
@@ -193,7 +192,7 @@ enum SiteAssistantSessionFactory {
             conventionsStore,
             themeCatalog,
             designInterviewFactory,
-            resolvedWysiwygAccess,
+            wysiwygBlockAccess,
             graphSnapshotProvider
         )
         let chat = ChatModel(

@@ -27,7 +27,7 @@ enum AssistantSessionAssembler {
         conventionsEngine: ProjectConventionsEngine,
         integrationService: any IntegrationOperationsService,
         graphSnapshotProvider: @escaping SiteAssistantSessionFactory.GraphSnapshotProvider
-    ) async -> SiteAssistantSession {
+    ) -> SiteAssistantSession {
         let mcpClient: @Sendable () async -> MCPClient? = { [preview] in
             await preview.mcpClient()
         }
@@ -47,7 +47,7 @@ enum AssistantSessionAssembler {
             guard let templateURL = TemplateRuntime.resolve().url else { return nil }
             return try? ThemeCatalog.load(templateURL: templateURL)
         }()
-        return await SiteAssistantSessionFactory.makeSession(
+        return SiteAssistantSessionFactory.makeSession(
             siteID: site.id,
             sourceDirectory: site.sourceDirectory,
             configDirectory: site.configDirectory,

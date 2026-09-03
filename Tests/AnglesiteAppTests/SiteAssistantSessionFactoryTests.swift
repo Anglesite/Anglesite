@@ -36,7 +36,7 @@ struct SiteAssistantSessionFactoryTests {
         }
 
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        _ = await SiteAssistantSessionFactory.makeSession(
+        _ = SiteAssistantSessionFactory.makeSession(
             siteID: "site-1",
             sourceDirectory: root,
             configDirectory: root,
@@ -58,7 +58,7 @@ struct SiteAssistantSessionFactoryTests {
 
     /// Runs `makeSession` with a builder that only records whether a design-interview factory
     /// arrived, returning that observation (#665).
-    private func interviewFactoryPresence(packageURL: URL?) async -> Bool {
+    private func interviewFactoryPresence(packageURL: URL?) -> Bool {
         // The builder closure is `@Sendable`, so it can't mutate a captured local directly —
         // but it runs synchronously inside `makeSession`, so an unchecked box is race-free here.
         final class Observed: @unchecked Sendable { var factoryPresent = false }
@@ -69,7 +69,7 @@ struct SiteAssistantSessionFactoryTests {
             return StubConversationalAssistant()
         }
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        _ = await SiteAssistantSessionFactory.makeSession(
+        _ = SiteAssistantSessionFactory.makeSession(
             siteID: "site-1",
             sourceDirectory: root,
             configDirectory: root,
@@ -89,15 +89,14 @@ struct SiteAssistantSessionFactoryTests {
     }
 
     @Test("a packageURL yields a design-interview factory for the chat assistant (#665)")
-    func packageURLYieldsDesignInterviewFactory() async {
+    func packageURLYieldsDesignInterviewFactory() {
         let packageURL = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
-        #expect(await interviewFactoryPresence(packageURL: packageURL))
+        #expect(interviewFactoryPresence(packageURL: packageURL))
     }
 
     @Test("no packageURL means no design-interview factory (#665)")
-    func missingPackageURLMeansNoFactory() async {
-        let present = await interviewFactoryPresence(packageURL: nil)
-        #expect(!present)
+    func missingPackageURLMeansNoFactory() {
+        #expect(!interviewFactoryPresence(packageURL: nil))
     }
 }
 

@@ -87,10 +87,17 @@ public actor FoundationModelAssistant: ConversationalAssistant {
     private let socialMediaPlanner: (any SocialMediaPlanning)?
     private let postRepurposer: (any PostRepurposing)?
     /// The seam to the live WYSIWYG canvas (#1227 PR 2) — lets ``RewriteBlockTool`` read a
-    /// block's current text and submit a chat-driven rewrite back into the mounted canvas. `nil`
-    /// whenever no canvas is mounted (Site ▸ Edit Page is off, or no site is open), in which case
-    /// the tool isn't attached at all (see ``conversationTools(for:includeSpotlight:)``).
-    private let wysiwygBlockAccess: (any WYSIWYGBlockTextAccess)?
+    /// block's current text and submit a chat-driven rewrite back into the mounted canvas. A
+    /// **provider closure**, not a resolved value: the canvas mounts/unmounts as the owner toggles
+    /// Site ▸ Edit Page, well after this actor is constructed at site-open time, so a value
+    /// resolved once at `init` would freeze whatever was true then (almost always `nil`, since
+    /// Edit Page defaults off) for the rest of the session — see the fix-round-1 note on
+    /// ``conversationTools(for:includeSpotlight:)`` for the bug this replaced. Mirrors how
+    /// `containerControlProvider` stays a live closure all the way to its consumer rather than
+    /// being resolved-and-discarded early. `nil` only when no provider was supplied at all (the
+    /// call site never wires WYSIWYG); a non-nil provider that itself resolves to `nil` (no canvas
+    /// currently mounted) is the *normal*, expected state whenever Edit Page is off.
+    private let wysiwygBlockAccessProvider: (@Sendable () async -> (any WYSIWYGBlockTextAccess)?)?
     /// Builds a fresh ``DesignInterviewModel`` for the chat front door (#665). Infallible —
     /// distinct from ``DesignInterviewTool/ModelProvider``, which may throw when its backing
     /// state is gone. Named so the app-side wiring and this actor spell one type.
@@ -146,7 +153,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         copyEditAuditor: (any CopyEditAuditing)? = nil,
         socialMediaPlanner: (any SocialMediaPlanning)? = nil,
         postRepurposer: (any PostRepurposing)? = nil,
-        wysiwygBlockAccess: (any WYSIWYGBlockTextAccess)? = nil,
+        wysiwygBlockAccessProvider: (@Sendable () async -> (any WYSIWYGBlockTextAccess)?)? = nil,
         themeCatalog: ThemeCatalog? = nil,
         designInterviewFactory: DesignInterviewModelFactory? = nil,
         maxRetainedTurns: Int = 12
@@ -162,7 +169,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         self.copyEditAuditor = copyEditAuditor
         self.socialMediaPlanner = socialMediaPlanner
         self.postRepurposer = postRepurposer
-        self.wysiwygBlockAccess = wysiwygBlockAccess
+        self.wysiwygBlockAccessProvider = wysiwygBlockAccessProvider
         self.themeCatalog = themeCatalog
         self.designInterviewFactory = designInterviewFactory
         // `trimSessionIfNeeded`'s cutoff indexing (`promptIndices.count - maxRetainedTurns`) assumes
@@ -211,7 +218,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         // One-shot: a fresh session per call keeps independent `generate`/`generateStructured`
         // invocations (tool calls, alt-text, summaries) from bleeding history into one another. The
         // multi-turn `converse` path deliberately does the opposite — see `conversationSession`.
-        let session = try makeSession(context: context)
+        let session = try await makeSession(context: context)
         return Self.textStream(from: session, prompt: prompt)
     }
 
@@ -261,7 +268,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         resultType: T.Type
     ) async throws -> T {
         // One-shot, like `generate`: a fresh session, never the cached conversational one.
-        let oneShotSession = try makeSession(context: context)
+        let oneShotSession = try await makeSession(context: context)
         return try await oneShotSession.respond(to: prompt, generating: T.self).content
     }
 
@@ -275,7 +282,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         context: AssistantContext,
         resultType: T.Type
     ) async throws -> T {
-        let oneShotSession = try makeSession(context: context)
+        let oneShotSession = try await makeSession(context: context)
         let image = Attachment(imageURL: imageURL)
         return try await oneShotSession.respond(generating: T.self) {
             prompt
@@ -310,7 +317,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         // tool set (#657) can already have pushed the cached session within reach of the on-device
         // budget even though `maxRetainedTurns` hasn't been crossed, and the existing post-turn,
         // turn-count-only trim below only protects *future* turns, not the one about to run.
-        let session = sessionFittingBudget(try conversationSession(for: context), context: context)
+        let session = await sessionFittingBudget(try await conversationSession(for: context), context: context)
         self.session = session
         let providerName = capabilities.providerName
         let toolNames = attachedToolNames
@@ -348,7 +355,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
             } catch {
                 relay.complete(.failed(message: error.localizedDescription))
             }
-            trimSessionIfNeeded(current: session, context: context)
+            await trimSessionIfNeeded(current: session, context: context)
         }
 
         // Consumer dropped the stream: stop delivering, but keep draining (we never cancel the model).
@@ -461,7 +468,11 @@ public actor FoundationModelAssistant: ConversationalAssistant {
             names.append(RepurposePostTool.toolName)
             names.append(SaveSyndicationTool.toolName)
         }
-        if wysiwygBlockAccess != nil {
+        // Reports "wired for this session" (a provider was supplied), not "available right now" —
+        // that would need awaiting the provider, and this is a synchronous property read at
+        // `.started`-event time. The real per-turn gate is in `conversationTools`, which resolves
+        // the provider fresh on every call.
+        if wysiwygBlockAccessProvider != nil {
             names.append(RewriteBlockTool.toolName)
         }
         if themeCatalog != nil {
@@ -479,15 +490,15 @@ public actor FoundationModelAssistant: ConversationalAssistant {
 
     /// Test-only: exposes ``conversationTools(for:includeSpotlight:)`` so tests can assert which
     /// tool types a conversational session would carry without constructing a live session.
-    func conversationToolsForTesting(for context: AssistantContext) -> [any Tool] {
-        conversationTools(for: context, includeSpotlight: false)
+    func conversationToolsForTesting(for context: AssistantContext) async -> [any Tool] {
+        await conversationTools(for: context, includeSpotlight: false)
     }
 
     /// Returns the cached conversational session, lazily creating it from `context` on first use.
     /// The session persists across turns to retain history; ``resetSession()`` clears it.
-    private func conversationSession(for context: AssistantContext) throws -> LanguageModelSession {
+    private func conversationSession(for context: AssistantContext) async throws -> LanguageModelSession {
         if let session { return session }
-        let created = try makeSession(context: context, includeSpotlight: true)
+        let created = try await makeSession(context: context, includeSpotlight: true)
         session = created
         return created
     }
@@ -500,7 +511,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
     /// and caches it (multi-turn history). The instructions fold in the context's route/content at
     /// construction time, so a cached session keeps the first turn's system prompt.
     private func makeSession(context: AssistantContext,
-                             includeSpotlight: Bool = false) throws -> LanguageModelSession {
+                             includeSpotlight: Bool = false) async throws -> LanguageModelSession {
         switch SystemLanguageModel.default.availability {
         case .available:
             break
@@ -519,7 +530,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         // risk there — they keep the fuller instructions (`FoundationModelEditInterpreter` and
         // `AltTextGenerator` both rely on `currentPageRoute` reaching the model this way).
         let instructions = Self.instructions(for: context, includePageContext: !includeSpotlight)
-        let tools = conversationTools(for: context, includeSpotlight: includeSpotlight)
+        let tools = await conversationTools(for: context, includeSpotlight: includeSpotlight)
         // `tools` is empty only on the one-shot paths (`includeSpotlight: false`) with no
         // editBridge/contentGraph; the converse path always appends Spotlight, so its session is
         // never tool-less. The empty branch preserves the prior tool-less one-shot behavior.
@@ -531,7 +542,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
     /// Builds the tool set for `context`. Shared by ``makeSession(context:includeSpotlight:)`` and
     /// ``trimSessionIfNeeded(current:context:)`` so a rebuilt (trimmed) conversational session gets
     /// the same tools a freshly-created one would.
-    private func conversationTools(for context: AssistantContext, includeSpotlight: Bool) -> [any Tool] {
+    private func conversationTools(for context: AssistantContext, includeSpotlight: Bool) async -> [any Tool] {
         var tools: [any Tool] = []
         // The iOS *simulator* SDK doesn't vend `SpotlightSearchTool` (device and macOS SDKs do),
         // so the append compiles out there — simulators have no Apple Intelligence session to
@@ -581,9 +592,12 @@ public actor FoundationModelAssistant: ConversationalAssistant {
                 siteID: context.siteID, siteDirectory: context.siteDirectory))
             tools.append(SaveSyndicationTool(siteDirectory: context.siteDirectory))
         }
-        if let wysiwygBlockAccess {
+        // Resolved fresh on every call (fix round 1, #1227 PR 2) — the provider reflects whatever
+        // canvas is mounted *right now*, not whatever was true when this actor was constructed at
+        // site-open time (well before the owner has necessarily toggled Site ▸ Edit Page on).
+        if let wysiwygBlockAccessProvider, let access = await wysiwygBlockAccessProvider() {
             tools.append(RewriteBlockTool(
-                access: wysiwygBlockAccess, writingHelp: WritingHelpAssistantFactory.makeDefault(),
+                access: access, writingHelp: WritingHelpAssistantFactory.makeDefault(),
                 siteID: context.siteID, siteDirectory: context.siteDirectory))
         }
         if let themeCatalog {
@@ -614,10 +628,10 @@ public actor FoundationModelAssistant: ConversationalAssistant {
     /// `activeDrains` in ``converse(prompt:context:)``). Pure turn-count: the pre-turn
     /// ``sessionFittingBudget(_:context:)`` check (#657) is what protects the turn about to run
     /// from a heavy tool set overflowing the budget before this ceiling is even crossed.
-    private func trimSessionIfNeeded(current: LanguageModelSession, context: AssistantContext) {
+    private func trimSessionIfNeeded(current: LanguageModelSession, context: AssistantContext) async {
         guard session === current else { return }
         guard let trimmed = Self.trimmedTranscript(current.transcript, retaining: maxRetainedTurns) else { return }
-        let tools = conversationTools(for: context, includeSpotlight: true)
+        let tools = await conversationTools(for: context, includeSpotlight: true)
         session = LanguageModelSession(tools: tools, transcript: trimmed)
     }
 
@@ -674,7 +688,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
     /// so it stops as soon as the transcript fits, instead of over-trimming history that wasn't the
     /// problem. Returns `session` unchanged once it fits, or once shrunk to a single retained turn —
     /// the smallest useful window, past which the tool schemas (not history) are what dominate.
-    private func sessionFittingBudget(_ session: LanguageModelSession, context: AssistantContext) -> LanguageModelSession {
+    private func sessionFittingBudget(_ session: LanguageModelSession, context: AssistantContext) async -> LanguageModelSession {
         guard Self.estimatedTranscriptTokens(session.transcript) > Self.transcriptBudgetThreshold else {
             return session
         }
@@ -683,7 +697,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
             window -= 1
             guard let candidate = Self.trimmedTranscript(session.transcript, retaining: window) else { continue }
             if window == 1 || Self.estimatedTranscriptTokens(candidate) <= Self.transcriptBudgetThreshold {
-                let tools = conversationTools(for: context, includeSpotlight: true)
+                let tools = await conversationTools(for: context, includeSpotlight: true)
                 return LanguageModelSession(tools: tools, transcript: candidate)
             }
         }
