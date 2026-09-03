@@ -538,10 +538,21 @@ extension WYSIWYGCanvasController: WYSIWYGHostTransport {
 /// through the `WYSIWYGBlockTextAccess` seam, without the tool (in `AnglesiteCore`, which can't
 /// import `AnglesiteApp`) knowing anything about `WYSIWYGCanvasController` itself.
 extension WYSIWYGCanvasController: WYSIWYGBlockTextAccess {
+    /// Real rich text only — deliberately not routed through `WYSIWYGBlockClipboardWriter`, whose
+    /// `plainText` falls back to the block's `componentName` (e.g. `"Hero"`) when `richText` is nil
+    /// or empty (a component/image block). That fallback is fine for clipboard export, but here it
+    /// would hand the chat tool a single word to "rewrite" and then submit an `editText` op with an
+    /// empty `previousRuns` undo baseline against a block that was never text in the first place
+    /// (#1227 PR 2 final review, Finding 1). Returning `nil` for a non-text block makes
+    /// `RewriteBlockTool` reply `blockNotFound`, same as if the id didn't resolve at all.
     func blockText(_ id: String) async -> String? {
-        guard let node = model.blocks[id] else { return nil }
-        return WYSIWYGBlockClipboardWriter.render(node).plainText
+        guard let runs = model.blocks[id]?.richText, !runs.isEmpty else { return nil }
+        return runs.map(\.text).joined()
     }
+
+    /// The block currently selected in the canvas, if any — lets `RewriteBlockTool` (#1227 PR 2)
+    /// target "whatever's selected" when the chat model omits `blockId` (Finding 3).
+    func selectedBlockId() async -> String? { self.selectedBlockId }
 
     /// Replaces the block's rich text with a single plain-text run (see plan Global Constraints
     /// on formatting loss — a chat-driven whole-block rewrite has no selection-scoped DOM to

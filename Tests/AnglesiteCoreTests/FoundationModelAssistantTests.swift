@@ -164,13 +164,6 @@ struct FoundationModelAssistantTests {
 
     // MARK: WYSIWYG rewrite tool (#1227 PR 2) — no model required
 
-    /// Minimal `WYSIWYGBlockTextAccess` conformer — only used to prove the tool attaches once the
-    /// provider resolves non-nil; its own methods are never exercised by these tests.
-    private struct FakeBlockAccess: WYSIWYGBlockTextAccess {
-        func blockText(_ id: String) async -> String? { nil }
-        func submitRewrite(blockId: String, newText: String) async -> Bool { false }
-    }
-
     @Test("no wysiwygBlockAccessProvider means no RewriteBlockTool and no advertised tool")
     func rewriteBlockAbsentWithoutProvider() async {
         let assistant = FoundationModelAssistant()
@@ -179,45 +172,19 @@ struct FoundationModelAssistantTests {
         #expect(!tools.contains { $0 is RewriteBlockTool })
     }
 
-    @Test("attachedToolNames reports the provider is wired, independent of what it currently resolves to")
+    /// `conversationTools` attaches `RewriteBlockTool` purely on the provider's *presence*, whether
+    /// or not it currently resolves to a live canvas — fix round 2 (#1227 PR 2 final review, Finding
+    /// 2) moved the actual per-turn resolution into `RewriteBlockTool.call` itself (covered by
+    /// `RewriteBlockToolTests`'s `repliesCanvasNotOpenWhenProviderResolvesNil`), because the cached,
+    /// multi-turn `LanguageModelSession` reuses tool instances across turns — resolving inside
+    /// `conversationTools`, as fix round 1 did, only takes effect when a session is rebuilt, not on
+    /// every turn of an already-cached conversation.
+    @Test("attachedToolNames and conversationTools both report the provider is wired, independent of what it currently resolves to")
     func rewriteBlockAdvertisedWheneverProviderSupplied() async {
-        // A provider that always resolves nil (canvas never mounted) still counts as "wired for
-        // this session" for `attachedToolNames` — see that property's own doc comment for why
-        // that's the deliberately simplified contract (fix round 1, #1227 PR 2): the real per-turn
-        // gate is `conversationTools`, exercised by the regression test below.
         let assistant = FoundationModelAssistant(wysiwygBlockAccessProvider: { nil })
         #expect(await assistant.attachedToolNamesForTesting.contains(RewriteBlockTool.toolName))
-    }
-
-    /// The regression test for the fix-round-1 bug: `wysiwygBlockAccess` used to be resolved
-    /// exactly once, at `SiteAssistantSessionFactory.makeSession` time (site-open, before the
-    /// owner has ever toggled Site ▸ Edit Page on) — freezing whatever was true then (almost
-    /// always `nil`) for the rest of the session, so `RewriteBlockTool` silently never attached in
-    /// the ordinary flow. The fix stores the provider closure itself and calls it fresh inside
-    /// `conversationTools` on every turn. This test simulates "canvas not mounted yet, then
-    /// mounted later" and asserts the tool's presence tracks that live state rather than a
-    /// snapshot taken at construction time.
-    @Test("RewriteBlockTool attachment tracks the provider's current resolution, not a frozen snapshot (fix round 1, #1227 PR 2)")
-    func rewriteBlockToolTracksLiveProviderResolution() async {
-        actor MountState {
-            private var mounted: (any WYSIWYGBlockTextAccess)?
-            func set(_ value: (any WYSIWYGBlockTextAccess)?) { mounted = value }
-            func current() -> (any WYSIWYGBlockTextAccess)? { mounted }
-        }
-        let state = MountState()
-        let assistant = FoundationModelAssistant(wysiwygBlockAccessProvider: { await state.current() })
-
-        // First call: provider resolves nil (canvas not mounted, e.g. Edit Page still off).
-        let beforeMount = await assistant.conversationToolsForTesting(for: makeContext())
-        #expect(!beforeMount.contains { $0 is RewriteBlockTool })
-
-        // The canvas mounts (owner toggles Edit Page on) — no new assistant is constructed, the
-        // same actor's provider now resolves to a live value.
-        await state.set(FakeBlockAccess())
-
-        // Second call, same actor instance: must pick up the now-live canvas.
-        let afterMount = await assistant.conversationToolsForTesting(for: makeContext())
-        #expect(afterMount.contains { $0 is RewriteBlockTool })
+        let tools = await assistant.conversationToolsForTesting(for: makeContext())
+        #expect(tools.contains { $0 is RewriteBlockTool })
     }
 
     @Test("PCC-tier assistant constructs and remains usable (falls back to on-device)")

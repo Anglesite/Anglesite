@@ -7,6 +7,7 @@ public enum RewriteBlockReply {
         case blockNotFound
         case unavailable(String)
         case submitFailed
+        case canvasNotOpen
     }
 
     public static func confirmation(for outcome: Outcome) -> String {
@@ -19,6 +20,8 @@ public enum RewriteBlockReply {
             return message
         case .submitFailed:
             return "I generated a rewrite, but couldn't apply it to the page — the document may have changed underneath it. Try again."
+        case .canvasNotOpen:
+            return "Turn on Site ▸ Edit Page first, then ask me to rewrite a block."
         }
     }
 }
@@ -39,22 +42,27 @@ import FoundationModels
 public struct RewriteBlockTool: Tool, Sendable {
     public static let toolName = "rewriteBlock"
     public let name = RewriteBlockTool.toolName
-    public let description = "Rewrite an existing block's text per the owner's instruction (e.g. 'make the hero heading punchier'). Needs the block's id — ask the owner to select it first if you don't already know which block they mean, or use context from earlier in the conversation."
+    public let description = "Rewrite an existing block's text per the owner's instruction (e.g. 'make the hero heading punchier'). If the owner has a block selected in the canvas, you can omit blockId to target it; otherwise you need the block's id."
 
     @Generable
     public struct Arguments {
-        @Guide(description: "The id of the block to rewrite.")
-        public var blockId: String
+        @Guide(description: "The id of the block to rewrite. May be omitted to target whatever block is currently selected in the canvas.")
+        public var blockId: String?
         @Guide(description: "The owner's rewrite instruction, in their own words.")
         public var instruction: String
 
-        public init(blockId: String, instruction: String) {
+        public init(blockId: String? = nil, instruction: String) {
             self.blockId = blockId
             self.instruction = instruction
         }
     }
 
-    private let access: any WYSIWYGBlockTextAccess
+    /// Resolved fresh on every call, at the moment the model actually invokes this tool — not once
+    /// per session or per session-rebuild (#1227 PR 2 final review, Finding 2). The live canvas
+    /// mounts/unmounts as the owner toggles Site ▸ Edit Page well after the chat session (and its
+    /// cached `LanguageModelSession`, reused across turns) was built, so resolving here is the only
+    /// point that's correct even mid-cached-session. `nil` means no canvas is currently mounted.
+    private let accessProvider: @Sendable () async -> (any WYSIWYGBlockTextAccess)?
     /// Optional so a caller can attach this tool even when `WritingHelpAssistantFactory.makeDefault()`
     /// returned `nil` — `call` degrades to `.unavailable` immediately rather than needing a
     /// non-functional fallback conformer (there is no meaningful non-optional default: any stand-in
@@ -63,18 +71,33 @@ public struct RewriteBlockTool: Tool, Sendable {
     private let siteID: String
     private let siteDirectory: URL
 
-    public init(access: any WYSIWYGBlockTextAccess, writingHelp: (any WritingHelpAssisting)?, siteID: String, siteDirectory: URL) {
-        self.access = access
+    public init(
+        accessProvider: @escaping @Sendable () async -> (any WYSIWYGBlockTextAccess)?,
+        writingHelp: (any WritingHelpAssisting)?, siteID: String, siteDirectory: URL
+    ) {
+        self.accessProvider = accessProvider
         self.writingHelp = writingHelp
         self.siteID = siteID
         self.siteDirectory = siteDirectory
     }
 
     public func call(arguments: Arguments) async throws -> String {
+        guard let access = await accessProvider() else {
+            return RewriteBlockReply.confirmation(for: .canvasNotOpen)
+        }
         guard let writingHelp else {
             return RewriteBlockReply.confirmation(for: .unavailable(ContentHelpDialogs.assistantUnavailable(feature: "Writing help")))
         }
-        guard let text = await access.blockText(arguments.blockId) else {
+        let resolvedBlockId: String?
+        if let blockId = arguments.blockId {
+            resolvedBlockId = blockId
+        } else {
+            resolvedBlockId = await access.selectedBlockId()
+        }
+        guard let blockId = resolvedBlockId else {
+            return RewriteBlockReply.confirmation(for: .blockNotFound)
+        }
+        guard let text = await access.blockText(blockId) else {
             return RewriteBlockReply.confirmation(for: .blockNotFound)
         }
         let outcome = await writingHelp.rewrite(
@@ -84,7 +107,7 @@ public struct RewriteBlockTool: Tool, Sendable {
         case .unavailable(let message):
             return RewriteBlockReply.confirmation(for: .unavailable(message))
         case .rewritten(let newText):
-            let applied = await access.submitRewrite(blockId: arguments.blockId, newText: newText)
+            let applied = await access.submitRewrite(blockId: blockId, newText: newText)
             return RewriteBlockReply.confirmation(for: applied ? .success : .submitFailed)
         }
     }
