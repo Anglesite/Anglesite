@@ -6,7 +6,7 @@
 /** The nine h-entry collections that share Hentry.astro. */
 export const HENTRY_COLLECTIONS = [
   "notes", "articles", "photos", "albums",
-  "bookmarks", "replies", "likes", "rsvps", "announcements",
+  "bookmarks", "replies", "likes", "rsvps", "checkins", "announcements",
 ] as const;
 export type HentryCollection = (typeof HENTRY_COLLECTIONS)[number];
 

@@ -21,10 +21,10 @@ function entry(collection: string, data: Record<string, any>, body = ""): FeedEn
   return { id: "hello", collection, data, body };
 }
 
-test("config covers all nine collections", () => {
+test("config covers all ten collections", () => {
   assert.deepEqual(
     Object.keys(FEED_COLLECTIONS).sort(),
-    ["albums", "articles", "blog", "bookmarks", "likes", "notes", "photos", "replies", "rsvps"],
+    ["albums", "articles", "blog", "bookmarks", "checkins", "likes", "notes", "photos", "replies", "rsvps"],
   );
 });
 
@@ -440,6 +440,30 @@ test("toFeedItem derives a title from the rsvp status and falls back to an ancho
     rsvp.contentHtml,
     `<a href="https://example.com/event">https://example.com/event</a>`,
   );
+});
+
+test("toFeedItem derives a title from the check-in location and falls back to an anchor to venueUrl when empty", () => {
+  const checkin = toFeedItem(
+    "checkins",
+    entry("checkins", { location: "The Coffee Shop", venueUrl: "https://example.com/venue", publishDate: "2026-01-02" }, ""),
+    SITE,
+    "",
+  );
+  assert.equal(checkin.title, "Checked in at The Coffee Shop");
+  assert.equal(
+    checkin.contentHtml,
+    `<a href="https://example.com/venue">https://example.com/venue</a>`,
+  );
+});
+
+test("toFeedItem gives a check-in with no venueUrl an empty content fallback (no natural target URL)", () => {
+  const checkin = toFeedItem(
+    "checkins",
+    entry("checkins", { location: "The Coffee Shop", publishDate: "2026-01-02" }, ""),
+    SITE,
+    "",
+  );
+  assert.equal(checkin.contentHtml, "");
 });
 
 test("toFeedItem falls back to an escaped anchor to bookmarkOf when the bookmark has no body", () => {

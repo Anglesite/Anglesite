@@ -300,7 +300,7 @@ extension ContentTypeRegistry {
 
     // MARK: Personal (h-entry family)
 
-    static let personalTypes: [ContentTypeDescriptor] = [note, article, photo, album, bookmark, reply, like, rsvp]
+    static let personalTypes: [ContentTypeDescriptor] = [note, article, photo, album, bookmark, reply, like, rsvp, checkin]
 
     static let note = ContentTypeDescriptor(
         id: "note",
@@ -494,6 +494,35 @@ extension ContentTypeRegistry {
             microformatProperties: [
                 "inReplyTo": "u-in-reply-to",
                 "rsvp": "p-rsvp",
+                "body": "e-content",
+                "publishDate": "dt-published",
+            ],
+            schemaType: nil
+        )
+    )
+
+    /// A record of physical presence at a place — the IndieWeb check-in post type
+    /// (indieweb.org/checkin), Foursquare/Swarm-style. `location` is the venue name as plain
+    /// text; `venueUrl` is an optional permalink to the venue (rendered `u-in-reply-to`, the same
+    /// mf2 property `reply`/`rsvp` use for their own targets — mf2 has no dedicated "venue link"
+    /// property). No schema.org projection, matching `reply`/`like`/`rsvp` (#1598).
+    static let checkin = ContentTypeDescriptor(
+        id: "checkin",
+        displayName: "Check-in",
+        storage: .collection("checkins"),
+        fields: [
+            ContentTypeField("lang", .language),
+            ContentTypeField("location", .string, required: true),
+            ContentTypeField("venueUrl", .url),
+            ContentTypeField("body", .markdown),
+            ContentTypeField("publishDate", .datetime, required: true),
+            ContentTypeField("draft", .bool),
+        ],
+        projections: ContentTypeProjections(
+            microformat: "h-entry",
+            microformatProperties: [
+                "location": "p-location",
+                "venueUrl": "u-in-reply-to",
                 "body": "e-content",
                 "publishDate": "dt-published",
             ],

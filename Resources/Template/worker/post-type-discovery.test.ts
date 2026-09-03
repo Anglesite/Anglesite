@@ -101,8 +101,8 @@ describe("discoverCollection", () => {
     }))).toBe("rsvps");
   });
 
-  test("checkin returns null", () => {
-    expect(discoverCollection(mf2("h-entry", { checkin: [{ type: ["h-card"], properties: { name: ["Venue"] } }] }))).toBeNull();
+  test("checkin maps to checkins", () => {
+    expect(discoverCollection(mf2("h-entry", { checkin: [{ type: ["h-card"], properties: { name: ["Venue"] } }] }))).toBe("checkins");
   });
 
   test("video returns null", () => {

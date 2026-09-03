@@ -197,6 +197,17 @@ struct MicropubContentSyncTests {
         #expect(values["itemReviewed"] == .text("A Book"))
     }
 
+    @Test("values resolves checkin's location from the nested h-card under the sibling checkin property")
+    func valuesResolvesCheckinLocationFromNestedHCard() throws {
+        let descriptor = try #require(ContentTypeRegistry.default.descriptor(id: "checkin"))
+        let properties: [String: [JSONValue]] = [
+            "checkin": [.object(["type": .array([.string("h-card")]), "properties": .object(["name": .array([.string("The Coffee Shop")])])])],
+            "content": [.string("Great espresso.")],
+        ]
+        let values = try #require(MicropubContentSync.values(for: descriptor, properties: properties, updatedAt: 1_750_000_000, slug: "coffee"))
+        #expect(values["location"] == .text("The Coffee Shop"))
+    }
+
     // MARK: - values: Fix 6 — slug-derived title fallback for a title-like required field
 
     @Test("values falls back to a slug-derived title for an album with no name property")

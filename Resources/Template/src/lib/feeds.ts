@@ -72,6 +72,11 @@ export const FEED_COLLECTIONS: Record<string, FeedCollectionConfig> = {
     dateField: "publishDate",
     deriveTitle: (e) => (typeof e.data.rsvp === "string" ? `RSVP: ${e.data.rsvp}` : undefined),
   },
+  checkins: {
+    title: "Check-ins",
+    dateField: "publishDate",
+    deriveTitle: (e) => (typeof e.data.location === "string" ? `Checked in at ${e.data.location}` : undefined),
+  },
 };
 
 /// Resolve the absolute site base URL from an Astro endpoint context, failing loudly when
@@ -132,7 +137,9 @@ function interactionContentFallback(collection: string, data: Record<string, any
           ? data.bookmarkOf
           : collection === "rsvps"
             ? data.inReplyTo
-            : undefined;
+            : collection === "checkins"
+              ? data.venueUrl
+              : undefined;
   if (!targetUrl) return "";
   const escaped = escapeXml(String(targetUrl));
   return `<a href="${escaped}">${escaped}</a>`;

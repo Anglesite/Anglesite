@@ -119,9 +119,15 @@ public enum MicropubContentSync {
         switch field.kind {
         case .string, .language, .text, .url, .image, .markdown, .enum:
             let raw = values.first
-            // `itemReviewed` (h-review's `item`) is conventionally a nested h-item/h-card mf2
-            // object, not a plain string — only that field tries the nested-object fallback.
-            let text = plainText(from: raw) ?? (field.name == "itemReviewed" ? nestedItemName(from: raw) : nil)
+            // `itemReviewed` (h-review's `item`) and check-in's `location` are conventionally
+            // nested mf2 objects (h-item/h-card), not plain strings. Each reads a *different*
+            // raw property than the one this field itself maps to: `itemReviewed` nests inside
+            // its own mapped property, but a check-in's location nests inside the sibling
+            // `checkin` property — real Micropub check-in clients send `checkin: [{h-card}]`,
+            // never a flat `location` property (#1598).
+            let text = plainText(from: raw)
+                ?? (field.name == "itemReviewed" ? nestedItemName(from: raw) : nil)
+                ?? (field.name == "location" ? nestedItemName(from: properties["checkin"]?.first) : nil)
             guard let text else { return nil }
             return .text(text)
         // No field in the built-in registry maps a raw mf2 property to `.bool` today (`draft` is

@@ -18,6 +18,8 @@ export function targetClassFor(collection: string): string | undefined {
     case "replies":
     case "rsvps":
       return "u-in-reply-to";
+    case "checkins":
+      return "u-in-reply-to";
     case "bookmarks":
       return "u-bookmark-of";
     default:
@@ -39,8 +41,10 @@ export function targetUrlFor(collection: string, data: Record<string, unknown>):
       ? data.likeOf
       : collection === "replies" || collection === "rsvps"
         ? data.inReplyTo
-        : collection === "bookmarks"
-          ? data.bookmarkOf
-          : undefined;
+        : collection === "checkins"
+          ? data.venueUrl
+          : collection === "bookmarks"
+            ? data.bookmarkOf
+            : undefined;
   return typeof raw === "string" && raw.length > 0 ? raw : undefined;
 }
