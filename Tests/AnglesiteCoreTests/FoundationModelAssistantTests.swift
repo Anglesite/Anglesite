@@ -162,6 +162,31 @@ struct FoundationModelAssistantTests {
         #expect(await counter.count == 0)
     }
 
+    // MARK: WYSIWYG rewrite tool (#1227 PR 2) — no model required
+
+    @Test("no wysiwygBlockAccessProvider means no RewriteBlockTool and no advertised tool")
+    func rewriteBlockAbsentWithoutProvider() async {
+        let assistant = FoundationModelAssistant()
+        #expect(await !assistant.attachedToolNamesForTesting.contains(RewriteBlockTool.toolName))
+        let tools = await assistant.conversationToolsForTesting(for: makeContext())
+        #expect(!tools.contains { $0 is RewriteBlockTool })
+    }
+
+    /// `conversationTools` attaches `RewriteBlockTool` purely on the provider's *presence*, whether
+    /// or not it currently resolves to a live canvas — fix round 2 (#1227 PR 2 final review, Finding
+    /// 2) moved the actual per-turn resolution into `RewriteBlockTool.call` itself (covered by
+    /// `RewriteBlockToolTests`'s `repliesCanvasNotOpenWhenProviderResolvesNil`), because the cached,
+    /// multi-turn `LanguageModelSession` reuses tool instances across turns — resolving inside
+    /// `conversationTools`, as fix round 1 did, only takes effect when a session is rebuilt, not on
+    /// every turn of an already-cached conversation.
+    @Test("attachedToolNames and conversationTools both report the provider is wired, independent of what it currently resolves to")
+    func rewriteBlockAdvertisedWheneverProviderSupplied() async {
+        let assistant = FoundationModelAssistant(wysiwygBlockAccessProvider: { nil })
+        #expect(await assistant.attachedToolNamesForTesting.contains(RewriteBlockTool.toolName))
+        let tools = await assistant.conversationToolsForTesting(for: makeContext())
+        #expect(tools.contains { $0 is RewriteBlockTool })
+    }
+
     @Test("PCC-tier assistant constructs and remains usable (falls back to on-device)")
     func pccConstructsAndIsUsable() {
         // `capabilities` is a nonisolated var, so it reads synchronously off the actor.

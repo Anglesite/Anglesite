@@ -82,10 +82,11 @@ final class SiteWindowModel {
     private let conventionsEngine: ProjectConventionsEngine
 
     /// The current site's learned voice/style conventions, if any — reused by WYSIWYG AI
-    /// services (starting with alt-text proposals, #1227) that need `AltTextPromptBuilder`-style
-    /// guidance but sit outside `SiteAssistantSessionFactory`'s chat/postProcessor wiring. `nil`
-    /// before a site has finished opening. `async` because `conventionsEngine` is an actor —
-    /// same cross-actor `await` `SiteAssistantSessionFactory` already does for this lookup.
+    /// services (alt-text proposals, #1227 PR 1; writing help, #1227 PR 2) that need
+    /// `AltTextPromptBuilder`/`BrandVoiceGuidance`-style guidance but sit outside
+    /// `SiteAssistantSessionFactory`'s chat/postProcessor wiring. `nil` before a site has finished
+    /// opening. `async` because `conventionsEngine` is an actor — same cross-actor `await`
+    /// `SiteAssistantSessionFactory` already does for this lookup.
     func currentProjectConventions() async -> ProjectConventions? {
         guard let siteID = site?.id else { return nil }
         return await conventionsEngine.conventions(siteID: siteID)

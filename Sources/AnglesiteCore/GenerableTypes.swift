@@ -283,4 +283,14 @@ public struct GeneratedPlatformPost: Equatable, Sendable {
     @Guide(description: "The complete post text for the platform, within the stated character limit, ready to copy-paste.")
     public var text: String
 }
+
+/// On-device guided-generation result for writing help — rewrite/tighten/tone (#1227 PR 2). One
+/// call per request; the caller's instruction (canned per canvas-toolbar action, or free-form
+/// from the `rewriteBlock` chat tool) is folded into the prompt, not this type.
+@Generable
+public struct GeneratedRewrite: Equatable, Sendable {
+    /// The rewritten text only — no preamble, no surrounding quotes, no explanation of what changed.
+    @Guide(description: "The rewritten text only. No preamble, no quotes, no explanation — just the replacement text.")
+    public var rewrittenText: String
+}
 #endif

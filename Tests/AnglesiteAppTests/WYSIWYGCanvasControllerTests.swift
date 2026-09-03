@@ -361,6 +361,97 @@ struct WYSIWYGCanvasControllerTests {
         #expect(heading?.props.first?.kind == .enumeration)
         #expect(heading?.props.first?.enumOptions == ["1", "2", "3", "4"])
     }
+
+    // MARK: WYSIWYGBlockTextAccess conformance (#1227 PR 2 final review)
+
+    @Test("blockText returns nil for a block with no rich text (e.g. a component/image block)")
+    func blockTextNilForNonTextBlock() async {
+        let image = BlockNode(id: "img1", kind: .astro, componentName: "Hero", props: [:], slots: [:], sourceSpan: [0, 0])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["img1"], blocks: ["img1": image])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+
+        let text = await controller.blockText("img1")
+
+        #expect(text == nil)
+    }
+
+    @Test("blockText returns nil for a block with empty rich text")
+    func blockTextNilForEmptyRichText() async {
+        let node = BlockNode(id: "p1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0], richText: [])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["p1"], blocks: ["p1": node])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+
+        let text = await controller.blockText("p1")
+
+        #expect(text == nil)
+    }
+
+    @Test("blockText returns the joined text for a real text block")
+    func blockTextJoinsRichTextRuns() async {
+        let runs = [
+            RichTextRun(kind: .text, text: "Hello, "),
+            RichTextRun(kind: .strong, text: "world"),
+            RichTextRun(kind: .text, text: "."),
+        ]
+        let node = BlockNode(id: "p1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0], richText: runs)
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["p1"], blocks: ["p1": node])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+
+        let text = await controller.blockText("p1")
+
+        #expect(text == "Hello, world.")
+    }
+
+    @Test("blockText returns nil for a block id that doesn't resolve")
+    func blockTextNilForMissingBlock() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+
+        let text = await controller.blockText("ghost")
+
+        #expect(text == nil)
+    }
+
+    @Test("submitRewrite produces an editText op with the expected runs/previousRuns and returns true on success")
+    func submitRewriteProducesEditTextOp() async {
+        let original = [RichTextRun(kind: .text, text: "Original.")]
+        let node = BlockNode(id: "p1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0], richText: original)
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["p1"], blocks: ["p1": node])
+        let transport = StubWYSIWYGHostTransport(model: initial)
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: transport)
+        var reported: Op?
+        controller.addOpAppliedListener { op, _, _ in reported = op }
+
+        let applied = await controller.submitRewrite(blockId: "p1", newText: "Punchier.")
+
+        #expect(applied == true)
+        let expectedRuns = [RichTextRun(kind: .text, text: "Punchier.")]
+        #expect(reported == .editText(blockId: "p1", runs: expectedRuns, previousRuns: original))
+        #expect(controller.model.blocks["p1"]?.richText == expectedRuns)
+    }
+
+    @Test("submitRewrite returns false for a block id that doesn't resolve")
+    func submitRewriteFalseForMissingBlock() async {
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: [], blocks: [:])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+
+        let applied = await controller.submitRewrite(blockId: "ghost", newText: "x")
+
+        #expect(applied == false)
+    }
+
+    @Test("selectedBlockId() reflects the controller's current selectedBlockId property")
+    func selectedBlockIdReflectsProperty() async {
+        let existing = BlockNode(id: "b1", kind: .text, componentName: "p", props: [:], slots: [:], sourceSpan: [0, 0])
+        let initial = BlockModel(path: "src/pages/index.astro", version: "v0", rootIds: ["b1"], blocks: ["b1": existing])
+        let controller = WYSIWYGCanvasController(initialModel: initial, transport: StubWYSIWYGHostTransport(model: initial))
+
+        #expect(await controller.selectedBlockId() == nil)
+
+        controller.selectedBlockId = "b1"
+
+        #expect(await controller.selectedBlockId() == "b1")
+    }
 }
 
 private extension OpResult {

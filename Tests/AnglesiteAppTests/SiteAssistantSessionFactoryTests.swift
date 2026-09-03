@@ -27,7 +27,7 @@ struct SiteAssistantSessionFactoryTests {
         )
         let capture = SnapshotCapture()
         var dependencies = SiteAssistantSessionFactory.Dependencies.live
-        dependencies.assistant = { _, _, _, _, _, _, _, _, _, graphSnapshotProvider in
+        dependencies.assistant = { _, _, _, _, _, _, _, _, _, _, graphSnapshotProvider in
             Task {
                 let snapshot = await graphSnapshotProvider()
                 await capture.capture(snapshot)
@@ -47,6 +47,7 @@ struct SiteAssistantSessionFactoryTests {
             semanticRanker: nil,
             conventionsEngine: nil,
             integrationService: IntegrationOperations.live(),
+            wysiwygBlockAccess: { nil },
             dependencies: dependencies,
             graphSnapshotProvider: { expected }
         )
@@ -63,7 +64,7 @@ struct SiteAssistantSessionFactoryTests {
         final class Observed: @unchecked Sendable { var factoryPresent = false }
         let observed = Observed()
         var dependencies = SiteAssistantSessionFactory.Dependencies.live
-        dependencies.assistant = { _, _, _, _, _, _, _, _, designInterviewFactory, _ in
+        dependencies.assistant = { _, _, _, _, _, _, _, _, designInterviewFactory, _, _ in
             observed.factoryPresent = designInterviewFactory != nil
             return StubConversationalAssistant()
         }
@@ -80,6 +81,7 @@ struct SiteAssistantSessionFactoryTests {
             semanticRanker: nil,
             conventionsEngine: nil,
             integrationService: IntegrationOperations.live(),
+            wysiwygBlockAccess: { nil },
             dependencies: dependencies,
             graphSnapshotProvider: { SiteGraphExplorerSnapshot(nodes: [], edges: []) }
         )

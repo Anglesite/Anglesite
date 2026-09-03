@@ -16,13 +16,14 @@ public struct WYSIWYGPoint: Sendable, Equatable {
 
 /// Webview-agnostic message schema + routing for the `wysiwyg` script-message namespace —
 /// deliberately separate from `AnglesiteMessageDispatcher` (the older edit-overlay protocol).
-/// Four message types: `submit-op`, an `OpEnvelope` the engine sends when the owner performs a
+/// Five message types: `submit-op`, an `OpEnvelope` the engine sends when the owner performs a
 /// gesture (the reply is the resulting `OpResult`); `context-menu`, the engine's hit-test result
 /// on a native `contextmenu` DOM event (spec §8.1 — the host builds a real `NSMenu`, no reply
 /// expected); `selection-changed`, the engine's own selection state changing (no reply expected);
-/// and `focus-inspector`, `KeyboardNavigation`'s Tab/Shift-Tab request to move real AppKit focus
+/// `focus-inspector`, `KeyboardNavigation`'s Tab/Shift-Tab request to move real AppKit focus
 /// into the native inspector's first/last prop field (#1616 — no reply expected, same as
-/// `context-menu`/`selection-changed`).
+/// `context-menu`/`selection-changed`); and `writing-help-request`, text + an instruction for
+/// the on-device rewrite assistant (#1227 PR 2 — the reply is the outcome keyed by `requestId`).
 public enum WYSIWYGOpsDispatcher {
     public static let scriptMessageNamespace = "wysiwyg"
 
@@ -56,6 +57,10 @@ public enum WYSIWYGOpsDispatcher {
         /// fast select-then-Tab could otherwise land this request against a stale prior
         /// selection. No reply is sent back to the page.
         case focusInspector(direction: FocusDirection, blockId: BlockId)
+        /// `writing-help-request` carried text + an instruction for the on-device rewrite
+        /// assistant (#1227 PR 2) — the adapter should reply with `outcome` keyed by `requestId`,
+        /// same reply shape as `opResult` above.
+        case writingHelpReply(requestId: String, outcome: WritingHelpOutcome)
         case rejected(RejectionReason)
 
         public enum RejectionReason: Sendable, Equatable {
@@ -67,7 +72,10 @@ public enum WYSIWYGOpsDispatcher {
         }
     }
 
-    public static func dispatch(body: Any, via transport: any WYSIWYGHostTransport) async -> DispatchResult {
+    public static func dispatch(
+        body: Any, via transport: any WYSIWYGHostTransport,
+        writingHelp: (@Sendable (_ text: String, _ instruction: String) async -> WritingHelpOutcome)? = nil
+    ) async -> DispatchResult {
         guard let dict = body as? [String: Any] else { return .rejected(.notAnObject) }
         guard let rawType = dict["type"] else { return .rejected(.missingType) }
         guard let typeStr = rawType as? String else { return .rejected(.wrongType) }
@@ -101,6 +109,16 @@ public enum WYSIWYGOpsDispatcher {
                 return .rejected(.envelopeDecode("could not decode focus-inspector fields"))
             }
             return .focusInspector(direction: direction, blockId: blockId)
+        case "writing-help-request":
+            guard let requestId = dict["requestId"] as? String,
+                  let text = dict["text"] as? String,
+                  let instruction = dict["instruction"] as? String
+            else {
+                return .rejected(.envelopeDecode("could not decode writing-help-request fields"))
+            }
+            let outcome = await writingHelp?(text, instruction)
+                ?? .unavailable(ContentHelpDialogs.assistantUnavailable(feature: "Writing help"))
+            return .writingHelpReply(requestId: requestId, outcome: outcome)
         default:
             return .rejected(.unknownType(typeStr))
         }

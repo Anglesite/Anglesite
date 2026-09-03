@@ -86,6 +86,23 @@ public actor FoundationModelAssistant: ConversationalAssistant {
     private let copyEditAuditor: (any CopyEditAuditing)?
     private let socialMediaPlanner: (any SocialMediaPlanning)?
     private let postRepurposer: (any PostRepurposing)?
+    /// The seam to the live WYSIWYG canvas (#1227 PR 2) — lets ``RewriteBlockTool`` read a
+    /// block's current text and submit a chat-driven rewrite back into the mounted canvas. A
+    /// **provider closure**, not a resolved value: the canvas mounts/unmounts as the owner toggles
+    /// Site ▸ Edit Page, well after this actor is constructed at site-open time, so a value
+    /// resolved once at `init` would freeze whatever was true then (almost always `nil`, since
+    /// Edit Page defaults off) for the rest of the session. Mirrors how `containerControlProvider`
+    /// stays a live closure all the way to its consumer rather than being resolved-and-discarded
+    /// early. `nil` only when no provider was supplied at all (the call site never wires WYSIWYG);
+    /// a non-nil provider that itself resolves to `nil` (no canvas currently mounted) is the
+    /// *normal*, expected state whenever Edit Page is off. This actor only ever checks *presence*
+    /// (``attachedToolNames``, ``conversationTools(for:includeSpotlight:)``) — the closure itself is
+    /// handed straight to ``RewriteBlockTool``, which resolves it fresh at the moment the model
+    /// actually calls the tool (see that type's own doc comment). That's the truest possible
+    /// "per turn" semantics: correct even when a cached, multi-turn ``LanguageModelSession`` reuses
+    /// the same tool instance across turns, which resolving here — one level too early — could not
+    /// achieve (fix round 1 tried exactly that and missed the cached-session case).
+    private let wysiwygBlockAccessProvider: (@Sendable () async -> (any WYSIWYGBlockTextAccess)?)?
     /// Builds a fresh ``DesignInterviewModel`` for the chat front door (#665). Infallible —
     /// distinct from ``DesignInterviewTool/ModelProvider``, which may throw when its backing
     /// state is gone. Named so the app-side wiring and this actor spell one type.
@@ -141,6 +158,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         copyEditAuditor: (any CopyEditAuditing)? = nil,
         socialMediaPlanner: (any SocialMediaPlanning)? = nil,
         postRepurposer: (any PostRepurposing)? = nil,
+        wysiwygBlockAccessProvider: (@Sendable () async -> (any WYSIWYGBlockTextAccess)?)? = nil,
         themeCatalog: ThemeCatalog? = nil,
         designInterviewFactory: DesignInterviewModelFactory? = nil,
         maxRetainedTurns: Int = 12
@@ -156,6 +174,7 @@ public actor FoundationModelAssistant: ConversationalAssistant {
         self.copyEditAuditor = copyEditAuditor
         self.socialMediaPlanner = socialMediaPlanner
         self.postRepurposer = postRepurposer
+        self.wysiwygBlockAccessProvider = wysiwygBlockAccessProvider
         self.themeCatalog = themeCatalog
         self.designInterviewFactory = designInterviewFactory
         // `trimSessionIfNeeded`'s cutoff indexing (`promptIndices.count - maxRetainedTurns`) assumes
@@ -454,6 +473,13 @@ public actor FoundationModelAssistant: ConversationalAssistant {
             names.append(RepurposePostTool.toolName)
             names.append(SaveSyndicationTool.toolName)
         }
+        // Reports "wired for this session" (a provider was supplied), not "available right now" —
+        // that would need awaiting the provider, and this is a synchronous property read at
+        // `.started`-event time. The real per-turn gate is inside `RewriteBlockTool.call` itself,
+        // which resolves the provider fresh on every actual tool invocation.
+        if wysiwygBlockAccessProvider != nil {
+            names.append(RewriteBlockTool.toolName)
+        }
         if themeCatalog != nil {
             names.append(SetupThemeTool.toolName)
         }
@@ -570,6 +596,15 @@ public actor FoundationModelAssistant: ConversationalAssistant {
                 repurposer: postRepurposer, conventionsStore: conventionsStore,
                 siteID: context.siteID, siteDirectory: context.siteDirectory))
             tools.append(SaveSyndicationTool(siteDirectory: context.siteDirectory))
+        }
+        // Presence check only — like every other optional dependency in this function. The provider
+        // closure itself is handed to `RewriteBlockTool`, which resolves it fresh at the moment the
+        // model actually calls the tool (see that type's doc comment, and the property's above) —
+        // the correct point for "per turn" freshness, including inside a cached, multi-turn session.
+        if let wysiwygBlockAccessProvider {
+            tools.append(RewriteBlockTool(
+                accessProvider: wysiwygBlockAccessProvider, writingHelp: WritingHelpAssistantFactory.makeDefault(),
+                siteID: context.siteID, siteDirectory: context.siteDirectory))
         }
         if let themeCatalog {
             tools.append(SetupThemeTool(catalog: themeCatalog, sourceDirectory: context.siteDirectory))
