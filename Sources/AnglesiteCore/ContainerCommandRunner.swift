@@ -34,43 +34,17 @@ public struct ContainerCommandRunner: Sendable {
         }
     }
 
-    // Guest-only allowlist — same rationale as `ContainerDeployExecutor.guestEnvAllowlist`: the
-    // host (macOS) environment must never cross into the Linux guest wholesale.
-    private static let guestEnvAllowlist: Set<String> = ["CLOUDFLARE_API_TOKEN"]
-
     private func run(
         siteDirectory: URL,
         arguments: [String],
         environment: [String: String],
         source: String
     ) async throws -> ProcessSupervisor.RunResult {
-        let argv = ["npx", "wrangler"] + arguments
-        let guestEnvironment = environment.filter { Self.guestEnvAllowlist.contains($0.key) }
-
-        let (lines, continuation) = AsyncStream<(String, LogCenter.Stream)>.makeStream(bufferingPolicy: .unbounded)
-        let logCenter = self.logCenter
-        let drain = Task.detached(priority: .utility) {
-            for await (line, stream) in lines {
-                await logCenter.append(source: source, stream: stream, text: line)
-            }
-        }
-
-        let result: ContainerExecResult
-        do {
-            result = try await control.exec(
-                siteID: siteID,
-                argv: argv,
-                environment: guestEnvironment,
-                workingDirectory: "/workspace/site",
-                onOutput: { line, stream in continuation.yield((line, stream)) }
-            )
-        } catch {
-            continuation.finish()
-            _ = await drain.value
-            throw error
-        }
-        continuation.finish()
-        _ = await drain.value
+        let argv = WranglerInvocation.argv(subcommand: arguments)
+        let guestEnvironment = WranglerInvocation.guestEnvironment(from: environment, scope: .tokenOnly)
+        let result = try await WranglerInvocation.exec(
+            control: control, siteID: siteID, argv: argv, environment: guestEnvironment,
+            logCenter: logCenter, source: source)
         return ProcessSupervisor.RunResult(stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode)
     }
 
@@ -81,7 +55,7 @@ public struct ContainerCommandRunner: Sendable {
     /// the script text (only the two fixed variable *names* do). `name` and `value` are passed
     /// via the same `environment` allowlist mechanism `CLOUDFLARE_API_TOKEN` already uses — this
     /// call's environment additions are scoped to this one invocation, never merged into the
-    /// broader `guestEnvAllowlist` set other wrangler calls share.
+    /// broader allowlist set other wrangler calls share.
     private func runSecret(
         siteDirectory: URL,
         name: String,
@@ -89,38 +63,16 @@ public struct ContainerCommandRunner: Sendable {
         environment: [String: String],
         source: String
     ) async throws -> ProcessSupervisor.RunResult {
-        var guestEnvironment = environment.filter { Self.guestEnvAllowlist.contains($0.key) }
+        var guestEnvironment = WranglerInvocation.guestEnvironment(from: environment, scope: .tokenOnly)
         guestEnvironment["WRANGLER_SECRET_NAME"] = name
         guestEnvironment["WRANGLER_SECRET_VALUE"] = value
         let argv = [
             "sh", "-c",
             "printf '%s' \"$WRANGLER_SECRET_VALUE\" | npx wrangler secret put \"$WRANGLER_SECRET_NAME\"",
         ]
-
-        let (lines, continuation) = AsyncStream<(String, LogCenter.Stream)>.makeStream(bufferingPolicy: .unbounded)
-        let logCenter = self.logCenter
-        let drain = Task.detached(priority: .utility) {
-            for await (line, stream) in lines {
-                await logCenter.append(source: source, stream: stream, text: line)
-            }
-        }
-
-        let result: ContainerExecResult
-        do {
-            result = try await control.exec(
-                siteID: siteID,
-                argv: argv,
-                environment: guestEnvironment,
-                workingDirectory: "/workspace/site",
-                onOutput: { line, stream in continuation.yield((line, stream)) }
-            )
-        } catch {
-            continuation.finish()
-            _ = await drain.value
-            throw error
-        }
-        continuation.finish()
-        _ = await drain.value
+        let result = try await WranglerInvocation.exec(
+            control: control, siteID: siteID, argv: argv, environment: guestEnvironment,
+            logCenter: logCenter, source: source)
         return ProcessSupervisor.RunResult(stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode)
     }
 }

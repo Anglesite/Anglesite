@@ -26,6 +26,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-04 | [Design: Route Worker provisioning through the DeployCommand spine (#1821)](specs/2026-09-04-worker-provisioning-deploy-spine-design.md) | [#1821](https://github.com/Anglesite/Anglesite/issues/1821) | draft |
 | 2026-09-03 | [Generated docs index and `Status:` convention for design docs](specs/2026-09-03-docs-index-and-status-convention-design.md) | [#1816](https://github.com/Anglesite/Anglesite/issues/1816) | current |
 | 2026-09-02 | [WYSIWYG slice 6 — on-device AI services — design](specs/2026-09-02-wysiwyg-ai-services-design.md) | [#1227](https://github.com/Anglesite/Anglesite/issues/1227) | — |
 | 2026-09-02 | [RSVP, check-in, and repost as publishable post types](specs/2026-09-02-rsvp-checkin-repost-post-types-design.md) | [#1598](https://github.com/Anglesite/Anglesite/issues/1598) | current |
