@@ -150,7 +150,7 @@ public actor SocialWorkerProvisionCommand {
     /// Provisions every Cloudflare resource the active workers need (D1, KV, R2, Queues,
     /// secrets), regenerates `wrangler.toml`, then hands off to `deployer` to build, scan, and
     /// publish. Idempotent and resumable: each resource is created only if not already known
-    /// (from `knownResources` or a prior `wrangler.toml`), and config is persisted after every
+    /// (from `knownResources`), and config is persisted after every
     /// successful step so a failure partway through never loses ids already created.
     public func provision(
         siteID: String,
@@ -161,11 +161,11 @@ public actor SocialWorkerProvisionCommand {
         /// `WorkerRouteClaims.activeClaims`. Written into `wrangler.toml` as selective
         /// `[assets].run_worker_first` patterns; empty = no worker-first routes.
         routeClaims: [WorkerRouteClaim] = [],
-        /// Resources already known from `SiteSettings.provisionedWorkerResources` (#709), checked
-        /// before falling back to `readPersistedResources`'s wrangler.toml scrape. Durable across
-        /// a worker being deactivated (which drops its binding block from the file) and later
-        /// reactivated — the default (`.init()`, all-nil) makes this call fall through to the
-        /// existing file-scrape-only behavior unchanged.
+        /// Resources already known from `SiteSettings.provisionedWorkerResources` (#709) — the
+        /// sole source of truth for already-provisioned resource ids. Durable across a worker
+        /// being deactivated (which drops its binding block from the generated `wrangler.toml`)
+        /// and later reactivated. The default (`.init()`, all-nil) means no resources are known
+        /// yet, so every one needed by the active workers is (re-)created.
         knownResources: WorkerComposition.ProvisionedResources = .init(),
         /// The site's best-known public URL (`.site-config`'s `DOMAIN`/`SITE_DOMAIN`/`SITE_URL`,
         /// via `DeployCoordinator.resolveSiteURL`), threaded into `WorkerComposition`'s `SITE_URL`
@@ -260,7 +260,7 @@ public actor SocialWorkerProvisionCommand {
         let started = Date()
         let hasRunningExperiment = experiments.contains(where: { $0.status == "running" })
 
-        var resources = knownResources == .init() ? Self.readPersistedResources(from: siteDirectory) : knownResources
+        var resources = knownResources
 
         // #1075: confirm the candidate Worker name before any wrangler call can touch it. Left
         // solely to `deployer`'s own end-of-pipeline check (`DeployCommand.deploy` →
@@ -679,7 +679,7 @@ public actor SocialWorkerProvisionCommand {
         mcpEnabled: Bool = false
     ) -> Result? {
         do {
-            let toml = try WorkerComposition.generateWranglerToml(
+            let configuration = try WorkerComposition.generateWranglerToml(
                 siteName: siteName,
                 workers: workers,
                 routeClaims: routeClaims,
@@ -694,7 +694,7 @@ public actor SocialWorkerProvisionCommand {
                 apUsername: apUsername, apIcon: apIcon,
                 experiments: experiments, mcpEnabled: mcpEnabled
             )
-            try toml.write(
+            try configuration.toml.write(
                 to: siteDirectory.appendingPathComponent("wrangler.toml"),
                 atomically: true,
                 encoding: .utf8
@@ -741,46 +741,6 @@ public actor SocialWorkerProvisionCommand {
         }
     }
 
-    static func readPersistedResources(from siteDirectory: URL) -> WorkerComposition.ProvisionedResources {
-        let url = siteDirectory.appendingPathComponent("wrangler.toml")
-        guard let toml = try? String(contentsOf: url, encoding: .utf8) else {
-            return .init()
-        }
-        // Three features each own a queue; the generated names are deterministic
-        // (`<site>-webmention` / `<site>-websub` / `<site>-microsub`), so classify every
-        // `queue = "…"` value by its suffix rather than taking the first match (which would
-        // mis-assign whichever block happened to be emitted first). All matches are positive
-        // (rather than "webmention = doesn't end in -websub") so a future queue-backed feature
-        // can't get silently misclassified as another's queue just because it doesn't end in
-        // that other feature's suffix.
-        let queueNames = extractAllTomlStrings(named: "queue", from: toml)
-        // Same reasoning applies to R2 bucket names: Micropub's `MEDIA` bucket
-        // (`<site>-media`) and solid-pod/webdav's `BLOBS` bucket (`<site>-pod-blobs`) can both
-        // be present as separate `[[r2_buckets]]` blocks, so classify every `bucket_name = "…"`
-        // value by its suffix rather than taking the first match — otherwise a redeploy with
-        // both buckets provisioned would read back only one, and the other would look
-        // unprovisioned and get re-created against wrangler on every deploy.
-        let bucketNames = extractAllTomlStrings(named: "bucket_name", from: toml)
-        return .init(
-            d1DatabaseID: extractTomlString(named: "database_id", from: toml),
-            // KV namespace ids are opaque Cloudflare-assigned strings, not deterministic names
-            // like the queue/bucket names above — they can't be classified by suffix. Instead,
-            // `wrangler.toml` can carry up to two `[[kv_namespaces]]` blocks (SOCIAL_KV and
-            // INBOX_KV), each with its own `binding = "…"` line immediately followed by its own
-            // `id = "…"` line (see `generateWranglerToml`'s `[[kv_namespaces]]` emission), so
-            // `extractKVNamespaceID` scopes the match to the binding line that precedes it. A
-            // flat first-`id`-match scrape (the pre-#1173 behavior) would misattribute INBOX_KV's
-            // id to this field whenever SOCIAL_KV wasn't also present.
-            kvNamespaceID: extractKVNamespaceID(binding: "SOCIAL_KV", from: toml),
-            r2BucketName: bucketNames.first(where: { $0.hasSuffix("-media") }),
-            queueName: queueNames.first(where: { $0.hasSuffix("-webmention") }),
-            websubQueueName: queueNames.first(where: { $0.hasSuffix("-websub") }),
-            microsubQueueName: queueNames.first(where: { $0.hasSuffix("-microsub") }),
-            podBlobsR2BucketName: bucketNames.first(where: { $0.hasSuffix("-pod-blobs") }),
-            inboxKVNamespaceID: extractKVNamespaceID(binding: "INBOX_KV", from: toml)
-        )
-    }
-
     static func extractResourceID(from output: String) -> String? {
         if let data = output.data(using: .utf8),
            let json = try? JSONSerialization.jsonObject(with: data),
@@ -795,38 +755,6 @@ public actor SocialWorkerProvisionCommand {
             return String(output[range])
         }
         return nil
-    }
-
-    private static func extractTomlString(named key: String, from toml: String) -> String? {
-        extractAllTomlStrings(named: key, from: toml).first
-    }
-
-    /// Finds a `[[kv_namespaces]]` block by its `binding = "<name>"` line and returns the
-    /// `id = "…"` value immediately following it in that same block. `generateWranglerToml`
-    /// always emits `binding` immediately followed by `id` within a `[[kv_namespaces]]` block, so
-    /// matching that adjacency is enough to scope the match to the right block without a full
-    /// TOML parser.
-    private static func extractKVNamespaceID(binding: String, from toml: String) -> String? {
-        let escaped = NSRegularExpression.escapedPattern(for: binding)
-        let pattern = ##"(?m)^\s*binding\s*=\s*"@@BINDING@@"\s*\n\s*id\s*=\s*"([^"]+)""##
-            .replacingOccurrences(of: "@@BINDING@@", with: escaped)
-        guard let regex = try? NSRegularExpression(pattern: pattern),
-              let match = regex.firstMatch(in: toml, range: NSRange(toml.startIndex..., in: toml)),
-              match.numberOfRanges > 1,
-              let range = Range(match.range(at: 1), in: toml)
-        else { return nil }
-        return String(toml[range])
-    }
-
-    private static func extractAllTomlStrings(named key: String, from toml: String) -> [String] {
-        let escaped = NSRegularExpression.escapedPattern(for: key)
-        let pattern = #"(?m)^\s*#(KEY)\s*=\s*"([^"]+)""#.replacingOccurrences(of: "#(KEY)", with: escaped)
-        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
-        return regex.matches(in: toml, range: NSRange(toml.startIndex..., in: toml)).compactMap { match in
-            guard match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: toml) else { return nil }
-            let value = String(toml[range])
-            return value.isEmpty ? nil : value
-        }
     }
 
     private static func findID(in value: Any) -> String? {

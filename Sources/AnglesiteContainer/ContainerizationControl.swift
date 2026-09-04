@@ -316,7 +316,7 @@ public struct ContainerizationControl: LocalContainerControl {
         // so its relative path fields (main, [assets].directory, migrations_dir) can never
         // resolve against wrangler's own rule of "relative to the config file's directory".
         // `projectRoot` roots them at the real site checkout instead.
-        let toml = try WorkerComposition.generateWranglerToml(
+        let configuration = try WorkerComposition.generateWranglerToml(
             siteName: workerName, workers: workers, projectRoot: "/workspace/site")
         let configDir = "/tmp/anglesite-workers-dev/\(siteID)"
         let configPath = "\(configDir)/wrangler.toml"
@@ -327,7 +327,7 @@ public struct ContainerizationControl: LocalContainerControl {
         // time, so an empty placeholder is exactly what a dev session needs here.
         try await runToCompletion(container, id: "workers-dev-mkdir", onOutput: onOutput,
             ["mkdir", "-p", configDir, "/workspace/site/dist"])
-        try await writeGuestFile(container, path: configPath, contents: toml, onOutput: onOutput)
+        try await writeGuestFile(container, path: configPath, contents: configuration.toml, onOutput: onOutput)
 
         // `wrangler dev` is launched directly below, never through the template's `npm run
         // build` (which chains `prebuild` via npm's lifecycle convention) — so the two gitignored
