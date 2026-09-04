@@ -85,15 +85,14 @@ public enum ContentScanner {
     }
 
     /// Port of `/\btitle\s*=\s*(?:"([^"]*)"|'([^']*)')/` — the first `title="…"` or `title='…'`.
-    private static let titleAttrRegex = try! NSRegularExpression(
-        pattern: #"\btitle\s*=\s*(?:"([^"]*)"|'([^']*)')"#
-    )
+    private static var titleAttrRegex: Regex<(Substring, Substring?, Substring?)> {
+        #/\btitle\s*=\s*(?:"([^"]*)"|'([^']*)')/#.matchingSemantics(.unicodeScalar)
+    }
     private static func firstTitleAttribute(in text: String) -> String? {
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        guard let m = titleAttrRegex.firstMatch(in: text, range: range) else { return nil }
-        for group in [1, 2] {
-            if let r = Range(m.range(at: group), in: text) {
-                return decodeHTMLEntities(String(text[r]))
+        guard let m = text.firstMatch(of: titleAttrRegex) else { return nil }
+        for substring in [m.output.1, m.output.2] {
+            if let substring {
+                return decodeHTMLEntities(String(substring))
             }
         }
         return nil

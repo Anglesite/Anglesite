@@ -31,11 +31,7 @@ public enum FrontmatterSchemaReader {
     /// Declaration-order names of every `const NAME = defineCollection(` in content-config source
     /// text, regardless of schema shape.
     public static func collectionNames(fromContentConfig source: String) -> [String] {
-        let range = NSRange(source.startIndex..<source.endIndex, in: source)
-        return declarationPattern.matches(in: source, range: range).compactMap { match in
-            guard let nameRange = Range(match.range(at: 1), in: source) else { return nil }
-            return String(source[nameRange])
-        }
+        source.matches(of: declarationPattern).map { String($0.output.1) }
     }
 
     /// The site's content config source: Astro 5's `src/content.config.ts`, else the legacy
@@ -74,24 +70,22 @@ public enum FrontmatterSchemaReader {
         let schemaBody: String
     }
 
-    private static let declarationPattern = try! NSRegularExpression(
-        pattern: "const\\s+(\\w+)\\s*=\\s*defineCollection\\("
-    )
+    private static var declarationPattern: Regex<(Substring, Substring)> {
+        #/const\s+(\w+)\s*=\s*defineCollection\(/#.matchingSemantics(.unicodeScalar)
+    }
     /// Matches field names: this flat regex is not nesting-aware, so a hypothetical nested `z.object({...})`
     /// would have its inner keys over-included alongside the top-level keys (expected for current templates).
-    private static let fieldPattern = try! NSRegularExpression(pattern: "(\\w+):\\s*z\\.")
+    private static var fieldPattern: Regex<(Substring, Substring)> {
+        #/(\w+):\s*z\./#.matchingSemantics(.unicodeScalar)
+    }
 
     private static func collectionBlocks(in source: String) -> [CollectionBlock] {
         var blocks: [CollectionBlock] = []
-        let range = NSRange(source.startIndex..<source.endIndex, in: source)
-        for match in declarationPattern.matches(in: source, range: range) {
-            guard let nameRange = Range(match.range(at: 1), in: source),
-                  let fullRange = Range(match.range, in: source)
-            else { continue }
-            let name = String(source[nameRange])
-            // `fullRange.upperBound` sits right after the "defineCollection(" we just matched —
+        for match in source.matches(of: declarationPattern) {
+            let name = String(match.output.1)
+            // `match.range.upperBound` sits right after the "defineCollection(" we just matched —
             // step back one character to land ON that opening paren.
-            let openParenIndex = source.index(before: fullRange.upperBound)
+            let openParenIndex = source.index(before: match.range.upperBound)
             guard let body = balancedSubstring(in: source, openIndex: openParenIndex, open: "(", close: ")"),
                   let schemaKeywordRange = body.range(of: "z.object(")
             else { continue }
@@ -104,11 +98,7 @@ public enum FrontmatterSchemaReader {
     }
 
     private static func fieldNames(in schemaBody: String) -> [String] {
-        let range = NSRange(schemaBody.startIndex..<schemaBody.endIndex, in: schemaBody)
-        return fieldPattern.matches(in: schemaBody, range: range).compactMap { match in
-            guard let r = Range(match.range(at: 1), in: schemaBody) else { return nil }
-            return String(schemaBody[r])
-        }
+        schemaBody.matches(of: fieldPattern).map { String($0.output.1) }
     }
 
     /// Starting at `openIndex` (which must be the `open` character), returns the substring

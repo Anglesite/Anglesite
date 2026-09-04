@@ -107,11 +107,8 @@ public enum Frontmatter {
     /// start or the fence is unterminated (malformed file — don't eat content). Companion to
     /// `parse`, added for the content-help chunker (Slice 6, #465).
     public static func body(_ source: String) -> String {
-        let range = NSRange(source.startIndex..<source.endIndex, in: source)
-        guard let match = frontmatterPattern.firstMatch(in: source, range: range),
-              let matched = Range(match.range, in: source)
-        else { return source }
-        var rest = source[matched.upperBound...]
+        guard let match = source.firstMatch(of: frontmatterPattern) else { return source }
+        var rest = source[match.range.upperBound...]
         // Drop the closing fence's own line ending so the body starts on the next line.
         if rest.hasPrefix("\r\n") {
             rest = rest.dropFirst(2)
@@ -123,20 +120,24 @@ public enum Frontmatter {
 
     // MARK: - Helpers
 
-    /// Compiled once — `frontmatterBlock` runs per page/post file during a scan, so recompiling
-    /// this dotall pattern each call would be O(files).
-    private static let frontmatterPattern = try! NSRegularExpression(
-        pattern: "^---\\r?\\n([\\s\\S]*?)\\r?\\n---"
-    )
+    /// A computed property, not `static let`: the literal's pattern is already compiled at build
+    /// time, so re-evaluating it per access is cheap — and unlike a stored static property, a
+    /// computed one doesn't need `Regex` (which isn't `Sendable`) to satisfy Swift 6's
+    /// static-storage concurrency-safety check.
+    ///
+    /// `.matchingSemantics(.unicodeScalar)` matches `NSRegularExpression`'s original UTF-16-based
+    /// behavior: Swift's default grapheme-cluster mode treats a `\r\n` sequence as a single
+    /// `Character`, so `\r?` and `\n` — matched as separate quantified items — can never match a
+    /// real CRLF fence without it.
+    private static var frontmatterPattern: Regex<(Substring, Substring)> {
+        #/^---\r?\n([\s\S]*?)\r?\n---/#.matchingSemantics(.unicodeScalar)
+    }
 
     /// Extract the text between the opening `---<newline>` and the first following `<newline>---`,
     /// anchored at the very start of `source`. `nil` if there is no such block.
     private static func frontmatterBlock(_ source: String) -> String? {
-        let range = NSRange(source.startIndex..<source.endIndex, in: source)
-        guard let match = frontmatterPattern.firstMatch(in: source, range: range),
-              let captured = Range(match.range(at: 1), in: source)
-        else { return nil }
-        return String(source[captured])
+        guard let match = source.firstMatch(of: frontmatterPattern) else { return nil }
+        return String(match.output.1)
     }
 
     /// Split `key: value` where key is `[A-Za-z0-9_-]+`. Value is right-trimmed of surrounding

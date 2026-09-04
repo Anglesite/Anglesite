@@ -42,9 +42,9 @@ public enum ProjectConventionsExtractor {
 
     // MARK: Heading capitalization
 
-    private static let headingPattern = try! NSRegularExpression(
-        pattern: "^#{1,6}\\s+(.+)$", options: [.anchorsMatchLines]
-    )
+    private static var headingPattern: Regex<(Substring, Substring)> {
+        #/(?m)^#{1,6}\s+(.+)$/#.matchingSemantics(.unicodeScalar)
+    }
     private static let stopwords: Set<String> = ["a", "an", "and", "the", "of", "to", "for", "in", "on", "with", "or"]
 
     static func headingCapitalizationConvention(files: [ScannedFile]) -> Learned<HeadingCapitalization> {
@@ -69,10 +69,8 @@ public enum ProjectConventionsExtractor {
     }
 
     private static func headings(in source: String) -> [String] {
-        let range = NSRange(source.startIndex..<source.endIndex, in: source)
-        return headingPattern.matches(in: source, range: range).compactMap { match in
-            guard let r = Range(match.range(at: 1), in: source) else { return nil }
-            return String(source[r]).trimmingCharacters(in: .whitespaces)
+        source.matches(of: headingPattern).map {
+            String($0.output.1).trimmingCharacters(in: .whitespaces)
         }
     }
 
@@ -101,8 +99,12 @@ public enum ProjectConventionsExtractor {
 
     // MARK: Alt text
 
-    private static let markdownImagePattern = try! NSRegularExpression(pattern: "!\\[([^\\]]*)\\]\\([^)]*\\)")
-    private static let htmlAltPattern = try! NSRegularExpression(pattern: "alt=\"([^\"]*)\"")
+    private static var markdownImagePattern: Regex<(Substring, Substring)> {
+        #/!\[([^\]]*)\]\([^)]*\)/#.matchingSemantics(.unicodeScalar)
+    }
+    private static var htmlAltPattern: Regex<(Substring, Substring)> {
+        #/alt="([^"]*)"/#.matchingSemantics(.unicodeScalar)
+    }
 
     static func altTextAverageLengthConvention(files: [ScannedFile]) -> Learned<Int> {
         let values = altTexts(files: files).filter { !$0.isEmpty }
@@ -126,31 +128,24 @@ public enum ProjectConventionsExtractor {
 
     private static func altTexts(files: [ScannedFile]) -> [String] {
         files.flatMap { file -> [String] in
-            let range = NSRange(file.contents.startIndex..<file.contents.endIndex, in: file.contents)
-            let markdown = markdownImagePattern.matches(in: file.contents, range: range).compactMap { match -> String? in
-                guard let r = Range(match.range(at: 1), in: file.contents) else { return nil }
-                return String(file.contents[r])
-            }
-            let html = htmlAltPattern.matches(in: file.contents, range: range).compactMap { match -> String? in
-                guard let r = Range(match.range(at: 1), in: file.contents) else { return nil }
-                return String(file.contents[r])
-            }
+            let markdown = file.contents.matches(of: markdownImagePattern).map { String($0.output.1) }
+            let html = file.contents.matches(of: htmlAltPattern).map { String($0.output.1) }
             return markdown + html
         }
     }
 
     // MARK: Component usage
 
-    private static let componentTagPattern = try! NSRegularExpression(pattern: "<([A-Z][A-Za-z0-9]*)\\b")
+    private static var componentTagPattern: Regex<(Substring, Substring)> {
+        #/<([A-Z][A-Za-z0-9]*)\b/#.matchingSemantics(.unicodeScalar)
+    }
 
     static func componentUsageCountsConvention(files: [ScannedFile]) -> Learned<[String: Int]> {
         var counts: [String: Int] = [:]
         var total = 0
         for file in files where file.path.hasSuffix(".astro") {
-            let range = NSRange(file.contents.startIndex..<file.contents.endIndex, in: file.contents)
-            for match in componentTagPattern.matches(in: file.contents, range: range) {
-                guard let r = Range(match.range(at: 1), in: file.contents) else { continue }
-                counts[String(file.contents[r]), default: 0] += 1
+            for match in file.contents.matches(of: componentTagPattern) {
+                counts[String(match.output.1), default: 0] += 1
                 total += 1
             }
         }

@@ -144,17 +144,17 @@ public enum SiteGraphExplorer {
     private static let assetExtensions: Set<String> = [
         ".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg", ".avif"
     ]
-    private static let dynamicImportRegex = try! NSRegularExpression(
-        pattern: #"import\(\s*['"]([^'"]+)['"]\s*\)"#
-    )
-    private static let srcHrefRegex = try! NSRegularExpression(
-        pattern: #"\b(?:src|href)\s*=\s*["']([^"']+\.(?:jpg|jpeg|png|webp|gif|svg|avif))(?:[?#][^"']*)?["']"#,
-        options: [.caseInsensitive]
-    )
-    private static let urlAssetRegex = try! NSRegularExpression(
-        pattern: #"url\(\s*['"]?([^'")]+\.(?:jpg|jpeg|png|webp|gif|svg|avif))(?:[?#][^'")]*)?['"]?\s*\)"#,
-        options: [.caseInsensitive]
-    )
+    private static var dynamicImportRegex: Regex<(Substring, Substring)> {
+        #/import\(\s*['"]([^'"]+)['"]\s*\)/#.matchingSemantics(.unicodeScalar)
+    }
+    private static var srcHrefRegex: Regex<(Substring, Substring)> {
+        #/(?i)\b(?:src|href)\s*=\s*["']([^"']+\.(?:jpg|jpeg|png|webp|gif|svg|avif))(?:[?#][^"']*)?["']/#
+            .matchingSemantics(.unicodeScalar)
+    }
+    private static var urlAssetRegex: Regex<(Substring, Substring)> {
+        #/(?i)url\(\s*['"]?([^'")]+\.(?:jpg|jpeg|png|webp|gif|svg|avif))(?:[?#][^'")]*)?['"]?\s*\)/#
+            .matchingSemantics(.unicodeScalar)
+    }
 
     /// Builds a full graph snapshot from the already-parsed content model plus a fresh disk scan.
     ///
@@ -375,11 +375,8 @@ public enum SiteGraphExplorer {
     }
 
     private static func importSpecifiers(in text: String) -> [String] {
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
         let staticImports = text.split(separator: "\n").compactMap(staticImportSpecifier)
-        let dynamicImports = dynamicImportRegex.matches(in: text, range: range).compactMap { match in
-            Range(match.range(at: 1), in: text).map { String(text[$0]) }
-        }
+        let dynamicImports = text.matches(of: dynamicImportRegex).map { String($0.output.1) }
         return staticImports + dynamicImports
     }
 
@@ -400,14 +397,9 @@ public enum SiteGraphExplorer {
     }
 
     private static func assetReferences(in text: String) -> [String] {
-        let range = NSRange(text.startIndex..<text.endIndex, in: text)
         let regexes = [srcHrefRegex, urlAssetRegex]
         return regexes.flatMap { regex in
-            regex.matches(in: text, range: range).compactMap { match in
-                guard let found = Range(match.range(at: 1), in: text) else { return nil }
-                let value = String(text[found])
-                return value
-            }
+            text.matches(of: regex).map { String($0.output.1) }
         }
     }
 

@@ -110,15 +110,22 @@ public enum MTAStsPolicyAsset {
 
     /// RFC 8461 MX patterns: an ASCII domain name, optionally with only the complete first label
     /// replaced by `*`. This intentionally rejects IP literals and Unicode U-labels.
+    ///
+    /// The label pattern (`[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?`) is inlined twice rather than
+    /// composed from a shared string — a regex literal's pattern must be a compile-time source
+    /// literal, so it can't be built via string interpolation the way the old
+    /// `NSRegularExpression(pattern:)` construction was.
+    private static var mxPatternRegex: Regex<Substring> {
+        #/(?i)^(?:\*\.)?(?:[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/#
+            .matchingSemantics(.unicodeScalar)
+    }
+
     public static func normalizedMXList(_ raw: String) -> [String] {
-        let label = "[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?"
-        let regex = try! NSRegularExpression(pattern: "^(?:\\*\\.)?(?:\(label)\\.)+\(label)$", options: [.caseInsensitive])
         var result: [String] = []
         for value in raw.split(whereSeparator: { $0 == "," || $0.isNewline }) {
             var host = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
             if host.hasSuffix(".") { host.removeLast() }
-            let range = NSRange(host.startIndex..., in: host)
-            if !host.isEmpty, regex.firstMatch(in: host, range: range) != nil, !result.contains(host) {
+            if !host.isEmpty, host.wholeMatch(of: mxPatternRegex) != nil, !result.contains(host) {
                 result.append(host)
             }
         }

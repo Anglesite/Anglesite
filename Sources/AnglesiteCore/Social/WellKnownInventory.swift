@@ -445,7 +445,9 @@ public enum GeneratedEndpoints {
     /// (`isValidAtprotoDid`) — a syntactically valid DID per the
     /// [W3C DID Core syntax](https://www.w3.org/TR/did-core/#did-syntax).
     /// `WellKnownInventoryFixtureTests` guards against the two drifting apart.
-    private static let atprotoDidPattern = try! NSRegularExpression(pattern: "^did:[a-z0-9]+:[A-Za-z0-9._:%-]+$")
+    private static var atprotoDidPattern: Regex<Substring> {
+        #/^did:[a-z0-9]+:[A-Za-z0-9._:%-]+$/#.matchingSemantics(.unicodeScalar)
+    }
 
     /// True when `content` (after trimming) is itself a syntactically valid DID. `atproto-did`
     /// (#1235) has no room for a literal ownership marker the way `security.txt`/`mta-sts.txt`
@@ -458,8 +460,7 @@ public enum GeneratedEndpoints {
     static func isValidAtprotoDid(_ content: String) -> Bool {
         let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
-        let range = NSRange(trimmed.startIndex..., in: trimmed)
-        return atprotoDidPattern.firstMatch(in: trimmed, range: range) != nil
+        return trimmed.wholeMatch(of: atprotoDidPattern) != nil
     }
 
     /// Mirrors `AGENT_SKILLS_MARKER` in `Resources/Template/scripts/agent-skills.ts`.
