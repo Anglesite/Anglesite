@@ -124,7 +124,7 @@ struct CloudflareOAuthClientTests {
         let callback = URL(
             string: "https://auth.anglesite.dwk.io/oauth-callback"
                 + "?error=invalid_scope&error_description=The%20requested%20scope%20is%20invalid&state=abc123")!
-        #expect(throws: CloudflareOAuthError.callbackError(code: "invalid_scope", description: "The requested scope is invalid")) {
+        #expect(throws: CloudflareOAuthError.callbackError(errorCode: "invalid_scope", description: "The requested scope is invalid")) {
             _ = try CloudflareOAuthClient.authorizationCode(from: callback, matching: request)
         }
     }

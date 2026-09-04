@@ -75,7 +75,7 @@ public enum CloudflareOAuthError: Error, Equatable, Sendable {
     /// The callback carried any other `error=` (`invalid_scope`, `invalid_request`,
     /// `server_error`, …) — a real OAuth configuration problem, not a user cancel, so unlike
     /// `callbackDenied` this is worth surfacing to the caller rather than swallowing (#1856).
-    case callbackError(code: String, description: String)
+    case callbackError(errorCode: String, description: String)
     /// The callback had a matching `state` but no `code`.
     case missingAuthorizationCode
     /// The token endpoint rejected the exchange or returned something undecodable.
@@ -185,7 +185,7 @@ public struct CloudflareOAuthClient: Sendable {
             if error == "access_denied" {
                 throw CloudflareOAuthError.callbackDenied(description)
             }
-            throw CloudflareOAuthError.callbackError(code: error, description: description)
+            throw CloudflareOAuthError.callbackError(errorCode: error, description: description)
         }
         guard let code = value("code"), !code.isEmpty else {
             throw CloudflareOAuthError.missingAuthorizationCode
