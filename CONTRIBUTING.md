@@ -50,6 +50,8 @@ Working headless (CI, agents, or just no Xcode GUI)? [`docs/testing-macos-app.md
 
 CI lane went red? [`docs/ci-troubleshooting.md`](docs/ci-troubleshooting.md) is the runbook — one section per `.github/workflows/ci.yml` job, covering what it runs, what a red usually means, and what to check first.
 
+**Not every suite runs on hosted CI.** `AnglesiteAppTests`, `AnglesiteIntentsTests`, and every suite gated on `ANGLESITE_CONTAINER_TESTS`, `ANGLESITE_CONTAINER_E2E`, `ANGLESITE_P2P_E2E`, or `ANGLESITE_CK_TESTS` never execute there today. The `xcode-27` lane only *compiles* the first two (`swift build --build-tests`, `continue-on-error: true` — see the "CI never *executes*..." note below for why), and none of those four env vars is ever set in `ci.yml`, so the container/P2P/CloudKit suites they gate never run unattended either. A green check on a PR touching those areas does not mean these suites passed — run `scripts/swift-test.sh` locally under Xcode 27 (with the relevant env vars set, for the gated suites) before opening it.
+
 Run the relevant suites before opening a PR:
 
 ```sh
