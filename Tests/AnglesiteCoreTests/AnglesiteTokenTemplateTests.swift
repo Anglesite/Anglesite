@@ -21,6 +21,14 @@ struct AnglesiteTokenTemplateTests {
         }
     }
 
+    /// #1853: `GET /accounts` (what `wrangler deploy` and this app's own account-id lookups both
+    /// need to resolve which Cloudflare account to publish under) requires this permission — a
+    /// token scoped only to the deploy set above authenticates but can't enumerate accounts.
+    @Test("the template includes Account Settings: Read so a token can resolve its account")
+    func includesAccountSettingsRead() {
+        #expect(AnglesiteTokenTemplate.permissionGroups.contains { $0.key == "account_settings" && $0.type == "read" })
+    }
+
     @Test("createTokenURL lands on the dashboard token page with name + permission pre-fill")
     func urlShape() throws {
         let components = try #require(URLComponents(url: AnglesiteTokenTemplate.createTokenURL,

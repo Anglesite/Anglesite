@@ -35,7 +35,7 @@ public enum DeployTargetSelection {
     public static func target(forID id: String?) -> any DeployTarget {
         switch canonicalID(forDeclared: id) {
         case GitHubPagesDeployTarget.id: return GitHubPagesDeployTarget()
-        default: return CloudflareDeployTarget()
+        default: return CloudflareDeployTarget(accountIDSource: CloudflareDeployTarget.defaultAccountIDSource)
         }
     }
 

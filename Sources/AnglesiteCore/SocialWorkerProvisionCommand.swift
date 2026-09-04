@@ -893,8 +893,10 @@ public actor SocialWorkerProvisionCommand {
     /// `DeployModel.runDeploy` still constructs its own deployer closure (for `configDirectory`/
     /// `onPreflight`/`onProgress`, which this default has no equivalent for).
     public static let defaultDeployer: Deployer = { token, siteID, siteDirectory, wellKnownDynamicClaims in
-        await DeployCommand(target: CloudflareDeployTarget(tokenSource: { token })).deploy(
-            siteID: siteID, siteDirectory: siteDirectory, wellKnownDynamicClaims: wellKnownDynamicClaims)
+        await DeployCommand(target: CloudflareDeployTarget(
+            tokenSource: { token },
+            accountIDSource: CloudflareDeployTarget.defaultAccountIDSource
+        )).deploy(siteID: siteID, siteDirectory: siteDirectory, wellKnownDynamicClaims: wellKnownDynamicClaims)
     }
 
     /// Default ``AccountIDSource`` for production: the token's first visible Cloudflare account,

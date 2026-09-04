@@ -300,7 +300,7 @@
     "A WAF rule was added so Bot Fight Mode doesn't block the AI Search crawler." : {
 
     },
-    "A custom token named “Anglesite” should be pre-filled with all permissions Anglesite uses. If it isn’t, add at least the “Edit Cloudflare Workers” template’s permissions so deploying works — Anglesite will ask again when a feature needs more access. Click **Continue to summary**." : {
+    "A custom token named “Anglesite” should be pre-filled with all permissions Anglesite uses. If it isn’t, add at least the “Edit Cloudflare Workers” template’s permissions plus **Account Settings: Read** (needed to identify your account) so deploying works — Anglesite will ask again when a feature needs more access. Click **Continue to summary**." : {
 
     },
     "A few questions so copy suggestions sound like you. Leave anything blank to skip it." : {
@@ -1215,15 +1215,6 @@
     "Connect" : {
 
     },
-    "Connect a GitHub account in Settings to check this repository's reporting setup." : {
-
-    },
-    "Connect a GitHub account in Settings to enable private vulnerability reporting." : {
-
-    },
-    "Connect and Publish" : {
-
-    },
     "Connect This Site" : {
 
     },
@@ -1237,6 +1228,12 @@
 
     },
     "Connect a Domain…" : {
+
+    },
+    "Connect a GitHub account in Settings to check this repository's reporting setup." : {
+
+    },
+    "Connect a GitHub account in Settings to enable private vulnerability reporting." : {
 
     },
     "Connect and Publish" : {
@@ -1556,10 +1553,10 @@
         }
       }
     },
-    "Couldn't rename: %@" : {
+    "Couldn't rename the Worker: %@" : {
 
     },
-    "Couldn't rename the Worker: %@" : {
+    "Couldn't rename: %@" : {
 
     },
     "Couldn't run the check" : {
@@ -1737,15 +1734,6 @@
 
     },
     "Dependency Updates Available" : {
-
-    },
-    "No usable MX records were found for %@. Enter the receiving mail hosts manually." : {
-
-    },
-    "Nothing is waiting to publish — close this and click Publish Site again." : {
-
-    },
-    "Publish Site" : {
 
     },
     "Deploy ${site}" : {
@@ -2879,6 +2867,9 @@
     "No unused files found" : {
 
     },
+    "No usable MX records were found for %@. Enter the receiving mail hosts manually." : {
+
+    },
     "No website details" : {
 
     },
@@ -2925,6 +2916,9 @@
 
     },
     "Notes" : {
+
+    },
+    "Nothing is waiting to publish — close this and click Publish Site again." : {
 
     },
     "Nothing without asking" : {
