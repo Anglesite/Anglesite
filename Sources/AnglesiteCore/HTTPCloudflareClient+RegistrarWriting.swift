@@ -23,8 +23,8 @@ extension HTTPCloudflareClient: CloudflareRegistrarWriting {
     ///
     /// Reuses `core.send(method:_:body:apiToken:)` for request construction and 401/403/non-2xx
     /// mapping (201 and 202 both already fall inside `send`'s 200..<300 success range) rather
-    /// than duplicating that logic a third time alongside `mutate`/`post` — the only thing this
-    /// call needs beyond `send` is branching on which 2xx status came back.
+    /// than duplicating that logic a third time alongside `core.mutate`/`core.post` — the only
+    /// thing this call needs beyond `send` is branching on which 2xx status came back.
     public func registerDomain(name: String, apiToken: String) async throws -> RegistrarRegistrationOutcome {
         let accountID = try await core.resolveAccountID(apiToken: apiToken)
         let (data, http) = try await core.send(

@@ -133,7 +133,7 @@ import Foundation
                 {"data":{"viewer":{"accounts":[{"rumPageloadEventsAdaptiveGroups":[]}]}}}
                 """,
             onGraphQLRequest: { request in
-                capturedBody = Self.bodyData(from: request)
+                capturedBody = request.httpBody
             }))
 
         _ = try await client.summary(siteTag: "site-tag-1", apiToken: "token", days: 7)
@@ -153,11 +153,5 @@ import Foundation
         let span = until.timeIntervalSince(since)
         let sevenDays: TimeInterval = 7 * 24 * 60 * 60
         #expect(abs(span - sevenDays) < 3600 * 4)
-    }
-
-    /// `URLRequest.httpBody` is what the client sets directly (unlike the old `URLProtocol`-stub
-    /// path, a plain closure transport sees the request as-built, with no stream conversion).
-    private static func bodyData(from request: URLRequest) -> Data? {
-        request.httpBody
     }
 }

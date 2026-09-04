@@ -70,6 +70,16 @@ struct CloudflareHTTPCoreTests {
         }
     }
 
+    @Test("success:true with no result key surfaces as .api(message: \"missing result\")")
+    func missingResultMapping() async throws {
+        let core = CloudflareHTTPCore(baseURL: "https://api.cloudflare.com/client/v4") { _ in
+            (Self.envelopeBody(success: true, result: nil), Self.response(200))
+        }
+        await #expect(throws: CloudflareError.api(message: "missing result")) {
+            _ = try await core.get("/widgets/1", apiToken: "tok", as: Widget.self)
+        }
+    }
+
     @Test("paginated walks every page until page == total_pages")
     func paginatedWalksAllPages() async throws {
         let core = CloudflareHTTPCore(baseURL: "https://api.cloudflare.com/client/v4") { request in

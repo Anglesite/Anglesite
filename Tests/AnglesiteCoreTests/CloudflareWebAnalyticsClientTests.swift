@@ -16,8 +16,8 @@ struct CloudflareWebAnalyticsClientTests {
         #expect(CloudflareWebAnalyticsClient.matchingSite(for: "missing.example", in: sites) == nil)
     }
 
-    private static func response(_ status: Int, path: String = "accounts") -> HTTPURLResponse {
-        HTTPURLResponse(url: URL(string: "https://api.cloudflare.com/client/v4/\(path)")!,
+    private static func response(_ status: Int) -> HTTPURLResponse {
+        HTTPURLResponse(url: URL(string: "https://api.cloudflare.com/client/v4/accounts")!,
                          statusCode: status, httpVersion: nil, headerFields: nil)!
     }
 

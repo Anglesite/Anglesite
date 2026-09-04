@@ -45,7 +45,7 @@ extension HTTPCloudflareClient: CloudflareRegistrarReading {
     ///
     /// Builds the request with `URLComponents`/`URLQueryItem` rather than manual string
     /// interpolation: `query` is free-text (e.g. a business name like "Smith & Sons"), and
-    /// `CharacterSet.urlQueryAllowed` — the encoding used elsewhere in this file for hostnames,
+    /// `CharacterSet.urlQueryAllowed` — the encoding used elsewhere in this client for hostnames,
     /// which never contain `&`/`=`/`+` — does not escape those characters. Left unescaped, `&`/`=`
     /// would truncate the `q` value at the API and corrupt or drop the `limit` parameter.
     ///

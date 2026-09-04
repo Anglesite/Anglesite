@@ -40,10 +40,6 @@ private struct CFFullDNSRecord: Decodable, Sendable {
     let comment: String?
 }
 private struct CFWorkerScript: Decodable, Sendable { let id: String }
-/// Used by `CloudflareWriting`'s `attachWorkersCustomDomain` (in
-/// `HTTPCloudflareClient+Writing.swift`) as well as this file, so — like `CFRuleset`/
-/// `CFRulesetRule` above — it stays `internal` (no access modifier) rather than `private`.
-struct CFWorkerDomain: Decodable, Sendable { let hostname: String; let service: String }
 
 private struct CFBotManagement: Decodable, Sendable {
     let fight_mode: Bool?
@@ -74,8 +70,9 @@ private struct CFPageShieldScript: Decodable, Sendable {
 }
 
 /// Cloudflare v4 API client. The base conformance here is the read side
-/// (``CloudflareReading``, all GETs); the write side (``CloudflareWriting`` — the hardening
-/// PUT/POST/PATCH/DELETE calls) is conformed in an extension below.
+/// (``CloudflareReading``, all GETs); the write side (``CloudflareWriting``) is conformed in
+/// `HTTPCloudflareClient+Writing.swift`; the Registrar, Agent Readiness, and AI Search
+/// conformances each live in their own `HTTPCloudflareClient+*.swift` file alongside this one.
 public struct HTTPCloudflareClient: CloudflareReading {
     static let base = "https://api.cloudflare.com/client/v4"
     let core: CloudflareHTTPCore
@@ -232,10 +229,7 @@ public struct HTTPCloudflareClient: CloudflareReading {
     /// Cloudflare token virtually always sees exactly one), walking all pages. Throws
     /// ``CloudflareError/api(message:)`` when the token can see no account at all.
     public func workerScriptNames(apiToken: String) async throws -> [String] {
-        let accounts = try await core.get("/accounts?per_page=1", apiToken: apiToken, as: [CFAccount].self)
-        guard let accountID = accounts.first?.id else {
-            throw CloudflareError.api(message: "no Cloudflare account visible to this token")
-        }
+        let accountID = try await core.resolveAccountID(apiToken: apiToken)
         let scripts = try await core.paginated(
             "/accounts/\(accountID)/workers/scripts?per_page=100", apiToken: apiToken, as: CFWorkerScript.self)
         return scripts.map(\.id)

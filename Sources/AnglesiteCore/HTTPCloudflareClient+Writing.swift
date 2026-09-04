@@ -8,6 +8,8 @@ import FoundationNetworking
 /// Body for DELETE requests, which Cloudflare's API doesn't require but tolerates.
 private struct CFEmptyBody: Encodable, Sendable {}
 
+private struct CFWorkerDomain: Decodable, Sendable { let hostname: String; let service: String }
+
 // MARK: - CloudflareWriting conformance
 
 extension HTTPCloudflareClient: CloudflareWriting {
@@ -133,10 +135,7 @@ extension HTTPCloudflareClient: CloudflareWriting {
         guard let zoneID = try await resolveZoneID(domain: hostname, apiToken: apiToken) else {
             return .zoneNotFound
         }
-        let accounts = try await core.get("/accounts?per_page=1", apiToken: apiToken, as: [CFAccount].self)
-        guard let accountID = accounts.first?.id else {
-            throw CloudflareError.api(message: "no Cloudflare account visible to this token")
-        }
+        let accountID = try await core.resolveAccountID(apiToken: apiToken)
         let escapedHostname = hostname.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? hostname
         let existing = try await core.get(
             "/accounts/\(accountID)/workers/domains?hostname=\(escapedHostname)",
