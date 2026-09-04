@@ -2,21 +2,11 @@
 #if canImport(Glibc)
 import Foundation
 import Testing
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 @Suite("InotifyFileWatcher")
 struct InotifyFileWatcherTests {
-    /// Poll `condition` until true or `timeout` elapses — inotify delivery, like FSEvents, is
-    /// asynchronous. Returns whether the condition was met.
-    private func poll(timeout: TimeInterval, _ condition: @Sendable () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
-        }
-        return condition()
-    }
-
     private final class BatchBox: @unchecked Sendable {
         let lock = NSLock()
         private var batches: [FileChangeBatch] = []
@@ -38,10 +28,9 @@ struct InotifyFileWatcherTests {
         try? await Task.sleep(nanoseconds: 200_000_000)
         try Data("hi".utf8).write(to: root.appendingPathComponent("hello.astro"))
 
-        let saw = await poll(timeout: 10) {
+        try await waitUntil("the write to be reported", timeout: .seconds(10)) {
             box.all().contains { $0.paths.contains { $0.lastPathComponent == "hello.astro" } && !$0.needsFullRescan }
         }
-        #expect(saw)
     }
 
     @Test("a new subdirectory is watched for its own subsequent changes", .timeLimit(.minutes(1)))
@@ -61,16 +50,16 @@ struct InotifyFileWatcherTests {
 
         // The directory's own creation is reported as a conservative rescan (its initial
         // contents can't be trusted to have been captured file-by-file).
-        let sawRescan = await poll(timeout: 10) { box.all().contains { $0.needsFullRescan } }
-        #expect(sawRescan)
+        try await waitUntil("the new subdirectory to be reported as a rescan", timeout: .seconds(10)) {
+            box.all().contains { $0.needsFullRescan }
+        }
 
         // But a change written into it *after* that settles is tracked precisely, proving the
         // watcher armed a watch on the new subdirectory rather than only on the original root.
         try Data("hi".utf8).write(to: sub.appendingPathComponent("first-post.md"))
-        let sawTargeted = await poll(timeout: 10) {
+        try await waitUntil("the targeted write to be reported", timeout: .seconds(10)) {
             box.all().contains { $0.paths.contains { $0.lastPathComponent == "first-post.md" } && !$0.needsFullRescan }
         }
-        #expect(sawTargeted)
     }
 
     @Test("changes inside a skipped directory name never surface", .timeLimit(.minutes(1)))
@@ -115,7 +104,9 @@ struct InotifyFileWatcherTests {
         try FileManager.default.moveItem(at: sub, to: outside)
         defer { try? FileManager.default.removeItem(at: outside) }
 
-        _ = await poll(timeout: 10) { box.all().contains { $0.needsFullRescan } }
+        try? await waitUntil("the move to be reported as a rescan", timeout: .seconds(10)) {
+            box.all().contains { $0.needsFullRescan }
+        }
         let countAfterMove = box.all().count
 
         // Editing the file at its new, out-of-tree location must not surface here: if the old

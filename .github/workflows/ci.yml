@@ -500,6 +500,11 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Pure `git grep` over Tests/*.swift, no Xcode/build needed — runs first so a violation
+      # fails in seconds instead of after the ~13-14m build+test steps below (#1810).
+      - name: Check no unjustified Task.sleep/usleep in tests
+        run: scripts/check-test-sleep-marker.sh
+
       # The end-to-end tests spawn the real plugin's MCP server, so CI needs the sibling repo
       # present and `npm ci`-installed. Without these, the Swift Testing suites gated with
       # `.enabled(if:)` traits skip cleanly (ANGLESITE_PLUGIN_PATH absent); with them, the full

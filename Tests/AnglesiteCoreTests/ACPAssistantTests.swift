@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 @Suite struct ACPAssistantTests {
@@ -86,12 +87,9 @@ import Foundation
         assistant = nil  // drop the last reference — triggers `deinit`
 
         // `deinit` hands teardown to a detached `Task`, which has no synchronization point this
-        // test can await directly — poll briefly, bounded well within what a real teardown needs.
-        var closed = false
-        for _ in 0..<50 {
-            if await transport.closeCallCount > 0 { closed = true; break }
-            try await Task.sleep(nanoseconds: 10_000_000)
+        // test can await directly — wait for it rather than guessing how long it needs.
+        try await waitUntil("deinit's detached teardown Task to close the transport") {
+            await transport.closeCallCount > 0
         }
-        #expect(closed)
     }
 }
