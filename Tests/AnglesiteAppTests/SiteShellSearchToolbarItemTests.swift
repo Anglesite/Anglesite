@@ -17,6 +17,10 @@ struct SiteShellSearchToolbarItemTests {
             score: 0)
     }
 
+    private func makeModel() -> SiteSearchModel {
+        SiteSearchModel(index: SiteKnowledgeIndex())
+    }
+
     @Test("empty hits produce no menu items")
     func emptyHitsProduceNoItems() {
         let items = SiteShellSearchToolbarItem.suggestionMenuItems(for: [], onSelect: { _ in })
@@ -42,5 +46,39 @@ struct SiteShellSearchToolbarItemTests {
         let item = try! #require(items.first)
         _ = item.target?.perform(item.action, with: item)
         #expect(selected?.path == target.path)
+    }
+
+    /// Regression coverage for the scope menu previously being decorative (no target/action, no
+    /// checked state) despite the class's own doc comment claiming scope switching worked through
+    /// `searchMenuTemplate`. Exercises `selectScope(_:)` directly through the menu item's
+    /// target/action, the same path a real click drives — no window needed since nothing here
+    /// calls `NSMenu.popUp`.
+    @Test("selecting a scope menu item updates model.scope")
+    func selectingScopeUpdatesModel() {
+        let model = makeModel()
+        let item = SiteShellSearchToolbarItem(model: model, activate: { _ in })
+        let menu = try! #require(item.searchField.searchMenuTemplate)
+        let target = try! #require(
+            menu.items.first { ($0.representedObject as? SiteSearchScope) == .posts })
+        #expect(target.action != nil, "scope item needs a real action, not the decorative nil the brief shipped")
+        _ = target.target?.perform(target.action, with: target)
+        #expect(model.scope == .posts)
+    }
+
+    /// `menuNeedsUpdate(_:)` is what keeps the scope menu's checkmark honest — the template
+    /// AppKit copies for display isn't live-bound to `model.scope`, so nothing else refreshes it.
+    @Test("menuNeedsUpdate checks the item matching model.scope, unchecks the rest")
+    func menuNeedsUpdateChecksCurrentScope() {
+        let model = makeModel()
+        model.scope = .components
+        let item = SiteShellSearchToolbarItem(model: model, activate: { _ in })
+        let menu = try! #require(item.searchField.searchMenuTemplate)
+
+        item.menuNeedsUpdate(menu)
+
+        for menuItem in menu.items {
+            let scope = menuItem.representedObject as? SiteSearchScope
+            #expect(menuItem.state == (scope == .components ? .on : .off))
+        }
     }
 }

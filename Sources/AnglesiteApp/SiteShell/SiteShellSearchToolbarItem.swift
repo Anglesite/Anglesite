@@ -1,4 +1,5 @@
 import AppKit
+import Observation
 import AnglesiteCore
 
 /// The AppKit shell's owned search field (#1699 Stage 3 slice 2, design doc §"Toolbar (slice
@@ -20,11 +21,14 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
         super.init(itemIdentifier: Self.identifier)
         toolTip = "Search Site"
         searchField.placeholderString = "Search Site"
-        searchField.searchMenuTemplate = Self.scopeMenuTemplate()
         searchField.stringValue = model.query
+        let scopeMenu = scopeMenuTemplate()
+        scopeMenu.delegate = self
+        searchField.searchMenuTemplate = scopeMenu
         let box = SearchFieldDelegateBox(owner: self)
         searchFieldDelegateBox = box
         searchField.delegate = box
+        observeHits()
     }
 
     @available(*, unavailable)
@@ -47,18 +51,55 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
         }
     }
 
-    /// One `NSMenuItem` per `SiteSearchScope`, checked state mirrors `model.scope`. Rebuilt once
-    /// at init — scope cases are static, unlike the suggestions menu.
-    private static func scopeMenuTemplate() -> NSMenu {
+    /// One `NSMenuItem` per `SiteSearchScope`, self-targeted so picking one updates `model.scope`
+    /// (`NSMenuItem.target` is `weak`, so this doesn't retain-cycle). Built once at init — scope
+    /// cases are static, unlike the suggestions menu — but checked state can't be set here: it's
+    /// installed as `searchField.searchMenuTemplate`, which AppKit copies fresh every time it
+    /// shows the menu rather than displaying this instance directly, so a `.state` set now would
+    /// go stale the moment `model.scope` next changes. `menuNeedsUpdate(_:)` below (the
+    /// `NSMenuDelegate` conformance, mirroring `SiteShellToolbarDelegate`'s Insert menu) refreshes
+    /// it on the template right before AppKit copies it for display instead.
+    private func scopeMenuTemplate() -> NSMenu {
         let menu = NSMenu()
         for scope in SiteSearchScope.allCases {
-            menu.addItem(NSMenuItem(title: String(describing: scope), action: nil, keyEquivalent: ""))
+            let item = NSMenuItem(
+                title: scope.menuItemTitle, action: #selector(selectScope(_:)), keyEquivalent: "")
+            item.target = self
+            item.representedObject = scope
+            menu.addItem(item)
         }
         return menu
     }
 
+    @objc private func selectScope(_ sender: NSMenuItem) {
+        guard let scope = sender.representedObject as? SiteSearchScope else { return }
+        model.scope = scope
+    }
+
+    /// Registers (and, on every fire, re-registers) an `Observation` tracking closure over
+    /// `model.hits`, so the suggestions menu updates once the debounced, async
+    /// `SiteSearchModel.search(siteID:)` actually lands results. `controlTextDidChange` alone
+    /// isn't enough: it calls `presentSuggestions()` synchronously right after writing
+    /// `model.query`, but `search(siteID:)` is driven externally with a 150ms debounce and only
+    /// assigns `hits` once that resolves — so without this, the menu would always show whatever
+    /// `hits` held from the *previous* query and never refresh once the real results land.
+    /// `withObservationTracking`'s `onChange` fires exactly once per registration, hence the
+    /// recursive re-registration; `[weak self]` lets the chain stop cleanly once this item is
+    /// deallocated instead of retaining it forever.
+    private func observeHits() {
+        withObservationTracking {
+            _ = model.hits
+        } onChange: { [weak self] in
+            Task { @MainActor in
+                self?.presentSuggestions()
+                self?.observeHits()
+            }
+        }
+    }
+
     /// Shows the suggestions menu for the model's current `hits`, positioned under the search
-    /// field — called by the delegate box on every text change once results land.
+    /// field — called both by the delegate box on every text change and by `observeHits()` once
+    /// the debounced search actually lands new `hits`.
     fileprivate func presentSuggestions() {
         guard !model.hits.isEmpty else { return }
         let menu = NSMenu()
@@ -108,6 +149,20 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
             guard commandSelector == #selector(NSResponder.insertNewline(_:)) else { return false }
             owner?.submit()
             return true
+        }
+    }
+}
+
+extension SiteShellSearchToolbarItem: NSMenuDelegate {
+    /// Keeps the scope menu's checked state in sync with `model.scope`. `menu` here is the
+    /// *template* (`searchField.searchMenuTemplate`), not the transient copy AppKit actually
+    /// displays — mirrors `SiteShellToolbarDelegate.menuNeedsUpdate(_:)`, the only other place in
+    /// the shell that has to refresh a template menu's contents right before it's shown rather
+    /// than keep them live-bound.
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        for item in menu.items {
+            guard let scope = item.representedObject as? SiteSearchScope else { continue }
+            item.state = scope == model.scope ? .on : .off
         }
     }
 }
