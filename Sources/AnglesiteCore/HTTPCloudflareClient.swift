@@ -144,12 +144,12 @@ private struct CFPageShieldScript: Decodable, Sendable {
 /// PUT/POST/PATCH/DELETE calls) is conformed in an extension below.
 public struct HTTPCloudflareClient: CloudflareReading {
     private static let base = "https://api.cloudflare.com/client/v4"
-    private let transport: CloudflareTransport
+    private let core: CloudflareHTTPCore
 
     /// The transport parameter exists for tests (fake responses, no network); production uses
     /// ``defaultTransport``.
     public init(transport: @escaping CloudflareTransport = HTTPCloudflareClient.defaultTransport) {
-        self.transport = transport
+        self.core = CloudflareHTTPCore(baseURL: Self.base, transport: transport)
     }
 
     /// Production transport: a plain shared-`URLSession` request.
@@ -159,74 +159,10 @@ public struct HTTPCloudflareClient: CloudflareReading {
         return (data, http)
     }
 
-    /// GET `path`, decode `CFEnvelope<T>`, return the whole envelope or throw a mapped error.
-    private func getEnvelope<T: Decodable & Sendable>(_ path: String, apiToken: String, as: T.Type) async throws -> CFEnvelope<T> {
-        guard let url = URL(string: Self.base + path) else { throw CloudflareError.malformedResponse }
-        return try await getEnvelope(url: url, apiToken: apiToken, as: T.self)
-    }
-
-    /// GET `url`, decode `CFEnvelope<T>`, return the whole envelope or throw a mapped error.
-    /// Takes a pre-built `URL` (rather than a path string) so callers with query values that need
-    /// real percent-encoding — e.g. free-text search keywords that may contain `&`/`=`/`+` — can
-    /// build the request with `URLComponents`/`URLQueryItem` instead of manual string interpolation.
-    private func getEnvelope<T: Decodable & Sendable>(url: URL, apiToken: String, as: T.Type) async throws -> CFEnvelope<T> {
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, http) = try await transport(request)
-        if http.statusCode == 401 || http.statusCode == 403 { throw CloudflareError.unauthorized }
-        guard (200..<300).contains(http.statusCode) else { throw CloudflareError.http(status: http.statusCode) }
-        let env: CFEnvelope<T>
-        do {
-            env = try JSONDecoder().decode(CFEnvelope<T>.self, from: data)
-        } catch {
-            throw CloudflareError.malformedResponse
-        }
-        guard env.success else {
-            throw CloudflareError.api(message: env.errors?.first?.message ?? "request failed")
-        }
-        return env
-    }
-
-    /// GET `path` and return the decoded `result`, or throw `.api` when it is absent.
-    private func get<T: Decodable & Sendable>(_ path: String, apiToken: String, as type: T.Type) async throws -> T {
-        let env = try await getEnvelope(path, apiToken: apiToken, as: type)
-        guard let result = env.result else {
-            throw CloudflareError.api(message: env.errors?.first?.message ?? "missing result")
-        }
-        return result
-    }
-
-    /// GET `url` and return the decoded `result`, or throw `.api` when it is absent. See
-    /// `getEnvelope(url:apiToken:as:)` for why this pre-built-`URL` variant exists.
-    private func get<T: Decodable & Sendable>(url: URL, apiToken: String, as type: T.Type) async throws -> T {
-        let env = try await getEnvelope(url: url, apiToken: apiToken, as: type)
-        guard let result = env.result else {
-            throw CloudflareError.api(message: env.errors?.first?.message ?? "missing result")
-        }
-        return result
-    }
-
-    /// Fetch every item across pages (Cloudflare caps `per_page` at 100, so a single page
-    /// silently truncates a list with more than 100 items). `path` must already include its
-    /// own query string (e.g. `...?per_page=100`); `&page=N` is appended per request.
-    private func paginated<T: Decodable & Sendable>(_ path: String, apiToken: String, as type: T.Type) async throws -> [T] {
-        var all: [T] = []
-        var page = 1
-        while true {
-            let env = try await getEnvelope("\(path)&page=\(page)", apiToken: apiToken, as: [T].self)
-            all.append(contentsOf: env.result ?? [])
-            guard let info = env.result_info, info.page < info.total_pages else { break }
-            page += 1
-        }
-        return all
-    }
-
     /// Fetch every DNS record across pages (Cloudflare caps `per_page` at 100, so a
     /// single page silently truncates zones with more records).
     private func allDNSRecords(zoneID: String, apiToken: String) async throws -> [CFDNSRecord] {
-        try await paginated("/zones/\(zoneID)/dns_records?per_page=100", apiToken: apiToken, as: CFDNSRecord.self)
+        try await core.paginated("/zones/\(zoneID)/dns_records?per_page=100", apiToken: apiToken, as: CFDNSRecord.self)
     }
 
     /// Looks the zone up via `GET /zones?name=…&status=active`, then re-checks the name
@@ -235,7 +171,7 @@ public struct HTTPCloudflareClient: CloudflareReading {
     /// else's zone.
     public func resolveZoneID(domain: String, apiToken: String) async throws -> String? {
         let escaped = domain.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? domain
-        let zones = try await get("/zones?name=\(escaped)&status=active", apiToken: apiToken, as: [CFZone].self)
+        let zones = try await core.get("/zones?name=\(escaped)&status=active", apiToken: apiToken, as: [CFZone].self)
         return zones.first(where: { $0.name.lowercased() == domain.lowercased() })?.id
     }
 
@@ -247,10 +183,10 @@ public struct HTTPCloudflareClient: CloudflareReading {
     /// shouldn't sink the whole audit.
     public func zoneState(zoneID: String, domain: String, apiToken: String) async throws -> CloudflareZoneState {
         // Independent reads — fan out concurrently rather than paying 5× round-trip latency.
-        async let dnssecCall = get("/zones/\(zoneID)/dnssec", apiToken: apiToken, as: CFDNSSEC.self)
-        async let sslCall = get("/zones/\(zoneID)/settings/ssl", apiToken: apiToken, as: CFStringSetting.self)
-        async let httpsCall = get("/zones/\(zoneID)/settings/always_use_https", apiToken: apiToken, as: CFStringSetting.self)
-        async let headerCall = get("/zones/\(zoneID)/settings/security_header", apiToken: apiToken, as: CFSecurityHeader.self)
+        async let dnssecCall = core.get("/zones/\(zoneID)/dnssec", apiToken: apiToken, as: CFDNSSEC.self)
+        async let sslCall = core.get("/zones/\(zoneID)/settings/ssl", apiToken: apiToken, as: CFStringSetting.self)
+        async let httpsCall = core.get("/zones/\(zoneID)/settings/always_use_https", apiToken: apiToken, as: CFStringSetting.self)
+        async let headerCall = core.get("/zones/\(zoneID)/settings/security_header", apiToken: apiToken, as: CFSecurityHeader.self)
         async let recordsCall = allDNSRecords(zoneID: zoneID, apiToken: apiToken)
 
         let dnssec = try await dnssecCall
@@ -262,7 +198,7 @@ public struct HTTPCloudflareClient: CloudflareReading {
 
         let botFight: Bool
         do {
-            let bot = try await get("/zones/\(zoneID)/settings/bot_management", apiToken: apiToken, as: CFBotManagement.self)
+            let bot = try await core.get("/zones/\(zoneID)/settings/bot_management", apiToken: apiToken, as: CFBotManagement.self)
             botFight = bot.fight_mode ?? false
         } catch {
             botFight = false
@@ -309,11 +245,11 @@ public struct HTTPCloudflareClient: CloudflareReading {
     }
 
     private func fetchWAFCustomRules(zoneID: String, apiToken: String) async throws -> [CloudflareZoneState.WAFCustomRule] {
-        let rulesets = try await get("/zones/\(zoneID)/rulesets", apiToken: apiToken, as: [CFRuleset].self)
+        let rulesets = try await core.get("/zones/\(zoneID)/rulesets", apiToken: apiToken, as: [CFRuleset].self)
         guard let custom = rulesets.first(where: { $0.phase == "http_request_firewall_custom" }) else {
             return []
         }
-        let full = try await get("/zones/\(zoneID)/rulesets/\(custom.id)", apiToken: apiToken, as: CFRuleset.self)
+        let full = try await core.get("/zones/\(zoneID)/rulesets/\(custom.id)", apiToken: apiToken, as: CFRuleset.self)
         return (full.rules ?? []).map {
             .init(description: $0.description ?? "", expression: $0.expression, action: $0.action)
         }
@@ -321,13 +257,13 @@ public struct HTTPCloudflareClient: CloudflareReading {
 
     /// Reads an on/off zone setting, defaulting to `false` when the token can't see it.
     private func settingIsOn(_ path: String, apiToken: String) async -> Bool {
-        ((try? await get(path, apiToken: apiToken, as: CFStringSetting.self))?.value.lowercased()) == "on"
+        ((try? await core.get(path, apiToken: apiToken, as: CFStringSetting.self))?.value.lowercased()) == "on"
     }
 
     private func zstdEnabled(zoneID: String, apiToken: String) async -> Bool {
-        guard let rulesets = try? await get("/zones/\(zoneID)/rulesets", apiToken: apiToken, as: [CFRuleset].self),
+        guard let rulesets = try? await core.get("/zones/\(zoneID)/rulesets", apiToken: apiToken, as: [CFRuleset].self),
               let compression = rulesets.first(where: { $0.phase == "http_response_compression" }),
-              let full = try? await get("/zones/\(zoneID)/rulesets/\(compression.id)", apiToken: apiToken, as: CFRuleset.self)
+              let full = try? await core.get("/zones/\(zoneID)/rulesets/\(compression.id)", apiToken: apiToken, as: CFRuleset.self)
         else { return false }
         return (full.rules ?? []).contains { rule in
             rule.action == "compress_response"
@@ -336,13 +272,13 @@ public struct HTTPCloudflareClient: CloudflareReading {
     }
 
     private func pageShieldState(zoneID: String, apiToken: String) async -> CloudflareZoneState.PageShieldState? {
-        guard let shield = try? await get("/zones/\(zoneID)/page_shield", apiToken: apiToken, as: CFPageShield.self) else {
+        guard let shield = try? await core.get("/zones/\(zoneID)/page_shield", apiToken: apiToken, as: CFPageShield.self) else {
             return nil
         }
         let enabled = shield.enabled ?? false
         var hosts: [String] = []
         if enabled,
-           let scripts = try? await get("/zones/\(zoneID)/page_shield/scripts", apiToken: apiToken, as: [CFPageShieldScript].self) {
+           let scripts = try? await core.get("/zones/\(zoneID)/page_shield/scripts", apiToken: apiToken, as: [CFPageShieldScript].self) {
             hosts = Set(scripts.compactMap { $0.host ?? $0.url.flatMap { URL(string: $0)?.host } }).sorted()
         }
         return .init(enabled: enabled, scriptHosts: hosts)
@@ -351,7 +287,7 @@ public struct HTTPCloudflareClient: CloudflareReading {
     /// Lists every DNS record in the zone, walking all pages (Cloudflare caps `per_page` at
     /// 100, so a single-page read silently truncates larger zones).
     public func listDNSRecords(zoneID: String, apiToken: String) async throws -> [DNSRecord] {
-        let raw = try await paginated("/zones/\(zoneID)/dns_records?per_page=100", apiToken: apiToken, as: CFFullDNSRecord.self)
+        let raw = try await core.paginated("/zones/\(zoneID)/dns_records?per_page=100", apiToken: apiToken, as: CFFullDNSRecord.self)
         return raw.map {
             DNSRecord(id: $0.id, type: $0.type, name: $0.name, content: $0.content,
                       ttl: $0.ttl, proxied: $0.proxied ?? false, comment: $0.comment)
@@ -362,84 +298,13 @@ public struct HTTPCloudflareClient: CloudflareReading {
     /// Cloudflare token virtually always sees exactly one), walking all pages. Throws
     /// ``CloudflareError/api(message:)`` when the token can see no account at all.
     public func workerScriptNames(apiToken: String) async throws -> [String] {
-        let accounts = try await get("/accounts?per_page=1", apiToken: apiToken, as: [CFAccount].self)
+        let accounts = try await core.get("/accounts?per_page=1", apiToken: apiToken, as: [CFAccount].self)
         guard let accountID = accounts.first?.id else {
             throw CloudflareError.api(message: "no Cloudflare account visible to this token")
         }
-        let scripts = try await paginated(
+        let scripts = try await core.paginated(
             "/accounts/\(accountID)/workers/scripts?per_page=100", apiToken: apiToken, as: CFWorkerScript.self)
         return scripts.map(\.id)
-    }
-
-    // MARK: - Write helpers
-
-    /// Builds and sends a `method` request to `path` with an encoded `body`, then maps
-    /// 401/403 to ``CloudflareError/unauthorized`` and any other non-2xx status to
-    /// ``CloudflareError/http(status:)``. Shared by `mutate(method:_:body:apiToken:)` (which
-    /// only checks the envelope's `success` flag) and the Registrar `post` helper below (which
-    /// also decodes and returns the envelope's `result`) — both need identical request
-    /// construction and status handling and previously duplicated it verbatim.
-    /// `passthroughStatuses` mirrors `fetchRaw`'s parameter of the same name: statuses a caller
-    /// opts out of the `.http` mapping so it can inspect the response body itself (e.g. a 400
-    /// whose error envelope carries an actionable Cloudflare error code).
-    private func send<Body: Encodable & Sendable>(
-        method: String,
-        _ path: String,
-        body: Body,
-        apiToken: String,
-        passthroughStatuses: Set<Int> = []
-    ) async throws -> (Data, HTTPURLResponse) {
-        guard let url = URL(string: Self.base + path) else { throw CloudflareError.malformedResponse }
-        var request = URLRequest(url: url)
-        request.httpMethod = method
-        request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(body)
-        let (data, http) = try await transport(request)
-        if passthroughStatuses.contains(http.statusCode) { return (data, http) }
-        if http.statusCode == 401 || http.statusCode == 403 { throw CloudflareError.unauthorized }
-        guard (200..<300).contains(http.statusCode) else { throw CloudflareError.http(status: http.statusCode) }
-        return (data, http)
-    }
-
-    /// GET `path` with no body, mapping 401/403 to ``CloudflareError/unauthorized`` and any other
-    /// non-2xx status to ``CloudflareError/http(status:)`` — the read-side counterpart to
-    /// `send(method:_:body:apiToken:)`, for endpoints (like URL Scanner) that don't wrap responses
-    /// in the `{success, result, errors}` v4 envelope `getEnvelope`/`get` assume, so those helpers
-    /// don't fit. `passthroughStatuses` lets a caller opt specific non-2xx statuses out of the
-    /// `.http` mapping to inspect the raw response itself (e.g. a 404 that means "not ready yet"
-    /// rather than "doesn't exist").
-    private func fetchRaw(
-        _ path: String, apiToken: String, passthroughStatuses: Set<Int> = []
-    ) async throws -> (Data, HTTPURLResponse) {
-        guard let url = URL(string: Self.base + path) else { throw CloudflareError.malformedResponse }
-        var request = URLRequest(url: url)
-        request.httpMethod = "GET"
-        request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
-        request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, http) = try await transport(request)
-        if passthroughStatuses.contains(http.statusCode) { return (data, http) }
-        if http.statusCode == 401 || http.statusCode == 403 { throw CloudflareError.unauthorized }
-        guard (200..<300).contains(http.statusCode) else { throw CloudflareError.http(status: http.statusCode) }
-        return (data, http)
-    }
-
-    private func mutate<Body: Encodable & Sendable>(
-        method: String,
-        _ path: String,
-        body: Body,
-        apiToken: String
-    ) async throws {
-        let (data, _) = try await send(method: method, path, body: body, apiToken: apiToken)
-        let env: CFEnvelope<CFEmpty>
-        do {
-            env = try JSONDecoder().decode(CFEnvelope<CFEmpty>.self, from: data)
-        } catch {
-            throw CloudflareError.malformedResponse
-        }
-        if !env.success {
-            throw CloudflareError.api(message: env.errors?.first?.message ?? "request failed")
-        }
     }
 }
 
@@ -449,14 +314,14 @@ extension HTTPCloudflareClient: CloudflareWriting {
     /// `PUT /zones/{id}/dnssec` with `status: active`. Enable-only — the app hardens; it never
     /// offers a "turn DNSSEC back off" path.
     public func enableDNSSEC(zoneID: String, apiToken: String) async throws {
-        try await mutate(method: "PUT", "/zones/\(zoneID)/dnssec",
+        try await core.mutate(method: "PUT", "/zones/\(zoneID)/dnssec",
                          body: ["status": "active"], apiToken: apiToken)
     }
 
     /// `PUT /zones/{id}/settings/always_use_https`, mapping `enabled` to the API's `"on"/"off"`
     /// string values.
     public func setAlwaysUseHTTPS(zoneID: String, enabled: Bool, apiToken: String) async throws {
-        try await mutate(method: "PUT", "/zones/\(zoneID)/settings/always_use_https",
+        try await core.mutate(method: "PUT", "/zones/\(zoneID)/settings/always_use_https",
                          body: ["value": enabled ? "on" : "off"], apiToken: apiToken)
     }
 
@@ -478,27 +343,27 @@ extension HTTPCloudflareClient: CloudflareWriting {
         }
         let body = HSTSBody(value: .init(strict_transport_security: .init(
             enabled: true, max_age: maxAge, include_subdomains: includeSubdomains, preload: preload)))
-        try await mutate(method: "PUT", "/zones/\(zoneID)/settings/security_header",
+        try await core.mutate(method: "PUT", "/zones/\(zoneID)/settings/security_header",
                          body: body, apiToken: apiToken)
     }
 
     /// `POST /zones/{id}/dns_records` — ``DNSRecordPayload`` encodes directly as the request
     /// body, so what the seam accepts and what goes over the wire can't drift apart.
     public func addDNSRecord(zoneID: String, record: DNSRecordPayload, apiToken: String) async throws {
-        try await mutate(method: "POST", "/zones/\(zoneID)/dns_records",
+        try await core.mutate(method: "POST", "/zones/\(zoneID)/dns_records",
                          body: record, apiToken: apiToken)
     }
 
     /// `DELETE /zones/{id}/dns_records/{recordID}` (with an empty JSON body Cloudflare
     /// tolerates, so the shared `mutate` helper needs no body-less variant).
     public func deleteDNSRecord(zoneID: String, recordID: String, apiToken: String) async throws {
-        try await mutate(method: "DELETE", "/zones/\(zoneID)/dns_records/\(recordID)",
+        try await core.mutate(method: "DELETE", "/zones/\(zoneID)/dns_records/\(recordID)",
                          body: CFEmptyBody(), apiToken: apiToken)
     }
 
     /// `PATCH /zones/{id}/bot_management` toggling `fight_mode`.
     public func setBotFightMode(zoneID: String, enabled: Bool, apiToken: String) async throws {
-        try await mutate(method: "PATCH", "/zones/\(zoneID)/bot_management",
+        try await core.mutate(method: "PATCH", "/zones/\(zoneID)/bot_management",
                          body: ["fight_mode": enabled], apiToken: apiToken)
     }
 
@@ -506,11 +371,11 @@ extension HTTPCloudflareClient: CloudflareWriting {
     /// ruleset first when the zone has never had one — a fresh zone has no custom-rules
     /// ruleset, and a bare rule-POST would 404 there.
     public func createWAFCustomRule(zoneID: String, rule: WAFRulePayload, apiToken: String) async throws {
-        let rulesets = try await get("/zones/\(zoneID)/rulesets", apiToken: apiToken, as: [CFRuleset].self)
+        let rulesets = try await core.get("/zones/\(zoneID)/rulesets", apiToken: apiToken, as: [CFRuleset].self)
         let existing = rulesets.first(where: { $0.phase == "http_request_firewall_custom" })
 
         if let rs = existing {
-            try await mutate(method: "POST", "/zones/\(zoneID)/rulesets/\(rs.id)/rules",
+            try await core.mutate(method: "POST", "/zones/\(zoneID)/rulesets/\(rs.id)/rules",
                              body: rule, apiToken: apiToken)
         } else {
             struct NewRuleset: Encodable, Sendable {
@@ -519,7 +384,7 @@ extension HTTPCloudflareClient: CloudflareWriting {
                 let phase: String
                 let rules: [WAFRulePayload]
             }
-            try await mutate(method: "POST", "/zones/\(zoneID)/rulesets",
+            try await core.mutate(method: "POST", "/zones/\(zoneID)/rulesets",
                              body: NewRuleset(name: "Anglesite security rules",
                                               kind: "zone", phase: "http_request_firewall_custom",
                                               rules: [rule]),
@@ -529,28 +394,28 @@ extension HTTPCloudflareClient: CloudflareWriting {
 
     /// `PATCH /zones/{id}/settings/speed_brain`, mapping `enabled` to `"on"/"off"`.
     public func setSpeedBrain(zoneID: String, enabled: Bool, apiToken: String) async throws {
-        try await mutate(method: "PATCH", "/zones/\(zoneID)/settings/speed_brain",
+        try await core.mutate(method: "PATCH", "/zones/\(zoneID)/settings/speed_brain",
                          body: ["value": enabled ? "on" : "off"], apiToken: apiToken)
     }
 
     /// `PATCH /zones/{id}/settings/ech` (Encrypted Client Hello), mapping `enabled` to
     /// `"on"/"off"`.
     public func setECH(zoneID: String, enabled: Bool, apiToken: String) async throws {
-        try await mutate(method: "PATCH", "/zones/\(zoneID)/settings/ech",
+        try await core.mutate(method: "PATCH", "/zones/\(zoneID)/settings/ech",
                          body: ["value": enabled ? "on" : "off"], apiToken: apiToken)
     }
 
     /// `PUT /zones/{id}/page_shield` — this endpoint takes a real boolean `enabled`, unlike the
     /// `"on"/"off"`-string settings endpoints.
     public func setPageShield(zoneID: String, enabled: Bool, apiToken: String) async throws {
-        try await mutate(method: "PUT", "/zones/\(zoneID)/page_shield",
+        try await core.mutate(method: "PUT", "/zones/\(zoneID)/page_shield",
                          body: ["enabled": enabled], apiToken: apiToken)
     }
 
     /// `PATCH /zones/{id}/settings/opportunistic_onion` (Onion Routing for Tor visitors),
     /// mapping `enabled` to `"on"/"off"`.
     public func enableOnionRouting(zoneID: String, enabled: Bool, apiToken: String) async throws {
-        try await mutate(method: "PATCH", "/zones/\(zoneID)/settings/opportunistic_onion",
+        try await core.mutate(method: "PATCH", "/zones/\(zoneID)/settings/opportunistic_onion",
                          body: ["value": enabled ? "on" : "off"], apiToken: apiToken)
     }
 
@@ -568,12 +433,12 @@ extension HTTPCloudflareClient: CloudflareWriting {
         guard let zoneID = try await resolveZoneID(domain: hostname, apiToken: apiToken) else {
             return .zoneNotFound
         }
-        let accounts = try await get("/accounts?per_page=1", apiToken: apiToken, as: [CFAccount].self)
+        let accounts = try await core.get("/accounts?per_page=1", apiToken: apiToken, as: [CFAccount].self)
         guard let accountID = accounts.first?.id else {
             throw CloudflareError.api(message: "no Cloudflare account visible to this token")
         }
         let escapedHostname = hostname.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? hostname
-        let existing = try await get(
+        let existing = try await core.get(
             "/accounts/\(accountID)/workers/domains?hostname=\(escapedHostname)",
             apiToken: apiToken, as: [CFWorkerDomain].self
         )
@@ -586,7 +451,7 @@ extension HTTPCloudflareClient: CloudflareWriting {
             let service: String
             let environment: String
         }
-        try await mutate(
+        try await core.mutate(
             method: "PUT", "/accounts/\(accountID)/workers/domains",
             body: AttachBody(zone_id: zoneID, hostname: hostname, service: workerScriptName, environment: "production"),
             apiToken: apiToken
@@ -598,7 +463,7 @@ extension HTTPCloudflareClient: CloudflareWriting {
     /// shape as `setSpeedBrain`/`setECH`. See ``CloudflareWriting/setMarkdownForAgents(hostname:enabled:apiToken:)``.
     public func setMarkdownForAgents(hostname: String, enabled: Bool, apiToken: String) async throws -> Bool {
         guard let zoneID = try await resolveZoneID(domain: hostname, apiToken: apiToken) else { return false }
-        try await mutate(method: "PATCH", "/zones/\(zoneID)/settings/content_converter",
+        try await core.mutate(method: "PATCH", "/zones/\(zoneID)/settings/content_converter",
                          body: ["value": enabled ? "on" : "off"], apiToken: apiToken)
         return true
     }
@@ -626,15 +491,15 @@ extension HTTPCloudflareClient: CloudflareWriting {
                 .init(name: "zstd"), .init(name: "brotli"), .init(name: "gzip"),
             ]))
 
-        let rulesets = try await get("/zones/\(zoneID)/rulesets", apiToken: apiToken, as: [CFRuleset].self)
+        let rulesets = try await core.get("/zones/\(zoneID)/rulesets", apiToken: apiToken, as: [CFRuleset].self)
         if let existing = rulesets.first(where: { $0.phase == "http_response_compression" }) {
-            let full = try await get("/zones/\(zoneID)/rulesets/\(existing.id)", apiToken: apiToken, as: CFRuleset.self)
+            let full = try await core.get("/zones/\(zoneID)/rulesets/\(existing.id)", apiToken: apiToken, as: CFRuleset.self)
             let alreadyHasZstd = (full.rules ?? []).contains { rule in
                 rule.action == "compress_response"
                     && (rule.action_parameters?.algorithms ?? []).contains { $0.name == "zstd" }
             }
             if alreadyHasZstd { return }
-            try await mutate(method: "POST", "/zones/\(zoneID)/rulesets/\(existing.id)/rules",
+            try await core.mutate(method: "POST", "/zones/\(zoneID)/rulesets/\(existing.id)/rules",
                              body: rule, apiToken: apiToken)
         } else {
             struct NewRuleset: Encodable, Sendable {
@@ -643,7 +508,7 @@ extension HTTPCloudflareClient: CloudflareWriting {
                 let phase: String
                 let rules: [CompressionRule]
             }
-            try await mutate(method: "POST", "/zones/\(zoneID)/rulesets",
+            try await core.mutate(method: "POST", "/zones/\(zoneID)/rulesets",
                              body: NewRuleset(name: "Anglesite compression rules",
                                               kind: "zone", phase: "http_response_compression",
                                               rules: [rule]),
@@ -655,51 +520,11 @@ extension HTTPCloudflareClient: CloudflareWriting {
 // MARK: - CloudflareRegistrarReading conformance
 
 extension HTTPCloudflareClient: CloudflareRegistrarReading {
-    /// Resolves the token's first visible account id — every Registrar endpoint is
-    /// account-scoped. Mirrors `workerScriptNames`'s resolution exactly.
-    private func resolveAccountID(apiToken: String) async throws -> String {
-        let accounts = try await get("/accounts?per_page=1", apiToken: apiToken, as: [CFAccount].self)
-        guard let accountID = accounts.first?.id else {
-            throw CloudflareError.api(message: "no Cloudflare account visible to this token")
-        }
-        return accountID
-    }
-
     /// Public entry point for the token's first visible account id — for callers that need it
     /// directly rather than through one of this type's already-account-scoped operations (e.g.
     /// `SocialWorkerProvisionCommand`'s inbox-capture provisioning, #764).
     public func accountID(apiToken: String) async throws -> String {
-        try await resolveAccountID(apiToken: apiToken)
-    }
-
-    /// POST `path` with `body`, decode `CFEnvelope<T>`, return its `result` — like `get`, but for
-    /// POST calls that need the decoded payload back (unlike `mutate`, which only checks success).
-    /// Shares request construction and status mapping with `mutate` via `send(method:_:body:apiToken:)`.
-    private func post<Body: Encodable & Sendable, T: Decodable & Sendable>(
-        _ path: String, body: Body, apiToken: String, as type: T.Type
-    ) async throws -> T {
-        let (data, _) = try await send(method: "POST", path, body: body, apiToken: apiToken)
-        return try Self.decodeEnvelopeResult(from: data, as: T.self)
-    }
-
-    /// Decodes a `CFEnvelope<T>` response body and returns its `result`, mapping an
-    /// undecodable body to ``CloudflareError/malformedResponse`` and a `success: false` or
-    /// missing `result` to ``CloudflareError/api(message:)``. Shared by `post` and
-    /// `createAISearchInstance` (which can't use `post` because it inspects 400 bodies itself).
-    private static func decodeEnvelopeResult<T: Decodable & Sendable>(from data: Data, as type: T.Type) throws -> T {
-        let env: CFEnvelope<T>
-        do {
-            env = try JSONDecoder().decode(CFEnvelope<T>.self, from: data)
-        } catch {
-            throw CloudflareError.malformedResponse
-        }
-        guard env.success else {
-            throw CloudflareError.api(message: env.errors?.first?.message ?? "request failed")
-        }
-        guard let result = env.result else {
-            throw CloudflareError.api(message: env.errors?.first?.message ?? "missing result")
-        }
-        return result
+        try await core.resolveAccountID(apiToken: apiToken)
     }
 
     /// See ``CloudflareRegistrarReading/searchDomains(query:apiToken:)``.
@@ -717,7 +542,7 @@ extension HTTPCloudflareClient: CloudflareRegistrarReading {
     /// by hand — down to RFC 3986 unreserved characters, which also covers `&`/`=` — and assigned via
     /// `percentEncodedQueryItems` rather than `queryItems` (which would double-encode it).
     public func searchDomains(query: String, apiToken: String) async throws -> [String] {
-        let accountID = try await resolveAccountID(apiToken: apiToken)
+        let accountID = try await core.resolveAccountID(apiToken: apiToken)
         guard var components = URLComponents(string: Self.base + "/accounts/\(accountID)/registrar/domain-search") else {
             throw CloudflareError.malformedResponse
         }
@@ -731,14 +556,14 @@ extension HTTPCloudflareClient: CloudflareRegistrarReading {
             URLQueryItem(name: "limit", value: "20"),
         ]
         guard let url = components.url else { throw CloudflareError.malformedResponse }
-        let response = try await get(url: url, apiToken: apiToken, as: CFRegistrarSearchResponse.self)
+        let response = try await core.get(url: url, apiToken: apiToken, as: CFRegistrarSearchResponse.self)
         return response.domains.map(\.name)
     }
 
     /// See ``CloudflareRegistrarReading/checkDomainAvailability(domains:apiToken:)``.
     public func checkDomainAvailability(domains: [String], apiToken: String) async throws -> [RegistrarDomainCheck] {
-        let accountID = try await resolveAccountID(apiToken: apiToken)
-        let response = try await post(
+        let accountID = try await core.resolveAccountID(apiToken: apiToken)
+        let response = try await core.post(
             "/accounts/\(accountID)/registrar/domain-check",
             body: CFRegistrarCheckRequest(domains: domains), apiToken: apiToken,
             as: CFRegistrarCheckResponse.self)
@@ -756,13 +581,13 @@ extension HTTPCloudflareClient: CloudflareRegistrarWriting {
     /// `POST /accounts/{id}/registrar/registrations`. See
     /// ``CloudflareRegistrarWriting/registerDomain(name:apiToken:)``.
     ///
-    /// Reuses `send(method:_:body:apiToken:)` for request construction and 401/403/non-2xx
+    /// Reuses `core.send(method:_:body:apiToken:)` for request construction and 401/403/non-2xx
     /// mapping (201 and 202 both already fall inside `send`'s 200..<300 success range) rather
     /// than duplicating that logic a third time alongside `mutate`/`post` — the only thing this
     /// call needs beyond `send` is branching on which 2xx status came back.
     public func registerDomain(name: String, apiToken: String) async throws -> RegistrarRegistrationOutcome {
-        let accountID = try await resolveAccountID(apiToken: apiToken)
-        let (data, http) = try await send(
+        let accountID = try await core.resolveAccountID(apiToken: apiToken)
+        let (data, http) = try await core.send(
             method: "POST", "/accounts/\(accountID)/registrar/registrations",
             body: CFRegistrarRegisterRequest(domain_name: name), apiToken: apiToken)
         if http.statusCode == 202 {
@@ -803,7 +628,7 @@ extension HTTPCloudflareClient: CloudflareRegistrarWriting {
     ) async throws -> RegistrarRegistrationOutcome {
         for _ in 0..<6 {
             try? await Task.sleep(for: .milliseconds(2500))
-            let state = try await get(
+            let state = try await core.get(
                 "/accounts/\(accountID)/registrar/registrations/\(domain)/registration-status",
                 apiToken: apiToken, as: CFRegistrarRegistrationState.self)
             let outcome = Self.outcome(forState: state.state)
@@ -819,10 +644,10 @@ extension HTTPCloudflareClient: CloudflareRegistrarWriting {
 extension HTTPCloudflareClient: AgentReadinessScanning {
     /// `POST /accounts/{id}/urlscanner/v2/scan` with `options.agentReadiness: true`. Submitted
     /// `unlisted` — the app shouldn't publish an owner's scan to Cloudflare's public URL Scanner
-    /// listing without their say-so. Reuses `resolveAccountID` (the Registrar conformance above,
-    /// same file so its `private` scope still applies) since URL Scanner is account-scoped too.
+    /// listing without their say-so. Reuses `core.resolveAccountID` since URL Scanner is
+    /// account-scoped too.
     public func submitAgentReadinessScan(url: URL, apiToken: String) async throws -> UUID {
-        let accountID = try await resolveAccountID(apiToken: apiToken)
+        let accountID = try await core.resolveAccountID(apiToken: apiToken)
         struct ScanRequest: Encodable, Sendable {
             struct Options: Encodable, Sendable { let agentReadiness: Bool }
             let url: String
@@ -830,7 +655,7 @@ extension HTTPCloudflareClient: AgentReadinessScanning {
             let options: Options
         }
         let body = ScanRequest(url: url.absoluteString, visibility: "unlisted", options: .init(agentReadiness: true))
-        let (data, _) = try await send(method: "POST", "/accounts/\(accountID)/urlscanner/v2/scan", body: body, apiToken: apiToken)
+        let (data, _) = try await core.send(method: "POST", "/accounts/\(accountID)/urlscanner/v2/scan", body: body, apiToken: apiToken)
         let submission: CFURLScanSubmission
         do {
             submission = try JSONDecoder().decode(CFURLScanSubmission.self, from: data)
@@ -857,8 +682,8 @@ extension HTTPCloudflareClient: AgentReadinessScanning {
     /// response that doesn't even decode as the expected shape is left as `.malformedResponse` —
     /// that's a different, more clearly broken case than an optional inner section being absent.
     public func agentReadinessResult(scanID: UUID, apiToken: String) async throws -> AgentReadinessReport? {
-        let accountID = try await resolveAccountID(apiToken: apiToken)
-        let (data, http) = try await fetchRaw(
+        let accountID = try await core.resolveAccountID(apiToken: apiToken)
+        let (data, http) = try await core.fetchRaw(
             "/accounts/\(accountID)/urlscanner/v2/result/\(scanID.uuidString.lowercased())",
             apiToken: apiToken, passthroughStatuses: [404])
         if http.statusCode == 404 { return nil }
@@ -909,8 +734,7 @@ extension HTTPCloudflareClient: AgentReadinessScanning {
 
 extension HTTPCloudflareClient: AISearchProvisioning {
     /// `POST /accounts/{id}/ai-search/instances`, creating a web-crawler-backed AI Search
-    /// instance for `domain`. Resolves the account first via `resolveAccountID` (the Registrar
-    /// conformance above, same file so its `private` scope still applies).
+    /// instance for `domain`. Resolves the account first via `core.resolveAccountID`.
     ///
     /// Unlike the other write paths, a 400 here is passed through and its error envelope
     /// decoded (#1486): Cloudflare validates the source website at create time, and a source
@@ -929,18 +753,18 @@ extension HTTPCloudflareClient: AISearchProvisioning {
     public func createAISearchInstance(
         domain: String, instanceID: String, apiToken: String
     ) async throws -> AISearchInstance {
-        let accountID = try await resolveAccountID(apiToken: apiToken)
+        let accountID = try await core.resolveAccountID(apiToken: apiToken)
         struct CreateBody: Encodable, Sendable {
             let id: String
             let type: String
             let source: String
         }
-        let (data, http) = try await send(
+        let (data, http) = try await core.send(
             method: "POST", "/accounts/\(accountID)/ai-search/instances",
             body: CreateBody(id: instanceID, type: "web-crawler", source: domain),
             apiToken: apiToken, passthroughStatuses: [400])
         if http.statusCode == 400 { throw Self.createFailureError(from: data) }
-        let result = try Self.decodeEnvelopeResult(from: data, as: CFAISearchInstance.self)
+        let result = try CloudflareHTTPCore.decodeEnvelopeResult(from: data, as: CFAISearchInstance.self)
         return AISearchInstance(id: result.id, name: result.name ?? instanceID)
     }
 
@@ -962,9 +786,9 @@ extension HTTPCloudflareClient: AISearchProvisioning {
     /// `GET /accounts/{id}/ai-search/instances/{id}`, returning just the instance's configured
     /// `source` (the crawled domain). See ``AISearchProvisioning/aiSearchInstanceSource(instanceID:apiToken:)``.
     public func aiSearchInstanceSource(instanceID: String, apiToken: String) async throws -> String {
-        let accountID = try await resolveAccountID(apiToken: apiToken)
+        let accountID = try await core.resolveAccountID(apiToken: apiToken)
         struct CFAISearchInstanceDetail: Decodable, Sendable { let source: String }
-        let result = try await get(
+        let result = try await core.get(
             "/accounts/\(accountID)/ai-search/instances/\(instanceID)", apiToken: apiToken,
             as: CFAISearchInstanceDetail.self)
         return result.source
