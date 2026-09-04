@@ -24,8 +24,8 @@ struct SocialWorkerProvisionCommandTests {
     @Test("first-ever deploy (no existing wrangler.toml/CF_PROJECT_NAME) sends a non-empty database name as the d1 create positional argument")
     func firstDeployD1CreateArgumentsAreWellFormed() async throws {
         // Regression coverage for a suspected first-deploy D1-provisioning bug: a brand-new site
-        // (empty `siteDirectory`, so `readPersistedResources` finds no wrangler.toml and
-        // `knownResources` defaults to `.init()`) with a D1-needing worker active. The concern was
+        // (empty `siteDirectory`, `knownResources` defaults to `.init()`) with a D1-needing
+        // worker active. The concern was
         // that `wrangler d1 create <name> --json` might reach the real subprocess with an empty/
         // missing name positional (reproducing wrangler's own "Not enough non-option arguments"
         // usage synopsis) — this asserts the exact argv `runWrangler` hands to the `CommandRunner`
@@ -811,19 +811,9 @@ struct SocialWorkerProvisionCommandTests {
         #expect(await recorder.arguments.isEmpty)
     }
 
-    @Test("reuses persisted resource ids and does not recreate Cloudflare backing stores")
+    @Test("reuses known resource ids and does not recreate Cloudflare backing stores")
     func reusesPersistedResources() async throws {
         let site = try temporaryDirectory()
-        let existing = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site",
-            workers: v3Workers,
-            // r2BucketName must follow the deterministic `<site>-media` suffix that
-            // readPersistedResources classifies on, unlike the d1/kv ids which are
-            // read back via first-match and can be arbitrary.
-            resources: .init(d1DatabaseID: "d1-existing", kvNamespaceID: "kv-existing", r2BucketName: "my-site-media")
-        )
-        try existing.toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
-
         let recorder = WranglerRecorder([
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
         ])
@@ -837,7 +827,17 @@ struct SocialWorkerProvisionCommandTests {
             siteID: "site-1",
             siteDirectory: site,
             siteName: "my-site",
-            workers: v3Workers
+            workers: v3Workers,
+            // Every resource v3Workers could need is already known (as it would be from
+            // `SiteSettings.provisionedWorkerResources`, #1015/#1821) — including the webmention
+            // and websub queues, so the paid-plan confirmation gate never triggers.
+            knownResources: .init(
+                d1DatabaseID: "d1-existing",
+                kvNamespaceID: "kv-existing",
+                r2BucketName: "my-site-media",
+                queueName: "my-site-webmention",
+                websubQueueName: "my-site-websub"
+            )
         )
 
         guard case .succeeded(_, let resources, _) = result else {
@@ -970,70 +970,6 @@ struct SocialWorkerProvisionCommandTests {
         #expect(SocialWorkerProvisionCommand.extractResourceID(from: #"{"id":"kv-id"}"#) == "kv-id")
         #expect(SocialWorkerProvisionCommand.extractResourceID(from: #"{"result":[{"database_id":"db-id"}]}"#) == "db-id")
         #expect(SocialWorkerProvisionCommand.extractResourceID(from: #"binding = "SOCIAL_KV"\nid = "text-id""#) == "text-id")
-    }
-
-    @Test("reads persisted resource ids from active wrangler.toml bindings only")
-    func persistedResourceParsing() throws {
-        let site = try temporaryDirectory()
-        let toml = """
-        # id = "commented-kv"
-        name = "my-site"
-        [[d1_databases]]
-        database_id = "d1-id"
-        [[kv_namespaces]]
-        binding = "SOCIAL_KV"
-        id = "kv-id"
-        [[r2_buckets]]
-        bucket_name = "my-site-media"
-        """
-        try toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
-
-        let resources = SocialWorkerProvisionCommand.readPersistedResources(from: site)
-
-        #expect(resources.d1DatabaseID == "d1-id")
-        #expect(resources.kvNamespaceID == "kv-id")
-        #expect(resources.r2BucketName == "my-site-media")
-    }
-
-    @Test("knownResources is reused instead of re-scraping wrangler.toml, so a deactivated-then-reactivated worker doesn't recreate its Cloudflare resource")
-    func reusesKnownResourcesOverFileScrape() async throws {
-        let site = try temporaryDirectory()
-        // wrangler.toml on disk reflects the CURRENT (deactivated) feature set — no R2 block, so
-        // a file-scrape alone would find no bucket name and try to recreate it.
-        let currentToml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site",
-            workers: [indieauthWorker],
-            resources: .init(d1DatabaseID: "d1-id", kvNamespaceID: "kv-id", r2BucketName: nil)
-        )
-        try currentToml.toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
-
-        // knownResources (as persisted in SiteSettings before deactivation) still remembers the bucket.
-        let known = WorkerComposition.ProvisionedResources(
-            d1DatabaseID: "d1-id", kvNamespaceID: "kv-id", r2BucketName: "my-site-media"
-        )
-        let recorder = WranglerRecorder([
-            ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
-        ])
-        let command = SocialWorkerProvisionCommand(
-            tokenSource: { "token" },
-            runner: recorder.runner,
-            deployer: DeployRecorder(result: .succeeded(url: URL(string: "https://my-site.example.workers.dev")!, duration: 1)).deployer
-        )
-
-        // Reactivating micropub (needs R2) should reuse the known bucket, not call `r2 bucket create` again.
-        let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
-            workers: [indieauthWorker, micropubWorker], knownResources: known
-        )
-
-        guard case .succeeded(_, let resources, _) = result else {
-            Issue.record("expected success, got \(result)")
-            return
-        }
-        #expect(resources.r2BucketName == "my-site-media")
-        #expect(await recorder.arguments == [
-            ["d1", "migrations", "apply", "AUTH_DB", "--remote"],
-        ])
     }
 
     @Test("asDeployCommandResult maps succeeded, dropping the resources payload")
@@ -1541,101 +1477,6 @@ struct SocialWorkerProvisionCommandTests {
             return
         }
         #expect(!calledArguments.contains(where: { $0.first == "queues" }))
-    }
-
-    @Test("readPersistedResources classifies webmention, websub, and microsub queues by suffix")
-    func persistedQueueClassification() throws {
-        let site = try temporaryDirectory()
-        let toml = """
-        name = "my-site"
-        [[queues.producers]]
-        queue = "my-site-webmention"
-        binding = "WEBMENTION_QUEUE"
-        [[queues.producers]]
-        queue = "my-site-websub"
-        binding = "WEBSUB_QUEUE"
-        [[queues.producers]]
-        queue = "my-site-microsub"
-        binding = "MICROSUB_QUEUE"
-        """
-        try toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
-
-        let resources = SocialWorkerProvisionCommand.readPersistedResources(from: site)
-
-        #expect(resources.queueName == "my-site-webmention")
-        #expect(resources.websubQueueName == "my-site-websub")
-        #expect(resources.microsubQueueName == "my-site-microsub")
-    }
-
-    @Test("readPersistedResources with only a websub queue leaves the webmention queue nil")
-    func persistedWebsubOnlyQueue() throws {
-        let site = try temporaryDirectory()
-        let toml = """
-        name = "my-site"
-        [[queues.producers]]
-        queue = "my-site-websub"
-        binding = "WEBSUB_QUEUE"
-        """
-        try toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
-
-        let resources = SocialWorkerProvisionCommand.readPersistedResources(from: site)
-
-        #expect(resources.queueName == nil)
-        #expect(resources.websubQueueName == "my-site-websub")
-    }
-
-    @Test("readPersistedResources classifies micropub's MEDIA and solid-pod's BLOBS buckets by suffix")
-    func persistedR2BucketClassification() throws {
-        let site = try temporaryDirectory()
-        let toml = """
-        name = "my-site"
-        [[r2_buckets]]
-        bucket_name = "my-site-media"
-        binding = "MEDIA"
-        [[r2_buckets]]
-        bucket_name = "my-site-pod-blobs"
-        binding = "BLOBS"
-        """
-        try toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
-
-        let resources = SocialWorkerProvisionCommand.readPersistedResources(from: site)
-
-        #expect(resources.r2BucketName == "my-site-media")
-        #expect(resources.podBlobsR2BucketName == "my-site-pod-blobs")
-    }
-
-    @Test("readPersistedResources with only INBOX_KV present leaves SOCIAL_KV nil and recovers the inbox id")
-    func persistedInboxOnlyKVNamespaceClassification() throws {
-        // Regression coverage for the final-review finding: a flat first-`id = "…"`-match scrape
-        // would wrongly attribute INBOX_KV's id to kvNamespaceID (SOCIAL_KV's field) when
-        // SOCIAL_KV isn't present at all.
-        let site = try temporaryDirectory()
-        let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [], inboxCaptureEnabled: true, inboxKVNamespaceID: "inbox-only-id"
-        )
-        try toml.toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
-
-        let resources = SocialWorkerProvisionCommand.readPersistedResources(from: site)
-
-        #expect(resources.kvNamespaceID == nil)
-        #expect(resources.inboxKVNamespaceID == "inbox-only-id")
-    }
-
-    @Test("readPersistedResources with both SOCIAL_KV and INBOX_KV present classifies each by binding")
-    func persistedBothKVNamespacesClassification() throws {
-        let site = try temporaryDirectory()
-        let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [webmentionWorker],
-            resources: .init(kvNamespaceID: "social-id"),
-            inboxCaptureEnabled: true,
-            inboxKVNamespaceID: "inbox-id"
-        )
-        try toml.toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
-
-        let resources = SocialWorkerProvisionCommand.readPersistedResources(from: site)
-
-        #expect(resources.kvNamespaceID == "social-id")
-        #expect(resources.inboxKVNamespaceID == "inbox-id")
     }
 
     @Test("provisions solid-pod's own BLOBS bucket, distinct from micropub's MEDIA bucket")
