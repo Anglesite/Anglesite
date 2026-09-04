@@ -18,54 +18,65 @@
 # every existing site to be marked before this check could land. A NEW site (not in the
 # baseline) must either move to waitUntil or carry the marker; growing the baseline itself is
 # not an escape hatch.
+#
+# The matching lives entirely in awk, not a bash associative array: this runs on build-test's
+# macos-26 runner under the default `/bin/bash` step shell, which is Apple's ancient bash 3.2
+# (GPLv3-avoidance freeze) — `declare -A` is a bash 4+ feature and doesn't exist there.
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
 cd "$repo_root"
 
+baseline_file="scripts/lib/sleep-lint-baseline.txt"
+marker="sleep-is-subject"
 # Tests/AnglesiteTestSupport hosts the shared polling primitives (WaitUntil.swift,
 # ManualDebounceGate.swift) and adjacent E2E test infrastructure (E2EServer.swift) — these
 # implement the real sleep/timeout mechanics the rest of Tests/ is meant to delegate to, so a
 # raw sleep here is the seam itself, not debt.
-exempt_dir="Tests/AnglesiteTestSupport/"
+exempt_prefix="Tests/AnglesiteTestSupport/"
 
-baseline_file="scripts/lib/sleep-lint-baseline.txt"
-marker="sleep-is-subject"
+violations="$(
+  git grep -n -E 'Task\.sleep|Thread\.sleep|usleep\(' -- Tests 2>/dev/null | awk \
+    -F '\t' -v marker="$marker" -v exempt_prefix="$exempt_prefix" '
+  # First input (the baseline file, tab-separated `path<TAB>content`): record grandfathered keys.
+  NR == FNR {
+    if ($0 ~ /^#/ || $0 == "") next
+    baseline[$1 SUBSEP $2] = 1
+    next
+  }
+  # Second input (git grep -n output, colon-separated `path:lineno:content`): find violations.
+  {
+    line = $0
+    c1 = index(line, ":")
+    file = substr(line, 1, c1 - 1)
+    rest = substr(line, c1 + 1)
+    c2 = index(rest, ":")
+    lineno = substr(rest, 1, c2 - 1)
+    content = substr(rest, c2 + 1)
 
-declare -A baseline
-while IFS=$'\t' read -r base_file base_content; do
-  [[ -z "$base_file" || "$base_file" == \#* ]] && continue
-  baseline["$base_file"$'\x1c'"$base_content"]=1
-done < "$baseline_file"
+    if (index(file, exempt_prefix) == 1) next
 
-violations=()
-while IFS=: read -r file lineno content; do
-  [[ "$file" == "$exempt_dir"* ]] && continue
+    trimmed = content
+    sub(/^[ \t]+/, "", trimmed)
+    sub(/[ \t]+$/, "", trimmed)
 
-  trimmed="${content#"${content%%[![:space:]]*}"}"  # strip leading whitespace
-  trimmed="${trimmed%"${trimmed##*[![:space:]]}"}"  # strip trailing whitespace
+    # A doc/prose comment line mentioning "Task.sleep" is not a call site.
+    if (trimmed ~ /^\/\//) next
 
-  # A doc/prose comment line mentioning "Task.sleep" isn't a call site.
-  case "$trimmed" in
-    "//"*) continue ;;
-  esac
+    # Marked inline — accepted without further checks.
+    if (index(content, marker) > 0) next
 
-  # Marked inline — accepted without further checks.
-  case "$content" in
-    *"$marker"*) continue ;;
-  esac
+    if ((file SUBSEP trimmed) in baseline) next
 
-  key="$file"$'\x1c'"$trimmed"
-  [[ -n "${baseline[$key]:-}" ]] && continue
+    print file ":" lineno ": " trimmed
+  }
+' "$baseline_file" - || true
+)"
 
-  violations+=("$file:$lineno: $trimmed")
-done < <(git grep -n -E 'Task\.sleep|Thread\.sleep|usleep\(' -- Tests || true)
-
-if [[ ${#violations[@]} -gt 0 ]]; then
-  echo "error: ${#violations[@]} unjustified Task.sleep/Thread.sleep/usleep(...) call(s) found under Tests/:" >&2
-  for v in "${violations[@]}"; do
-    echo "  $v" >&2
-  done
+if [[ -n "$violations" ]]; then
+  count="$(printf '%s\n' "$violations" | wc -l | tr -d ' ')"
+  echo "error: $count unjustified Task.sleep/Thread.sleep/usleep(...) call(s) found under Tests/:" >&2
+  printf '  %s\n' "$violations" >&2
   echo >&2
   echo "Wait for the actual condition instead — AnglesiteTestSupport's waitUntil (or" >&2
   echo "ManualDebounceGate for a model's debounce seam) — see Tests/AnglesiteTestSupport/WaitUntil.swift" >&2
@@ -76,4 +87,4 @@ if [[ ${#violations[@]} -gt 0 ]]; then
   exit 1
 fi
 
-echo "✓ no unjustified Task.sleep/Thread.sleep/usleep(...) calls under Tests/ (${#baseline[@]} grandfathered, marker: // $marker)."
+echo "✓ no unjustified Task.sleep/Thread.sleep/usleep(...) calls under Tests/ (marker: // $marker)."
