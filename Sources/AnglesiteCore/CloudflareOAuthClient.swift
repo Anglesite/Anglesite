@@ -69,8 +69,13 @@ public enum CloudflareOAuthError: Error, Equatable, Sendable {
     /// The callback's `state` didn't match the one this request minted — possible CSRF, never
     /// silently accepted.
     case stateMismatch
-    /// The authorization server (or the user) denied the request, e.g. `error=access_denied`.
+    /// The user declined on Cloudflare's own consent screen (`error=access_denied`) — the only
+    /// callback error that's a plain cancel, not a configuration problem worth surfacing (#1856).
     case callbackDenied(String)
+    /// The callback carried any other `error=` (`invalid_scope`, `invalid_request`,
+    /// `server_error`, …) — a real OAuth configuration problem, not a user cancel, so unlike
+    /// `callbackDenied` this is worth surfacing to the caller rather than swallowing (#1856).
+    case callbackError(errorCode: String, description: String)
     /// The callback had a matching `state` but no `code`.
     case missingAuthorizationCode
     /// The token endpoint rejected the exchange or returned something undecodable.
@@ -163,6 +168,11 @@ public struct CloudflareOAuthClient: Sendable {
     /// `state` is checked before `error` — an `error` param only "belongs" to this request once
     /// it's bound by a matching `state`, so a forged/unbound error callback reads as a state
     /// mismatch rather than a denial.
+    ///
+    /// Only `error=access_denied` — the user declining on Cloudflare's consent screen — throws
+    /// `.callbackDenied`. Any other `error` (`invalid_scope`, `invalid_request`, `server_error`,
+    /// …) throws `.callbackError`, since those are OAuth configuration problems the caller should
+    /// surface rather than treat as a silent cancel (#1856).
     public static func authorizationCode(from callbackURL: URL, matching request: CloudflareOAuthRequest) throws -> String {
         let items = URLComponents(url: callbackURL, resolvingAgainstBaseURL: false)?.queryItems ?? []
         func value(_ name: String) -> String? { items.first { $0.name == name }?.value }
@@ -171,7 +181,11 @@ public struct CloudflareOAuthClient: Sendable {
             throw CloudflareOAuthError.stateMismatch
         }
         if let error = value("error") {
-            throw CloudflareOAuthError.callbackDenied(value("error_description") ?? error)
+            let description = value("error_description") ?? error
+            if error == "access_denied" {
+                throw CloudflareOAuthError.callbackDenied(description)
+            }
+            throw CloudflareOAuthError.callbackError(errorCode: error, description: description)
         }
         guard let code = value("code"), !code.isEmpty else {
             throw CloudflareOAuthError.missingAuthorizationCode

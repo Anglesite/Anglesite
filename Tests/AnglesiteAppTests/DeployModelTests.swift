@@ -1003,6 +1003,55 @@ struct DeployModelTests {
         #expect(loggedLines.contains { $0.source == "cloudflare-oauth-sign-in" && $0.text.contains("Associated Domains") })
     }
 
+    @Test("signInWithCloudflare surfaces error_description and logs on a non-access_denied callback error (#1856)")
+    func signInCallbackErrorSurfacesDescription() async {
+        // Regression for #1856: a callback carrying `error=invalid_scope` (a real Cloudflare OAuth
+        // configuration problem — the registered client isn't allowed to request the scope) was
+        // being caught by the same `CloudflareOAuthError.callbackDenied` branch as a user declining
+        // consent, so the sheet silently returned to `.idle` with nothing in the Debug pane. Only
+        // `error=access_denied` should stay quiet; every other `error=` must surface.
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
+        defer { cfToken.release() }
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: GatedDeployExecutor())
+        let client = CloudflareOAuthClient(
+            scope: "workers_scripts",
+            discoveryURL: URL(string: "https://dash.cloudflare.com/.well-known/openid-configuration")!,
+            transport: { req in
+                let response = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                let json = #"{"authorization_endpoint":"https://dash.cloudflare.com/oauth2/auth","token_endpoint":"https://dash.cloudflare.com/oauth2/token"}"#
+                return (Data(json.utf8), response)
+            })
+        let oauthSignIn = CloudflareOAuthSignIn(client: client, present: { authorizeURL in
+            let state = URLComponents(url: authorizeURL, resolvingAgainstBaseURL: false)?
+                .queryItems?.first { $0.name == "state" }?.value ?? ""
+            return URL(
+                string: "https://auth.anglesite.dwk.io/oauth-callback"
+                    + "?error=invalid_scope&error_description=The%20requested%20scope%20is%20invalid&state=\(state)")!
+        })
+        let keychain = InMemorySecretStore()
+        let logCenter = LogCenter()
+        let model = DeployModel(command: command, logCenter: logCenter, keychain: keychain, oauthSignIn: oauthSignIn)
+        let directory = FileManager.default.temporaryDirectory
+
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        await model.signInWithCloudflare()
+
+        // See the comment on `tokenPromptPresented` in `signInFailureStaysOnSheet` for why this
+        // binds to a local before asserting rather than `#expect(model.x)` directly.
+        let tokenPromptPresented = model.tokenPromptPresented
+        #expect(tokenPromptPresented)
+        guard case .failed(let message) = model.tokenVerification else {
+            Issue.record("expected .failed, got \(model.tokenVerification)"); return
+        }
+        #expect(message.contains("The requested scope is invalid"))
+
+        let loggedLines = await logCenter.snapshot()
+        #expect(loggedLines.contains {
+            $0.source == "cloudflare-oauth-sign-in" && $0.text.contains("invalid_scope")
+                && $0.text.contains("The requested scope is invalid")
+        })
+    }
+
     /// A unique per-test site directory with a content license already recorded, so the deploy
     /// tests that use this helper (all of which are exercising something other than the
     /// first-publish license gate, #999) reach their actual pipeline step instead of parking on

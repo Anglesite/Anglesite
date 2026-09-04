@@ -444,6 +444,16 @@ final class DeployModel {
             // the sheet itself, not a connection failure.
             tokenVerification = .idle
             return
+        } catch CloudflareOAuthError.callbackError(let errorCode, let description) {
+            // A real OAuth configuration problem (e.g. `invalid_scope` — a scope the registered
+            // client isn't allowed to request), not a user cancel. Unlike the generic `catch`
+            // below, `error_description` is meant to be end-user-readable per the OAuth spec, so
+            // it's shown directly instead of being replaced with a generic message (#1856).
+            await logCenter.append(
+                source: "cloudflare-oauth-sign-in", stream: .stderr,
+                text: "Cloudflare sign-in was rejected (\(errorCode)): \(description)")
+            tokenVerification = .failed(message: "Cloudflare rejected the sign-in request: \(description)")
+            return
         } catch {
             // Includes `.stateMismatch` — a hard, generic failure, never silently accepted. The
             // raw error can carry a Cloudflare API response body (e.g. `tokenExchangeFailed`'s
