@@ -487,8 +487,8 @@ packageDependencies.append(
 //     nodes-app/swift-markdown-engine#174 (open, unreviewed as of 2026-09-03).
 //   - badbaa4b: honor autoClosePairsEnabled for the `[`/`[[` auto-close paths in
 //     MarkdownLists, so an embedder that disables auto-close (as this one does, for plain
-//     Markdown source editing) doesn't get bracket pairs inserted underneath it. Not yet
-//     upstreamed — no PR filed.
+//     Markdown source editing) doesn't get bracket pairs inserted underneath it. Upstreamed
+//     as nodes-app/swift-markdown-engine#179 (open, unreviewed as of 2026-09-04).
 // Drop condition: once both land in a tagged upstream release, switch this to `from:` that
 // release (or the next deliberate bump per the policy below) and drop the fork.
 // Rebase policy: matching SwiftGit2/STTextView-Plugin-Neon — deliberate bumps only, not a
