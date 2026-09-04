@@ -102,15 +102,15 @@ describe("createMcpServer", () => {
       return { socket, state };
     }
 
-    it("delegates to mcpAuthUpgradeGuard: a valid token leaves the socket open", async () => {
+    it("rejects an authorized upgrade with 501 instead of hanging (no upstream upgrade support)", async () => {
       await setup();
       const { socket, state } = makeSocket();
       const req = {
         headers: { authorization: `Bearer ${TOKEN}` },
       } as http.IncomingMessage;
       proxy!.emit("upgrade", req, socket, Buffer.alloc(0));
-      expect(state.destroyed).toBe(false);
-      expect(state.written).toBe("");
+      expect(state.written).toContain("501");
+      expect(state.destroyed).toBe(true);
     });
 
     it("delegates to mcpAuthUpgradeGuard: an invalid token destroys the socket with 401", async () => {

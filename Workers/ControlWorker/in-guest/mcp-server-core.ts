@@ -10,10 +10,10 @@ export interface McpServerOptions {
 
 /**
  * Bearer-authenticated proxy fronting the baked MCP sidecar's loopback-only HTTP
- * transport. Mirrors auth-proxy.ts's request/upgrade proxying shape, but gates on
- * a Bearer token via mcpAuthMiddleware/mcpAuthUpgradeGuard instead of a session
- * cookie, since the sidecar's own startHttpServer binds and listens itself with
- * no hook for injecting middleware in front of it.
+ * transport. Mirrors auth-proxy.ts's request-proxying shape, but gates on a
+ * Bearer token via mcpAuthMiddleware instead of a session cookie, since the
+ * sidecar's own startHttpServer binds and listens itself with no hook for
+ * injecting middleware in front of it.
  */
 export function createMcpServer({
   expectedToken,
@@ -51,7 +51,14 @@ export function createMcpServer({
   });
 
   server.on("upgrade", (req: http.IncomingMessage, socket: net.Socket) => {
-    mcpAuthUpgradeGuard(expectedToken, req, socket);
+    if (!mcpAuthUpgradeGuard(expectedToken, req, socket)) return;
+    // Streamable HTTP has no long-lived Upgrade path (design doc:
+    // docs/specs/2026-06-09-mcp-http-transport-design.md) and the upstream
+    // sidecar's startHttpServer never listens for "upgrade" either, so there is
+    // nothing to proxy an authorized request to — reject explicitly rather than
+    // leaving the socket open with no response.
+    socket.write("HTTP/1.1 501 Not Implemented\r\n\r\n");
+    socket.destroy();
   });
 
   return server;
