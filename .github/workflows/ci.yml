@@ -380,6 +380,12 @@ jobs:
       - name: Test prune-worktrees.sh safety rails
         run: scripts/prune-worktrees.test.sh
 
+      # No docker/network dependency — runs against throwaway container/ fixtures, so
+      # the CANONICAL_IMAGE_DIGEST -> Dockerfile.cloudflare rewrite (#1644) is checked
+      # without touching this repo's real files.
+      - name: Test pin-cloudflare-canonical-image.sh digest rewrite
+        run: scripts/pin-cloudflare-canonical-image.test.sh
+
       - name: Save SwiftPM build cache (main only)
         if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

@@ -104,6 +104,52 @@ struct SecretStoreTests {
         #expect(try store.readIndieAuthAccessToken(siteID: "site-a") == "microsub-tok")
     }
 
+    @Test("Microsub feed AutoAuth token round-trips per site and feed URL")
+    func microsubFeedAutoAuthTokenRoundTrips() throws {
+        let store = InMemorySecretStore()
+        try store.writeMicrosubFeedAutoAuthToken(
+            "auto-tok", siteID: "site-a", feedURL: "https://friend.example/feed")
+        #expect(try store.readMicrosubFeedAutoAuthToken(siteID: "site-a", feedURL: "https://friend.example/feed")
+            == "auto-tok")
+        // Scoped per feed — a different feed on the same site stays empty.
+        #expect(try store.readMicrosubFeedAutoAuthToken(siteID: "site-a", feedURL: "https://other.example/feed")
+            == nil)
+        // Scoped per site — the same feed URL followed from another site package stays empty.
+        #expect(try store.readMicrosubFeedAutoAuthToken(siteID: "site-b", feedURL: "https://friend.example/feed")
+            == nil)
+    }
+
+    @Test("Microsub feed AutoAuth token can be overwritten")
+    func microsubFeedAutoAuthTokenOverwrites() throws {
+        let store = InMemorySecretStore()
+        let feedURL = "https://friend.example/feed"
+        try store.writeMicrosubFeedAutoAuthToken("first-tok", siteID: "site-a", feedURL: feedURL)
+        try store.writeMicrosubFeedAutoAuthToken("second-tok", siteID: "site-a", feedURL: feedURL)
+        #expect(try store.readMicrosubFeedAutoAuthToken(siteID: "site-a", feedURL: feedURL) == "second-tok")
+    }
+
+    @Test("Microsub feed AutoAuth token clears without disturbing other feeds")
+    func microsubFeedAutoAuthTokenClears() throws {
+        let store = InMemorySecretStore()
+        try store.writeMicrosubFeedAutoAuthToken(
+            "auto-tok", siteID: "site-a", feedURL: "https://friend.example/feed")
+        try store.writeMicrosubFeedAutoAuthToken(
+            "other-tok", siteID: "site-a", feedURL: "https://other.example/feed")
+        try store.clearMicrosubFeedAutoAuthToken(siteID: "site-a", feedURL: "https://friend.example/feed")
+        #expect(try store.readMicrosubFeedAutoAuthToken(siteID: "site-a", feedURL: "https://friend.example/feed")
+            == nil)
+        #expect(try store.readMicrosubFeedAutoAuthToken(siteID: "site-a", feedURL: "https://other.example/feed")
+            == "other-tok")
+    }
+
+    @Test("clearing a Microsub feed AutoAuth token that was never set is a no-op")
+    func microsubFeedAutoAuthTokenClearMissingIsNoOp() throws {
+        let store = InMemorySecretStore()
+        try store.clearMicrosubFeedAutoAuthToken(siteID: "site-a", feedURL: "https://friend.example/feed")
+        #expect(try store.readMicrosubFeedAutoAuthToken(siteID: "site-a", feedURL: "https://friend.example/feed")
+            == nil)
+    }
+
     @Test("UnavailableSecretStore reads nothing, deletes as no-op, and refuses writes")
     func unavailableStoreBehavior() throws {
         let store = UnavailableSecretStore()
@@ -144,5 +190,18 @@ struct SecretAccountsTests {
         let key = SecretAccounts.activityPubPrivateKeyPem(siteID: "site-a")
         #expect(token != key)
         #expect(token.contains("site-a"))
+    }
+
+    @Test("microsubFeedAutoAuthToken is namespaced per site and per feed URL")
+    func microsubFeedAutoAuthTokenIsPerSiteAndFeed() {
+        let a = SecretAccounts.microsubFeedAutoAuthToken(siteID: "site-a", feedURL: "https://friend.example/feed")
+        let otherSite = SecretAccounts.microsubFeedAutoAuthToken(
+            siteID: "site-b", feedURL: "https://friend.example/feed")
+        let otherFeed = SecretAccounts.microsubFeedAutoAuthToken(
+            siteID: "site-a", feedURL: "https://other.example/feed")
+        #expect(a != otherSite)
+        #expect(a != otherFeed)
+        #expect(a.contains("site-a"))
+        #expect(a.contains("https://friend.example/feed"))
     }
 }
