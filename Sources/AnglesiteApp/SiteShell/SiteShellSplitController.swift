@@ -136,13 +136,22 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
     /// not the instance, so there is nothing to build here beyond the identifiers themselves.
     private func installTrackingSeparators() {
         guard let toolbar = ownedToolbar else { return }
-        // Clamped rather than the literal `1` / `count - 1`: `NSToolbar.insertItem(at:)`
-        // requires `0...items.count`, and `toolbar.items` is only populated once the
-        // toolbar is attached to a real, key-able window that has asked its delegate to
-        // build the default set — a windowless host (this class's own unit tests included,
-        // since `view.window` is nil there) leaves `items` empty. These positions land at
-        // the intended spots (right after the leading item, right before the trailing one)
-        // once real default items exist, and degrade to safe no-crash inserts otherwise.
+        Self.insertTrackingSeparators(into: toolbar)
+    }
+
+    /// Split out from `installTrackingSeparators()` (#1699 slice 2 review fix) so the
+    /// clamped-index math can be exercised directly, against a toolbar pre-populated with a
+    /// realistic default-item count, without needing a real window — `NSToolbar.items` only
+    /// reflects the delegate's default set once the toolbar is attached to one.
+    /// `installTrackingSeparators()` remains the only production call site.
+    ///
+    /// Clamped rather than the literal `1` / `count - 1`: `NSToolbar.insertItem(at:)`
+    /// requires `0...items.count`, and `toolbar.items` is empty for a toolbar that has never
+    /// been attached to a window (this class's own unit tests included, since `view.window`
+    /// is nil there). These positions land at the intended spots (right after the leading
+    /// item, right before the trailing one) once real default items exist, and degrade to
+    /// safe no-crash inserts otherwise.
+    static func insertTrackingSeparators(into toolbar: NSToolbar) {
         let sidebarIndex = min(1, toolbar.items.count)
         toolbar.insertItem(withItemIdentifier: SiteShellToolbarDelegate.sidebarTrackingSeparator, at: sidebarIndex)
         let inspectorIndex = max(sidebarIndex + 1, toolbar.items.count - 1)

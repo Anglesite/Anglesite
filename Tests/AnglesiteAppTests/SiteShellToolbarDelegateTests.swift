@@ -86,4 +86,47 @@ struct SiteShellToolbarDelegateTests {
             willBeInsertedIntoToolbar: true)
         #expect(item == nil)
     }
+
+    @Test("tracking separator identifiers become NSTrackingSeparatorToolbarItems bound to the split view's dividers")
+    func trackingSeparatorItemsUseSplitViewDividers() throws {
+        let delegate = SiteShellToolbarDelegate(itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
+        let splitView = NSSplitView()
+        delegate.splitView = splitView
+        let toolbar = NSToolbar(identifier: SiteShellToolbarDelegate.toolbarIdentifier)
+
+        let sidebarItem = try #require(
+            delegate.toolbar(
+                toolbar,
+                itemForItemIdentifier: SiteShellToolbarDelegate.sidebarTrackingSeparator,
+                willBeInsertedIntoToolbar: true) as? NSTrackingSeparatorToolbarItem)
+        #expect(sidebarItem.itemIdentifier == SiteShellToolbarDelegate.sidebarTrackingSeparator)
+        #expect(sidebarItem.splitView === splitView)
+        #expect(sidebarItem.dividerIndex == 0)
+
+        let inspectorItem = try #require(
+            delegate.toolbar(
+                toolbar,
+                itemForItemIdentifier: SiteShellToolbarDelegate.inspectorTrackingSeparator,
+                willBeInsertedIntoToolbar: true) as? NSTrackingSeparatorToolbarItem)
+        #expect(inspectorItem.itemIdentifier == SiteShellToolbarDelegate.inspectorTrackingSeparator)
+        #expect(inspectorItem.splitView === splitView)
+        #expect(inspectorItem.dividerIndex == 1)
+    }
+
+    @Test("tracking separator identifiers return nil when no split view has been set")
+    func trackingSeparatorItemsRequireSplitView() {
+        let delegate = SiteShellToolbarDelegate(itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
+        let toolbar = NSToolbar(identifier: SiteShellToolbarDelegate.toolbarIdentifier)
+        #expect(delegate.splitView == nil)
+        #expect(
+            delegate.toolbar(
+                toolbar,
+                itemForItemIdentifier: SiteShellToolbarDelegate.sidebarTrackingSeparator,
+                willBeInsertedIntoToolbar: true) == nil)
+        #expect(
+            delegate.toolbar(
+                toolbar,
+                itemForItemIdentifier: SiteShellToolbarDelegate.inspectorTrackingSeparator,
+                willBeInsertedIntoToolbar: true) == nil)
+    }
 }
