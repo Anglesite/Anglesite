@@ -153,11 +153,18 @@ same post-create wiring as New Post…: content-graph refresh and
 | Paste a URL | Site window (navigator/preview focus) | `.onPasteCommand(of: [.url])`, scoped so paste inside text editors is untouched → sheet for that site |
 | Drag a URL | Launcher | Launcher already accepts `.anglesite` package drops; additionally accept URL drops → sheet with site picker |
 | Paste a URL | Launcher | `.onPasteCommand` → sheet with site picker |
-| **File ▸ New ▸ Link Post…** (⇧⌘L) | Menu bar, always available | Pre-fills URL from the clipboard when it holds one; focused site window's site, else site picker |
+| **File ▸ New ▸ Link Post…** (⇧⌘L) | Menu bar, focused site window only | Pre-fills URL from the clipboard when it holds one, for the focused site window's site |
 
 Mac-conventions coverage per `docs/mac-assed-app-spec.md`: a real menu command
 with a keyboard shortcut (discoverable, Shortcuts-recordable), drag-and-drop,
 paste, and Undo after create.
+
+> **Amendment (#1860, 2026-09-04):** the menu command is gated on the same
+> focused-value as its New Page/Post/Component/Collection siblings, matching
+> the acceptance rule that no site-scoped command may be enabled with no site
+> window focused — it no longer falls back to the launcher's site picker when
+> nothing is focused. That windowless path is still reachable via drag/paste
+> of a URL into the launcher (rows above) and the `AddLinkPostIntent`.
 
 ### 4.4 Windowless writes (launcher flow)
 

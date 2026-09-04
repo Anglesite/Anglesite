@@ -88,13 +88,6 @@ public final class WindowRouter {
     /// Called by the launcher once it has consumed the request.
     public func clearNewCommunityRequest() { newCommunityRequested = false }
 
-    /// True while a File ▸ New Link Post… issued with no site window focused is waiting for the
-    /// launcher to present the quick-capture sheet (#531). Same request/clear contract as
-    /// `newSiteRequested` above.
-    public private(set) var quickCaptureRequested = false
-    public func requestQuickCapture() { quickCaptureRequested = true }
-    public func clearQuickCaptureRequest() { quickCaptureRequested = false }
-
     /// Opens (or focuses) the "Sites" launcher window. AppKit callers — the Dock menu (#522) —
     /// can't reach SwiftUI's `openWindow`, so the launcher root stashes a captured
     /// `OpenWindowAction` here on appear. `OpenWindowAction` is scene-independent, so the closure

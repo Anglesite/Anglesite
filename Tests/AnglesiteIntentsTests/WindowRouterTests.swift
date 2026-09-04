@@ -74,15 +74,4 @@ struct WindowRouterTests {
         #expect(!router.consumeDesignInterviewRequest(for: "siteB"))
         #expect(router.consumeDesignInterviewRequest(for: "siteA"))
     }
-
-    @Test("quick-capture request sets and clears")
-    func quickCaptureRequest() {
-        let router = freshRouter()
-        router.clearQuickCaptureRequest()   // ensure clean state
-        #expect(router.quickCaptureRequested == false)
-        router.requestQuickCapture()
-        #expect(router.quickCaptureRequested == true)
-        router.clearQuickCaptureRequest()
-        #expect(router.quickCaptureRequested == false)
-    }
 }

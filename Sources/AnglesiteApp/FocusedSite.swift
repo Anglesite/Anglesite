@@ -87,18 +87,15 @@ struct NewContentCommands: Commands {
                 WindowRouter.shared.requestNewCommunity()
             }
 
-            // Quick capture (#531): with a site window focused, open its compose sheet;
-            // with none, route through the launcher, which shows the site picker. Always
-            // enabled — capture is the app's highest-frequency verb for link bloggers.
+            // Quick capture (#531): opens the focused site window's compose sheet. Gated on
+            // the same focused-value as its New Page/Post/Component/Collection siblings
+            // (#1860) — the windowless capture path (drag/paste a URL into the launcher, or
+            // the AddLinkPostIntent) still works without a site window focused.
             Button("New Link Post…") {
-                if let actions = newContentActions {
-                    actions.newLinkPost()
-                } else {
-                    openWindow(id: "sites")
-                    WindowRouter.shared.requestQuickCapture()
-                }
+                newContentActions?.newLinkPost()
             }
             .keyboardShortcut("l", modifiers: [.command, .shift])
+            .disabled(newContentActions == nil)
 
             Button("Open Site…") {
                 Task { await openSiteFromMenu() }

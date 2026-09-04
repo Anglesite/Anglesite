@@ -59,7 +59,7 @@ Walk the menu bar with only the launcher open.
 
 Expected:
 
-- **File ▸ New ▸ Site** enabled (⇧⌘N). **New ▸ Page…** (⌘N), **Collection…**, **Post…**, **Component…** all disabled.
+- **File ▸ New ▸ Site** enabled (⇧⌘N). **New ▸ Page…** (⌘N), **Collection…**, **Post…**, **Component…**, **Link Post…** (⇧⌘L) all disabled.
 - **File ▸ Open Site…** (⌘O) enabled; picking a non-package shows the "Couldn't open that site" alert.
 - **File ▸ Export Site Source…** disabled. **File ▸ Print…** inert.
 - **Site menu**: every item (Publish Site… ⇧⌘P, Recheck Readiness, Backup, Audit, Harden…, Domain…, Add Integration…, Siri AI Readiness…, dev-server controls, Open in Browser) disabled.
