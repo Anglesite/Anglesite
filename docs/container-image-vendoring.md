@@ -44,6 +44,9 @@ are populated.
 
 ### Prerequisites
 
+These apply to this section's two scripts only — `build-podman-image.sh` and
+`build-container-image.sh` (below) are not arm64/Apple-Silicon-only.
+
 - An Apple-Silicon Mac.
 - The Apple [`container`](https://github.com/apple/container) CLI, ≥ 1.1, on `PATH`.
 - `ANGLESITE_SIDECAR_SRC` pointing at a checkout of the sibling
@@ -180,16 +183,18 @@ To pick up a new upstream kernel or vminit release:
    Confirm it reports the freshly vendored artifacts as provisioned and that
    the digests it checks now come from the updated lock.
 
-4. Commit the updated `scripts/container-artifact-versions.lock.json` alongside
+4. **Blocking — smoke-test a real container boot before committing anything.**
+   A lock bump that points at a kernel/initfs pair Apple Containerization
+   can't actually boot is exactly the failure class #616 exists to catch, and
+   `check-container-resources.sh` above only checks digests, not bootability.
+   See [`docs/testing-macos-app.md`](testing-macos-app.md) for how to launch
+   the Debug app and confirm a preview boots. Do not proceed to step 5 until
+   this passes.
+
+5. Commit the updated `scripts/container-artifact-versions.lock.json` alongside
    the version-line change in `vendor-container-kernel.sh`. The vendored
    `Resources/container-kernel/` and `Resources/container-initfs/` outputs
    stay gitignored as always — only the lock (the pin) is tracked.
-
-5. Smoke-test a real container boot before opening the PR — a lock bump that
-   points at a kernel/initfs pair Apple Containerization can't actually boot
-   is exactly the failure class #616 exists to catch. See
-   [`docs/testing-macos-app.md`](testing-macos-app.md) for how to launch the
-   Debug app and confirm a preview boots.
 
 ## Worktrees and `ANGLESITE_SIDECAR_SRC`
 
