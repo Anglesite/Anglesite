@@ -3,6 +3,7 @@ import Foundation
 import ImageIO
 import Testing
 import UniformTypeIdentifiers
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 @testable import AnglesiteCore
 
@@ -55,17 +56,13 @@ struct WYSIWYGInspectorModelTests {
     }
 
     @Test("setString submits a setProp op and stringValue reflects the committed result")
-    func setStringCommitsAndReflects() async {
+    func setStringCommitsAndReflects() async throws {
         let (controller, blockId) = Self.makeController(componentName: "Callout", props: ["title": .string("old")])
         let model = WYSIWYGInspectorModel(controller: controller, blockId: blockId)
 
         model.setString("new", for: "title")
 
-        var attempts = 0
-        while model.stringValue(for: "title") != "new", attempts < 50 {
-            try? await Task.sleep(nanoseconds: 5_000_000) // poll for the fire-and-forget Task's commit
-            attempts += 1
-        }
+        try await waitUntil("the fire-and-forget Task's commit") { model.stringValue(for: "title") == "new" }
 
         #expect(model.stringValue(for: "title") == "new")
     }
