@@ -72,6 +72,11 @@ describe("GET /atproto/client-metadata.json", () => {
     const body = (await response.json()) as { scope: string };
     expect(body.scope).toBe("atproto transition:generic");
   });
+
+  it("sets a long-lived Cache-Control since the document is static", async () => {
+    const response = await get("/atproto/client-metadata.json");
+    expect(response.headers.get("cache-control")).toBe("public, max-age=86400");
+  });
 });
 
 describe("GET /atproto-callback", () => {
@@ -118,10 +123,17 @@ describe("everything else", () => {
     expect(response.status).toBe(404);
   });
 
-  it("returns 405 for non-GET methods on known routes", async () => {
-    const response = await Promise.resolve(
-      worker.fetch(new Request(`${ORIGIN}/oauth-callback`, { method: "POST" })),
-    );
-    expect(response.status).toBe(405);
-  });
+  for (const path of [
+    "/.well-known/apple-app-site-association",
+    "/oauth-callback",
+    "/atproto/client-metadata.json",
+    "/atproto-callback",
+  ]) {
+    it(`returns 405 for non-GET methods on ${path}`, async () => {
+      const response = await Promise.resolve(
+        worker.fetch(new Request(`${ORIGIN}${path}`, { method: "POST" })),
+      );
+      expect(response.status).toBe(405);
+    });
+  }
 });

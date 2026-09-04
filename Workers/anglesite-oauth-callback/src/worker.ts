@@ -86,8 +86,14 @@ export default {
       });
     }
     if (path === ATPROTO_CLIENT_METADATA_PATH) {
+      // Every atproto authorization server fetches this on each OAuth attempt; it's a
+      // static document, so a day-long cache saves invocations at no correctness cost.
       return new Response(JSON.stringify(ATPROTO_CLIENT_METADATA), {
-        headers: { "content-type": "application/json", ...SECURITY_HEADERS },
+        headers: {
+          "content-type": "application/json",
+          "cache-control": "public, max-age=86400",
+          ...SECURITY_HEADERS,
+        },
       });
     }
     return new Response(CALLBACK_FALLBACK_HTML, {
