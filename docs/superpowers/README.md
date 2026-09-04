@@ -27,6 +27,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 | Date | Title | Issue | Status |
 |---|---|---|---|
 | 2026-09-03 | [Generated docs index and `Status:` convention for design docs](specs/2026-09-03-docs-index-and-status-convention-design.md) | [#1816](https://github.com/Anglesite/Anglesite/issues/1816) | current |
+| 2026-09-02 | [WYSIWYG slice 6 — on-device AI services — design](specs/2026-09-02-wysiwyg-ai-services-design.md) | [#1227](https://github.com/Anglesite/Anglesite/issues/1227) | — |
 | 2026-09-02 | [RSVP, check-in, and repost as publishable post types](specs/2026-09-02-rsvp-checkin-repost-post-types-design.md) | [#1598](https://github.com/Anglesite/Anglesite/issues/1598) | current |
 | 2026-09-02 | [Fediverse interop conformance — static pass and live runbook (#1241)](specs/2026-09-02-fediverse-interop-conformance.md) | [#1241](https://github.com/Anglesite/Anglesite/issues/1241) | draft |
 | 2026-09-01 | [Site-window AppKit shell (Stage 3 of #1699)](specs/2026-09-01-site-window-appkit-shell-design.md) | [#1699](https://github.com/Anglesite/Anglesite/issues/1699) | current |
@@ -218,7 +219,9 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-02 | [WYSIWYG AI Services — Writing Help (PR 2 of 3) Implementation Plan](plans/2026-09-02-wysiwyg-writing-help.md) | [#1793](https://github.com/Anglesite/Anglesite/issues/1793) | — |
 | 2026-09-02 | [WYSIWYG Undo Correctness + Component-Insert Manifest Path Implementation Plan](plans/2026-09-02-wysiwyg-undo-correctness-and-component-insert.md) | [#1602](https://github.com/Anglesite/Anglesite/issues/1602) | historical |
+| 2026-09-02 | [WYSIWYG AI Services — Alt-Text Proposals (PR 1 of 3) Implementation Plan](plans/2026-09-02-wysiwyg-alt-text-proposals.md) | [#1227](https://github.com/Anglesite/Anglesite/issues/1227) | — |
 | 2026-09-02 | [RSVP, Check-in, and Repost Post Types Implementation Plan](plans/2026-09-02-rsvp-checkin-repost-post-types.md) | — | historical |
 | 2026-09-01 | [AppKit Shell Slice 1 (columns) Implementation Plan](plans/2026-09-01-appkit-shell-slice1-1699.md) | — | historical |
 | 2026-08-31 | [WebViewLayoutFirewall (Stage 2 of #1699) Implementation Plan](plans/2026-08-31-webview-layout-firewall-1699.md) | [#1699](https://github.com/Anglesite/Anglesite/issues/1699) | superseded by [2026-09-01-site-window-appkit-shell-design.md](specs/2026-09-01-site-window-appkit-shell-design.md) |
