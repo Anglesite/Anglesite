@@ -26,7 +26,8 @@ struct SitesLauncherView: View {
     /// unchanged below.
     @State private var isDropTargeted = false
     /// Non-nil while the quick-capture compose sheet is up (launcher flow, #531); carries the
-    /// dropped/pasted URL pre-fill ("" for the menu path with no URL on the clipboard).
+    /// dropped/pasted URL pre-fill. File ▸ New ▸ Link Post… no longer routes here — it's
+    /// disabled without a focused site window, matching its New-content siblings (#1860).
     @State private var quickCaptureRequest: QuickCaptureRequest?
 
     private struct QuickCaptureRequest: Identifiable {
@@ -109,11 +110,6 @@ struct SitesLauncherView: View {
             guard requested else { return }
             router.clearNewCommunityRequest()
             Task { await presentNewCommunity() }
-        }
-        .onChange(of: router.quickCaptureRequested) { _, requested in
-            guard requested else { return }
-            router.clearQuickCaptureRequest()
-            quickCaptureRequest = QuickCaptureRequest(urlString: QuickCapture.clipboardURLString() ?? "")
         }
         .onPasteCommand(of: [.url]) { _ in
             guard let urlString = QuickCapture.clipboardURLString() else { return }
