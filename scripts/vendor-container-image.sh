@@ -43,6 +43,11 @@ ARCHIVE="$OUT/image.tar"
 # Pass only the arm64 base digest. Apple container 1.1 tries to resolve every declared FROM stage,
 # including an unused amd64 stage, against the requested platform.
 ARM64_BASE="node:24-bookworm-slim@sha256:e9b5516b06baeaea9a8e65a7aec6a85fbb960a30b52b66968f2c8092b3e2a3eb"
+# Stamped into vendor-manifest.json below so check-container-resources.sh can catch this pin
+# drifting from scripts/node-version.txt (#1815) — this image's Node base is pinned
+# independently of container/Dockerfile's NODE_VERSION build-arg (which reads that file
+# directly), and nothing else would catch the two guest images landing on different majors.
+NODE_MAJOR="$(sed -E 's#^node:([0-9]+)-.*#\1#' <<< "$ARM64_BASE")"
 container build \
     --os linux --arch arm64 \
     --build-arg "BASE_IMAGE=$ARM64_BASE" \
@@ -58,15 +63,19 @@ for f in oci-layout index.json blobs/sha256; do
     [[ -e "$OUT/$f" ]] || { echo "ERROR: OCI layout missing $f" >&2; exit 1; }
 done
 
-# Stamp the vendored image with the MCP protocol version this app build expects and the sidecar
-# version it was built from — scripts/check-container-resources.sh compares the protocol version
-# against the app's current expectation on every build, so a sidecar/app protocol drift (e.g. a
-# later `git pull` that bumps MCPClient.protocolVersion) is caught before it surfaces as an
-# opaque MCP-connect HTTP error at preview time (#1407).
+# Stamp the vendored image with the MCP protocol version this app build expects, the sidecar
+# version it was built from, and the Node base it was built on — scripts/check-container-resources.sh
+# compares the protocol version against the app's current expectation and the Node major version
+# against scripts/node-version.txt on every build, so a sidecar/app protocol drift (e.g. a later
+# `git pull` that bumps MCPClient.protocolVersion) or a Node pin drift (#1815) is caught before it
+# surfaces as an opaque MCP-connect HTTP error, or an inconsistent in-container dev-server
+# failure, at preview time (#1407).
 cat > "$OUT/vendor-manifest.json" <<EOF
 {
   "mcpProtocolVersion": "$(mcp_protocol_version)",
   "sidecarVersion": "$SIDECAR_VERSION",
+  "nodeBaseImage": "$ARM64_BASE",
+  "nodeMajorVersion": "$NODE_MAJOR",
   "vendoredAt": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
 }
 EOF
