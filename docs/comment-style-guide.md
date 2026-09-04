@@ -10,7 +10,7 @@ Comments explain **why**, not **what**. A well-named type or function already sa
 repeating that in a comment is noise. Explain the constraint, the rationale, the workaround, or
 the non-obvious consequence instead. Most of this codebase already does this well — doc comments
 here tend to read like short design notes, often citing the issue that motivated them
-(`Sources/AnglesiteCore/NewSiteDraft.swift:90`, for example, explains *why* a field is optional,
+(`Sources/AnglesiteCore/Site/NewSiteDraft.swift:90`, for example, explains *why* a field is optional,
 not just that it is).
 
 ## Doc comments (`///`)
@@ -25,7 +25,7 @@ documented files predate this rule and won't be mass-edited to add them. If you'
 of those files for an unrelated reason, bringing its doc comments up to this standard is welcome
 opportunistic cleanup, not required.
 
-Example (`Sources/AnglesiteCore/WorkerComposition.swift:109-142`):
+Example (`Sources/AnglesiteCore/Cloudflare/WorkerComposition.swift:109-142`):
 
 ```swift
 /// Generates a wrangler.toml for a site with the given workers enabled.
