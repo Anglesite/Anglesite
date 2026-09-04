@@ -32,4 +32,9 @@
 # contention (`Caught error: timed out after 15.0 seconds waiting for the first miss`) while
 # resolving in ~3.7s every time run locally/in isolation. Same class of flake as above:
 # starved `Task` scheduling under a heavily loaded CI runner, not a real regression.
-export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LANHostScanCoordinatorTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests|ProcessSupervisorShutdownTests|HMRRelayTests'
+#
+# LANHostScanCoordinatorTests was removed (#1810): its only isolation reason was a fixed
+# sleep-then-assert wall-clock race, which migrating to `waitUntil` eliminates outright — see
+# the suite's own doc comment. Unlike the suites above, it has no remaining real-I/O or
+# shared-resource contention to isolate, so it no longer belongs in this lane.
+export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests|ProcessSupervisorShutdownTests|HMRRelayTests'

@@ -1,5 +1,6 @@
 import Testing
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 
 private final class FakeLANHostDiscovery: LANHostDiscovering, @unchecked Sendable {
@@ -20,18 +21,16 @@ private func lanHost(_ name: String) -> DiscoveredLANHost {
                        previewPort: 4321, mcpPort: 4399)
 }
 
-/// `.serialized` + isolated CI lane (`scripts/lib/timing-sensitive-tests.sh`): these tests assert
-/// on wall-clock outcomes of a `MainActor` `Task.sleep`-driven timeout (`startScan`'s 10ms
-/// `scanDuration` racing a 100ms assertion window). Self-diagnosed cross-suite contention, in the
-/// style of `VsockTCPProxyTests`/#1344: a local `swift test --filter LANHostScanCoordinatorTests`
-/// run passes all 5 tests in ~0.1s every time, but running the same suite as part of the full
-/// `AnglesiteAppTests` filter (471 tests, all suites in parallel) reproducibly left `state` stuck
-/// at `.scanning` instead of `.result(...)` — the many other `@MainActor`-isolated suites running
-/// concurrently oversubscribe the shared MainActor executor badly enough that this suite's own
-/// 10ms-delayed continuation misses its 100ms budget. `.serialized` removes this suite's internal
-/// contention with itself; the isolated lane removes contention from the rest of the test binary.
+/// Uses `waitUntil` (not a fixed `Task.sleep` before asserting) to observe `startScan`'s
+/// 10ms-delayed timeout: a fixed sleep-then-assert window raced the `MainActor` executor under
+/// full-parallel `swift test` contention and reproducibly left `state` stuck at `.scanning`
+/// instead of `.result(...)` (#1810) — the many other `@MainActor`-isolated suites running
+/// concurrently oversubscribed the shared executor badly enough that a 100ms assertion window
+/// missed the 10ms-delayed continuation. Polling for the actual state transition removes the
+/// race regardless of scheduler load, so this suite no longer needs `.serialized` or the
+/// isolated CI lane (`scripts/lib/timing-sensitive-tests.sh`).
 @MainActor
-@Suite("LANHostScanCoordinator", .serialized)
+@Suite("LANHostScanCoordinator")
 struct LANHostScanCoordinatorTests {
     @Test("starts in idle state")
     func startsIdle() {
@@ -52,7 +51,7 @@ struct LANHostScanCoordinatorTests {
         fake.hostsToReport = [lanHost("blog")]
         let coordinator = LANHostScanCoordinator(discovery: fake)
         coordinator.startScan(scanDuration: .milliseconds(10))
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil("scan result") { coordinator.state != .scanning }
         #expect(coordinator.state == .result(.autoPopulate(lanHost("blog"))))
         #expect(fake.stopCallCount == 1)
     }
@@ -61,7 +60,7 @@ struct LANHostScanCoordinatorTests {
     func noHostsIsEmpty() async throws {
         let coordinator = LANHostScanCoordinator(discovery: FakeLANHostDiscovery())
         coordinator.startScan(scanDuration: .milliseconds(10))
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil("scan result") { coordinator.state != .scanning }
         #expect(coordinator.state == .result(.empty))
     }
 
@@ -71,7 +70,7 @@ struct LANHostScanCoordinatorTests {
         fake.hostsToReport = [lanHost("blog"), lanHost("docs")]
         let coordinator = LANHostScanCoordinator(discovery: fake)
         coordinator.startScan(scanDuration: .milliseconds(10))
-        try await Task.sleep(for: .milliseconds(100))
+        try await waitUntil("scan result") { coordinator.state != .scanning }
         #expect(coordinator.state == .result(.chooseFrom([lanHost("blog"), lanHost("docs")])))
     }
 }
