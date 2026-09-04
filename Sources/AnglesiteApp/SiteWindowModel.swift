@@ -1351,7 +1351,20 @@ final class SiteWindowModel {
             await model.saveAllDirty()
         case nil: break
         }
-        if let model = inspectorContext?.model { await model.save() }
+        if let model = inspectorContext?.model {
+            let wasDirty = model.isDirty
+            let saved = await model.save()
+            // A dirty inspector save (`GenericPageInspectorModel`/`PageMetadataModel`/
+            // `TypedEntryEditorModel`) commits straight to host `Source/` HEAD, the same way
+            // `NativeContentOperations` does for create/duplicate/delete — but unlike those, it
+            // never routed through `refreshAfterContentMutation()`, so a running container's guest
+            // clone fell behind. `InProcessEditPersistence.importBundle` is fast-forward-only, so
+            // the next in-preview overlay edit's exported commit no longer had HEAD as its parent
+            // and was silently refused — the preview still showed the change, but nothing landed
+            // in Source/ (#1851). Catching the guest up here closes that gap the same way the
+            // content-mutation paths already do.
+            if wasDirty && saved { await preview.syncContentFromHost() }
+        }
         // The website inspector (#714 v2 slice 1) is a third dirty-able editing surface `hasUnsavedEdits`
         // already counts — `saveAll()` no-ops per-field when clean, matching the other two above.
         if let websiteInspector { await websiteInspector.saveAll() }
@@ -1397,9 +1410,17 @@ final class SiteWindowModel {
     /// Flush the inspector's editor before changing selection or tearing down — autosaves a dirty
     /// buffer, returns false (and the model raises its conflict alert) on an external conflict so the
     /// caller aborts the switch. Safe when no inspector is active.
+    ///
+    /// This is the everyday auto-save-on-leave path (fires on nearly every Navigator selection
+    /// change), so it needs the same post-commit guest sync as `saveAllEdits()` — see that
+    /// method's comment (#1851) for why a dirty inspector save left unsynced silently breaks the
+    /// next in-preview overlay edit.
     func leaveCurrentInspector() async -> Bool {
         guard let model = inspectorContext?.model else { return true }
-        return await model.flushBeforeLeaving()
+        let wasDirty = model.isDirty
+        let flushed = await model.flushBeforeLeaving()
+        if wasDirty && flushed { await preview.syncContentFromHost() }
+        return flushed
     }
 
     /// Best-effort off-main save of the open editor's buffer when the editor is torn down (window

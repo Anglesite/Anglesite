@@ -74,7 +74,7 @@ function attachHover(): void {
   });
 }
 
-function attachClickToEdit(awaitReply: (id: string, handler: (r: { status: string }) => void) => void): void {
+function attachClickToEdit(awaitReply: (id: string, handler: (r: EditReply) => void) => void): void {
   document.addEventListener("click", (ev) => {
     const target = ev.target as HTMLElement | null;
     if (!target || target.nodeType !== 1 || !isEditableText(target)) return;
@@ -114,8 +114,21 @@ function attachClickToEdit(awaitReply: (id: string, handler: (r: { status: strin
         op: "replace-text",
         value: newText,
       };
-      postEdit(msg);
-      awaitReply(id, () => { /* Phase 5 decides whether to revert on failure. */ });
+      const ok = postEdit(msg);
+      if (!ok) {
+        target.textContent = originalText;
+        showToast("Not running inside the Anglesite app");
+        return;
+      }
+      // #1851: a reply that isn't "applied" means the host never actually landed the edit (e.g.
+      // the container's guest clone had fallen behind Source/'s HEAD and the persist step
+      // refused it) — the DOM must not keep showing the optimistic change as if it had, mirroring
+      // `attachImageDrop`'s revert-with-toast on failure.
+      awaitReply(id, (reply) => {
+        if (reply.status === "applied") return;
+        target.textContent = originalText;
+        showToast(reply.detail ?? reply.message ?? reply.reason ?? "Edit failed");
+      });
     };
 
     target.addEventListener("blur", finish, { once: true });
