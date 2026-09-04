@@ -161,7 +161,7 @@ final class CommunitiesModel {
         isJoining = true
         defer { isJoining = false }
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — publish it at least once first."
+            errorMessage = String(localized: "This site has no known public URL yet — publish it at least once first.")
             return
         }
         errorMessage = nil
@@ -188,14 +188,15 @@ final class CommunitiesModel {
             do {
                 try persist(ledger)
             } catch {
-                errorMessage =
-                    "Joined \(community.displayName ?? input), but couldn't save it locally: "
-                    + "\(error). It may not appear after restarting the app."
+                errorMessage = String(
+                    localized:
+                        "Joined \(community.displayName ?? input), but couldn't save it locally: \(error). It may not appear after restarting the app."
+                )
             }
             joinHandleText = ""
             state = .loaded
         } catch {
-            errorMessage = "Couldn't join \(input): \(error)"
+            errorMessage = String(localized: "Couldn't join \(input): \(error.localizedDescription)")
         }
     }
 
@@ -231,7 +232,7 @@ final class CommunitiesModel {
         } catch {
             guard token == discoveryGeneration else { return }
             discoveryResults = []
-            discoveryErrorMessage = "Couldn't search \(discoveryInstance): \(error)"
+            discoveryErrorMessage = String(localized: "Couldn't search \(discoveryInstance): \(error.localizedDescription)")
             isSearchingDiscovery = false
         }
     }
@@ -271,7 +272,7 @@ final class CommunitiesModel {
         leaveConfirmation = nil
         errorMessage = nil
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — publish it at least once first."
+            errorMessage = String(localized: "This site has no known public URL yet — publish it at least once first.")
             return
         }
         do {
@@ -285,9 +286,10 @@ final class CommunitiesModel {
             do {
                 try persist(ledger)
             } catch {
-                errorMessage =
-                    "Left \(community.displayName ?? community.id), but couldn't update the local "
-                    + "record: \(error). It may still appear after restarting the app."
+                errorMessage = String(
+                    localized:
+                        "Left \(community.displayName ?? community.id), but couldn't update the local record: \(error). It may still appear after restarting the app."
+                )
             }
             if selectedCommunityID == community.id {
                 selectedCommunityID = nil
@@ -298,7 +300,7 @@ final class CommunitiesModel {
                 timelineGeneration &+= 1
             }
         } catch {
-            errorMessage = "Couldn't leave \(community.displayName ?? community.id): \(error)"
+            errorMessage = String(localized: "Couldn't leave \(community.displayName ?? community.id): \(error.localizedDescription)")
         }
     }
 
@@ -348,7 +350,7 @@ final class CommunitiesModel {
             isLoadingTimeline = false
         } catch {
             guard token == timelineGeneration else { return }
-            errorMessage = "Couldn't load \(community.displayName ?? community.id)'s timeline: \(error)"
+            errorMessage = String(localized: "Couldn't load \(community.displayName ?? community.id)'s timeline: \(error.localizedDescription)")
             isLoadingTimeline = false
         }
     }

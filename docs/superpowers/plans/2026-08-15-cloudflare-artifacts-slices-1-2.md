@@ -1,5 +1,7 @@
 # Cloudflare Artifacts Slices 1–2 Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Land the beta-independent half of #1266 — a host-agnostic `RemoteRepo` (slice 1) and a mockable Cloudflare Artifacts API client with a strict availability probe (slice 2).

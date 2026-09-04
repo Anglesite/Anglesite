@@ -1,5 +1,7 @@
 # Micro.blog compatibility — fix the feed layer (Epic #1027)
 
+**Status:** historical
+
 Make a deployed Anglesite site work as a Micro.blog external blog: short notes render
 inline (full text, no headline), titled posts render as linked headlines, feeds carry
 full HTML content and metadata, tag links resolve, and micropost collections are

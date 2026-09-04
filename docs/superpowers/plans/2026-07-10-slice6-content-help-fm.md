@@ -1,5 +1,7 @@
 # Slice 6: Content Help on Foundation Models — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Implement copy-edit, social-media, and repurpose on FoundationModels (chunk-first, tier-ready), each reachable from chat, Siri, and GUI, per the approved spec [`docs/superpowers/specs/2026-07-10-slice6-content-help-fm-design.md`](../specs/2026-07-10-slice6-content-help-fm-design.md) (issue #465).

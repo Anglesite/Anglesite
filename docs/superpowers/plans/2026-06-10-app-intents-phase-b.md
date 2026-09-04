@@ -1,5 +1,7 @@
 # Phase B — App Intents Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Expose Anglesite's deploy/backup/audit/open-site operations to Siri and Shortcuts via App Intents, wrapping the existing deterministic command actors with no LLM involvement.

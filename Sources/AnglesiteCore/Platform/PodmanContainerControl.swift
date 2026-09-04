@@ -35,7 +35,7 @@ public struct PodmanContainerControl: LocalContainerControl {
     private let flatpakHostSpawn: Bool
     private let flatpakSpawnExecutable: URL
 
-    private static let previewPort = 4321
+    private static let previewPort = DevServer.defaultPort
     private static let mcpPort = 4399
     private static let repoSharePath = "/run/anglesite-source"
     private static let previewReadyTimeout: Duration = .seconds(90)
@@ -407,7 +407,7 @@ public struct PodmanContainerControl: LocalContainerControl {
                 // `AsyncStream` that's still open.
                 subscription.cancel()
                 forwardTask.cancel()
-                await supervisor.terminate(handle, timeout: 2)
+                await supervisor.terminate(handle, timeout: ProcessSupervisor.fastTerminationGrace)
                 _ = await supervisor.waitForExit(handle)
             }
         )
@@ -520,7 +520,7 @@ public struct PodmanContainerControl: LocalContainerControl {
         let deadline = ContinuousClock.now.advanced(by: timeout)
         var lastError: String?
         var request = URLRequest(url: url)
-        request.timeoutInterval = 2
+        request.timeoutInterval = NetworkTimeouts.containerServingProbeRequest
         while ContinuousClock.now < deadline {
             try Task.checkCancellation()
             do {

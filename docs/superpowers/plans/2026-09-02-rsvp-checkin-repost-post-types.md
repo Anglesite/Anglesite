@@ -1,5 +1,7 @@
 # RSVP, Check-in, and Repost Post Types Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let an Anglesite site author RSVP, check-in, and repost entries — publishable from the app's composer, round-tripping through external Micropub clients, and appearing in feeds — closing the three `return null` guards Post Type Discovery already documents as unsupported.

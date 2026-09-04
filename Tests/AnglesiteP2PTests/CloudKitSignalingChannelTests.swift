@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 #if canImport(CloudKit)
 import CloudKit
 @testable import AnglesiteP2P
@@ -135,16 +136,14 @@ struct CloudKitSignalingChannelOfflineTests {
     /// it rather than merely detach the handle — mirroring
     /// `CloudKitPairingServiceLifecycleTests.stopObservingHaltsThePollLoop`'s use of `isObserving`
     /// as the only way to assert "no leaked poll loop" from outside.
-    @Test func envelopesStartsObservationAndCloseStopsIt() async {
+    @Test func envelopesStartsObservationAndCloseStopsIt() async throws {
         let channel = CloudKitSignalingChannel(
             offlinePollInterval: .milliseconds(5), sessionID: "session-abc", sender: "host")
         _ = channel.envelopes()
-        try? await Task.sleep(for: .milliseconds(50))
-        #expect(await channel.isObserving == true)
+        try await waitUntil("observation to start") { await channel.isObserving == true }
 
         await channel.close()
-        try? await Task.sleep(for: .milliseconds(50))
-        #expect(await channel.isObserving == false)
+        try await waitUntil("close to stop the poll loop") { await channel.isObserving == false }
     }
 
     /// A consumer that is cancelled (or breaks out of `for await`) terminates the stream without
@@ -157,14 +156,12 @@ struct CloudKitSignalingChannelOfflineTests {
         let channel = CloudKitSignalingChannel(
             offlinePollInterval: .milliseconds(5), sessionID: "session-abc", sender: "host")
         let consumer = Task { for await _ in channel.envelopes() {} }
-        try await Task.sleep(for: .milliseconds(100))
-        #expect(await channel.isObserving == true)
+        try await waitUntil("observation to start") { await channel.isObserving == true }
 
         consumer.cancel()
-        // `onTermination` hops back onto the actor, so give that hop room to land.
-        try await Task.sleep(for: .milliseconds(200))
-
-        #expect(await channel.isObserving == false)
+        // `onTermination` hops back onto the actor; wait for that hop to land instead of
+        // guessing how long it takes under load.
+        try await waitUntil("cancellation to stop the poll loop") { await channel.isObserving == false }
     }
 
     /// The retain cycle the `onTermination` hook and `startObserving()`'s `[weak self]` capture
@@ -180,12 +177,10 @@ struct CloudKitSignalingChannelOfflineTests {
                 offlinePollInterval: .milliseconds(5), sessionID: "session-abc", sender: "host")
             weakChannel = channel
             _ = channel.envelopes()
-            try await Task.sleep(for: .milliseconds(50))
+            try await waitUntil("observation to start") { await channel.isObserving == true }
         }
 
-        try await Task.sleep(for: .milliseconds(300))
-
-        #expect(weakChannel == nil)
+        try await waitUntil("the channel to deallocate once dropped") { weakChannel == nil }
     }
 }
 

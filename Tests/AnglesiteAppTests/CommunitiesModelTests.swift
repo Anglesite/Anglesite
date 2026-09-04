@@ -26,66 +26,6 @@ final class CommunitiesModelTests {
         func delete(account: String) throws { values.removeValue(forKey: account) }
     }
 
-    /// Routes every request by exact URL to a canned (status, body). `CommunityActorResolver`,
-    /// `CommunityMembershipClient`, and `GroupTimelineClient` all share the same `Transport`
-    /// signature (`@Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)`), so this one
-    /// fake — handed to all three init parameters — stands in for the whole network surface a
-    /// test exercises: webfinger, the resolved actor document, this site's own outbox POST, and
-    /// the joined community's outbox GET.
-    actor FakeTransport {
-        private var responses: [String: (status: Int, body: String)]
-        private(set) var requestedURLs: [URL] = []
-        /// URLs whose response is held back until `release(_:)` is called — lets a test hold one
-        /// request open while it observes or triggers other model behavior (Findings 3/4).
-        private var gatedURLs: Set<String> = []
-        private var gateContinuations: [String: CheckedContinuation<Void, Never>] = [:]
-        private var arrivedURLs: Set<String> = []
-        private var arrivalContinuations: [String: CheckedContinuation<Void, Never>] = [:]
-
-        init(_ responses: [String: (status: Int, body: String)] = [:]) {
-            self.responses = responses
-        }
-
-        func gate(_ url: String) { gatedURLs.insert(url) }
-
-        /// Releases a gated URL, letting its held-open request return.
-        func release(_ url: String) {
-            gatedURLs.remove(url)
-            gateContinuations.removeValue(forKey: url)?.resume()
-        }
-
-        /// Suspends until `url` has been requested at least once — so a test can synchronize on
-        /// "the gated request is now in flight" without racing the `Task` that issues it.
-        func waitUntilRequested(_ url: String) async {
-            if arrivedURLs.contains(url) { return }
-            await withCheckedContinuation { continuation in
-                arrivalContinuations[url] = continuation
-            }
-        }
-
-        private func waitIfGated(_ url: String) async {
-            guard gatedURLs.contains(url) else { return }
-            await withCheckedContinuation { continuation in
-                gateContinuations[url] = continuation
-            }
-        }
-
-        private func respond(to request: URLRequest) async -> (Data, HTTPURLResponse) {
-            let url = request.url!
-            requestedURLs.append(url)
-            arrivedURLs.insert(url.absoluteString)
-            arrivalContinuations.removeValue(forKey: url.absoluteString)?.resume()
-            await waitIfGated(url.absoluteString)
-            let (status, body) = responses[url.absoluteString] ?? (404, "not found")
-            let http = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!
-            return (Data(body.utf8), http)
-        }
-
-        nonisolated var transport: @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse) {
-            { request in await self.respond(to: request) }
-        }
-    }
-
     private static func site(configDirectory: URL, sourceDirectory: URL) -> CurrentSite {
         CurrentSite(
             id: "site-1", name: "Test Site",

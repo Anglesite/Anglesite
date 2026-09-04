@@ -1,5 +1,7 @@
 # AppKit Shell Slice 1 (columns) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Land the flag-gated `NSSplitViewController` shell (sidebar | content | inspector) for the site window, per Stage 3 slice 1 of `docs/superpowers/specs/2026-09-01-site-window-appkit-shell-design.md`.

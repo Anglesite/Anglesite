@@ -100,7 +100,7 @@ final class PageMetadataModel: InspectorEditorModel {
             if robotsChanged { await commitRobotsConfig() }
             return true
         } catch {
-            loadError = "Save failed: \(error.localizedDescription)"
+            loadError = String(localized: "Save failed: \(error.localizedDescription)")
             return false
         }
     }

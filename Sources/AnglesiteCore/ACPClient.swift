@@ -72,7 +72,9 @@ public actor ACPClient {
             "protocolVersion": .int(1),
             "clientCapabilities": .object(["fs": .object(["readTextFile": .bool(false), "writeTextFile": .bool(false)])]),
         ])
-        _ = try await sendRequest(method: "initialize", params: params, timeout: requestTimeoutOverrideForTesting ?? 10)
+        _ = try await sendRequest(
+            method: "initialize", params: params,
+            timeout: requestTimeoutOverrideForTesting ?? NetworkTimeouts.acpRequestTimeout)
     }
 
     /// Creates a new ACP session rooted at `cwd` and returns its server-assigned id. Passes an
@@ -82,7 +84,7 @@ public actor ACPClient {
         let result = try await sendRequest(
             method: "session/new",
             params: .object(["cwd": .string(cwd), "mcpServers": .array([])]),
-            timeout: requestTimeoutOverrideForTesting ?? 10
+            timeout: requestTimeoutOverrideForTesting ?? NetworkTimeouts.acpRequestTimeout
         )
         guard case .object(let obj) = result, case .string(let sessionID)? = obj["sessionId"] else {
             throw ACPError.invalidResponse("session/new missing 'sessionId'")
@@ -108,7 +110,7 @@ public actor ACPClient {
             "sessionId": .string(sessionID),
             "prompt": .array([.object(["type": .string("text"), "text": .string(text)])]),
         ])
-        let promptTimeout = requestTimeoutOverrideForTesting ?? 120
+        let promptTimeout = requestTimeoutOverrideForTesting ?? NetworkTimeouts.acpPromptTimeout
         Task { [weak self] in
             guard let self else { return }
             do {
@@ -131,7 +133,7 @@ public actor ACPClient {
         try? await sendNotification(
             method: "session/cancel",
             params: .object(["sessionId": .string(sessionID)]),
-            timeout: requestTimeoutOverrideForTesting ?? 10
+            timeout: requestTimeoutOverrideForTesting ?? NetworkTimeouts.acpRequestTimeout
         )
     }
 
@@ -214,7 +216,9 @@ public actor ACPClient {
     /// way as `sendRequest`, via a race between the actual send and a timeout — whichever finishes
     /// first wins, and the loser is cancelled (relying on the same `Task.isCancelled` cooperation
     /// `ACPHTTPTransport.send` implements for `sendRequest`'s benefit).
-    private func sendNotification(method: String, params: JSONValue?, timeout: TimeInterval = 10) async throws {
+    private func sendNotification(
+        method: String, params: JSONValue?, timeout: TimeInterval = NetworkTimeouts.acpRequestTimeout
+    ) async throws {
         guard !isStopped else { throw ACPError.stopped }
         var obj: [String: JSONValue] = ["jsonrpc": .string("2.0"), "method": .string(method)]
         if let params { obj["params"] = params }

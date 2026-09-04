@@ -357,7 +357,7 @@ final class PlistEditorModel {
             } catch {
                 redirectEntries = []
                 savedRedirectEntries = []
-                redirectsError = "Couldn't load existing redirects.json — it may be corrupted or hand-edited with invalid entries. Fix it externally or your next save will discard it. (\(error.localizedDescription))"
+                redirectsError = String(localized: "Couldn't load existing redirects.json — it may be corrupted or hand-edited with invalid entries. Fix it externally or your next save will discard it. (\(error.localizedDescription))")
                 redirectsLoadFailed = true
             }
             do {
@@ -369,7 +369,7 @@ final class PlistEditorModel {
             } catch {
                 utmCampaigns = []
                 savedUTMCampaigns = []
-                utmCodesError = "Couldn't load existing utm-codes.json — it may be corrupted or hand-edited with invalid entries. Fix it externally or your next save will discard it. (\(error.localizedDescription))"
+                utmCodesError = String(localized: "Couldn't load existing utm-codes.json — it may be corrupted or hand-edited with invalid entries. Fix it externally or your next save will discard it. (\(error.localizedDescription))")
                 utmCodesLoadFailed = true
             }
             do {
@@ -386,7 +386,7 @@ final class PlistEditorModel {
             } catch {
                 licensingPolicy = LicensingPolicy()
                 savedLicensingPolicy = LicensingPolicy()
-                licensingError = "Couldn't load existing licensing.json — it may be corrupted or hand-edited. Fix it externally or your next save will discard it. (\(error.localizedDescription))"
+                licensingError = String(localized: "Couldn't load existing licensing.json — it may be corrupted or hand-edited. Fix it externally or your next save will discard it. (\(error.localizedDescription))")
                 licensingLoadFailed = true
             }
             if let configDirectory {
@@ -434,7 +434,7 @@ final class PlistEditorModel {
             savedEntries = self.entries
             return true
         } catch {
-            loadError = "Save failed: \(error.localizedDescription)"
+            loadError = String(localized: "Save failed: \(error.localizedDescription)")
             return false
         }
     }
@@ -554,7 +554,7 @@ final class PlistEditorModel {
         guard isRedirectsDirty else { return true }
         guard !isSavingRedirects else { return false }
         guard !redirectsLoadFailed else {
-            redirectsError = "Refusing to save: the existing redirects.json failed to load and may contain valid entries this save would discard. Fix or back up the file, then reload this site's settings."
+            redirectsError = String(localized: "Refusing to save: the existing redirects.json failed to load and may contain valid entries this save would discard. Fix or back up the file, then reload this site's settings.")
             return false
         }
         isSavingRedirects = true
@@ -569,7 +569,7 @@ final class PlistEditorModel {
             savedRedirectEntries = entries
             return true
         } catch {
-            redirectsError = "Couldn't save redirects: \(error.localizedDescription)"
+            redirectsError = String(localized: "Couldn't save redirects: \(error.localizedDescription)")
             return false
         }
     }
@@ -582,7 +582,7 @@ final class PlistEditorModel {
         }
         guard !isSavingUTMCodes else { return false }
         guard !utmCodesLoadFailed else {
-            utmCodesError = "Refusing to save: the existing utm-codes.json failed to load and may contain campaigns this save would discard. Fix or back up the file, then reload this site's settings."
+            utmCodesError = String(localized: "Refusing to save: the existing utm-codes.json failed to load and may contain campaigns this save would discard. Fix or back up the file, then reload this site's settings.")
             return false
         }
         isSavingUTMCodes = true
@@ -597,7 +597,7 @@ final class PlistEditorModel {
             savedUTMCampaigns = campaigns
             return true
         } catch {
-            utmCodesError = "Couldn't save UTM codes: \(error.localizedDescription)"
+            utmCodesError = String(localized: "Couldn't save UTM codes: \(error.localizedDescription)")
             return false
         }
     }
@@ -607,7 +607,7 @@ final class PlistEditorModel {
         guard isLicensingDirty else { return true }
         guard !isSavingLicensing else { return false }
         guard !licensingLoadFailed else {
-            licensingError = "Refusing to save: the existing licensing.json failed to load and may contain rules this save would discard. Fix or back up the file, then reload this site's settings."
+            licensingError = String(localized: "Refusing to save: the existing licensing.json failed to load and may contain rules this save would discard. Fix or back up the file, then reload this site's settings.")
             return false
         }
         isSavingLicensing = true
@@ -634,10 +634,10 @@ final class PlistEditorModel {
             savedLicensingPolicy = policy
             return true
         } catch LicensingStore.ValidationError.unsafeLicenseURL(let url) {
-            licensingError = "\"\(url)\" isn't a usable license address. Use an https:// URL or a path on this site starting with /."
+            licensingError = String(localized: "\"\(url)\" isn't a usable license address. Use an https:// URL or a path on this site starting with /.")
             return false
         } catch {
-            licensingError = "Couldn't save content licensing: \(error.localizedDescription)"
+            licensingError = String(localized: "Couldn't save content licensing: \(error.localizedDescription)")
             return false
         }
     }
@@ -659,7 +659,7 @@ final class PlistEditorModel {
             savedLangSettings = settings
             return true
         } catch {
-            langError = "Couldn't save website language: \(error.localizedDescription)"
+            langError = String(localized: "Couldn't save website language: \(error.localizedDescription)")
             return false
         }
     }
@@ -687,7 +687,7 @@ final class PlistEditorModel {
             savedMtaStsSettings = canonical
             return true
         } catch {
-            mtaStsError = "Couldn't save MTA-STS policy: \(error.localizedDescription)"
+            mtaStsError = String(localized: "Couldn't save MTA-STS policy: \(error.localizedDescription)")
             return false
         }
     }
@@ -712,7 +712,7 @@ final class PlistEditorModel {
             savedSecurityReportingSettings = canonical
             return true
         } catch {
-            securityReportingError = "Couldn't save security reporting settings: \(error.localizedDescription)"
+            securityReportingError = String(localized: "Couldn't save security reporting settings: \(error.localizedDescription)")
             return false
         }
     }
@@ -740,12 +740,12 @@ final class PlistEditorModel {
         do {
             token = try githubToken()
         } catch {
-            securityReportingError = "Couldn't read the GitHub token from the Keychain: \(error.localizedDescription)"
+            securityReportingError = String(localized: "Couldn't read the GitHub token from the Keychain: \(error.localizedDescription)")
             recordCheckFailure(for: repo)
             return
         }
         guard let token, !token.isEmpty else {
-            securityReportingError = "Connect a GitHub account in Settings to check this repository's reporting setup."
+            securityReportingError = String(localized: "Connect a GitHub account in Settings to check this repository's reporting setup.")
             recordCheckFailure(for: repo)
             return
         }
@@ -869,11 +869,11 @@ final class PlistEditorModel {
     private func enablePVR(owner: String, name: String) async -> Bool {
         let token: String?
         do { token = try githubToken() } catch {
-            securityReportingError = "Couldn't read the GitHub token from the Keychain: \(error.localizedDescription)"
+            securityReportingError = String(localized: "Couldn't read the GitHub token from the Keychain: \(error.localizedDescription)")
             return false
         }
         guard let token, !token.isEmpty else {
-            securityReportingError = "Connect a GitHub account in Settings to enable private vulnerability reporting."
+            securityReportingError = String(localized: "Connect a GitHub account in Settings to enable private vulnerability reporting.")
             return false
         }
         do {
@@ -941,7 +941,7 @@ final class PlistEditorModel {
                 .map(\.content)
             let normalized = MTAStsPolicyAsset.normalizedMXList(hosts.joined(separator: "\n"))
             guard !normalized.isEmpty else {
-                mtaStsError = "No usable MX records were found for \(domain). Enter the receiving mail hosts manually."
+                mtaStsError = String(localized: "No usable MX records were found for \(domain). Enter the receiving mail hosts manually.")
                 return
             }
             mtaStsSettings.mxHosts = normalized.joined(separator: "\n")
@@ -973,7 +973,7 @@ final class PlistEditorModel {
                 }
                 if matching.contains(where: { $0.content == record.content }) { continue }
                 if !matching.isEmpty {
-                    mtaStsError = "A TXT record already exists for \(record.name) with different content. Update it in Website → Manage Domain, then try again."
+                    mtaStsError = String(localized: "A TXT record already exists for \(record.name) with different content. Update it in Website → Manage Domain, then try again.")
                     return
                 }
                 switch await domainOperations.addRecord(domain: domain, type: "TXT", name: record.name, content: record.content, ttl: 1, priority: nil, purpose: DomainRecordPurpose.Email.mtaSTS, sourceDirectory: sourceDirectory) {
@@ -990,7 +990,7 @@ final class PlistEditorModel {
     private func mtaStsDNSMessage(for error: DomainOperationError) -> String {
         switch error {
         case .noToken:
-            return "No Cloudflare API token found. Add one in Settings → Credentials."
+            return CloudflareTokenMessage.notFoundWithHint
         case .zoneNotFound(let domain):
             return "Zone not found for \(domain). Check that the mail domain is managed in Cloudflare."
         case .cloudflare(let error):

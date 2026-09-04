@@ -92,7 +92,7 @@ final class OnionRoutingModel {
 
     private func loadOnionRouting(domain: String) async {
         guard let token = await apiToken() else {
-            phase = .error(message: "No Cloudflare API token found. Add one in Settings → Credentials.")
+            phase = .error(message: CloudflareTokenMessage.notFoundWithHint)
             return
         }
 
@@ -113,7 +113,7 @@ final class OnionRoutingModel {
 
     private func saveOnionRouting(domain: String, enabled: Bool) async {
         guard let token = await apiToken() else {
-            phase = .error(message: "No Cloudflare API token found.")
+            phase = .error(message: CloudflareTokenMessage.notFound)
             return
         }
 

@@ -1,4 +1,4 @@
-import type { HostTransport, OpEnvelope, OpResult, BlockModel } from "../types.js";
+import type { HostTransport, OpEnvelope, OpResult, BlockModel, WritingHelpReply } from "../types.js";
 import type { Finding, QualityGateTransport } from "../quality-gates.js";
 
 declare global {
@@ -8,6 +8,7 @@ declare global {
       _handleOpResult?: (requestId: string, result: OpResult) => void;
       _handleModelUpdate?: (model: BlockModel) => void;
       _handleQualityFindings?: (findings: Finding[]) => void;
+      _handleWritingHelpReply?: (requestId: string, reply: WritingHelpReply) => void;
     };
   }
 }
@@ -27,6 +28,8 @@ export class NativeHostTransport implements HostTransport, QualityGateTransport 
   #pending = new Map<string, (result: OpResult) => void>();
   #modelListeners = new Set<(model: BlockModel) => void>();
   #findingsListeners = new Set<(findings: Finding[]) => void>();
+  // Separate namespace from #pending so a writing-help requestId never collides with an op requestId.
+  #pendingWritingHelp = new Map<string, (reply: WritingHelpReply) => void>();
 
   constructor() {
     window.__anglesiteWysiwygHost = {
@@ -42,6 +45,12 @@ export class NativeHostTransport implements HostTransport, QualityGateTransport 
       _handleQualityFindings: (findings) => {
         for (const listener of this.#findingsListeners) listener(findings);
       },
+      _handleWritingHelpReply: (requestId, reply) => {
+        const resolve = this.#pendingWritingHelp.get(requestId);
+        if (!resolve) return;
+        this.#pendingWritingHelp.delete(requestId);
+        resolve(reply);
+      },
     };
   }
 
@@ -49,6 +58,20 @@ export class NativeHostTransport implements HostTransport, QualityGateTransport 
     return new Promise((resolve) => {
       this.#pending.set(envelope.id, resolve);
       window.webkit?.messageHandlers?.wysiwyg?.postMessage({ type: "submit-op", envelope });
+    });
+  }
+
+  /**
+   * Requests a writing-help rewrite from the native FoundationModels-backed assistant
+   * (`WritingHelpAssisting`, `Sources/AnglesiteCore/WritingHelpAssistant.swift`) via
+   * `WYSIWYGScriptHandler`'s `writing-help-request` message. Never rejects — an unavailable
+   * assistant or a generation failure both resolve as `{status: "unavailable", message}`.
+   */
+  requestWritingHelp(text: string, instruction: string): Promise<WritingHelpReply> {
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve) => {
+      this.#pendingWritingHelp.set(requestId, resolve);
+      window.webkit?.messageHandlers?.wysiwyg?.postMessage({ type: "writing-help-request", requestId, text, instruction });
     });
   }
 

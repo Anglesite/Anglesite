@@ -1,5 +1,7 @@
 # Green Web Check Integration Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add a `.greenHostCheck` Bucket-3 integration that queries the Green Web Foundation's Greencheck API for the site's deploy host during the wizard flow, and — if green — scaffolds a static badge component; if not green, explains why with no badge.

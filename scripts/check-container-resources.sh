@@ -41,6 +41,7 @@ set -euo pipefail
 SCRIPT_DIR=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)
 REPO_ROOT=$(cd "$SCRIPT_DIR/.." && pwd)
 RESOURCES="$REPO_ROOT/Resources"
+NODE_VERSION_FILE="$SCRIPT_DIR/node-version.txt"
 source "$SCRIPT_DIR/lib/artifact-lock.sh"
 source "$SCRIPT_DIR/lib/mcp-protocol-version.sh"
 
@@ -86,9 +87,38 @@ check_mcp_protocol_stamp() {
         missing+=("$label has no vendor-manifest.json (vendored before the MCP-protocol staleness check existed) — re-run scripts/vendor-container-image.sh so the bundled sidecar matches MCP-Protocol-Version $expected.")
         return
     fi
-    actual="$(grep -m1 '"mcpProtocolVersion"' "$manifest" | sed -E 's/.*"mcpProtocolVersion"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')"
+    # `|| true`: under `set -e`/pipefail, a manifest with no mcpProtocolVersion field would make
+    # grep exit 1 and abort the whole script instead of falling through to the missing+=() below.
+    actual="$(grep -m1 '"mcpProtocolVersion"' "$manifest" | sed -E 's/.*"mcpProtocolVersion"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/')" || true
     if [[ "$actual" != "$expected" ]]; then
         missing+=("$label was vendored for MCP protocol $actual but this app build now expects $expected — re-run scripts/vendor-container-image.sh, or the local preview's MCP handshake will fail with an opaque HTTP error.")
+    fi
+}
+
+# Appends to `missing` iff the vendored image's Node major version (stamped into
+# vendor-manifest.json by vendor-container-image.sh, from its own pinned base image) disagrees
+# with scripts/node-version.txt. This guest image (Containers/anglesite-dev/Dockerfile, built
+# for Apple Containerization) pins its Node base independently of the Cloudflare/shared
+# container/Dockerfile, which reads scripts/node-version.txt directly (#1815) — nothing else
+# catches the two guest images drifting onto different Node majors, and the symptom would
+# surface far from its cause as an inconsistent in-container dev-server failure. Only the major
+# version is compared: the base image is pinned by digest, so that's all the tag exposes without
+# a registry round-trip. A missing stamp (image vendored before this check existed) is flagged
+# the same as a mismatch — both mean the drift is untracked.
+check_node_version_stamp() {
+    local manifest="$1" label="$2"
+    local expected actual
+    [[ -f "$NODE_VERSION_FILE" ]] || return 0
+    expected="$(tr -d '[:space:]' < "$NODE_VERSION_FILE")"
+    expected="${expected%%.*}"
+    [[ -f "$manifest" ]] || return 0  # already flagged by check_mcp_protocol_stamp above
+    actual="$(grep -m1 '"nodeMajorVersion"' "$manifest" | sed -E 's/.*"nodeMajorVersion"[[:space:]]*:[[:space:]]*"([^"]+)".*/\1/' || true)"
+    if [[ -z "$actual" ]]; then
+        missing+=("$label has no nodeMajorVersion stamp (vendored before this check existed) — re-run scripts/vendor-container-image.sh so drift against scripts/node-version.txt (Node $expected) is tracked.")
+        return
+    fi
+    if [[ "$actual" != "$expected" ]]; then
+        missing+=("$label is pinned to Node $actual (Containers/anglesite-dev/Dockerfile's base image) but scripts/node-version.txt pins Node $expected — bump the base image to match (or document why they intentionally differ), then re-run scripts/vendor-container-image.sh.")
     fi
 }
 
@@ -105,11 +135,13 @@ if [[ -n "${ANGLESITE_CONTAINER_IMAGE:-}" ]]; then
         missing+=("ANGLESITE_CONTAINER_IMAGE=$ANGLESITE_CONTAINER_IMAGE has no index.json — fix or unset the override")
     else
         check_mcp_protocol_stamp "$ANGLESITE_CONTAINER_IMAGE/vendor-manifest.json" "ANGLESITE_CONTAINER_IMAGE"
+        check_node_version_stamp "$ANGLESITE_CONTAINER_IMAGE/vendor-manifest.json" "ANGLESITE_CONTAINER_IMAGE"
     fi
 elif [[ ! -f "$RESOURCES/container-image/index.json" ]]; then
     missing+=("Resources/container-image is unvendored (no index.json) — run scripts/vendor-container-image.sh")
 else
     check_mcp_protocol_stamp "$RESOURCES/container-image/vendor-manifest.json" "Resources/container-image"
+    check_node_version_stamp "$RESOURCES/container-image/vendor-manifest.json" "Resources/container-image"
 fi
 
 if [[ -n "${ANGLESITE_CONTAINER_KERNEL:-}" ]]; then

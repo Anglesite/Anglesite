@@ -1,5 +1,7 @@
 # Solid Pod, Solid-OIDC, and WebDAV Worker Support Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Compose `@dwk/solid-oidc`, `@dwk/solid-pod`, and `@dwk/webdav` into the per-site Cloudflare Worker so activating `webdav` in Settings actually deploys and works, instead of hard-failing on an unknown-method validation error.

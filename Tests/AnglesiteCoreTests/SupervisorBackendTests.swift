@@ -1,8 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 @testable import AnglesiteCore
 
-final class SupervisorBackendTests: XCTestCase {
-    func test_spawnSpec_codable_roundTrip() throws {
+struct SupervisorBackendTests {
+    @Test("SpawnSpec codable round trips")
+    func spawnSpecCodableRoundTrip() throws {
         let original = SpawnSpec(
             executable: URL(fileURLWithPath: "/usr/bin/git"),
             arguments: ["status", "--porcelain"],
@@ -13,10 +15,11 @@ final class SupervisorBackendTests: XCTestCase {
         )
         let encoded = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(SpawnSpec.self, from: encoded)
-        XCTAssertEqual(decoded, original)
+        #expect(decoded == original)
     }
 
-    func test_spawnSpec_codable_nilFieldsRoundTrip() throws {
+    @Test("SpawnSpec codable round trips with nil fields")
+    func spawnSpecCodableNilFieldsRoundTrip() throws {
         let original = SpawnSpec(
             executable: URL(fileURLWithPath: "/bin/echo"),
             arguments: ["hi"],
@@ -27,6 +30,6 @@ final class SupervisorBackendTests: XCTestCase {
         )
         let encoded = try JSONEncoder().encode(original)
         let decoded = try JSONDecoder().decode(SpawnSpec.self, from: encoded)
-        XCTAssertEqual(decoded, original)
+        #expect(decoded == original)
     }
 }

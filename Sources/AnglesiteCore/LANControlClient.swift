@@ -7,7 +7,7 @@ import Foundation
 public struct LANRuntimeConfiguration: Sendable, Equatable {
     /// Default ports match the container guest convention (`ContainerizationControl`):
     /// `astro dev` on 4321, the Node MCP sidecar on 4399.
-    public static let defaultPreviewPort = 4321
+    public static let defaultPreviewPort = DevServer.defaultPort
     /// The container-guest convention's MCP sidecar port (4399) — see `defaultPreviewPort`.
     public static let defaultMCPPort = 4399
 

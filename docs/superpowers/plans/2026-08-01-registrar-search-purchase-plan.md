@@ -1,5 +1,7 @@
 # Registrar Search + Purchase Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a site owner search domain names, see real-time pricing, and buy one in-app via Cloudflare's Registrar API, replacing the current "Buy a domain" placeholder (a bare link-out).

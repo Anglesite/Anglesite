@@ -1,5 +1,7 @@
 # First-Publish License Gate Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Block a site's first deploy on an explicit content-license choice — including "All rights reserved" — shown as a Creative Commons comparison table with an AI-interpretation column.

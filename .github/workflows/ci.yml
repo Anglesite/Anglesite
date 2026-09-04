@@ -1,5 +1,9 @@
 name: CI
 
+# Lane went red? See ../../docs/ci-troubleshooting.md for a per-job runbook (what each
+# lane runs, what a red usually means, what to check first) lifted from this file's own
+# inline comments — read that first before re-deriving a diagnosis from scratch here.
+
 on:
   push:
     branches: [main]
@@ -11,11 +15,18 @@ permissions:
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  # PRs: a new push supersedes the previous run. `main`: never cancel (#1865). A cancelled main
+  # run never reaches its SwiftPM cache save, and main's caches are the only ones a PR can
+  # restore (a cache written on refs/pull/N/merge is invisible to every other PR) — with merges
+  # landing minutes apart, 7 of 15 consecutive main runs were cancelled and `gh cache list`
+  # showed zero caches on main, so every lane on every PR started cold. GitHub already keeps at
+  # most one running + one pending run per group, so back-to-back merges still collapse to
+  # "current + latest" rather than piling up.
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 # Drop AnglesiteContainer (and its native apple/containerization graph) from every SwiftPM/xcodebuild
-# manifest evaluation in CI. `swift build`/`swift test` compile all products, so without this the
-# macos-15 runner would try to build the Swift-6.2/native container stack it can neither build nor
+# manifest evaluation in CI. `swift build`/`swift test` compile all products, so without this CI's
+# macOS runners would try to build the Swift-6.2/native container stack they can neither build nor
 # run. No CI lane builds the container runtime yet; a future app-build lane (#69 Task 8) that needs
 # it can override this at the job level. Mechanism: Package.swift gates target+product+dependency on
 # this var.
@@ -38,6 +49,7 @@ jobs:
       template: ${{ steps.filter.outputs.template }}
       helpBook: ${{ steps.filter.outputs.helpBook }}
       workers: ${{ steps.filter.outputs.workers }}
+      docsIndex: ${{ steps.filter.outputs.docsIndex }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -94,7 +106,7 @@ jobs:
             return 1
           }
 
-          swift=false; js=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false
+          swift=false; js=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false; docsIndex=false
           matches 'Package.swift' 'Package.resolved' 'project.yml' 'Sources/**' 'Tests/**' 'Resources/Template/**' 'Resources/Attributions/**' 'scripts/**' 'packaging/flatpak/**' '.github/workflows/ci.yml' && swift=true
           matches 'JS/edit-overlay/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && js=true
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
@@ -102,6 +114,7 @@ jobs:
           matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
           matches 'Resources/Anglesite.help/**' 'scripts/check-help-links.sh' '.github/workflows/ci.yml' && helpBook=true
           matches 'Workers/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && workers=true
+          matches 'docs/specs/**' 'docs/superpowers/**' 'scripts/generate-docs-index.py' 'scripts/test-generate-docs-index.py' '.github/workflows/ci.yml' && docsIndex=true
 
           echo "swift=$swift" >> "$GITHUB_OUTPUT"
           echo "js=$js" >> "$GITHUB_OUTPUT"
@@ -110,6 +123,7 @@ jobs:
           echo "template=$template" >> "$GITHUB_OUTPUT"
           echo "helpBook=$helpBook" >> "$GITHUB_OUTPUT"
           echo "workers=$workers" >> "$GITHUB_OUTPUT"
+          echo "docsIndex=$docsIndex" >> "$GITHUB_OUTPUT"
 
   edit-overlay:
     name: JS edit-overlay (lint/typecheck/test)
@@ -199,6 +213,15 @@ jobs:
       # ubuntu-latest doesn't ship it.
       - run: sudo apt-get update && sudo apt-get install -y zsh
 
+      # scripts/generate-npm-attributions.mjs lives at the repo root, not under
+      # Resources/Template, so it needs its own node:test invocation outside this job's
+      # working-directory default — this `template` filter already triggers on changes to
+      # that file (see the `changes` job), and setup-node above already put the right Node
+      # on PATH, so this is the natural lane for it (#1797).
+      - name: Test generate-npm-attributions.mjs
+        working-directory: ${{ github.workspace }}
+        run: node --test scripts/generate-npm-attributions.test.mjs
+
       # The website-template attributions manifest check lives in build-test (macos-26), not
       # here (ubuntu-latest) — see that job's "Check website-template attributions manifest"
       # step for why: the committed manifest is arm64-only and can never match a linux-x64
@@ -256,6 +279,24 @@ jobs:
       - name: Check Help Book links
         run: scripts/check-help-links.sh
 
+  docs-index:
+    name: Docs index (specs/plans README + Status header)
+    needs: changes
+    if: needs.changes.outputs.docsIndex == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # docs/specs/README.md and docs/superpowers/README.md are generated from the design
+    # docs' header lines (#1816). Same shape as help-book-links: stdlib python3 only, no
+    # installs. Fails when a README is stale or a doc dated on/after the convention start
+    # has no recognised `Status:` line; warns (non-fatal) when CLAUDE.md & co. point at a
+    # superseded spec.
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Generator unit tests
+        run: python3 scripts/test-generate-docs-index.py
+      - name: Check docs indexes are current
+        run: scripts/generate-docs-index.py --check
+
   linux-build-test:
     name: Linux (portable SwiftPM targets)
     needs: changes
@@ -289,8 +330,22 @@ jobs:
       # path, and SwiftPM refuses to reuse a module cache whose baked-in path doesn't match
       # the current one ("missing required module 'SwiftShims'"). Bump again if this ever
       # recurs after another workspace-path change.
-      - name: Cache SwiftPM build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      #
+      # Restore here, save only from `main` at the end of the job (#1865) — this split applies
+      # to every SwiftPM cache in this workflow. The one-step `actions/cache` form saved a fresh
+      # sha-suffixed cache (~1GB per macOS lane) from every PR push; against the repo's 10GB
+      # cache cap that evicted everything within a few pushes (measured: 10.78GB in use, every
+      # entry on a refs/pull/*/merge ref, none on main), so the macOS lanes logged "Cache not
+      # found" even on a PR's second push. Now only `main` writes — its per-SHA set fits the cap
+      # with room for the previous one — and every PR restores from it through the prefix
+      # restore-keys; SwiftPM's incremental tracking then rebuilds just what the PR changed.
+      # PRs also stop paying the 30-50s post-job upload. The save step passes the restore
+      # step's `cache-primary-key` output rather than recomputing the key: `swift build` under
+      # ANGLESITE_SKIP_CONTAINER=1 rewrites Package.resolved on disk, so a fresh
+      # hashFiles('Package.resolved') at the end of the job would no longer match.
+      - name: Restore SwiftPM build cache
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           key: swiftpm-linux-6.3.3-noble-v2-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
@@ -311,6 +366,26 @@ jobs:
       # though stage-dev-image-context.sh backs the macOS/podman image-vendoring scripts.
       - name: Test stage-dev-image-context.sh sidecar version guard
         run: scripts/lib/stage-dev-image-context.test.sh
+
+      # Stubs `swift` on PATH and uses a throwaway lock dir, so it never touches the real
+      # /tmp/anglesite-swift-test.lock or compiles anything (#1594). No model contention here
+      # (this lane never calls the live-model suites), but the lock/retry logic under test is
+      # exercised entirely through the stub, so CI coverage doesn't need real contention.
+      - name: Test swift-test.sh lock/retry logic
+        run: scripts/swift-test.test.sh
+
+      # Stubs `gh`, `lsof`, and `plutil` and runs against a throwaway git repo, so every
+      # safety branch (merged/dirty/busy/orphaned worktrees, live/dead DerivedData) is
+      # exercised without touching this machine's real worktrees or DerivedData (#1461).
+      - name: Test prune-worktrees.sh safety rails
+        run: scripts/prune-worktrees.test.sh
+
+      - name: Save SwiftPM build cache (main only)
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: ${{ steps.cache.outputs.cache-primary-key }}
 
   linux-flatpak-build:
     name: Linux (Flatpak manifest + AnglesiteLinux)
@@ -418,8 +493,10 @@ jobs:
     # 13-14m on its own, leaving no margin for the post-job SwiftPM cache save — several PRs
     # (including an unrelated one on the same day as #966) hit "exceeded the maximum execution
     # time of 15m0s" mid cache-save even though every actual build/test step had already
-    # succeeded. 20m restores headroom without masking a genuine hang.
-    timeout-minutes: 20
+    # succeeded. 20m restored headroom without masking a genuine hang; 25 after #1865 folded
+    # the timing-sensitive suites and the DocC check in here (~2 min on a warm build, versus
+    # two more macOS runner slots — see those steps).
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -504,6 +581,15 @@ jobs:
           # Cache-key input: a runner-image bump that changes which Xcode is "latest" must not
           # reuse a build cache from a different toolchain.
           echo "version=$(basename "$LATEST")" >> "$GITHUB_OUTPUT"
+          # The DocC step for AnglesiteAppCore/AnglesiteP2P below is ARMED but skips gracefully
+          # until the runner ships Xcode 27 (see that step).
+          MAJOR=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\).*/\1/p')
+          if [ "${MAJOR:-0}" -ge 27 ]; then
+            echo "has27=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has27=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=AnglesiteAppCore docs skipped::Needs Xcode 27+, runner has ${MAJOR:-unknown}. The AnglesiteAppCore/AnglesiteP2P DocC step auto-activates once a runner provides Xcode 27."
+          fi
 
       - name: Show toolchain versions
         run: |
@@ -512,10 +598,12 @@ jobs:
           node --version
 
       # See the linux-build-test cache step for the key-scheme rationale, including the `v2`
-      # segment that stops restoring pre-repo-rename caches. Namespaced by the selected Xcode
-      # build so a runner-image toolchain bump can't restore incompatible object files.
-      - name: Cache SwiftPM build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # segment that stops restoring pre-repo-rename caches and the restore-on-PR /
+      # save-on-main split. Namespaced by the selected Xcode build so a runner-image toolchain
+      # bump can't restore incompatible object files.
+      - name: Restore SwiftPM build cache
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           key: swiftpm-macos-v2-${{ steps.xcode.outputs.version }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
@@ -583,11 +671,78 @@ jobs:
       # processes have exited. Checked from a separate process on purpose — the in-suite
       # assertions cannot observe what cfprefsd does at process exit, which is the mechanism
       # that produced the original ~/Library/Preferences leak.
+      # The timing-sensitive suites, in their own `swift test` process (#1344's isolation:
+      # no scheduler contention from the ~4,700 other tests). They were a separate macos-26 job
+      # (`timing-sensitive-tests`) until #1865 — one that spent ~250s rebuilding the package
+      # this job had just built, ran its suites in under 4s, and waited up to an hour in the
+      # macOS runner queue to do it. As a step here it keeps its own process, reuses this job's
+      # .build, and costs seconds. Deliberately no ANGLESITE_PLUGIN_PATH: the old lane never set
+      # it either, so the e2e-gated variants inside these suites stay skipped exactly as before.
+      - name: Test (timing-sensitive suites, isolated process)
+        id: swift-test-timing-sensitive
+        run: |
+          set -o pipefail
+          scripts/test-timing-sensitive.sh 2>&1 | tee "$RUNNER_TEMP/swift-timing-sensitive-test.log"
+
+      - name: Surface Swift errors (annotations + job summary)
+        if: failure() && steps.swift-test-timing-sensitive.outcome == 'failure'
+        run: scripts/annotate-swift-log.sh "$RUNNER_TEMP/swift-timing-sensitive-test.log" "build-test ▸ Test (timing-sensitive suites)"
+
+      # #1727/#1745: after both test processes have exited — checked from a separate process on
+      # purpose, since in-suite assertions can't observe what cfprefsd does at process exit.
       - name: Check no test UserDefaults suites leaked
         run: scripts/check-test-userdefaults-leak.sh
 
+      # DocC comment/doc-comment health check — fails on any DocC error or warning. Was its own
+      # macos-26 job (`docs-docc`) until #1865: with no cache it built the package cold for ~7
+      # minutes to spend ~20 seconds extracting symbol graphs, and queued behind every other
+      # macOS job first. Here it reuses this job's warm debug build (measured locally: ~50s, no
+      # recompilation). No xcodegen/xcodebuild involved — this is `swift package
+      # generate-documentation` over the SwiftPM library targets. The --target list is
+      # deliberate and explicit, not "every target": a target-less run sweeps in every
+      # dependency package too, including MarkdownEngine's own broken doc comments, which we
+      # don't own; and AnglesiteLANHost (an executableTarget) fails symbol-graph extraction
+      # with an unrelated tooling issue ("AnglesiteLANHost.symbolgraphs doesn't exist").
+      # AnglesiteContainer/AnglesiteContainerProbe are already dropped from the manifest by the
+      # workflow-level ANGLESITE_SKIP_CONTAINER=1.
+      - name: Build documentation (DocC, warnings as errors)
+        run: |
+          swift package generate-documentation \
+            --target AnglesiteSiteModel \
+            --target AnglesiteQuickLookSupport \
+            --target AnglesiteCore \
+            --target AnglesiteBridgeCore \
+            --target AnglesiteBridge \
+            --target AnglesiteIOS \
+            --target AnglesiteIntents \
+            --target AnglesiteTestSupport \
+            --warnings-as-errors
+
+      # AnglesiteAppCore is `#if compiler(>=6.4) && canImport(Darwin)`-gated in Package.swift,
+      # so on a runner whose active Xcode predates 27 the target simply doesn't exist in the
+      # manifest — and `--target AnglesiteAppCore` doesn't skip gracefully then, it hard-errors
+      # ("no target named …"). AnglesiteP2P rides along for an unrelated reason: it isn't
+      # compiler-gated, but on Xcode 26.6 `swift-symbolgraph-extract` fails to load WebRTC's
+      # binary xcframework module ("missing required module 'WebRTC'") — confirmed clean under
+      # Xcode 27. So both are ARMED but skip gracefully (green, with the ::warning:: emitted by
+      # the Xcode-selection step) until a runner ships Xcode 27, then auto-activate.
+      - name: Build documentation for AnglesiteAppCore and AnglesiteP2P (Xcode 27+ only)
+        if: steps.xcode.outputs.has27 == 'true'
+        run: |
+          swift package generate-documentation \
+            --target AnglesiteAppCore \
+            --target AnglesiteP2P \
+            --warnings-as-errors
+
       - name: Build (release)
         run: swift build -c release
+
+      - name: Save SwiftPM build cache (main only)
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: ${{ steps.cache.outputs.cache-primary-key }}
 
   xcode27-compile:
     name: Swift 6.4 compile check (Xcode 27 preview, non-required)
@@ -621,8 +776,8 @@ jobs:
     # `needs` list below. Promote to required (drop `continue-on-error`, add it to `ci`'s
     # needs) once the xcode-27 image reaches GA — per the #855 owner decision (2026-08-15).
     #
-    # No sibling-plugin checkout here (same as timing-sensitive-tests): nothing executes,
-    # and the gated targets have no plugin/Node dependency.
+    # No sibling-plugin checkout here (same as concurrency-tsan): nothing executes, and the
+    # gated targets have no plugin/Node dependency.
     needs: changes
     if: needs.changes.outputs.swift == 'true'
     runs-on: xcode-27
@@ -667,9 +822,10 @@ jobs:
       # Distinct key namespace from build-test's `swiftpm-macos-...`: this lane's Swift 6.4
       # toolchain compiles a larger target set (the gated targets join the graph), so
       # sharing a cache would just churn. See linux-build-test's cache step for the general
-      # key-scheme rationale.
-      - name: Cache SwiftPM build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # key-scheme rationale and the restore-on-PR / save-on-main split.
+      - name: Restore SwiftPM build cache
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           key: swiftpm-xcode27-v1-${{ steps.xcode.outputs.version }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
@@ -693,93 +849,47 @@ jobs:
         if: failure() && steps.build-tests.outcome == 'failure'
         run: scripts/annotate-swift-log.sh "$RUNNER_TEMP/swift-build-tests-xcode27.log" "Swift 6.4 compile check (Xcode 27 preview) ▸ Build all targets including tests"
 
-  timing-sensitive-tests:
-    name: Timing-sensitive suites (isolated lane)
-    # Same macos-15 task-allocator rationale as build-test: this lane also runs Swift
-    # concurrency/subprocess code against the host's libswift_Concurrency.
-    needs: changes
-    if: needs.changes.outputs.swift == 'true'
-    runs-on: macos-26
-    timeout-minutes: 15
-    # Independent of (not sequential after) build-test: these suites share no state with
-    # the rest of the test run, so there's no correctness reason to wait — only a
-    # scheduler-contention reason to give them their own process. Running in parallel
-    # keeps this from adding to build-test's wall-clock cost. See #1344.
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Select latest available Xcode
-        id: xcode
-        run: |
-          set -euo pipefail
-          ls -d /Applications/Xcode*.app 2>/dev/null | sort -V
-          # Skip Xcode 26.3 on the current runner image: its toolchain builds test targets that
-          # link /usr/lib/swift/libswift_DarwinFoundation3.dylib, which the image does not ship, so
-          # `swift test` fails to load AnglesitePackageTests.xctest ("Library not loaded"). Prefer the
-          # newest *working* Xcode — 26.3 is excluded, so 27 is still auto-selected once it lands.
-          # Remove the grep once the 26.3 image is repaired (or Xcode 27 is available).
-          LATEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | grep -vE '/Xcode_26\.3(\.app|\.[0-9]+\.app)$' | tail -1)
-          echo "Selecting: $LATEST"
-          sudo xcode-select -s "$LATEST"
-          echo "version=$(basename "$LATEST")" >> "$GITHUB_OUTPUT"
-
-      - name: Show toolchain versions
-        run: swift --version
-
-      # Distinct key namespace from build-test's `swiftpm-macos-...` cache: this job never sets
-      # ANGLESITE_PLUGIN_PATH, so it resolves/builds a different (smaller) target set, and sharing
-      # a cache key would just churn. See linux-build-test's cache step for the general key-scheme
-      # rationale (including the `v1` bump-on-recurrence convention).
-      - name: Cache SwiftPM build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      - name: Save SwiftPM build cache (main only)
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
-          key: swiftpm-timing-sensitive-macos-v1-${{ steps.xcode.outputs.version }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
-          restore-keys: |
-            swiftpm-timing-sensitive-macos-v1-${{ steps.xcode.outputs.version }}-${{ hashFiles('Package.resolved') }}-
-            swiftpm-timing-sensitive-macos-v1-${{ steps.xcode.outputs.version }}-
-
-      # tee + pipefail + annotate step: same compile-error-burying fix as build-test's Test step
-      # (#1335).
-      - name: Run timing-sensitive suites in isolation
-        id: timing-sensitive-test
-        run: |
-          set -o pipefail
-          scripts/test-timing-sensitive.sh 2>&1 | tee "$RUNNER_TEMP/swift-timing-sensitive-test.log"
-
-      - name: Surface Swift errors (annotations + job summary)
-        if: failure() && steps.timing-sensitive-test.outcome == 'failure'
-        run: scripts/annotate-swift-log.sh "$RUNNER_TEMP/swift-timing-sensitive-test.log" "Timing-sensitive suites (isolated lane) ▸ Run timing-sensitive suites in isolation"
-
-      # #1745: build-test isn't the only lane that runs swift test — a suite whose leak only
-      # shows up here (this lane runs a different, isolated target set) would otherwise go
-      # unchecked. Same belt-and-suspenders rationale as build-test's own step (#1727): checked
-      # from a separate process on purpose, since the in-suite assertions can't observe what
-      # cfprefsd does at process exit.
-      - name: Check no test UserDefaults suites leaked
-        run: scripts/check-test-userdefaults-leak.sh
+          key: ${{ steps.cache.outputs.cache-primary-key }}
 
   ios-build:
-    name: iOS app target (AnglesiteMobile)
-    # #864: no other lane ever actually compiles an iOS app target. xcodeproj-sync (macos-15)
-    # only checks source-file membership in the generated project — its own header says
-    # explicitly that it "deliberately does NOT run a full xcodebuild" — and every other
-    # xcodebuild-based lane (build-test, concurrency-tsan, appintents-schema) builds only the
-    # macOS `Anglesite`/`AnglesiteIntents` schemes. This lane closes that gap by actually
-    # building the `AnglesiteMobile` target (Package.swift's `.iOS("27.0")` platform entry +
-    # the project.yml target both already exist — PR #886) for the iOS Simulator SDK, so an
-    # iOS-incompatible change to AnglesiteCore/AnglesiteBridge/AnglesiteIOS (the modules this
-    # target links) fails CI instead of surfacing only on a contributor's local build.
+    name: Xcode project (project.yml sync, AnglesiteMobile build, AppIntents schema)
+    # The one lane that needs the xcodegen-generated Anglesite.xcodeproj (every other Swift lane
+    # is plain SwiftPM), so everything project-shaped lives here (#1865) — three checks that
+    # were three separate macOS jobs, two of them 12-second scripts that each queued up to 100
+    # minutes for a macOS runner slot on the org's 5-concurrent-macOS-jobs plan:
+    #
+    #   1. `scripts/check-xcodeproj-sync.sh` (was `xcodeproj-sync`, which #1827 had only just
+    #      moved off macos-15 — #1795): regenerates the project and asserts every app target still compiles the
+    #      full tree under its Sources/ root. project.yml drift never trips `swift build`; it
+    #      only bites a contributor's `xcodebuild` with "cannot find … in scope" (#123).
+    #   2. The `AnglesiteMobile` iOS Simulator build (#864): no other lane compiles an iOS app
+    #      target — the sync check deliberately does NOT run a full xcodebuild, and every other
+    #      xcodebuild-based lane builds only the macOS `Anglesite`/`AnglesiteIntents` schemes.
+    #      Building AnglesiteMobile (Package.swift's `.iOS("27.0")` platform entry + the
+    #      project.yml target, PR #886) for the iOS Simulator SDK makes an iOS-incompatible
+    #      change to AnglesiteCore/AnglesiteBridge/AnglesiteIOS fail CI instead of surfacing
+    #      only on a contributor's local build.
+    #   3. AppIntents schema conformance (was `appintents-schema`): see that step.
+    #
     # macos-26, matching build-test's rationale: the newest available Xcode carries the most
-    # complete iOS 27 SDK.
+    # complete iOS 27 SDK. No SwiftPM `.build` cache here: xcodebuild resolves and builds
+    # packages under DerivedData, never `.build`, so the cache this lane used to declare saved
+    # nothing (it logged "Cache not found" on every run and had no cache entries to its name).
     needs: changes
     if: needs.changes.outputs.swift == 'true'
     runs-on: macos-26
     timeout-minutes: 15
     env:
-      # Keep in sync with the xcodeproj-sync/appintents-schema lanes above (and MIN_XCODEGEN in
-      # check-xcodeproj-sync.sh).
+      # Pinned so a future XcodeGen release can't silently change what the sync guard accepts.
+      # Bump deliberately; keep in sync with MIN_XCODEGEN in scripts/check-xcodeproj-sync.sh.
       XCODEGEN_VERSION: 2.45.4
+      # SHA-256 of the pinned release's xcodegen.zip — verified after download so a compromised
+      # release (or MITM) can't substitute a different binary. Re-fetch and update on every bump.
       XCODEGEN_SHA256: 090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -795,6 +905,15 @@ jobs:
           echo "Selecting: $LATEST"
           sudo xcode-select -s "$LATEST"
           echo "version=$(basename "$LATEST")" >> "$GITHUB_OUTPUT"
+          # The AppIntents schema step below is ARMED but skips gracefully until the runner
+          # ships Xcode 27 (see that step).
+          MAJOR=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\).*/\1/p')
+          if [ "${MAJOR:-0}" -ge 27 ]; then
+            echo "has27=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "has27=false" >> "$GITHUB_OUTPUT"
+            echo "::warning title=AppIntents schema validation skipped::Needs Xcode 27+, runner has ${MAJOR:-unknown}. The step auto-activates once a runner provides Xcode 27."
+          fi
 
       - name: Show toolchain versions
         run: |
@@ -811,21 +930,10 @@ jobs:
             || { echo "error: xcodegen binary not found at expected path after unzip — check zip layout" >&2; exit 1; }
           echo "/tmp/xcodegen-dist/xcodegen/bin" >> "$GITHUB_PATH"
 
-      - name: Generate Xcode project
-        run: xcodegen generate
-
-      # See the linux-build-test cache step for the key-scheme rationale. A distinct namespace
-      # (`swiftpm-ios-...`) from the macOS lanes above: an iOS Simulator SDK build produces
-      # different object files than a macOS build of the same sources, so sharing a cache key
-      # would just churn without ever hitting.
-      - name: Cache SwiftPM build
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: .build
-          key: swiftpm-ios-v1-${{ steps.xcode.outputs.version }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
-          restore-keys: |
-            swiftpm-ios-v1-${{ steps.xcode.outputs.version }}-${{ hashFiles('Package.resolved') }}-
-            swiftpm-ios-v1-${{ steps.xcode.outputs.version }}-
+      # Regenerates Anglesite.xcodeproj (`xcodegen generate`) and runs the sync assertion — so
+      # this step is also what produces the project the next two steps build.
+      - name: Check Anglesite.xcodeproj ↔ project.yml sync (regenerates the project)
+        run: scripts/check-xcodeproj-sync.sh
 
       - name: Build AnglesiteMobile (iOS Simulator)
         # Matches the invocation PR #886 verified manually ("BUILD SUCCEEDED") when the target
@@ -835,6 +943,31 @@ jobs:
         run: |
           xcodebuild -project Anglesite.xcodeproj -scheme AnglesiteMobile \
             -configuration Debug -destination 'generic/platform=iOS Simulator' build
+
+      # The AppIntents metadata processor (`appintentsmetadataprocessor --validate-assistant-intents`)
+      # only runs during an xcodebuild *build* phase — never `swift build` / `swift test`. So an
+      # AppSchema conformance regression (e.g. SiteEntity dropping a required
+      # `.wordProcessor.document` property) passes every SwiftPM lane and would surface only on a
+      # contributor's local `xcodebuild`. Building just the `AnglesiteIntents` library target runs
+      # the processor with `--validate-assistant-intents` to gate that; a missing required schema
+      # member (verified locally) fails the build with a "Missing required property … from
+      # AppSchemaEntity …" halting error. Validation is build-time, so it needs no app launch
+      # (sidestepping the LaunchServices block on running a macOS-27 .app on an older host), no
+      # vendored Node, no sibling plugin, and no signing.
+      #
+      # The AppSchema.WordProcessor surface and its validator are macOS-27 symbols, and the
+      # hosted macos-26 image tops out at Xcode 26.x — so this step is ARMED but skips gracefully
+      # (green, with the ::warning:: from the Xcode-selection step) until a runner provides
+      # Xcode 27, then auto-activates and enforces with no edit needed.
+      - name: Validate AppIntents schema conformance (Xcode 27+ only)
+        if: steps.xcode.outputs.has27 == 'true'
+        env:
+          # Override the workflow-level skip: CLI xcodebuild (unlike GUI Xcode) passes this env
+          # into Package.swift manifest evaluation, which would drop the AnglesiteContainer
+          # product while the xcodegen-generated project still declares a dependency on it —
+          # failing at project load.
+          ANGLESITE_SKIP_CONTAINER: '0'
+        run: xcodebuild -project Anglesite.xcodeproj -scheme AnglesiteIntents -configuration Debug build
 
   concurrency-tsan:
     name: Concurrency suites (ThreadSanitizer)
@@ -874,9 +1007,11 @@ jobs:
       # A distinct key namespace (`swiftpm-tsan-...`, not `swiftpm-macos-...`) — `--sanitize
       # thread` recompiles every unit with different flags, so sharing a cache with the plain
       # debug build would mean this lane can never hit and just pays the upload for nothing.
-      # `v2`: see the linux-build-test cache step — stops restoring pre-repo-rename caches.
-      - name: Cache SwiftPM build (ThreadSanitizer)
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      # `v2`: see the linux-build-test cache step — stops restoring pre-repo-rename caches (and
+      # for the restore-on-PR / save-on-main split).
+      - name: Restore SwiftPM build cache (ThreadSanitizer)
+        id: cache
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: .build
           key: swiftpm-tsan-macos-v2-${{ steps.xcode.outputs.version }}-${{ hashFiles('Package.resolved') }}-${{ github.sha }}
@@ -905,125 +1040,12 @@ jobs:
       - name: Check no test UserDefaults suites leaked
         run: scripts/check-test-userdefaults-leak.sh
 
-  docs-docc:
-    name: DocC build (comment/doc-comment health check)
-    # No xcodegen/xcodebuild here — this job never touches the Xcode project. It exercises the
-    # SwiftPM library targets directly via `swift package generate-documentation`. The --target
-    # list below is deliberate and explicit, not "every target" — verified two things: (1) a
-    # target-less run sweeps in every dependency package too, including MarkdownEngine's own
-    # broken doc comments, which we don't own; (2) AnglesiteLANHost (an executableTarget) fails
-    # symbol-graph extraction with an unrelated tooling issue ("AnglesiteLANHost.symbolgraphs
-    # doesn't exist"), so it's left out here. AnglesiteContainer/AnglesiteContainerProbe are
-    # excluded the same way every other lane excludes them: the workflow-level
-    # ANGLESITE_SKIP_CONTAINER=1 already drops those targets from the manifest entirely.
-    #
-    # AnglesiteAppCore is a separate, two-stage story: Package.swift gates that target behind
-    # `#if compiler(>=6.4) && canImport(Darwin)`, so on a runner whose active Xcode predates
-    # Xcode 27 (Swift 6.4), the target simply doesn't exist in the manifest — and
-    # `generate-documentation --target AnglesiteAppCore` doesn't skip gracefully in that case,
-    # it hard-errors ("no target named …"). So, same ARMED-but-skips-gracefully idiom as the
-    # appintents-schema job below: the 8 non-gated targets always build in one unconditional
-    # step, and AnglesiteAppCore gets its own step gated on the same `has27` detection, green
-    # with a ::warning:: until a runner ships Xcode 27, at which point it auto-activates.
-    #
-    # AnglesiteP2P rides in the same has27-gated step for an unrelated reason: it isn't
-    # compiler-gated, but on Xcode 26.6 `swift-symbolgraph-extract` fails to load WebRTC's
-    # binary xcframework module ("missing required module 'WebRTC'") during symbol-graph
-    # extraction — confirmed clean under Xcode 27, which loads the module fine.
-    needs: changes
-    if: needs.changes.outputs.swift == 'true'
-    runs-on: macos-26
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Select latest available Xcode
-        # Same rationale as build-test: this package needs Swift 6.4 (compiler(>=6.4) gates on
-        # AnglesiteAppCore), which the runner's default active Xcode may predate.
-        run: |
-          set -euo pipefail
-          ls -d /Applications/Xcode*.app 2>/dev/null | sort -V
-          LATEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | grep -vE '/Xcode_26\.3(\.app|\.[0-9]+\.app)$' | tail -1)
-          echo "Selecting: $LATEST"
-          sudo xcode-select -s "$LATEST"
-
-      - name: Show toolchain versions
-        run: swift --version
-
-      - name: Detect Xcode 27 (AnglesiteAppCore needs Swift 6.4)
-        id: xcode
-        # AnglesiteAppCore is compiler(>=6.4)-gated in Package.swift, so it's simply absent from
-        # the manifest on an older toolchain — this lane is ARMED but skips that target
-        # gracefully (green, with a ::warning::) until a runner provides Xcode 27, then
-        # auto-activates and enforces, no edit needed.
-        run: |
-          set -euo pipefail
-          xcodebuild -version
-          MAJOR=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\).*/\1/p')
-          if [ "${MAJOR:-0}" -ge 27 ]; then
-            echo "has27=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has27=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=AnglesiteAppCore docs skipped::Needs Xcode 27+, runner has ${MAJOR:-unknown}. Lane auto-activates once a runner provides Xcode 27."
-            echo "SKIPPED: AnglesiteAppCore is compiler(>=6.4)-gated and absent from the manifest on Xcode ${MAJOR:-unknown}; skipping its doc build."
-          fi
-
-      - name: Build documentation for the CI-buildable target subset (fails on any DocC error or warning)
-        run: |
-          swift package generate-documentation \
-            --target AnglesiteSiteModel \
-            --target AnglesiteQuickLookSupport \
-            --target AnglesiteCore \
-            --target AnglesiteBridgeCore \
-            --target AnglesiteBridge \
-            --target AnglesiteIOS \
-            --target AnglesiteIntents \
-            --target AnglesiteTestSupport \
-            --warnings-as-errors
-
-      - name: Build documentation for AnglesiteAppCore and AnglesiteP2P (Xcode 27+ only)
-        if: steps.xcode.outputs.has27 == 'true'
-        run: |
-          swift package generate-documentation \
-            --target AnglesiteAppCore \
-            --target AnglesiteP2P \
-            --warnings-as-errors
-
-  xcodeproj-sync:
-    name: Anglesite.xcodeproj ↔ project.yml in sync
-    needs: changes
-    if: needs.changes.outputs.swift == 'true'
-    runs-on: macos-15
-    timeout-minutes: 10
-    permissions:
-      contents: read
-    # Anglesite.xcodeproj is gitignored and regenerated from project.yml via XcodeGen, so a
-    # stale/drifted spec never trips `swift build` above — it only bites a contributor running
-    # `xcodebuild` with "cannot find … in scope" (#123). This lane regenerates the project and
-    # asserts every app target still compiles the full Sources/AnglesiteApp tree. It needs only
-    # xcodegen + python3 (no Xcode 27 SDK, Node, or sibling plugin), so it's fast and parallel.
-    env:
-      # Pinned so a future XcodeGen release can't silently change what this guard accepts.
-      # Bump deliberately; keep in sync with MIN_XCODEGEN in scripts/check-xcodeproj-sync.sh.
-      XCODEGEN_VERSION: 2.45.4
-      # SHA-256 of the pinned release's xcodegen.zip — verified after download so a compromised
-      # release (or MITM) can't substitute a different binary. Re-fetch and update on every bump.
-      XCODEGEN_SHA256: 090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Install XcodeGen (pinned)
-        run: |
-          set -euo pipefail
-          curl -fsSL "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip" -o /tmp/xcodegen.zip
-          echo "${XCODEGEN_SHA256}  /tmp/xcodegen.zip" | shasum -a 256 --check
-          unzip -q /tmp/xcodegen.zip -d /tmp/xcodegen-dist
-          test -x /tmp/xcodegen-dist/xcodegen/bin/xcodegen \
-            || { echo "error: xcodegen binary not found at expected path after unzip — check zip layout" >&2; exit 1; }
-          echo "/tmp/xcodegen-dist/xcodegen/bin" >> "$GITHUB_PATH"
-
-      - name: Check project sync
-        run: scripts/check-xcodeproj-sync.sh
+      - name: Save SwiftPM build cache (ThreadSanitizer, main only)
+        if: github.ref == 'refs/heads/main'
+        uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .build
+          key: ${{ steps.cache.outputs.cache-primary-key }}
 
   localization-catalog:
     name: String Catalog checks (literal coverage + trailing newline)
@@ -1049,7 +1071,7 @@ jobs:
     name: Tests lint (no direct UserDefaults(suiteName:) literals)
     # Static grep over Tests/*.swift — no Xcode/xcodegen needed, so ubuntu-latest suffices.
     # Catches the #1727 bypass at review time, before any test runs; the separate
-    # check-test-userdefaults-leak.sh step in build-test/timing-sensitive-tests/concurrency-tsan
+    # check-test-userdefaults-leak.sh step in build-test/concurrency-tsan
     # catches the leak itself, after the fact, from a process that already ran (#1745).
     needs: changes
     if: needs.changes.outputs.swift == 'true'
@@ -1061,88 +1083,6 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: scripts/check-test-userdefaults-suite-literal.sh
 
-  appintents-schema:
-    name: AppIntents schema conformance (metadata processor)
-    # macOS 27 / Xcode 27 runner: the AppSchema.WordProcessor surface and its
-    # validator are macOS-27 symbols. macos-15 (Xcode 16/26) cannot run this.
-    needs: changes
-    if: needs.changes.outputs.swift == 'true'
-    runs-on: macos-26
-    timeout-minutes: 15
-    permissions:
-      contents: read
-    # The AppIntents metadata processor (`appintentsmetadataprocessor --validate-assistant-intents`)
-    # only runs during an xcodebuild *build* phase — never `swift build` / `swift test`. So an
-    # AppSchema conformance regression (e.g. SiteEntity dropping a required `.wordProcessor.document`
-    # property) passes every SwiftPM lane above and would surface only on a contributor's local
-    # `xcodebuild`. This lane builds just the `AnglesiteIntents` target — which runs the processor
-    # with `--validate-assistant-intents` — to gate that. Validation is build-time, so it needs NO
-    # app launch (sidestepping the LaunchServices block on running a macOS-27 .app on an older host),
-    # no vendored Node, no sibling plugin, and no signing — the library target pulls none of those.
-    env:
-      # Override the workflow-level skip: CLI xcodebuild (unlike GUI Xcode) passes this env into
-      # Package.swift manifest evaluation, which would drop the AnglesiteContainer product while
-      # the xcodegen-generated project still declares a dependency on it — failing at project load.
-      ANGLESITE_SKIP_CONTAINER: '0'
-      # Keep in sync with the xcodeproj-sync lane above (and MIN_XCODEGEN in check-xcodeproj-sync.sh).
-      XCODEGEN_VERSION: 2.45.4
-      XCODEGEN_SHA256: 090ec29491aad50aec10631bf6e62253fed733c50f3aab0f5ffc86bc170bdbef
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Select latest available Xcode
-        run: |
-          set -euo pipefail
-          ls -d /Applications/Xcode*.app 2>/dev/null | sort -V
-          # Skip Xcode 26.3 on the current runner image: its toolchain builds test targets that
-          # link /usr/lib/swift/libswift_DarwinFoundation3.dylib, which the image does not ship, so
-          # `swift test` fails to load AnglesitePackageTests.xctest ("Library not loaded"). Prefer the
-          # newest *working* Xcode — 26.3 is excluded, so 27 is still auto-selected once it lands.
-          # Remove the grep once the 26.3 image is repaired (or Xcode 27 is available).
-          LATEST=$(ls -d /Applications/Xcode*.app 2>/dev/null | sort -V | grep -vE '/Xcode_26\.3(\.app|\.[0-9]+\.app)$' | tail -1)
-          echo "Selecting: $LATEST"
-          sudo xcode-select -s "$LATEST"
-
-      - name: Detect Xcode 27 (the schema validator is a macOS-27 facility)
-        id: xcode
-        # The validation needs the macOS 27 SDK. GitHub-hosted images don't ship Xcode 27 yet
-        # (macos-26 tops out at 26.5 as of 2026-06), so this lane is ARMED but skips gracefully
-        # — green, with a ::warning:: — until a runner provides Xcode 27 (a future hosted image,
-        # or a self-hosted macOS-27 runner). It then auto-activates and enforces, no edit needed.
-        run: |
-          set -euo pipefail
-          xcodebuild -version
-          MAJOR=$(xcodebuild -version | sed -n 's/^Xcode \([0-9]*\).*/\1/p')
-          if [ "${MAJOR:-0}" -ge 27 ]; then
-            echo "has27=true" >> "$GITHUB_OUTPUT"
-          else
-            echo "has27=false" >> "$GITHUB_OUTPUT"
-            echo "::warning title=AppIntents schema validation skipped::Needs Xcode 27+, runner has ${MAJOR:-unknown}. Lane auto-activates once a runner provides Xcode 27."
-            echo "SKIPPED: AppIntents schema validation requires Xcode 27 (runner has Xcode ${MAJOR:-unknown}); skipping the build steps below."
-          fi
-
-      - name: Install XcodeGen (pinned)
-        if: steps.xcode.outputs.has27 == 'true'
-        run: |
-          set -euo pipefail
-          curl -fsSL "https://github.com/yonaskolb/XcodeGen/releases/download/${XCODEGEN_VERSION}/xcodegen.zip" -o /tmp/xcodegen.zip
-          echo "${XCODEGEN_SHA256}  /tmp/xcodegen.zip" | shasum -a 256 --check
-          unzip -q /tmp/xcodegen.zip -d /tmp/xcodegen-dist
-          test -x /tmp/xcodegen-dist/xcodegen/bin/xcodegen \
-            || { echo "error: xcodegen binary not found at expected path after unzip — check zip layout" >&2; exit 1; }
-          echo "/tmp/xcodegen-dist/xcodegen/bin" >> "$GITHUB_PATH"
-
-      - name: Generate Xcode project
-        if: steps.xcode.outputs.has27 == 'true'
-        run: xcodegen generate
-
-      - name: Validate AppIntents schema conformance
-        if: steps.xcode.outputs.has27 == 'true'
-        # Builds only the library target; ExtractAppIntentsMetadata runs the validator. A missing
-        # required schema member (verified locally) fails the build with a "Missing required
-        # property … from AppSchemaEntity …" halting error.
-        run: xcodebuild -project Anglesite.xcodeproj -scheme AnglesiteIntents -configuration Debug build
-
   reuse-lint:
     name: REUSE licensing lint
     # Deliberately NOT gated on the `changes` path filter: REUSE compliance is a whole-tree
@@ -1152,9 +1092,10 @@ jobs:
     # the org's Actions policy only allows GitHub-owned/Verified-Creator actions. pipx is
     # preinstalled on the ubuntu runner images.
     #
-    # Same ARMED-but-skips-gracefully idiom as docs-docc/appintents-schema: green with a
-    # ::warning:: until #1467 lands REUSE.toml + LICENSES/, then it auto-activates and
-    # enforces with no edit here — #1467's own PR is the first this lane lint-checks for real.
+    # Same ARMED-but-skips-gracefully idiom as build-test's AnglesiteAppCore DocC step and
+    # ios-build's AppIntents schema step: green with a ::warning:: until #1467 lands
+    # REUSE.toml + LICENSES/, then it auto-activates and enforces with no edit here — #1467's
+    # own PR is the first this lane lint-checks for real.
     runs-on: ubuntu-latest
     timeout-minutes: 5
     permissions:
@@ -1192,18 +1133,15 @@ jobs:
       - wysiwyg-engine
       - safari-extension
       - help-book-links
+      - docs-index
       - workers-tests
       - linux-build-test
       - linux-flatpak-build
       - build-test
-      - timing-sensitive-tests
       - ios-build
       - concurrency-tsan
-      - docs-docc
-      - xcodeproj-sync
       - localization-catalog
       - test-userdefaults-suite-lint
-      - appintents-schema
       - reuse-lint
     runs-on: ubuntu-latest
     timeout-minutes: 5

@@ -298,7 +298,8 @@ packageTargets.append(
         name: "AnglesiteIntentsTests",
         // `AnglesiteIOS` for the `UbiquitousPackageDiscovering` fakes `SiteEntityUbiquityDiscovery`
         // is tested against; see the note on `AnglesiteIntents`' own dependency on it.
-        dependencies: ["AnglesiteIntents", "AnglesiteCore", "AnglesiteSiteModel", "AnglesiteIOS"],
+        // `AnglesiteTestSupport` for the shared `FakeUbiquityContainerResolver`.
+        dependencies: ["AnglesiteIntents", "AnglesiteCore", "AnglesiteSiteModel", "AnglesiteIOS", "AnglesiteTestSupport"],
         path: "Tests/AnglesiteIntentsTests",
         swiftSettings: strictConcurrency
     )
@@ -378,7 +379,7 @@ packageTargets.append(contentsOf: [
     ),
     .testTarget(
         name: "AnglesiteRemoteTests",
-        dependencies: ["AnglesiteRemote", "AnglesiteCore"],
+        dependencies: ["AnglesiteRemote", "AnglesiteCore", "AnglesiteTestSupport"],
         path: "Tests/AnglesiteRemoteTests",
         swiftSettings: strictConcurrency,
         linkerSettings: webRTCTestRPath
@@ -418,10 +419,24 @@ packageDependencies.append(
 )
 
 #if canImport(Darwin)
-// Anglesite's patched fork of mbernson/SwiftGit2 — see #640 and Spikes/GitPackageSpike. Pinned
+// Anglesite's patched fork of mbernson/SwiftGit2 — see #640. Pinned
 // to a commit rather than a tag or branch: SwiftGit2 upstream has no tagged SPM release yet, and
 // pinning to anglesite/main's tip would silently pick up unreviewed future commits. Bump
 // deliberately.
+//
+// Fork-tracking plan (#1804): `anglesite/main` carries 8 substantive commits beyond upstream's
+// `develop` — the unborn-HEAD commit fix, defaultSignature(), remove/headHasEntry/
+// restorePathFromHEAD (delete+undo), push/addAll/aheadBehind/addRemote (backup/publish),
+// sandboxed remote/credential/error hardening, the #994 GIT_THREADS threading fix, and git-bundle
+// read support (#988) — none offered upstream yet, though mbernson/SwiftGit2 is actively
+// maintained (pushed as recently as 2026-08), not dead. libgit2 itself is a vendored submodule
+// inside the fork, pinned at v1.9.4; nothing automated watches it for security releases —
+// Dependabot's swift-ecosystem entry only sees this revision pin, not the submodule two hops
+// down — so a libgit2 CVE reaches this app only via a manual rebase by whoever's doing dependency
+// maintenance. Drop the fork once upstream tags an SPM release (blocked on its own PR #1) that
+// carries equivalents of at least the unborn-HEAD and GIT_THREADS fixes — the two that are
+// correctness/safety fixes rather than added convenience API. See #1804 for the full
+// commit-by-commit accounting.
 packageDependencies.append(
     .package(url: "https://github.com/Anglesite/SwiftGit2.git", revision: "446d4777ae4413c2faaa88425693ff29981e4b07")
 )
@@ -446,9 +461,10 @@ packageDependencies.append(
 //     the whole highlighting stack the spec calls for, with no separate grammar packages
 //     to add.
 // Both AppKit-only, so gated the same as SwiftGit2 above.
-// Pinned to a commit, not `from:` — `Package.resolved` is gitignored (no committed lockfile), so
-// every fresh checkout resolves independently, and a floating `from:` here let a fresh resolve of
-// 2.3.10 silently ship an API change (`text` became `String?`) that broke #774 (see #781, #783).
+// Pinned to a commit, not `from:` — `Package.resolved` is committed, but that doesn't protect a
+// `from:` requirement: any other dependency change forces a re-resolve, and a floating `from:`
+// here let one silently ship an API change (`text` became `String?`) that broke #774 (see #781,
+// #783).
 // Matches the SwiftGit2/STTextView-Plugin-Neon policy below: deliberate bumps only. This is tag
 // 2.3.10's commit.
 packageDependencies.append(
@@ -465,9 +481,20 @@ packageDependencies.append(
 )
 // Markdown editor substrate (#797; survey #796 — see the spec addendum in
 // docs/superpowers/specs/2026-07-17-blog-markdown-editor-publishing-design.md). Anglesite's
-// fork of nodes-app/swift-markdown-engine v0.10.0 plus one patch making automatic quote
-// substitution configurable (SpellCheckingPolicy.automaticQuoteSubstitution) — smart quotes
-// corrupt Markdown sources. Only the zero-dependency core `MarkdownEngine` product is linked
+// fork of nodes-app/swift-markdown-engine v0.10.0 plus two patches (#1805):
+//   - ff54708b: automatic quote substitution configurable (SpellCheckingPolicy.
+//     automaticQuoteSubstitution) — smart quotes corrupt Markdown sources. Upstreamed as
+//     nodes-app/swift-markdown-engine#174 (open, unreviewed as of 2026-09-03).
+//   - badbaa4b: honor autoClosePairsEnabled for the `[`/`[[` auto-close paths in
+//     MarkdownLists, so an embedder that disables auto-close (as this one does, for plain
+//     Markdown source editing) doesn't get bracket pairs inserted underneath it. Not yet
+//     upstreamed — no PR filed.
+// Drop condition: once both land in a tagged upstream release, switch this to `from:` that
+// release (or the next deliberate bump per the policy below) and drop the fork.
+// Rebase policy: matching SwiftGit2/STTextView-Plugin-Neon — deliberate bumps only, not a
+// tracking branch. Upstream has moved to 0.11.0/0.12.0 since this fork's 0.10.0 base; nothing
+// in that range has been surveyed for relevance, so treat a future bump as its own review, not
+// a rubber-stamp fast-forward. Only the zero-dependency core `MarkdownEngine` product is linked
 // (no MarkdownEngineCodeBlocks/MarkdownEngineLatex — LaTeX and highlighted fences are out of
 // scope for v1, §A.2). Pinned by revision, matching the SwiftGit2/STTextView policy above:
 // deliberate bumps only (upstream is pre-1.0 and its API moves).

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 @Suite("AstroHTMLValidator")

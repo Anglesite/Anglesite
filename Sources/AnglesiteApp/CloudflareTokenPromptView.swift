@@ -1,6 +1,18 @@
 import SwiftUI
 import AnglesiteCore
 
+/// Shared, localized copy for the "no Cloudflare API token" failure path, so the dozen call sites
+/// across the domain/deploy/harden task models say exactly the same thing in every locale rather
+/// than each carrying its own copy of the sentence. A natural seed for a shared Cloudflare
+/// task-model base later (#1800), but that consolidation is out of scope here — this is just the
+/// message text.
+enum CloudflareTokenMessage {
+    /// No further context available (e.g. the caller doesn't know if Settings can help right now).
+    static let notFound = String(localized: "No Cloudflare API token found.")
+    /// Points the user at where to fix it.
+    static let notFoundWithHint = String(localized: "No Cloudflare API token found. Add one in Settings → Credentials.")
+}
+
 /// Progress of verifying a pasted Cloudflare token, consumed by `CloudflareTokenPromptView`'s
 /// status line and button-enabled logic. A token is only persisted once verification reaches
 /// `.connected`; a `.failed` state keeps the sheet open and leaves storage untouched. Also used by

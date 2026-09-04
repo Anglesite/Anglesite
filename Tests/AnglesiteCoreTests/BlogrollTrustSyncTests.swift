@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 struct BlogrollTrustSyncTests {
     private static func response(_ status: Int) -> HTTPURLResponse {
@@ -145,7 +146,7 @@ struct BlogrollTrustSyncTests {
         await BlogrollTrustSync.pushIfConfigured(
             siteDirectory: siteDirectory,
             configDirectory: configDir,
-            secretStore: FakeSecretStore(token: "unused"),
+            secretStore: InMemorySecretStore(token: "unused"),
             transport: { _ in
                 Issue.record("transport must not be called with no provisioned SOCIAL_KV namespace")
                 struct UnexpectedNetworkCall: Error {}
@@ -175,7 +176,7 @@ struct BlogrollTrustSyncTests {
         await BlogrollTrustSync.pushIfConfigured(
             siteDirectory: siteDirectory,
             configDirectory: configDir,
-            secretStore: FakeSecretStore(token: "token"),
+            secretStore: InMemorySecretStore(token: "token"),
             transport: { request in
                 if request.url!.path.hasSuffix("/accounts") { return (accountsBody, Self.response(200)) }
                 if request.url!.path.hasSuffix("/values/vouch:trusted-domains") {
@@ -189,13 +190,6 @@ struct BlogrollTrustSyncTests {
 
         #expect(await capturedPUT.value == ["alice.example"])
     }
-}
-
-private struct FakeSecretStore: SecretStore {
-    let token: String?
-    func read(account: String) throws -> String? { account == SecretAccounts.cloudflareToken ? token : nil }
-    func write(_ value: String, account: String) throws {}
-    func delete(account: String) throws {}
 }
 
 private actor CapturedURLs {

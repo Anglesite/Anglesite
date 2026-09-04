@@ -1,5 +1,7 @@
 # Bot Preference Sync Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a site owner choose, per site, whether Anglesite's own named-bot blocklist or Cloudflare's Bot Preference Sync manages AI-bot blocking in `robots.txt`, behind a feature flag that's off by default.

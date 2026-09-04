@@ -1,5 +1,7 @@
 # Anywhere Runtime — Helper Edit Persistence Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Close the gap [PR #1405](https://github.com/Anglesite/Anglesite/pull/1405) (Anywhere Runtime P1) shipped deliberately open: a phone/second-process edit relayed through the `AnglesiteRemote` Mac helper is live in the guest but never lands in the host's canonical `Source/` git repo. After this plan, a commit-bearing MCP edit reply flowing through the helper's `mcp` data channel is exported from the guest and imported into `Source/` — mirroring `LocalContainerSiteRuntime.persistEdit`, which the main `Anglesite.app` already does for every local edit.

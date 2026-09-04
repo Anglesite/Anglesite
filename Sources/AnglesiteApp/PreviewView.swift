@@ -31,6 +31,15 @@ struct PreviewView: NSViewRepresentable {
     /// is the source of truth; `SiteWindow.previewPane(for:)` passes it straight through.
     var wysiwygTransport: (any WYSIWYGHostTransport)?
 
+    /// The open site's id, source directory, and a conventions provider — needed to build a
+    /// `WritingHelpAssisting` call's `AssistantContext` and brand-voice preamble (#1227 PR 2).
+    /// `nil` outside edit mode exactly like `wysiwygTransport`, since writing help is a
+    /// WYSIWYG-canvas-only feature. `conventions` is a deferred lookup rather than a resolved
+    /// `ProjectConventions?` because `ProjectConventionsEngine` is an actor (same constraint PR 1's
+    /// alt-text path hit) — it's awaited fresh on each writing-help request instead of being
+    /// snapshotted at `PreviewView` construction time, which would require an `async` view builder.
+    var writingHelpSiteContext: (siteID: String, siteDirectory: URL, conventions: @Sendable () async -> ProjectConventions?)?
+
     /// Called with a decoded `anglesite:pick-placement` message when the owner clicks an element
     /// in the live preview while the Effects gallery's click-to-place overlay is armed (#768).
     /// Forwarded straight into `AnglesiteScriptHandler`'s own `onPlacementPick` — see that type's
@@ -162,6 +171,19 @@ struct PreviewView: NSViewRepresentable {
                 Task { @MainActor in
                     controller?.selectedBlockId = blockId
                     controller?.inspectorFocusRequest = direction
+                }
+            },
+            onWritingHelpRequested: writingHelpSiteContext.map { context in
+                { (text: String, instruction: String) async -> WritingHelpOutcome in
+                    guard let assistant = WritingHelpAssistantFactory.makeDefault() else {
+                        return .unavailable(ContentHelpDialogs.assistantUnavailable(feature: "Writing help"))
+                    }
+                    let businessType = SiteBusinessType.read(sourceDirectory: context.siteDirectory)
+                    let conventions = await context.conventions()
+                    let preamble = BrandVoiceGuidance.preamble(conventions: conventions, businessType: businessType)
+                    return await assistant.rewrite(
+                        text: text, instruction: instruction, preamble: preamble,
+                        siteID: context.siteID, siteDirectory: context.siteDirectory)
                 }
             }
         )

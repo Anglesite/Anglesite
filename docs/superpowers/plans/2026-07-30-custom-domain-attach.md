@@ -1,5 +1,7 @@
 # Attaching a transferred custom domain during deploy — Implementation Plan
 
+**Status:** historical
+
 > **Status: executed and superseded — do not re-execute as-is.** All 6 tasks below shipped in
 > [#1119](https://github.com/Anglesite/Anglesite/pull/1119). A final whole-branch review found
 > and fixed a bug in Task 2's `CF_DOMAIN_ATTACHED` design (the boolean-latch snippets in Task 2

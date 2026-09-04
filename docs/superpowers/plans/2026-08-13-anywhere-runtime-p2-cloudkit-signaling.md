@@ -1,5 +1,7 @@
 # Anywhere Runtime P2 — CloudKit Signaling Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the P1 helper's file-based signaling (`FileSignalingChannel`, local dev/test only) with real cross-network CloudKit signaling, add QR-code device pairing with key pinning, and add a Settings UI to manage/revoke paired devices — proven by two real Mac processes pairing and completing a signed, CloudKit-signaled MCP round trip.

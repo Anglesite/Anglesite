@@ -1,5 +1,7 @@
 # Free-form cross-node site Q&A (#314) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let the Chat panel answer free-form, cross-node questions about how the site is built ("How is navigation generated?", "Why is this image appearing here?"), grounded in the site's dependency graph, with clickable citations that reveal the matching node in the Site Graph Explorer.

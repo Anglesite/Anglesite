@@ -126,7 +126,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
         Task {
-            await ProcessSupervisor.shared.shutdownAll(timeout: 5)
+            await ProcessSupervisor.shared.shutdownAll()
             await PausedContainerRegistry.shared.teardownAll()
             await MainActor.run { NSApp.reply(toApplicationShouldTerminate: true) }
         }

@@ -1,5 +1,7 @@
 # Theme Pack Mechanism (#1179 slices 1–2) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the curation shortlist doc (slice 1) and the pack mechanism (slice 2) from `docs/superpowers/specs/2026-07-31-curated-theme-ports-design.md` — catalog schema fields, scaffold overlay, port-contract lint, and CI wiring. No real theme ports and no chooser UI changes (slice 3).

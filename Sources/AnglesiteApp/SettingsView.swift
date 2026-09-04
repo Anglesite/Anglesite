@@ -160,7 +160,7 @@ private struct AgentsSettingsView: View {
                     }
                     reload()
                 } catch {
-                    loadError = "couldn't save: \(error.localizedDescription)"
+                    loadError = String(localized: "couldn't save: \(error.localizedDescription)")
                 }
                 isPresentingEditor = false
             } onCancel: {
@@ -174,7 +174,7 @@ private struct AgentsSettingsView: View {
             agents = try store.load()
             loadError = nil
         } catch {
-            loadError = "couldn't load agents: \(error.localizedDescription)"
+            loadError = String(localized: "couldn't load agents: \(error.localizedDescription)")
         }
     }
 
@@ -194,7 +194,7 @@ private struct AgentsSettingsView: View {
             }
             reload()
         } catch {
-            loadError = "couldn't remove agent: \(error.localizedDescription)"
+            loadError = String(localized: "couldn't remove agent: \(error.localizedDescription)")
         }
     }
 
@@ -622,7 +622,7 @@ private struct CloudflareOAuthStatusRow: View {
             canAutoRefresh = false
             errorMessage = nil
         } catch {
-            errorMessage = "Couldn't clear the stored credential."
+            errorMessage = String(localized: "Couldn't clear the stored credential.")
         }
     }
 }

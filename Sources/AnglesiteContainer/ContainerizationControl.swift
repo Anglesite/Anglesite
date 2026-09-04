@@ -36,7 +36,7 @@ public struct ContainerizationControl: LocalContainerControl {
     private let network = SharedVmnetNetwork.shared
 
     // Guest-side ports the dev server + MCP sidecar listen on (also the vsock ports the bridge maps to).
-    private static let previewPort: UInt32 = 4321
+    private static let previewPort = UInt32(DevServer.defaultPort)
     private static let mcpPort: UInt32 = 4399
     /// Wrangler's own conventional local-dev port.
     private static let workersPort: UInt32 = 8787
@@ -138,7 +138,7 @@ public struct ContainerizationControl: LocalContainerControl {
             // Hydrate deps from the image's baked toolchain (zero-install hardlink when the site's
             // lockfile matches the template; offline-first npm ci otherwise), then start astro.
             try await runDetached(container, id: "astro", label: "astro", onOutput: onOutput, ["sh", "-lc",
-                "/usr/local/bin/anglesite-hydrate /workspace/site && cd /workspace/site && npx astro dev --port 4321 --host 127.0.0.1"])
+                "/usr/local/bin/anglesite-hydrate /workspace/site && cd /workspace/site && npx astro dev --port \(Self.previewPort) --host 127.0.0.1"])
 
             // MCP sidecar: baked into the image at /usr/local/lib/anglesite-mcp/ by the two-stage
             // Dockerfile (scripts/vendor-container-image.sh stages the plugin's server/ dir into the
@@ -154,7 +154,7 @@ public struct ContainerizationControl: LocalContainerControl {
             // local TCP listeners above so host-side dialVsock reaches them. One process per port;
             // `fork` accepts unlimited sequential/parallel connections.
             try await runDetached(container, id: "bridge-preview", label: "bridge-preview", onOutput: onOutput,
-                ["/usr/bin/socat", "VSOCK-LISTEN:4321,reuseaddr,fork", "TCP:127.0.0.1:4321"])
+                ["/usr/bin/socat", "VSOCK-LISTEN:\(Self.previewPort),reuseaddr,fork", "TCP:127.0.0.1:\(Self.previewPort)"])
             try await runDetached(container, id: "bridge-mcp", label: "bridge-mcp", onOutput: onOutput,
                 ["/usr/bin/socat", "VSOCK-LISTEN:4399,reuseaddr,fork", "TCP:127.0.0.1:4399"])
         } catch {

@@ -1,39 +1,48 @@
-import XCTest
+import Testing
+import Foundation
 @testable import AnglesiteCore
 
-final class AttributionCatalogTests: XCTestCase {
-    func testDecodeRoundTripsAFixtureEntry() throws {
+struct AttributionCatalogTests {
+    @Test("decode round trips a fixture entry")
+    func decodeRoundTripsAFixtureEntry() throws {
         let json = """
         [{"name":"swift-nio","version":"2.65.0","licenseSPDXId":"Apache-2.0","licenseText":"Apache License text…","homepage":"https://github.com/apple/swift-nio"}]
         """
         let entries = try AttributionCatalog.decode(Data(json.utf8), source: .appBinary)
-        XCTAssertEqual(entries.count, 1)
-        XCTAssertEqual(entries[0].name, "swift-nio")
-        XCTAssertEqual(entries[0].licenseSPDXId, "Apache-2.0")
+        #expect(entries.count == 1)
+        #expect(entries[0].name == "swift-nio")
+        #expect(entries[0].licenseSPDXId == "Apache-2.0")
     }
 
-    func testDecodeToleratesNilHomepageAndSPDXId() throws {
+    @Test("decode tolerates nil homepage and SPDX id")
+    func decodeToleratesNilHomepageAndSPDXId() throws {
         let json = """
         [{"name":"some-fork","version":"abc1234","licenseSPDXId":null,"licenseText":"Custom license text.","homepage":null}]
         """
         let entries = try AttributionCatalog.decode(Data(json.utf8), source: .containerImage)
-        XCTAssertEqual(entries.count, 1)
-        XCTAssertNil(entries[0].licenseSPDXId)
-        XCTAssertNil(entries[0].homepage)
+        #expect(entries.count == 1)
+        #expect(entries[0].licenseSPDXId == nil)
+        #expect(entries[0].homepage == nil)
     }
 
-    func testDecodeThrowsDecodingFailedOnMalformedJSON() {
-        XCTAssertThrowsError(try AttributionCatalog.decode(Data("not json".utf8), source: .websiteTemplate)) { error in
-            XCTAssertEqual(error as? AttributionCatalogError, .decodingFailed(.websiteTemplate))
+    @Test("decode throws decodingFailed on malformed JSON")
+    func decodeThrowsDecodingFailedOnMalformedJSON() {
+        #expect {
+            try AttributionCatalog.decode(Data("not json".utf8), source: .websiteTemplate)
+        } throws: { error in
+            error as? AttributionCatalogError == .decodingFailed(.websiteTemplate)
         }
     }
 
-    func testLoadThrowsResourceMissingWhenBundleHasNoAttributionsFolder() {
+    @Test("load throws resourceMissing when the bundle has no Attributions folder")
+    func loadThrowsResourceMissingWhenBundleHasNoAttributionsFolder() {
         // Bundle.main inside `swift test` is the xctest runner, which has no
         // Resources/Attributions — same "missing bundled resource" shape TemplateRuntime
         // exercises for Resources/Template (TemplateRuntimeTests.resolveReportsMissingWhenNoSourceFound).
-        XCTAssertThrowsError(try AttributionCatalog.load(.appBinary)) { error in
-            XCTAssertEqual(error as? AttributionCatalogError, .resourceMissing(.appBinary))
+        #expect {
+            try AttributionCatalog.load(.appBinary)
+        } throws: { error in
+            error as? AttributionCatalogError == .resourceMissing(.appBinary)
         }
     }
 
@@ -42,7 +51,8 @@ final class AttributionCatalogTests: XCTestCase {
     /// be non-empty. Reads by repo-root-relative path (not `Bundle.main`) since the xctest host
     /// has no Attributions resources — same convention as
     /// `SiteScaffolderTests.realScaffoldScriptURL()`.
-    func testCommittedManifestsThatExistDecodeAndAreNonEmpty() throws {
+    @Test("every committed attributions manifest that exists decodes and is non-empty")
+    func committedManifestsThatExistDecodeAndAreNonEmpty() throws {
         let repoRoot = URL(fileURLWithPath: #filePath)
             .deletingLastPathComponent().deletingLastPathComponent().deletingLastPathComponent()
         var checkedAtLeastOne = false
@@ -51,9 +61,9 @@ final class AttributionCatalogTests: XCTestCase {
             guard FileManager.default.fileExists(atPath: url.path) else { continue }
             let data = try Data(contentsOf: url)
             let entries = try AttributionCatalog.decode(data, source: source)
-            XCTAssertFalse(entries.isEmpty, "\(source.rawValue).json decoded but is empty")
+            #expect(!entries.isEmpty, "\(source.rawValue).json decoded but is empty")
             checkedAtLeastOne = true
         }
-        XCTAssertTrue(checkedAtLeastOne, "expected at least one Resources/Attributions/*.json to exist")
+        #expect(checkedAtLeastOne, "expected at least one Resources/Attributions/*.json to exist")
     }
 }

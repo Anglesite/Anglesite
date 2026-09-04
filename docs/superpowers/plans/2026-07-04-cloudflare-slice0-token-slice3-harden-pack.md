@@ -1,5 +1,7 @@
 # Cloudflare Slice 0 (Unified Token) + Slice 3 (Harden Pack) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the unified "Anglesite" Cloudflare token (template + capability probe) and extend the Harden/Audit flow with the newly-free zone features: Speed Brain, Zstandard compression, ECH, and Page Shield script monitoring.

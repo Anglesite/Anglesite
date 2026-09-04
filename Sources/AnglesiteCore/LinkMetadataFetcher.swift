@@ -30,8 +30,8 @@ public struct LinkMetadataFetcher: Sendable {
             // Ephemeral: no cookies, no credentials, no cache — this is a metadata peek at an
             // arbitrary URL, not a browsing session.
             let config = URLSessionConfiguration.ephemeral
-            config.timeoutIntervalForRequest = 10
-            config.timeoutIntervalForResource = 15
+            config.timeoutIntervalForRequest = NetworkTimeouts.linkMetadataRequest
+            config.timeoutIntervalForResource = NetworkTimeouts.linkMetadataResource
             self.session = URLSession(configuration: config)
         }
     }

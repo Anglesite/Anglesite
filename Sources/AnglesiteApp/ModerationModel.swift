@@ -126,7 +126,7 @@ final class ModerationModel {
         } catch CommunityMembershipError.requestFailed(status: 404, body: _) {
             return []
         } catch {
-            errorMessage = "Couldn't load pending join requests: \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn't load pending join requests: \(error.localizedDescription)")
             return []
         }
     }
@@ -145,7 +145,7 @@ final class ModerationModel {
         } catch CommunityMembershipError.requestFailed(status: 404, body: _) {
             return []
         } catch {
-            errorMessage = "Couldn't load reports: \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn't load reports: \(error.localizedDescription)")
             return []
         }
     }
@@ -176,7 +176,7 @@ final class ModerationModel {
 
     func ban(_ member: CommunityMember) async throws {
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — publish it at least once first."
+            errorMessage = String(localized: "This site has no known public URL yet — publish it at least once first.")
             return
         }
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
@@ -189,7 +189,7 @@ final class ModerationModel {
         guard let member = banConfirmation else { return }
         banConfirmation = nil
         do { try await ban(member) }
-        catch { errorMessage = "Couldn't ban \(member.name ?? member.actorURL.absoluteString): \(error.localizedDescription)" }
+        catch { errorMessage = String(localized: "Couldn't ban \(member.name ?? member.actorURL.absoluteString): \(error.localizedDescription)") }
     }
 
     /// Reverses a ban (#1742) — posts `Add` (``CommunityMembershipClient/add(target:)``, the AS2
@@ -199,7 +199,7 @@ final class ModerationModel {
     /// ``addModerator(_:)`` already use.
     func unban(_ member: CommunityMember) async {
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — publish it at least once first."
+            errorMessage = String(localized: "This site has no known public URL yet — publish it at least once first.")
             return
         }
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
@@ -208,7 +208,7 @@ final class ModerationModel {
             bannedMembers.removeAll { $0.id == member.id }
             members.append(member)
         } catch {
-            errorMessage = "Couldn't unban \(member.name ?? member.actorURL.absoluteString): \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn't unban \(member.name ?? member.actorURL.absoluteString): \(error.localizedDescription)")
         }
     }
 
@@ -218,7 +218,7 @@ final class ModerationModel {
     /// precedent.
     func approve(_ follower: PendingFollower) async {
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — publish it at least once first."
+            errorMessage = String(localized: "This site has no known public URL yet — publish it at least once first.")
             return
         }
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
@@ -226,13 +226,13 @@ final class ModerationModel {
             try await client.acceptFollow(target: follower.actor)
             pendingFollowers.removeAll { $0.id == follower.id }
         } catch {
-            errorMessage = "Couldn't approve \(follower.actor.absoluteString): \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn't approve \(follower.actor.absoluteString): \(error.localizedDescription)")
         }
     }
 
     func removePost(_ post: AnnouncedPost) async throws {
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — publish it at least once first."
+            errorMessage = String(localized: "This site has no known public URL yet — publish it at least once first.")
             return
         }
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
@@ -252,7 +252,7 @@ final class ModerationModel {
         guard let post = removeConfirmation else { return }
         removeConfirmation = nil
         do { try await removePost(post) }
-        catch { errorMessage = "Couldn't remove this post: \(error.localizedDescription)" }
+        catch { errorMessage = String(localized: "Couldn't remove this post: \(error.localizedDescription)") }
     }
 
     /// Validates and appends an actor IRI to `SiteSettings.moderators`, persisting via
@@ -271,7 +271,7 @@ final class ModerationModel {
         guard let url = URL(string: trimmed), let scheme = url.scheme, url.host != nil,
             ["http", "https"].contains(scheme.lowercased())
         else {
-            errorMessage = "Enter a valid actor URL, e.g. https://example.social/users/alice."
+            errorMessage = String(localized: "Enter a valid actor URL, e.g. https://example.social/users/alice.")
             return false
         }
         guard let configDirectory else { return false }
@@ -286,7 +286,7 @@ final class ModerationModel {
             moderators = updated
             return true
         } catch {
-            errorMessage = "Couldn't save the moderator: \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn't save the moderator: \(error.localizedDescription)")
             return false
         }
     }
@@ -304,7 +304,7 @@ final class ModerationModel {
             try await store.save(settings)
             moderators = updated
         } catch {
-            errorMessage = "Couldn't remove the moderator: \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn't remove the moderator: \(error.localizedDescription)")
         }
     }
 
@@ -316,7 +316,7 @@ final class ModerationModel {
     /// ``target`` isn't cleared by this).
     func dismissReport(_ report: FlagReport) async {
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            errorMessage = String(localized: "This site has no known public URL yet — deploy it at least once first.")
             return
         }
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
@@ -324,7 +324,7 @@ final class ModerationModel {
             try await client.resolveReport(activityID: report.activityID)
             reports.removeAll { $0.id == report.id }
         } catch {
-            errorMessage = "Couldn't dismiss this report: \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn't dismiss this report: \(error.localizedDescription)")
         }
     }
 
@@ -337,11 +337,11 @@ final class ModerationModel {
     /// removed some other way still shows up for review rather than vanishing silently.
     func removeReportTarget(_ report: FlagReport) async throws {
         guard let target = report.target else {
-            errorMessage = "This report doesn't name a specific member or post to remove."
+            errorMessage = String(localized: "This report doesn't name a specific member or post to remove.")
             return
         }
         guard let ownActorURL, let publishToken else {
-            errorMessage = "This site has no known public URL yet — deploy it at least once first."
+            errorMessage = String(localized: "This site has no known public URL yet — deploy it at least once first.")
             return
         }
         let client = CommunityMembershipClient(ownActorURL: ownActorURL, publishToken: publishToken, transport: membershipTransport)
@@ -352,6 +352,6 @@ final class ModerationModel {
         guard let report = removeReportTargetConfirmation else { return }
         removeReportTargetConfirmation = nil
         do { try await removeReportTarget(report) }
-        catch { errorMessage = "Couldn't remove the reported content: \(error.localizedDescription)" }
+        catch { errorMessage = String(localized: "Couldn't remove the reported content: \(error.localizedDescription)") }
     }
 }

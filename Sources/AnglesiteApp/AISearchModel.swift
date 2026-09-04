@@ -119,7 +119,7 @@ final class AISearchModel {
 
     private func runCheckPolicyAndResolveZone(domain: String, sourceDirectory: URL) async {
         guard let token = await apiToken() else {
-            setPhase(.failed(reason: "No Cloudflare API token found. Add one in Settings → Credentials."))
+            setPhase(.failed(reason: CloudflareTokenMessage.notFoundWithHint))
             return
         }
 
@@ -168,7 +168,7 @@ final class AISearchModel {
 
     private func runProvision(domain: String, zoneID: String) async {
         guard let token = await apiToken() else {
-            setPhase(.failed(reason: "No Cloudflare API token found."))
+            setPhase(.failed(reason: CloudflareTokenMessage.notFound))
             return
         }
 

@@ -1,5 +1,7 @@
 # WYSIWYG Overlay Engine Core (Slice 2) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the portable, dependency-free TypeScript overlay engine core for the modern WYSIWYG page editor (issue #1223, part of epic #1221) — model sync with content-hash staleness detection, block selection + handles, a hit-testing service, semantic-op emission with mandatory inverses, visible op-rejection handling, and headless Playwright golden tests against an in-memory fixture host.

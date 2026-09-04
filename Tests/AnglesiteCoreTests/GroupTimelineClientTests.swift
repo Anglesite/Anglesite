@@ -2,33 +2,13 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 
 @Suite("GroupTimelineClient")
 struct GroupTimelineClientTests {
-    actor FakeTransport {
-        private let status: Int
-        private let body: String
-        private(set) var requestedURLs: [URL] = []
-
-        init(status: Int = 200, body: String) {
-            self.status = status
-            self.body = body
-        }
-
-        private func respond(to request: URLRequest) throws -> (Data, HTTPURLResponse) {
-            requestedURLs.append(request.url!)
-            let http = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-            return (Data(body.utf8), http)
-        }
-
-        nonisolated var transport: GroupTimelineClient.Transport {
-            { request in try await self.respond(to: request) }
-        }
-    }
-
     @Test("reads the outbox collection head")
     func readsCollectionHead() async throws {
         let fake = FakeTransport(body: """

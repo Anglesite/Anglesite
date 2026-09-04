@@ -1,5 +1,7 @@
 # Existing-Site Template Migration (#745) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Extend `TemplateScriptsSync` (#1053) so an existing site's app-owned files never lose an owner's customization silently, backfill `SECURITY_TXT_MODE` (#743) with a legacy-`security.txt` Adopt/Preserve classification, migrate the narrow `.gitignore` rule that decision implies, and commit successful `Source/` changes to the site's git repo — for both the windowed app and the headless App Intents/Shortcuts/Siri path.

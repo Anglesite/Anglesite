@@ -1,98 +1,108 @@
-import XCTest
+import Testing
+import Foundation
 @testable import AnglesiteCore
 
 @MainActor
-final class HealthModelTests: XCTestCase {
+struct HealthModelTests {
     // MARK: - Initial state
 
-    func test_initialState_isUnknown() {
+    @Test("initial state is unknown")
+    func initialStateIsUnknown() {
         let model = HealthModel(runner: GateRunner())
-        XCTAssertEqual(model.badgeState, .unknown)
-        XCTAssertNil(model.lastCheckedAt)
-        XCTAssertNil(model.lastOutcome)
-        XCTAssertNil(model.lastFailure)
-        XCTAssertFalse(model.isRunning)
+        #expect(model.badgeState == .unknown)
+        #expect(model.lastCheckedAt == nil)
+        #expect(model.lastOutcome == nil)
+        #expect(model.lastFailure == nil)
+        #expect(!model.isRunning)
     }
 
     // MARK: - recheck transitions
 
-    func test_recheck_setsIsRunning_thenClears() async {
+    @Test("recheck sets isRunning, then clears it")
+    func recheckSetsIsRunningThenClears() async {
         let runner = GateRunner()
         let model = HealthModel(runner: runner)
         let task = model.recheck(siteID: "s", siteDirectory: tmpURL)
-        XCTAssertTrue(model.isRunning)
+        #expect(model.isRunning)
         await Task.yield()  // let the @MainActor task start and register its continuation
         await runner.respond(with: .success(.passed(warnings: [])))
         await task.value
-        XCTAssertFalse(model.isRunning)
+        #expect(!model.isRunning)
     }
 
-    func test_recheck_passingScan_noWarnings_setsClean() async {
+    @Test("recheck with a passing scan and no warnings sets clean")
+    func recheckPassingScanNoWarningsSetsClean() async {
         let runner = GateRunner()
         let model = HealthModel(runner: runner)
         let task = model.recheck(siteID: "s", siteDirectory: tmpURL)
         await Task.yield()
         await runner.respond(with: .success(.passed(warnings: [])))
         await task.value
-        XCTAssertEqual(model.badgeState, .clean)
-        XCTAssertNotNil(model.lastCheckedAt)
-        XCTAssertNil(model.lastFailure)
+        #expect(model.badgeState == .clean)
+        #expect(model.lastCheckedAt != nil)
+        #expect(model.lastFailure == nil)
     }
 
-    func test_recheck_passingScan_withWarnings_setsWarnings() async {
+    @Test("recheck with a passing scan and warnings sets warnings")
+    func recheckPassingScanWithWarningsSetsWarnings() async {
         let runner = GateRunner()
         let model = HealthModel(runner: runner)
         let task = model.recheck(siteID: "s", siteDirectory: tmpURL)
         await Task.yield()
         await runner.respond(with: .success(.passed(warnings: [sampleWarning])))
         await task.value
-        XCTAssertEqual(model.badgeState, .warnings)
+        #expect(model.badgeState == .warnings)
     }
 
-    func test_recheck_blockedScan_setsFailures() async {
+    @Test("recheck with a blocked scan sets failures")
+    func recheckBlockedScanSetsFailures() async {
         let runner = GateRunner()
         let model = HealthModel(runner: runner)
         let task = model.recheck(siteID: "s", siteDirectory: tmpURL)
         await Task.yield()
         await runner.respond(with: .success(.blocked(failures: [sampleFailure], warnings: [])))
         await task.value
-        XCTAssertEqual(model.badgeState, .failures)
+        #expect(model.badgeState == .failures)
     }
 
-    func test_recheck_errorOutcome_setsFailures() async {
+    @Test("recheck with an error outcome sets failures")
+    func recheckErrorOutcomeSetsFailures() async {
         let runner = GateRunner()
         let model = HealthModel(runner: runner)
         let task = model.recheck(siteID: "s", siteDirectory: tmpURL)
         await Task.yield()
         await runner.respond(with: .success(.error(reason: "missing dist/")))
         await task.value
-        XCTAssertEqual(model.badgeState, .failures)
-        XCTAssertNotNil(model.lastOutcome) // .error is still surfaced via lastOutcome
+        #expect(model.badgeState == .failures)
+        #expect(model.lastOutcome != nil) // .error is still surfaced via lastOutcome
     }
 
-    func test_recheck_runnerThrowsBuildFailure_setsFailures_withReason() async {
+    @Test("recheck where the runner throws a build failure sets failures with the reason")
+    func recheckRunnerThrowsBuildFailureSetsFailuresWithReason() async {
         let runner = GateRunner()
         let model = HealthModel(runner: runner)
         let task = model.recheck(siteID: "s", siteDirectory: tmpURL)
         await Task.yield()
         await runner.respond(with: .failure(HealthRunnerError.build("npm run build exited 1")))
         await task.value
-        XCTAssertEqual(model.badgeState, .failures)
-        XCTAssertEqual(model.lastFailure, .buildFailed("npm run build exited 1"))
+        #expect(model.badgeState == .failures)
+        #expect(model.lastFailure == .buildFailed("npm run build exited 1"))
     }
 
-    func test_recheck_runnerThrowsScanFailure_setsFailures_withReason() async {
+    @Test("recheck where the runner throws a scan failure sets failures with the reason")
+    func recheckRunnerThrowsScanFailureSetsFailuresWithReason() async {
         let runner = GateRunner()
         let model = HealthModel(runner: runner)
         let task = model.recheck(siteID: "s", siteDirectory: tmpURL)
         await Task.yield()
         await runner.respond(with: .failure(HealthRunnerError.scan("script crashed")))
         await task.value
-        XCTAssertEqual(model.badgeState, .failures)
-        XCTAssertEqual(model.lastFailure, .scanFailed("script crashed"))
+        #expect(model.badgeState == .failures)
+        #expect(model.lastFailure == .scanFailed("script crashed"))
     }
 
-    func test_recheck_genericError_mapsToScanFailed() async {
+    @Test("a generic error maps to scanFailed")
+    func genericErrorMapsToScanFailed() async {
         struct OddError: Error {}
         let runner = GateRunner()
         let model = HealthModel(runner: runner)
@@ -100,14 +110,16 @@ final class HealthModelTests: XCTestCase {
         await Task.yield()
         await runner.respond(with: .failure(OddError()))
         await task.value
-        if case .scanFailed = model.lastFailure { /* ok */ } else {
-            XCTFail("expected .scanFailed, got \(String(describing: model.lastFailure))")
+        guard case .scanFailed = model.lastFailure else {
+            Issue.record("expected .scanFailed, got \(String(describing: model.lastFailure))")
+            return
         }
     }
 
     // MARK: - recheck cancellation
 
-    func test_recheck_whileRunning_cancelsPriorTask_onlyLatestLands() async {
+    @Test("recheck while running cancels the prior task; only the latest lands")
+    func recheckWhileRunningCancelsPriorTaskOnlyLatestLands() async {
         let runner = GateRunner()
         let model = HealthModel(runner: runner)
 
@@ -128,43 +140,47 @@ final class HealthModelTests: XCTestCase {
 
         await first.value
         await second.value
-        XCTAssertEqual(model.badgeState, .failures)
+        #expect(model.badgeState == .failures)
     }
 
     // MARK: - ingestDeployOutcome
 
-    func test_ingestDeployOutcome_passed_setsClean() {
+    @Test("ingestDeployOutcome with a passed outcome sets clean")
+    func ingestDeployOutcomePassedSetsClean() {
         let model = HealthModel(runner: GateRunner())
         model.ingestDeployOutcome(.passed(warnings: []))
-        XCTAssertEqual(model.badgeState, .clean)
-        XCTAssertNotNil(model.lastCheckedAt)
+        #expect(model.badgeState == .clean)
+        #expect(model.lastCheckedAt != nil)
     }
 
-    func test_ingestDeployOutcome_warnings_setsWarnings() {
+    @Test("ingestDeployOutcome with warnings sets warnings")
+    func ingestDeployOutcomeWarningsSetsWarnings() {
         let model = HealthModel(runner: GateRunner())
         model.ingestDeployOutcome(.passed(warnings: [sampleWarning]))
-        XCTAssertEqual(model.badgeState, .warnings)
+        #expect(model.badgeState == .warnings)
     }
 
-    func test_ingestDeployOutcome_blocked_setsFailures() {
+    @Test("ingestDeployOutcome with a blocked outcome sets failures")
+    func ingestDeployOutcomeBlockedSetsFailures() {
         let model = HealthModel(runner: GateRunner())
         model.ingestDeployOutcome(.blocked(failures: [sampleFailure], warnings: []))
-        XCTAssertEqual(model.badgeState, .failures)
+        #expect(model.badgeState == .failures)
     }
 
-    func test_ingestDeployOutcome_clearsPriorFailure() async {
+    @Test("ingestDeployOutcome clears a prior failure")
+    func ingestDeployOutcomeClearsPriorFailure() async {
         let runner = GateRunner()
         let model = HealthModel(runner: runner)
         let task = model.recheck(siteID: "s", siteDirectory: tmpURL)
         await Task.yield()
         await runner.respond(with: .failure(HealthRunnerError.build("boom")))
         await task.value
-        XCTAssertEqual(model.badgeState, .failures)
-        XCTAssertNotNil(model.lastFailure)
+        #expect(model.badgeState == .failures)
+        #expect(model.lastFailure != nil)
 
         model.ingestDeployOutcome(.passed(warnings: []))
-        XCTAssertEqual(model.badgeState, .clean)
-        XCTAssertNil(model.lastFailure)
+        #expect(model.badgeState == .clean)
+        #expect(model.lastFailure == nil)
     }
 
     // MARK: - Fixtures

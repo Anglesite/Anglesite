@@ -1,5 +1,7 @@
 # Website Design Window v2 — Slice 3: Toolbar Re-curation Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the `insert` (`+`) and `websiteInspector` toolbar items, make them (plus `openInBrowser`/`deploy`/`chat`/`inspector`) the new default toolbar set, and demote `graph`/`backup`/`audit` to the hidden customization palette — per [#714](https://github.com/Anglesite/Anglesite/issues/714) v2 slice 3 (spec §4, Slices item 3). This branch is layered directly on slice 2 (`claude/issue-714-remaining-188829`, PR [#1686](https://github.com/Anglesite/Anglesite/pull/1686)), since it edits the exact toolbar block slice 2 already touched.
