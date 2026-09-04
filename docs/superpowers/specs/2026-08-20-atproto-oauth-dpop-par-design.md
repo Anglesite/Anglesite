@@ -3,14 +3,16 @@
 **Date:** 2026-08-20
 **Issue:** [#1485](https://github.com/Anglesite/Anglesite/issues/1485), follow-up from epic #1230
 (closed; owner approved filing its candidate follow-ups, 2026-08-15).
-**Status:** current — routed and split into [#1889](https://github.com/Anglesite/Anglesite/issues/1889)
-(client-metadata document hosting) and [#1890](https://github.com/Anglesite/Anglesite/issues/1890)
-(this doc's components 3/4/6: PAR, token exchange/refresh, and Keychain storage — the "DPoP/PAR
-client mechanics" slice — implemented in `ATProtoOAuthClient.swift`). Components 1/2
-(`ATProtoIdentityResolver`, `ATProtoAuthServerMetadata`) remain unbuilt: #1890's client takes the
-PAR/authorize/token endpoints as already-resolved parameters rather than discovering them itself,
-so identity resolution and auth-server metadata discovery are still a separate, not-yet-filed
-follow-up.
+**Status:** current — hold lifted by the owner (2026-09-04, on #1485) and split into two
+independently landable children, both shipped: [#1889](https://github.com/Anglesite/Anglesite/issues/1889)
+(client-metadata document hosting — this spec's "Client-metadata hosting" and "Redirect mechanism"
+rows) and [#1890](https://github.com/Anglesite/Anglesite/issues/1890) (this doc's components 3/4/6:
+PAR, token exchange/refresh, and Keychain storage — the "DPoP/PAR client mechanics" slice —
+implemented in `ATProtoOAuthClient.swift`). Components 1/2 (`ATProtoIdentityResolver`,
+`ATProtoAuthServerMetadata`) remain unbuilt: #1890's client takes the PAR/authorize/token endpoints
+as already-resolved parameters rather than discovering them itself, so identity resolution and
+auth-server metadata discovery are still a separate, not-yet-filed follow-up. Onboarding UI and
+app-password migration/coexistence remain out of scope, tracked on the parent #1485.
 
 ## Scope
 
@@ -60,8 +62,9 @@ against a static, pre-registered client. atproto has neither:
 | Abstraction level | New standalone `ATProtoOAuthClient`, no shared `OAuthEngine` across Cloudflare/IndieAuth/atproto | This codebase has already rejected a generalized token-onboarding abstraction once (`GitHubTokenOnboarding`, out of scope for #654); the three flows differ enough (PAR/DPoP required or not, identity resolution or not) that a shared engine would mostly be conditionals |
 | DPoP implementation | Reuse `DPoPKeyPair`/`DPoPNonceChallenge` unchanged | Already RFC 9449-compliant and provider-agnostic despite currently only being used by IndieAuth/Micropub; no reason to fork it |
 | PAR implementation | New, small, standalone type — not folded into `DPoPKeyPair` | PAR is a distinct spec concept (request pushing) from proof-of-possession; keeping it separate matches "one clear purpose per unit" |
-| Redirect mechanism | Custom URI scheme (e.g. `io.dwk.anglesite:/oauth-callback`), not Associated Domains/universal link | Simpler, no domain-verification dependency, and the more typical shape for atproto native OAuth clients; deliberately diverges from Cloudflare's universal-link choice |
-| Client-metadata hosting | Left as an explicit placeholder (`ATProtoOAuthConfiguration.clientMetadataURL: URL`, no real value yet) | Requires a stable, Anglesite-controlled public HTTPS endpoint that doesn't exist yet — an infra decision for whoever routes this issue, not a client-design decision |
+| Redirect mechanism | `https://auth.anglesite.dwk.io/atproto-callback` (owner decision, 2026-09-04, on #1485; shipped in #1889), superseding the custom-URI-scheme choice below | The owner's infra decision routed redirect handling through the same host as the client-metadata document, mirroring Cloudflare's universal-link callback shape instead of a custom scheme |
+| ~~Redirect mechanism (superseded)~~ | ~~Custom URI scheme (e.g. `io.dwk.anglesite:/oauth-callback`), not Associated Domains/universal link~~ | ~~Simpler, no domain-verification dependency, and the more typical shape for atproto native OAuth clients; deliberately diverges from Cloudflare's universal-link choice~~ |
+| Client-metadata hosting | `https://auth.anglesite.dwk.io/atproto/client-metadata.json`, served statically by `Workers/anglesite-oauth-callback/` alongside its existing Cloudflare OAuth callback (owner decision, 2026-09-04, on #1485; shipped in #1889) | Reuses the Worker that already serves `/oauth-callback` and the Apple App Site Association document, rather than standing up a second host |
 | Session storage scope | Per-site, mirroring `posse:<siteID>:bluesky-app-password` and `indieAuthDPoPKey`'s two-key shape | A site's Bluesky identity is already modeled as site-scoped credential state; no reason to diverge for OAuth |
 | Refresh token rotation | New refresh token overwrites the stored one immediately on every use | atproto rotates refresh tokens per use (unlike Cloudflare); treating the old one as still valid after a refresh would break the next refresh |
 
@@ -191,11 +194,10 @@ two-key pattern rather than Cloudflare's un-scoped keys:
 
 ## Open items (for whoever routes this issue)
 
-- **Client-metadata document hosting.** atproto OAuth requires `client_id` to be a URL serving a
-  public JSON document listing `redirect_uris`, `grant_types`, `scope`, etc. This needs a stable,
-  Anglesite-controlled HTTPS endpoint (e.g. something under `anglesite.io`) that doesn't exist yet.
-  Left as a placeholder (`ATProtoOAuthConfiguration.clientMetadataURL: URL`) rather than designed
-  here — it's an infra/hosting decision, not a client-code decision.
+- ~~**Client-metadata document hosting.**~~ Resolved by the owner's 2026-09-04 decision on #1485
+  and shipped in #1889: served from `https://auth.anglesite.dwk.io/atproto/client-metadata.json`
+  by `Workers/anglesite-oauth-callback/`. `ATProtoOAuthConfiguration.clientMetadataURL` (Child B,
+  #1890) should point at that URL rather than carry a placeholder.
 - **Onboarding UI.** No `ATProtoOAuthSignInView` or equivalent is designed here — deliberately, per
   scoping decision above. Would follow the `TokenOnboarding` verify → persist → flash → proceed
   shape once built.
