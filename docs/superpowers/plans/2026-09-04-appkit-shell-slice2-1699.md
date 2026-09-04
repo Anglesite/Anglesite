@@ -568,7 +568,7 @@ Create `Tests/AnglesiteAppTests/SiteShellToolbarDelegateTests.swift`:
 ```swift
 import Testing
 import AnglesiteCore
-@testable import Anglesite
+@testable import AnglesiteAppCore
 
 @Suite("SiteShellToolbarDelegate")
 struct SiteShellToolbarDelegateTests {
@@ -1027,7 +1027,7 @@ Create `Tests/AnglesiteAppTests/SiteShellSearchToolbarItemTests.swift`:
 import Testing
 import AppKit
 import AnglesiteCore
-@testable import Anglesite
+@testable import AnglesiteAppCore
 
 @Suite("SiteShellSearchToolbarItem")
 struct SiteShellSearchToolbarItemTests {
