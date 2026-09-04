@@ -926,6 +926,12 @@ struct SiteWindow: View {
             // first evaluation, so a site that is later renamed or invalidated would keep
             // rendering the old value in `toolbarItemContent`'s `site.isValid` help strings. The
             // parameter is the fallback for the window's pre-load moment.
+            //
+            // What makes that re-read actually happen is `HostedToolbarItemContent`: the delegate
+            // calls this closure from *its* `body`, not at item-construction time, so each
+            // evaluation reads today's `model.site` and every `model.*` read inside
+            // `toolbarItemContent` registers as an `@Observable` dependency (#1699 slice 2,
+            // final-review fix — before it, each item rendered one frozen snapshot forever).
             itemView: { id in AnyView(self.toolbarItemContent(id, site: self.model.site ?? site)) },
             insertMenuItems: {
                 Self.shellInsertMenuItems(

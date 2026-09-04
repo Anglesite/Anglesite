@@ -97,38 +97,52 @@ struct SiteShellSplitControllerTests {
         #expect(controller.ownedToolbar === first)
     }
 
-    @Test("insertTrackingSeparators lands the separators at the intended positions for a realistically populated toolbar")
+    @Test("the shell's own items come from the default set, not from imperative seeding")
     @MainActor
-    func insertTrackingSeparatorsPositionsForRealisticItemCount() {
-        // Seeds a standalone toolbar with the real default-item set — without a window,
-        // `NSToolbar.items` never gets populated by SiteShellSplitController's own
-        // installToolbar path, so this builds one directly via the same delegate the shell
-        // uses, exercising the N>0 branch of the clamped-index math the N=0 tests above
-        // can't reach.
+    func shellOwnedItemsComeFromTheDefaultSet() {
+        // Replaces the old `insertSearchItem`/`insertTrackingSeparators` coverage (#1699 slice 2,
+        // final-review fix). Those ran once per controller behind a latch, so "Restore Default
+        // Set" in the Customize Toolbar sheet dropped the search field and both separators for
+        // the rest of that window's session. They are declared defaults now, which is what makes
+        // a restore bring them back — this drives the identifiers through the same delegate the
+        // shell installs and checks the toolbar materialises every one, in order.
         let delegate = SiteShellToolbarDelegate(itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
         // The tracking-separator branches only build an item when `splitView` is set (see
         // `SiteShellToolbarDelegateTests.trackingSeparatorItemsRequireSplitView`) — without
         // this, `NSToolbar.insertItem` below would call the delegate, get `nil` back, and
         // silently no-op instead of inserting anything.
         delegate.splitView = NSSplitView()
+        let searchItem = makeSearchItem()
+        delegate.searchItem = searchItem
         let toolbar = NSToolbar(identifier: SiteShellToolbarDelegate.toolbarIdentifier)
         toolbar.delegate = delegate
+
         for id in SiteShellToolbarDelegate.defaultItemIdentifiers {
             toolbar.insertItem(withItemIdentifier: id, at: toolbar.items.count)
         }
-        let defaultCount = toolbar.items.count
-        #expect(defaultCount > 1, "the default set must have more than one item for this test to be meaningful")
 
-        SiteShellSplitController<Text, Text, Text>.insertTrackingSeparators(into: toolbar)
+        #expect(toolbar.items.map(\.itemIdentifier) == SiteShellToolbarDelegate.defaultItemIdentifiers)
+        #expect(toolbar.items.first?.itemIdentifier == .toggleSidebar)
+        #expect(toolbar.items[1] is NSTrackingSeparatorToolbarItem)
+        #expect(toolbar.items[toolbar.items.count - 2] is NSTrackingSeparatorToolbarItem)
+        #expect(toolbar.items.last === searchItem)
+    }
 
-        #expect(toolbar.items.count == defaultCount + 2)
-        #expect(toolbar.items[1].itemIdentifier == SiteShellToolbarDelegate.sidebarTrackingSeparator)
-        #expect(toolbar.items[toolbar.items.count - 2].itemIdentifier == SiteShellToolbarDelegate.inspectorTrackingSeparator)
-        // Every original default item is still present, undisturbed, on either side of the
-        // two separators that were spliced in.
-        let survivingIdentifiers = toolbar.items.map(\.itemIdentifier).filter {
-            $0 != SiteShellToolbarDelegate.sidebarTrackingSeparator && $0 != SiteShellToolbarDelegate.inspectorTrackingSeparator
-        }
-        #expect(survivingIdentifiers == SiteShellToolbarDelegate.defaultItemIdentifiers)
+    @Test("attaching the toolbar is idempotent and doesn't mutate the item set")
+    @MainActor
+    func attachDoesNotSeedItems() {
+        // The imperative seeding is gone; attaching is purely the window assignment now, so a
+        // repeat call (viewDidAppear fires more than once per window, and every SwiftUI update
+        // calls this too) must stay a no-op rather than appending anything.
+        let controller = makeController()
+        controller.installToolbar(
+            itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] },
+            searchItem: makeSearchItem())
+        let toolbar = controller.ownedToolbar
+        let before = toolbar?.items.count
+        controller.attachOwnedToolbarIfNeeded()
+        controller.attachOwnedToolbarIfNeeded()
+        #expect(controller.ownedToolbar === toolbar)
+        #expect(toolbar?.items.count == before)
     }
 }
