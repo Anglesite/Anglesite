@@ -86,7 +86,7 @@ struct DevicePairingSettingsView: View {
             devices = try store.load()
             loadError = nil
         } catch {
-            loadError = "couldn't load paired devices: \(error.localizedDescription)"
+            loadError = String(localized: "couldn't load paired devices: \(error.localizedDescription)")
         }
     }
 
@@ -95,7 +95,7 @@ struct DevicePairingSettingsView: View {
             try store.remove(id: device.id)
             reloadDevices()
         } catch {
-            loadError = "couldn't revoke \(device.displayName): \(error.localizedDescription)"
+            loadError = String(localized: "couldn't revoke \(device.displayName): \(error.localizedDescription)")
         }
     }
 
@@ -130,13 +130,13 @@ struct DevicePairingSettingsView: View {
             let payload = DevicePairingPayload(deviceID: Self.ownDeviceID(), publicKey: keyPair.publicKeyData)
             let payloadData = try payload.encodedJSON()
             guard let image = Self.qrCodeImage(from: payloadData) else {
-                loadError = "couldn't render the pairing QR code."
+                loadError = String(localized: "couldn't render the pairing QR code.")
                 return
             }
             qrImage = image
             loadError = nil
         } catch {
-            loadError = "couldn't prepare pairing key: \(error.localizedDescription)"
+            loadError = String(localized: "couldn't prepare pairing key: \(error.localizedDescription)")
         }
     }
 

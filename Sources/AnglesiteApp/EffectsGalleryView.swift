@@ -26,7 +26,7 @@ final class EffectsGalleryModel {
         guard catalog == nil, loadError == nil else { return }
         let resolution = TemplateRuntime.resolve()
         guard let templateDirectory = resolution.url else {
-            loadError = "The website template isn't available (\(resolution.description))."
+            loadError = String(localized: "The website template isn't available (\(resolution.description)).")
             return
         }
         do {
@@ -35,7 +35,7 @@ final class EffectsGalleryModel {
             self.catalog = catalog
             selectedComponent = catalog.entries.first?.component
         } catch {
-            loadError = "Couldn't load the effects catalog: \(error.localizedDescription)"
+            loadError = String(localized: "Couldn't load the effects catalog: \(error.localizedDescription)")
         }
     }
 

@@ -151,7 +151,7 @@ final class DomainConfigAuditModel {
 
     private func performAudit(declared: DomainConfig, domain: String) async {
         guard let token = await apiToken() else {
-            setPhase(.failed(reason: "No Cloudflare API token found. Add one in Settings → Credentials."))
+            setPhase(.failed(reason: CloudflareTokenMessage.notFoundWithHint))
             return
         }
         do {
@@ -182,7 +182,7 @@ final class DomainConfigAuditModel {
         plan: DomainConfigReconcilePlan, domain: String, zoneID: String, declared: DomainConfig
     ) async {
         guard let token = await apiToken() else {
-            setPhase(.failed(reason: "No Cloudflare API token found."))
+            setPhase(.failed(reason: CloudflareTokenMessage.notFound))
             return
         }
         let reconciler = DomainConfigReconciler(reader: reader, writer: writer)

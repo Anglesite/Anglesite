@@ -59,13 +59,13 @@ final class CopyEditReportModel: Identifiable {
             let contents = try String(contentsOf: url, encoding: .utf8)
             guard let updated = CopyRewriteApplier.apply(
                 excerpt: finding.excerpt, rewrite: finding.suggestedRewrite, contents: contents) else {
-                errorMessage = "The page text changed since the review — this excerpt no longer matches."
+                errorMessage = String(localized: "The page text changed since the review — this excerpt no longer matches.")
                 return
             }
             try updated.write(to: url, atomically: true, encoding: .utf8)
             appliedFindingIDs.insert(finding.id)
         } catch {
-            errorMessage = "Couldn't apply the rewrite: \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn't apply the rewrite: \(error.localizedDescription)")
         }
     }
 
@@ -79,7 +79,7 @@ final class CopyEditReportModel: Identifiable {
                 sourceFile: finding.filePath)
             annotatedFindingIDs.insert(finding.id)
         } catch {
-            errorMessage = "Couldn't save the annotation: \(error.localizedDescription)"
+            errorMessage = String(localized: "Couldn't save the annotation: \(error.localizedDescription)")
         }
     }
 

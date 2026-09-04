@@ -87,7 +87,7 @@ final class FileEditorModel {
             warnIfNoModificationDate(after: "save")
             return true
         } catch {
-            loadError = "Save failed: \(error.localizedDescription)"
+            loadError = String(localized: "Save failed: \(error.localizedDescription)")
             return false
         }
     }

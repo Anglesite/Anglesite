@@ -76,8 +76,9 @@ KEY_PATTERN = re.compile(r'LocalizedStringKey\(\s*"')
 # handful of property names audited so far, not a general "*Error" heuristic - matching on name
 # suffix alone would also flag every other similarly-named error property that hasn't been
 # migrated yet, which would fail this check for code no current change touches. Extend this list
-# deliberately as more properties are migrated (#1852 added the second batch).
+# deliberately as more properties are migrated (#1800 added the first batch, #1852 the second).
 ERROR_PROPERTY_NAMES = [
+    "errorMessage", "lastError", "loadError", "saveError", "renameError",
     "licenseGateError", "workerNameConflictError", "redirectsError", "utmCodesError",
     "licensingError", "langError", "mtaStsError", "securityReportingError", "deleteError",
     "redirectSaveError", "contentActionError",

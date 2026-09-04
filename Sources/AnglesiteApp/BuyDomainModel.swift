@@ -251,7 +251,7 @@ final class BuyDomainModel {
     private func message(for error: RegistrarOperationError) -> String {
         switch error {
         case .noToken:
-            return "No Cloudflare API token found. Add one in Settings → Credentials."
+            return CloudflareTokenMessage.notFoundWithHint
         case .cloudflare(let cfError):
             switch cfError {
             case .unauthorized:
