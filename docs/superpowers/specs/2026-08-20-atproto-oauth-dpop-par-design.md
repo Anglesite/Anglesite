@@ -3,9 +3,14 @@
 **Date:** 2026-08-20
 **Issue:** [#1485](https://github.com/Anglesite/Anglesite/issues/1485), follow-up from epic #1230
 (closed; owner approved filing its candidate follow-ups, 2026-08-15).
-**Status:** Deliberately held (`🏭 Blocked: human`) — "more work than value while app passwords
-still function." This spec exists so a ready plan is available whenever the issue is routed; it is
-**not** cleared for implementation.
+**Status:** current — routed and split into [#1889](https://github.com/Anglesite/Anglesite/issues/1889)
+(client-metadata document hosting) and [#1890](https://github.com/Anglesite/Anglesite/issues/1890)
+(this doc's components 3/4/6: PAR, token exchange/refresh, and Keychain storage — the "DPoP/PAR
+client mechanics" slice — implemented in `ATProtoOAuthClient.swift`). Components 1/2
+(`ATProtoIdentityResolver`, `ATProtoAuthServerMetadata`) remain unbuilt: #1890's client takes the
+PAR/authorize/token endpoints as already-resolved parameters rather than discovering them itself,
+so identity resolution and auth-server metadata discovery are still a separate, not-yet-filed
+follow-up.
 
 ## Scope
 
