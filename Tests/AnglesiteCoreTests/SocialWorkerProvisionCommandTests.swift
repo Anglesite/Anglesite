@@ -1000,6 +1000,14 @@ struct SocialWorkerProvisionCommandTests {
         #expect(result.asDeployCommandResult == .workerNameConflict(name: "taken-name"))
     }
 
+    @Test("asDeployCommandResult passes webmentionPaidPlanConfirmationNeeded through directly, dropping the resources payload")
+    func asDeployCommandResultMapsWebmentionPaidPlanConfirmationNeeded() {
+        let result = SocialWorkerProvisionCommand.Result.webmentionPaidPlanConfirmationNeeded(
+            resources: .init(kvNamespaceID: "kv-id")
+        )
+        #expect(result.asDeployCommandResult == .webmentionPaidPlanConfirmationNeeded)
+    }
+
     @Test("asDeployCommandResult maps failed, dropping the resources payload")
     func asDeployCommandResultMapsFailed() {
         let result = SocialWorkerProvisionCommand.Result.failed(

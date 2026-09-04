@@ -66,6 +66,11 @@ public actor DeployCommand {
         /// before redeploying (investigation doc §5.5 — deploy-time validation is a cheap check,
         /// not a second remediation surface).
         case domainConfigDrift(findings: [DomainConfigAudit.Finding])
+        /// A Queue-backed Worker (inbound Webmention, WebSub, or Microsub) needs to be provisioned
+        /// but the site hasn't acknowledged that Cloudflare Queues require the Workers Paid plan —
+        /// only ever produced by `SocialWorkerProvisionTarget.publish` (#1821); every other
+        /// `DeployTarget` conformer never returns it.
+        case webmentionPaidPlanConfirmationNeeded
         /// `exitCode` is `nil` for pre-spawn refusals (no credential, no wrangler) and for spawn
         /// failures; otherwise it's the failing subprocess's exit code (including `0` for the
         /// "wrangler exited cleanly but we couldn't find a URL" case).

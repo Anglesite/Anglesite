@@ -396,6 +396,8 @@ final class DeployModel {
             return .failed(reason: "Worker name \"\(name)\" is already in use on your Cloudflare account — rename it in the app and publish again.")
         case .domainConfigDrift(let findings):
             return .failed(reason: "\(findings.count) declared domain configuration item(s) don't match your live Cloudflare setup — review the Domain Config Audit in the app and deploy again.")
+        case .webmentionPaidPlanConfirmationNeeded:
+            return .failed(reason: "unexpected: paid-plan confirmation needed outside worker provisioning")
         case .failed(let reason, _):
             return .failed(reason: reason)
         }
@@ -1307,6 +1309,20 @@ final class DeployModel {
             webmentionPaidPlanConfirmationPresented = false
             activityPubHandleRenameConfirmationPresented = false
             domainConfigDriftPresented = presentation == .foreground
+        case .webmentionPaidPlanConfirmationNeeded:
+            // Unreachable in practice: `provisionResult`'s own `.webmentionPaidPlanConfirmationNeeded`
+            // case (with its `resources` payload) is handled by the early return above, before
+            // `asDeployCommandResult` ever runs — this arm exists only to keep the switch exhaustive.
+            workerNameConflictPresented = false
+            webmentionPaidPlanConfirmationPresented = false
+            activityPubHandleRenameConfirmationPresented = false
+            transition(
+                siteID: siteID,
+                to: .failed(
+                    reason: "unexpected: paid-plan confirmation needed outside worker provisioning",
+                    exitCode: nil
+                )
+            )
         }
         return result
     }

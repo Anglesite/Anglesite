@@ -628,6 +628,15 @@ public actor SocialWorkerProvisionCommand {
             return .workerNameConflict(name: name, resources: resources)
         case .domainConfigDrift(let findings):
             return .domainConfigDrift(findings: findings, resources: resources)
+        case .webmentionPaidPlanConfirmationNeeded:
+            // `deployer` is always `CloudflareDeployTarget`-backed here (see `defaultDeployer`
+            // above), which never produces this case — only `SocialWorkerProvisionTarget.publish`
+            // does, and it doesn't go through this seam. Defensive arm only.
+            return .failed(
+                reason: "unexpected: paid-plan confirmation needed outside worker provisioning",
+                exitCode: nil,
+                resources: resources
+            )
         case .failed(let reason, let exitCode):
             return .failed(reason: reason, exitCode: exitCode, resources: resources)
         }
@@ -852,13 +861,7 @@ extension SocialWorkerProvisionCommand.Result {
         case .domainConfigDrift(let findings, _):
             return .domainConfigDrift(findings: findings)
         case .webmentionPaidPlanConfirmationNeeded:
-            // `DeployCommand.Result` has no equivalent case yet — callers that go through this
-            // convenience mapping (rather than reading `SocialWorkerProvisionCommand.Result`
-            // directly) see this as a plain failure until the confirmation-sheet wiring lands.
-            return .failed(
-                reason: "Inbound Webmention and WebSub require the Cloudflare Workers Paid plan — confirm in Settings before deploying",
-                exitCode: nil
-            )
+            return .webmentionPaidPlanConfirmationNeeded
         case .failed(let reason, let exitCode, _):
             return .failed(reason: reason, exitCode: exitCode)
         }

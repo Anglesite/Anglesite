@@ -284,6 +284,8 @@ public struct SiteOperations: Sendable {
             let count = findings.count
             let noun = count == 1 ? "item" : "items"
             return "Deploy blocked: \(count) declared domain configuration \(noun) don't match your live Cloudflare setup. Review and reconcile in Anglesite's Domain Config Audit, then try again."
+        case .webmentionPaidPlanConfirmationNeeded:
+            return "Deploy failed: unexpected: paid-plan confirmation needed outside worker provisioning"
         case .failed(let reason, _):
             return "Deploy failed: \(reason)"
         }
