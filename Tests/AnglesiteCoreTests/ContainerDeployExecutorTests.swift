@@ -102,6 +102,54 @@ struct ContainerDeployExecutorTests {
         #expect(env["CLOUDFLARE_ACCOUNT_ID"] == nil)
     }
 
+    @Test("wranglerSubcommand falls back to stderr when stdout is empty")
+    func wranglerSubcommandFallsBackToStderrOnEmptyStdout() async {
+        // Mirrors a real `wrangler d1 create` failure (e.g. a name conflict) that writes its
+        // error to stderr with empty stdout — exactly the case the `.wranglerSubcommand`-only
+        // fallback in `ContainerDeployExecutor.run` exists to preserve (see #1821 / the comment
+        // just above that `if case .wranglerSubcommand` branch in DeployExecutor.swift).
+        let fake = FakeLocalContainerControl(
+            startResult: .failure(.virtualizationUnavailable),
+            execResult: ContainerExecResult(exitCode: 1, stdout: "", stderr: "database already exists")
+        )
+        let executor = makeExecutor(fake: fake)
+
+        let result = await executor.run(
+            step: .wranglerSubcommand(args: ["d1", "create", "site-social"]),
+            siteDirectory: URL(fileURLWithPath: "/host/irrelevant"),
+            environment: ["CLOUDFLARE_API_TOKEN": "tok"],
+            source: "deploy:site-abc:wranglerSubcommand"
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.output == "database already exists")
+    }
+
+    @Test("the stdout-or-stderr fallback does NOT leak into other steps — .wrangler stays stdout-only")
+    func wranglerStepStaysStdoutOnlyEvenWithEmptyStdout() async {
+        // The safety-critical half of the property: a fallback that leaked into `.wrangler`
+        // would risk corrupting `CloudflareDeployTarget.extractDeployedURL`'s input on the real
+        // deploy path, since that parser only ever expects stdout. Use a host directory with no
+        // wrangler.toml so the #1084 sync step is skipped (see
+        // `wranglerStepSkipsSyncWhenHostFileMissing` above) and the fake's `execResult` is what
+        // the main `wrangler deploy` exec call returns.
+        let fake = FakeLocalContainerControl(
+            startResult: .failure(.virtualizationUnavailable),
+            execResult: ContainerExecResult(exitCode: 1, stdout: "", stderr: "some stderr noise")
+        )
+        let executor = makeExecutor(fake: fake)
+
+        let result = await executor.run(
+            step: .wrangler,
+            siteDirectory: URL(fileURLWithPath: "/host/does-not-exist-\(UUID().uuidString)"),
+            environment: ["CLOUDFLARE_API_TOKEN": "tok"],
+            source: "deploy:site-abc"
+        )
+
+        #expect(result.exitCode == 1)
+        #expect(result.output.isEmpty)
+    }
+
     // MARK: - .githubPagesPublish argv (#1015 slice 2a)
 
     /// A fresh host site directory with `anglesite.json` declaring the given GitHub Pages
