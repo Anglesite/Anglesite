@@ -51,9 +51,9 @@
     "pagefind": "^1.5.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "schema-dts": "^2.0.0",
+    "schema-dts": "^1.1.5",
     "tsx": "^4.23.13",
-    "typescript": "^7.0.2",
+    "typescript": "^5.9.3",
     "vitest": "4.1.11",
     "wrangler": "4.127.1"
   },
