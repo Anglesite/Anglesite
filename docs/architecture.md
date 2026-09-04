@@ -96,6 +96,7 @@ flowchart TB
   chat request all call the same Swift function or in-container tool — never a second copy.
 - **The security gate is unbypassable.** `pre-deploy-check` is native deterministic Swift,
   not an LLM hook, so it cannot be prompt-injected or talked out of running.
-- **Interim vs end-state.** Until the container runtimes land (#66/#69/#70), the Node sidecar
-  stays host-spawned and called directly, and the embedded host Node + JIT re-sign apparatus
-  remains. The diagram shows the **end-state**: JS in-guest, host Node retired.
+- **This is the current state, not a future one.** The container runtimes landed (#66/#69/#70):
+  the diagram reflects how Anglesite runs today — all JavaScript executes in-guest via the
+  per-site container's MCP HTTP/WS transport, and the host-spawned Node sidecar plus the
+  embedded host Node + JIT re-sign apparatus are retired.
