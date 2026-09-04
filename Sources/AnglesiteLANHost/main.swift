@@ -3,7 +3,7 @@ import AnglesiteCore
 
 // `anglesite-lan-host` — the Mac-Studio-side standing process for #601 §2: runs one site's
 // Astro dev server + MCP sidecar bound to a LAN interface so a UTM guest VM's `LANControlClient`
-// (Sources/AnglesiteCore/LANControlClient.swift) can reach them directly over bridged/shared
+// (Sources/AnglesiteCore/Container/LANControlClient.swift) can reach them directly over bridged/shared
 // networking, without a container. One site per instance for v1 — run one `anglesite-lan-host`
 // per site you want reachable (docs/specs/2026-07-09-lan-site-runtime-design.md, open question 1).
 //

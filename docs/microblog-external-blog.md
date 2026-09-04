@@ -75,7 +75,7 @@ Anglesite already supports this — no code changes were needed for this doc.
 From the site window: **Website ▸ Add Integration… ▸ IndieWeb**. That
 integration's "Profile link" fields (up to three) write `<link rel="me">`
 tags into every page's `<head>` (see the `indieweb` descriptor in
-[`IntegrationCatalog.swift`](../Sources/AnglesiteCore/IntegrationCatalog.swift)
+[`IntegrationCatalog.swift`](../Sources/AnglesiteCore/Integration/IntegrationCatalog.swift)
 and its output in
 [`BaseLayout.astro`](../Resources/Template/src/layouts/BaseLayout.astro)).
 Add your `https://micro.blog/<you>` profile URL as one of the three, then
@@ -140,7 +140,7 @@ for.
 ## Why Micro.blog is not a POSSE target
 
 Micro.blog does **not** join the POSSE target list in
-[`POSSEClients.swift`](../Sources/AnglesiteCore/POSSEClients.swift)
+[`POSSEClients.swift`](../Sources/AnglesiteCore/Social/POSSEClients.swift)
 (currently Mastodon and Bluesky). Rationale: Micro.blog ingests the site's
 own feed (PESOS-free syndication at the platform edge), so a push-style
 POSSE client is redundant; cross-posting *from* Micro.blog onward is
