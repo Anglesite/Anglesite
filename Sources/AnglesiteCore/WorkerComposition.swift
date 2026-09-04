@@ -208,6 +208,22 @@ public enum WorkerComposition {
         }
     }
 
+    /// The result of composing one site's `wrangler.toml`: the TOML text itself, the resources
+    /// (echoed back — already typed on the way in via `resources:`), and the route-pattern set the
+    /// generator computed for `[assets].run_worker_first` — previously discarded into the TOML
+    /// string with no way for a caller to read it back without re-parsing (#1821).
+    public struct WranglerConfiguration: Sendable, Equatable {
+        public let toml: String
+        public let resources: ProvisionedResources
+        public let effectiveRoutes: [String]
+
+        public init(toml: String, resources: ProvisionedResources, effectiveRoutes: [String]) {
+            self.toml = toml
+            self.resources = resources
+            self.effectiveRoutes = effectiveRoutes
+        }
+    }
+
     /// Generates a wrangler.toml for a site with the given workers enabled.
     ///
     /// - Parameters:
@@ -297,7 +313,8 @@ public enum WorkerComposition {
     ///     config file's own directory (not the process's CWD), can never find the real
     ///     `worker/worker.ts` at `/workspace/site` with a bare relative path. Pass
     ///     `"/workspace/site"` there to root every such field absolutely instead.
-    /// - Returns: A complete wrangler.toml string.
+    /// - Returns: A ``WranglerConfiguration`` carrying the complete wrangler.toml string, the
+    ///   resources it was composed with, and the effective `run_worker_first` route set.
     /// - Throws: ``ConfigError/invalidSiteName(_:)`` if `siteName` fails wrangler's lowercase
     ///   `name` rule, ``ConfigError/invalidR2BucketName(_:)`` if an emitted `bucket_name` fails
     ///   wrangler's bucket rule, or ``ConfigError/invalidRouteClaim(path:reason:)`` for a claim
@@ -319,10 +336,11 @@ public enum WorkerComposition {
         experiments: [DomainConfig.Experiments.Experiment] = [],
         mcpEnabled: Bool = false,
         projectRoot: String? = nil
-    ) throws -> String {
+    ) throws -> WranglerConfiguration {
         guard isValidSiteName(siteName) else {
             throw ConfigError.invalidSiteName(siteName)
         }
+        var patterns: Set<String> = []
         var effectiveClaims = routeClaims
         if inboxCaptureEnabled {
             effectiveClaims.append(inboxCaptureRouteClaim)
@@ -416,7 +434,7 @@ public enum WorkerComposition {
         lines.append("directory = \"\(rooted("dist", projectRoot: projectRoot))\"")
         if composesWorker {
             lines.append("binding = \"ASSETS\"")
-            var patterns = Set(WorkerRouteClaims.runWorkerFirstPatterns(effectiveClaims))
+            patterns = Set(WorkerRouteClaims.runWorkerFirstPatterns(effectiveClaims))
             patterns.formUnion(experimentRoutes.map(\.path))
             if !patterns.isEmpty {
                 let list = patterns.sorted().map { "\"\($0)\"" }.joined(separator: ", ")
@@ -772,7 +790,10 @@ public enum WorkerComposition {
         }
 
         lines.append("")
-        return lines.joined(separator: "\n")
+        return WranglerConfiguration(
+            toml: lines.joined(separator: "\n"),
+            resources: resources,
+            effectiveRoutes: patterns.sorted())
     }
 
     /// wrangler's rule for the top-level `name` field (see ``WorkerSiteName/isValidWorkerName(_:)``)
