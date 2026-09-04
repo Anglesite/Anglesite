@@ -40,13 +40,14 @@ public enum DeployLogDigest {
     }
 
     /// Locates the failing command's terminal error — the last contiguous run of lines that
-    /// look like a real error (a wrangler "✘ ERROR", an uppercase "ERROR" token, "npm ERR!", or
-    /// "Error:"), plus any indented detail lines immediately following it. The backward walk
-    /// handles tools like npm that emit several consecutive "npm ERR!" lines rather than one
-    /// line with indented continuations. Earlier, unrelated warning noise (e.g. Astro's
-    /// informational content-glob hints) never matches, so this reliably isolates the terminal
-    /// failure a non-expert summary should be weighted toward (#1855). Returns `nil` when
-    /// nothing matches rather than guessing, so callers can omit the highlight.
+    /// look like a real error (a wrangler "✘ ERROR", an uppercase "ERROR" token, npm's
+    /// "npm ERR!"/"npm error" prefixes, or "Error:"), plus any indented detail lines immediately
+    /// following it. The backward walk handles tools like npm that emit several consecutive
+    /// error-prefixed lines rather than one line with indented continuations. Earlier, unrelated
+    /// warning noise (e.g. Astro's informational content-glob hints) never matches, so this
+    /// reliably isolates the terminal failure a non-expert summary should be weighted toward
+    /// (#1855). Returns `nil` when nothing matches rather than guessing, so callers can omit the
+    /// highlight.
     public static func terminalError(in text: String) -> String? {
         let lines = text.split(separator: "\n", omittingEmptySubsequences: false).map(String.init)
         guard let lastIndex = lines.lastIndex(where: isErrorLine) else { return nil }
@@ -57,8 +58,11 @@ public enum DeployLogDigest {
         var end = lastIndex
         while end + 1 < lines.count {
             let line = lines[end + 1]
+            // `.whitespacesAndNewlines` (not just `.whitespaces`) so a CRLF log's stray trailing
+            // `\r` — lines are split only on `\n` — still trims to empty instead of being read as
+            // a non-blank "indented" continuation line.
             guard let first = line.first, first.isWhitespace,
-                  !line.trimmingCharacters(in: .whitespaces).isEmpty else { break }
+                  !line.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { break }
             end += 1
         }
         return lines[start...end].joined(separator: "\n")
@@ -66,11 +70,13 @@ public enum DeployLogDigest {
 
     /// Matches lines that report an actual failure rather than routine progress or warning
     /// output. Deliberately narrow: an uppercase "ERROR" token, wrangler's "✘" marker, npm's
-    /// "npm ERR!" prefix, or a leading "Error:" — never a lowercase "error" appearing inside an
-    /// unrelated sentence, which is how informational warnings mention the word.
+    /// "npm ERR!" prefix (npm <9) or "npm error" prefix (npm 9+, which dropped the banner
+    /// styling), or a leading "Error:" — never a lowercase "error" appearing inside an unrelated
+    /// sentence, which is how informational warnings mention the word.
     private static func isErrorLine(_ line: String) -> Bool {
         if line.contains("✘") { return true }
         if line.contains("npm ERR!") { return true }
+        if line.range(of: #"^\s*npm error\b"#, options: .regularExpression) != nil { return true }
         if line.range(of: #"\bERROR\b"#, options: .regularExpression) != nil { return true }
         if line.range(of: #"^\s*Error:"#, options: .regularExpression) != nil { return true }
         return false
