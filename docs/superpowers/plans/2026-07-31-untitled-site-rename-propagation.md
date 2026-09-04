@@ -1,5 +1,7 @@
 # Untitled Site Rename Propagation Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** When a site still carrying its scaffold-time "Untitled" defaults is renamed via `SiteStore.setDisplayName`, propagate the new name into `.site-config`'s `SITE_NAME`/`CF_PROJECT_NAME` and `wrangler.toml`'s `name` line — so first publish lands under the renamed project slug instead of `untitled`.

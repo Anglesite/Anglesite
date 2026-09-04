@@ -1,38 +1,13 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 
 @Suite("CommunityActorResolver")
 struct CommunityActorResolverTests {
-    /// Answers each requested URL from a fixed table; unmatched URLs 404. Mirrors
-    /// `ActivityPubFollowersClientTests.FakeTransport` but needs per-URL routing since resolving a
-    /// handle makes two requests (webfinger, then the actor document) to two different URLs.
-    actor FakeTransport {
-        private var responses: [String: (status: Int, body: String)]
-        private(set) var requestedURLs: [URL] = []
-        private(set) var requestedHeaders: [[String: String]] = []
-
-        init(_ responses: [String: (status: Int, body: String)]) {
-            self.responses = responses
-        }
-
-        private func respond(to request: URLRequest) throws -> (Data, HTTPURLResponse) {
-            let url = request.url!
-            requestedURLs.append(url)
-            requestedHeaders.append(request.allHTTPHeaderFields ?? [:])
-            let (status, body) = responses[url.absoluteString] ?? (404, "not found")
-            let http = HTTPURLResponse(url: url, statusCode: status, httpVersion: nil, headerFields: nil)!
-            return (Data(body.utf8), http)
-        }
-
-        nonisolated var transport: CommunityActorResolver.Transport {
-            { request in try await self.respond(to: request) }
-        }
-    }
-
     private static let actorDocument = """
     {"id":"https://lemmy.ml/c/birding","type":"Group","preferredUsername":"birding",
      "name":"Birding","outbox":"https://lemmy.ml/c/birding/outbox"}

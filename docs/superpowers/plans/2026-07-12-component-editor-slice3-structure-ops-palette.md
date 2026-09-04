@@ -1,5 +1,7 @@
 # Component Editor Slice 3 (Structure Ops + Palette) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship the second write path for the Component Editor: four structure ops (`insert-node`, `move-node`, `remove-node`, `set-attr`) routed through the existing `apply_edit` MCP tool, plus the Swift-side palette (project components + curated HTML elements + `<slot>`), drag-and-drop into the outline and onto the canvas, drag-reorder/reparent in the outline, sealed component instances, and double-click-to-open for nested components.

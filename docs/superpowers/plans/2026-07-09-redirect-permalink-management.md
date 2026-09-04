@@ -1,5 +1,7 @@
 # Redirect/Permalink Management Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give every site a git-tracked redirects store, a minimal delete action that offers to cover a removed page's URL, and a pre-deploy scan that flags any published route that vanished with no redirect covering it.

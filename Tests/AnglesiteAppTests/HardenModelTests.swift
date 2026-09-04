@@ -1,45 +1,8 @@
 import Foundation
 import Testing
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
-
-private final class StubReader: CloudflareReading, @unchecked Sendable {
-    private let zoneID: String?
-    private let state: CloudflareZoneState
-
-    init(zoneID: String? = "z1", state: CloudflareZoneState = StubReader.cleanState) {
-        self.zoneID = zoneID
-        self.state = state
-    }
-
-    static let cleanState = CloudflareZoneState(
-        dnssecActive: true, sslMode: "strict", alwaysUseHTTPS: true,
-        hsts: nil, caaRecords: [], mxRecords: [], spfRecords: [], dmarcRecords: [])
-
-    func resolveZoneID(domain: String, apiToken: String) async throws -> String? { zoneID }
-    func zoneState(zoneID: String, domain: String, apiToken: String) async throws -> CloudflareZoneState { state }
-    func listDNSRecords(zoneID: String, apiToken: String) async throws -> [DNSRecord] { [] }
-    func workerScriptNames(apiToken: String) async throws -> [String] { [] }
-}
-
-private final class StubWriter: CloudflareWriting, @unchecked Sendable {
-    func enableDNSSEC(zoneID: String, apiToken: String) async throws {}
-    func setAlwaysUseHTTPS(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func setHSTS(zoneID: String, maxAge: Int, includeSubdomains: Bool, preload: Bool, apiToken: String) async throws {}
-    func addDNSRecord(zoneID: String, record: DNSRecordPayload, apiToken: String) async throws {}
-    func deleteDNSRecord(zoneID: String, recordID: String, apiToken: String) async throws {}
-    func setBotFightMode(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func createWAFCustomRule(zoneID: String, rule: WAFRulePayload, apiToken: String) async throws {}
-    func setSpeedBrain(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func setECH(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func enableZstandardCompression(zoneID: String, apiToken: String) async throws {}
-    func setPageShield(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func enableOnionRouting(zoneID: String, enabled: Bool, apiToken: String) async throws {}
-    func attachWorkersCustomDomain(hostname: String, workerScriptName: String, apiToken: String) async throws -> CustomDomainAttachResult {
-        .attached
-    }
-    func setMarkdownForAgents(hostname: String, enabled: Bool, apiToken: String) async throws -> Bool { true }
-}
 
 /// A `CloudflareReading` whose `resolveZoneID` calls suspend until the test explicitly resolves
 /// them — mirrors `DomainModelTests.ControllableATProtoDIDTransport`, used to exercise a run
@@ -48,7 +11,7 @@ private actor ControllableReader: CloudflareReading {
     private var continuations: [(domain: String, continuation: CheckedContinuation<String?, any Error>)] = []
     private let state: CloudflareZoneState
 
-    init(state: CloudflareZoneState = StubReader.cleanState) {
+    init(state: CloudflareZoneState = StubCloudflareReader.cleanState) {
         self.state = state
     }
 
@@ -88,7 +51,7 @@ struct HardenModelTests {
     func resolveAndPlanFlipsRunningSynchronously() async throws {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
-        let model = HardenModel(reader: StubReader(), writer: StubWriter(), keychain: keychain)
+        let model = HardenModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter(), keychain: keychain)
         model.domainInput = "example.com"
 
         model.resolveAndPlan()
@@ -116,7 +79,7 @@ struct HardenModelTests {
     func secondApplyCallIsANoOp() async throws {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
-        let model = HardenModel(reader: StubReader(), writer: StubWriter(), keychain: keychain)
+        let model = HardenModel(reader: StubCloudflareReader(), writer: StubCloudflareWriter(), keychain: keychain)
         model.domainInput = "example.com"
         model.resolveAndPlan()
         while model.isRunning { await Task.yield() }
@@ -149,7 +112,7 @@ struct HardenModelTests {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
         let reader = ControllableReader()
-        let model = HardenModel(reader: reader, writer: StubWriter(), keychain: keychain)
+        let model = HardenModel(reader: reader, writer: StubCloudflareWriter(), keychain: keychain)
         model.domainInput = "example.com"
 
         model.resolveAndPlan()
@@ -178,7 +141,7 @@ struct HardenModelTests {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimSet()
         defer { cfToken.release() }
         let reader = ControllableReader()
-        let model = HardenModel(reader: reader, writer: StubWriter(), keychain: keychain)
+        let model = HardenModel(reader: reader, writer: StubCloudflareWriter(), keychain: keychain)
         model.domainInput = "stale.example"
 
         model.resolveAndPlan()

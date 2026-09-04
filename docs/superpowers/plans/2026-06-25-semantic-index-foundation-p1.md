@@ -1,5 +1,7 @@
 # Semantic Index Foundation (Plan A) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add an on-device semantic ranking layer on top of #329's lexical `SiteKnowledgeIndex`, and give the existing `SearchKnowledgeTool` a hybrid (lexical + semantic) mode.

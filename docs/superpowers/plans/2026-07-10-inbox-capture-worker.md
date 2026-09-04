@@ -1,5 +1,7 @@
 # Runtime Inbox Capture: Worker + Git Commit-Back (#587) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a site visitor POST a message to a public, unauthenticated Worker endpoint that stages it in Cloudflare KV; have the app pull staged submissions and commit them into the site's `Source/` git working copy as Keystatic-format entries in the existing `inbox` collection (#462) the next time the site opens — closing out issue #587's four bullets (Worker endpoint, staging store, app-side pull-and-commit, spam/abuse handling).

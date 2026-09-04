@@ -1,36 +1,44 @@
-import XCTest
+import Testing
+import Foundation
 @testable import AnglesiteCore
 
-final class SiteSlugTests: XCTestCase {
-    func testLowercasesAndHyphenates() {
-        XCTAssertEqual(SiteSlug.derive(from: "Blue Bottle Cafe"), "blue-bottle-cafe")
+struct SiteSlugTests {
+    @Test("lowercases and hyphenates")
+    func lowercasesAndHyphenates() {
+        #expect(SiteSlug.derive(from: "Blue Bottle Cafe") == "blue-bottle-cafe")
     }
-    func testStripsPunctuationAndCollapsesHyphens() {
-        XCTAssertEqual(SiteSlug.derive(from: "  Hello!!   World  "), "hello-world")
+    @Test("strips punctuation and collapses hyphens")
+    func stripsPunctuationAndCollapsesHyphens() {
+        #expect(SiteSlug.derive(from: "  Hello!!   World  ") == "hello-world")
     }
-    func testFoldsDiacritics() {
-        XCTAssertEqual(SiteSlug.derive(from: "Café Niño"), "cafe-nino")
+    @Test("folds diacritics")
+    func foldsDiacritics() {
+        #expect(SiteSlug.derive(from: "Café Niño") == "cafe-nino")
     }
-    func testEmptyFallsBackToUntitled() {
-        XCTAssertEqual(SiteSlug.derive(from: "   "), "untitled-site")
+    @Test("empty falls back to untitled")
+    func emptyFallsBackToUntitled() {
+        #expect(SiteSlug.derive(from: "   ") == "untitled-site")
     }
-    func testDraftDefaultsHeadlineFromName() {
+    @Test("draft defaults headline from name")
+    func draftDefaultsHeadlineFromName() {
         let d = NewSiteDraft(siteType: .business, name: "Acme")
-        XCTAssertEqual(d.headline, "Acme")
-        XCTAssertEqual(d.themeID, "")
+        #expect(d.headline == "Acme")
+        #expect(d.themeID == "")
     }
-    func testDigitsOnlyNameIsKept() {
-        XCTAssertEqual(SiteSlug.derive(from: "42"), "42")
+    @Test("a digits-only name is kept")
+    func digitsOnlyNameIsKept() {
+        #expect(SiteSlug.derive(from: "42") == "42")
     }
-    func testTransliteratedNameIsAsciiSlugAndNonEmpty() {
+    @Test("a transliterated name is an ASCII slug and non-empty")
+    func transliteratedNameIsAsciiSlugAndNonEmpty() {
         // Accented / ligature names should transliterate to a clean ascii slug, not collapse to empty.
         let slug = SiteSlug.derive(from: "Æsop & Çödë")
-        XCTAssertFalse(slug.isEmpty)
-        XCTAssertEqual(slug, slug.lowercased())
+        #expect(!slug.isEmpty)
+        #expect(slug == slug.lowercased())
         // Only lowercase ascii alphanumerics and hyphens, no leading/trailing hyphen.
         let allowed = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyz0123456789-")
-        XCTAssertTrue(slug.unicodeScalars.allSatisfy { allowed.contains($0) }, "unexpected chars in \(slug)")
-        XCTAssertFalse(slug.hasPrefix("-"))
-        XCTAssertFalse(slug.hasSuffix("-"))
+        #expect(slug.unicodeScalars.allSatisfy { allowed.contains($0) }, "unexpected chars in \(slug)")
+        #expect(!slug.hasPrefix("-"))
+        #expect(!slug.hasSuffix("-"))
     }
 }

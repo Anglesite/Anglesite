@@ -1,5 +1,7 @@
 # CSP Headers Enforcement Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Generate a `public/_headers` file (with a Content-Security-Policy) at build time from the integration domains already recorded in `.site-config`, and validate it in the pre-deploy security gate.

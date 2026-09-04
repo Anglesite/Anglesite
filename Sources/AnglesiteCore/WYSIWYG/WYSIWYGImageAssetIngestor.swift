@@ -84,6 +84,18 @@ public enum WYSIWYGImageAssetIngestor {
         return "/images/\(name)"
     }
 
+    /// Resolves an `ingest(bytes:siteDirectory:)`-returned root-relative asset path (e.g.
+    /// `/images/wysiwyg-abcd1234.jpg`) back to the on-disk file under `public/` — the inverse of
+    /// the `public/images/<name>` convention `ingest` itself writes to. Used by callers (alt-text
+    /// proposals, #1227) that need a real file URL for the just-ingested image rather than the
+    /// root-relative path the canvas stores in the block's `src` prop.
+    public static func fileURL(forAssetPath assetPath: String, siteDirectory: URL) -> URL {
+        let relative = assetPath.hasPrefix("/") ? String(assetPath.dropFirst()) : assetPath
+        return siteDirectory
+            .appendingPathComponent("public", isDirectory: true)
+            .appendingPathComponent(relative)
+    }
+
     private static func sniff(_ data: Data) -> Format? {
         func matches(_ signature: [UInt8], at offset: Int) -> Bool {
             guard data.count >= offset + signature.count else { return false }

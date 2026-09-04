@@ -1,7 +1,8 @@
-import XCTest
+import Testing
+import Foundation
 @testable import AnglesiteCore
 
-final class ThemeApplierTests: XCTestCase {
+struct ThemeApplierTests {
     private let css = """
     :root {
       --color-primary: #2563eb;
@@ -23,37 +24,41 @@ final class ThemeApplierTests: XCTestCase {
         ]
     )
 
-    func testReplacesProvidedPropertiesOnly() {
+    @Test("replaces only the provided properties")
+    func replacesProvidedPropertiesOnly() {
         let out = ThemeApplier.apply(theme, toCSS: css)
-        XCTAssertTrue(out.contains("--color-primary: #e65100;"))
-        XCTAssertTrue(out.contains("--color-accent: #c62828;"))
-        XCTAssertTrue(out.contains("--font-heading: Georgia, 'Times New Roman', serif;"))
+        #expect(out.contains("--color-primary: #e65100;"))
+        #expect(out.contains("--color-accent: #c62828;"))
+        #expect(out.contains("--font-heading: Georgia, 'Times New Roman', serif;"))
         // Untouched, no matching cssVars key:
-        XCTAssertTrue(out.contains("--space-md: 1rem;"))
-        XCTAssertTrue(out.contains("--radius-sm: 4px;"))
+        #expect(out.contains("--space-md: 1rem;"))
+        #expect(out.contains("--radius-sm: 4px;"))
     }
 
-    func testIsIdempotent() {
+    @Test("is idempotent")
+    func isIdempotent() {
         let once = ThemeApplier.apply(theme, toCSS: css)
         let twice = ThemeApplier.apply(theme, toCSS: once)
-        XCTAssertEqual(once, twice)
+        #expect(once == twice)
     }
 
-    func testWritesFileInPlace() throws {
+    @Test("writes the file in place")
+    func writesFileInPlace() throws {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let cssPath = dir.appendingPathComponent("src/styles/global.css")
         try FileManager.default.createDirectory(at: cssPath.deletingLastPathComponent(), withIntermediateDirectories: true)
         try css.write(to: cssPath, atomically: true, encoding: .utf8)
         try ThemeApplier.apply(theme, siteDirectory: dir)
         let out = try String(contentsOf: cssPath, encoding: .utf8)
-        XCTAssertTrue(out.contains("--color-primary: #e65100;"))
+        #expect(out.contains("--color-primary: #e65100;"))
     }
 
-    func testValueContainingDollarAndBackslash() {
+    @Test("a value containing a dollar sign and a backslash")
+    func valueContainingDollarAndBackslash() {
         let theme = Theme(id: "t", name: "", blurb: "", swatch: [],
                           cssVars: ["color-primary": #"url($1\path)"#])
         let css = ":root { --color-primary: #fff; }"
         let out = ThemeApplier.apply(theme, toCSS: css)
-        XCTAssertTrue(out.contains(#"--color-primary: url($1\path);"#))
+        #expect(out.contains(#"--color-primary: url($1\path);"#))
     }
 }

@@ -1,8 +1,9 @@
-import XCTest
+import Testing
+import Foundation
 @testable import AnglesiteCore
 
 @MainActor
-final class NewSiteWizardModelTests: XCTestCase {
+struct NewSiteWizardModelTests {
     private func catalog() -> ThemeCatalog {
         ThemeCatalog(themes: [
             Theme(id: "classic", name: "Classic", blurb: "", swatch: [], cssVars: [:]),
@@ -23,40 +24,45 @@ final class NewSiteWizardModelTests: XCTestCase {
 
     // MARK: Category sidebar (#1452)
 
-    func testStartsOnBlankCategoryShowingUncategorizedThemes() {
+    @Test("starts on the blank category showing uncategorized themes")
+    func startsOnBlankCategoryShowingUncategorizedThemes() {
         let m = NewSiteWizardModel(catalog: categorizedCatalog(), isNameTaken: { _ in false })
-        XCTAssertEqual(m.selectedCategory, .blank)
-        XCTAssertEqual(m.filteredThemes.map(\.id), ["classic", "warm"])
+        #expect(m.selectedCategory == .blank)
+        #expect(m.filteredThemes.map(\.id) == ["classic", "warm"])
     }
 
-    func testSelectingCategoryFiltersGridAndRecordsSiteType() {
+    @Test("selecting a category filters the grid and records the site type")
+    func selectingCategoryFiltersGridAndRecordsSiteType() {
         let m = NewSiteWizardModel(catalog: categorizedCatalog(), isNameTaken: { _ in false })
         m.selectCategory(.business)
-        XCTAssertEqual(m.selectedCategory, .business)
-        XCTAssertEqual(m.draft.siteType, .business)
-        XCTAssertEqual(m.filteredThemes.map(\.id), ["astrowind"])
-        XCTAssertEqual(m.draft.themeID, "astrowind")
+        #expect(m.selectedCategory == .business)
+        #expect(m.draft.siteType == .business)
+        #expect(m.filteredThemes.map(\.id) == ["astrowind"])
+        #expect(m.draft.themeID == "astrowind")
     }
 
-    func testSelectingCategoryWithNoThemesLeavesEmptySelection() {
+    @Test("selecting a category with no themes leaves an empty selection")
+    func selectingCategoryWithNoThemesLeavesEmptySelection() {
         let m = NewSiteWizardModel(catalog: categorizedCatalog(), isNameTaken: { _ in false })
         m.selectCategory(.portfolio)
-        XCTAssertTrue(m.filteredThemes.isEmpty)
-        XCTAssertEqual(m.draft.themeID, "")
-        XCTAssertFalse(m.canCreate)
+        #expect(m.filteredThemes.isEmpty)
+        #expect(m.draft.themeID == "")
+        #expect(!m.canCreate)
     }
 
-    func testSwitchingBackToBlankRestoresUncategorizedGridAndPreSelects() {
+    @Test("switching back to blank restores the uncategorized grid and pre-selects")
+    func switchingBackToBlankRestoresUncategorizedGridAndPreSelects() {
         let m = NewSiteWizardModel(catalog: categorizedCatalog(), isNameTaken: { _ in false })
         m.selectCategory(.business)
         m.selectCategory(.blank)
-        XCTAssertEqual(m.draft.siteType, .blank)
-        XCTAssertEqual(m.filteredThemes.map(\.id), ["classic", "warm"])
-        XCTAssertEqual(m.draft.themeID, "classic")   // defaultThemeID(for: .blank) == "classic", present in candidates
+        #expect(m.draft.siteType == .blank)
+        #expect(m.filteredThemes.map(\.id) == ["classic", "warm"])
+        #expect(m.draft.themeID == "classic")   // defaultThemeID(for: .blank) == "classic", present in candidates
     }
 
-    func testChooserCategoriesExcludesCommunity() {
-        XCTAssertEqual(NewSiteWizardModel.chooserCategories,
+    @Test("chooserCategories excludes community")
+    func chooserCategoriesExcludesCommunity() {
+        #expect(NewSiteWizardModel.chooserCategories ==
                        [.business, .personal, .blog, .portfolio, .organization, .blank])
     }
 
@@ -64,50 +70,55 @@ final class NewSiteWizardModelTests: XCTestCase {
     /// catalog must not get pre-selected just because it's `catalog.themes.first`. The initial
     /// draft (like ``selectedCategory``) starts on Blank, so pre-selection must come from the
     /// Blank-filtered set, matching what the (initially-shown) grid displays.
-    func testInitPreSelectsFromBlankFilteredSetEvenWhenACategorizedThemeIsFirstInCatalog() {
+    @Test("init pre-selects from the blank-filtered set even when a categorized theme is first in the catalog")
+    func initPreSelectsFromBlankFilteredSetEvenWhenACategorizedThemeIsFirstInCatalog() {
         let catalog = ThemeCatalog(themes: [
             Theme(id: "astrowind", name: "AstroWind", blurb: "", swatch: [], cssVars: [:], category: "business"),
             Theme(id: "classic", name: "Classic", blurb: "", swatch: [], cssVars: [:]),
             Theme(id: "warm", name: "Warm", blurb: "", swatch: [], cssVars: [:]),
         ])
         let m = NewSiteWizardModel(catalog: catalog, isNameTaken: { _ in false })
-        XCTAssertEqual(m.selectedCategory, .blank)
-        XCTAssertEqual(m.draft.themeID, "classic")   // first Blank (uncategorized) theme, not "astrowind"
-        XCTAssertTrue(m.filteredThemes.contains { $0.id == m.draft.themeID })
+        #expect(m.selectedCategory == .blank)
+        #expect(m.draft.themeID == "classic")   // first Blank (uncategorized) theme, not "astrowind"
+        #expect(m.filteredThemes.contains { $0.id == m.draft.themeID })
     }
 
     // MARK: Chooser state (#1071)
 
-    func testStartsOnChooserWithFirstThemeAndUntitledDraft() {
+    @Test("starts on chooser with the first theme and an untitled draft")
+    func startsOnChooserWithFirstThemeAndUntitledDraft() {
         let m = NewSiteWizardModel(catalog: catalog(), isNameTaken: { _ in false })
-        XCTAssertEqual(m.step, .chooser)
-        XCTAssertEqual(m.draft.themeID, "classic")     // catalog order, not a per-type default
-        XCTAssertEqual(m.draft.name, "Untitled")
-        XCTAssertEqual(m.draft.saveFileName, "Untitled.anglesite")
-        XCTAssertEqual(m.draft.siteType, .blank)
-        XCTAssertEqual(m.draft.domainChoice, .later)   // deferred to publish (#1071)
-        XCTAssertEqual(m.draft.headline, "")           // template placeholder stays
-        XCTAssertTrue(m.canCreate)
+        #expect(m.step == .chooser)
+        #expect(m.draft.themeID == "classic")     // catalog order, not a per-type default
+        #expect(m.draft.name == "Untitled")
+        #expect(m.draft.saveFileName == "Untitled.anglesite")
+        #expect(m.draft.siteType == .blank)
+        #expect(m.draft.domainChoice == .later)   // deferred to publish (#1071)
+        #expect(m.draft.headline == "")           // template placeholder stays
+        #expect(m.canCreate)
     }
 
-    func testUntitledNameSkipsTakenNames() {
+    @Test("the untitled name skips taken names")
+    func untitledNameSkipsTakenNames() {
         let m = NewSiteWizardModel(catalog: catalog(),
                                    isNameTaken: { ["Untitled", "Untitled 2"].contains($0) })
-        XCTAssertEqual(m.draft.name, "Untitled 3")
-        XCTAssertEqual(m.draft.saveFileName, "Untitled 3.anglesite")
+        #expect(m.draft.name == "Untitled 3")
+        #expect(m.draft.saveFileName == "Untitled 3.anglesite")
     }
 
-    func testCanCreateRequiresACatalogTheme() {
+    @Test("canCreate requires a catalog theme")
+    func canCreateRequiresACatalogTheme() {
         let m = NewSiteWizardModel(catalog: catalog(), isNameTaken: { _ in false })
         m.draft.themeID = "no-such-theme"
-        XCTAssertFalse(m.canCreate)
+        #expect(!m.canCreate)
         m.draft.themeID = "warm"
-        XCTAssertTrue(m.canCreate)
+        #expect(m.canCreate)
     }
 
-    func testEmptyCatalogCannotCreate() {
+    @Test("an empty catalog cannot create")
+    func emptyCatalogCannotCreate() {
         let m = NewSiteWizardModel(catalog: ThemeCatalog(themes: []), isNameTaken: { _ in false })
-        XCTAssertFalse(m.canCreate)
+        #expect(!m.canCreate)
     }
 
     // MARK: Build warnings (#229)
@@ -137,33 +148,36 @@ final class NewSiteWizardModelTests: XCTestCase {
         )
     }
 
-    func testFreshModelHasNoWarningsAndIsNotCompletedCleanly() {
+    @Test("a fresh model has no warnings and is not completed cleanly")
+    func freshModelHasNoWarningsAndIsNotCompletedCleanly() {
         let m = NewSiteWizardModel(catalog: catalog(), isNameTaken: { _ in false })
-        XCTAssertFalse(m.hasWarnings)
-        XCTAssertTrue(m.warnings.isEmpty)
-        XCTAssertFalse(m.didCompleteCleanly)
+        #expect(!m.hasWarnings)
+        #expect(m.warnings.isEmpty)
+        #expect(!m.didCompleteCleanly)
     }
 
-    func testBuildEntersBuildingStepAndDisablesCreate() async throws {
+    @Test("build enters the building step and disables create")
+    func buildEntersBuildingStepAndDisablesCreate() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let m = NewSiteWizardModel(catalog: catalog(), isNameTaken: { _ in false })
         _ = await m.build(using: warningScaffolder(root: root))
-        XCTAssertEqual(m.step, .building)
-        XCTAssertFalse(m.canCreate)
+        #expect(m.step == .building)
+        #expect(!m.canCreate)
     }
 
-    func testBuildWithWarningSurfacesWarningAndBlocksCleanCompletion() async throws {
+    @Test("build with a warning surfaces the warning and blocks clean completion")
+    func buildWithWarningSurfacesWarningAndBlocksCleanCompletion() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         let m = NewSiteWizardModel(catalog: catalog(), isNameTaken: { _ in false })
 
         let id = await m.build(using: warningScaffolder(root: root))
 
-        XCTAssertNotNil(id)                       // the site was still registered
-        XCTAssertTrue(m.hasWarnings)              // …but with a non-fatal warning
+        #expect(id != nil)                       // the site was still registered
+        #expect(m.hasWarnings)                    // …but with a non-fatal warning
         // Assert on the stable step identifier, not the (rephrasable) message text.
-        XCTAssertTrue(m.progress.contains {
+        #expect(m.progress.contains {
             if case .warning(let step, _) = $0 { return step == "copyingTemplate" } else { return false }
         })
-        XCTAssertFalse(m.didCompleteCleanly)      // so the wizard must NOT auto-open
+        #expect(!m.didCompleteCleanly)             // so the wizard must NOT auto-open
     }
 }

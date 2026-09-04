@@ -1,5 +1,7 @@
 # GitHub Pages Plumbing (Slice 2a) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the executor/config/API-client plumbing a future `GitHubPagesDeployTarget` needs — a new `DeployStep.githubPagesPublish` case, an `HTTPGitHubClient.enablePages` method, and a new `anglesite.json` `githubPages` section — with zero behavior change (nothing calls any of it yet).

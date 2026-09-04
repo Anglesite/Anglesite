@@ -1,5 +1,7 @@
 # RelevantEntities — Most-Recent-Site Suggestions Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Push the top-N most-recently-used Anglesite sites to the macOS 27 Siri/Spotlight *relevant entities* suggestion surface, kept fresh as sites are opened/recorded/removed.

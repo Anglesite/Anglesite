@@ -398,6 +398,22 @@ struct NativeContentOperationsTests {
         #expect(unknown == .failed(reason: "Unknown content type: nope"))
     }
 
+    @Test("createTypedSingleton is reachable through the ContentOperationsService protocol")
+    func createTypedSingletonThroughProtocolWitness() async throws {
+        let (ops, root, _) = makeOps()
+        // #1799: a caller holding only `any ContentOperationsService` — the shape App Intents and
+        // `ContentCreationWorkflow` use — must still reach `NativeContentOperations`'s real write,
+        // not the protocol extension's `.failed` default. Dispatch through the existential is the
+        // regression this guards: a mislabeled witness (e.g. `name:` instead of `title:`) would
+        // silently fall back to the default instead of a compile error.
+        let service: any ContentOperationsService = ops
+        let result = await service.createTypedSingleton(siteID: "s1", typeID: "businessProfile", title: "Acme")
+        #expect(result == .created(filePath: "src/data/profile.json", identifier: "profile"))
+        let written = try String(
+            contentsOf: root.appendingPathComponent("src/data/profile.json"), encoding: .utf8)
+        #expect(written.contains("\"name\": \"Acme\""))
+    }
+
     @Test("processGitCommit returns a SHA in a real repo, nil outside one")
     func realGit() async throws {
         // Outside a repo → nil (best-effort).
@@ -1644,5 +1660,30 @@ private struct StubPageCopyGenerator: PageCopyGenerating {
     let suggestion: PageCopySuggestion?
     func suggestDescription(title: String, siteID: String, siteDirectory: URL) async -> PageCopySuggestion? {
         suggestion
+    }
+}
+
+/// #1799: a runtime that implements `ContentOperationsService` but has no path to create
+/// singletons (e.g. `RemoteSandboxSiteRuntime`, `LocalContainerSiteRuntime`) needs the protocol to
+/// keep compiling without writing its own `createTypedSingleton`.
+@Suite("ContentOperationsService.createTypedSingleton default")
+struct ContentOperationsServiceCreateTypedSingletonDefaultTests {
+    private struct NoSingletonSupport: ContentOperationsService {
+        func createPage(siteID: String, name: String, route: String?, onProgress: ProgressHandler?) async -> ContentCreateResult {
+            .failed(reason: "unused")
+        }
+        func createPost(siteID: String, title: String, collection: String?, slug: String?, onProgress: ProgressHandler?) async -> ContentCreateResult {
+            .failed(reason: "unused")
+        }
+        func createTyped(siteID: String, typeID: String, title: String, onProgress: ProgressHandler?) async -> ContentCreateResult {
+            .failed(reason: "unused")
+        }
+    }
+
+    @Test("a conformer that doesn't implement createTypedSingleton reports .failed")
+    func defaultReportsFailed() async {
+        let service: any ContentOperationsService = NoSingletonSupport()
+        let result = await service.createTypedSingleton(siteID: "s1", typeID: "businessProfile", title: "Acme")
+        #expect(result == .failed(reason: "This runtime cannot create singleton content types"))
     }
 }

@@ -1,5 +1,7 @@
 # Publish to GitHub: Re-enable for MAS (#654) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make "Publish to GitHub" reachable and working in the one shipping (MAS) build of Anglesite, replacing the dead/broken `gh auth login` flow with a token-prompt flow that actually feeds the Keychain slot `HTTPRepoProvider` reads.

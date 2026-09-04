@@ -1,42 +1,13 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 #if canImport(FoundationNetworking)
 import FoundationNetworking
 #endif
 
 @Suite("CommunityMembershipClient")
 struct CommunityMembershipClientTests {
-    actor FakeTransport {
-        private let status: Int
-        private let body: String
-        private(set) var requestedURLs: [URL] = []
-        private(set) var requestedHeaders: [[String: String]] = []
-        private(set) var requestedBodies: [[String: Any]] = []
-        private(set) var requestedTimeouts: [TimeInterval] = []
-
-        init(status: Int = 202, body: String = "{}") {
-            self.status = status
-            self.body = body
-        }
-
-        private func respond(to request: URLRequest) throws -> (Data, HTTPURLResponse) {
-            requestedURLs.append(request.url!)
-            requestedHeaders.append(request.allHTTPHeaderFields ?? [:])
-            requestedTimeouts.append(request.timeoutInterval)
-            if let bodyData = request.httpBody,
-               let json = try? JSONSerialization.jsonObject(with: bodyData) as? [String: Any] {
-                requestedBodies.append(json)
-            }
-            let http = HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: nil)!
-            return (Data(body.utf8), http)
-        }
-
-        nonisolated var transport: CommunityMembershipClient.Transport {
-            { request in try await self.respond(to: request) }
-        }
-    }
-
     private static func client(_ fake: FakeTransport) -> CommunityMembershipClient {
         CommunityMembershipClient(
             ownActorURL: URL(string: "https://example.com/users/site")!,

@@ -1,5 +1,7 @@
 # Domain Registrar/Expiration Tracking Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Look up a connected domain's registrar and expiration date via RDAP, persist it into `Source/anglesite.json`, and surface it in the Connect Domain sheet.

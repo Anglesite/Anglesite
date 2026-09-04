@@ -1,5 +1,7 @@
 # Persisted Active-Worker State + Deploy Diff/Removal Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Compute each site's effective active worker set on every deploy and fold `SocialWorkerProvisionCommand` into the main Deploy button, so activating/deactivating a catalog worker (Site Graph Explorer usage or a future Settings toggle) actually reaches Cloudflare — closing the gap where that command has no live caller today.

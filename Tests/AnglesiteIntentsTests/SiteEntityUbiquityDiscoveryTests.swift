@@ -2,15 +2,8 @@ import Testing
 import Foundation
 import AnglesiteCore
 import AnglesiteIOS
+import AnglesiteTestSupport
 @testable import AnglesiteIntents
-
-/// Same shape as `SitePickerModelTests`' fake of the same name
-/// (`Tests/AnglesiteIOSTests/SitePickerModelTests.swift`) — an independent copy rather than a
-/// shared one, since both are `private` to their own test target.
-private struct FakeUbiquityContainerResolver: UbiquityContainerResolving {
-    let result: URL?
-    func url(forUbiquityContainerIdentifier containerIdentifier: String?) -> URL? { result }
-}
 
 /// Records how many gathers actually happened — the whole point of `SiteEntityUbiquityDiscovery`
 /// is that this number stays at 1 across the several `EntityStringQuery` calls one Siri

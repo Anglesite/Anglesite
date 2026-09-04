@@ -1,5 +1,7 @@
 # AI Signal Unification Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Make `robots.txt`'s `Content-Signal` directive and its AI-crawler blocklist derived projections of one `usage` block in `licensing.json`, so they can no longer contradict each other or the content license.

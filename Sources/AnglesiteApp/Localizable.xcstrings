@@ -7,6 +7,9 @@
     "!community@instance or URL" : {
 
     },
+    "\"%@\" isn't a usable license address. Use an https:// URL or a path on this site starting with /." : {
+
+    },
     "%@" : {
 
     },
@@ -68,6 +71,12 @@
           }
         }
       }
+    },
+    "%@ is no longer in the Cleanup list — it may have been rescanned, ignored, or already deleted. Rescan and try again." : {
+
+    },
+    "%@ is no longer part of this site's content." : {
+
     },
     "%@ is verified as your Bluesky handle." : {
 
@@ -283,6 +292,9 @@
 
     },
     "A BCP 47 language tag, e.g. \"en\", \"fr-CA\", \"es\". Screen readers and search engines use this to pronounce and index your content correctly." : {
+
+    },
+    "A TXT record already exists for %@ with different content. Update it in Website → Manage Domain, then try again." : {
 
     },
     "A WAF rule was added so Bot Fight Mode doesn't block the AI Search crawler." : {
@@ -884,7 +896,7 @@
     "Buy a Domain" : {
 
     },
-    "Buy a Domain" : {
+    "Buy a domain" : {
 
     },
     "Buy directly on the Cloudflare dashboard instead" : {
@@ -897,6 +909,9 @@
 
     },
     "CMS Mode Not Available" : {
+
+    },
+    "CMS save failed: %@" : {
 
     },
     "Campaign" : {
@@ -918,6 +933,12 @@
 
     },
     "Can't preview %@" : {
+
+    },
+    "Can't publish yet" : {
+
+    },
+    "Can't publish yet — domain setup doesn't match" : {
 
     },
     "Cancel" : {
@@ -1194,6 +1215,12 @@
     "Connect" : {
 
     },
+    "Connect a GitHub account in Settings to check this repository's reporting setup." : {
+
+    },
+    "Connect a GitHub account in Settings to enable private vulnerability reporting." : {
+
+    },
     "Connect and Publish" : {
 
     },
@@ -1212,7 +1239,7 @@
     "Connect a Domain…" : {
 
     },
-    "Connect a Domain…" : {
+    "Connect and Publish" : {
 
     },
     "Connect for CMS Mode" : {
@@ -1333,6 +1360,32 @@
     "Couldn't apply that theme: %@" : {
 
     },
+    "Couldn't apply the rewrite: %@" : {
+
+    },
+    "Couldn't approve %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't approve %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "Couldn't ban %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't ban %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "Couldn't clear the stored credential." : {
+
+    },
     "Couldn't complete that action" : {
 
     },
@@ -1346,14 +1399,30 @@
         }
       }
     },
+    "Couldn't dismiss this report: %@" : {
+
+    },
     "Couldn't enable Markdown for Agents for %@ — often a Cloudflare plan limit (Pro plan or higher). See the debug log for details." : {
 
     },
     "Couldn't fetch the page's info — you can still add your own title." : {
 
     },
+    "Couldn't find this site's wrangler.toml — try publishing again." : {
+
+    },
     "Couldn't finish setup" : {
 
+    },
+    "Couldn't follow %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't follow %1$@: %2$@"
+          }
+        }
+      }
     },
     "Couldn't import “%@”: %@" : {
       "localizations" : {
@@ -1368,10 +1437,70 @@
     "Couldn't insert that image" : {
 
     },
+    "Couldn't join %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't join %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "Couldn't leave %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't leave %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "Couldn't load %@'s timeline: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't load %1$@'s timeline: %2$@"
+          }
+        }
+      }
+    },
+    "Couldn't load channels: %@" : {
+
+    },
+    "Couldn't load existing licensing.json — it may be corrupted or hand-edited. Fix it externally or your next save will discard it. (%@)" : {
+
+    },
+    "Couldn't load existing redirects.json — it may be corrupted or hand-edited with invalid entries. Fix it externally or your next save will discard it. (%@)" : {
+
+    },
+    "Couldn't load existing utm-codes.json — it may be corrupted or hand-edited with invalid entries. Fix it externally or your next save will discard it. (%@)" : {
+
+    },
     "Couldn't load more followers" : {
 
     },
+    "Couldn't load pending join requests: %@" : {
+
+    },
+    "Couldn't load reports: %@" : {
+
+    },
     "Couldn't load sites" : {
+
+    },
+    "Couldn't load the effects catalog: %@" : {
+
+    },
+    "Couldn't load the post \"%@\"." : {
+
+    },
+    "Couldn't load the timeline: %@" : {
+
+    },
+    "Couldn't load this component: %@" : {
 
     },
     "Couldn't open that site" : {
@@ -1386,19 +1515,87 @@
     "Couldn't reach this site. Check your connection and try again." : {
 
     },
+    "Couldn't read the GitHub token from the Keychain: %@" : {
+
+    },
     "Couldn't read your Cloudflare API token: %@" : {
 
     },
     "Couldn't read your contacts" : {
 
     },
+    "Couldn't record the syndication URLs: %@" : {
+
+    },
+    "Couldn't remove %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't remove %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "Couldn't remove the moderator: %@" : {
+
+    },
+    "Couldn't remove the reported content: %@" : {
+
+    },
+    "Couldn't remove this post: %@" : {
+
+    },
+    "Couldn't rename %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't rename %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "Couldn't rename: %@" : {
+
+    },
+    "Couldn't rename the Worker: %@" : {
+
+    },
     "Couldn't run the check" : {
+
+    },
+    "Couldn't save MTA-STS policy: %@" : {
+
+    },
+    "Couldn't save UTM codes: %@" : {
+
+    },
+    "Couldn't save content licensing: %@" : {
+
+    },
+    "Couldn't save redirects: %@" : {
+
+    },
+    "Couldn't save security reporting settings: %@" : {
 
     },
     "Couldn't save the Atmosphere setting: %@" : {
 
     },
+    "Couldn't save the annotation: %@" : {
+
+    },
     "Couldn't save the inbox capture setting: %@" : {
+
+    },
+    "Couldn't save the moderator: %@" : {
+
+    },
+    "Couldn't save the plan: %@" : {
+
+    },
+    "Couldn't save the redirect: %@" : {
 
     },
     "Couldn't save the worker change: %@" : {
@@ -1407,11 +1604,50 @@
     "Couldn't save this change: %@" : {
 
     },
+    "Couldn't save website language: %@" : {
+
+    },
     "Couldn't save your change" : {
+
+    },
+    "Couldn't save your license choice: %@" : {
 
     },
     "Couldn't scan Contacts" : {
 
+    },
+    "Couldn't search %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't search %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "Couldn't start sign-in: %@" : {
+
+    },
+    "Couldn't unban %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't unban %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "Couldn't undo: %@ (%@)" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Couldn't undo: %1$@ (%2$@)"
+          }
+        }
+      }
     },
     "Couldn't update this file — see the debug log for details." : {
 
@@ -1503,28 +1739,16 @@
     "Dependency Updates Available" : {
 
     },
+    "No usable MX records were found for %@. Enter the receiving mail hosts manually." : {
+
+    },
+    "Nothing is waiting to publish — close this and click Publish Site again." : {
+
+    },
     "Publish Site" : {
 
     },
     "Deploy ${site}" : {
-
-    },
-    "Can't publish yet" : {
-
-    },
-    "Can't publish yet — domain setup doesn't match" : {
-
-    },
-    "Publish readiness" : {
-
-    },
-    "Publishing" : {
-
-    },
-    "Publishing needs a one-time API token. It takes about a minute." : {
-
-    },
-    "Publishing needs a one-time sign-in to your Cloudflare account." : {
 
     },
     "Describe what you're going for…" : {
@@ -1708,6 +1932,9 @@
 
     },
     "Enforce" : {
+
+    },
+    "Enter a valid actor URL, e.g. https://example.social/users/alice." : {
 
     },
     "Enter a valid email address." : {
@@ -2160,6 +2387,16 @@
     "Join" : {
 
     },
+    "Joined %@, but couldn't save it locally: %@. It may not appear after restarting the app." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Joined %1$@, but couldn't save it locally: %2$@. It may not appear after restarting the app."
+          }
+        }
+      }
+    },
     "Just a few" : {
 
     },
@@ -2250,6 +2487,16 @@
     },
     "Left" : {
 
+    },
+    "Left %@, but couldn't update the local record: %@. It may still appear after restarting the app." : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "Left %1$@, but couldn't update the local record: %2$@. It may still appear after restarting the app."
+          }
+        }
+      }
     },
     "Lemon Squeezy" : {
 
@@ -2401,6 +2648,9 @@
     "Move To…" : {
 
     },
+    "Move to Drafts" : {
+
+    },
     "My New Webpage" : {
 
     },
@@ -2500,6 +2750,12 @@
     "No Anglesite sites found" : {
 
     },
+    "No Cloudflare API token found." : {
+
+    },
+    "No Cloudflare API token found. Add one in Settings → Credentials." : {
+
+    },
     "No Collection Types" : {
 
     },
@@ -2528,6 +2784,9 @@
 
     },
     "No changes needed." : {
+
+    },
+    "No channel to follow into." : {
 
     },
     "No communities found." : {
@@ -2756,9 +3015,6 @@
 
     },
     "Open Website Anyway" : {
-
-    },
-    "Open in Browser" : {
 
     },
     "Open in Browser" : {
@@ -3022,10 +3278,16 @@
     "Publish" : {
 
     },
+    "Publish DNS Records" : {
+
+    },
     "Publish Post" : {
 
     },
-    "Publish DNS Records" : {
+    "Publish Site" : {
+
+    },
+    "Publish Site…" : {
 
     },
     "Publish it at least once, then followers will appear here." : {
@@ -3035,6 +3297,9 @@
 
     },
     "Publish posts to the Atmosphere" : {
+
+    },
+    "Publish readiness" : {
 
     },
     "Publish this site at least once before connecting it for CMS mode." : {
@@ -3067,10 +3332,13 @@
     "Publishing is set to Hand-authored, so Anglesite isn't generating security.txt for this site. Add this address to your own file if you want to route reports to GitHub:" : {
 
     },
+    "Publishing needs a one-time API token. It takes about a minute." : {
+
+    },
     "Publishing needs a one-time personal access token. It takes about a minute." : {
 
     },
-    "Publish Site…" : {
+    "Publishing needs a one-time sign-in to your Cloudflare account." : {
 
     },
     "Purchasing…" : {
@@ -3146,6 +3414,15 @@
 
     },
     "Refuse AI crawlers in robots.txt" : {
+
+    },
+    "Refusing to save: the existing licensing.json failed to load and may contain rules this save would discard. Fix or back up the file, then reload this site's settings." : {
+
+    },
+    "Refusing to save: the existing redirects.json failed to load and may contain valid entries this save would discard. Fix or back up the file, then reload this site's settings." : {
+
+    },
+    "Refusing to save: the existing utm-codes.json failed to load and may contain campaigns this save would discard. Fix or back up the file, then reload this site's settings." : {
 
     },
     "Regenerate" : {
@@ -3444,6 +3721,9 @@
     "Save as Annotation" : {
 
     },
+    "Save failed: %@" : {
+
+    },
     "Save the imported site package." : {
 
     },
@@ -3696,6 +3976,9 @@
     "Sign Out" : {
 
     },
+    "Sign in again to save changes to this site's CMS." : {
+
+    },
     "Sign in to read your feeds" : {
 
     },
@@ -3712,6 +3995,9 @@
 
     },
     "Sign-In Not Available" : {
+
+    },
+    "Sign-in failed: %@" : {
 
     },
     "Signed in" : {
@@ -3766,6 +4052,9 @@
 
     },
     "Site is missing required files: %@" : {
+
+    },
+    "Site is not running yet." : {
 
     },
     "Site name" : {
@@ -3952,6 +4241,9 @@
     "Text" : {
 
     },
+    "That doesn't look like a URL." : {
+
+    },
     "That's a different site — choose the original package folder instead." : {
 
     },
@@ -3982,6 +4274,9 @@
     "The live Cloudflare zone matches everything declared in anglesite.json." : {
 
     },
+    "The page text changed since the review — this excerpt no longer matches." : {
+
+    },
     "The pre-deploy scan found issues that need fixing before this site can ship." : {
 
     },
@@ -3989,6 +4284,9 @@
 
     },
     "The traffic split looks off from what you'd expect — check your test setup before trusting these numbers." : {
+
+    },
+    "The website template isn't available (%@)." : {
 
     },
     "The worker catalog couldn't be loaded. Check your network connection and reopen this tab." : {
@@ -4060,10 +4358,16 @@
     "This page has no editable metadata yet." : {
 
     },
+    "This page has no editable title to rename." : {
+
+    },
     "This page has no inbound links from other pages." : {
 
     },
     "This page has no incoming links and will be permanently removed." : {
+
+    },
+    "This post has no editable title to rename." : {
 
     },
     "This post is stored in your site's CMS. The file on disk is a read-only export." : {
@@ -4075,13 +4379,25 @@
     "This removes the post from the community timeline. The author's own copy on their own site is unaffected." : {
 
     },
+    "This report doesn't name a specific member or post to remove." : {
+
+    },
     "This site does not have any collection-backed content types." : {
 
     },
     "This site doesn't offer IndieAuth sign-in yet. Redeploy it with a current Anglesite build." : {
 
     },
+    "This site has no known public URL yet — deploy it at least once first." : {
+
+    },
+    "This site has no known public URL yet — publish it at least once first." : {
+
+    },
     "This site hasn't been published yet" : {
+
+    },
+    "This site is no longer available." : {
 
     },
     "This site publishes a security.txt Anglesite didn't generate. Adopt it so Anglesite keeps it current going forward, or leave it as yours to maintain." : {
@@ -4093,10 +4409,16 @@
     "This site will stop receiving posts from " : {
 
     },
+    "This site's Info.plist couldn't be found." : {
+
+    },
     "This site's Worker doesn't include Micropub yet. Redeploy it with a current Anglesite build." : {
 
     },
     "This site's identity couldn't be read. Try reopening it and connecting again." : {
+
+    },
+    "This site's wrangler.toml is missing its Worker name — try publishing again." : {
 
     },
     "This will remove the file from your site. You can bring it back with Edit ▸ Undo." : {
@@ -4130,9 +4452,6 @@
 
     },
     "Transport" : {
-
-    },
-    "Try Again" : {
 
     },
     "Try Again" : {
@@ -4187,6 +4506,9 @@
     "Undo this edit" : {
 
     },
+    "Undo unavailable: MCP not running." : {
+
+    },
     "Undone" : {
 
     },
@@ -4200,9 +4522,6 @@
 
     },
     "Unprocessed (show fallbacks)" : {
-
-    },
-    "Move to Drafts" : {
 
     },
     "Unrated" : {
@@ -4433,6 +4752,9 @@
     "Worker name already in use" : {
 
     },
+    "Worker names can only contain lowercase letters, numbers, hyphens, and underscores." : {
+
+    },
     "Workers Unavailable" : {
 
     },
@@ -4501,6 +4823,56 @@
     },
     "claude-code-acp" : {
 
+    },
+    "couldn't clear history: %@" : {
+
+    },
+    "couldn't load agents: %@" : {
+
+    },
+    "couldn't load annotations: %@" : {
+
+    },
+    "couldn't load history: %@" : {
+
+    },
+    "couldn't load paired devices: %@" : {
+
+    },
+    "couldn't prepare pairing key: %@" : {
+
+    },
+    "couldn't remove agent: %@" : {
+
+    },
+    "couldn't render the pairing QR code." : {
+
+    },
+    "couldn't resolve annotation: %@" : {
+
+    },
+    "couldn't revoke %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "couldn't revoke %1$@: %2$@"
+          }
+        }
+      }
+    },
+    "couldn't save: %@" : {
+
+    },
+    "couldn't start %@: %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "couldn't start %1$@: %2$@"
+          }
+        }
+      }
     },
     "default" : {
 

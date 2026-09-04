@@ -15,7 +15,7 @@ import FoundationModels
 /// `apply-instruction`) — so a generated command maps onto a real edit without re-deriving the op.
 ///
 /// - Note: This enum carries no `rawValue`; the case→string-constant bridge lives with the
-///   consumer. TODO(#156): `ApplyEditTool` maps these onto `EditMessage.Op` when it lands.
+///   consumer (`ApplyEditTool.opString(for:)`).
 @Generable
 public enum EditOperation: Equatable, Sendable {
     /// Set the element's text content (`"replace-text"`).
@@ -28,8 +28,8 @@ public enum EditOperation: Equatable, Sendable {
     case applyInstruction
 }
 
-/// A structured edit the on-device model proposes for a single element. Consumed by the
-/// (future) `ApplyEditTool` (#156); `selector` matches the overlay/`IntentEditBridge` selector form.
+/// A structured edit the on-device model proposes for a single element. Consumed by
+/// `ApplyEditTool`; `selector` matches the overlay/`IntentEditBridge` selector form.
 @Generable
 public struct GeneratedEditCommand: Equatable, Sendable {
     /// Site-root-relative path of the source file to edit (e.g. `src/pages/about.md`).
@@ -282,5 +282,15 @@ public struct GeneratedPlatformPost: Equatable, Sendable {
     /// (see the type-level note).
     @Guide(description: "The complete post text for the platform, within the stated character limit, ready to copy-paste.")
     public var text: String
+}
+
+/// On-device guided-generation result for writing help — rewrite/tighten/tone (#1227 PR 2). One
+/// call per request; the caller's instruction (canned per canvas-toolbar action, or free-form
+/// from the `rewriteBlock` chat tool) is folded into the prompt, not this type.
+@Generable
+public struct GeneratedRewrite: Equatable, Sendable {
+    /// The rewritten text only — no preamble, no surrounding quotes, no explanation of what changed.
+    @Guide(description: "The rewritten text only. No preamble, no quotes, no explanation — just the replacement text.")
+    public var rewrittenText: String
 }
 #endif

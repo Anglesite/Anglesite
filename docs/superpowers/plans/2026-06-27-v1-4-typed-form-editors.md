@@ -1,5 +1,7 @@
 # V-1.4 Per-type SwiftUI form editors — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give every typed content object a schema-driven SwiftUI form editor that round-trips to YAML frontmatter without data loss and commits each save to git.

@@ -1,5 +1,7 @@
 # V-4.1 ActivityPub Actor Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Compose `@dwk/activitypub` into the per-site Worker so a site becomes a followable Fediverse actor — a Mastodon user can follow it and see posts published through Micropub.

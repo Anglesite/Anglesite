@@ -95,7 +95,7 @@ final class ProjectCleanupModel {
     func delete(_ candidate: DeadAssetScanner.CleanupCandidate) async -> Bool {
         guard let sourceDirectory, !isBusy else { return false }
         guard candidates.contains(where: { $0.id == candidate.id }) else {
-            deleteError = "\(candidate.path) is no longer in the Cleanup list — it may have been rescanned, ignored, or already deleted. Rescan and try again."
+            deleteError = String(localized: "\(candidate.path) is no longer in the Cleanup list — it may have been rescanned, ignored, or already deleted. Rescan and try again.")
             return false
         }
         isBusy = true

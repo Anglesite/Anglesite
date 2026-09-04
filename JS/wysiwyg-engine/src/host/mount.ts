@@ -3,6 +3,7 @@ import { RichTextEditor } from "../rich-text.js";
 import { QualityGateChips } from "../quality-gates.js";
 import { KeyboardNavigation } from "../keyboard-nav.js";
 import { AccessibilityAnnotator } from "../accessibility.js";
+import { SelectionToolbar } from "./selection-toolbar.js";
 import { NativeHostTransport } from "./native-host-transport.js";
 import { DragReorderController, computeDropTarget } from "../drag-drop.js";
 import { computeHandleRect, findBlockElement } from "../selection.js";
@@ -24,6 +25,7 @@ declare global {
     __anglesiteWysiwygEngine?: WysiwygEngine;
     __anglesiteWysiwygRichTextEditor?: RichTextEditor;
     __anglesiteWysiwygQualityGates?: QualityGateChips;
+    __anglesiteWysiwygSelectionToolbar?: SelectionToolbar;
     __anglesiteWysiwygKeyboardNav?: KeyboardNavigation;
     __anglesiteWysiwygAccessibility?: AccessibilityAnnotator;
     __anglesiteWysiwygMount?: {
@@ -267,11 +269,13 @@ function disposeMounted(): void {
   dropIndicator = null;
   window.__anglesiteWysiwygRichTextEditor?.dispose();
   window.__anglesiteWysiwygQualityGates?.dispose();
+  window.__anglesiteWysiwygSelectionToolbar?.dispose();
   window.__anglesiteWysiwygKeyboardNav?.dispose();
   window.__anglesiteWysiwygAccessibility?.dispose();
   window.__anglesiteWysiwygEngine?.dispose();
   window.__anglesiteWysiwygRichTextEditor = undefined;
   window.__anglesiteWysiwygQualityGates = undefined;
+  window.__anglesiteWysiwygSelectionToolbar = undefined;
   window.__anglesiteWysiwygKeyboardNav = undefined;
   window.__anglesiteWysiwygAccessibility = undefined;
   window.__anglesiteWysiwygEngine = undefined;
@@ -293,6 +297,10 @@ window.__anglesiteWysiwygMount = {
     // `HostTransport` and `QualityGateTransport` (#1226 Task 12), so one object owns the whole
     // `window.__anglesiteWysiwygHost` bridge.
     window.__anglesiteWysiwygQualityGates = new QualityGateChips(engine, transport);
+    // Same `transport` instance again — `NativeHostTransport` also implements
+    // `WritingHelpTransport` (#1227 PR 2, Task 3's `requestWritingHelp`).
+    window.__anglesiteWysiwygSelectionToolbar = new SelectionToolbar(
+      window.__anglesiteWysiwygRichTextEditor, transport, document);
     window.__anglesiteWysiwygKeyboardNav = new KeyboardNavigation(
       engine,
       window.__anglesiteWysiwygRichTextEditor,

@@ -15,9 +15,11 @@
 #
 # Defaults to linux/arm64 in scripts/build-container-image.sh, but Cloudflare
 # Sandbox currently needs linux/amd64. Node is pinned to scripts/node-version.txt
-# and passed in as NODE_VERSION by scripts/build-container-image.sh.
-
-ARG NODE_VERSION=24.15.0
+# and passed in as NODE_VERSION by scripts/build-container-image.sh. No default
+# here (#1815): this Dockerfile is not buildable standalone anyway (see
+# container/README.md), and a bare `docker build` silently drifting onto a
+# stale default is worse than failing loudly.
+ARG NODE_VERSION
 FROM node:${NODE_VERSION}-bookworm-slim
 
 # git: Git is the source of truth — the container clones the site on start

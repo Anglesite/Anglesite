@@ -1,5 +1,7 @@
 # "Edit Site" P2P Session UI (#1431) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Land the iOS/iPadOS v2.0 "Edit Site" session UI (design spec `docs/superpowers/specs/2026-08-12-ios-ipados-v2-design.md` §3): entry points in `SiteSplitScreen`, a full-screen-cover session screen with owner-comprehensible state rendering, the QR pairing-onboarding walk-in, and the preview leg — all consuming a `SiteRuntime` behind an injectable seam so #1208 P4's real `P2PSiteRuntime` plugs in with a one-closure swap.

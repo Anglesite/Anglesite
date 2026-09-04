@@ -1,5 +1,7 @@
 # Effects Gallery Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Replace the retired `creative-canvas` skill with a unified Effects gallery — merges the existing 16-entry `AnimationCatalog` with 12 new hand-authored visual effects, adds deterministic click-to-place (pick an effect, click where it goes in the live preview), and ships entirely app-side on top of the sidecar's already-merged `get_page_model`/`insertBlock` tools.

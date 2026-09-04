@@ -102,8 +102,9 @@ public struct ContentCreationWorkflow: ContentOperationsService {
 
     /// The production wiring: `NativeContentOperations` (with the settings-gated page-copy
     /// generator) behind every seam, so all operations are configured. The closure indirection —
-    /// rather than widening ``ContentOperationsService`` — keeps the extra operations off the
-    /// protocol until remote runtimes can implement them too (see the protocol's TODO).
+    /// rather than widening ``ContentOperationsService`` — keeps operations that need extra
+    /// parameters (a template, an explicit slug, `fieldValues`) off the protocol; remote runtimes
+    /// would have no way to implement them.
     public static func native(
         contentGraph: SiteContentGraph?,
         knowledgeIndex: SiteKnowledgeIndex? = nil,
@@ -238,6 +239,26 @@ public struct ContentCreationWorkflow: ContentOperationsService {
         onProgress: ProgressHandler? = nil
     ) async -> ContentCreateResult {
         let result = await operations.createTyped(
+            siteID: siteID,
+            typeID: typeID,
+            title: title,
+            onProgress: onProgress
+        )
+        await refreshContentGraphIfCreated(result, siteID: siteID)
+        return result
+    }
+
+    /// Delegates to the wrapped service and refreshes the content graph on success
+    /// (see ``createPage(siteID:name:route:onProgress:)``). No dedicated closure seam like
+    /// `typedSlugCreator` — singleton creation carries no `fieldValues`/`slug`, so the protocol
+    /// witness on `operations` is all any caller needs.
+    public func createTypedSingleton(
+        siteID: String,
+        typeID: String,
+        title: String,
+        onProgress: ProgressHandler? = nil
+    ) async -> ContentCreateResult {
+        let result = await operations.createTypedSingleton(
             siteID: siteID,
             typeID: typeID,
             title: title,

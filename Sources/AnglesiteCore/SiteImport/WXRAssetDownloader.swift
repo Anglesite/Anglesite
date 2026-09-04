@@ -23,8 +23,8 @@ public struct WXRAssetDownloader: Sendable {
             // Ephemeral: no cookies, no credentials, no cache — a one-off fetch of images
             // referenced by an imported file, not a browsing session.
             let config = URLSessionConfiguration.ephemeral
-            config.timeoutIntervalForRequest = 15
-            config.timeoutIntervalForResource = 30
+            config.timeoutIntervalForRequest = NetworkTimeouts.wxrAssetRequest
+            config.timeoutIntervalForResource = NetworkTimeouts.wxrAssetResource
             self.session = URLSession(configuration: config)
         }
     }

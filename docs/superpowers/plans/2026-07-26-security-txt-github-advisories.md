@@ -1,5 +1,7 @@
 # `security.txt` → GitHub advisories Implementation Plan (#843)
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Let a site whose `Source/` repo has a GitHub `origin` publish that repo's private advisory form as its `security.txt` contact, verified and offered from Website Settings.

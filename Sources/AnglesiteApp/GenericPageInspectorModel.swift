@@ -76,7 +76,7 @@ final class GenericPageInspectorModel: InspectorEditorModel {
             }
             return true
         } catch {
-            loadError = "Save failed: \(error.localizedDescription)"
+            loadError = String(localized: "Save failed: \(error.localizedDescription)")
             return false
         }
     }

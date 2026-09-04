@@ -344,7 +344,7 @@ public actor MCPClient {
     /// ``MCPError/invalidResponse(_:)``.
     public func listTools() async throws -> [ToolDescriptor] {
         guard started else { throw MCPError.notInitialized }
-        let result = try await sendRequest(method: "tools/list", params: .object([:]), timeout: 5)
+        let result = try await sendRequest(method: "tools/list", params: .object([:]), timeout: NetworkTimeouts.mcpToolsListRequest)
         guard case .object(let dict) = result, case .array(let tools)? = dict["tools"] else {
             throw MCPError.invalidResponse("tools/list missing 'tools' array")
         }
@@ -400,7 +400,7 @@ public actor MCPClient {
             "name": .string(name),
             "arguments": arguments,
         ])
-        let result = try await sendRequest(method: "tools/call", params: params, timeout: 30)
+        let result = try await sendRequest(method: "tools/call", params: params, timeout: NetworkTimeouts.mcpToolCallRequest)
         guard case .object(let dict) = result else {
             throw MCPError.invalidResponse("tools/call result not an object")
         }

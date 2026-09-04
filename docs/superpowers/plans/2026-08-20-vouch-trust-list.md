@@ -1,5 +1,7 @@
 # Vouch trust-list fix — Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the Vouch verification shipped in [davidwkeith/workers#505](https://github.com/davidwkeith/workers/pull/505) — it checks the wrong domain (target instead of source) and has no trust list, making the "Vouched" signal trivially forgeable — and give it a real trust list sourced from the site's existing blogroll.

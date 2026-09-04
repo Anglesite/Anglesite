@@ -89,7 +89,7 @@ final class AgentReadinessModel {
     private func performScan(url: URL) async {
         do {
             guard let token = try await tokenSource() else {
-                phase = .failed(reason: "No Cloudflare API token found. Add one in Settings → Credentials.")
+                phase = .failed(reason: CloudflareTokenMessage.notFoundWithHint)
                 return
             }
             let scanID = try await scanner.submitAgentReadinessScan(url: url, apiToken: token)

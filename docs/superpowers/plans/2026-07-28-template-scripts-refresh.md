@@ -1,5 +1,7 @@
 # scripts/ Template Refresh (#1053) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Keep a scaffolded site's app-owned `scripts/` files (`pre-deploy-check.ts`, `edge-artifacts.ts`, etc.) in lockstep with the bundled template — silently for files the owner never touched, with a consequence-framed prompt for files they customized — so the security gate and other build machinery stop silently going stale.

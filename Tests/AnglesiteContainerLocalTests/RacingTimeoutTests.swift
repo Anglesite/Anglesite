@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteContainer
 
 /// Unit tests for `ContainerizationControl.racingTimeout`, the generic async race primitive behind
@@ -63,9 +64,12 @@ struct RacingTimeoutTests {
                 return "late"
             }
         }
-        // Give the abandoned operation Task time to finish and call onLateSuccess after we've
-        // already received (and asserted) the timeout error above.
-        try await Task.sleep(for: .milliseconds(300))
+        // Wait for the abandoned operation Task to finish and call onLateSuccess, rather than
+        // guessing how long that takes after we've already received (and asserted) the timeout
+        // error above.
+        try await waitUntil("the abandoned operation to report its late success") {
+            lateResult.get() != nil
+        }
         #expect(lateResult.get() == "late")
     }
 }

@@ -1,5 +1,7 @@
 # Issue #748 — Runtime Build Seam Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Add the two capabilities [#748](https://github.com/Anglesite/Anglesite-app/issues/748) requires so [#744](https://github.com/Anglesite/Anglesite-app/issues/744) can later enforce dynamic/provider `.well-known` collisions: (1) a portable, non-secret `RuntimeOwnedPathClaim` type plus a `DeployExecutor` capability that reports zero of them by default, and (2) a substrate-neutral ephemeral build-command input/output seam that hands a `WellKnownClaimManifest` into the `.build` step and returns the observed artifact inventory/findings.

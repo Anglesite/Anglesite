@@ -1,5 +1,7 @@
 # Remote Development Server Settings + LAN Discovery Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Fix the four issues reported in [#858](https://github.com/Anglesite/Anglesite/issues/858) against Settings ▸ Advanced ▸ "LAN site runtime": wrong section title, wrong host placeholder, comma-grouped port placeholders, and no way to discover a LAN host automatically.

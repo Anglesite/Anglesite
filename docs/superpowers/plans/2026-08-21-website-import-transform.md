@@ -1,5 +1,7 @@
 # Website Import — Transform Stage Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Build the transform stage of website import (#1615): a pure-Swift pipeline that turns a crawled `ImportSnapshot` of an external site into content files in a scaffolded Anglesite `Source/` tree, plus the JS extraction engine the crawl stage will inject.

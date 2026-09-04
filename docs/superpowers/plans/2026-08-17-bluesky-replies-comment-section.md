@@ -1,5 +1,7 @@
 # Bluesky Replies as the Site's Comment Section Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Pull the replies, likes, and reposts a POSSE'd Bluesky post receives back into the site's own `data/interactions/` git-canonical snapshot, so they render in the existing comment/facepile UI with zero render-side changes.

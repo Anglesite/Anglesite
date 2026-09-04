@@ -1,5 +1,7 @@
 # LAN Host Dev-Server Process (#601 §2) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Ship a standalone `anglesite-lan-host` CLI that runs one site's Astro dev server + MCP sidecar on the Mac Studio, bound to a LAN interface, so a UTM guest VM's already-landed `LANControlClient` (PR #604) can reach it — closing out issue #601.

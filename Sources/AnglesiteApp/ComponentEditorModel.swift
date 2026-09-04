@@ -201,7 +201,7 @@ final class ComponentEditorModel {
 
     func load() async {
         guard let client = context.modelClient else {
-            loadError = "Site is not running yet."
+            loadError = String(localized: "Site is not running yet.")
             loadErrorReason = .notConnected
             return
         }
@@ -226,7 +226,7 @@ final class ComponentEditorModel {
             case .decodeFailed: loadErrorReason = .other
             }
         } catch {
-            loadError = "Couldn't load this component: \(error.localizedDescription)"
+            loadError = String(localized: "Couldn't load this component: \(error.localizedDescription)")
             loadErrorReason = .other
         }
     }

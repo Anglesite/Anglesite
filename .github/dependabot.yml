@@ -10,6 +10,65 @@ updates:
     schedule:
       interval: "weekly"
 
+  - package-ecosystem: "npm"
+    directory: "/Resources/Template"
+    schedule:
+      interval: "weekly"
+    groups:
+      template-dependencies:
+        patterns:
+          - "*"
+    ignore:
+      # @dwk/* packages move with the anglesite-skills sidecar repo, not on
+      # their own, while they are still beta.
+      - dependency-name: "@dwk/*"
+        update-types: ["version-update:semver-major"]
+
+  - package-ecosystem: "npm"
+    directory: "/Workers/ControlWorker"
+    schedule:
+      interval: "weekly"
+    groups:
+      control-worker-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/Workers/anglesite-oauth-callback"
+    schedule:
+      interval: "weekly"
+    groups:
+      oauth-callback-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/JS/wysiwyg-engine"
+    schedule:
+      interval: "weekly"
+    groups:
+      wysiwyg-engine-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/JS/import-engine"
+    schedule:
+      interval: "weekly"
+    groups:
+      import-engine-dependencies:
+        patterns:
+          - "*"
+
+  - package-ecosystem: "npm"
+    directory: "/JS/safari-extension"
+    schedule:
+      interval: "weekly"
+    groups:
+      safari-extension-dependencies:
+        patterns:
+          - "*"
+
   - package-ecosystem: "swift"
     directory: "/"
     schedule:

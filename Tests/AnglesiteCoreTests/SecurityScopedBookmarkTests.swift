@@ -1,11 +1,13 @@
-import XCTest
+import Testing
+import Foundation
 @testable import AnglesiteCore
 
-final class SecurityScopedBookmarkTests: XCTestCase {
+struct SecurityScopedBookmarkTests {
     /// On non-sandboxed test runs, bookmarks created with .withSecurityScope still produce
     /// resolvable Data; they just don't actually scope anything. That's enough to verify the
     /// create/resolve round-trip on the SPM test runner.
-    func test_create_and_resolve_roundTrip() throws {
+    @Test("create and resolve round trip")
+    func createAndResolveRoundTrip() throws {
         let tmp = try FileManager.default.url(
             for: .itemReplacementDirectory,
             in: .userDomainMask,
@@ -15,19 +17,22 @@ final class SecurityScopedBookmarkTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: tmp) }
 
         let bookmark = try SecurityScopedBookmark.create(for: tmp)
-        XCTAssertFalse(bookmark.isEmpty)
+        #expect(!bookmark.isEmpty)
 
         let resolved = try SecurityScopedBookmark.resolve(bookmark)
-        XCTAssertEqual(
-            resolved.url.standardizedFileURL.resolvingSymlinksInPath().path,
+        #expect(
+            resolved.url.standardizedFileURL.resolvingSymlinksInPath().path ==
             tmp.standardizedFileURL.resolvingSymlinksInPath().path
         )
-        XCTAssertFalse(resolved.isStale)
+        #expect(!resolved.isStale)
     }
 
-    func test_resolve_corruptData_throws() {
+    @Test("resolving corrupt data throws")
+    func resolveCorruptDataThrows() {
         let garbage = Data([0x01, 0x02, 0x03, 0x04])
-        XCTAssertThrowsError(try SecurityScopedBookmark.resolve(garbage))
+        #expect(throws: (any Error).self) {
+            try SecurityScopedBookmark.resolve(garbage)
+        }
     }
 
     /// #1068: without `LocalizedError` conformance, `.localizedDescription` on this enum bridges
@@ -35,13 +40,15 @@ final class SecurityScopedBookmarkTests: XCTestCase {
     /// SecurityScopedBookmarkError error 0.)") and silently drops the actual underlying reason —
     /// exactly the message users saw in the bug report, on both the recovery ("Locate…") and
     /// brand-new-site paths.
-    func test_createFailed_localizedDescription_surfacesUnderlyingMessage() {
+    @Test("createFailed's localizedDescription surfaces the underlying message")
+    func createFailedLocalizedDescriptionSurfacesUnderlyingMessage() {
         let error: Error = SecurityScopedBookmarkError.createFailed("the real underlying reason")
-        XCTAssertEqual(error.localizedDescription, "the real underlying reason")
+        #expect(error.localizedDescription == "the real underlying reason")
     }
 
-    func test_resolveFailed_localizedDescription_surfacesUnderlyingMessage() {
+    @Test("resolveFailed's localizedDescription surfaces the underlying message")
+    func resolveFailedLocalizedDescriptionSurfacesUnderlyingMessage() {
         let error: Error = SecurityScopedBookmarkError.resolveFailed("the real underlying reason")
-        XCTAssertEqual(error.localizedDescription, "the real underlying reason")
+        #expect(error.localizedDescription == "the real underlying reason")
     }
 }

@@ -73,7 +73,7 @@ final class MicrosubReaderModel {
     /// and calls `completeSignIn()`.
     func startSignIn() {
         guard let siteURL else {
-            errorMessage = "This site has no known public URL yet — publish it at least once first."
+            errorMessage = String(localized: "This site has no known public URL yet — publish it at least once first.")
             return
         }
         errorMessage = nil
@@ -89,7 +89,7 @@ final class MicrosubReaderModel {
                 signInState = .awaitingCallback
                 NSWorkspace.shared.open(request.authorizeURL)
             } catch {
-                errorMessage = "Couldn't start sign-in: \(error)"
+                errorMessage = String(localized: "Couldn't start sign-in: \(error.localizedDescription)")
             }
         }
     }
@@ -99,7 +99,7 @@ final class MicrosubReaderModel {
         guard let request = pendingAuthRequest, let siteID, let siteURL else { return }
         let trimmed = pastedCallbackText.trimmingCharacters(in: .whitespacesAndNewlines)
         guard let callbackURL = URL(string: trimmed), !trimmed.isEmpty else {
-            errorMessage = "That doesn't look like a URL."
+            errorMessage = String(localized: "That doesn't look like a URL.")
             return
         }
         errorMessage = nil
@@ -119,7 +119,7 @@ final class MicrosubReaderModel {
                 )
                 await loadChannels()
             } catch {
-                errorMessage = "Sign-in failed: \(error)"
+                errorMessage = String(localized: "Sign-in failed: \(error.localizedDescription)")
             }
         }
     }
@@ -159,7 +159,7 @@ final class MicrosubReaderModel {
             }
             await loadTimeline()
         } catch {
-            errorMessage = "Couldn't load channels: \(error)"
+            errorMessage = String(localized: "Couldn't load channels: \(error.localizedDescription)")
         }
     }
 
@@ -177,7 +177,7 @@ final class MicrosubReaderModel {
             let page = try await microsubClient.timeline(channel: selectedChannelID)
             timeline = page.items
         } catch {
-            errorMessage = "Couldn't load the timeline: \(error)"
+            errorMessage = String(localized: "Couldn't load the timeline: \(error.localizedDescription)")
         }
     }
 
@@ -190,7 +190,7 @@ final class MicrosubReaderModel {
         Task {
             if channels.isEmpty { await loadChannels() }
             guard let channel = selectedChannelID ?? channels.first?.id else {
-                errorMessage = "No channel to follow into."
+                errorMessage = String(localized: "No channel to follow into.")
                 return
             }
             do {
@@ -198,7 +198,7 @@ final class MicrosubReaderModel {
                 followURLText = ""
                 await loadTimeline()
             } catch {
-                errorMessage = "Couldn't follow \(url): \(error)"
+                errorMessage = String(localized: "Couldn't follow \(url): \(error.localizedDescription)")
             }
         }
     }

@@ -164,7 +164,7 @@ struct QuickCaptureSheet: View {
                 case .created:
                     dismiss()
                 case .siteNotFound:
-                    errorMessage = "This site is no longer available."
+                    errorMessage = String(localized: "This site is no longer available.")
                 case .failed(let reason):
                     errorMessage = reason
                 }

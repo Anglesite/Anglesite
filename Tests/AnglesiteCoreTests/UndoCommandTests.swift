@@ -1,8 +1,10 @@
-import XCTest
+import Testing
+import Foundation
 @testable import AnglesiteCore
 
-final class UndoCommandTests: XCTestCase {
-    func testUndoSuccessParsesNewCommit() async {
+struct UndoCommandTests {
+    @Test("undo success parses the new commit")
+    func undoSuccessParsesNewCommit() async {
         let fake = FakeMCPCaller(result: .success(MCPClient.ToolCallResult(
             content: [.init(type: "text", text: #"{"status":"undone","newCommit":"abcd1234"}"#)],
             isError: false
@@ -10,16 +12,18 @@ final class UndoCommandTests: XCTestCase {
         let cmd = UndoCommand(caller: fake.asCaller)
         let result = await cmd.undo(commit: "current-head", force: false)
         guard case .success(let newCommit) = result else {
-            return XCTFail("expected .success, got \(result)")
+            Issue.record("expected .success, got \(result)")
+            return
         }
-        XCTAssertEqual(newCommit, "abcd1234")
-        XCTAssertEqual(fake.lastArgs, .object([
+        #expect(newCommit == "abcd1234")
+        #expect(fake.lastArgs == .object([
             "commit": .string("current-head"),
             "force": .bool(false),
         ]))
     }
 
-    func testUndoWorkingTreeModifiedReturnsTypedFiles() async {
+    @Test("undo with a working-tree-modified refusal returns typed files")
+    func undoWorkingTreeModifiedReturnsTypedFiles() async {
         let fake = FakeMCPCaller(result: .success(MCPClient.ToolCallResult(
             content: [.init(type: "text", text: #"{"status":"refused","reason":"working-tree-modified","files":["src/pages/about.astro"]}"#)],
             isError: true
@@ -27,12 +31,14 @@ final class UndoCommandTests: XCTestCase {
         let cmd = UndoCommand(caller: fake.asCaller)
         let result = await cmd.undo(commit: "current-head", force: false)
         guard case .workingTreeModified(let files) = result else {
-            return XCTFail("expected .workingTreeModified, got \(result)")
+            Issue.record("expected .workingTreeModified, got \(result)")
+            return
         }
-        XCTAssertEqual(files, ["src/pages/about.astro"])
+        #expect(files == ["src/pages/about.astro"])
     }
 
-    func testUndoForwardsForceFlag() async {
+    @Test("undo forwards the force flag")
+    func undoForwardsForceFlag() async {
         let fake = FakeMCPCaller(result: .success(MCPClient.ToolCallResult(
             content: [.init(type: "text", text: #"{"status":"undone","newCommit":"abcd1234"}"#)],
             isError: false
@@ -41,11 +47,15 @@ final class UndoCommandTests: XCTestCase {
         _ = await cmd.undo(commit: "current-head", force: true)
         guard case .object(let dict) = fake.lastArgs,
               case .bool(let force)? = dict["force"]
-        else { return XCTFail("unexpected args shape: \(fake.lastArgs)") }
-        XCTAssertTrue(force)
+        else {
+            Issue.record("unexpected args shape: \(fake.lastArgs)")
+            return
+        }
+        #expect(force)
     }
 
-    func testUndoFailedMapsToFailedReason() async {
+    @Test("undo failed maps to a failed reason")
+    func undoFailedMapsToFailedReason() async {
         let fake = FakeMCPCaller(result: .success(MCPClient.ToolCallResult(
             content: [.init(type: "text", text: #"{"status":"refused","reason":"initial-commit"}"#)],
             isError: true
@@ -53,12 +63,14 @@ final class UndoCommandTests: XCTestCase {
         let cmd = UndoCommand(caller: fake.asCaller)
         let result = await cmd.undo(commit: "current-head", force: false)
         guard case .failed(let reason, _) = result else {
-            return XCTFail("expected .failed, got \(result)")
+            Issue.record("expected .failed, got \(result)")
+            return
         }
-        XCTAssertEqual(reason, "initial-commit")
+        #expect(reason == "initial-commit")
     }
 
-    func testUndoThrownErrorMapsToFailed() async {
+    @Test("a thrown error maps to failed")
+    func undoThrownErrorMapsToFailed() async {
         struct OopsError: LocalizedError {
             var errorDescription: String? { "oops: something broke" }
         }
@@ -66,10 +78,11 @@ final class UndoCommandTests: XCTestCase {
         let cmd = UndoCommand(caller: fake.asCaller)
         let result = await cmd.undo(commit: "current-head", force: false)
         guard case .failed(let reason, let detail) = result else {
-            return XCTFail("expected .failed, got \(result)")
+            Issue.record("expected .failed, got \(result)")
+            return
         }
-        XCTAssertEqual(reason, "mcp-error")
-        XCTAssertEqual(detail, "oops: something broke")
+        #expect(reason == "mcp-error")
+        #expect(detail == "oops: something broke")
     }
 }
 

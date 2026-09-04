@@ -248,9 +248,9 @@ final class SiteNavigatorModel {
             case .failure(.emptyTitle):
                 break  // no write happened; keep the old title silently
             case .failure(.noEditableLocation):
-                renameError = "This page has no editable title to rename."
+                renameError = String(localized: "This page has no editable title to rename.")
             case .failure(.io(let msg)):
-                renameError = "Couldn't rename: \(msg)"
+                renameError = String(localized: "Couldn't rename: \(msg)")
             }
         } else if let post = await graph.post(id: id) {
             let url = sourceDirectory.appendingPathComponent(post.filePath)
@@ -270,9 +270,9 @@ final class SiteNavigatorModel {
             case .failure(.emptyTitle):
                 break
             case .failure(.noEditableLocation):
-                renameError = "This post has no editable title to rename."
+                renameError = String(localized: "This post has no editable title to rename.")
             case .failure(.io(let msg)):
-                renameError = "Couldn't rename: \(msg)"
+                renameError = String(localized: "Couldn't rename: \(msg)")
             }
         }
     }
@@ -363,7 +363,7 @@ final class SiteNavigatorModel {
             try store.save(entries)
             return true
         } catch {
-            redirectSaveError = "Couldn't save the redirect: \(error.localizedDescription)"
+            redirectSaveError = String(localized: "Couldn't save the redirect: \(error.localizedDescription)")
             return false
         }
     }

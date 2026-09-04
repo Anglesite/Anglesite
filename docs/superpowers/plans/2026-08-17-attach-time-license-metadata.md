@@ -1,5 +1,7 @@
 # Attach-Time License Metadata Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** `Insert ▸ Image…`'s file-open panel grows a checkbox + license picker; when checked, the picked image's bytes get the chosen license embedded (via `LicenseMetadataEmbedder`) before insertion. The choice persists as the last-used selection. Non-asserting collections (bookmarks/replies/likes/reviews, with no explicit per-collection override) suppress the control entirely — issue #999, scope items 2 (consumer) and 3 ("Attach-time application").

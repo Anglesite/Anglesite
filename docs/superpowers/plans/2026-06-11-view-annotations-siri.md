@@ -1,5 +1,7 @@
 # View Annotations for Siri Onscreen Awareness Implementation Plan
 
+**Status:** historical
+
 > ⚠️ **Archive — executed in PR #167.** This plan is preserved as a trace artifact, not a live work item. The unchecked `- [ ]` boxes are the *original* task list, not current state. Three of the code snippets below were corrected against the Xcode 27 SDK during execution and **do not match what shipped**:
 >
 > - Task 1 specified `extension SiteEntity: AppEntityAnnotatable {}` — dropped. `AppEntityAnnotatable` is a holder-side protocol (NSUserActivity, NSView conform via the SDK), not an entity-side marker. The functional goal is met by setting `activity.appEntityIdentifier` directly on `NSUserActivity`.

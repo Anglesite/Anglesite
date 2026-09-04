@@ -110,7 +110,7 @@ final class WebsiteInspectorModel {
         saveError = nil
         defer { isSavingTitle = false }
         guard let infoPlistURL = SiteFileTree.layout(for: packageURL).infoPlist else {
-            saveError = "This site's Info.plist couldn't be found."
+            saveError = String(localized: "This site's Info.plist couldn't be found.")
             return false
         }
         let newTitle = title
@@ -160,7 +160,7 @@ final class WebsiteInspectorModel {
             savedLang = settings.lang
             return true
         } catch {
-            saveError = "Couldn't save website language: \(error.localizedDescription)"
+            saveError = String(localized: "Couldn't save website language: \(error.localizedDescription)")
             return false
         }
     }
