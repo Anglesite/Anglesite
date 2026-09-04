@@ -6,8 +6,11 @@ on:
   pull_request:
     branches: [main]
   schedule:
-    # Matches the weekly cadence of the default setup this replaces.
-    - cron: '17 3 * * 1'
+    # Nightly, not the weekly cadence of the default setup this replaced: since #1865 the
+    # Swift analysis runs ONLY from this schedule (and workflow_dispatch) — see the
+    # analyze-swift job — so this is its whole coverage cadence, not a backstop.
+    - cron: '17 3 * * *'
+  workflow_dispatch:
 
 permissions:
   contents: read
@@ -33,28 +36,51 @@ jobs:
           # matrix entry covers both. Actions workflow YAML has no build step to speed up;
           # it's here for parity with the language list default setup was scanning.
           - language: actions
-            build-mode: none
-            runs-on: ubuntu-latest
           - language: javascript-typescript
-            build-mode: none
-            runs-on: ubuntu-latest
-          # Swift needs an actual compile to build the CodeQL database. `build-mode: manual`
-          # (below) replaces autobuild's build-strategy guessing with the SwiftPM portable-target
-          # build ci.yml's build-test lane already completes reliably (#1052) — see the build
-          # step for what that covers and deliberately excludes.
-          - language: swift
-            build-mode: manual
-            runs-on: macos-26
-    runs-on: ${{ matrix.runs-on }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          languages: ${{ matrix.language }}
+          build-mode: none
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
+        with:
+          category: '/language:${{ matrix.language }}'
+
+  analyze-swift:
+    name: Analyze (swift)
+    # Schedule/workflow_dispatch only, never on PRs or main pushes (#1865). This was the single
+    # most expensive job in the repo — 30-41 minutes on macos-26 with no cache (by design: CodeQL
+    # has to observe the compile, see the build step) — and it competed for the same
+    # 5-concurrent macOS runner slots as ci.yml's lanes, so every Swift PR queued an extra
+    # hour-plus of macOS time behind it (measured queue waits of 98-180 minutes for this job
+    # alone). It bought nothing on main either: with merges landing minutes apart,
+    # `cancel-in-progress` cancelled 8 of the last 10 main runs before analysis finished. It is
+    # not a required check (the `Main` ruleset requires only ci.yml's "CI required checks"). A
+    # nightly run analyses main's tip reliably instead — scheduled workflows run against the
+    # default branch — and the ubuntu JS/TS and Actions analyses above are cheap (~1 minute)
+    # and stay on every PR and push.
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    permissions:
+      contents: read
+      security-events: write
+      packages: read
+      actions: read
+    runs-on: macos-26
     # Swift's portable-target build + CodeQL analysis has been landing at 42-46 minutes as the
     # portable targets grow, so 45 was too tight — three consecutive runs on #1680 timed out
     # mid-"Perform CodeQL Analysis" at 45m18s-45m43s (#1710). 60 gives real headroom.
-    timeout-minutes: ${{ matrix.language == 'swift' && 60 || 10 }}
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Select latest available Xcode
-        if: matrix.language == 'swift'
         # Same toolchain selection as ci.yml's build-test job — see the comment there for why
         # Xcode 26.3 is excluded and macos-26 is required (Swift 6.2.x task-allocator bug).
         run: |
@@ -63,14 +89,17 @@ jobs:
           echo "Selecting: $LATEST"
           sudo xcode-select -s "$LATEST"
 
+      # Swift needs an actual compile to build the CodeQL database. `build-mode: manual` replaces
+      # autobuild's build-strategy guessing with the SwiftPM portable-target build ci.yml's
+      # build-test lane already completes reliably (#1052) — see the build step for what that
+      # covers and deliberately excludes.
       - name: Initialize CodeQL
         uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
-          languages: ${{ matrix.language }}
-          build-mode: ${{ matrix.build-mode }}
+          languages: swift
+          build-mode: manual
 
       - name: Build (SwiftPM portable targets, deliberately no cache)
-        if: matrix.language == 'swift'
         # SwiftPM build with ANGLESITE_SKIP_CONTAINER=1, mirroring ci.yml's build-test lane —
         # NOT the full `xcodebuild -scheme Anglesite` app build this job originally ran (#1031).
         # That build cannot skip the apple/containerization dependency graph (project.yml
@@ -94,4 +123,4 @@ jobs:
       - name: Perform CodeQL Analysis
         uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4.37.9
         with:
-          category: '/language:${{ matrix.language }}'
+          category: '/language:swift'

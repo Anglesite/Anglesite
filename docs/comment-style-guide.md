@@ -112,7 +112,7 @@ Two ways to generate documentation, depending on what you need:
   `--target`** — with no target filter, the plugin documents every target in the whole dependency
   graph, including vendored third-party packages whose doc comments you don't control and can't
   fix. CI passes an explicit list of this repo's own targets; copy that list from
-  `.github/workflows/ci.yml`'s `docs-docc` job (or `AGENTS.md`/`CONTRIBUTING.md`) to generate docs
+  `.github/workflows/ci.yml`'s `build-test` job (its "Build documentation" step; or `AGENTS.md`/`CONTRIBUTING.md`) to generate docs
   for everything at once.
 
 - **The full merged docset** — app entry point, every module, and the container runtime, as one
