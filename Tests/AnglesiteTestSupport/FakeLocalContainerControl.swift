@@ -22,9 +22,11 @@ public actor FakeLocalContainerControl: LocalContainerControl {
     public var execResult: ContainerExecResult
     /// Lines replayed to `onOutput` in order before `exec` returns.
     public var execStdoutLines: [String]
-    /// When set, `exec` throws this immediately — before appending to `execCalls` or replaying
-    /// `execStdoutLines` — so a caller's throw path (e.g. draining a still-empty `AsyncStream`
-    /// before rethrowing) can be exercised without a real container.
+    /// When set, `exec` replays `execStdoutLines` via `onOutput` (recording the call in
+    /// `execCalls`) and then throws this — mirroring a real container exec that can emit partial
+    /// output before ultimately failing, so a caller's throw path (e.g. draining an `AsyncStream`
+    /// that already has buffered output before rethrowing) can be exercised without a real
+    /// container.
     public var execError: (any Error)?
     /// All `exec` invocations recorded for assertion.
     public private(set) var execCalls: [(siteID: String, argv: [String], env: [String: String], cwd: String)] = []
@@ -138,9 +140,9 @@ public actor FakeLocalContainerControl: LocalContainerControl {
         workingDirectory: String,
         onOutput: @escaping @Sendable (String, LogCenter.Stream) -> Void
     ) async throws -> ContainerExecResult {
-        if let execError { throw execError }
         execCalls.append((siteID: siteID, argv: argv, env: environment, cwd: workingDirectory))
         for line in execStdoutLines { onOutput(line, .stdout) }
+        if let execError { throw execError }
         return execResult
     }
 

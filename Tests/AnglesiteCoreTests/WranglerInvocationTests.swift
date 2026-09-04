@@ -58,5 +58,7 @@ struct WranglerInvocationTests {
                 control: control, siteID: "site-1", argv: ["npx", "wrangler", "deploy"],
                 environment: [:], logCenter: logCenter, source: "deploy:site-1")
         }
+        let snapshot = await logCenter.snapshot()
+        #expect(snapshot.filter { $0.source == "deploy:site-1" }.map(\.text) == ["partial output"])
     }
 }
