@@ -1,5 +1,6 @@
 import Testing
 import AppKit
+import SwiftUI
 import AnglesiteCore
 @testable import AnglesiteAppCore
 
@@ -42,5 +43,47 @@ struct SiteShellToolbarDelegateTests {
         for identifier in SiteShellToolbarDelegate.defaultItemIdentifiers {
             #expect(allowed.contains(identifier))
         }
+    }
+
+    @Test("non-insert items become a plain NSToolbarItem hosting the supplied view")
+    func nonInsertItemsAreHostedViewItems() {
+        let delegate = SiteShellToolbarDelegate(
+            itemView: { _ in AnyView(Text("stub")) },
+            insertMenuItems: { [] }
+        )
+        let toolbar = NSToolbar(identifier: SiteShellToolbarDelegate.toolbarIdentifier)
+        let item = delegate.toolbar(
+            toolbar,
+            itemForItemIdentifier: SiteShellToolbarDelegate.itemIdentifier(for: .backup),
+            willBeInsertedIntoToolbar: true)
+        #expect(item?.itemIdentifier == SiteShellToolbarDelegate.itemIdentifier(for: .backup))
+        #expect(item?.view is NSHostingView<AnyView>)
+    }
+
+    @Test("insert item is an NSMenuToolbarItem carrying the supplied menu items")
+    func insertItemIsMenuToolbarItem() throws {
+        let stubItem = NSMenuItem(title: "New Page…", action: nil, keyEquivalent: "")
+        let delegate = SiteShellToolbarDelegate(
+            itemView: { _ in AnyView(Text("stub")) },
+            insertMenuItems: { [stubItem] }
+        )
+        let toolbar = NSToolbar(identifier: SiteShellToolbarDelegate.toolbarIdentifier)
+        let item = delegate.toolbar(
+            toolbar,
+            itemForItemIdentifier: SiteShellToolbarDelegate.itemIdentifier(for: .insert),
+            willBeInsertedIntoToolbar: true)
+        let menuItem = try #require(item as? NSMenuToolbarItem)
+        #expect(menuItem.menu.items.map(\.title) == ["New Page…"])
+    }
+
+    @Test("tracking separator identifiers return an NSTrackingSeparatorToolbarItem-free nil outside a split view")
+    func unknownIdentifierReturnsNil() {
+        let delegate = SiteShellToolbarDelegate(itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
+        let toolbar = NSToolbar(identifier: SiteShellToolbarDelegate.toolbarIdentifier)
+        let item = delegate.toolbar(
+            toolbar,
+            itemForItemIdentifier: NSToolbarItem.Identifier("not.a.real.item"),
+            willBeInsertedIntoToolbar: true)
+        #expect(item == nil)
     }
 }

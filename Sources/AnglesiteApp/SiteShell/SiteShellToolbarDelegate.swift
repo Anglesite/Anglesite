@@ -1,4 +1,5 @@
 import AppKit
+import SwiftUI
 import AnglesiteCore
 
 /// The AppKit shell's owned `NSToolbar` delegate (#1699 Stage 3 slice 2, design doc
@@ -27,11 +28,63 @@ final class SiteShellToolbarDelegate: NSObject, NSToolbarDelegate {
         SiteToolbarItemID.allCases.map(itemIdentifier(for:))
     }
 
+    /// Builds the SwiftUI content for a given item, matching `SiteWindow.toolbarItemContent`
+    /// (Task 1) exactly — the shell and the legacy toolbar render the same view.
+    private let itemView: @MainActor (SiteToolbarItemID) -> AnyView
+    /// Rebuilt fresh on every menu open (Insert's Blocks section depends on live WYSIWYG canvas
+    /// state) — see `menuNeedsUpdate(_:)` below.
+    private let insertMenuItems: @MainActor () -> [NSMenuItem]
+
+    init(
+        itemView: @escaping @MainActor (SiteToolbarItemID) -> AnyView,
+        insertMenuItems: @escaping @MainActor () -> [NSMenuItem]
+    ) {
+        self.itemView = itemView
+        self.insertMenuItems = insertMenuItems
+        super.init()
+    }
+
     func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         Self.defaultItemIdentifiers
     }
 
     func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
         Self.allowedItemIdentifiers
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar,
+        itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        guard let id = SiteToolbarItemID.allCases.first(where: { Self.itemIdentifier(for: $0) == itemIdentifier }) else {
+            return nil
+        }
+
+        if id == .insert {
+            let menuItem = NSMenuToolbarItem(itemIdentifier: itemIdentifier)
+            menuItem.menu = NSMenu()
+            menuItem.menu.delegate = self
+            // Populate synchronously so the menu isn't empty before its first open —
+            // `menuNeedsUpdate(_:)` below then keeps it fresh on every subsequent open.
+            menuItem.menu.items = insertMenuItems()
+            menuItem.image = NSImage(systemSymbolName: "plus", accessibilityDescription: "Insert")
+            menuItem.label = "Insert"
+            menuItem.toolTip = "Add a new page, post, collection entry, or block"
+            menuItem.showsIndicator = true
+            return menuItem
+        }
+
+        let item = NSToolbarItem(itemIdentifier: itemIdentifier)
+        let hosting = NSHostingView(rootView: itemView(id))
+        hosting.translatesAutoresizingMaskIntoConstraints = false
+        item.view = hosting
+        return item
+    }
+}
+
+extension SiteShellToolbarDelegate: NSMenuDelegate {
+    func menuNeedsUpdate(_ menu: NSMenu) {
+        menu.items = insertMenuItems()
     }
 }
