@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 struct LogCenterTests {
@@ -101,20 +102,15 @@ struct LogCenterTests {
         #expect(lines[3] == "03  [mcp/stderr]  server ready")
     }
 
-    @Test("Cancel ends iteration and unregisters") func cancelEndsIterationAndUnregisters() async {
+    @Test("Cancel ends iteration and unregisters") func cancelEndsIterationAndUnregisters() async throws {
         let center = LogCenter()
         let sub = await center.subscribe()
         let initial = await center.subscriberCount()
         #expect(initial == 1)
 
         sub.cancel()
-        // onTermination → removeSubscriber hops through a Task; allow it to land.
-        var finalCount = await center.subscriberCount()
-        for _ in 0..<20 where finalCount > 0 {
-            try? await Task.sleep(nanoseconds: 20_000_000)
-            finalCount = await center.subscriberCount()
-        }
-        #expect(finalCount == 0)
+        // onTermination → removeSubscriber hops through a Task; wait for it to land.
+        try await waitUntil("removeSubscriber to land") { await center.subscriberCount() == 0 }
 
         var iterator = sub.stream.makeAsyncIterator()
         let next = await iterator.next()

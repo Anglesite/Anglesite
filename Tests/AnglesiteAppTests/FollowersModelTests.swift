@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -531,9 +532,9 @@ struct FollowersModelTests {
         #expect(model.pendingRows.first?.profile == nil)
 
         model.enrichIfNeeded(actor)
-        // enrichIfNeeded fires a detached Task; give it a beat to land.
-        for _ in 0..<50 where model.pendingRows.first?.profile == nil {
-            try await Task.sleep(for: .milliseconds(10))
+        // enrichIfNeeded fires a detached Task; wait for it to land instead of guessing how long.
+        try await waitUntil("the pending row's profile to be enriched") {
+            model.pendingRows.first?.profile != nil
         }
 
         #expect(model.pendingRows.first?.profile?.name == "Alice")
@@ -558,6 +559,8 @@ struct FollowersModelTests {
 
         await model.loadPending()
 
+        // Negative assertion: there's no event to wait for, so this settles briefly and confirms
+        // the baseline load never notified, rather than polling for a condition that shouldn't occur.
         try await Task.sleep(for: .milliseconds(20))
         let notified = await recorder.events
         #expect(notified.isEmpty)
@@ -598,11 +601,10 @@ struct FollowersModelTests {
         model.startPendingPollingIfNeeded()
         defer { model.stopPendingPolling() }
 
-        var events: [(String, Int)] = []
-        for _ in 0..<50 where events.isEmpty {
-            try await Task.sleep(for: .milliseconds(10))
-            events = await recorder.events
+        try await waitUntil("the poll loop to notify of the pending-count growth") {
+            !(await recorder.events.isEmpty)
         }
+        let events = await recorder.events
 
         // `[(String, Int)]` doesn't conform to `Equatable` (tuples can't conform to protocols),
         // so this compares the array's shape field-by-field instead of via `==`.
@@ -696,6 +698,7 @@ struct FollowersModelTests {
         let recorder = Recorder()
         model.onNewPendingRequests = { siteID, count in Task { await recorder.record((siteID, count)) } }
         await model.loadPending()
+        // Negative assertion (baseline reset must stay silent) — settle briefly rather than poll.
         try await Task.sleep(for: .milliseconds(20))
 
         #expect(await recorder.events.isEmpty)
