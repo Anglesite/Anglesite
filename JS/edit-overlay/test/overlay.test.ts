@@ -155,6 +155,51 @@ describe("click-to-edit", () => {
     // Selector snapshot reflects the pre-rewrite source text so the server-side patcher resolves it.
     expect(msg.selector.textContent).toBe("we makes great stuff");
   });
+
+  // #1851: the overlay used to apply the DOM edit optimistically and then ignore the reply
+  // entirely — a refused persist (e.g. the container's guest clone had fallen behind Source/'s
+  // HEAD) left the page showing text that was never actually saved, with no toast and nothing to
+  // undo. These pin the fix: a non-"applied" reply must revert the DOM and surface a toast.
+  it("on edit-applied, keeps the edited text and shows no toast", () => {
+    const p = makeText(document.body, "p", "old");
+    p.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    p.textContent = "new";
+    p.dispatchEvent(new FocusEvent("blur"));
+    const id = (sent[0] as { id: string }).id;
+
+    (window as unknown as { anglesite: { _handleReply: (r: unknown) => void } }).anglesite._handleReply({
+      id, status: "applied",
+    });
+
+    expect(p.textContent).toBe("new");
+    expect(document.querySelector(".anglesite-toast")).toBeNull();
+  });
+
+  it("on edit-failed, reverts to the original text and shows a toast with the failure detail", () => {
+    const p = makeText(document.body, "p", "old");
+    p.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    p.textContent = "new";
+    p.dispatchEvent(new FocusEvent("blur"));
+    const id = (sent[0] as { id: string }).id;
+
+    (window as unknown as { anglesite: { _handleReply: (r: unknown) => void } }).anglesite._handleReply({
+      id, status: "failed", message: "The edit changed the preview but couldn't be saved to Source: conflict",
+    });
+
+    expect(p.textContent).toBe("old");
+    expect(document.querySelector(".anglesite-toast")?.textContent).toContain("couldn't be saved to Source");
+  });
+
+  it("reverts immediately with a toast when the WKWebView bridge isn't present", () => {
+    (window as unknown as { webkit?: unknown }).webkit = undefined;
+    const p = makeText(document.body, "p", "old");
+    p.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    p.textContent = "new";
+    p.dispatchEvent(new FocusEvent("blur"));
+
+    expect(p.textContent).toBe("old");
+    expect(document.querySelector(".anglesite-toast")?.textContent).toMatch(/not running inside the anglesite app/i);
+  });
 });
 
 describe("image drop", () => {
