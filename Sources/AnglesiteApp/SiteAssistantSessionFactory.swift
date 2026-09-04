@@ -40,7 +40,7 @@ enum SiteAssistantSessionFactory {
         var assistant: AssistantBuilder
         #if compiler(>=6.4)
         // `AltTextGenerator` is only declared under `#if compiler(>=6.4)`
-        // (Sources/AnglesiteCore/AltTextGenerator.swift) — the field itself has to be gated,
+        // (Sources/AnglesiteCore/AI/AltTextGenerator.swift) — the field itself has to be gated,
         // not just its `.live` initializer, or an older toolchain can't even parse the type.
         var altTextGenerator: @Sendable (
             _ siteID: String,

@@ -124,6 +124,17 @@ public enum SecretAccounts {
         "indieauth:\(siteID):dpop-key"
     }
 
+    /// The AutoAuth token the Microsub reader presents when fetching a followed feed that gates
+    /// its content behind IndieAuth (#1891 — storage slice 1 of #1571's outbound-authenticated-
+    /// fetch follow-up; no code path reads or writes this slot yet). Keyed by both the site doing
+    /// the following and the specific feed URL, so tokens for two different friends' feeds, or the
+    /// same feed followed from two site packages, never collide. Distinct from
+    /// ``indieAuthAccessToken(siteID:)``, which is the reader's own sign-in session with its
+    /// *own* site's IndieAuth server, not a credential for fetching someone else's.
+    public static func microsubFeedAutoAuthToken(siteID: String, feedURL: String) -> String {
+        "microsub-autoauth:\(siteID):\(feedURL)"
+    }
+
     /// The IndieAuth token the iOS Micropub posting client presents to the site's `/micropub`
     /// endpoint (#868). A distinct entry from ``indieAuthAccessToken(siteID:)`` (the Mac
     /// reader's Microsub credential): the two flows request different scopes and sign in
@@ -153,6 +164,28 @@ public enum SecretAccounts {
     /// The API key for the single configured `ExternalLLMBackend` endpoint (#1482). Global, not
     /// per-connection — unlike `acpAgentToken(id:)`, there is only ever one external-LLM config.
     public static let externalLLMAPIKey = "external-llm-api-key"
+
+    /// The site's atproto OAuth DPoP-bound access token (#1890) — minted by the site's own PDS
+    /// authorization server, distinct from ``blueskyAppPassword(siteID:)`` (the credential this
+    /// mechanism is meant to eventually replace, per the design doc's migration section).
+    public static func atprotoOAuthAccessToken(siteID: String) -> String {
+        "atproto-oauth:\(siteID):access-token"
+    }
+
+    /// The atproto OAuth refresh token. atproto rotates refresh tokens on every use — the value
+    /// stored here must always be overwritten immediately with the newly-issued token, never the
+    /// one that was just consumed.
+    public static func atprotoOAuthRefreshToken(siteID: String) -> String {
+        "atproto-oauth:\(siteID):refresh-token"
+    }
+
+    /// The raw private-key bytes (`DPoPKeyPair.persistedRepresentation`) bound to
+    /// ``atprotoOAuthAccessToken(siteID:)``'s `cnf.jkt` — every resource request and refresh must
+    /// sign its DPoP proof with this same key pair, so it's persisted alongside the tokens rather
+    /// than regenerated per call. Same pattern as ``indieAuthDPoPKey(siteID:)``/``micropubDPoPKey(siteID:)``.
+    public static func atprotoOAuthDPoPKey(siteID: String) -> String {
+        "atproto-oauth:\(siteID):dpop-key"
+    }
 }
 
 /// A stored Cloudflare OAuth credential: the access token used as a Cloudflare API bearer token,
@@ -298,6 +331,68 @@ public extension SecretStore {
     func clearMicropubSession(siteID: String) throws {
         try delete(account: SecretAccounts.micropubAccessToken(siteID: siteID))
         try delete(account: SecretAccounts.micropubDPoPKey(siteID: siteID))
+    }
+
+    /// Read the site's atproto OAuth access token (#1890).
+    func readATProtoOAuthAccessToken(siteID: String) throws -> String? {
+        try read(account: SecretAccounts.atprotoOAuthAccessToken(siteID: siteID))
+    }
+
+    /// Store the site's atproto OAuth access token. Empty string clears.
+    func writeATProtoOAuthAccessToken(_ token: String, siteID: String) throws {
+        try write(token, account: SecretAccounts.atprotoOAuthAccessToken(siteID: siteID))
+    }
+
+    /// Read the site's atproto OAuth refresh token.
+    func readATProtoOAuthRefreshToken(siteID: String) throws -> String? {
+        try read(account: SecretAccounts.atprotoOAuthRefreshToken(siteID: siteID))
+    }
+
+    /// Store the site's atproto OAuth refresh token — atproto rotates this on every refresh, so
+    /// callers overwrite it immediately with the newly-issued value, never the one that was just
+    /// consumed.
+    func writeATProtoOAuthRefreshToken(_ token: String, siteID: String) throws {
+        try write(token, account: SecretAccounts.atprotoOAuthRefreshToken(siteID: siteID))
+    }
+
+    /// Read the DPoP key pair bound to the site's atproto OAuth session, if any. `nil` when unset
+    /// or the stored bytes no longer decode as a P-256 private key.
+    func readATProtoOAuthDPoPKeyPair(siteID: String) throws -> DPoPKeyPair? {
+        guard let base64 = try read(account: SecretAccounts.atprotoOAuthDPoPKey(siteID: siteID)),
+              let data = Data(base64Encoded: base64) else { return nil }
+        return DPoPKeyPair(persistedRepresentation: data)
+    }
+
+    /// Store the DPoP key pair bound to the site's atproto OAuth session.
+    func writeATProtoOAuthDPoPKeyPair(_ keyPair: DPoPKeyPair, siteID: String) throws {
+        try write(
+            keyPair.persistedRepresentation.base64EncodedString(),
+            account: SecretAccounts.atprotoOAuthDPoPKey(siteID: siteID))
+    }
+
+    /// Clear the site's atproto OAuth access token, refresh token, and bound DPoP key pair
+    /// together — a partial session (a token without its key, or vice versa) can never produce a
+    /// valid proof, so all three are always cleared as one unit, mirroring
+    /// ``clearIndieAuthSession(siteID:)``/``clearMicropubSession(siteID:)``.
+    func clearATProtoOAuthSession(siteID: String) throws {
+        try delete(account: SecretAccounts.atprotoOAuthAccessToken(siteID: siteID))
+        try delete(account: SecretAccounts.atprotoOAuthRefreshToken(siteID: siteID))
+        try delete(account: SecretAccounts.atprotoOAuthDPoPKey(siteID: siteID))
+    }
+
+    /// Read the AutoAuth token stored for a followed feed, if any (#1891).
+    func readMicrosubFeedAutoAuthToken(siteID: String, feedURL: String) throws -> String? {
+        try read(account: SecretAccounts.microsubFeedAutoAuthToken(siteID: siteID, feedURL: feedURL))
+    }
+
+    /// Store the AutoAuth token for a followed feed. Empty string clears.
+    func writeMicrosubFeedAutoAuthToken(_ token: String, siteID: String, feedURL: String) throws {
+        try write(token, account: SecretAccounts.microsubFeedAutoAuthToken(siteID: siteID, feedURL: feedURL))
+    }
+
+    /// Clear the AutoAuth token stored for a followed feed.
+    func clearMicrosubFeedAutoAuthToken(siteID: String, feedURL: String) throws {
+        try delete(account: SecretAccounts.microsubFeedAutoAuthToken(siteID: siteID, feedURL: feedURL))
     }
 
     /// Read the stored Cloudflare OAuth credential, or `nil` if none is stored (or the stored

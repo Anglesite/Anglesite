@@ -3,12 +3,16 @@
 **Date:** 2026-08-20
 **Issue:** [#1485](https://github.com/Anglesite/Anglesite/issues/1485), follow-up from epic #1230
 (closed; owner approved filing its candidate follow-ups, 2026-08-15).
-**Status:** Hold lifted by the owner (2026-09-04, on #1485) and split into two independently
-landable children: [#1889](https://github.com/Anglesite/Anglesite/issues/1889) (client-metadata
-document hosting — this spec's "Client-metadata hosting" and "Redirect mechanism" rows) and
-[#1890](https://github.com/Anglesite/Anglesite/issues/1890) (the `AnglesiteCore` client mechanics
-below). Onboarding UI and app-password migration/coexistence remain out of scope, tracked on the
-parent #1485.
+**Status:** current — hold lifted by the owner (2026-09-04, on #1485) and split into two
+independently landable children, both shipped: [#1889](https://github.com/Anglesite/Anglesite/issues/1889)
+(client-metadata document hosting — this spec's "Client-metadata hosting" and "Redirect mechanism"
+rows) and [#1890](https://github.com/Anglesite/Anglesite/issues/1890) (this doc's components 3/4/6:
+PAR, token exchange/refresh, and Keychain storage — the "DPoP/PAR client mechanics" slice —
+implemented in `ATProtoOAuthClient.swift`). Components 1/2 (`ATProtoIdentityResolver`,
+`ATProtoAuthServerMetadata`) remain unbuilt: #1890's client takes the PAR/authorize/token endpoints
+as already-resolved parameters rather than discovering them itself, so identity resolution and
+auth-server metadata discovery are still a separate, not-yet-filed follow-up. Onboarding UI and
+app-password migration/coexistence remain out of scope, tracked on the parent #1485.
 
 ## Scope
 
