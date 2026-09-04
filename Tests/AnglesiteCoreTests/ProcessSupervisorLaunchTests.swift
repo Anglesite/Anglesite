@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 struct ProcessSupervisorLaunchTests {
@@ -92,9 +93,7 @@ struct ProcessSupervisorLaunchTests {
             logCenter: center
         )
         // Let it actually start.
-        try? await Task.sleep(nanoseconds: 100_000_000)
-        let runningBefore = await supervisor.isRunning(handle)
-        #expect(runningBefore)
+        try await waitUntil("the process to report running") { await supervisor.isRunning(handle) }
 
         await supervisor.terminate(handle, timeout: 2)
         let reason = await supervisor.waitForExit(handle)

@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 @Suite("WorkersDevStatusCenter")
@@ -60,12 +61,7 @@ struct WorkersDevStatusCenterTests {
         let center = WorkersDevStatusCenter()
         let subscription = await center.subscribe()
         subscription.cancel()
-        // onTermination unregisters via a Task hop; poll briefly (a bounded poll on an async
-        // unregistration, mirroring LogCenter's own tests).
-        for _ in 0..<50 {
-            if await center.subscriberCount() == 0 { break }
-            try await Task.sleep(for: .milliseconds(10))
-        }
-        #expect(await center.subscriberCount() == 0)
+        // onTermination unregisters via a Task hop; wait for it to land.
+        try await waitUntil("the cancelled subscriber to unregister") { await center.subscriberCount() == 0 }
     }
 }
