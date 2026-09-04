@@ -86,6 +86,10 @@ struct SiteShellView<Sidebar: View, Content: View, Inspector: View>: NSViewContr
     ) {
         context.coordinator.sidebarBinding = $sidebarVisible
         context.coordinator.inspectorBinding = $inspectorPresented
+        // Self-healing re-attach, not a first install — see the method's doc comment. Idempotent
+        // and window-identity-compared, so on the overwhelmingly common path this is two
+        // comparisons.
+        controller.attachOwnedToolbarIfNeeded()
         controller.update(sidebar: sidebar, content: content, inspector: inspector)
         if let target = SiteShellState.collapseMutation(
             visible: sidebarVisible, isCollapsed: controller.sidebarItem.isCollapsed) {

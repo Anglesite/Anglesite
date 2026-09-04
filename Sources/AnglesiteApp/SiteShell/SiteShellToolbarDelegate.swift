@@ -24,8 +24,18 @@ final class SiteShellToolbarDelegate: NSObject, NSToolbarDelegate {
         SiteToolbarItemID.allCases.filter(\.isDefaultVisible).map(itemIdentifier(for:))
     }
 
+    /// Every identifier the toolbar may legitimately hold — the frozen `SiteToolbarItemID` set
+    /// **plus** the three items the shell seeds itself (`SiteShellSplitController
+    /// .attachOwnedToolbarIfNeeded()`): the trailing search field and the two tracking separators.
+    ///
+    /// Those three have to be here even though they never appear in `defaultItemIdentifiers`.
+    /// `NSToolbar` reconciles a restored autosaved configuration against this set, and
+    /// `autosavesConfiguration` is on, so an identifier missing from it survives the first launch
+    /// (where the seeding inserts it directly) and is then silently dropped on the second — and by
+    /// the same rule a Customize Toolbar round trip could drop it too.
     static var allowedItemIdentifiers: [NSToolbarItem.Identifier] {
         SiteToolbarItemID.allCases.map(itemIdentifier(for:))
+            + [SiteShellSearchToolbarItem.identifier, sidebarTrackingSeparator, inspectorTrackingSeparator]
     }
 
     /// Builds the SwiftUI content for a given item, matching `SiteWindow.toolbarItemContent`

@@ -29,12 +29,38 @@ struct SiteShellToolbarDelegateTests {
         #expect(SiteShellToolbarDelegate.defaultItemIdentifiers == expected)
     }
 
-    @Test("allowed item identifiers cover every SiteToolbarItemID exactly once")
+    @Test("allowed item identifiers cover every SiteToolbarItemID exactly once, plus the shell's own three")
     func allowedItemIdentifiersCoverAllCases() {
         let allowed = SiteShellToolbarDelegate.allowedItemIdentifiers
+        // The three the shell seeds itself rather than declaring as defaults. They must be
+        // *allowed* even so: `NSToolbar` reconciles a restored autosaved configuration against
+        // this set, so anything missing from it survives the launch that inserts it and is
+        // dropped on the next one.
+        let shellOwned: Set<NSToolbarItem.Identifier> = [
+            SiteShellSearchToolbarItem.identifier,
+            SiteShellToolbarDelegate.sidebarTrackingSeparator,
+            SiteShellToolbarDelegate.inspectorTrackingSeparator,
+        ]
         let expected = Set(SiteToolbarItemID.allCases.map { SiteShellToolbarDelegate.itemIdentifier(for: $0) })
+            .union(shellOwned)
         #expect(Set(allowed) == expected)
         #expect(allowed.count == expected.count, "no duplicate identifiers")
+        for identifier in shellOwned {
+            #expect(allowed.contains(identifier))
+        }
+    }
+
+    @Test("every item the shell seeds into the toolbar is in the allowed set")
+    func seededItemsAreAllowed() {
+        // The seeding in `SiteShellSplitController.attachOwnedToolbarIfNeeded()` and this set have
+        // to agree — an identifier inserted but not allowed vanishes on the next launch.
+        let allowed = Set(SiteShellToolbarDelegate.allowedItemIdentifiers)
+        #expect(allowed.contains(SiteShellSearchToolbarItem.identifier))
+        #expect(allowed.contains(SiteShellToolbarDelegate.sidebarTrackingSeparator))
+        #expect(allowed.contains(SiteShellToolbarDelegate.inspectorTrackingSeparator))
+        for identifier in SiteShellToolbarDelegate.defaultItemIdentifiers {
+            #expect(allowed.contains(identifier))
+        }
     }
 
     @Test("default set is a subset of the allowed set")

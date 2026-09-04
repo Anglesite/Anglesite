@@ -921,8 +921,12 @@ struct SiteWindow: View {
             inspectorPresented: inspectorPresented,
             // Captured once, in `makeNSViewController`, and read for the window's lifetime: both
             // closures reach live state through `@State` storage that outlives any single `body`
-            // evaluation — the same property `body`'s own `onAppear` seam relies on.
-            itemView: { id in AnyView(self.toolbarItemContent(id, site: site)) },
+            // evaluation — the same property `body`'s own `onAppear` seam relies on. `model.site`
+            // rather than the captured `site` for the same reason: the capture is frozen at the
+            // first evaluation, so a site that is later renamed or invalidated would keep
+            // rendering the old value in `toolbarItemContent`'s `site.isValid` help strings. The
+            // parameter is the fallback for the window's pre-load moment.
+            itemView: { id in AnyView(self.toolbarItemContent(id, site: self.model.site ?? site)) },
             insertMenuItems: {
                 Self.shellInsertMenuItems(
                     actions: actions,
@@ -1060,6 +1064,15 @@ struct SiteWindow: View {
                 // the shell's own `NSSearchToolbarItem`: the debounced search driver (whose
                 // results `SiteShellSearchToolbarItem` observes to raise its suggestions menu),
                 // and the ⇧⌘F focus action the Find command reads.
+                //
+                // The focus action deliberately drops `SiteSearchFieldModifier`'s
+                // `AppKitConstraintStormMitigation` inspector-dismiss dance. That mitigation is
+                // for #1126: activating a SwiftUI `.searchable` field inserts its scope bar, and
+                // that toolbar re-layout, coalesced with a presented SwiftUI inspector, is what
+                // storms. Neither half exists here — the shell's scopes live in the field's own
+                // `searchMenuTemplate` (no bar to insert), and the inspector is an
+                // `NSSplitViewItem`, not a SwiftUI `.inspector`. Dismissing the panel to focus a
+                // search field would be a gratuitous, visible side effect under this chrome.
                 titledChrome
                     .task(id: model.search.request) { await model.search.search(siteID: site.id) }
                     .focusedSceneValue(\.siteSearchActions, SiteSearchActions(

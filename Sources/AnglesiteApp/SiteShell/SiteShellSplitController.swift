@@ -145,13 +145,20 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
     }
 
     /// Hands `ownedToolbar` to the window and seeds the items that aren't part of the delegate's
-    /// default set (the trailing search field, the two tracking separators). Runs on every
-    /// appearance because `installToolbar` can't: it is called from
-    /// `SiteShellView.makeNSViewController`, one full layout pass before this controller's view
-    /// reaches a window. Both halves are idempotent — the window assignment compares identity,
-    /// and the seeding runs once per controller *and* skips identifiers a restored autosaved
-    /// configuration already put in the toolbar.
-    private func attachOwnedToolbarIfNeeded() {
+    /// default set (the trailing search field, the two tracking separators). It can't happen in
+    /// `installToolbar`: that is called from `SiteShellView.makeNSViewController`, one full layout
+    /// pass before this controller's view reaches a window.
+    ///
+    /// Called from three places on purpose — `installToolbar` (a no-op then, but free),
+    /// `viewDidAppear()`, and `SiteShellView.updateNSViewController` on every SwiftUI update. The
+    /// last one makes the attachment *self-healing* rather than single-shot: if `viewDidAppear`
+    /// ever fails to reach us through the representable's containment, or SwiftUI re-assigns
+    /// `window.toolbar` on its own (the flag-on branch still applies `.toolbarRole`/
+    /// `.navigationTitle`/`.navigationDocument` to this window), the next update puts the shell's
+    /// toolbar back instead of leaving the window permanently toolbar-less. Both halves are cheap
+    /// and idempotent: the window assignment compares identity, and the seeding runs once per
+    /// controller *and* skips identifiers a restored autosaved configuration already holds.
+    func attachOwnedToolbarIfNeeded() {
         guard let toolbar = ownedToolbar, let window = view.window else { return }
         if window.toolbar !== toolbar { window.toolbar = toolbar }
         guard !seededToolbarItems else { return }
@@ -187,16 +194,21 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
     /// is nil there). These positions land at the intended spots (right after the leading
     /// item, right before the trailing one) once real default items exist, and degrade to
     /// safe no-crash inserts otherwise.
+    /// Each separator is guarded independently, not as a pair: a restored configuration (or a
+    /// Customize Toolbar round trip) can perfectly well contain one and not the other, and an
+    /// all-or-nothing guard would leave that window permanently missing the one it lost.
     static func insertTrackingSeparators(into toolbar: NSToolbar) {
         let present = Set(toolbar.items.map(\.itemIdentifier))
-        guard !present.contains(SiteShellToolbarDelegate.sidebarTrackingSeparator),
-              !present.contains(SiteShellToolbarDelegate.inspectorTrackingSeparator)
-        else { return }
         let sidebarIndex = min(1, toolbar.items.count)
-        toolbar.insertItem(withItemIdentifier: SiteShellToolbarDelegate.sidebarTrackingSeparator, at: sidebarIndex)
-        let inspectorIndex = max(sidebarIndex + 1, toolbar.items.count - 1)
-        toolbar.insertItem(
-            withItemIdentifier: SiteShellToolbarDelegate.inspectorTrackingSeparator, at: inspectorIndex)
+        if !present.contains(SiteShellToolbarDelegate.sidebarTrackingSeparator) {
+            toolbar.insertItem(
+                withItemIdentifier: SiteShellToolbarDelegate.sidebarTrackingSeparator, at: sidebarIndex)
+        }
+        if !present.contains(SiteShellToolbarDelegate.inspectorTrackingSeparator) {
+            let inspectorIndex = max(sidebarIndex + 1, toolbar.items.count - 1)
+            toolbar.insertItem(
+                withItemIdentifier: SiteShellToolbarDelegate.inspectorTrackingSeparator, at: inspectorIndex)
+        }
     }
 
     /// First-run column widths (the legacy chrome's ideals). Subsequent runs are restored by
