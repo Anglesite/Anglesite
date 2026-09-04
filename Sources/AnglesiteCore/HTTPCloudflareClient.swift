@@ -5,30 +5,6 @@ import Foundation
 import FoundationNetworking
 #endif
 
-/// Pagination metadata returned alongside list results.
-private struct CFResultInfo: Decodable, Sendable {
-    let page: Int
-    let total_pages: Int
-}
-
-/// Standard Cloudflare v4 response envelope.
-private struct CFEnvelope<T: Decodable & Sendable>: Decodable, Sendable {
-    let success: Bool
-    let result: T?
-    struct APIError: Decodable, Sendable {
-        let message: String
-        /// Cloudflare's numeric error code (e.g. 7028 `missing_sitemap`). Optional because
-        /// only paths that branch on a specific code consult it, and older envelope fixtures
-        /// omit it.
-        let code: Int?
-    }
-    let errors: [APIError]?
-    let result_info: CFResultInfo?
-}
-
-/// Placeholder for write responses where we only check `success`.
-private struct CFEmpty: Decodable, Sendable {}
-
 private struct CFZone: Decodable, Sendable {
     let id: String
     let name: String
@@ -63,7 +39,6 @@ private struct CFFullDNSRecord: Decodable, Sendable {
     let proxied: Bool?
     let comment: String?
 }
-private struct CFAccount: Decodable, Sendable { let id: String }
 private struct CFRegistrarSearchResult: Decodable, Sendable {
     let name: String
 }
