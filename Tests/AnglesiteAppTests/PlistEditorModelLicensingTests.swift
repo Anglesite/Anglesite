@@ -16,7 +16,10 @@ struct PlistEditorModelLicensingTests {
 
     /// Builds a `PlistEditorModel` against a fresh temp `sourceDirectory` with a minimal
     /// `Info.plist` and, when given, a `src/data/licensing.json`.
-    private func makeModel(licensingJSON: String? = nil) throws -> PlistEditorModel {
+    private func makeModel(
+        licensingJSON: String? = nil,
+        gitCommit: @escaping NativeContentOperations.GitCommit = NativeContentOperations.processGitCommit
+    ) throws -> PlistEditorModel {
         let dir = FileManager.default.temporaryDirectory
             .appendingPathComponent("PlistEditorModelLicensingTests-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
@@ -29,7 +32,7 @@ struct PlistEditorModelLicensingTests {
                 to: dataDir.appendingPathComponent("licensing.json"), atomically: true, encoding: .utf8)
         }
         let file = FileRef(url: plistURL, group: .metadata, name: "Info.plist")
-        return PlistEditorModel(file: file, websiteTitle: "Test Site", sourceDirectory: dir)
+        return PlistEditorModel(file: file, websiteTitle: "Test Site", sourceDirectory: dir, gitCommit: gitCommit)
     }
 
     @Test("load() yields an empty policy when licensing.json is absent")
@@ -443,4 +446,45 @@ struct PlistEditorModelLicensingTests {
         let reloaded = try LicensingStore(sourceDirectory: model.sourceDirectory).load()
         #expect(reloaded.defaultLicense == LicenseRef(url: "https://example.com/my-license", name: "My License"))
     }
+
+    /// A saved licensing.json must land in git the same way any other content mutation does,
+    /// rather than sitting as a silent uncommitted change (#1874).
+    @Test("saveLicensing on success commits licensing.json to git")
+    func saveCommitsToGit() async throws {
+        let spy = PlistEditorLicensingCommitSpy()
+        let model = try makeModel(gitCommit: { _, rel, msg in spy.record(rel, msg); return "deadbeef" })
+        await model.load()
+        model.licensingPolicy.defaultLicense = ccBY
+
+        let saved = await model.saveLicensing()
+
+        #expect(saved == true)
+        #expect(spy.paths() == [LicensingStore.relativePath])
+        #expect(spy.messages() == ["anglesite: update licensing.json"])
+    }
+
+    /// An unsafe-URL validation failure must never reach the git seam — nothing was written to
+    /// disk to commit.
+    @Test("saveLicensing on validation failure does not commit")
+    func saveFailureSkipsCommit() async throws {
+        let spy = PlistEditorLicensingCommitSpy()
+        let model = try makeModel(gitCommit: { _, rel, msg in spy.record(rel, msg); return "deadbeef" })
+        await model.load()
+        model.licensingPolicy.defaultLicense = LicenseRef(url: "javascript:alert(1)", name: "Evil")
+
+        _ = await model.saveLicensing()
+
+        #expect(spy.paths().isEmpty)
+    }
+}
+
+/// Records the `(relPath, message)` pairs a model hands its injected `gitCommit`, matching the
+/// spy-closure pattern `PageMetadataModelRobotsSettingsTests`/`SiteNavigatorModelTests` use for
+/// this seam.
+final class PlistEditorLicensingCommitSpy: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls: [(String, String)] = []
+    func record(_ rel: String, _ message: String) { lock.lock(); calls.append((rel, message)); lock.unlock() }
+    func paths() -> [String] { lock.lock(); defer { lock.unlock() }; return calls.map(\.0) }
+    func messages() -> [String] { lock.lock(); defer { lock.unlock() }; return calls.map(\.1) }
 }
