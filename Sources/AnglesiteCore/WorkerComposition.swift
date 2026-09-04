@@ -443,15 +443,8 @@ public enum WorkerComposition {
         }
 
         if workers.contains(where: { $0.resources.needsD1 }) {
-            lines.append("")
-            lines.append("[[d1_databases]]")
-            lines.append("binding = \"DB\"")
-            lines.append("database_name = \"\(siteName)-social\"")
-            if let id = resources.d1DatabaseID, !id.isEmpty {
-                lines.append("database_id = \"\(id)\"")
-            } else {
-                lines.append("database_id = \"\"  # filled by provisioning")
-            }
+            lines.append(contentsOf: d1Block(
+                binding: "DB", siteName: siteName, id: resources.d1DatabaseID, projectRoot: projectRoot))
         }
 
         // The shared per-site D1 database, bound a fifth time under EXPERIMENTS_DB — the binding
@@ -460,93 +453,52 @@ public enum WorkerComposition {
         // migrations_dir so a static-only site with no indieauth worker (and therefore no AUTH_DB
         // migrations-apply call) still gets the experiments schema applied.
         if hasRunningExperiment {
-            lines.append("")
-            lines.append("[[d1_databases]]")
-            lines.append("binding = \"EXPERIMENTS_DB\"")
-            lines.append("database_name = \"\(siteName)-social\"")
-            lines.append("migrations_dir = \"\(rooted("worker/migrations", projectRoot: projectRoot))\"")
-            if let id = resources.d1DatabaseID, !id.isEmpty {
-                lines.append("database_id = \"\(id)\"")
-            } else {
-                lines.append("database_id = \"\"  # filled by provisioning")
-            }
+            lines.append(contentsOf: d1Block(
+                binding: "EXPERIMENTS_DB", siteName: siteName, migrationsDir: "worker/migrations",
+                id: resources.d1DatabaseID, projectRoot: projectRoot))
         }
 
         // Keep the generic DB binding above for the other @dwk packages, while binding the same
         // per-site D1 database under AUTH_DB for authorization codes and issued-token state.
         if hasIndieauth {
-            lines.append("")
-            lines.append("[[d1_databases]]")
-            lines.append("binding = \"AUTH_DB\"")
-            lines.append("database_name = \"\(siteName)-social\"")
-            lines.append("migrations_dir = \"\(rooted("worker/migrations", projectRoot: projectRoot))\"")
-            if let id = resources.d1DatabaseID, !id.isEmpty {
-                lines.append("database_id = \"\(id)\"")
-            } else {
-                lines.append("database_id = \"\"  # filled by provisioning")
-            }
+            lines.append(contentsOf: d1Block(
+                binding: "AUTH_DB", siteName: siteName, migrationsDir: "worker/migrations",
+                id: resources.d1DatabaseID, projectRoot: projectRoot))
         }
 
         // Same shared per-site D1 database as DB/AUTH_DB, bound a third time under
         // WEBMENTION_INBOX — @dwk/webmention's createD1Inbox creates its own `webmentions`
         // table on first use, so no separate database or migration is needed here.
         if hasWebmentionReceive {
-            lines.append("")
-            lines.append("[[d1_databases]]")
-            lines.append("binding = \"WEBMENTION_INBOX\"")
-            lines.append("database_name = \"\(siteName)-social\"")
-            if let id = resources.d1DatabaseID, !id.isEmpty {
-                lines.append("database_id = \"\(id)\"")
-            } else {
-                lines.append("database_id = \"\"  # filled by provisioning")
-            }
+            lines.append(contentsOf: d1Block(
+                binding: "WEBMENTION_INBOX", siteName: siteName, id: resources.d1DatabaseID,
+                projectRoot: projectRoot))
         }
 
         // Same shared per-site D1 database as DB/AUTH_DB/WEBMENTION_INBOX, bound a fourth time
         // under MICROPUB_DB — @dwk/micropub creates its own tables on first use, so no separate
         // database or migration is needed here (matches the WEBMENTION_INBOX comment above).
         if hasMicropub {
-            lines.append("")
-            lines.append("[[d1_databases]]")
-            lines.append("binding = \"MICROPUB_DB\"")
-            lines.append("database_name = \"\(siteName)-social\"")
-            if let id = resources.d1DatabaseID, !id.isEmpty {
-                lines.append("database_id = \"\(id)\"")
-            } else {
-                lines.append("database_id = \"\"  # filled by provisioning")
-            }
+            lines.append(contentsOf: d1Block(
+                binding: "MICROPUB_DB", siteName: siteName, id: resources.d1DatabaseID,
+                projectRoot: projectRoot))
         }
 
         // Cloudflare Queue backing @dwk/webmention's async verify step. Queues are referenced by
         // name (not id), so — like r2BucketName — this falls back to a deterministic
         // `\(siteName)-webmention` placeholder before provisioning assigns the real one.
         if hasWebmentionReceive {
-            lines.append("")
             let queueName = resources.queueName ?? "\(siteName)-webmention"
-            lines.append("[[queues.producers]]")
-            lines.append("queue = \"\(queueName)\"")
-            lines.append("binding = \"WEBMENTION_QUEUE\"")
-            lines.append("")
-            lines.append("[[queues.consumers]]")
-            lines.append("queue = \"\(queueName)\"")
-            lines.append("max_batch_size = 10")
-            lines.append("max_batch_timeout = 30")
-            lines.append("max_retries = 3")
+            lines.append(contentsOf: queueBlock(name: queueName, producerBinding: "WEBMENTION_QUEUE"))
         }
 
         // Same shared per-site D1 database, bound under WEBSUB_DB — @dwk/websub's
         // createD1SubscriptionStore creates its own `websub_subscriptions` table on first use,
         // so no separate database or migration is needed here.
         if hasWebSub {
-            lines.append("")
-            lines.append("[[d1_databases]]")
-            lines.append("binding = \"WEBSUB_DB\"")
-            lines.append("database_name = \"\(siteName)-social\"")
-            if let id = resources.d1DatabaseID, !id.isEmpty {
-                lines.append("database_id = \"\(id)\"")
-            } else {
-                lines.append("database_id = \"\"  # filled by provisioning")
-            }
+            lines.append(contentsOf: d1Block(
+                binding: "WEBSUB_DB", siteName: siteName, id: resources.d1DatabaseID,
+                projectRoot: projectRoot))
         }
 
         // Dedicated Cloudflare Queue for @dwk/websub's intent verification and per-subscriber
@@ -554,49 +506,25 @@ public enum WorkerComposition {
         // Worker's queue() handler dispatches on the queue-name suffix (`-websub`), and each
         // feature's retry traffic stays isolated from the other's.
         if hasWebSub {
-            lines.append("")
             let websubQueueName = resources.websubQueueName ?? "\(siteName)-websub"
-            lines.append("[[queues.producers]]")
-            lines.append("queue = \"\(websubQueueName)\"")
-            lines.append("binding = \"WEBSUB_QUEUE\"")
-            lines.append("")
-            lines.append("[[queues.consumers]]")
-            lines.append("queue = \"\(websubQueueName)\"")
-            lines.append("max_batch_size = 10")
-            lines.append("max_batch_timeout = 30")
-            lines.append("max_retries = 3")
+            lines.append(contentsOf: queueBlock(name: websubQueueName, producerBinding: "WEBSUB_QUEUE"))
         }
 
         // Same shared per-site D1 database, bound under MICROSUB_DB — @dwk/microsub creates its
         // own channels/follows/timeline-item tables on first use, so no separate database or
         // migration is needed here (matches the WEBSUB_DB comment above).
         if hasMicrosub {
-            lines.append("")
-            lines.append("[[d1_databases]]")
-            lines.append("binding = \"MICROSUB_DB\"")
-            lines.append("database_name = \"\(siteName)-social\"")
-            if let id = resources.d1DatabaseID, !id.isEmpty {
-                lines.append("database_id = \"\(id)\"")
-            } else {
-                lines.append("database_id = \"\"  # filled by provisioning")
-            }
+            lines.append(contentsOf: d1Block(
+                binding: "MICROSUB_DB", siteName: siteName, id: resources.d1DatabaseID,
+                projectRoot: projectRoot))
         }
 
         // Dedicated Cloudflare Queue for @dwk/microsub's feed-poll fan-out and retries.
         // Deliberately separate from the Webmention/WebSub queues: the composed Worker's
         // queue() handler dispatches on the queue-name suffix (`-microsub`).
         if hasMicrosub {
-            lines.append("")
             let microsubQueueName = resources.microsubQueueName ?? "\(siteName)-microsub"
-            lines.append("[[queues.producers]]")
-            lines.append("queue = \"\(microsubQueueName)\"")
-            lines.append("binding = \"MICROSUB_QUEUE\"")
-            lines.append("")
-            lines.append("[[queues.consumers]]")
-            lines.append("queue = \"\(microsubQueueName)\"")
-            lines.append("max_batch_size = 10")
-            lines.append("max_batch_timeout = 30")
-            lines.append("max_retries = 3")
+            lines.append(contentsOf: queueBlock(name: microsubQueueName, producerBinding: "MICROSUB_QUEUE"))
         }
 
         // @dwk/microsub's poller runs off the read path on a Cron Trigger, enqueuing one poll job
@@ -794,6 +722,37 @@ public enum WorkerComposition {
             toml: lines.joined(separator: "\n"),
             resources: resources,
             effectiveRoutes: patterns.sorted())
+    }
+
+    /// One `[[d1_databases]]` block bound to the shared per-site `\(siteName)-social` database.
+    /// Every `@dwk/*` D1-backed package binds the same physical database under its own
+    /// package-specific name (`DB`, `AUTH_DB`, `WEBMENTION_INBOX`, etc.) — only `AUTH_DB` and
+    /// `EXPERIMENTS_DB` additionally carry a `migrations_dir` (the rest create their own tables
+    /// on first use, so no migration is needed).
+    private static func d1Block(
+        binding: String, siteName: String, migrationsDir: String? = nil, id: String?, projectRoot: String?
+    ) -> [String] {
+        var block = ["", "[[d1_databases]]", "binding = \"\(binding)\"", "database_name = \"\(siteName)-social\""]
+        if let migrationsDir {
+            block.append("migrations_dir = \"\(rooted(migrationsDir, projectRoot: projectRoot))\"")
+        }
+        if let id, !id.isEmpty {
+            block.append("database_id = \"\(id)\"")
+        } else {
+            block.append("database_id = \"\"  # filled by provisioning")
+        }
+        return block
+    }
+
+    /// A `[[queues.producers]]`/`[[queues.consumers]]` pair for one named Cloudflare Queue —
+    /// shared shape across `@dwk/webmention`, `@dwk/websub`, and `@dwk/microsub`'s dedicated
+    /// queues, which differ only in the queue name and the producer binding name.
+    private static func queueBlock(name: String, producerBinding: String) -> [String] {
+        [
+            "", "[[queues.producers]]", "queue = \"\(name)\"", "binding = \"\(producerBinding)\"",
+            "", "[[queues.consumers]]", "queue = \"\(name)\"",
+            "max_batch_size = 10", "max_batch_timeout = 30", "max_retries = 3",
+        ]
     }
 
     /// wrangler's rule for the top-level `name` field (see ``WorkerSiteName/isValidWorkerName(_:)``)
