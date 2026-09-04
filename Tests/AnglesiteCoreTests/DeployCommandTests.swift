@@ -44,6 +44,7 @@ struct DeployCommandTests {
             case .wrangler: return "wrangler"
             case .bundleUpload: return "bundleUpload"
             case .githubPagesPublish: return "githubPagesPublish"
+            case .wranglerSubcommand(let args): return "wranglerSubcommand:\(args.joined(separator: " "))"
             }
         }
 
@@ -1026,6 +1027,8 @@ struct DeployCommandTests {
                         return .unavailable(reason: "not exercised in this test")
                     case .githubPagesPublish:
                         return .unavailable(reason: "not exercised in this test")
+                    case .wranglerSubcommand:
+                        return .unavailable(reason: "not exercised in this test")
                     }
                 }
             }
@@ -1059,6 +1062,8 @@ struct DeployCommandTests {
                     case .bundleUpload:
                         return .unavailable(reason: "not exercised in this test")
                     case .githubPagesPublish:
+                        return .unavailable(reason: "not exercised in this test")
+                    case .wranglerSubcommand:
                         return .unavailable(reason: "not exercised in this test")
                     }
                 }
@@ -1113,6 +1118,8 @@ struct DeployCommandTests {
                     case .bundleUpload:
                         return .unavailable(reason: "not exercised in this test")
                     case .githubPagesPublish:
+                        return .unavailable(reason: "not exercised in this test")
+                    case .wranglerSubcommand:
                         return .unavailable(reason: "not exercised in this test")
                     }
                 }

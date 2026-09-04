@@ -21,6 +21,12 @@ public enum DeployStep: Sendable {
     /// host, so this step (like `.wrangler`) must run in-guest. Not yet reached by any
     /// `DeployTarget` — the conformer that calls it is a later slice.
     case githubPagesPublish
+    /// An arbitrary `wrangler <args>` subcommand outside the fixed pipeline — `d1 create`,
+    /// `kv namespace create`, `queues create`, `d1 migrations apply`, etc. Used by
+    /// `SocialWorkerProvisionTarget`'s resource-creation sequence (#1821) so those calls run
+    /// through the same executor abstraction as `.wrangler`/`.bundleUpload`, instead of a
+    /// separately-injected `CommandRunner` seam.
+    case wranglerSubcommand(args: [String])
 }
 
 /// The result of running a single deploy step.
@@ -161,7 +167,7 @@ public struct ContainerDeployExecutor: DeployExecutor {
         // dynamic route 404s and `wrangler tail` refuses to attach. Only `.wrangler` needs this:
         // `astro build` and the preflight scan never read `wrangler.toml` (confirmed against
         // `Resources/Template`), so re-syncing before them would be pure overhead.
-        if step == .wrangler, let syncArgv = Self.wranglerTomlSyncArgv(hostSiteDirectory: siteDirectory) {
+        if case .wrangler = step, let syncArgv = Self.wranglerTomlSyncArgv(hostSiteDirectory: siteDirectory) {
             do {
                 let syncResult = try await control.exec(
                     siteID: siteID,
@@ -366,6 +372,8 @@ public struct ContainerDeployExecutor: DeployExecutor {
             return ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
         case .githubPagesPublish:
             return ["GITHUB_PAGES_TOKEN"]
+        case .wranglerSubcommand:
+            return ["CLOUDFLARE_API_TOKEN"]
         }
     }
 
@@ -444,6 +452,8 @@ public struct ContainerDeployExecutor: DeployExecutor {
                 "git push -q --force \"https://x-access-token:$GITHUB_PAGES_TOKEN@github.com/$1/$2.git\" HEAD:main",
                 "sh", owner, repo
             ]
+        case .wranglerSubcommand(let args):
+            return WranglerInvocation.argv(subcommand: args)
         }
     }
 
@@ -605,6 +615,8 @@ public struct HostDeployExecutor: DeployExecutor {
             return { _ in .unavailable(reason: HostNodeRetirement.reason("source bundle upload")) }
         case .githubPagesPublish:
             return { _ in .unavailable(reason: HostNodeRetirement.reason("GitHub Pages publish")) }
+        case .wranglerSubcommand:
+            return { _ in .unavailable(reason: HostNodeRetirement.reason("social worker provisioning")) }
         }
     }
 

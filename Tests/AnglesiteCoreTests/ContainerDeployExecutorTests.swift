@@ -71,6 +71,14 @@ struct ContainerDeployExecutorTests {
         #expect(calls[0].argv == ["npx", "tsx", "scripts/pre-deploy-check.ts", "--json"])
     }
 
+    @Test("wranglerSubcommand argv and env allowlist")
+    func wranglerSubcommandArgvAndEnv() {
+        let argv = ContainerDeployExecutorTestHook.guestArgv(
+            for: .wranglerSubcommand(args: ["d1", "create", "site-social"]),
+            siteDirectory: URL(fileURLWithPath: "/tmp/site"))
+        #expect(argv == ["npx", "wrangler", "d1", "create", "site-social"])
+    }
+
     // MARK: - .githubPagesPublish argv (#1015 slice 2a)
 
     /// A fresh host site directory with `anglesite.json` declaring the given GitHub Pages
