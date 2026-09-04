@@ -188,47 +188,26 @@ public struct ContainerDeployExecutor: DeployExecutor {
                 return DeployStepResult(exitCode: nil, output: "couldn't sync wrangler.toml into the container: \(error)")
             }
         }
+        // Stream guest output to LogCenter LIVE (matching the host path) and drain fully on every
+        // exit path (success or thrown error) — `WranglerInvocation.exec` (#1821) owns that
+        // AsyncStream/detached-task mechanics now, so there's no local `continuation`/`drain` to
+        // finish here; a `catch` below must NOT attempt to drain again. Never log the environment
+        // dict — CLOUDFLARE_API_TOKEN stays off disk and out of logs.
         let argv = Self.guestArgv(for: step, siteDirectory: siteDirectory)
-        // Stream guest output to LogCenter LIVE (matching the host path): the `@escaping @Sendable`
-        // `onOutput` callback yields each (line, stream) into an AsyncStream (`yield` is nonisolated
-        // + Sendable, so it's safe from the closure even when fired after `exec` returns), and a
-        // DETACHED task drains it, appending to the actor-isolated LogCenter under the line's own
-        // stream (so wrangler's stderr progress is labelled `.stderr`, not mislabelled `.stdout`).
-        //
-        // The drain is `Task.detached`, NOT `async let`: a structured child is cancelled the instant
-        // this task is cancelled — *before* it consumes the buffered lines — which would silently
-        // drop the kill-triggered final log lines. A detached task is independent of structured
-        // cancellation, so it drains exactly what was yielded. We `continuation.finish()` then
-        // `await drain.value` on EVERY exit path, so no line leaks and the drain always completes.
-        // Never log the environment dict — CLOUDFLARE_API_TOKEN stays off disk and out of logs.
-        let (lines, continuation) = AsyncStream<(String, LogCenter.Stream)>.makeStream(bufferingPolicy: .unbounded)
-        let logCenter = self.logCenter
-        let drain = Task.detached(priority: .utility) {
-            for await (line, stream) in lines {
-                await logCenter.append(source: source, stream: stream, text: line)
-            }
-        }
         let result: ContainerExecResult
         do {
-            result = try await control.exec(
-                siteID: siteID,
-                argv: argv,
+            result = try await WranglerInvocation.exec(
+                control: control, siteID: siteID, argv: argv,
                 environment: Self.guestEnvironment(from: environment, step: step),
-                workingDirectory: "/workspace/site",
-                onOutput: { line, stream in continuation.yield((line, stream)) }
-            )
+                logCenter: logCenter, source: source)
         } catch is CancellationError {
-            // A cancelled deploy: drain whatever the kill-triggered output produced, then surface a
-            // termination (nil exitCode, empty output). `DeployCommand` checks `Task.isCancelled`
-            // and renders "terminated" — we must NOT bury cancellation under a generic exec-error
-            // string. (The `DeployExecutor` seam is non-throwing, so we signal termination via the
-            // nil/empty result rather than re-throwing; `Task.isCancelled` carries the intent.)
-            continuation.finish()
-            _ = await drain.value
+            // A cancelled deploy: surface a termination (nil exitCode, empty output).
+            // `DeployCommand` checks `Task.isCancelled` and renders "terminated" — we must NOT bury
+            // cancellation under a generic exec-error string. (The `DeployExecutor` seam is
+            // non-throwing, so we signal termination via the nil/empty result rather than
+            // re-throwing; `Task.isCancelled` carries the intent.)
             return DeployStepResult(exitCode: nil, output: "")
         } catch let error as LocalContainerError {
-            continuation.finish()
-            _ = await drain.value
             // A dead/never-booted container surfaces as `.bootFailed`; give the user an actionable
             // message instead of the raw error (the Deploy-button gating half lives app-side).
             if case .bootFailed = error {
@@ -238,12 +217,15 @@ public struct ContainerDeployExecutor: DeployExecutor {
             }
             return DeployStepResult(exitCode: nil, output: "couldn't exec in the container: \(error)")
         } catch let error {
-            continuation.finish()
-            _ = await drain.value
             return DeployStepResult(exitCode: nil, output: "couldn't exec in the container: \(error)")
         }
-        continuation.finish()
-        _ = await drain.value
+        // `.wranglerSubcommand` needs the same stdout-or-stderr fallback
+        // `SocialWorkerProvisionCommand.runWrangler` relied on before this refactor (a failed wrangler
+        // subcommand can write its error to stderr with empty stdout, e.g. a name-conflict on `d1
+        // create`) — every other step keeps stdout-only capture, its existing behavior.
+        if case .wranglerSubcommand = step {
+            return DeployStepResult(exitCode: result.exitCode, output: result.stdout.isEmpty ? result.stderr : result.stdout)
+        }
         return DeployStepResult(exitCode: result.exitCode, output: result.stdout)
     }
 
@@ -281,35 +263,22 @@ public struct ContainerDeployExecutor: DeployExecutor {
         }
         let argv = Self.wellKnownSeamArgv(manifestBase64: manifestData.base64EncodedString())
 
-        let (lines, continuation) = AsyncStream<(String, LogCenter.Stream)>.makeStream(bufferingPolicy: .unbounded)
-        let logCenter = self.logCenter
-        let drain = Task.detached(priority: .utility) {
-            for await (line, stream) in lines {
-                await logCenter.append(source: source, stream: stream, text: line)
-            }
-        }
+        // `WranglerInvocation.exec` (#1821) owns the stream-to-LogCenter/drain mechanics now — it
+        // drains fully on both the success and throw paths, so there's no local
+        // `continuation`/`drain` to finish here.
         let result: ContainerExecResult
         do {
-            result = try await control.exec(
-                siteID: siteID,
-                argv: argv,
+            result = try await WranglerInvocation.exec(
+                control: control, siteID: siteID, argv: argv,
                 environment: Self.guestEnvironment(from: environment, step: .build),
-                workingDirectory: "/workspace/site",
-                onOutput: { line, stream in continuation.yield((line, stream)) }
-            )
+                logCenter: logCenter, source: source)
         } catch is CancellationError {
-            continuation.finish()
-            _ = await drain.value
             return .cancelled
         } catch {
-            continuation.finish()
-            _ = await drain.value
             return .completed(
                 DeployStepResult(exitCode: nil, output: "couldn't exec in the container: \(error)"),
                 WellKnownBuildSeamResult())
         }
-        continuation.finish()
-        _ = await drain.value
 
         let outputLines = result.stdout.components(separatedBy: "\n")
         let seamResult: WellKnownBuildSeamResult
