@@ -424,9 +424,12 @@ struct SiteNavigatorModelRedirectsTests {
         return dir
     }
 
-    private func makeModel(sourceDirectory: URL) -> SiteNavigatorModel {
+    private func makeModel(
+        sourceDirectory: URL,
+        gitCommit: @escaping NativeContentOperations.GitCommit = NativeContentOperations.processGitCommit
+    ) -> SiteNavigatorModel {
         let graph = SiteContentGraph()
-        let model = SiteNavigatorModel(graph: graph)
+        let model = SiteNavigatorModel(graph: graph, gitCommit: gitCommit)
         model.start(
             site: CurrentSite(id: "site1", packageURL: sourceDirectory, sourceDirectory: sourceDirectory))
         return model
@@ -455,6 +458,43 @@ struct SiteNavigatorModelRedirectsTests {
         #expect(saved == false)
         #expect(model.redirectSaveError != nil)
     }
+
+    /// A saved redirect must land in git the same way the delete that prompted it did, rather than
+    /// sitting as a silent uncommitted `redirects.json` change (#1861).
+    @Test("saveRedirect on success commits redirects.json to git")
+    func saveRedirectCommitsToGit() async throws {
+        let dir = try tempSourceDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let spy = SiteNavigatorRedirectCommitSpy()
+        let model = makeModel(sourceDirectory: dir, gitCommit: { _, rel, msg in spy.record(rel, msg); return "deadbeef" })
+
+        let saved = await model.saveRedirect(source: "/old", destination: "/new", code: .permanent)
+        #expect(saved == true)
+        #expect(spy.paths() == ["redirects.json"])
+        #expect(spy.messages() == ["anglesite: add redirect /old → /new"])
+    }
+
+    /// A validation failure must never reach the git seam — nothing was written to disk to commit.
+    @Test("saveRedirect on validation failure does not commit")
+    func saveRedirectFailureSkipsCommit() async throws {
+        let dir = try tempSourceDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let spy = SiteNavigatorRedirectCommitSpy()
+        let model = makeModel(sourceDirectory: dir, gitCommit: { _, rel, msg in spy.record(rel, msg); return "deadbeef" })
+
+        _ = await model.saveRedirect(source: "/a", destination: "/a", code: .permanent)
+        #expect(spy.paths().isEmpty)
+    }
+}
+
+/// Records the `(relPath, message)` pairs a model hands its injected `gitCommit`, matching the
+/// spy-closure pattern `PageMetadataModelRobotsSettingsTests` uses for this seam.
+final class SiteNavigatorRedirectCommitSpy: @unchecked Sendable {
+    private let lock = NSLock()
+    private var calls: [(String, String)] = []
+    func record(_ rel: String, _ message: String) { lock.lock(); calls.append((rel, message)); lock.unlock() }
+    func paths() -> [String] { lock.lock(); defer { lock.unlock() }; return calls.map(\.0) }
+    func messages() -> [String] { lock.lock(); defer { lock.unlock() }; return calls.map(\.1) }
 }
 
 @Suite("SiteNavigatorModel publish/unpublish gating (#798)")

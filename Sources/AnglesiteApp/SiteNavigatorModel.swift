@@ -62,9 +62,14 @@ final class SiteNavigatorModel {
 
     private let graph: SiteContentGraph
     private var observeTask: Task<Void, Never>?
+    /// Commits `redirects.json` after `saveRedirect` writes it (#1861) — the same
+    /// stage-and-commit seam `PageMetadataModel`/`TypedEntryEditorModel` use, injectable so tests
+    /// observe (or fail) the commit without a real repo.
+    private let gitCommit: NativeContentOperations.GitCommit
 
-    init(graph: SiteContentGraph) {
+    init(graph: SiteContentGraph, gitCommit: @escaping NativeContentOperations.GitCommit = NativeContentOperations.processGitCommit) {
         self.graph = graph
+        self.gitCommit = gitCommit
     }
 
     func start(site: CurrentSite) {
@@ -347,12 +352,17 @@ final class SiteNavigatorModel {
         return map
     }
 
-    /// Appends a redirect for `source` → `destination` to `Source/redirects.json` (#530). Used by
-    /// the "Add Redirect?" prompt `SiteWindow` shows after `SiteWindowModel.confirmDelete()`
-    /// successfully deletes a page or post (#584) — that method captures the deleted item's route
-    /// before the delete call and, on success, offers this via a sheet hosted in `SiteWindow` (not
-    /// here: delete itself is owned by `SiteWindowModel`/`NativeContentOperations` since #516, not
-    /// this model). Returns whether the save succeeded; on failure sets `redirectSaveError`.
+    /// Appends a redirect for `source` → `destination` to `Source/redirects.json` (#530), then
+    /// commits it (#1861) — matching every other content mutation's per-operation commit, so the
+    /// redirect lands in history the same way the delete that prompted it did rather than sitting
+    /// as a silent uncommitted change. Used by the "Add Redirect?" prompt `SiteWindow` shows after
+    /// `SiteWindowModel.confirmDelete()` successfully deletes a page or post (#584) — that method
+    /// captures the deleted item's route before the delete call and, on success, offers this via a
+    /// sheet hosted in `SiteWindow` (not here: delete itself is owned by
+    /// `SiteWindowModel`/`NativeContentOperations` since #516, not this model). Returns whether the
+    /// save succeeded; on failure sets `redirectSaveError`. The commit itself is best-effort — like
+    /// `NativeContentOperations`'s own `_ = await gitCommit(...)` calls — since the write to disk
+    /// already succeeded and a commit failure shouldn't be reported as the save having failed.
     @discardableResult
     func saveRedirect(source: String, destination: String, code: RedirectsStore.RedirectEntry.Code) async -> Bool {
         guard let sourceDirectory else { return false }
@@ -361,6 +371,7 @@ final class SiteNavigatorModel {
             var entries = try store.load()
             entries.append(RedirectsStore.RedirectEntry(source: source, destination: destination, code: code))
             try store.save(entries)
+            _ = await gitCommit(sourceDirectory, "redirects.json", "anglesite: add redirect \(source) → \(destination)")
             return true
         } catch {
             redirectSaveError = String(localized: "Couldn't save the redirect: \(error.localizedDescription)")
