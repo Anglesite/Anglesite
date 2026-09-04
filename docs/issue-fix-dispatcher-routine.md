@@ -18,7 +18,9 @@ recreated on any surface, copy the config and prompt below verbatim.
 - **Description:** Reaps orphaned `🛠️ In Progress` claims, claims `🏭 Ready` issues whose
   scope fits one reviewable PR within the current allowlist (docs, `Resources/Template/`,
   the JS edit overlay, the hosted macOS app target `Sources/AnglesiteApp`, the local Apple
-  Containerization runtime `AnglesiteContainer`, or a portable SwiftPM target), and launches
+  Containerization runtime `AnglesiteContainer`, the Cloudflare control Worker
+  `Workers/ControlWorker/`, the container image `container/` with its build/pin scripts, or a
+  portable SwiftPM target), and launches
   a decoupled fix session per claim via a local one-shot scheduled task — bounded by a
   concurrency cap of 3 and a per-issue attempt cap of 2 (software factory Phase C, epic
   #1256), with mandatory Stage-5 gap-issue filing on attempt-cap exhaustion (software
@@ -111,6 +113,14 @@ Your job this run:
       > context that can't build the app), and `AnglesiteContainer` is in scope too — its
       > local runtime is fully exercisable on this one Mac via `ANGLESITE_CONTAINER_TESTS=1`
       > (add `ANGLESITE_CONTAINER_E2E=1` for its end-to-end cases).
+      > Since 2026-09-04 (owner decision on #1643/#1644) two more surfaces are in scope: the
+      > Cloudflare control Worker (`Workers/ControlWorker/` — its own vitest suite via `npm test`
+      > plus `npm run build` is the verification), and the container image with its build/pin
+      > scripts (`container/`, `scripts/build-container-image.sh`,
+      > `scripts/pin-cloudflare-canonical-image.sh`, `scripts/lib/`'s image-staging helpers —
+      > a local no-push image build plus `shellcheck` is the verification; a live Cloudflare
+      > sandbox boot is not required and stays a human gate). `.github/workflows/`, the MCP
+      > message schema, and multi-machine surfaces remain out of scope.
       >
       > Calibration:
       > - A single coherent change with several *steps* (parse a field, thread it through,
@@ -255,14 +265,20 @@ Your job this run:
    >
    > Scope: you may only touch paths within docs, `Resources/Template/`,
    > `JS/edit-overlay/`, the hosted macOS app target (`Sources/AnglesiteApp`), the local
-   > Apple Containerization runtime (`AnglesiteContainer`), or a portable SwiftPM target
+   > Apple Containerization runtime (`AnglesiteContainer`), the Cloudflare control Worker
+   > (`Workers/ControlWorker/`), the container image and its build/pin scripts (`container/`,
+   > `scripts/build-container-image.sh`, `scripts/pin-cloudflare-canonical-image.sh`,
+   > `scripts/lib/`), or a portable SwiftPM target
    > (`Package.swift`'s `portableTargets` set). This routine runs locally with Xcode
    > available, so building/testing `Sources/AnglesiteApp` via `scripts/build-app.sh` or a
    > hosted `xcodebuild test` run is expected and real (see `CLAUDE.md` ▸ "Build" / "Tests" —
    > run `xcodegen generate` first per the worktree setup above). `AnglesiteContainer` is in
    > scope too: its local runtime is fully exercisable on this one Mac — set
    > `ANGLESITE_CONTAINER_TESTS=1` (add `ANGLESITE_CONTAINER_E2E=1` for its end-to-end cases)
-   > to run its gated tests as real verification. Multi-machine infrastructure
+   > to run its gated tests as real verification. For `Workers/ControlWorker/`, its own
+   > `npm test` (vitest) and `npm run build` are the verification; for `container/` and the
+   > image scripts, a local no-push image build plus `shellcheck` — a live Cloudflare sandbox
+   > boot is not required and stays a human gate. Multi-machine infrastructure
    > (`AnglesiteRemote`, `AnglesiteP2P`, `AnglesiteLANHost`, other platform shells) stays out
    > of scope — it needs a second machine/device (Anywhere-runtime P2P sessions, LAN host
    > discovery) that a single local Mac routine can't exercise. If mid-work you discover the
@@ -443,6 +459,28 @@ doc's own nested Stage-5 example fence (indented 5 spaces) when copying the Prom
 elsewhere — a naive fence-scan that ignores indentation will mistake it for the block's outer
 boundary, exactly the corruption this reconciliation itself hit and fixed (see the splice
 script bug recorded in this branch's Task 5a report).
+
+## Operational update (2026-09-04) — allowlist widened to the control Worker and container image
+
+Owner decision on #1643 / #1644 (2026-09-04). Both issues had been triaged `🏭 Ready`,
+bounced by the Tier-1 pre-check, and parked `🏭 Blocked: human` by the splitter — not for
+any open question, but solely because their files (`Workers/ControlWorker/`, `container/`,
+and the image build scripts under `scripts/`) sat outside the allowlist. Rather than hand-run
+those surfaces, the allowlist now also covers:
+
+- the **Cloudflare control Worker** (`Workers/ControlWorker/`) — verification is its own
+  vitest suite (`npm test`) plus `npm run build`;
+- the **container image and its build/pin scripts** (`container/`,
+  `scripts/build-container-image.sh`, `scripts/pin-cloudflare-canonical-image.sh`, and
+  `scripts/lib/`'s image-staging helpers) — verification is a local, no-push image build plus
+  `shellcheck`. A live Cloudflare sandbox boot is *not* required of a fix session; it stays a
+  human gate (it is #1645's acceptance criterion).
+
+Still out of scope: `.github/workflows/`, the MCP message schema, and the multi-machine
+surfaces. The Config and Prompt sections above, the live `anglesite-fix-dispatcher` task
+prompt, and the live `anglesite-factory-issue-splitter` task prompt (whose Tier-1 re-judge
+carries the same list) were all updated in this one change, per the lesson recorded in the
+2026-08-31 entry.
 
 ## Creating the routine (retired Cloud instance)
 
