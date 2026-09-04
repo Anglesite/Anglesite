@@ -398,6 +398,310 @@ struct SiteWindow: View {
         model.websiteInspectorPresented = websiteInspectorVisible
     }
 
+    /// The SwiftUI content for one toolbar item — everything inside its `ToolbarItem` closure
+    /// (label, help, disabled state, accessibility id), extracted verbatim from the legacy
+    /// `.toolbar(id: "site")` block (#1699 slice 2) so the AppKit shell's `NSHostingView`-backed
+    /// items and the legacy SwiftUI toolbar render the exact same view. `ToolbarItem`'s own
+    /// wrapper (id, placement, `.defaultCustomization`, `.customizationBehavior`) is NOT part of
+    /// this function — those apply to the `ToolbarItem`/`NSToolbarItem`, not its content, and
+    /// each caller (legacy toolbar, `SiteShellToolbarDelegate`) supplies its own.
+    @ViewBuilder
+    private func toolbarItemContent(_ id: SiteToolbarItemID, site: SiteStore.Site) -> some View {
+        switch id {
+        case .insert:
+            Menu {
+                Button("New Page…") { newContentActions?.newPage() }
+                Button("New Post…") { newContentActions?.newPost() }
+                Button("New Collection Entry…") { newContentActions?.newCollection() }
+                if let canvas = model.preview.wysiwygCanvas {
+                    Section("Blocks") {
+                        ForEach(canvas.blockPalette) { entry in
+                            Button(entry.displayName) {
+                                Task { await canvas.insertBlock(entry) }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label("Insert", systemImage: "plus")
+            }
+            .help("Add a new page, post, collection entry, or block")
+            .accessibilityIdentifier(AXID.toolbar(.insert))
+
+        case .sync:
+            SyncStatusView(model: model.sync)
+                .accessibilityIdentifier(AXID.toolbar(.sync))
+
+        case .securityReports:
+            SecurityReportsBadgeView(
+                model: model.securityReports,
+                onRecheck: { model.recheckSecurityReports() },
+                onViewAll: { model.openWebsiteSettings(landOn: .securityReports) }
+            )
+            .accessibilityIdentifier(AXID.toolbar(.securityReports))
+
+        case .openInBrowser:
+            Button {
+                model.openPreviewInBrowser()
+            } label: {
+                Label("Open in Browser", systemImage: "arrow.up.forward.app")
+            }
+            .disabled(!model.canOpenPreviewInBrowser)
+            .help("Open the live preview in your default browser")
+            .accessibilityIdentifier(AXID.toolbar(.openInBrowser))
+
+        case .graph:
+            Button {
+                Task { await model.showGraph() }
+            } label: {
+                Label("Site Graph", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+            .help("Explore pages, layouts, components, collections, and assets")
+            .accessibilityIdentifier(AXID.toolbar(.graph))
+
+        case .backup:
+            Button {
+                model.backupSite()
+            } label: {
+                Label("Backup", systemImage: "externaldrive.fill.badge.icloud")
+            }
+            .disabled(!model.canRunBackup)
+            .help(site.isValid
+                  ? "Commit and push working-tree changes to your current branch"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.backup))
+
+        case .audit:
+            Button {
+                model.auditSite()
+            } label: {
+                if model.audit.isRunning {
+                    Label("Auditing…", systemImage: "magnifyingglass")
+                } else {
+                    Label("Audit", systemImage: "checkmark.shield.fill")
+                }
+            }
+            .disabled(!model.canRunAudit)
+            .help(site.isValid && model.preview.canDeploy
+                  ? "Run the structured accessibility audit against this site"
+                  : site.isValid
+                    ? "Open the preview first to start the runtime before auditing"
+                    : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.audit))
+
+        case .harden:
+            Button {
+                model.harden.openSheet()
+            } label: {
+                if model.harden.isRunning {
+                    Label("Hardening…", systemImage: "shield.lefthalf.filled")
+                } else {
+                    Label("Harden", systemImage: "shield.lefthalf.filled")
+                }
+            }
+            .disabled(!model.canRunHarden)
+            .help(site.isValid
+                  ? "Preview and apply Cloudflare security hardening for this site"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.harden))
+
+        case .aiSearch:
+            Button {
+                model.aiSearch.openSheet()
+            } label: {
+                if model.aiSearch.isRunning {
+                    Label("Setting Up AI Search…", systemImage: "text.magnifyingglass")
+                } else {
+                    Label("AI Search", systemImage: "text.magnifyingglass")
+                }
+            }
+            .disabled(!model.canRunAISearch)
+            .help(site.isValid
+                  ? "Provision Cloudflare AI Search for this site"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.aiSearch))
+
+        case .domainConfigAudit:
+            Button {
+                model.domainConfigAudit.openSheet()
+            } label: {
+                if model.domainConfigAudit.isRunning {
+                    Label("Checking Domain Config…", systemImage: "arrow.triangle.2.circlepath")
+                } else {
+                    Label("Domain Config", systemImage: "arrow.triangle.2.circlepath")
+                }
+            }
+            .disabled(!model.canRunDomainConfigAudit)
+            .help(site.isValid
+                  ? "Compare anglesite.json's declared domain/DNS/edge config against live Cloudflare state"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.domainConfigAudit))
+
+        case .agentReadiness:
+            Button {
+                model.agentReadiness.openSheet()
+            } label: {
+                if model.agentReadiness.isRunning {
+                    Label("Checking Agent Readiness…", systemImage: "sparkle.magnifyingglass")
+                } else {
+                    Label("Agent Readiness", systemImage: "sparkle.magnifyingglass")
+                }
+            }
+            .disabled(!model.canRunAgentReadiness)
+            .help(site.isValid
+                  ? "Check Cloudflare's Agent Readiness score for this site's published URL"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.agentReadiness))
+
+        case .onionRouting:
+            Button {
+                model.onionRouting.openSheet()
+            } label: {
+                Label("Onion Routing", systemImage: "network")
+            }
+            .disabled(!model.canRunOnionRouting)
+            .help(site.isValid
+                  ? "Enable Tor Browser access for this site via Cloudflare's zone-level setting"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.onionRouting))
+
+        case .domain:
+            Button {
+                model.domain.openSheet()
+            } label: {
+                Label("Domain", systemImage: "globe")
+            }
+            .disabled(!model.canOpenDomain)
+            .help("View and manage this domain's DNS records")
+            .accessibilityIdentifier(AXID.toolbar(.domain))
+
+        case .integration:
+            Button {
+                model.openIntegrationWizard()
+            } label: {
+                Label("Add Integration…", systemImage: "puzzlepiece.extension")
+            }
+            .disabled(!model.canOpenIntegrationWizard)
+            .help("Set up a third-party integration for this site")
+            .accessibilityIdentifier(AXID.toolbar(.integration))
+
+        case .siriReadiness:
+            Button {
+                model.openSiriReadiness()
+            } label: {
+                Label("Siri AI Readiness", systemImage: "sparkles")
+            }
+            .disabled(!model.canOpenSiriReadiness)
+            .help("Check whether Siri workflows are ready for this site")
+            .accessibilityIdentifier(AXID.toolbar(.siriReadiness))
+
+        case .relatedPages:
+            Button {
+                model.relatedPagesPresented.toggle()
+            } label: {
+                Label("Related Pages", systemImage: model.relatedPagesPresented
+                      ? "link.badge.plus" : "link")
+            }
+            .help(model.relatedPagesPresented ? "Hide related pages" : "Show related pages")
+            .accessibilityIdentifier(AXID.toolbar(.relatedPages))
+
+        case .styleGuide:
+            Button {
+                model.openStyleGuide()
+            } label: {
+                Label("Style Guide", systemImage: "textformat.abc")
+            }
+            .help("See and edit this site's learned writing, image, and naming conventions")
+            .accessibilityIdentifier(AXID.toolbar(.styleGuide))
+
+        case .github:
+            if let remote = model.publish.existingRemote {
+                Button {
+                    NSWorkspace.shared.open(remote.url)
+                } label: {
+                    Label("View on GitHub", systemImage: "arrow.up.forward.square")
+                }
+                .help("Open this site's GitHub repository")
+                .accessibilityIdentifier(AXID.toolbar(.github))
+            } else {
+                Button {
+                    model.publish.publish(source: site.sourceDirectory, repoName: site.name)
+                } label: {
+                    Label("Publish to GitHub", systemImage: "square.and.arrow.up.on.square")
+                }
+                .disabled(!model.canPublishToGitHub)
+                .help(site.isValid ? "Create a private GitHub repo and push this site" : "Site is missing required files")
+                .accessibilityIdentifier(AXID.toolbar(.github))
+            }
+
+        case .deploy:
+            HStack(spacing: 8) {
+                HealthBadgeView(
+                    model: model.health,
+                    onRecheck: { model.recheckHealth() },
+                    onAskAssistant: {
+                        guard let chat = model.chat else { return }
+                        model.chatPresented = true
+                        chat.send(SiteWindowModel.healthAssistantPrompt)
+                    }
+                )
+                Button {
+                    model.deploySite()
+                } label: {
+                    Label("Publish Site", systemImage: "paperplane.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.canRunDeploy)
+                .help(site.isValid && model.preview.canDeploy
+                      ? "Build, scan, and publish this site to Cloudflare"
+                      : site.isValid
+                        ? "Open the preview first to start the runtime before publishing"
+                        : "Site is missing required files")
+                .accessibilityIdentifier(AXID.toolbar(.deploy))
+            }
+
+        case .chat:
+            Button {
+                model.toggleChat()
+            } label: {
+                Label("Chat", systemImage: model.chatPresented
+                    ? "bubble.left.and.bubble.right.fill"
+                    : "bubble.left.and.bubble.right")
+            }
+            .help(model.chatPresented ? "Hide chat panel" : "Show chat panel")
+            .accessibilityIdentifier(AXID.toolbar(.chat))
+
+        case .wysiwygPalette:
+            Button {
+                showWYSIWYGPalette.toggle()
+            } label: {
+                Label("Block Palette", systemImage: "square.grid.2x2")
+            }
+            .disabled(!model.preview.isEditModeEnabled)
+            .help("Show or hide the block palette")
+            .accessibilityIdentifier(AXID.toolbar(.wysiwygPalette))
+
+        case .websiteInspector:
+            Button {
+                toggleWebsiteInspector()
+            } label: {
+                Label("Website Inspector", systemImage: "globe")
+            }
+            .help("Show or hide the website inspector")
+            .accessibilityIdentifier(AXID.toolbar(.websiteInspector))
+
+        case .inspector:
+            Button {
+                toggleSelectionInspector()
+            } label: {
+                Label("Inspector", systemImage: "sidebar.right")
+            }
+            .disabled(model.inspectorSelection == nil)
+            .help("Show or hide the inspector")
+            .accessibilityIdentifier(AXID.toolbar(.inspector))
+        }
+    }
+
     @ViewBuilder
     private func siteUI(for site: SiteStore.Site) -> some View {
         // Shared with `SiteSearchFieldModifier` below (#1126): search-field activation is
@@ -633,269 +937,97 @@ struct SiteWindow: View {
             // for. Present only in WYSIWYG edit mode (unlike the Block Palette toggle, this
             // doesn't also depend on the palette panel's own visibility).
             ToolbarItem(id: SiteToolbarItemID.insert.rawValue, placement: .primaryAction) {
-                Menu {
-                    Button("New Page…") { newContentActions?.newPage() }
-                    Button("New Post…") { newContentActions?.newPost() }
-                    Button("New Collection Entry…") { newContentActions?.newCollection() }
-                    if let canvas = model.preview.wysiwygCanvas {
-                        Section("Blocks") {
-                            ForEach(canvas.blockPalette) { entry in
-                                Button(entry.displayName) {
-                                    Task { await canvas.insertBlock(entry) }
-                                }
-                            }
-                        }
-                    }
-                } label: {
-                    Label("Insert", systemImage: "plus")
-                }
-                .help("Add a new page, post, collection entry, or block")
-                .accessibilityIdentifier(AXID.toolbar(.insert))
+                toolbarItemContent(.insert, site: site)
             }
 
             // iCloud sync status (#881): renders nothing for a package that isn't in iCloud
             // Drive (`SyncStatusView` is an `EmptyView` when `!model.sync.isEligible`), so this
             // item never widens a local-only site's toolbar.
             ToolbarItem(id: SiteToolbarItemID.sync.rawValue, placement: .primaryAction) {
-                SyncStatusView(model: model.sync)
-                    .accessibilityIdentifier(AXID.toolbar(.sync))
+                toolbarItemContent(.sync, site: site)
             }
 
             // Open GitHub security advisories/Dependabot alerts (#975). Renders nothing (an
             // EmptyView) for a clean site — see SecurityReportsBadgeView's doc comment.
             ToolbarItem(id: SiteToolbarItemID.securityReports.rawValue, placement: .primaryAction) {
-                SecurityReportsBadgeView(
-                    model: model.securityReports,
-                    onRecheck: { model.recheckSecurityReports() },
-                    onViewAll: { model.openWebsiteSettings(landOn: .securityReports) }
-                )
-                .accessibilityIdentifier(AXID.toolbar(.securityReports))
+                toolbarItemContent(.securityReports, site: site)
             }
 
             ToolbarItem(id: SiteToolbarItemID.openInBrowser.rawValue, placement: .primaryAction) {
-                Button {
-                    model.openPreviewInBrowser()
-                } label: {
-                    Label("Open in Browser", systemImage: "arrow.up.forward.app")
-                }
-                .disabled(!model.canOpenPreviewInBrowser)
-                .help("Open the live preview in your default browser")
-                .accessibilityIdentifier(AXID.toolbar(.openInBrowser))
+                toolbarItemContent(.openInBrowser, site: site)
             }
 
             // — Palette-only items (View ▸ Customize Toolbar…) —
 
             ToolbarItem(id: SiteToolbarItemID.graph.rawValue, placement: .primaryAction) {
-                Button {
-                    Task { await model.showGraph() }
-                } label: {
-                    Label("Site Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                }
-                .help("Explore pages, layouts, components, collections, and assets")
-                .accessibilityIdentifier(AXID.toolbar(.graph))
+                toolbarItemContent(.graph, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.graph.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.backup.rawValue, placement: .primaryAction) {
-                Button {
-                    model.backupSite()
-                } label: {
-                    Label("Backup", systemImage: "externaldrive.fill.badge.icloud")
-                }
-                .disabled(!model.canRunBackup)
-                .help(site.isValid
-                      ? "Commit and push working-tree changes to your current branch"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.backup))
+                toolbarItemContent(.backup, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.backup.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.audit.rawValue, placement: .primaryAction) {
-                Button {
-                    model.auditSite()
-                } label: {
-                    if model.audit.isRunning {
-                        Label("Auditing…", systemImage: "magnifyingglass")
-                    } else {
-                        Label("Audit", systemImage: "checkmark.shield.fill")
-                    }
-                }
-                .disabled(!model.canRunAudit)
-                .help(site.isValid && model.preview.canDeploy
-                      ? "Run the structured accessibility audit against this site"
-                      : site.isValid
-                        ? "Open the preview first to start the runtime before auditing"
-                        : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.audit))
+                toolbarItemContent(.audit, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.audit.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.harden.rawValue, placement: .primaryAction) {
-                Button {
-                    model.harden.openSheet()
-                } label: {
-                    if model.harden.isRunning {
-                        Label("Hardening…", systemImage: "shield.lefthalf.filled")
-                    } else {
-                        Label("Harden", systemImage: "shield.lefthalf.filled")
-                    }
-                }
-                .disabled(!model.canRunHarden)
-                .help(site.isValid
-                      ? "Preview and apply Cloudflare security hardening for this site"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.harden))
+                toolbarItemContent(.harden, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.harden.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.aiSearch.rawValue, placement: .primaryAction) {
-                Button {
-                    model.aiSearch.openSheet()
-                } label: {
-                    if model.aiSearch.isRunning {
-                        Label("Setting Up AI Search…", systemImage: "text.magnifyingglass")
-                    } else {
-                        Label("AI Search", systemImage: "text.magnifyingglass")
-                    }
-                }
-                .disabled(!model.canRunAISearch)
-                .help(site.isValid
-                      ? "Provision Cloudflare AI Search for this site"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.aiSearch))
+                toolbarItemContent(.aiSearch, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.aiSearch.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.domainConfigAudit.rawValue, placement: .primaryAction) {
-                Button {
-                    model.domainConfigAudit.openSheet()
-                } label: {
-                    if model.domainConfigAudit.isRunning {
-                        Label("Checking Domain Config…", systemImage: "arrow.triangle.2.circlepath")
-                    } else {
-                        Label("Domain Config", systemImage: "arrow.triangle.2.circlepath")
-                    }
-                }
-                .disabled(!model.canRunDomainConfigAudit)
-                .help(site.isValid
-                      ? "Compare anglesite.json's declared domain/DNS/edge config against live Cloudflare state"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.domainConfigAudit))
+                toolbarItemContent(.domainConfigAudit, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.domainConfigAudit.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.agentReadiness.rawValue, placement: .primaryAction) {
-                Button {
-                    model.agentReadiness.openSheet()
-                } label: {
-                    if model.agentReadiness.isRunning {
-                        Label("Checking Agent Readiness…", systemImage: "sparkle.magnifyingglass")
-                    } else {
-                        Label("Agent Readiness", systemImage: "sparkle.magnifyingglass")
-                    }
-                }
-                .disabled(!model.canRunAgentReadiness)
-                .help(site.isValid
-                      ? "Check Cloudflare's Agent Readiness score for this site's published URL"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.agentReadiness))
+                toolbarItemContent(.agentReadiness, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.agentReadiness.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.onionRouting.rawValue, placement: .primaryAction) {
-                Button {
-                    model.onionRouting.openSheet()
-                } label: {
-                    Label("Onion Routing", systemImage: "network")
-                }
-                .disabled(!model.canRunOnionRouting)
-                .help(site.isValid
-                      ? "Enable Tor Browser access for this site via Cloudflare's zone-level setting"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.onionRouting))
+                toolbarItemContent(.onionRouting, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.onionRouting.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.domain.rawValue, placement: .primaryAction) {
-                Button {
-                    model.domain.openSheet()
-                } label: {
-                    Label("Domain", systemImage: "globe")
-                }
-                .disabled(!model.canOpenDomain)
-                .help("View and manage this domain's DNS records")
-                .accessibilityIdentifier(AXID.toolbar(.domain))
+                toolbarItemContent(.domain, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.domain.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.integration.rawValue, placement: .primaryAction) {
-                Button {
-                    model.openIntegrationWizard()
-                } label: {
-                    Label("Add Integration…", systemImage: "puzzlepiece.extension")
-                }
-                .disabled(!model.canOpenIntegrationWizard)
-                .help("Set up a third-party integration for this site")
-                .accessibilityIdentifier(AXID.toolbar(.integration))
+                toolbarItemContent(.integration, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.integration.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.siriReadiness.rawValue, placement: .primaryAction) {
-                Button {
-                    model.openSiriReadiness()
-                } label: {
-                    Label("Siri AI Readiness", systemImage: "sparkles")
-                }
-                .disabled(!model.canOpenSiriReadiness)
-                .help("Check whether Siri workflows are ready for this site")
-                .accessibilityIdentifier(AXID.toolbar(.siriReadiness))
+                toolbarItemContent(.siriReadiness, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.siriReadiness.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.relatedPages.rawValue, placement: .primaryAction) {
-                Button {
-                    model.relatedPagesPresented.toggle()
-                } label: {
-                    Label("Related Pages", systemImage: model.relatedPagesPresented
-                          ? "link.badge.plus" : "link")
-                }
-                .help(model.relatedPagesPresented ? "Hide related pages" : "Show related pages")
-                .accessibilityIdentifier(AXID.toolbar(.relatedPages))
+                toolbarItemContent(.relatedPages, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.relatedPages.isDefaultVisible ? .visible : .hidden)
 
             ToolbarItem(id: SiteToolbarItemID.styleGuide.rawValue, placement: .primaryAction) {
-                Button {
-                    model.openStyleGuide()
-                } label: {
-                    Label("Style Guide", systemImage: "textformat.abc")
-                }
-                .help("See and edit this site's learned writing, image, and naming conventions")
-                .accessibilityIdentifier(AXID.toolbar(.styleGuide))
+                toolbarItemContent(.styleGuide, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.styleGuide.isDefaultVisible ? .visible : .hidden)
 
             // One stable item whose label/action reflects publish state — two swapping items
             // would break saved customizations.
             ToolbarItem(id: SiteToolbarItemID.github.rawValue, placement: .primaryAction) {
-                if let remote = model.publish.existingRemote {
-                    Button {
-                        NSWorkspace.shared.open(remote.url)
-                    } label: {
-                        Label("View on GitHub", systemImage: "arrow.up.forward.square")
-                    }
-                    .help("Open this site's GitHub repository")
-                    .accessibilityIdentifier(AXID.toolbar(.github))
-                } else {
-                    Button {
-                        model.publish.publish(source: site.sourceDirectory, repoName: site.name)
-                    } label: {
-                        Label("Publish to GitHub", systemImage: "square.and.arrow.up.on.square")
-                    }
-                    .disabled(!model.canPublishToGitHub)
-                    .help(site.isValid ? "Create a private GitHub repo and push this site" : "Site is missing required files")
-                    .accessibilityIdentifier(AXID.toolbar(.github))
-                }
+                toolbarItemContent(.github, site: site)
             }
             .defaultCustomization(SiteToolbarItemID.github.isDefaultVisible ? .visible : .hidden)
 
@@ -904,86 +1036,35 @@ struct SiteWindow: View {
             // Health badge and Deploy are one item: the badge is the readiness signal for the
             // button it gates, so customization can never separate them.
             ToolbarItem(id: SiteToolbarItemID.deploy.rawValue, placement: .primaryAction) {
-                HStack(spacing: 8) {
-                    HealthBadgeView(
-                        model: model.health,
-                        onRecheck: { model.recheckHealth() },
-                        onAskAssistant: {
-                            guard let chat = model.chat else { return }
-                            model.chatPresented = true
-                            chat.send(SiteWindowModel.healthAssistantPrompt)
-                        }
-                    )
-                    Button {
-                        model.deploySite()
-                    } label: {
-                        Label("Publish Site", systemImage: "paperplane.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!model.canRunDeploy)
-                    .help(site.isValid && model.preview.canDeploy
-                          ? "Build, scan, and publish this site to Cloudflare"
-                          : site.isValid
-                            ? "Open the preview first to start the runtime before publishing"
-                            : "Site is missing required files")
-                    .accessibilityIdentifier(AXID.toolbar(.deploy))
-                }
+                toolbarItemContent(.deploy, site: site)
             }
             .customizationBehavior(.reorderable)
 
             ToolbarItem(id: SiteToolbarItemID.chat.rawValue, placement: .primaryAction) {
-                Button {
-                    model.toggleChat()
-                } label: {
-                    Label("Chat", systemImage: model.chatPresented
-                        ? "bubble.left.and.bubble.right.fill"
-                        : "bubble.left.and.bubble.right")
-                }
-                .help(model.chatPresented ? "Hide chat panel" : "Show chat panel")
-                .accessibilityIdentifier(AXID.toolbar(.chat))
-                // The shortcut (⌃⌘K, re-keyed from ⌘K per menu-bar spec §3) lives on View ▸
-                // Show/Hide Chat (#512) — a second registration here would recreate the
-                // duplicate-shortcut ambiguity #509 removed for ⌘S.
+                toolbarItemContent(.chat, site: site)
             }
+            // The shortcut (⌃⌘K, re-keyed from ⌘K per menu-bar spec §3) lives on View ▸
+            // Show/Hide Chat (#512) — a second registration here would recreate the
+            // duplicate-shortcut ambiguity #509 removed for ⌘S.
 
             // Moved ahead of the two inspector toggles (#714 v2 slice 3 final review) so
             // websiteInspector/inspector are genuinely last, per spec §4.
             // Unconditional per the file's own toolbar-customization rule above: disabled (not
             // hidden) outside Site ▸ Edit Page, so Customize Toolbar always shows it (#1588 Task 20).
             ToolbarItem(id: SiteToolbarItemID.wysiwygPalette.rawValue, placement: .primaryAction) {
-                Button {
-                    showWYSIWYGPalette.toggle()
-                } label: {
-                    Label("Block Palette", systemImage: "square.grid.2x2")
-                }
-                .disabled(!model.preview.isEditModeEnabled)
-                .help("Show or hide the block palette")
-                .accessibilityIdentifier(AXID.toolbar(.wysiwygPalette))
+                toolbarItemContent(.wysiwygPalette, site: site)
             }
 
             // Far trailing, immediately before the selection inspector toggle (#714 v2 slice 3) —
             // the Website inspector (Document analog) is always available, unlike `inspector`
             // (Format analog) which disables with no selection, so this item never disables.
             ToolbarItem(id: SiteToolbarItemID.websiteInspector.rawValue, placement: .primaryAction) {
-                Button {
-                    toggleWebsiteInspector()
-                } label: {
-                    Label("Website Inspector", systemImage: "globe")
-                }
-                .help("Show or hide the website inspector")
-                .accessibilityIdentifier(AXID.toolbar(.websiteInspector))
+                toolbarItemContent(.websiteInspector, site: site)
             }
 
             // Far trailing, adjacent to the inspector panel it controls (Pages/Freeform convention).
             ToolbarItem(id: SiteToolbarItemID.inspector.rawValue, placement: .primaryAction) {
-                Button {
-                    toggleSelectionInspector()
-                } label: {
-                    Label("Inspector", systemImage: "sidebar.right")
-                }
-                .disabled(model.inspectorSelection == nil)
-                .help("Show or hide the inspector")
-                .accessibilityIdentifier(AXID.toolbar(.inspector))
+                toolbarItemContent(.inspector, site: site)
             }
         }
         // Trailing search field (#520). Not a `.toolbar(id:)` item: `.searchable` mints its own
