@@ -2,6 +2,7 @@
 import Testing
 import Foundation
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 
 /// #1420: "New Post / New Component / Duplicate don't appear in Navigator or preview after
@@ -95,13 +96,10 @@ struct ContentCreationNavigatorRaceTests {
         }
 
         // No `refreshNow()` here — only the long-running `changeStream()` consumer task started by
-        // `start()`. Poll with a deadline rather than a single `Task.yield()`: the consumer is a
-        // real suspended `Task`, so it needs the runloop to actually schedule it.
-        let deadline = Date().addingTimeInterval(2)
-        while !flatten(navigator.nodes).contains(where: { $0.title == "Stream-Only Post" }) && Date() < deadline {
-            await Task.yield()
+        // `start()`. Wait rather than a single `Task.yield()`: the consumer is a real suspended
+        // `Task`, so it needs the runloop to actually schedule it.
+        try await waitUntil("post to appear via change stream") {
+            flatten(navigator.nodes).contains { $0.title == "Stream-Only Post" }
         }
-
-        #expect(flatten(navigator.nodes).contains { $0.title == "Stream-Only Post" })
     }
 }
