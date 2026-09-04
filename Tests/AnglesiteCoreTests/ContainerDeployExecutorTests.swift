@@ -79,6 +79,29 @@ struct ContainerDeployExecutorTests {
         #expect(argv == ["npx", "wrangler", "d1", "create", "site-social"])
     }
 
+    @Test("wranglerSubcommand forwards CLOUDFLARE_API_TOKEN in env, but NOT CLOUDFLARE_ACCOUNT_ID")
+    func wranglerSubcommandForwardsTokenOnly() async {
+        // Unlike `.wrangler`/`.bundleUpload` (which forward both CLOUDFLARE_API_TOKEN and
+        // CLOUDFLARE_ACCOUNT_ID — see `wranglerForwardsToken` and #1853), `.wranglerSubcommand`'s
+        // allowlist is token-only (`guestEnvAllowlist` in DeployExecutor.swift). This runs through
+        // `ContainerDeployExecutor.run` end-to-end (not just `guestArgv`) so a regression that
+        // widens the allowlist back to include the account id would actually fail this test.
+        let fake = fakePassing()
+        let executor = makeExecutor(fake: fake)
+        _ = await executor.run(
+            step: .wranglerSubcommand(args: ["d1", "create", "site-social"]),
+            siteDirectory: URL(fileURLWithPath: "/host/irrelevant"),
+            environment: [
+                "CLOUDFLARE_API_TOKEN": "supersecret",
+                "CLOUDFLARE_ACCOUNT_ID": "should-not-leak"
+            ],
+            source: "deploy:site-abc:wranglerSubcommand"
+        )
+        let env = await fake.execCalls[0].env
+        #expect(env["CLOUDFLARE_API_TOKEN"] == "supersecret")
+        #expect(env["CLOUDFLARE_ACCOUNT_ID"] == nil)
+    }
+
     // MARK: - .githubPagesPublish argv (#1015 slice 2a)
 
     /// A fresh host site directory with `anglesite.json` declaring the given GitHub Pages
