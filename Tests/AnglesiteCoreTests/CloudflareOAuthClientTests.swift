@@ -115,6 +115,31 @@ struct CloudflareOAuthClientTests {
         }
     }
 
+    // Regression for #1856: a non-`access_denied` `error=` (e.g. `invalid_scope`, from a scope
+    // the registered client isn't allowed to request) is a configuration problem, not a user
+    // cancel — it must throw `.callbackError`, distinct from the quiet `.callbackDenied`.
+    @Test("a non-access_denied error query param throws .callbackError with the error and description")
+    func callbackErrorSurfacesCodeAndDescription() {
+        let request = makeRequest()
+        let callback = URL(
+            string: "https://auth.anglesite.dwk.io/oauth-callback"
+                + "?error=invalid_scope&error_description=The%20requested%20scope%20is%20invalid&state=abc123")!
+        #expect(throws: CloudflareOAuthError.callbackError(code: "invalid_scope", description: "The requested scope is invalid")) {
+            _ = try CloudflareOAuthClient.authorizationCode(from: callback, matching: request)
+        }
+    }
+
+    @Test("access_denied with an error_description still throws .callbackDenied, not .callbackError")
+    func callbackDeniedWithDescriptionStaysCallbackDenied() {
+        let request = makeRequest()
+        let callback = URL(
+            string: "https://auth.anglesite.dwk.io/oauth-callback"
+                + "?error=access_denied&error_description=The%20user%20declined&state=abc123")!
+        #expect(throws: CloudflareOAuthError.callbackDenied("The user declined")) {
+            _ = try CloudflareOAuthClient.authorizationCode(from: callback, matching: request)
+        }
+    }
+
     @Test("a matching state but missing code throws .missingAuthorizationCode")
     func callbackMissingCode() {
         let request = makeRequest()
