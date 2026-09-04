@@ -37,6 +37,14 @@ final class SiteShellToolbarDelegate: NSObject, NSToolbarDelegate {
     /// The shell's split view, set by `SiteShellSplitController.installToolbar` once the
     /// toolbar is installed — backs the two tracking-separator toolbar items below.
     weak var splitView: NSSplitView?
+    /// The window's one search item (#1699 slice 2, Task 6), set alongside `splitView` by
+    /// `SiteShellSplitController.installToolbar`. Handed back *by identity* rather than rebuilt:
+    /// a fresh `NSSearchToolbarItem` per request would drop the field's current text and
+    /// first-responder state every time the toolbar re-asked for it (autosave restore, a
+    /// customization-palette round trip). `weak` because the owning `SiteWindow` holds it for the
+    /// window's lifetime and the toolbar retains the items it displays — this reference exists only
+    /// to answer the delegate callback.
+    weak var searchItem: SiteShellSearchToolbarItem?
 
     init(
         itemView: @escaping @MainActor (SiteToolbarItemID) -> AnyView,
@@ -67,6 +75,9 @@ final class SiteShellToolbarDelegate: NSObject, NSToolbarDelegate {
         if itemIdentifier == Self.inspectorTrackingSeparator, let splitView {
             return NSTrackingSeparatorToolbarItem(
                 identifier: itemIdentifier, splitView: splitView, dividerIndex: 1)
+        }
+        if itemIdentifier == SiteShellSearchToolbarItem.identifier {
+            return searchItem
         }
 
         guard let id = SiteToolbarItemID.allCases.first(where: { Self.itemIdentifier(for: $0) == itemIdentifier }) else {

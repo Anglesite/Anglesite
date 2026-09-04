@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -28,6 +29,14 @@ struct SiteWindow: View {
     /// persisted across launches — the palette is only meaningful while Site ▸ Edit Page is on
     /// (see the toolbar item's `.disabled`), so there's no stable state to restore between runs.
     @State private var showWYSIWYGPalette = false
+    /// `NSMenuItem.target` for the AppKit shell's Insert menu (#1699 slice 2) and the lazy home
+    /// of its search field. Both are per-window and outlive any single `body` evaluation; see
+    /// `ShellInsertMenuActions` / `ShellSearchItemStore` below for why each has to be an object
+    /// rather than something `SiteWindow` (a `struct View`) can hold directly. Unused while
+    /// `SiteShellFlag.isEnabled` is false — the store stays empty, so the legacy chrome never
+    /// builds a search item at all.
+    @State private var shellInsertActions: ShellInsertMenuActions
+    @State private var shellSearchItemStore: ShellSearchItemStore
     /// Which inspector occupies the trailing panel while `inspectorShown` is true (#714 v2 slice
     /// 1): the existing per-selection inspector, or the new Website inspector. Mutually exclusive
     /// — switching one on switches the other off. Persisted per window like `inspectorShown`.
@@ -112,6 +121,8 @@ struct SiteWindow: View {
             runtimeFactory: runtimeFactory,
             contentIndexerStore: contentIndexerStore
         ))
+        _shellInsertActions = State(initialValue: ShellInsertMenuActions())
+        _shellSearchItemStore = State(initialValue: ShellSearchItemStore())
     }
 
     var body: some View {
@@ -396,6 +407,95 @@ struct SiteWindow: View {
     @MainActor
     private func syncWebsiteInspectorPresented() {
         model.websiteInspectorPresented = websiteInspectorVisible
+    }
+
+    /// `NSMenuItem.target` for the shell's Insert menu (#1699 slice 2) — exists only because
+    /// `SiteWindow` (a `struct View`) can't itself be an `NSMenuItem` target, which AppKit
+    /// requires to be an `NSObject`. Closures are re-pointed on every `body` evaluation
+    /// (`shellChrome`, below) rather than the instance being recreated, so a menu that's open
+    /// across a re-render keeps working and `NSMenuItem.target`'s weak reference can't dangle.
+    @MainActor
+    private final class ShellInsertMenuActions: NSObject {
+        var onNewPage: () -> Void = {}
+        var onNewPost: () -> Void = {}
+        var onNewCollection: () -> Void = {}
+        var onInsertBlock: (WYSIWYGBlockPaletteEntry) -> Void = { _ in }
+
+        @objc func newPage() { onNewPage() }
+        @objc func newPost() { onNewPost() }
+        @objc func newCollection() { onNewCollection() }
+        @objc func insertBlock(_ sender: NSMenuItem) {
+            guard let entry = sender.representedObject as? WYSIWYGBlockPaletteEntry else { return }
+            onInsertBlock(entry)
+        }
+    }
+
+    /// Per-window home for the shell's one `SiteShellSearchToolbarItem` (#1699 slice 2).
+    ///
+    /// A reference box rather than a plain `@State private var shellSearchItem:
+    /// SiteShellSearchToolbarItem?`: the item can only be built lazily, from inside
+    /// `shellChrome` — and assigning to `@State` there would be a write during a view update.
+    /// Mutating a reference type SwiftUI already holds is not, so this keeps the design intent
+    /// (exactly one search item per window, never one per `body` evaluation — a fresh
+    /// `NSSearchToolbarItem` each time would drop the field's text and first-responder state)
+    /// without the update-phase write.
+    ///
+    /// Lazy rather than built in `init` on purpose: `SiteShellSearchToolbarItem` starts an
+    /// `Observation` loop over `model.hits` that pops a suggestions menu, and that must never run
+    /// for the legacy chrome, whose search field is `.searchable`'s and whose shell field would
+    /// belong to no window at all.
+    @MainActor
+    private final class ShellSearchItemStore {
+        private var item: SiteShellSearchToolbarItem?
+
+        func item(
+            model: SiteSearchModel, activate: @escaping (SiteSearchIndex.Hit) -> Void
+        ) -> SiteShellSearchToolbarItem {
+            if let item { return item }
+            let created = SiteShellSearchToolbarItem(model: model, activate: activate)
+            item = created
+            return created
+        }
+    }
+
+    /// This window's shell search field, built on first use. Safe to call from anywhere in `body`
+    /// — the store makes every call after the first return the same instance.
+    private var shellSearchItem: SiteShellSearchToolbarItem {
+        shellSearchItemStore.item(
+            model: model.search, activate: { hit in model.openSearchHit(hit) })
+    }
+
+    /// The shell Insert menu's items, rebuilt on every menu open by
+    /// `SiteShellToolbarDelegate.menuNeedsUpdate(_:)` because the Blocks section depends on live
+    /// WYSIWYG canvas state. Mirrors `toolbarItemContent(.insert, site:)`'s SwiftUI `Menu` item
+    /// for item — same three commands, same `Section("Blocks")` over the same
+    /// `WYSIWYGCanvasController.blockPalette`. `static` so it stays out of `shellChrome`'s
+    /// type-checking budget.
+    @MainActor
+    private static func shellInsertMenuItems(
+        actions: ShellInsertMenuActions, blockPalette: [WYSIWYGBlockPaletteEntry]
+    ) -> [NSMenuItem] {
+        var items = [
+            NSMenuItem(title: "New Page…", action: #selector(ShellInsertMenuActions.newPage), keyEquivalent: ""),
+            NSMenuItem(title: "New Post…", action: #selector(ShellInsertMenuActions.newPost), keyEquivalent: ""),
+            NSMenuItem(
+                title: "New Collection Entry…",
+                action: #selector(ShellInsertMenuActions.newCollection),
+                keyEquivalent: ""),
+        ]
+        for item in items { item.target = actions }
+        guard !blockPalette.isEmpty else { return items }
+        items.append(NSMenuItem.sectionHeader(title: "Blocks"))
+        for entry in blockPalette {
+            let blockItem = NSMenuItem(
+                title: entry.displayName,
+                action: #selector(ShellInsertMenuActions.insertBlock(_:)),
+                keyEquivalent: "")
+            blockItem.target = actions
+            blockItem.representedObject = entry
+            items.append(blockItem)
+        }
+        return items
     }
 
     /// The SwiftUI content for one toolbar item — everything inside its `ToolbarItem` closure
@@ -801,11 +901,34 @@ struct SiteWindow: View {
     }
 
     /// The AppKit shell chrome (#1699 Stage 3 slice 1) — same columns, negotiation-free by
-    /// construction; see `SiteShellSplitController`'s doc comment.
+    /// construction; see `SiteShellSplitController`'s doc comment. Since slice 2 it also carries
+    /// this window's toolbar wiring: the same `toolbarItemContent(_:site:)` the legacy toolbar
+    /// renders, a native Insert menu, and the shell's own search field.
     private func shellChrome(for site: SiteStore.Site, inspectorPresented: Binding<Bool>) -> some View {
-        SiteShellView(
+        // Re-point the shim's closures at this evaluation's `self` rather than rebuilding it —
+        // see `ShellInsertMenuActions`' doc comment.
+        let actions = shellInsertActions
+        actions.onNewPage = { newContentActions?.newPage() }
+        actions.onNewPost = { newContentActions?.newPost() }
+        actions.onNewCollection = { newContentActions?.newCollection() }
+        actions.onInsertBlock = { entry in
+            guard let canvas = model.preview.wysiwygCanvas else { return }
+            Task { await canvas.insertBlock(entry) }
+        }
+
+        return SiteShellView(
             sidebarVisible: $sidebarVisible,
-            inspectorPresented: inspectorPresented
+            inspectorPresented: inspectorPresented,
+            // Captured once, in `makeNSViewController`, and read for the window's lifetime: both
+            // closures reach live state through `@State` storage that outlives any single `body`
+            // evaluation — the same property `body`'s own `onAppear` seam relies on.
+            itemView: { id in AnyView(self.toolbarItemContent(id, site: site)) },
+            insertMenuItems: {
+                Self.shellInsertMenuItems(
+                    actions: actions,
+                    blockPalette: self.model.preview.wysiwygCanvas?.blockPalette ?? [])
+            },
+            searchItem: shellSearchItem
         ) {
             sidebarColumn(for: site)
         } content: {
@@ -905,7 +1028,12 @@ struct SiteWindow: View {
         over chrome: some View, for site: SiteStore.Site, inspectorPresented: Binding<Bool>
     ) -> some View {
         @Bindable var bindableModel = model
-        return chrome
+        // Title/document/role chrome — identical for both chromes, so it's held as its own value
+        // and the flag branch below slots in at exactly the position the previously unbranched
+        // chain put the toolbar and search modifiers. Keeping that position byte-for-byte is the
+        // point: with the flag off, `titledChrome` + the `else` branch reproduce the old chain
+        // modifier for modifier, in order.
+        let titledChrome = chrome
         .navigationTitle(model.preview.editingPageTitle ?? site.name)
         .navigationSubtitle(model.preview.readyURL?.absoluteString ?? "")
         // Titlebar proxy icon (#521): ⌘-click shows the package's path, and the icon drags as the
@@ -920,162 +1048,183 @@ struct SiteWindow: View {
         // item occupies that center anymore: Editor/Graph/Cleanup are drill-in takeovers reached
         // by opening a file or a Website-menu command, not a toolbar-centered mode switch.
         .toolbarRole(.editor)
-        // Customizable toolbar (#519): every item has a STABLE id — saved customizations key off
-        // these strings, so renaming one silently discards users' layouts (the id set is frozen
-        // by SiteToolbarItemIDTests in AnglesiteCoreTests). Items must also be
-        // unconditional (no `if let` wrappers): identity-swapping or appearing/vanishing items
-        // fight the customization palette, so state-dependent items render disabled instead.
-        // Curated default ≈9 items (sync/securityReports often render empty); episodic
-        // setup/maintenance actions ship hidden and live in the palette (View ▸ Customize
-        // Toolbar…, added in #510).
-        .toolbar(id: "site") {
-            // Leading, per Pages/Freeform convention for the content-creation `+` menu (#714 v2
-            // slice 3). The Blocks section (#714 v2 slice 4) reuses the exact same
-            // `WYSIWYGCanvasController.blockPalette`/`insertBlock(_:)` pair the block palette
-            // panel and Insert ▸ Component already call — see `InsertCommands.swift`'s identical
-            // `if let canvas = wysiwygCanvas { ... }` shape, the shared action layer spec §4 asks
-            // for. Present only in WYSIWYG edit mode (unlike the Block Palette toggle, this
-            // doesn't also depend on the palette panel's own visibility).
-            ToolbarItem(id: SiteToolbarItemID.insert.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.insert, site: site)
-            }
 
-            // iCloud sync status (#881): renders nothing for a package that isn't in iCloud
-            // Drive (`SyncStatusView` is an `EmptyView` when `!model.sync.isEligible`), so this
-            // item never widens a local-only site's toolbar.
-            ToolbarItem(id: SiteToolbarItemID.sync.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.sync, site: site)
-            }
+        return Group {
+            if SiteShellFlag.isEnabled {
+                // `SiteShellSplitController` owns this window's real `NSToolbar` (#1699 slice 2),
+                // so the SwiftUI toolbar/search chain below must not also run: a second,
+                // SwiftUI-owned toolbar would either be silently dropped or fight the shell for
+                // `window.toolbar`. What `.searchable` does *besides* minting a toolbar item
+                // still has to happen, though — it's what makes any search field work at all —
+                // so `SiteSearchFieldModifier`'s two non-toolbar jobs are restated here against
+                // the shell's own `NSSearchToolbarItem`: the debounced search driver (whose
+                // results `SiteShellSearchToolbarItem` observes to raise its suggestions menu),
+                // and the ⇧⌘F focus action the Find command reads.
+                titledChrome
+                    .task(id: model.search.request) { await model.search.search(siteID: site.id) }
+                    .focusedSceneValue(\.siteSearchActions, SiteSearchActions(
+                        focusSearchField: { shellSearchItem.beginSearchInteraction() }
+                    ))
+            } else {
+                titledChrome
+                // Customizable toolbar (#519): every item has a STABLE id — saved customizations key off
+                // these strings, so renaming one silently discards users' layouts (the id set is frozen
+                // by SiteToolbarItemIDTests in AnglesiteCoreTests). Items must also be
+                // unconditional (no `if let` wrappers): identity-swapping or appearing/vanishing items
+                // fight the customization palette, so state-dependent items render disabled instead.
+                // Curated default ≈9 items (sync/securityReports often render empty); episodic
+                // setup/maintenance actions ship hidden and live in the palette (View ▸ Customize
+                // Toolbar…, added in #510).
+                .toolbar(id: "site") {
+                    // Leading, per Pages/Freeform convention for the content-creation `+` menu (#714 v2
+                    // slice 3). The Blocks section (#714 v2 slice 4) reuses the exact same
+                    // `WYSIWYGCanvasController.blockPalette`/`insertBlock(_:)` pair the block palette
+                    // panel and Insert ▸ Component already call — see `InsertCommands.swift`'s identical
+                    // `if let canvas = wysiwygCanvas { ... }` shape, the shared action layer spec §4 asks
+                    // for. Present only in WYSIWYG edit mode (unlike the Block Palette toggle, this
+                    // doesn't also depend on the palette panel's own visibility).
+                    ToolbarItem(id: SiteToolbarItemID.insert.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.insert, site: site)
+                    }
 
-            // Open GitHub security advisories/Dependabot alerts (#975). Renders nothing (an
-            // EmptyView) for a clean site — see SecurityReportsBadgeView's doc comment.
-            ToolbarItem(id: SiteToolbarItemID.securityReports.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.securityReports, site: site)
-            }
+                    // iCloud sync status (#881): renders nothing for a package that isn't in iCloud
+                    // Drive (`SyncStatusView` is an `EmptyView` when `!model.sync.isEligible`), so this
+                    // item never widens a local-only site's toolbar.
+                    ToolbarItem(id: SiteToolbarItemID.sync.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.sync, site: site)
+                    }
 
-            ToolbarItem(id: SiteToolbarItemID.openInBrowser.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.openInBrowser, site: site)
-            }
+                    // Open GitHub security advisories/Dependabot alerts (#975). Renders nothing (an
+                    // EmptyView) for a clean site — see SecurityReportsBadgeView's doc comment.
+                    ToolbarItem(id: SiteToolbarItemID.securityReports.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.securityReports, site: site)
+                    }
 
-            // — Palette-only items (View ▸ Customize Toolbar…) —
+                    ToolbarItem(id: SiteToolbarItemID.openInBrowser.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.openInBrowser, site: site)
+                    }
 
-            ToolbarItem(id: SiteToolbarItemID.graph.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.graph, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.graph.isDefaultVisible ? .visible : .hidden)
+                    // — Palette-only items (View ▸ Customize Toolbar…) —
 
-            ToolbarItem(id: SiteToolbarItemID.backup.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.backup, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.backup.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.graph.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.graph, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.graph.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.audit.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.audit, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.audit.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.backup.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.backup, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.backup.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.harden.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.harden, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.harden.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.audit.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.audit, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.audit.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.aiSearch.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.aiSearch, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.aiSearch.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.harden.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.harden, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.harden.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.domainConfigAudit.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.domainConfigAudit, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.domainConfigAudit.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.aiSearch.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.aiSearch, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.aiSearch.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.agentReadiness.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.agentReadiness, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.agentReadiness.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.domainConfigAudit.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.domainConfigAudit, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.domainConfigAudit.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.onionRouting.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.onionRouting, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.onionRouting.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.agentReadiness.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.agentReadiness, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.agentReadiness.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.domain.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.domain, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.domain.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.onionRouting.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.onionRouting, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.onionRouting.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.integration.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.integration, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.integration.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.domain.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.domain, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.domain.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.siriReadiness.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.siriReadiness, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.siriReadiness.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.integration.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.integration, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.integration.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.relatedPages.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.relatedPages, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.relatedPages.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.siriReadiness.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.siriReadiness, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.siriReadiness.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.styleGuide.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.styleGuide, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.styleGuide.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.relatedPages.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.relatedPages, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.relatedPages.isDefaultVisible ? .visible : .hidden)
 
-            // One stable item whose label/action reflects publish state — two swapping items
-            // would break saved customizations.
-            ToolbarItem(id: SiteToolbarItemID.github.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.github, site: site)
-            }
-            .defaultCustomization(SiteToolbarItemID.github.isDefaultVisible ? .visible : .hidden)
+                    ToolbarItem(id: SiteToolbarItemID.styleGuide.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.styleGuide, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.styleGuide.isDefaultVisible ? .visible : .hidden)
 
-            // — Default trailing cluster —
+                    // One stable item whose label/action reflects publish state — two swapping items
+                    // would break saved customizations.
+                    ToolbarItem(id: SiteToolbarItemID.github.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.github, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.github.isDefaultVisible ? .visible : .hidden)
 
-            // Health badge and Deploy are one item: the badge is the readiness signal for the
-            // button it gates, so customization can never separate them.
-            ToolbarItem(id: SiteToolbarItemID.deploy.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.deploy, site: site)
-            }
-            .customizationBehavior(.reorderable)
+                    // — Default trailing cluster —
 
-            ToolbarItem(id: SiteToolbarItemID.chat.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.chat, site: site)
-            }
-            // The shortcut (⌃⌘K, re-keyed from ⌘K per menu-bar spec §3) lives on View ▸
-            // Show/Hide Chat (#512) — a second registration here would recreate the
-            // duplicate-shortcut ambiguity #509 removed for ⌘S.
+                    // Health badge and Deploy are one item: the badge is the readiness signal for the
+                    // button it gates, so customization can never separate them.
+                    ToolbarItem(id: SiteToolbarItemID.deploy.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.deploy, site: site)
+                    }
+                    .customizationBehavior(.reorderable)
 
-            // Moved ahead of the two inspector toggles (#714 v2 slice 3 final review) so
-            // websiteInspector/inspector are genuinely last, per spec §4.
-            // Unconditional per the file's own toolbar-customization rule above: disabled (not
-            // hidden) outside Site ▸ Edit Page, so Customize Toolbar always shows it (#1588 Task 20).
-            ToolbarItem(id: SiteToolbarItemID.wysiwygPalette.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.wysiwygPalette, site: site)
-            }
+                    ToolbarItem(id: SiteToolbarItemID.chat.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.chat, site: site)
+                    }
+                    // The shortcut (⌃⌘K, re-keyed from ⌘K per menu-bar spec §3) lives on View ▸
+                    // Show/Hide Chat (#512) — a second registration here would recreate the
+                    // duplicate-shortcut ambiguity #509 removed for ⌘S.
 
-            // Far trailing, immediately before the selection inspector toggle (#714 v2 slice 3) —
-            // the Website inspector (Document analog) is always available, unlike `inspector`
-            // (Format analog) which disables with no selection, so this item never disables.
-            ToolbarItem(id: SiteToolbarItemID.websiteInspector.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.websiteInspector, site: site)
-            }
+                    // Moved ahead of the two inspector toggles (#714 v2 slice 3 final review) so
+                    // websiteInspector/inspector are genuinely last, per spec §4.
+                    // Unconditional per the file's own toolbar-customization rule above: disabled (not
+                    // hidden) outside Site ▸ Edit Page, so Customize Toolbar always shows it (#1588 Task 20).
+                    ToolbarItem(id: SiteToolbarItemID.wysiwygPalette.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.wysiwygPalette, site: site)
+                    }
 
-            // Far trailing, adjacent to the inspector panel it controls (Pages/Freeform convention).
-            ToolbarItem(id: SiteToolbarItemID.inspector.rawValue, placement: .primaryAction) {
-                toolbarItemContent(.inspector, site: site)
+                    // Far trailing, immediately before the selection inspector toggle (#714 v2 slice 3) —
+                    // the Website inspector (Document analog) is always available, unlike `inspector`
+                    // (Format analog) which disables with no selection, so this item never disables.
+                    ToolbarItem(id: SiteToolbarItemID.websiteInspector.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.websiteInspector, site: site)
+                    }
+
+                    // Far trailing, adjacent to the inspector panel it controls (Pages/Freeform convention).
+                    ToolbarItem(id: SiteToolbarItemID.inspector.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.inspector, site: site)
+                    }
+                }
+                // Trailing search field (#520). Not a `.toolbar(id:)` item: `.searchable` mints its own
+                // toolbar item id, so it stays out of the frozen `SiteToolbarItemID` set and out of
+                // users' saved customizations.
+                .modifier(SiteSearchFieldModifier(
+                    model: model.search,
+                    siteID: site.id,
+                    inspectorPresented: inspectorPresented,
+                    activate: { hit in model.openSearchHit(hit) }
+                ))
             }
         }
-        // Trailing search field (#520). Not a `.toolbar(id:)` item: `.searchable` mints its own
-        // toolbar item id, so it stays out of the frozen `SiteToolbarItemID` set and out of
-        // users' saved customizations.
-        .modifier(SiteSearchFieldModifier(
-            model: model.search,
-            siteID: site.id,
-            inspectorPresented: inspectorPresented,
-            activate: { hit in model.openSearchHit(hit) }
-        ))
         .sheet(isPresented: $bindableModel.deploy.blockedPresented) {
             if case .blocked(let failures, let warnings) = model.deploy.phase {
                 BlockedDeploySheetView(failures: failures, warnings: warnings) {

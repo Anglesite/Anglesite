@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import AnglesiteCore
 
 /// Bridges SwiftUI chrome state into `SiteShellSplitController` (#1699 slice 1). Column
 /// contents are re-pushed as `rootView`s on every update so the hosted columns stay live;
@@ -12,16 +13,30 @@ struct SiteShellView<Sidebar: View, Content: View, Inspector: View>: NSViewContr
     let sidebar: Sidebar
     let content: Content
     let inspector: Inspector
+    /// The three pieces of toolbar wiring the shell's own `NSToolbar` needs (#1699 slice 2).
+    /// Handed straight to `SiteShellSplitController.installToolbar` from `makeNSViewController`,
+    /// so they are captured once per window rather than re-read on every SwiftUI update — the
+    /// closures reach live state through `SiteWindow`'s `@State` storage, and `searchItem` is the
+    /// window's single, long-lived search field.
+    let itemView: @MainActor (SiteToolbarItemID) -> AnyView
+    let insertMenuItems: @MainActor () -> [NSMenuItem]
+    let searchItem: SiteShellSearchToolbarItem
 
     init(
         sidebarVisible: Binding<Bool>,
         inspectorPresented: Binding<Bool>,
+        itemView: @escaping @MainActor (SiteToolbarItemID) -> AnyView,
+        insertMenuItems: @escaping @MainActor () -> [NSMenuItem],
+        searchItem: SiteShellSearchToolbarItem,
         @ViewBuilder sidebar: () -> Sidebar,
         @ViewBuilder content: () -> Content,
         @ViewBuilder inspector: () -> Inspector
     ) {
         _sidebarVisible = sidebarVisible
         _inspectorPresented = inspectorPresented
+        self.itemView = itemView
+        self.insertMenuItems = insertMenuItems
+        self.searchItem = searchItem
         self.sidebar = sidebar()
         self.content = content()
         self.inspector = inspector()
@@ -44,6 +59,8 @@ struct SiteShellView<Sidebar: View, Content: View, Inspector: View>: NSViewContr
     func makeNSViewController(context: Context) -> SiteShellSplitController<Sidebar, Content, Inspector> {
         let controller = SiteShellSplitController(
             sidebar: sidebar, content: content, inspector: inspector)
+        controller.installToolbar(
+            itemView: itemView, insertMenuItems: insertMenuItems, searchItem: searchItem)
         controller.setSidebarCollapsed(!sidebarVisible, animated: false)
         controller.setInspectorCollapsed(!inspectorPresented, animated: false)
         let coordinator = context.coordinator

@@ -40,6 +40,9 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
 
     private(set) var ownedToolbar: NSToolbar?
     private var toolbarDelegate: SiteShellToolbarDelegate?
+    /// One-shot latch for `attachOwnedToolbarIfNeeded()`'s item seeding — `viewDidAppear` fires
+    /// more than once per window (re-key, miniaturize/restore), and the seeding is additive.
+    private var seededToolbarItems = false
 
     init(sidebar: Sidebar, content: Content, inspector: Inspector) {
         sidebarHost = NSHostingController(rootView: sidebar)
@@ -108,12 +111,19 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
         applyInitialLayoutIfNeeded()
     }
 
-    /// Builds and installs this window's owned `NSToolbar` (#1699 slice 2). Idempotent — a
-    /// second call is a no-op, since `SiteShellView.makeNSViewController` runs once per window
-    /// but `viewDidAppear` can fire more than once (e.g. window re-key).
+    /// Builds this window's owned `NSToolbar` (#1699 slice 2). Idempotent — a second call is a
+    /// no-op, since `SiteShellView.makeNSViewController` runs once per window but `viewDidAppear`
+    /// can fire more than once (e.g. window re-key).
+    ///
+    /// Building and *attaching* are deliberately separate: this runs from
+    /// `makeNSViewController`, before the controller's view has ever been in a window, so
+    /// `view.window` is still nil here. `attachOwnedToolbarIfNeeded()` — driven by
+    /// `viewDidAppear()` — is what hands the finished toolbar to the window and does the item
+    /// seeding that only means anything once `NSToolbar.items` is populated.
     func installToolbar(
         itemView: @escaping @MainActor (SiteToolbarItemID) -> AnyView,
-        insertMenuItems: @escaping @MainActor () -> [NSMenuItem]
+        insertMenuItems: @escaping @MainActor () -> [NSMenuItem],
+        searchItem: SiteShellSearchToolbarItem
     ) {
         guard ownedToolbar == nil else { return }
         let delegate = SiteShellToolbarDelegate(itemView: itemView, insertMenuItems: insertMenuItems)
@@ -123,10 +133,41 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
         toolbar.allowsUserCustomization = true
         toolbar.autosavesConfiguration = true
         delegate.splitView = splitView
+        delegate.searchItem = searchItem
         toolbarDelegate = delegate
         ownedToolbar = toolbar
-        view.window?.toolbar = toolbar
-        installTrackingSeparators()
+        attachOwnedToolbarIfNeeded()
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        attachOwnedToolbarIfNeeded()
+    }
+
+    /// Hands `ownedToolbar` to the window and seeds the items that aren't part of the delegate's
+    /// default set (the trailing search field, the two tracking separators). Runs on every
+    /// appearance because `installToolbar` can't: it is called from
+    /// `SiteShellView.makeNSViewController`, one full layout pass before this controller's view
+    /// reaches a window. Both halves are idempotent — the window assignment compares identity,
+    /// and the seeding runs once per controller *and* skips identifiers a restored autosaved
+    /// configuration already put in the toolbar.
+    private func attachOwnedToolbarIfNeeded() {
+        guard let toolbar = ownedToolbar, let window = view.window else { return }
+        if window.toolbar !== toolbar { window.toolbar = toolbar }
+        guard !seededToolbarItems else { return }
+        seededToolbarItems = true
+        Self.insertSearchItem(into: toolbar)
+        Self.insertTrackingSeparators(into: toolbar)
+    }
+
+    /// Appends the search item's identifier at the trailing edge, matching where `.searchable`
+    /// put the legacy field. The item itself comes back from
+    /// `SiteShellToolbarDelegate.toolbar(_:itemForItemIdentifier:willBeInsertedIntoToolbar:)` by
+    /// identity, so the window's one `SiteShellSearchToolbarItem` is what lands here.
+    static func insertSearchItem(into toolbar: NSToolbar) {
+        guard !toolbar.items.contains(where: { $0.itemIdentifier == SiteShellSearchToolbarItem.identifier })
+        else { return }
+        toolbar.insertItem(withItemIdentifier: SiteShellSearchToolbarItem.identifier, at: toolbar.items.count)
     }
 
     /// Inserts the two tracking-separator identifiers (design doc §"Toolbar (slice 2)": "a
@@ -134,16 +175,11 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
     /// `SiteShellToolbarDelegate.toolbar(_:itemForItemIdentifier:willBeInsertedIntoToolbar:)`
     /// when the toolbar asks for them — `NSToolbar` retains only the identifier once inserted,
     /// not the instance, so there is nothing to build here beyond the identifiers themselves.
-    private func installTrackingSeparators() {
-        guard let toolbar = ownedToolbar else { return }
-        Self.insertTrackingSeparators(into: toolbar)
-    }
-
-    /// Split out from `installTrackingSeparators()` (#1699 slice 2 review fix) so the
-    /// clamped-index math can be exercised directly, against a toolbar pre-populated with a
-    /// realistic default-item count, without needing a real window — `NSToolbar.items` only
-    /// reflects the delegate's default set once the toolbar is attached to one.
-    /// `installTrackingSeparators()` remains the only production call site.
+    ///
+    /// `static` (#1699 slice 2 review fix) so the clamped-index math can be exercised directly,
+    /// against a toolbar pre-populated with a realistic default-item count, without needing a
+    /// real window — `NSToolbar.items` only reflects the delegate's default set once the toolbar
+    /// is attached to one. `attachOwnedToolbarIfNeeded()` is the only production call site.
     ///
     /// Clamped rather than the literal `1` / `count - 1`: `NSToolbar.insertItem(at:)`
     /// requires `0...items.count`, and `toolbar.items` is empty for a toolbar that has never
@@ -152,6 +188,10 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
     /// item, right before the trailing one) once real default items exist, and degrade to
     /// safe no-crash inserts otherwise.
     static func insertTrackingSeparators(into toolbar: NSToolbar) {
+        let present = Set(toolbar.items.map(\.itemIdentifier))
+        guard !present.contains(SiteShellToolbarDelegate.sidebarTrackingSeparator),
+              !present.contains(SiteShellToolbarDelegate.inspectorTrackingSeparator)
+        else { return }
         let sidebarIndex = min(1, toolbar.items.count)
         toolbar.insertItem(withItemIdentifier: SiteShellToolbarDelegate.sidebarTrackingSeparator, at: sidebarIndex)
         let inspectorIndex = max(sidebarIndex + 1, toolbar.items.count - 1)

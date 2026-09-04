@@ -62,12 +62,20 @@ struct SiteShellSplitControllerTests {
         #expect(controller.splitViewItems.count == 3)
     }
 
+    /// A throwaway search item for the `installToolbar` calls below — the shell hands its one
+    /// real item to the delegate by identity, so these tests only need *an* item, not a live one.
+    private func makeSearchItem() -> SiteShellSearchToolbarItem {
+        SiteShellSearchToolbarItem(model: SiteSearchModel(index: SiteKnowledgeIndex()), activate: { _ in })
+    }
+
     @Test("installToolbar builds a toolbar with the shell's identifier and delegate")
     @MainActor
     func installToolbarSetsIdentifierAndDelegate() {
         let controller = SiteShellSplitController(
             sidebar: Text("sidebar"), content: Text("content"), inspector: Text("inspector"))
-        controller.installToolbar(itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
+        controller.installToolbar(
+            itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] },
+            searchItem: makeSearchItem())
         let toolbar = try? #require(controller.ownedToolbar)
         #expect(toolbar?.identifier == SiteShellToolbarDelegate.toolbarIdentifier)
         #expect(toolbar?.allowsUserCustomization == true)
@@ -79,9 +87,13 @@ struct SiteShellSplitControllerTests {
     func installToolbarIsIdempotent() {
         let controller = SiteShellSplitController(
             sidebar: Text("sidebar"), content: Text("content"), inspector: Text("inspector"))
-        controller.installToolbar(itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
+        controller.installToolbar(
+            itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] },
+            searchItem: makeSearchItem())
         let first = controller.ownedToolbar
-        controller.installToolbar(itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
+        controller.installToolbar(
+            itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] },
+            searchItem: makeSearchItem())
         #expect(controller.ownedToolbar === first)
     }
 
