@@ -60,14 +60,29 @@ public struct FoundationModelDeploySummarizer: DeployFailureSummarizing {
     }
 
     static func prompt(for log: String) -> String {
-        """
-        A website deploy to Cloudflare failed. Read the deploy log below and explain the failure \
-        for a non-expert site owner. Be concise and specific to this log — do not invent details \
-        that are not present in the log.
+        var sections = [
+            """
+            A website deploy to Cloudflare failed. Read the deploy log below and explain the \
+            failure for a non-expert site owner. Be concise and specific to this log — do not \
+            invent details that are not present in the log.
 
+            Prioritize the failing command's actual terminal error — the last "ERROR" line or \
+            the reason the process exited non-zero — over earlier informational build warnings \
+            that appear before it. If the terminal error does not clearly point to a cause, say \
+            you are not certain rather than asserting a specific fix.
+            """
+        ]
+        if let terminalError = DeployLogDigest.terminalError(in: log) {
+            sections.append("""
+            The failing command's terminal error (weight this as the primary cause):
+            \(terminalError)
+            """)
+        }
+        sections.append("""
         Deploy log:
         \(log)
-        """
+        """)
+        return sections.joined(separator: "\n\n")
     }
 }
 #endif

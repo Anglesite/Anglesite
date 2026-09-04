@@ -11,6 +11,24 @@ import Testing
         #expect(prompt.lowercased().contains("deploy"))
     }
 
+    // Regression coverage for #1855: the prompt must call out the terminal error as the
+    // authoritative cause, separate from (and ahead of) the full log's earlier warning noise.
+    @Test func promptHighlightsTerminalErrorSeparatelyFromEarlierWarnings() {
+        let log = """
+        [WARN] [glob-loader] The base directory "src/content/members/" does not exist.
+        ✘ ERROR  Failed to automatically retrieve account IDs for the logged in user.
+        """
+        let prompt = FoundationModelDeploySummarizer.prompt(for: log)
+        #expect(prompt.contains("terminal error"))
+        #expect(prompt.contains("Prioritize"))
+        #expect(prompt.contains("Failed to automatically retrieve account IDs"))
+    }
+
+    @Test func promptHedgesWhenNoTerminalErrorIsFound() {
+        let prompt = FoundationModelDeploySummarizer.prompt(for: "Publishing to Cloudflare...")
+        #expect(prompt.contains("not certain"))
+    }
+
     @Test func emptyLogReturnsNilWithoutModel() async {
         // Whitespace-only log must short-circuit to nil and never invoke the on-device model,
         // so this is deterministic on machines with or without Apple Intelligence.
