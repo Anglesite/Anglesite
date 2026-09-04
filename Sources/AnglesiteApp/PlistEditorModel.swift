@@ -149,6 +149,11 @@ final class PlistEditorModel {
     private let repoSecurity: any RepoSecurityReading & RepoSecurityWriting
     private let gitRunner: BackupCommand.GitRunner
     private let githubToken: @Sendable () throws -> String?
+    /// Commits `redirects.json`/`utm-codes.json`/`licensing.json` after `saveRedirects`/
+    /// `saveUTMCodes`/`saveLicensing` write them (#1874) — the same stage-and-commit seam
+    /// `PageMetadataModel`/`TypedEntryEditorModel` use, injectable so tests observe (or fail) the
+    /// commit without a real repo.
+    private let gitCommit: NativeContentOperations.GitCommit
 
     // MARK: - Workers tab (#710)
 
@@ -287,7 +292,8 @@ final class PlistEditorModel {
          githubToken: @escaping @Sendable () throws -> String? = { try KeychainStore().readGitHubToken() },
          securityReports: SecurityReportsModel? = nil,
          dependencySyncOffers: DependencySyncOffers = DependencySyncOffers(),
-         onOpenDependencyFix: @escaping (DependencyUpdateOffer) -> Void = { _ in }) {
+         onOpenDependencyFix: @escaping (DependencyUpdateOffer) -> Void = { _ in },
+         gitCommit: @escaping NativeContentOperations.GitCommit = NativeContentOperations.processGitCommit) {
         self.file = file
         self.initialWebsiteTitle = websiteTitle
         self.sourceDirectory = sourceDirectory
@@ -322,6 +328,7 @@ final class PlistEditorModel {
         self.securityReports = securityReports ?? SecurityReportsModel()
         self.dependencySyncOffers = dependencySyncOffers
         self.onOpenDependencyFix = onOpenDependencyFix
+        self.gitCommit = gitCommit
         self.hasWebsiteIcons = WebsiteIconInstaller.hasInstalledIcons(in: sourceDirectory)
     }
 
@@ -567,6 +574,7 @@ final class PlistEditorModel {
                 try RedirectsStore(sourceDirectory: sourceDirectory).save(entries)
             }.value
             savedRedirectEntries = entries
+            _ = await gitCommit(sourceDirectory, "redirects.json", "anglesite: update redirects.json")
             return true
         } catch {
             redirectsError = String(localized: "Couldn't save redirects: \(error.localizedDescription)")
@@ -595,6 +603,7 @@ final class PlistEditorModel {
                 try UTMCodesStore(sourceDirectory: sourceDirectory).save(campaigns)
             }.value
             savedUTMCampaigns = campaigns
+            _ = await gitCommit(sourceDirectory, "utm-codes.json", "anglesite: update utm-codes.json")
             return true
         } catch {
             utmCodesError = String(localized: "Couldn't save UTM codes: \(error.localizedDescription)")
@@ -632,6 +641,7 @@ final class PlistEditorModel {
             }.value
             licensingPolicy = policy
             savedLicensingPolicy = policy
+            _ = await gitCommit(sourceDirectory, LicensingStore.relativePath, "anglesite: update licensing.json")
             return true
         } catch LicensingStore.ValidationError.unsafeLicenseURL(let url) {
             licensingError = String(localized: "\"\(url)\" isn't a usable license address. Use an https:// URL or a path on this site starting with /.")
