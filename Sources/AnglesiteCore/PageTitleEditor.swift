@@ -81,21 +81,19 @@ public enum PageTitleEditor {
     // MARK: - Attribute (astro / html)
 
     /// Port of `ContentScanner.titleAttrRegex` — the first `title="…"` or `title='…'`.
-    private static let titleAttrRegex = try! NSRegularExpression(
-        pattern: #"\btitle\s*=\s*(?:"([^"]*)"|'([^']*)')"#
-    )
+    private static var titleAttrRegex: Regex<(Substring, Substring?, Substring?)> {
+        #/\btitle\s*=\s*(?:"([^"]*)"|'([^']*)')/#.matchingSemantics(.unicodeScalar)
+    }
 
     private static func rewriteAttribute(_ contents: String, title: String) -> Result<String, RewriteError> {
-        let full = NSRange(contents.startIndex..<contents.endIndex, in: contents)
-        guard let match = titleAttrRegex.firstMatch(in: contents, range: full) else {
+        guard let match = contents.firstMatch(of: titleAttrRegex) else {
             return .failure(.noEditableLocation)
         }
         // Which capture group matched tells us the delimiter: group 1 = ", group 2 = '.
-        let usesDouble = match.range(at: 1).location != NSNotFound
+        let usesDouble = match.output.1 != nil
         let delimiter: Character = usesDouble ? "\"" : "'"
         let replacement = "title=\(delimiter)\(attrEscaped(title, delimiter: delimiter))\(delimiter)"
-        guard let whole = Range(match.range, in: contents) else { return .failure(.noEditableLocation) }
-        return .success(contents.replacingCharacters(in: whole, with: replacement))
+        return .success(contents.replacingCharacters(in: match.range, with: replacement))
     }
 
     /// HTML-attribute-escape: always `&` and `<`/`>`, plus the active quote delimiter.

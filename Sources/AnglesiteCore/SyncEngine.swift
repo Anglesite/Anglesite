@@ -681,7 +681,9 @@ public actor SyncEngine {
 
     // MARK: - Working-tree conflict-copy quarantine (#880, design doc §3)
 
-    private static let numberedDuplicatePattern = try! NSRegularExpression(pattern: #"^(.+) (\d+)(\.[^./]+)?$"#)
+    private static var numberedDuplicatePattern: Regex<(Substring, Substring, Substring, Substring?)> {
+        #/^(.+) (\d+)(\.[^./]+)?$/#.matchingSemantics(.unicodeScalar)
+    }
 
     /// Sweeps `Source/` for files matching iCloud's conflict-copy naming and moves them into
     /// `Config/conflicts/` — quarantined, never silently deleted. Best-effort: a failure to
@@ -716,17 +718,10 @@ public actor SyncEngine {
     private static func isConflictCopyName(_ filename: String, in directory: URL, fileManager: FileManager) -> Bool {
         if filename.range(of: "conflicted copy", options: [.caseInsensitive]) != nil { return true }
 
-        let fullRange = NSRange(filename.startIndex..., in: filename)
-        guard let match = numberedDuplicatePattern.firstMatch(in: filename, range: fullRange),
-              let stemRange = Range(match.range(at: 1), in: filename) else { return false }
+        guard let match = filename.wholeMatch(of: numberedDuplicatePattern) else { return false }
 
-        let ext: String
-        if match.range(at: 3).location != NSNotFound, let extRange = Range(match.range(at: 3), in: filename) {
-            ext = String(filename[extRange])
-        } else {
-            ext = ""
-        }
-        let baseName = String(filename[stemRange]) + ext
+        let ext = match.output.3.map(String.init) ?? ""
+        let baseName = String(match.output.1) + ext
         return fileManager.fileExists(atPath: directory.appendingPathComponent(baseName).path)
     }
 

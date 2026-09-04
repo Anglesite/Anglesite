@@ -108,30 +108,40 @@ public enum DeadAssetScanner {
         let unresolvedReferences: Set<String>
     }
 
-    // MARK: - Regexes (compiled once, matching the style of ContentScanner/SiteKnowledgeIndex)
+    // MARK: - Regexes (matching the style of ContentScanner/SiteKnowledgeIndex)
 
-    private static let importRegex = try! NSRegularExpression(
-        pattern: #"import\s+(?:[^'"]+?\s+from\s+)?["']([^"']+)["']"#)
-    private static let hrefSrcRegex = try! NSRegularExpression(
-        pattern: #"(?:href|src)=["']([^"']+)["']"#, options: [.caseInsensitive])
-    private static let markdownImageRegex = try! NSRegularExpression(
-        pattern: #"!\[[^\]]*\]\(([^)]+)\)"#)
-    private static let cssURLRegex = try! NSRegularExpression(
-        pattern: #"url\(\s*['"]?([^'")]+)['"]?\s*\)"#, options: [.caseInsensitive])
+    // Computed rather than `static let`: a regex literal's pattern is already compiled at build
+    // time (that's what makes the literal non-throwing), so re-evaluating the literal per access
+    // is cheap — and, unlike a stored static property, a computed one never needs `Regex` (which
+    // isn't `Sendable`) to satisfy Swift 6's static-storage concurrency-safety check.
+    private static var importRegex: Regex<(Substring, Substring)> {
+        #/import\s+(?:[^'"]+?\s+from\s+)?["']([^"']+)["']/#.matchingSemantics(.unicodeScalar)
+    }
+    private static var hrefSrcRegex: Regex<(Substring, Substring)> {
+        #/(?i)(?:href|src)=["']([^"']+)["']/#.matchingSemantics(.unicodeScalar)
+    }
+    private static var markdownImageRegex: Regex<(Substring, Substring)> {
+        #/!\[[^\]]*\]\(([^)]+)\)/#.matchingSemantics(.unicodeScalar)
+    }
+    private static var cssURLRegex: Regex<(Substring, Substring)> {
+        #/(?i)url\(\s*['"]?([^'")]+)['"]?\s*\)/#.matchingSemantics(.unicodeScalar)
+    }
     /// Matches an `Astro.glob(...)` or `import.meta.glob(...)` call's full argument list (up to
     /// the first `)`), so it works whether the call takes a single quoted string or an array of
     /// them. `globPatternsRegex` then pulls every individually-quoted pattern out of that capture.
-    private static let globCallRegex = try! NSRegularExpression(
-        pattern: #"(?:Astro\.glob|import\.meta\.glob)\(([^)]*)\)"#)
-    private static let globPatternsRegex = try! NSRegularExpression(
-        pattern: #"['"]([^'"]+)['"]"#)
+    private static var globCallRegex: Regex<(Substring, Substring)> {
+        #/(?:Astro\.glob|import\.meta\.glob)\(([^)]*)\)/#.matchingSemantics(.unicodeScalar)
+    }
+    private static var globPatternsRegex: Regex<(Substring, Substring)> {
+        #/['"]([^'"]+)['"]/#.matchingSemantics(.unicodeScalar)
+    }
 
     /// Extracts and resolves every reference in `source`, a file at project-relative `path`.
     static func extractReferences(source: String, path: String) -> ReferenceSource {
-        let raw = matches(importRegex, in: source, group: 1)
-            + matches(hrefSrcRegex, in: source, group: 1)
-            + matches(markdownImageRegex, in: source, group: 1)
-            + matches(cssURLRegex, in: source, group: 1)
+        let raw = matches(importRegex, in: source)
+            + matches(hrefSrcRegex, in: source)
+            + matches(markdownImageRegex, in: source)
+            + matches(cssURLRegex, in: source)
 
         var fileRefs = Set<String>()
         var unresolved = Set<String>()
@@ -145,8 +155,8 @@ public enum DeadAssetScanner {
         }
 
         var globDirs = Set<String>()
-        for call in matches(globCallRegex, in: source, group: 1) {
-            for pattern in matches(globPatternsRegex, in: call, group: 1) {
+        for call in matches(globCallRegex, in: source) {
+            for pattern in matches(globPatternsRegex, in: call) {
                 if let dir = resolveGlobDirectory(pattern, relativeTo: path) { globDirs.insert(dir) }
             }
         }
@@ -353,14 +363,8 @@ public enum DeadAssetScanner {
         return "\(base)/\(clean)"
     }
 
-    private static func matches(_ regex: NSRegularExpression, in source: String, group: Int) -> [String] {
-        let range = NSRange(source.startIndex..<source.endIndex, in: source)
-        var out: [String] = []
-        for match in regex.matches(in: source, range: range) {
-            guard let r = Range(match.range(at: group), in: source) else { continue }
-            out.append(String(source[r]))
-        }
-        return out
+    private static func matches(_ regex: Regex<(Substring, Substring)>, in source: String) -> [String] {
+        source.matches(of: regex).map { String($0.output.1) }
     }
 
     // MARK: - Full-project scan

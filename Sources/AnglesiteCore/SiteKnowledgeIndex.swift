@@ -360,29 +360,34 @@ public actor SiteKnowledgeIndex {
         return headings(in: source).first
     }
 
-    private static let markdownHeadingRegex = try! NSRegularExpression(pattern: #"(?m)^\s{0,3}#{1,6}\s+(.+?)\s*$"#)
-    private static let htmlHeadingRegex = try! NSRegularExpression(pattern: #"<h[1-6][^>]*>(.*?)</h[1-6]>"#, options: [.caseInsensitive, .dotMatchesLineSeparators])
+    private static var markdownHeadingRegex: Regex<(Substring, Substring)> {
+        #/(?m)^\s{0,3}#{1,6}\s+(.+?)\s*$/#.matchingSemantics(.unicodeScalar)
+    }
+    private static var htmlHeadingRegex: Regex<(Substring, Substring)> {
+        #/(?is)<h[1-6][^>]*>(.*?)<\/h[1-6]>/#.matchingSemantics(.unicodeScalar)
+    }
 
     private static func headings(in source: String) -> [String] {
         var out: [String] = []
-        for match in matches(markdownHeadingRegex, in: source, group: 1) {
+        for match in matches(markdownHeadingRegex, in: source) {
             out.append(cleanInlineMarkup(match))
         }
-        for match in matches(htmlHeadingRegex, in: source, group: 1) {
+        for match in matches(htmlHeadingRegex, in: source) {
             out.append(cleanInlineMarkup(match))
         }
         return Array(out.prefix(12))
     }
 
-    private static let linkRegex = try! NSRegularExpression(pattern: #"(?:href|src)=["']([^"']+)["']|\]\(([^)]+)\)"#, options: [.caseInsensitive])
+    private static var linkRegex: Regex<(Substring, Substring?, Substring?)> {
+        #/(?i)(?:href|src)=["']([^"']+)["']|\]\(([^)]+)\)/#.matchingSemantics(.unicodeScalar)
+    }
 
     private static func internalLinks(in source: String) -> [String] {
-        let range = NSRange(source.startIndex..<source.endIndex, in: source)
         var links: [String] = []
-        for match in linkRegex.matches(in: source, range: range) {
-            for group in [1, 2] {
-                guard let r = Range(match.range(at: group), in: source) else { continue }
-                let value = String(source[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+        for match in source.matches(of: linkRegex) {
+            for substring in [match.output.1, match.output.2] {
+                guard let substring else { continue }
+                let value = String(substring).trimmingCharacters(in: .whitespacesAndNewlines)
                 if value.hasPrefix("/") || value.hasPrefix("./") || value.hasPrefix("../") {
                     links.append(value)
                 }
@@ -391,12 +396,8 @@ public actor SiteKnowledgeIndex {
         return Array(Set(links)).sorted()
     }
 
-    private static func matches(_ regex: NSRegularExpression, in source: String, group: Int) -> [String] {
-        let range = NSRange(source.startIndex..<source.endIndex, in: source)
-        return regex.matches(in: source, range: range).compactMap { match in
-            guard let r = Range(match.range(at: group), in: source) else { return nil }
-            return String(source[r])
-        }
+    private static func matches(_ regex: Regex<(Substring, Substring)>, in source: String) -> [String] {
+        source.matches(of: regex).map { String($0.output.1) }
     }
 
     private static func cleanInlineMarkup(_ raw: String) -> String {
