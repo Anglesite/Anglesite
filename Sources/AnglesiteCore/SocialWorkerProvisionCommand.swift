@@ -679,7 +679,7 @@ public actor SocialWorkerProvisionCommand {
         mcpEnabled: Bool = false
     ) -> Result? {
         do {
-            let toml = try WorkerComposition.generateWranglerToml(
+            let configuration = try WorkerComposition.generateWranglerToml(
                 siteName: siteName,
                 workers: workers,
                 routeClaims: routeClaims,
@@ -694,7 +694,7 @@ public actor SocialWorkerProvisionCommand {
                 apUsername: apUsername, apIcon: apIcon,
                 experiments: experiments, mcpEnabled: mcpEnabled
             )
-            try toml.write(
+            try configuration.toml.write(
                 to: siteDirectory.appendingPathComponent("wrangler.toml"),
                 atomically: true,
                 encoding: .utf8

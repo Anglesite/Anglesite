@@ -822,7 +822,7 @@ struct SocialWorkerProvisionCommandTests {
             // read back via first-match and can be arbitrary.
             resources: .init(d1DatabaseID: "d1-existing", kvNamespaceID: "kv-existing", r2BucketName: "my-site-media")
         )
-        try existing.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
+        try existing.toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
 
         let recorder = WranglerRecorder([
             ["d1", "migrations", "apply", "AUTH_DB", "--remote"]: .init(stdout: "Migrations applied", stderr: "", exitCode: 0),
@@ -1005,7 +1005,7 @@ struct SocialWorkerProvisionCommandTests {
             workers: [indieauthWorker],
             resources: .init(d1DatabaseID: "d1-id", kvNamespaceID: "kv-id", r2BucketName: nil)
         )
-        try currentToml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
+        try currentToml.toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
 
         // knownResources (as persisted in SiteSettings before deactivation) still remembers the bucket.
         let known = WorkerComposition.ProvisionedResources(
@@ -1613,7 +1613,7 @@ struct SocialWorkerProvisionCommandTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [], inboxCaptureEnabled: true, inboxKVNamespaceID: "inbox-only-id"
         )
-        try toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
+        try toml.toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
 
         let resources = SocialWorkerProvisionCommand.readPersistedResources(from: site)
 
@@ -1630,7 +1630,7 @@ struct SocialWorkerProvisionCommandTests {
             inboxCaptureEnabled: true,
             inboxKVNamespaceID: "inbox-id"
         )
-        try toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
+        try toml.toml.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
 
         let resources = SocialWorkerProvisionCommand.readPersistedResources(from: site)
 
