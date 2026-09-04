@@ -104,6 +104,52 @@ struct SecretStoreTests {
         #expect(try store.readIndieAuthAccessToken(siteID: "site-a") == "microsub-tok")
     }
 
+    @Test("atproto OAuth session conveniences round-trip the access token, refresh token, and DPoP key pair per site")
+    func atprotoOAuthSessionRoundTrips() throws {
+        let store = InMemorySecretStore()
+        let keyPair = DPoPKeyPair()
+        try store.writeATProtoOAuthAccessToken("at-tok", siteID: "site-a")
+        try store.writeATProtoOAuthRefreshToken("at-refresh", siteID: "site-a")
+        try store.writeATProtoOAuthDPoPKeyPair(keyPair, siteID: "site-a")
+        #expect(try store.readATProtoOAuthAccessToken(siteID: "site-a") == "at-tok")
+        #expect(try store.readATProtoOAuthRefreshToken(siteID: "site-a") == "at-refresh")
+        #expect(try store.readATProtoOAuthDPoPKeyPair(siteID: "site-a")?.persistedRepresentation
+            == keyPair.persistedRepresentation)
+        // Scoped per site — another site's slots stay empty.
+        #expect(try store.readATProtoOAuthAccessToken(siteID: "site-b") == nil)
+    }
+
+    @Test("clearATProtoOAuthSession removes the access token, refresh token, and key pair as one unit")
+    func clearATProtoOAuthSessionClearsAll() throws {
+        let store = InMemorySecretStore()
+        try store.writeATProtoOAuthAccessToken("at-tok", siteID: "site-a")
+        try store.writeATProtoOAuthRefreshToken("at-refresh", siteID: "site-a")
+        try store.writeATProtoOAuthDPoPKeyPair(DPoPKeyPair(), siteID: "site-a")
+        try store.clearATProtoOAuthSession(siteID: "site-a")
+        #expect(try store.readATProtoOAuthAccessToken(siteID: "site-a") == nil)
+        #expect(try store.readATProtoOAuthRefreshToken(siteID: "site-a") == nil)
+        #expect(try store.readATProtoOAuthDPoPKeyPair(siteID: "site-a") == nil)
+    }
+
+    @Test("writing a new refresh token overwrites the previous one (atproto's per-use rotation)")
+    func atprotoOAuthRefreshTokenOverwritesOnRotation() throws {
+        let store = InMemorySecretStore()
+        try store.writeATProtoOAuthRefreshToken("original", siteID: "site-a")
+        try store.writeATProtoOAuthRefreshToken("rotated", siteID: "site-a")
+        #expect(try store.readATProtoOAuthRefreshToken(siteID: "site-a") == "rotated")
+    }
+
+    @Test("the atproto OAuth session is a distinct entry from the Micropub and Microsub sessions")
+    func atprotoOAuthSessionDistinctFromOtherSessions() throws {
+        let store = InMemorySecretStore()
+        try store.writeIndieAuthAccessToken("microsub-tok", siteID: "site-a")
+        try store.writeMicropubAccessToken("micropub-tok", siteID: "site-a")
+        try store.writeATProtoOAuthAccessToken("atproto-tok", siteID: "site-a")
+        try store.clearATProtoOAuthSession(siteID: "site-a")
+        #expect(try store.readIndieAuthAccessToken(siteID: "site-a") == "microsub-tok")
+        #expect(try store.readMicropubAccessToken(siteID: "site-a") == "micropub-tok")
+    }
+
     @Test("Microsub feed AutoAuth token round-trips per site and feed URL")
     func microsubFeedAutoAuthTokenRoundTrips() throws {
         let store = InMemorySecretStore()
