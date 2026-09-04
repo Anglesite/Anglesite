@@ -12,7 +12,7 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
     static let identifier = NSToolbarItem.Identifier("site.shell.search")
 
     private let model: SiteSearchModel
-    private let activate: (SiteSearchIndex.Hit) -> Void
+    private let activate: @MainActor (SiteSearchIndex.Hit) -> Void
     private var searchFieldDelegateBox: SearchFieldDelegateBox?
     /// The scope menu's own items, retained directly (not just reachable via
     /// `searchField.searchMenuTemplate.items`) so `updateScopeCheckedState()` can set `.state` on
@@ -26,12 +26,16 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
     /// session. `nil` (the production default) takes the real popUp path.
     var presentationHandler: (() -> Void)?
 
-    init(model: SiteSearchModel, activate: @escaping (SiteSearchIndex.Hit) -> Void) {
+    init(model: SiteSearchModel, activate: @escaping @MainActor (SiteSearchIndex.Hit) -> Void) {
         self.model = model
         self.activate = activate
         super.init(itemIdentifier: Self.identifier)
-        toolTip = "Search Site"
-        searchField.placeholderString = "Search Site"
+        // `String(localized:)` rather than a bare literal: these feed AppKit properties, which
+        // Xcode's extractor can't see on its own (same reason as `SiteSearchScope.menuItemTitle`).
+        // The legacy `.searchable` prompt used the identical text, so this is a second call site
+        // for one source string, not a second translation slot.
+        toolTip = String(localized: "Search Site")
+        searchField.placeholderString = String(localized: "Search Site")
         searchField.stringValue = model.query
         let scopeMenu = scopeMenuTemplate()
         scopeMenu.delegate = self
@@ -51,7 +55,7 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
     /// Mirrors `SiteSearchSuggestionRow`'s title logic (`SiteSearchField.swift`): the front-matter
     /// title when there is one, else the filename.
     static func suggestionMenuItems(
-        for hits: [SiteSearchIndex.Hit], onSelect: @escaping (SiteSearchIndex.Hit) -> Void
+        for hits: [SiteSearchIndex.Hit], onSelect: @escaping @MainActor (SiteSearchIndex.Hit) -> Void
     ) -> [NSMenuItem] {
         hits.map { hit in
             let title = hit.title?.isEmpty == false ? hit.title! : (hit.path as NSString).lastPathComponent
@@ -158,9 +162,12 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
     /// `onSelect` type-safe and avoids `objc_setAssociatedObject`.
     private final class SelectableMenuItem: NSMenuItem {
         let hit: SiteSearchIndex.Hit
-        private let onSelect: (SiteSearchIndex.Hit) -> Void
+        private let onSelect: @MainActor (SiteSearchIndex.Hit) -> Void
 
-        init(title: String, hit: SiteSearchIndex.Hit, onSelect: @escaping (SiteSearchIndex.Hit) -> Void) {
+        init(
+            title: String, hit: SiteSearchIndex.Hit,
+            onSelect: @escaping @MainActor (SiteSearchIndex.Hit) -> Void
+        ) {
             self.hit = hit
             self.onSelect = onSelect
             super.init(title: title, action: nil, keyEquivalent: "")
@@ -169,7 +176,10 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
         @available(*, unavailable)
         required init(coder: NSCoder) { fatalError() }
 
-        @objc func select() { onSelect(hit) }
+        /// `@MainActor` to match `onSelect`'s isolation (the closure ultimately reaches
+        /// `SiteWindowModel`): AppKit only ever sends a menu action on the main thread, and
+        /// `NSMenuItem` itself carries no static isolation for the nested class to inherit.
+        @MainActor @objc func select() { onSelect(hit) }
     }
 
     /// `NSSearchField`'s delegate must be an `NSObject`; this box exists only so

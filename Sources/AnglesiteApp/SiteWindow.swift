@@ -475,17 +475,27 @@ struct SiteWindow: View {
     private static func shellInsertMenuItems(
         actions: ShellInsertMenuActions, blockPalette: [WYSIWYGBlockPaletteEntry]
     ) -> [NSMenuItem] {
+        // `String(localized:)` throughout: an `NSMenuItem` title is an AppKit property, invisible
+        // to Xcode's SwiftUI string extraction, so a bare literal here would ship untranslated
+        // even though the SwiftUI `Menu` above uses the very same source strings (the pattern
+        // `SiteSearchScope.menuItemTitle` established).
         var items = [
-            NSMenuItem(title: "New Page…", action: #selector(ShellInsertMenuActions.newPage), keyEquivalent: ""),
-            NSMenuItem(title: "New Post…", action: #selector(ShellInsertMenuActions.newPost), keyEquivalent: ""),
             NSMenuItem(
-                title: "New Collection Entry…",
+                title: String(localized: "New Page…"),
+                action: #selector(ShellInsertMenuActions.newPage),
+                keyEquivalent: ""),
+            NSMenuItem(
+                title: String(localized: "New Post…"),
+                action: #selector(ShellInsertMenuActions.newPost),
+                keyEquivalent: ""),
+            NSMenuItem(
+                title: String(localized: "New Collection Entry…"),
                 action: #selector(ShellInsertMenuActions.newCollection),
                 keyEquivalent: ""),
         ]
         for item in items { item.target = actions }
         guard !blockPalette.isEmpty else { return items }
-        items.append(NSMenuItem.sectionHeader(title: "Blocks"))
+        items.append(NSMenuItem.sectionHeader(title: String(localized: "Blocks")))
         for entry in blockPalette {
             let blockItem = NSMenuItem(
                 title: entry.displayName,
