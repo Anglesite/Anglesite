@@ -322,7 +322,7 @@ struct SiteScaffolderTests {
         let configDir = pkgURL.appendingPathComponent("Config")
         let baseline = DependencyBaseline.load(from: configDir)
         #expect(baseline != nil)
-        #expect(baseline?["astro"] == "^7.1.3")  // matches Resources/Template/package.json today
+        #expect(baseline?["astro"] == "^7.2.9")  // matches Resources/Template/package.json today
 
         let siteConfig = try String(
             contentsOf: pkgURL.appendingPathComponent("Source/.site-config"), encoding: .utf8)
