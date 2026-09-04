@@ -9,6 +9,10 @@ into the app bundle by [`../scripts/vendor-container-image.sh`](../scripts/vendo
 Docker/buildx is used there only to manufacture an OCI root filesystem; macOS
 runtime execution is Apple's Containerization framework, not Docker.
 
+For the full build → vendor → verify loop (including the kernel/initfs lock
+bump and which builder script applies to which runtime), see
+[`docs/container-image-vendoring.md`](../docs/container-image-vendoring.md).
+
 This directory is retained for the Cloudflare Sandbox / remote-runtime image
 pipeline from issue [#62](https://github.com/Anglesite/Anglesite/issues/62):
 a canonical dev-server image plus the Cloudflare-specific wrapper

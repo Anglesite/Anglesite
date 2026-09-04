@@ -67,7 +67,7 @@ npm run lint && npm run typecheck && npm test
 
 Notes:
 
-- Container runtime tests are opt-in: `ANGLESITE_CONTAINER_TESTS=1` (plus `ANGLESITE_CONTAINER_E2E=1` for end-to-end cases).
+- Container runtime tests are opt-in: `ANGLESITE_CONTAINER_TESTS=1` (plus `ANGLESITE_CONTAINER_E2E=1` for end-to-end cases). If a preview or those tests need the bundled container boot artifacts vendored or re-vendored, see [`docs/container-image-vendoring.md`](docs/container-image-vendoring.md) for the build → vendor → verify loop and the kernel/initfs lock-bump procedure.
 - MCP/apply-edit e2e tests run only when `ANGLESITE_PLUGIN_PATH` points at an Anglesite plugin checkout; otherwise they skip.
 - If you touch `Resources/Template/`, run `swift test` too — some Swift tests couple to the template markup.
 - Test `UserDefaults` suites must come from `AnglesiteTestSupport`'s `TemporaryUserDefaults` / `withTemporaryUserDefaults`, never a hand-rolled `UserDefaults(suiteName:)` — a plain suite name leaks a plist into `~/Library/Preferences` on every run that nothing can reclaim (#1727). `scripts/check-test-userdefaults-suite-literal.sh` (CI runs it too) statically rejects a direct `UserDefaults(suiteName: "...")` literal anywhere under `Tests/` before a PR can even run the suite (#1745). After `swift test` exits, `scripts/check-test-userdefaults-leak.sh` (CI runs it after every macOS lane that calls `swift test` — build-test, which since #1865 also hosts the timing-sensitive suites as an isolated step, and concurrency-tsan) fails if a suite was left behind in `$TMPDIR` or `~/Library/Preferences`; a Mac still carrying the pre-#1727 backlog needs a one-time `rm ~/Library/Preferences/test-anglesite-*.plist` before it comes back clean.
