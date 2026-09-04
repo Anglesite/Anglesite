@@ -93,3 +93,22 @@ The default CMD ([`start-dev-server.sh`](start-dev-server.sh)) runs `astro dev` 
 - **Cloudflare Sandbox** can't run the base image entirely unmodified: the Sandbox SDK needs its standalone init binary in the image. [`Dockerfile.cloudflare`](Dockerfile.cloudflare) `FROM`s the base image (by digest) and adds **only** that binary. Cloudflare builds/pushes this thin wrapper to its own registry at `wrangler deploy`; the exact init source pin is finalized by the Cloudflare spike (#61).
 
 This keeps the *behavior-defining* layers (Node, git, Astro toolchain, MCP sidecar, baked deps) reusable for the remote substrate while keeping the active macOS image source unambiguous.
+
+### Pinning the digest
+
+`Dockerfile.cloudflare`'s `ARG CANONICAL_IMAGE` default starts out on a floating
+tag (`ghcr.io/anglesite/anglesite-devserver:dev`). To pin it by digest (#1644):
+
+```sh
+# 1. Build and push the canonical image; this also writes the resulting
+#    "repo@sha256:..." reference to container/CANONICAL_IMAGE_DIGEST.
+scripts/build-container-image.sh --push
+
+# 2. Rewrite Dockerfile.cloudflare's ARG CANONICAL_IMAGE from that file.
+scripts/pin-cloudflare-canonical-image.sh
+```
+
+Review the diff to both files and commit them together. This is a manual,
+two-step flow on purpose — it isn't run automatically in CI or on every
+canonical-image rebuild (see #1644's non-goals); re-run it when the pin
+drifts enough to matter.

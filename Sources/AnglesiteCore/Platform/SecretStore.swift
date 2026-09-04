@@ -124,6 +124,17 @@ public enum SecretAccounts {
         "indieauth:\(siteID):dpop-key"
     }
 
+    /// The AutoAuth token the Microsub reader presents when fetching a followed feed that gates
+    /// its content behind IndieAuth (#1891 — storage slice 1 of #1571's outbound-authenticated-
+    /// fetch follow-up; no code path reads or writes this slot yet). Keyed by both the site doing
+    /// the following and the specific feed URL, so tokens for two different friends' feeds, or the
+    /// same feed followed from two site packages, never collide. Distinct from
+    /// ``indieAuthAccessToken(siteID:)``, which is the reader's own sign-in session with its
+    /// *own* site's IndieAuth server, not a credential for fetching someone else's.
+    public static func microsubFeedAutoAuthToken(siteID: String, feedURL: String) -> String {
+        "microsub-autoauth:\(siteID):\(feedURL)"
+    }
+
     /// The IndieAuth token the iOS Micropub posting client presents to the site's `/micropub`
     /// endpoint (#868). A distinct entry from ``indieAuthAccessToken(siteID:)`` (the Mac
     /// reader's Microsub credential): the two flows request different scopes and sign in
@@ -367,6 +378,21 @@ public extension SecretStore {
         try delete(account: SecretAccounts.atprotoOAuthAccessToken(siteID: siteID))
         try delete(account: SecretAccounts.atprotoOAuthRefreshToken(siteID: siteID))
         try delete(account: SecretAccounts.atprotoOAuthDPoPKey(siteID: siteID))
+    }
+
+    /// Read the AutoAuth token stored for a followed feed, if any (#1891).
+    func readMicrosubFeedAutoAuthToken(siteID: String, feedURL: String) throws -> String? {
+        try read(account: SecretAccounts.microsubFeedAutoAuthToken(siteID: siteID, feedURL: feedURL))
+    }
+
+    /// Store the AutoAuth token for a followed feed. Empty string clears.
+    func writeMicrosubFeedAutoAuthToken(_ token: String, siteID: String, feedURL: String) throws {
+        try write(token, account: SecretAccounts.microsubFeedAutoAuthToken(siteID: siteID, feedURL: feedURL))
+    }
+
+    /// Clear the AutoAuth token stored for a followed feed.
+    func clearMicrosubFeedAutoAuthToken(siteID: String, feedURL: String) throws {
+        try delete(account: SecretAccounts.microsubFeedAutoAuthToken(siteID: siteID, feedURL: feedURL))
     }
 
     /// Read the stored Cloudflare OAuth credential, or `nil` if none is stored (or the stored

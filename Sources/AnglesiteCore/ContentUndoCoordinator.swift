@@ -11,7 +11,9 @@ import Foundation
 ///
 /// Sibling of ``EditUndoCoordinator`` (#527), which covers assistant-applied *content* edits. The
 /// two register into the same window `UndoManager` and interleave LIFO, as `UndoManager` does for
-/// any set of clients.
+/// any set of clients. Both — and ``WYSIWYGUndoCoordinator`` — are thin `Op`-specific policies
+/// over the shared `UndoBridge` (#1824); see that type for the token lifecycle, re-arm-on-outcome
+/// rule, and undo/redo stack routing this coordinator relies on.
 ///
 /// ## One record type for every operation
 ///
@@ -33,17 +35,21 @@ import Foundation
 /// ## Policy notes
 ///
 /// - **Redo works here** (unlike #527, whose reverse-apply is a sidecar git revert with no
-///   re-apply primitive). See ``register(_:)`` for the ordering that makes it work with an
-///   asynchronous applier. (`perform(_:)` is the private popped-record apply path.)
-/// - **Failure re-arms ⌘Z.** `UndoManager` pops the entry synchronously the instant ⌘Z fires,
-///   long before the async apply resolves. On ``ApplyOutcome/failed`` the optimistically-registered
-///   inverse is removed and, for a failed undo, the original record re-registered — the same shape
-///   ``EditUndoCoordinator`` uses for its retryable outcome. A failed *redo* can only be dropped;
-///   see `perform(_:)`.
-/// - **Out-of-band invalidation.** Each record registers against its own private token target, so
-///   ``invalidate(id:)`` removes exactly one record (`removeAllActions(withTarget:)` on that
-///   token) rather than clearing the stack. ``invalidateAll()`` drops every pending record — call
-///   it when the window's site is replaced, since paths and contents are site-relative.
+///   re-apply primitive): every ``register(_:)`` also registers ``Mutation/reversed`` as the
+///   bridge's optimistic opposite-direction step.
+/// - **Failure re-arms ⌘Z, retry only.** ``ApplyOutcome/failed`` maps to `UndoBridge/Outcome/retry`:
+///   the bridge drops the optimistically-registered inverse and, for a failed *undo*, re-registers
+///   the original record so ⌘Z can retry — matching ``EditUndoCoordinator``'s retryable policy. A
+///   failed *redo* can only be dropped (the bridge has no way to push onto the redo stack outside
+///   an undo pass); see `UndoBridge` for why.
+/// - **Groups only open outside undo/redo processing** — `shouldOpenGroup` at construction. Inside
+///   a pass `UndoManager` has already opened the group for the opposite stack; nesting one within
+///   it would attach `setActionName` to the *nested* group and leave Edit ▸ Redo reading a bare
+///   "Redo".
+/// - **Out-of-band invalidation.** Each record's bridge token is kept in `tokens` by id, so
+///   ``invalidate(id:)`` removes exactly one record rather than clearing the stack.
+///   ``invalidateAll()`` drops every pending record — call it when the window's site is replaced,
+///   since paths and contents are site-relative.
 @MainActor
 public final class ContentUndoCoordinator {
     /// One structural operation, as a before/after snapshot of the single file it touched.
@@ -72,7 +78,7 @@ public final class ContentUndoCoordinator {
         }
 
         /// The same transition read backwards — a fresh record (new ``id``) whose undo realizes
-        /// this one's ``after``. Registered by the undo handler to populate the redo stack.
+        /// this one's ``after``. Registered as the bridge's optimistic opposite-direction step.
         public var reversed: Mutation {
             Mutation(relativePath: relativePath, before: after, after: before, actionName: actionName)
         }
@@ -83,123 +89,67 @@ public final class ContentUndoCoordinator {
         /// ``Mutation/before`` is now on disk. The record is spent (its inverse is on the
         /// opposite stack).
         case applied
-        /// The write or delete didn't happen (git refused, no site open, I/O error). The
-        /// coordinator drops the inverse it optimistically pushed. A failed **undo** is then
-        /// re-registered so ⌘Z can retry; a failed **redo** is dropped — see `perform(_:)`.
+        /// The write or delete didn't happen (git refused, no site open, I/O error).
         case failed
     }
 
     /// Realizes `mutation.before` at `mutation.relativePath`: `nil` means delete the file,
     /// non-`nil` means write those exact bytes. Called on the main actor from a `Task` the
-    /// coordinator spawns when the user invokes Edit ▸ Undo or Edit ▸ Redo.
+    /// bridge spawns when the user invokes Edit ▸ Undo or Edit ▸ Redo.
     public typealias Applier = @MainActor (Mutation) async -> ApplyOutcome
-
-    /// Per-record registration target. `UndoManager` does not retain targets, so each token is
-    /// kept alive by the registered handler capturing it — its lifetime is exactly the lifetime of
-    /// its stack entry — and indexed in ``tokens`` for selective removal.
-    private final class Token {
-        let mutation: Mutation
-        init(_ mutation: Mutation) { self.mutation = mutation }
-    }
 
     /// The focused window's undo manager. Weak: the window owns it; this coordinator only
     /// registers into it. `nil` (no window attached yet) makes ``register(_:)`` a no-op.
-    public weak var undoManager: UndoManager?
+    public weak var undoManager: UndoManager? {
+        didSet { bridge.undoManager = undoManager }
+    }
 
-    private let apply: Applier
-    /// Live registrations by record id, on either stack. Entries are dropped when their handler
-    /// fires and re-inserted by the re-arm path.
-    private var tokens: [UUID: Token] = [:]
+    private let bridge: UndoBridge<Mutation>
+    /// Live registrations by record id, on either stack — mirrors the bridge's own tokens (kept
+    /// current via the bridge's `onRegister`/`onFire` hooks, which reach every token the bridge
+    /// creates, not just the ones from an explicit ``register(_:)`` call) so ``invalidate(id:)``/
+    /// ``invalidateAll()`` can target one record without the bridge needing to know what an id
+    /// even is.
+    private var tokens: [UUID: UndoBridge<Mutation>.Token] = [:]
+
     /// The in-flight apply spawned by the most recent ⌘Z/⇧⌘Z. Exposed for tests, which `await` it
     /// to observe the settled stack state deterministically.
-    private(set) var pendingApply: Task<Void, Never>?
+    var pendingApply: Task<Void, Never>? { bridge.pendingPerform }
 
     /// Creates a coordinator that realizes popped records through `apply`. Attach
     /// ``undoManager`` separately — the coordinator is typically built before the window (and
     /// therefore its undo manager) exists, and registration is a safe no-op until one is set.
     public init(apply: @escaping Applier) {
-        self.apply = apply
+        bridge = UndoBridge(
+            perform: { mutation in await apply(mutation) == .applied ? .succeeded : .retry },
+            shouldOpenGroup: { undoManager in !undoManager.isUndoing && !undoManager.isRedoing }
+        )
     }
 
     /// Registers a completed structural operation. Call at operation time, right after the write
     /// lands. No-op when no ``undoManager`` is attached.
-    ///
-    /// Also the mechanism behind redo: the undo handler calls this with ``Mutation/reversed``
-    /// while `UndoManager.isUndoing` is still true, so the entry lands on the redo stack. That
-    /// registration is **optimistic** — it happens synchronously, before the async ``Applier``
-    /// resolves, because `undo()` returns (and clears `isUndoing`) long before it does and a later
-    /// registration would land back on the undo stack instead. ``ApplyOutcome/failed`` rolls the
-    /// optimism back.
     public func register(_ mutation: Mutation) {
-        guard let undoManager else { return }
-        let token = Token(mutation)
-        tokens[mutation.id] = token
-
-        // Open an explicit group only outside undo/redo processing. Outside, this is what keeps
-        // each operation an independent ⌘Z step (see EditUndoCoordinator's fuller note on
-        // `groupsByEvent`). Inside, `UndoManager` has already opened the group for the opposite
-        // stack; nesting one within it would attach `setActionName` to the *nested* group and
-        // leave Edit ▸ Redo reading a bare "Redo".
-        let opensGroup = !undoManager.isUndoing && !undoManager.isRedoing
-        if opensGroup { undoManager.beginUndoGrouping() }
-        // `token` is captured strongly on purpose: UndoManager holds its target
-        // unsafely-unretained, so the capture pins the token (and nothing else — self is weak)
-        // for exactly as long as the stack entry exists.
-        undoManager.registerUndo(withTarget: token) { [weak self, token] _ in
-            MainActor.assumeIsolated {
-                self?.perform(token.mutation)
-            }
-        }
-        undoManager.setActionName(mutation.actionName)
-        if opensGroup { undoManager.endUndoGrouping() }
+        bridge.register(
+            mutation, redo: mutation.reversed, actionName: mutation.actionName,
+            onRegister: { [weak self] op, token in self?.tokens[op.id] = token },
+            onFire: { [weak self] fired in self?.tokens[fired.id] = nil }
+        )
     }
 
     /// Removes a still-pending record from either stack — call when the record can no longer be
     /// meaningfully applied. No-op for unknown or already-fired records.
     public func invalidate(id: UUID) {
         guard let token = tokens.removeValue(forKey: id) else { return }
-        undoManager?.removeAllActions(withTarget: token)
+        bridge.remove(token)
     }
 
     /// Drops every pending record — call when the window's site changes, since every record's
     /// path and contents belong to the site it was captured from.
     public func invalidateAll() {
         for token in tokens.values {
-            undoManager?.removeAllActions(withTarget: token)
+            bridge.remove(token)
         }
         tokens.removeAll()
-    }
-
-    /// Runs one popped record: put its inverse on the opposite stack, then realize `before`.
-    private func perform(_ mutation: Mutation) {
-        // The stack entry is popped synchronously right now, whatever the async apply later
-        // resolves to — mirror that in `tokens` before anything else.
-        tokens[mutation.id] = nil
-        // Which stack this record came off, captured while the flag is still set. Determines
-        // whether the failure path below can re-arm it (see ``ApplyOutcome/failed``).
-        let wasUndo = undoManager?.isUndoing ?? false
-        let inverse = mutation.reversed
-        register(inverse)
-
-        pendingApply = Task { @MainActor [weak self] in
-            guard let self else { return }
-            guard await self.apply(mutation) == .failed else { return }
-            // Nothing changed on disk, so the inverse we optimistically pushed onto the opposite
-            // stack describes a transition that never happened — drop it.
-            self.invalidate(id: inverse.id)
-            // Re-arming is only possible in one direction. This runs after `undo()`/`redo()`
-            // returned, so both flags are false and `register` necessarily lands on the *undo*
-            // stack — right for a failed undo, a lie for a failed redo. `UndoManager` exposes no
-            // way to push onto the redo stack outside an undo pass, so a failed redo drops the
-            // record instead of parking a transition on ⌘Z that the user never performed. That
-            // is the honest end state either way: after a failed undo the operation is still
-            // undoable (⌘Z retries — matching `EditUndoCoordinator`'s retryable policy, and the
-            // case that actually matters, e.g. a restore that couldn't recommit); after a failed
-            // redo the disk is already in the undone state, so ⌘Z would be a no-op anyway. Both
-            // surface the reason through the applier's own error reporting.
-            guard wasUndo else { return }
-            self.register(mutation)
-        }
     }
 
     // MARK: - Action names
