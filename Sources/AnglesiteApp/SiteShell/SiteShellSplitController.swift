@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import AnglesiteCore
 
 /// The site window's AppKit split shell (#1699 Stage 3, slice 1): sidebar | content |
 /// inspector as native `NSSplitViewItem`s over `NSHostingController` columns.
@@ -36,6 +37,9 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
 
     private var observations: [NSKeyValueObservation] = []
     private var appliedInitialLayout = false
+
+    private(set) var ownedToolbar: NSToolbar?
+    private var toolbarDelegate: SiteShellToolbarDelegate?
 
     init(sidebar: Sidebar, content: Content, inspector: Inspector) {
         sidebarHost = NSHostingController(rootView: sidebar)
@@ -102,6 +106,48 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
     override func viewDidLayout() {
         super.viewDidLayout()
         applyInitialLayoutIfNeeded()
+    }
+
+    /// Builds and installs this window's owned `NSToolbar` (#1699 slice 2). Idempotent — a
+    /// second call is a no-op, since `SiteShellView.makeNSViewController` runs once per window
+    /// but `viewDidAppear` can fire more than once (e.g. window re-key).
+    func installToolbar(
+        itemView: @escaping @MainActor (SiteToolbarItemID) -> AnyView,
+        insertMenuItems: @escaping @MainActor () -> [NSMenuItem]
+    ) {
+        guard ownedToolbar == nil else { return }
+        let delegate = SiteShellToolbarDelegate(itemView: itemView, insertMenuItems: insertMenuItems)
+        let toolbar = NSToolbar(identifier: SiteShellToolbarDelegate.toolbarIdentifier)
+        toolbar.delegate = delegate
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = true
+        toolbar.autosavesConfiguration = true
+        delegate.splitView = splitView
+        toolbarDelegate = delegate
+        ownedToolbar = toolbar
+        view.window?.toolbar = toolbar
+        installTrackingSeparators()
+    }
+
+    /// Inserts the two tracking-separator identifiers (design doc §"Toolbar (slice 2)": "a
+    /// strict chrome upgrade over today"). The items themselves are constructed by
+    /// `SiteShellToolbarDelegate.toolbar(_:itemForItemIdentifier:willBeInsertedIntoToolbar:)`
+    /// when the toolbar asks for them — `NSToolbar` retains only the identifier once inserted,
+    /// not the instance, so there is nothing to build here beyond the identifiers themselves.
+    private func installTrackingSeparators() {
+        guard let toolbar = ownedToolbar else { return }
+        // Clamped rather than the literal `1` / `count - 1`: `NSToolbar.insertItem(at:)`
+        // requires `0...items.count`, and `toolbar.items` is only populated once the
+        // toolbar is attached to a real, key-able window that has asked its delegate to
+        // build the default set — a windowless host (this class's own unit tests included,
+        // since `view.window` is nil there) leaves `items` empty. These positions land at
+        // the intended spots (right after the leading item, right before the trailing one)
+        // once real default items exist, and degrade to safe no-crash inserts otherwise.
+        let sidebarIndex = min(1, toolbar.items.count)
+        toolbar.insertItem(withItemIdentifier: SiteShellToolbarDelegate.sidebarTrackingSeparator, at: sidebarIndex)
+        let inspectorIndex = max(sidebarIndex + 1, toolbar.items.count - 1)
+        toolbar.insertItem(
+            withItemIdentifier: SiteShellToolbarDelegate.inspectorTrackingSeparator, at: inspectorIndex)
     }
 
     /// First-run column widths (the legacy chrome's ideals). Subsequent runs are restored by

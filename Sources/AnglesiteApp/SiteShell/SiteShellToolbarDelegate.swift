@@ -34,6 +34,9 @@ final class SiteShellToolbarDelegate: NSObject, NSToolbarDelegate {
     /// Rebuilt fresh on every menu open (Insert's Blocks section depends on live WYSIWYG canvas
     /// state) — see `menuNeedsUpdate(_:)` below.
     private let insertMenuItems: @MainActor () -> [NSMenuItem]
+    /// The shell's split view, set by `SiteShellSplitController.installToolbar` once the
+    /// toolbar is installed — backs the two tracking-separator toolbar items below.
+    weak var splitView: NSSplitView?
 
     init(
         itemView: @escaping @MainActor (SiteToolbarItemID) -> AnyView,
@@ -57,6 +60,15 @@ final class SiteShellToolbarDelegate: NSObject, NSToolbarDelegate {
         itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
         willBeInsertedIntoToolbar flag: Bool
     ) -> NSToolbarItem? {
+        if itemIdentifier == Self.sidebarTrackingSeparator, let splitView {
+            return NSTrackingSeparatorToolbarItem(
+                identifier: itemIdentifier, splitView: splitView, dividerIndex: 0)
+        }
+        if itemIdentifier == Self.inspectorTrackingSeparator, let splitView {
+            return NSTrackingSeparatorToolbarItem(
+                identifier: itemIdentifier, splitView: splitView, dividerIndex: 1)
+        }
+
         guard let id = SiteToolbarItemID.allCases.first(where: { Self.itemIdentifier(for: $0) == itemIdentifier }) else {
             return nil
         }

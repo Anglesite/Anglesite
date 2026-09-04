@@ -60,4 +60,27 @@ struct SiteShellSplitControllerTests {
         // update() executes without touching the split structure.
         #expect(controller.splitViewItems.count == 3)
     }
+
+    @Test("installToolbar builds a toolbar with the shell's identifier and delegate")
+    @MainActor
+    func installToolbarSetsIdentifierAndDelegate() {
+        let controller = SiteShellSplitController(
+            sidebar: Text("sidebar"), content: Text("content"), inspector: Text("inspector"))
+        controller.installToolbar(itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
+        let toolbar = try? #require(controller.ownedToolbar)
+        #expect(toolbar?.identifier == SiteShellToolbarDelegate.toolbarIdentifier)
+        #expect(toolbar?.allowsUserCustomization == true)
+        #expect(toolbar?.autosavesConfiguration == true)
+    }
+
+    @Test("installToolbar is idempotent — calling it twice keeps one toolbar")
+    @MainActor
+    func installToolbarIsIdempotent() {
+        let controller = SiteShellSplitController(
+            sidebar: Text("sidebar"), content: Text("content"), inspector: Text("inspector"))
+        controller.installToolbar(itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
+        let first = controller.ownedToolbar
+        controller.installToolbar(itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
+        #expect(controller.ownedToolbar === first)
+    }
 }
