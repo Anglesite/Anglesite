@@ -1215,6 +1215,15 @@
     "Connect" : {
 
     },
+    "Connect a GitHub account in Settings to check this repository's reporting setup." : {
+
+    },
+    "Connect a GitHub account in Settings to enable private vulnerability reporting." : {
+
+    },
+    "Connect and Publish" : {
+
+    },
     "Connect This Site" : {
 
     },
@@ -1228,12 +1237,6 @@
 
     },
     "Connect a Domain…" : {
-
-    },
-    "Connect a GitHub account in Settings to check this repository's reporting setup." : {
-
-    },
-    "Connect a GitHub account in Settings to enable private vulnerability reporting." : {
 
     },
     "Connect and Publish" : {
@@ -1553,10 +1556,10 @@
         }
       }
     },
-    "Couldn't rename the Worker: %@" : {
+    "Couldn't rename: %@" : {
 
     },
-    "Couldn't rename: %@" : {
+    "Couldn't rename the Worker: %@" : {
 
     },
     "Couldn't run the check" : {
@@ -1734,6 +1737,15 @@
 
     },
     "Dependency Updates Available" : {
+
+    },
+    "No usable MX records were found for %@. Enter the receiving mail hosts manually." : {
+
+    },
+    "Nothing is waiting to publish — close this and click Publish Site again." : {
+
+    },
+    "Publish Site" : {
 
     },
     "Deploy ${site}" : {
@@ -2867,9 +2879,6 @@
     "No unused files found" : {
 
     },
-    "No usable MX records were found for %@. Enter the receiving mail hosts manually." : {
-
-    },
     "No website details" : {
 
     },
@@ -2916,9 +2925,6 @@
 
     },
     "Notes" : {
-
-    },
-    "Nothing is waiting to publish — close this and click Publish Site again." : {
 
     },
     "Nothing without asking" : {
