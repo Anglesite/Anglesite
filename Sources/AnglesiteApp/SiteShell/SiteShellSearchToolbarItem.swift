@@ -14,6 +14,17 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
     private let model: SiteSearchModel
     private let activate: (SiteSearchIndex.Hit) -> Void
     private var searchFieldDelegateBox: SearchFieldDelegateBox?
+    /// The scope menu's own items, retained directly (not just reachable via
+    /// `searchField.searchMenuTemplate.items`) so `updateScopeCheckedState()` can set `.state` on
+    /// them straight from `selectScope(_:)` — see that method's doc comment for why relying on
+    /// `menuNeedsUpdate(_:)` alone isn't safe here.
+    private var scopeMenuItems: [NSMenuItem] = []
+
+    /// Test seam: when set, replaces the real `NSMenu.popUp` display in `presentSuggestions()`
+    /// with this closure — lets a test observe that the `observeHits()` tracking loop actually
+    /// fires (and re-registers after firing) without driving a real, blocking AppKit menu-tracking
+    /// session. `nil` (the production default) takes the real popUp path.
+    var presentationHandler: (() -> Void)?
 
     init(model: SiteSearchModel, activate: @escaping (SiteSearchIndex.Hit) -> Void) {
         self.model = model
@@ -53,27 +64,47 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
 
     /// One `NSMenuItem` per `SiteSearchScope`, self-targeted so picking one updates `model.scope`
     /// (`NSMenuItem.target` is `weak`, so this doesn't retain-cycle). Built once at init — scope
-    /// cases are static, unlike the suggestions menu — but checked state can't be set here: it's
-    /// installed as `searchField.searchMenuTemplate`, which AppKit copies fresh every time it
-    /// shows the menu rather than displaying this instance directly, so a `.state` set now would
-    /// go stale the moment `model.scope` next changes. `menuNeedsUpdate(_:)` below (the
-    /// `NSMenuDelegate` conformance, mirroring `SiteShellToolbarDelegate`'s Insert menu) refreshes
-    /// it on the template right before AppKit copies it for display instead.
+    /// cases are static, unlike the suggestions menu — with initial checked state already set from
+    /// `model.scope`. `scopeMenuItems` retains the built items directly, since a `.state` mutation
+    /// only reaches the menu AppKit actually displays if it's applied *before* that display copy
+    /// is taken: per Apple's own guidance on `searchMenuTemplate`, "if you need to change the
+    /// menu, you should modify the search menu template directly" — a copy, not the template
+    /// instance, is what's shown and tracked, so there's no guarantee `menuNeedsUpdate(_:)` (the
+    /// `NSMenuDelegate` conformance below) ever actually fires on the template. `selectScope(_:)`
+    /// therefore also updates `scopeMenuItems`' `.state` directly, belt-and-suspenders; the
+    /// delegate stays as a fallback in case the template *is* opened directly on some AppKit
+    /// version, but nothing here relies on it alone.
     private func scopeMenuTemplate() -> NSMenu {
         let menu = NSMenu()
-        for scope in SiteSearchScope.allCases {
+        let items = SiteSearchScope.allCases.map { scope -> NSMenuItem in
             let item = NSMenuItem(
                 title: scope.menuItemTitle, action: #selector(selectScope(_:)), keyEquivalent: "")
             item.target = self
             item.representedObject = scope
-            menu.addItem(item)
+            item.state = scope == model.scope ? .on : .off
+            return item
         }
+        scopeMenuItems = items
+        items.forEach(menu.addItem)
         return menu
     }
 
     @objc private func selectScope(_ sender: NSMenuItem) {
         guard let scope = sender.representedObject as? SiteSearchScope else { return }
         model.scope = scope
+        updateScopeCheckedState()
+    }
+
+    /// Sets each retained scope item's `.state` from `model.scope` — called directly from
+    /// `selectScope(_:)` (so the *other* items uncheck immediately, not just on some future
+    /// `menuNeedsUpdate(_:)`) and from `menuNeedsUpdate(_:)` itself as a fallback. See
+    /// `scopeMenuTemplate()`'s doc comment for why relying on the delegate callback alone isn't
+    /// safe.
+    private func updateScopeCheckedState() {
+        for item in scopeMenuItems {
+            guard let scope = item.representedObject as? SiteSearchScope else { continue }
+            item.state = scope == model.scope ? .on : .off
+        }
     }
 
     /// Registers (and, on every fire, re-registers) an `Observation` tracking closure over
@@ -85,23 +116,34 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
     /// `hits` held from the *previous* query and never refresh once the real results land.
     /// `withObservationTracking`'s `onChange` fires exactly once per registration, hence the
     /// recursive re-registration; `[weak self]` lets the chain stop cleanly once this item is
-    /// deallocated instead of retaining it forever.
+    /// deallocated instead of retaining it forever. Re-registers *before* presenting: the reverse
+    /// order would leave a blind window while `presentSuggestions()`'s blocking `NSMenu.popUp` call
+    /// tracks — any `hits` mutation landing during that window would go unobserved until the popup
+    /// closes and re-registration finally ran. Re-arming first can instead make `presentSuggestions()`
+    /// re-enter if `hits` changes again immediately, but that's no worse than the miss it replaces
+    /// (typing is naturally blocked while a popup tracks anyway).
     private func observeHits() {
         withObservationTracking {
             _ = model.hits
         } onChange: { [weak self] in
             Task { @MainActor in
-                self?.presentSuggestions()
                 self?.observeHits()
+                self?.presentSuggestions()
             }
         }
     }
 
     /// Shows the suggestions menu for the model's current `hits`, positioned under the search
     /// field — called both by the delegate box on every text change and by `observeHits()` once
-    /// the debounced search actually lands new `hits`.
+    /// the debounced search actually lands new `hits`. Routes through `presentationHandler` when a
+    /// test has set one, so the observation-triggering path can be verified without a real,
+    /// blocking `NSMenu.popUp` call.
     fileprivate func presentSuggestions() {
         guard !model.hits.isEmpty else { return }
+        if let presentationHandler {
+            presentationHandler()
+            return
+        }
         let menu = NSMenu()
         menu.items = Self.suggestionMenuItems(for: model.hits, onSelect: activate)
         let origin = NSPoint(x: 0, y: searchField.bounds.minY)
@@ -154,15 +196,11 @@ final class SiteShellSearchToolbarItem: NSSearchToolbarItem {
 }
 
 extension SiteShellSearchToolbarItem: NSMenuDelegate {
-    /// Keeps the scope menu's checked state in sync with `model.scope`. `menu` here is the
-    /// *template* (`searchField.searchMenuTemplate`), not the transient copy AppKit actually
-    /// displays — mirrors `SiteShellToolbarDelegate.menuNeedsUpdate(_:)`, the only other place in
-    /// the shell that has to refresh a template menu's contents right before it's shown rather
-    /// than keep them live-bound.
+    /// Fallback path for keeping the scope menu's checked state in sync with `model.scope`, in
+    /// case AppKit ever does open/track the template instance itself rather than a copy of it —
+    /// `scopeMenuTemplate()`'s doc comment explains why `updateScopeCheckedState()` is also called
+    /// directly from `selectScope(_:)` rather than relying on this callback alone.
     func menuNeedsUpdate(_ menu: NSMenu) {
-        for item in menu.items {
-            guard let scope = item.representedObject as? SiteSearchScope else { continue }
-            item.state = scope == model.scope ? .on : .off
-        }
+        updateScopeCheckedState()
     }
 }
