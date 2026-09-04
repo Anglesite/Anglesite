@@ -22,7 +22,15 @@ public enum AnglesiteTokenTemplate {
     /// Response Compression permission group, not `zone_waf`; and Page Shield needs write access
     /// because Harden enables the script monitor via a `PUT`, not just reads its state.
     public static let permissionGroups: [(key: String, type: String)] = [
-        // Deploy (the original "Edit Cloudflare Workers" set)
+        // Deploy (the original "Edit Cloudflare Workers" set), plus Account Settings: Read
+        // (#1853) — `wrangler deploy` (and this app's own account-id lookups, e.g.
+        // `HTTPCloudflareClient.accountID`) call `GET /accounts` to resolve which account to
+        // publish under, and that call 401s without this permission even though the rest of the
+        // token authenticates fine. Cloudflare's own built-in "Edit Cloudflare Workers" template
+        // — the fallback this app's token prompt suggests when the pre-fill doesn't take — omits
+        // it too, so a token created either way used to authenticate but fail at the very last
+        // step of a deploy with a cryptic "Failed to automatically retrieve account IDs" error.
+        ("account_settings", "read"),
         ("workers_routes", "edit"),
         ("workers_scripts", "edit"),
         ("workers_kv_storage", "edit"),

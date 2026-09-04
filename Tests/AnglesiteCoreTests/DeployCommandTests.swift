@@ -133,6 +133,42 @@ struct DeployCommandTests {
         #expect(exec.environment(for: .wrangler)?["CLOUDFLARE_API_TOKEN"] == "secret-tok")
     }
 
+    // MARK: #1853 CLOUDFLARE_ACCOUNT_ID
+
+    @Test("wrangler gets CLOUDFLARE_ACCOUNT_ID when accountIDSource resolves one")
+    func wranglerGetsResolvedAccountID() async {
+        let exec = FakeExecutor()
+            .set(.build, exitCode: 0, output: "")
+            .set(.preflight, exitCode: 0, output: scanJSON(ok: true))
+            .set(.wrangler, exitCode: 0, output: "Published x (0.1 sec)\n  https://x.workers.dev")
+        let cmd = DeployCommand(
+            target: CloudflareDeployTarget(tokenSource: { "secret-tok" }, accountIDSource: { token in
+                #expect(token == "secret-tok")
+                return "acct-123"
+            }),
+            executor: exec
+        )
+        _ = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        #expect(exec.environment(for: .wrangler)?["CLOUDFLARE_ACCOUNT_ID"] == "acct-123")
+    }
+
+    @Test("a token whose account can't be resolved still deploys, just without CLOUDFLARE_ACCOUNT_ID (fail open)")
+    func wranglerFallsBackToAutoDiscoveryWhenAccountUnresolved() async {
+        let exec = FakeExecutor()
+            .set(.build, exitCode: 0, output: "")
+            .set(.preflight, exitCode: 0, output: scanJSON(ok: true))
+            .set(.wrangler, exitCode: 0, output: "Published x (0.1 sec)\n  https://x.workers.dev")
+        // The default `accountIDSource` (unset here) always returns nil — mirrors a token that
+        // authenticates but can't list accounts (#1853's reported scenario).
+        let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "secret-tok" }), executor: exec)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        #expect(exec.environment(for: .wrangler)?["CLOUDFLARE_ACCOUNT_ID"] == nil)
+        guard case .succeeded = result else {
+            Issue.record("expected .succeeded (deploy proceeds; wrangler's own auto-discovery is unaffected by this seam), got \(result)")
+            return
+        }
+    }
+
     // MARK: #744 well-known collision check
 
     /// A fresh temp site directory (unlike the shared `tmpDir`, isolated per test) with the given

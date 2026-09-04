@@ -350,18 +350,20 @@ public struct ContainerDeployExecutor: DeployExecutor {
     /// would shadow the guest's Linux PATH and break `node`/`npm`/`wrangler` resolution, and
     /// `HOME`/`TMPDIR`/`XPC_*`/`__CF*` are host-only noise. The guest provides its own PATH/HOME; the
     /// only host-originated values the deploy ever needs across the boundary are per-step secrets —
-    /// the Cloudflare token for `.wrangler`/`.bundleUpload` (both invoke `wrangler`), the GitHub
-    /// Pages token for `.githubPagesPublish`. Scoped per step, not merely per key: a secret for one
-    /// deploy target must never reach a step that has no business seeing it, e.g. a GitHub Pages
-    /// push must never see `CLOUDFLARE_API_TOKEN` even when both happen to be present in the
-    /// caller-supplied environment dict. Keep each step's list tight — add a key only when that step
-    /// demonstrably needs it in-guest.
+    /// the Cloudflare token for `.wrangler`/`.bundleUpload` (both invoke `wrangler`), plus the
+    /// account id `CloudflareDeployTarget.publish` resolves for the same two steps so `wrangler`
+    /// doesn't have to auto-discover it itself (#1853) — and the GitHub Pages token for
+    /// `.githubPagesPublish`. Scoped per step, not merely per key: a secret for one deploy target
+    /// must never reach a step that has no business seeing it, e.g. a GitHub Pages push must never
+    /// see `CLOUDFLARE_API_TOKEN` even when both happen to be present in the caller-supplied
+    /// environment dict. Keep each step's list tight — add a key only when that step demonstrably
+    /// needs it in-guest.
     private static func guestEnvAllowlist(for step: DeployStep) -> Set<String> {
         switch step {
         case .build, .preflight:
             return []
         case .wrangler, .bundleUpload:
-            return ["CLOUDFLARE_API_TOKEN"]
+            return ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
         case .githubPagesPublish:
             return ["GITHUB_PAGES_TOKEN"]
         }

@@ -81,7 +81,7 @@ struct CloudflareTokenPromptView: View {
                     }
                 }
                 step(2) {
-                    Text("A custom token named “Anglesite” should be pre-filled with all permissions Anglesite uses. If it isn’t, add at least the “Edit Cloudflare Workers” template’s permissions so deploying works — Anglesite will ask again when a feature needs more access. Click **Continue to summary**.")
+                    Text("A custom token named “Anglesite” should be pre-filled with all permissions Anglesite uses. If it isn’t, add at least the “Edit Cloudflare Workers” template’s permissions plus **Account Settings: Read** (needed to identify your account) so deploying works — Anglesite will ask again when a feature needs more access. Click **Continue to summary**.")
                 }
                 step(3) {
                     Text("Click **Create Token**, then copy it and paste it below.")

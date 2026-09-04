@@ -24,6 +24,20 @@ public struct CloudflareDeployTarget: DeployTarget {
     public typealias DomainConfigDriftSource = @Sendable (
         _ declared: DomainConfig, _ hostname: String, _ apiToken: String
     ) async throws -> [DomainConfigAudit.Finding]
+    /// Resolves the token's Cloudflare account id, or `nil` when it can't be resolved (most
+    /// commonly a token scoped only to Workers Scripts/Routes/Tail — exactly what a user
+    /// following bare "give it Workers access" guidance would create — which authenticates fine
+    /// but lacks the "Account Settings: Read" permission `GET /accounts` needs, #1853). Defaults
+    /// to always returning `nil` — safe for every test that doesn't care about this seam, since a
+    /// `nil` account id just means `publish(context:)` skips the `CLOUDFLARE_ACCOUNT_ID`
+    /// convenience below and `wrangler` falls back to its own auto-discovery exactly as before
+    /// this seam existed. Production wiring is `CloudflareDeployTarget.defaultAccountIDSource`
+    /// (`HTTPCloudflareClient`), passed explicitly by the two call sites that construct a live
+    /// deploy target (`DeployTargetSelection.fromSiteConfig`,
+    /// `SocialWorkerProvisionCommand.defaultDeployer`) — unlike `tokenSource` this seam is a
+    /// best-effort convenience, not a hard gate, so it doesn't need every test call site to inject
+    /// a fake the way the always-consulted `tokenSource` does.
+    public typealias AccountIDSource = @Sendable (_ apiToken: String) async -> String?
 
     /// The token seam this target was constructed with. Exposed so `DeployModel.runDeploy` can
     /// forward the exact same seam into companion commands (e.g. `SocialWorkerProvisionCommand`)
@@ -46,23 +60,29 @@ public struct CloudflareDeployTarget: DeployTarget {
     /// `SocialWorkerProvisionCommand`'s `defaultDeployer`) forward the same one rather than
     /// silently defaulting to production and diverging from a test's injected fake.
     public let domainConfigDriftSource: DomainConfigDriftSource
+    /// The account-id seam this target was constructed with — see ``AccountIDSource``'s doc for
+    /// why its default is inert `nil` rather than a production closure.
+    public let accountIDSource: AccountIDSource
 
-    /// All five dependencies are injectable seams with production defaults, so tests can drive a
-    /// full deploy — credential gate, name-conflict check, domain-config-drift check, publish —
-    /// with a literal token, a canned script-name list, and a scripted executor, never touching
-    /// the network or spawning a process.
+    /// All six dependencies are injectable seams, so tests can drive a full deploy — credential
+    /// gate, name-conflict check, domain-config-drift check, publish — with a literal token, a
+    /// canned script-name list, and a scripted executor, never touching the network or spawning a
+    /// process. Five have production defaults; `accountIDSource` deliberately doesn't (see its
+    /// doc) — production callers pass `CloudflareDeployTarget.defaultAccountIDSource` explicitly.
     public init(
         tokenSource: @escaping TokenSource = CloudflareDeployTarget.keychainTokenSource,
         workerScriptNamesSource: @escaping WorkerScriptNamesSource = CloudflareDeployTarget.defaultWorkerScriptNames,
         customDomainAttachCommand: CustomDomainAttachCommand = CustomDomainAttachCommand(),
         markdownForAgentsCommand: MarkdownForAgentsCommand = MarkdownForAgentsCommand(),
-        domainConfigDriftSource: @escaping DomainConfigDriftSource = CloudflareDeployTarget.defaultDomainConfigDriftSource
+        domainConfigDriftSource: @escaping DomainConfigDriftSource = CloudflareDeployTarget.defaultDomainConfigDriftSource,
+        accountIDSource: @escaping AccountIDSource = { _ in nil }
     ) {
         self.tokenSource = tokenSource
         self.workerScriptNamesSource = workerScriptNamesSource
         self.customDomainAttachCommand = customDomainAttachCommand
         self.markdownForAgentsCommand = markdownForAgentsCommand
         self.domainConfigDriftSource = domainConfigDriftSource
+        self.accountIDSource = accountIDSource
     }
 
     // MARK: DeployTarget
@@ -102,6 +122,18 @@ public struct CloudflareDeployTarget: DeployTarget {
     public func publish(context: DeployTargetContext) async -> DeployCommand.Result {
         var wranglerEnvironment = context.baseEnvironment
         wranglerEnvironment["CLOUDFLARE_API_TOKEN"] = context.credential
+        // #1853: resolve the account ourselves and hand it to wrangler explicitly, rather than
+        // relying entirely on wrangler's own `GET /accounts` auto-discovery inside the guest — a
+        // token scoped only to Workers Scripts/Routes/Tail authenticates fine but can't enumerate
+        // accounts, so auto-discovery dies with a cryptic "Failed to automatically retrieve
+        // account IDs" error at the very last step, after the build and pre-deploy scan already
+        // ran. `accountIDSource` fails open (`nil`) on any resolution error — same posture as
+        // `checkWorkerNameConflict`/`checkDomainConfigDrift` above: a token that genuinely can't
+        // resolve an account is no worse off than before this fix, since wrangler still gets its
+        // own shot at auto-discovery.
+        if let accountID = await accountIDSource(context.credential) {
+            wranglerEnvironment["CLOUDFLARE_ACCOUNT_ID"] = accountID
+        }
 
         let started = Date()
         context.onProgress?(.deployDeploying)
@@ -418,5 +450,13 @@ public struct CloudflareDeployTarget: DeployTarget {
         let state = try await reader.zoneState(zoneID: zoneID, domain: hostname, apiToken: apiToken)
         let records = try await reader.listDNSRecords(zoneID: zoneID, apiToken: apiToken)
         return DomainConfigAudit.evaluate(declared: declared, live: state, liveDNSRecords: records, domain: hostname)
+    }
+
+    /// Default `AccountIDSource` for production: the token's first visible Cloudflare account id
+    /// via `HTTPCloudflareClient`, or `nil` on any resolution failure (including a token that
+    /// can't list accounts at all — see ``AccountIDSource``). Not this type's own `init` default
+    /// (see there for why); passed explicitly by every call site that builds a live deploy target.
+    public static let defaultAccountIDSource: AccountIDSource = { apiToken in
+        try? await HTTPCloudflareClient().accountID(apiToken: apiToken)
     }
 }

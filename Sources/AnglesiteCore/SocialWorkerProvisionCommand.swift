@@ -53,8 +53,10 @@ public actor SocialWorkerProvisionCommand {
     /// provisioning (#764) to persist the id `InboxSubmissionSync` needs later. `nil` on any
     /// resolution failure (mirrors `MicropubContentSync`'s/`ReceivedInteractionSync`'s existing
     /// private `resolveAccountID` helpers, which return an optional rather than throwing — a
-    /// missing account id here fails the *step* via a nil-check, not this closure itself).
-    public typealias AccountIDSource = @Sendable (_ apiToken: String) async -> String?
+    /// missing account id here fails the *step* via a nil-check, not this closure itself). Reused
+    /// from `CloudflareDeployTarget` (like `TokenSource` above) rather than a second, independent
+    /// definition of the same shape.
+    public typealias AccountIDSource = CloudflareDeployTarget.AccountIDSource
     /// Runs one `wrangler <arguments>` invocation with `siteDirectory` as cwd, tagged with
     /// `source` for the debug pane. Injected so tests can fake wrangler without a container; the
     /// production conformer routes through the site's container runtime.
@@ -893,15 +895,17 @@ public actor SocialWorkerProvisionCommand {
     /// `DeployModel.runDeploy` still constructs its own deployer closure (for `configDirectory`/
     /// `onPreflight`/`onProgress`, which this default has no equivalent for).
     public static let defaultDeployer: Deployer = { token, siteID, siteDirectory, wellKnownDynamicClaims in
-        await DeployCommand(target: CloudflareDeployTarget(tokenSource: { token })).deploy(
-            siteID: siteID, siteDirectory: siteDirectory, wellKnownDynamicClaims: wellKnownDynamicClaims)
+        await DeployCommand(target: CloudflareDeployTarget(
+            tokenSource: { token },
+            accountIDSource: defaultAccountIDSource
+        )).deploy(siteID: siteID, siteDirectory: siteDirectory, wellKnownDynamicClaims: wellKnownDynamicClaims)
     }
 
-    /// Default ``AccountIDSource`` for production: the token's first visible Cloudflare account,
-    /// via `HTTPCloudflareClient`. `nil` on any resolution failure.
-    public static let defaultAccountIDSource: AccountIDSource = { apiToken in
-        try? await HTTPCloudflareClient().accountID(apiToken: apiToken)
-    }
+    /// Default ``AccountIDSource`` for production — forwards to `CloudflareDeployTarget`'s
+    /// implementation (like `TokenSource`'s `keychainTokenSource`, this is the same account
+    /// resolution every account-scoped seam in this codebase shares) rather than keeping an
+    /// independent copy of `try? await HTTPCloudflareClient().accountID(apiToken:)`.
+    public static let defaultAccountIDSource: AccountIDSource = CloudflareDeployTarget.defaultAccountIDSource
 }
 
 extension SocialWorkerProvisionCommand.Result {
