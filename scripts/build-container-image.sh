@@ -133,6 +133,18 @@ if [[ -n "$DIGEST" ]]; then
     echo
     echo "Pin BOTH substrates to this digest for reproducibility:"
     echo "  ${IMAGE_REPO}@${DIGEST}"
+
+    # container/README.md's "Distribution decision (Q-D)" calls for pinning the
+    # canonical image by digest. Only a --push produces a digest that actually
+    # resolves in the registry, so only --push records it. Run
+    # scripts/pin-cloudflare-canonical-image.sh afterward to consume this file.
+    if [[ $PUSH -eq 1 ]]; then
+        DIGEST_FILE="$CONTAINER_DIR/CANONICAL_IMAGE_DIGEST"
+        echo "${IMAGE_REPO}@${DIGEST}" > "$DIGEST_FILE"
+        echo
+        echo "Wrote pinned reference to $DIGEST_FILE"
+        echo "Run scripts/pin-cloudflare-canonical-image.sh to update Dockerfile.cloudflare."
+    fi
 fi
 if [[ $PUSH -eq 0 ]]; then
     echo
