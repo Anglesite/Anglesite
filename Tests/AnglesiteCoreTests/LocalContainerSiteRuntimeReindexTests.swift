@@ -16,18 +16,8 @@ struct LocalContainerSiteRuntimeReindexTests {
         previewURL: URL(string: "http://127.0.0.1:51001")!,
         mcpURL: URL(string: "http://127.0.0.1:51002/mcp")!)
 
-    /// Wait until `condition` holds or `timeout` elapses (state settles across actor hops).
-    private func poll(_ timeout: TimeInterval, _ condition: @Sendable () async -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if await condition() { return true }
-            try? await Task.sleep(nanoseconds: 50_000_000)
-        }
-        return await condition()
-    }
-
     @Test("container runtime starts the watcher after rebuild and routes a batch to the index")
-    func routesBatchToIndex() async {
+    func routesBatchToIndex() async throws {
         let root = try! writeSiteTree(prefix: "container-reindex", ["src/pages/index.astro": "---\ntitle: Home\n---\n# Home"])
         let index = SiteKnowledgeIndex()
         let watcher = ControllableWatcher()
@@ -50,14 +40,16 @@ struct LocalContainerSiteRuntimeReindexTests {
         try! Data("---\ntitle: About\n---\n# About".utf8).write(to: added)
         watcher.deliver(.init(paths: [added], needsFullRescan: false))
 
-        #expect(await poll(5) { await index.documents(siteID: "s1").contains { $0.path == "src/pages/about.astro" } })
+        try await waitUntil("the added page to reach the knowledge index", timeout: .seconds(5)) {
+            await index.documents(siteID: "s1").contains { $0.path == "src/pages/about.astro" }
+        }
 
         await runtime.stop()
         #expect(watcher.stopCount >= 1)
     }
 
     @Test("container runtime rebuilds and re-scans project conventions the same way it does the knowledge index")
-    func routesBatchToConventionsEngine() async {
+    func routesBatchToConventionsEngine() async throws {
         let root = try! writeSiteTree(prefix: "container-reindex", ["src/pages/index.astro": "# Home\n"])
         let index = SiteKnowledgeIndex()
         let conventions = ProjectConventionsEngine()
@@ -82,8 +74,8 @@ struct LocalContainerSiteRuntimeReindexTests {
         // 5s budget like the knowledge-index test above: the batch applies on an unstructured
         // Task, and a 1s poll flaked on loaded CI runners once the suite grew (first seen when
         // #535's suites landed alongside this test).
-        #expect(await poll(5) {
+        try await waitUntil("the re-scanned conventions sample size to reach 2", timeout: .seconds(5)) {
             await conventions.conventions(siteID: "s1")?.writing.headingCapitalization.sampleSize == 2
-        })
+        }
     }
 }
