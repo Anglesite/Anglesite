@@ -2,21 +2,11 @@
 #if canImport(CoreServices)
 import Foundation
 import Testing
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 @Suite("FSEventsFileWatcher")
 struct SiteFileWatcherTests {
-    /// Poll `condition` until true or `timeout` elapses. FSEvents is asynchronous, so we wait
-    /// rather than assert immediately. Returns whether the condition was met.
-    private func poll(timeout: TimeInterval, _ condition: @Sendable () -> Bool) async -> Bool {
-        let deadline = Date().addingTimeInterval(timeout)
-        while Date() < deadline {
-            if condition() { return true }
-            try? await Task.sleep(nanoseconds: 50_000_000) // 50ms
-        }
-        return condition()
-    }
-
     @Test("watcher reports a file write under the watched root", .timeLimit(.minutes(1)))
     func reportsFileWrite() async throws {
         let root = FileManager.default.temporaryDirectory
@@ -38,11 +28,10 @@ struct SiteFileWatcherTests {
         let target = root.appendingPathComponent("hello.astro")
         try Data("hi".utf8).write(to: target)
 
-        let saw = await poll(timeout: 10) {
+        try await waitUntil("the write to be reported", timeout: .seconds(10)) {
             box.lock.lock(); defer { box.lock.unlock() }
             return box.seen.contains("hello.astro")
         }
-        #expect(saw)
     }
 }
 #endif

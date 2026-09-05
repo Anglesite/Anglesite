@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 struct ProcessSupervisorShutdownTests {
@@ -34,10 +35,8 @@ struct ProcessSupervisorShutdownTests {
             handles.append(h)
         }
         // Let them actually start.
-        try? await Task.sleep(nanoseconds: 150_000_000)
         for h in handles {
-            let running = await supervisor.isRunning(h)
-            #expect(running)
+            try await waitUntil("the process to report running") { await supervisor.isRunning(h) }
         }
 
         await supervisor.shutdownAll(timeout: 2)
@@ -78,14 +77,11 @@ struct ProcessSupervisorShutdownTests {
 
     // MARK: waitForExitOrTerminate + group-wide escalation (#1758)
 
-    /// Poll `center` until `marker` appears (bounded) — readiness sync only, never the assertion.
+    /// Wait for `marker` to appear in `center` (bounded) — readiness sync only, never the assertion.
     private func awaitMarker(_ marker: String, in center: LogCenter) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: .seconds(10))
-        while ContinuousClock.now < deadline {
-            if await center.snapshot().contains(where: { $0.text == marker }) { return true }
-            try? await Task.sleep(for: .milliseconds(20))
-        }
-        return false
+        (try? await waitUntil("marker '\(marker)'", timeout: .seconds(10)) {
+            await center.snapshot().contains { $0.text == marker }
+        }) != nil
     }
 
     @Test("waitForExitOrTerminate: a cancelled waiter resolves only once the child is dead and drained")

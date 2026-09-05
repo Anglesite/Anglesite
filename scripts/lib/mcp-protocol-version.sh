@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Extracts the MCP protocol version this app build expects — the single source of truth is
-# `MCPClient.protocolVersion` in Sources/AnglesiteCore/MCPClient.swift. Shared by
+# `MCPClient.protocolVersion` in Sources/AnglesiteCore/AI/MCPClient.swift. Shared by
 # vendor-container-image.sh (stamps Resources/container-image/vendor-manifest.json with the
 # version in effect at vendor time) and check-container-resources.sh (compares that stamp
 # against the current value on every build, so a protocol bump that outpaces a locally vendored
@@ -10,7 +10,7 @@
 mcp_protocol_version() {
     local root
     root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
-    local file="$root/Sources/AnglesiteCore/MCPClient.swift"
+    local file="$root/Sources/AnglesiteCore/AI/MCPClient.swift"
     local version
     version="$(grep -m1 'public static let protocolVersion' "$file" | sed -E 's/.*"([^"]+)".*/\1/')"
     if [[ -z "$version" ]]; then

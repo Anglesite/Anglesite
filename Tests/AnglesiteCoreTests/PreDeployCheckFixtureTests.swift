@@ -252,7 +252,7 @@ struct PreDeployCheckFixtureTests {
             return
         }
         // NOTE (#799 concern, not fixed here — out of scope for this task): `ScanFailure.Category`
-        // (Sources/AnglesiteCore/PreDeployCheck.swift, pre-existing #742 code) has no
+        // (Sources/AnglesiteCore/Cloudflare/PreDeployCheck.swift, pre-existing #742 code) has no
         // `.missingSecurityArtifact` case — that raw value only exists on `ScanWarning.Category`.
         // When `--strict` promotes a "missing-security-artifact" warning into the JSON `failures`
         // array, `PreDeployCheck.parse` decodes it as a `ScanFailure`, whose `Category.init(from:)`

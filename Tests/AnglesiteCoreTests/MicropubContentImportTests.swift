@@ -296,7 +296,7 @@ struct MicropubContentImportTests {
         // default-fallback path (lang left unset in the fixture). `audience` (`.url`) is also set
         // here, but `article`'s `microformatProperties` has no entry for it at all (only
         // `title`/`summary`/`body`/`publishDate`/`updated`/`tags` are mapped —
-        // `Sources/AnglesiteCore/ContentTypeRegistry.swift`'s `article` descriptor), so it never
+        // `Sources/AnglesiteCore/Authoring/ContentTypeRegistry.swift`'s `article` descriptor), so it never
         // reaches the wire and both directions take the same omission branch `updated` would take
         // if unset: this field is along for the ride, not a genuine `.url` round-trip case. See
         // `importExportRoundTripsResolvedURL` below for that.

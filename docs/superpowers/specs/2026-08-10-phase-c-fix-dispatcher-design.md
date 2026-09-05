@@ -158,6 +158,9 @@ The fix session checks whether the issue carries a `## Stage 1 — Reproduce rep
 - **Allowlist:** docs, `Resources/Template/`, JS edit overlay (`JS/edit-overlay/`), portable
   SwiftPM targets (`Package.swift`'s `portableTargets` set) — Tier 1 only, per issue #1261's
   own stated starting scope
+  *(Widened since: `Sources/AnglesiteApp` + `AnglesiteContainer` on 2026-08-31, and
+  `Workers/ControlWorker/` + `container/` with its image scripts on 2026-09-04 — see the
+  operational updates in `docs/issue-fix-dispatcher-routine.md`.)*
 - **Fix session:** launched per-claim via `RemoteTrigger` (§4), not a standing schedule of
   its own
 
