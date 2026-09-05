@@ -102,18 +102,16 @@ public struct CloudflareOAuthRequest: Sendable {
 /// codes — presenting the actual browser sheet (`ASWebAuthenticationSession`) is the caller's job,
 /// kept out of this type entirely so it stays fully unit-testable without `AuthenticationServices`
 /// or any UI, the same separation `TokenOnboarding` keeps from SwiftUI. Mirrors
-/// `CloudflareAPITokenVerifier`'s injected-`Transport` seam for the same reason.
+/// `CloudflareAPITokenVerifier`'s injected-`CloudflareTransport` seam for the same reason.
 public struct CloudflareOAuthClient: Sendable {
-    /// One HTTP round trip. Injected so tests can drive discovery, callback, and exchange
-    /// handling without network — the same seam ``CloudflareAPITokenVerifier/Transport`` exists
-    /// for. Throws on connection failure.
-    public typealias Transport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
-
     private let clientID: String
     private let redirectURI: URL
     private let scope: String
     private let discoveryURL: URL
-    private let transport: Transport
+    /// One HTTP round trip. Injected so tests can drive discovery, callback, and exchange
+    /// handling without network — the same seam ``CloudflareTransport`` exists for. Throws on
+    /// connection failure.
+    private let transport: CloudflareTransport
 
     /// Creates a client. Everything except `scope` defaults to the registered Anglesite client
     /// (``CloudflareOAuthConfiguration``) and the production transport; override for tests.
@@ -126,7 +124,7 @@ public struct CloudflareOAuthClient: Sendable {
         redirectURI: URL = CloudflareOAuthConfiguration.redirectURI,
         scope: String,
         discoveryURL: URL = CloudflareOAuthConfiguration.discoveryURL,
-        transport: @escaping Transport = CloudflareOAuthClient.defaultTransport
+        transport: @escaping CloudflareTransport = CloudflareOAuthClient.defaultTransport
     ) {
         self.clientID = clientID
         self.redirectURI = redirectURI
@@ -277,7 +275,7 @@ public struct CloudflareOAuthClient: Sendable {
     }
 
     /// Production transport: a plain `URLSession` POST/GET, no auth of its own.
-    public static let defaultTransport: Transport = { request in
+    public static let defaultTransport: CloudflareTransport = { request in
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         return (data, http)

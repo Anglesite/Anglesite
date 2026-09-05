@@ -3,8 +3,9 @@ import Foundation
 @testable import AnglesiteCore
 
 /// Tests `CloudflareOAuthClient`'s pure logic — PKCE generation, discovery parsing, authorize-URL
-/// construction, callback validation, and token exchange — all against an injected `Transport`, no
-/// real network and no `AuthenticationServices`/UI (that boundary is the whole point of the type).
+/// construction, callback validation, and token exchange — all against an injected
+/// `CloudflareTransport`, no real network and no `AuthenticationServices`/UI (that boundary is
+/// the whole point of the type).
 @Suite(.serialized)
 struct CloudflareOAuthClientTests {
     private let discoveryURL = URL(string: "https://dash.cloudflare.com/.well-known/openid-configuration")!
