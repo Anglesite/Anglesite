@@ -45,14 +45,20 @@ public protocol CloudflareRUMAnalyticsProviding: Sendable {
 /// (`rumPageloadEventsAdaptiveGroups`) for a day-by-day pageviews/visits breakdown.
 public struct CloudflareRUMAnalyticsClient: CloudflareRUMAnalyticsProviding {
     private let baseURL: URL
-    private let urlSession: URLSession
+    private let transport: CloudflareTransport
 
-    /// Both parameters exist for tests — point `baseURL` at a local stub server to exercise the
-    /// real request/decode path. Production callers take the defaults.
+    /// Both parameters exist for tests — inject a fake `transport` to exercise the real
+    /// request/decode path without network. Production callers take the defaults.
     public init(baseURL: URL = URL(string: "https://api.cloudflare.com/client/v4")!,
-                urlSession: URLSession = .shared) {
+                transport: @escaping CloudflareTransport = CloudflareRUMAnalyticsClient.defaultTransport) {
         self.baseURL = baseURL
-        self.urlSession = urlSession
+        self.transport = transport
+    }
+
+    public static let defaultTransport: CloudflareTransport = { request in
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw CloudflareWebAnalyticsError.invalidResponse }
+        return (data, http)
     }
 
     public func summary(siteTag: String, apiToken: String, days: Int) async throws -> RUMAnalyticsSummary {
@@ -148,10 +154,10 @@ public struct CloudflareRUMAnalyticsClient: CloudflareRUMAnalyticsProviding {
     }
 
     private func send<T: Decodable>(_ request: URLRequest) async throws -> T {
-        let (data, response) = try await urlSession.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+        let (data, response) = try await transport(request)
+        if !(200..<300).contains(response.statusCode) {
             let message = (try? JSONDecoder().decode(ErrorEnvelope.self, from: data).errors.first?.message)
-                ?? "Cloudflare API request failed with HTTP \(http.statusCode)."
+                ?? "Cloudflare API request failed with HTTP \(response.statusCode)."
             throw CloudflareWebAnalyticsError.api(message)
         }
         do {

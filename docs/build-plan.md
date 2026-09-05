@@ -10,7 +10,7 @@ This plan turns the high-level design into a concrete, phased implementation roa
 
 **Goal:** A buildable, signable, empty SwiftUI app committed to its own git repo.
 
-1. `git init` in `Anglesite-app/`. Add `.gitignore` (Xcode, SwiftPM, DerivedData, `.DS_Store`).
+1. `git init` in what was then a separate `Anglesite-app/` repo (later consolidated into `Anglesite/Anglesite`, #1059). Add `.gitignore` (Xcode, SwiftPM, DerivedData, `.DS_Store`).
 2. Create Xcode project: macOS App, SwiftUI lifecycle, Swift. *(Originally macOS 14; bumped to macOS 27+ after the Xcode 27 migration in #108.)*
    - Bundle id: `io.dwk.anglesite`.
    - Capabilities: App Sandbox **on**, Hardened Runtime **on**. *(The original bundled Node/JIT path shipped here, then retired in #70 once the dev server moved into the container runtime.)*
@@ -19,7 +19,7 @@ This plan turns the high-level design into a concrete, phased implementation roa
    - `AnglesiteApp/` — SwiftUI views + app entry
    - `AnglesiteCore/` — subprocess supervision, MCP client, edit pipeline
    - `AnglesiteBridge/` — WKWebView script messages + JS injection
-5. Set up CI (GitHub Actions) for `xcodebuild` build + unit tests on `macos-15`.
+5. Set up CI (GitHub Actions) for `xcodebuild` build + unit tests. *(Originally targeted `macos-15`; CI has since moved to `swift test` on `macos-26`, with no hosted `xcodebuild test` lane — #646.)*
 6. **App Store signing/export** dry run with a placeholder build before any real code lands.
 
 ## Phase 1 — Embedded Node runtime
@@ -65,7 +65,7 @@ This work lands in `anglesite/server/` — the app repo just calls it.
 5. ✅ Tests in `anglesite/test/patcher.test.js` + `apply-edit-dispatcher.test.js` + `edit-history.test.js` covering each resolver, ambiguous-match refusal, write-failed mapping, and the onApplied hook contract.
 6. Ambiguous edits surface as `edit-failed` reasons (`no-match`, `dynamic-expression`, `ambiguous-match`) and can be handed to chat for a higher-level repair flow rather than bypassing the patcher's safety checks.
 
-**End-to-end verification (2026-05-22):** typed h1 edit in `~/Sites/smoke/src/pages/index.astro` flowed through the WKWebView overlay → `AnglesiteScriptHandler.decode` → `MCPApplyEditRouter` → bundled MCP server → dispatcher → atomic file write. Tracking issues `Anglesite/anglesite#294` and `Anglesite/Anglesite-app#19` closed. The `AppliesEditEndToEndTests` xctest gives this round-trip ongoing CI coverage.
+**End-to-end verification (2026-05-22):** typed h1 edit in `~/Sites/smoke/src/pages/index.astro` flowed through the WKWebView overlay → `AnglesiteScriptHandler.decode` → `MCPApplyEditRouter` → bundled MCP server → dispatcher → atomic file write. Tracking issues `Anglesite/anglesite#294` and `#19` (filed in the pre-consolidation `Anglesite-app` repo, since merged into this one, #1059) closed. The `AppliesEditEndToEndTests` xctest gives this round-trip ongoing CI coverage.
 
 ## Phase 6 — Deploy button (v0 finishing)
 

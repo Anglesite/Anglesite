@@ -66,14 +66,20 @@ public protocol CloudflareWebAnalyticsProviding: Sendable {
 /// token's first account, lists its Web Analytics (RUM) sites, and matches by normalized host.
 public struct CloudflareWebAnalyticsClient: CloudflareWebAnalyticsProviding {
     private let baseURL: URL
-    private let urlSession: URLSession
+    private let transport: CloudflareTransport
 
-    /// Both parameters exist for tests — point `baseURL` at a local stub server to exercise the
-    /// real request/decode path. Production callers take the defaults.
+    /// Both parameters exist for tests — inject a fake `transport` to exercise the real
+    /// request/decode path without network. Production callers take the defaults.
     public init(baseURL: URL = URL(string: "https://api.cloudflare.com/client/v4")!,
-                urlSession: URLSession = .shared) {
+                transport: @escaping CloudflareTransport = CloudflareWebAnalyticsClient.defaultTransport) {
         self.baseURL = baseURL
-        self.urlSession = urlSession
+        self.transport = transport
+    }
+
+    public static let defaultTransport: CloudflareTransport = { request in
+        let (data, response) = try await URLSession.shared.data(for: request)
+        guard let http = response as? HTTPURLResponse else { throw CloudflareWebAnalyticsError.invalidResponse }
+        return (data, http)
     }
 
     /// Resolves the site tag by scoping to the token's *first* account — Anglesite's Cloudflare
@@ -112,8 +118,8 @@ public struct CloudflareWebAnalyticsClient: CloudflareWebAnalyticsProviding {
         var request = URLRequest(url: url)
         request.setValue("Bearer \(apiToken)", forHTTPHeaderField: "Authorization")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
-        let (data, response) = try await urlSession.data(for: request)
-        if let http = response as? HTTPURLResponse, !(200..<300).contains(http.statusCode) {
+        let (data, http) = try await transport(request)
+        if !(200..<300).contains(http.statusCode) {
             let message = (try? JSONDecoder().decode(ErrorEnvelope.self, from: data).errors.first?.message)
                 ?? "Cloudflare API request failed with HTTP \(http.statusCode)."
             throw CloudflareWebAnalyticsError.api(message)
