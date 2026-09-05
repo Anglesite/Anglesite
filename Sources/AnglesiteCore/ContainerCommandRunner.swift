@@ -1,11 +1,12 @@
 import Foundation
 
-/// Runs `SocialWorkerProvisionCommand`'s wrangler subcommands (`d1`/`kv`/`r2 create`,
-/// `d1 migrations apply`, …) inside a running container via `LocalContainerControl.exec` —
-/// the `CommandRunner` counterpart to `ContainerDeployExecutor` (`DeployExecutor.swift:61-168`),
-/// which does the same for the three fixed deploy steps. `SocialWorkerProvisionCommand`'s
-/// `arguments` are already bare wrangler subcommand argv (e.g. `["d1", "create", name, "--json"]`);
-/// this just prefixes `["npx", "wrangler"]` and adapts the result shape.
+/// Pushes a `SocialWorkerProvisionCommand`-provisioned Cloudflare Worker secret inside a running
+/// container via `LocalContainerControl.exec`. Ordinary wrangler subcommands (`d1`/`kv`/`r2
+/// create`, `d1 migrations apply`, …) no longer go through this type — `SocialWorkerProvisionTarget.publish`
+/// runs those through `context.executor.run(step: .wranglerSubcommand(args:), …)` instead, the
+/// same `DeployExecutor` seam (`ContainerDeployExecutor`, `DeployExecutor.swift:61-168`) the three
+/// fixed deploy steps use — so only the secret-push seam (which `DeployExecutor` has no step for)
+/// remains here.
 public struct ContainerCommandRunner: Sendable {
     private let control: any LocalContainerControl
     private let siteID: String
@@ -20,32 +21,11 @@ public struct ContainerCommandRunner: Sendable {
         self.logCenter = logCenter
     }
 
-    /// Bind this instance's `run` as a `SocialWorkerProvisionCommand.CommandRunner` closure.
-    public var runner: SocialWorkerProvisionCommand.CommandRunner {
-        { [self] siteDirectory, arguments, environment, source in
-            try await self.run(siteDirectory: siteDirectory, arguments: arguments, environment: environment, source: source)
-        }
-    }
-
     /// Bind this instance's secret-push as a `SocialWorkerProvisionCommand.SecretRunner` closure.
     public var secretRunner: SocialWorkerProvisionCommand.SecretRunner {
         { [self] siteDirectory, name, value, environment, source in
             try await self.runSecret(siteDirectory: siteDirectory, name: name, value: value, environment: environment, source: source)
         }
-    }
-
-    private func run(
-        siteDirectory: URL,
-        arguments: [String],
-        environment: [String: String],
-        source: String
-    ) async throws -> ProcessSupervisor.RunResult {
-        let argv = WranglerInvocation.argv(subcommand: arguments)
-        let guestEnvironment = WranglerInvocation.guestEnvironment(from: environment, scope: .tokenOnly)
-        let result = try await WranglerInvocation.exec(
-            control: control, siteID: siteID, argv: argv, environment: guestEnvironment,
-            logCenter: logCenter, source: source)
-        return ProcessSupervisor.RunResult(stdout: result.stdout, stderr: result.stderr, exitCode: result.exitCode)
     }
 
     /// Pushes `value` as the named Cloudflare Worker secret. `wrangler secret put <NAME>` reads

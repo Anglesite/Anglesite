@@ -120,7 +120,16 @@ public actor DeployCommand {
     /// ``target(for:)`` and freezes it with ``pinning(target:)``, so it can't end up performing a
     /// second, independent resolution that disagrees with this command's own.
     private nonisolated let targetResolver: DeployTargetSelection.Resolver
-    private let executor: any DeployExecutor
+
+    /// The executor `deploy(siteID:siteDirectory:…)` runs every step through.
+    ///
+    /// Public (safe to read without `await`: `DeployExecutor` is `Sendable` and this is an
+    /// immutable stored property, the same exception `pinning(target:)` below already relies on
+    /// internally) so a caller building a companion command against the same site —
+    /// `DeployModel.runDeploy`'s `SocialWorkerProvisionCommand` wiring — can hand it the exact
+    /// same executor instance this command publishes through, rather than constructing a second,
+    /// separately-configured one that a test's injected fake executor wouldn't be reused by.
+    public nonisolated let executor: any DeployExecutor
 
     /// The target `deploy(siteID:siteDirectory:…)` would publish `siteDirectory` through.
     ///
