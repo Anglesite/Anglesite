@@ -170,7 +170,7 @@ struct SiteOperationsTests {
             ["d1", "create", "blue-bottle-cafe-social"],
             ["kv", "namespace", "create", "blue-bottle-cafe-social"],
         ])
-        #expect(await recorder.deployCalls.isEmpty)
+        #expect(await recorder.ran(.wrangler) == false)
         #expect(resources.d1DatabaseID == "d1-id")
         #expect(resources.kvNamespaceID == "kv-id")
     }
@@ -412,8 +412,19 @@ struct SiteOperationsTests {
         ])
     }
 
-    @Test("headless deploy forwards active /.well-known/ route claims to the deployer (#934)")
+    @Test("headless deploy forwards active /.well-known/ route claims into the deploy spine's collision check (#934)")
     func headlessDeployForwardsWellKnownDynamicClaimsToDeployer() async throws {
+        // `wellKnownDynamicClaims` is consumed entirely inside `DeployCommand.deploy`'s own #744
+        // collision merge — it's never threaded into anything the executor's `run(step:...)` can
+        // observe directly (there's no separate "deploy call" to record anymore now that
+        // `provision()` drives a real `DeployCommand` spine). So the only way to prove the
+        // headless path (App Intents/Shortcuts/Siri, #934) actually forwards the active worker's
+        // route claim — matching `DeployModel.runDeploy`'s GUI-path wiring (#744/#746) — is to
+        // plant a colliding runtime reservation at the exact same suffix and confirm the deploy
+        // blocks: that's only possible if the claim genuinely reached the merge. Mirrors
+        // `DeployCommandTests.wellKnownDynamicRuntimeCollisionBlocks` and
+        // `SocialWorkerProvisionCommandTests.forwardsWellKnownDynamicClaimsToDeployer`, which use
+        // the same technique for the same reason.
         let package = try temporaryPackage()
         defer { try? FileManager.default.removeItem(at: package) }
         let site = makeSite(name: "Blue Bottle Cafe", packageURL: package)
@@ -429,6 +440,9 @@ struct SiteOperationsTests {
         )
 
         let recorder = SocialWorkerRecorder()
+        await recorder.withRuntimeClaims([RuntimeOwnedPathClaim(
+            id: "webfinger-collision", owner: "some-other-owner", path: "webfinger", match: .exact,
+            capability: "test collision")])
         let ops = SiteOperations(
             factory: SocialWorkerFactory(recorder: recorder),
             store: throwawayStore(),
@@ -438,26 +452,12 @@ struct SiteOperationsTests {
 
         let result = await ops.deploy(site: site)
 
-        guard case .succeeded = result else {
-            Issue.record("expected success, got \(result)")
+        guard case .blocked(let failures, _) = result else {
+            Issue.record("expected .blocked once the forwarded webfinger claim collides with the planted runtime reservation, got \(result)")
             return
         }
-        // Mirrors DeployModel.runDeploy's GUI-path wiring (#744/#746): the headless deploy path
-        // (App Intents/Shortcuts/Siri, #934) must see the same active dynamic /.well-known/
-        // route claims, or a static/dynamic collision that the GUI Deploy button would block
-        // could slip through here. Also carries the #1659 RFC 9727 API Catalog claim
-        // (`WorkerComposition.apiCatalogRouteClaim`), appended whenever any worker is active —
-        // see `withAPICatalogClaim`.
-        #expect(await recorder.deployCalls == [
-            .init(
-                token: "token", siteID: "s1", siteDirectory: site.sourceDirectory,
-                wellKnownDynamicClaims: [
-                    WorkerRouteClaims.OwnedClaim(owner: "webfinger", claim: webfingerRoute),
-                    WorkerRouteClaims.OwnedClaim(
-                        owner: WorkerComposition.apiCatalogOwnerID, claim: WorkerComposition.apiCatalogRouteClaim),
-                ]
-            ),
-        ])
+        #expect(failures.first?.category == .wellKnownCollision)
+        #expect(await recorder.ran(.build) == false, "the collision must block before any build/provisioning work runs")
     }
 
     @Test("headless deploy with no activated workers still deploys through the plain static path")
@@ -517,41 +517,70 @@ struct SiteOperationsTests {
     }
 }
 
-private actor SocialWorkerRecorder {
+/// Fakes `SocialWorkerProvisionCommand`'s `executor:` seam directly (rather than the old
+/// `runner:`/`deployer:` closures) so the many `deploy()`/`provisionSocialWorker()` tests above
+/// that share this recorder keep observing the same `d1`/`kv` wrangler-subcommand argv, now
+/// exercised through the real `DeployCommand` spine (`.build`/`.preflight`/`.wrangler` all run
+/// for real, scripted here to succeed) instead of a canned deployer closure.
+private actor SocialWorkerRecorder: DeployExecutor {
     private var seenArguments: [[String]] = []
-    private var seenDeployCalls: [DeployCall] = []
+    private var seenSteps: [String] = []
+    private var runtimeClaims: [RuntimeOwnedPathClaim] = []
 
     var arguments: [[String]] { seenArguments }
-    var deployCalls: [DeployCall] { seenDeployCalls }
 
-    func run(arguments: [String]) -> ProcessSupervisor.RunResult {
-        seenArguments.append(arguments)
-        switch arguments.first {
-        case "d1":
-            return .init(stdout: #"{"uuid":"d1-id"}"#, stderr: "", exitCode: 0)
-        case "kv":
-            return .init(stdout: #"{"id":"kv-id"}"#, stderr: "", exitCode: 0)
-        default:
-            return .init(stdout: "unexpected arguments \(arguments)", stderr: "", exitCode: 127)
+    /// Plants a runtime-reported `.well-known` ownership claim `reportOwnedPathClaims()` returns
+    /// on every subsequent call — lets a test prove a dynamic claim genuinely reached
+    /// `DeployCommand.deploy`'s #744 collision merge by colliding it against a claim at the same
+    /// path (mirrors `DeployCommandTests.swift`'s `FakeExecutor.withRuntimeClaims`).
+    func withRuntimeClaims(_ claims: [RuntimeOwnedPathClaim]) {
+        runtimeClaims = claims
+    }
+
+    func reportOwnedPathClaims() async -> [RuntimeOwnedPathClaim] {
+        runtimeClaims
+    }
+
+    private func key(_ step: DeployStep) -> String {
+        switch step {
+        case .build: return "build"
+        case .preflight: return "preflight"
+        case .wrangler: return "wrangler"
+        case .bundleUpload: return "bundleUpload"
+        case .githubPagesPublish: return "githubPagesPublish"
+        case .wranglerSubcommand(let args): return "wranglerSubcommand:\(args.joined(separator: " "))"
         }
     }
 
-    func deploy(
-        token: String, siteID: String, siteDirectory: URL,
-        wellKnownDynamicClaims: [WorkerRouteClaims.OwnedClaim]
-    ) -> DeployCommand.Result {
-        seenDeployCalls.append(.init(
-            token: token, siteID: siteID, siteDirectory: siteDirectory,
-            wellKnownDynamicClaims: wellKnownDynamicClaims))
-        return .succeeded(url: URL(string: "https://blue-bottle-cafe.example.workers.dev")!, duration: 1)
+    /// Whether `step` actually ran through `run(step:...)` — used where a test needs to confirm
+    /// the deploy stage was (or wasn't) reached, the equivalent of the old `deployCalls.isEmpty`
+    /// check against a fake `deployer` closure.
+    func ran(_ step: DeployStep) -> Bool {
+        seenSteps.contains(key(step))
     }
-}
 
-private struct DeployCall: Sendable, Equatable {
-    let token: String
-    let siteID: String
-    let siteDirectory: URL
-    let wellKnownDynamicClaims: [WorkerRouteClaims.OwnedClaim]
+    func run(step: DeployStep, siteDirectory: URL, environment: [String: String], source: String) async -> DeployStepResult {
+        seenSteps.append(key(step))
+        switch step {
+        case .build:
+            return DeployStepResult(exitCode: 0, output: "")
+        case .preflight:
+            return DeployStepResult(exitCode: 0, output: #"{"version":1,"ok":true,"failures":[],"warnings":[]}"#)
+        case .wrangler:
+            return DeployStepResult(exitCode: 0, output: "Published site (0.1 sec)\n  https://blue-bottle-cafe.example.workers.dev")
+        case .bundleUpload, .githubPagesPublish:
+            return DeployStepResult(exitCode: 0, output: "")
+        case .wranglerSubcommand(let args):
+            seenArguments.append(args)
+            if args.first == "d1" {
+                return DeployStepResult(exitCode: 0, output: #"{"uuid":"d1-id"}"#)
+            }
+            if args.first == "kv" {
+                return DeployStepResult(exitCode: 0, output: #"{"id":"kv-id"}"#)
+            }
+            return DeployStepResult(exitCode: 127, output: "unexpected arguments \(args)")
+        }
+    }
 }
 
 private struct TestAccessError: LocalizedError, Sendable {
@@ -579,16 +608,11 @@ private struct SocialWorkerFactory: CommandFactory {
     func socialWorkerProvision() -> SocialWorkerProvisionCommand {
         SocialWorkerProvisionCommand(
             tokenSource: { "token" },
-            runner: { _, arguments, _, _ in await recorder.run(arguments: arguments) },
+            executor: recorder,
             // Only exercised when the activitypub worker is active (it's the only one that pushes
             // a secret, `AP_PRIVATE_KEY`) — always-succeeds is fine for the indieauth/webfinger
             // fixtures elsewhere in this file, which never call it.
-            secretRunner: { _, _, _, _, _ in .init(stdout: "Success!", stderr: "", exitCode: 0) },
-            deployer: { token, siteID, siteDirectory, wellKnownDynamicClaims in
-                await recorder.deploy(
-                    token: token, siteID: siteID, siteDirectory: siteDirectory,
-                    wellKnownDynamicClaims: wellKnownDynamicClaims)
-            }
+            secretRunner: { _, _, _, _, _ in .init(stdout: "Success!", stderr: "", exitCode: 0) }
         )
     }
 }
