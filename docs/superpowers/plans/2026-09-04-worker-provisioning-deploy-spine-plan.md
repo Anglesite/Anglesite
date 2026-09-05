@@ -1,5 +1,7 @@
 # Worker Provisioning Deploy Spine Implementation Plan
 
+**Status:** current
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Route every `wrangler` call `SocialWorkerProvisionCommand` makes — not just the final deploy — through the same `DeployTarget`/`DeployExecutor` spine as an ordinary deploy, so `authorize`/`PreDeployCheck` run exactly once before any of it; give `generateWranglerToml` a typed return; delete the TOML-regex extractors.
