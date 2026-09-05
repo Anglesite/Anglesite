@@ -90,9 +90,20 @@ struct SocialWorkerProvisionTargetPublishTests {
             return self
         }
 
+        private var seenSteps: [String] = []
+
         func run(step: DeployStep, siteDirectory: URL, environment: [String: String], source: String) async -> DeployStepResult {
             lock.lock(); defer { lock.unlock() }
+            seenSteps.append(key(step))
             return byStep[key(step)] ?? DeployStepResult(exitCode: 0, output: "")
+        }
+
+        /// Whether `step` was actually run through `run(step:...)` — as opposed to merely stubbed
+        /// via `set(_:exitCode:output:)`, which a step that's never reached (e.g. a gate that
+        /// returns early) would still leave unexercised.
+        func ran(_ step: DeployStep) -> Bool {
+            lock.lock(); defer { lock.unlock() }
+            return seenSteps.contains(key(step))
         }
     }
 
@@ -156,5 +167,87 @@ struct SocialWorkerProvisionTargetPublishTests {
         #expect(result == .webmentionPaidPlanConfirmationNeeded)
         let resources = await target.resources
         #expect(resources.queueName == nil)
+    }
+
+    /// The resumability property this actor exists for (per its own doc comment on `resources`
+    /// and on the type itself): a resource id already created in a failed run must survive that
+    /// failure so a retry doesn't recreate it. D1 creation succeeds; the very next step (KV
+    /// creation) fails outright. If a future refactor reverted `resources` to a local `var` or
+    /// reordered a mutation to after its `persistConfig` call, this would start failing while
+    /// `DeployCommand.Result` still reported `.failed` — the id itself would silently be lost.
+    @Test("a D1 id created before a later KV failure survives on target.resources")
+    func d1IDSurvivesLaterKVFailure() async throws {
+        let tmpDir = try temporaryDirectory()
+        let executor = FakeExecutor()
+            .set(.wranglerSubcommand(args: ["d1", "create", "site-social"]), exitCode: 0, output: #"{"database_id":"db-abc"}"#)
+            .set(.wranglerSubcommand(args: ["kv", "namespace", "create", "site-social"]), exitCode: 1, output: "kv namespace create failed")
+            .set(.build, exitCode: 0, output: "")
+            .set(.preflight, exitCode: 0, output: scanJSON(ok: true))
+        let inner = CloudflareDeployTarget(tokenSource: { "tok" })
+        let websub = worker(WorkerComposition.websubWorkerID, d1: true, kv: true, r2: false)
+        let target = SocialWorkerProvisionTarget(
+            cloudflareTarget: inner, siteName: "site", workers: [websub],
+            keyPairSource: stubKeyPairSource, solidOidcSigningKeySource: stubSolidOidcSigningKeySource,
+            webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
+            accountIDSource: stubAccountIDSource)
+        let cmd = DeployCommand(target: target, executor: executor)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        guard case .failed = result else {
+            Issue.record("expected .failed, got \(result)")
+            return
+        }
+        let resources = await target.resources
+        #expect(resources.d1DatabaseID == "db-abc")
+        #expect(resources.kvNamespaceID == nil)
+    }
+
+    @Test("indieauth worker triggers the AUTH_DB migration wrangler subcommand")
+    func indieauthTriggersAuthDBMigration() async throws {
+        let tmpDir = try temporaryDirectory()
+        let executor = FakeExecutor()
+            .set(.wranglerSubcommand(args: ["d1", "create", "site-social"]), exitCode: 0, output: #"{"database_id":"db-abc"}"#)
+            .set(.wranglerSubcommand(args: ["d1", "migrations", "apply", "AUTH_DB", "--remote"]), exitCode: 0, output: "Migrations applied")
+            .set(.build, exitCode: 0, output: "")
+            .set(.preflight, exitCode: 0, output: scanJSON(ok: true))
+            .set(.wrangler, exitCode: 0, output: "Published site (0.1 sec)\n  https://site.workers.dev")
+        let inner = CloudflareDeployTarget(tokenSource: { "tok" })
+        let indieauth = worker(WorkerComposition.indieauthWorkerID, d1: true, kv: false, r2: false)
+        let target = SocialWorkerProvisionTarget(
+            cloudflareTarget: inner, siteName: "site", workers: [indieauth],
+            keyPairSource: stubKeyPairSource, solidOidcSigningKeySource: stubSolidOidcSigningKeySource,
+            webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
+            accountIDSource: stubAccountIDSource)
+        let cmd = DeployCommand(target: target, executor: executor)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        guard case .succeeded = result else {
+            Issue.record("expected .succeeded, got \(result)")
+            return
+        }
+        #expect(executor.ran(.wranglerSubcommand(args: ["d1", "migrations", "apply", "AUTH_DB", "--remote"])))
+    }
+
+    @Test("a successful websub Queue creation writes WEBSUB_ENABLED=true into .site-config")
+    func websubQueueWritesEnabledFlag() async throws {
+        let tmpDir = try temporaryDirectory()
+        let executor = FakeExecutor()
+            .set(.wranglerSubcommand(args: ["queues", "create", "site-websub"]), exitCode: 0, output: #"{"queue_name":"site-websub"}"#)
+            .set(.build, exitCode: 0, output: "")
+            .set(.preflight, exitCode: 0, output: scanJSON(ok: true))
+            .set(.wrangler, exitCode: 0, output: "Published site (0.1 sec)\n  https://site.workers.dev")
+        let inner = CloudflareDeployTarget(tokenSource: { "tok" })
+        let websub = worker(WorkerComposition.websubWorkerID, d1: false, kv: false, r2: false)
+        let target = SocialWorkerProvisionTarget(
+            cloudflareTarget: inner, siteName: "site", workers: [websub], acknowledgesPaidPlan: true,
+            keyPairSource: stubKeyPairSource, solidOidcSigningKeySource: stubSolidOidcSigningKeySource,
+            webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
+            accountIDSource: stubAccountIDSource)
+        let cmd = DeployCommand(target: target, executor: executor)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        guard case .succeeded = result else {
+            Issue.record("expected .succeeded, got \(result)")
+            return
+        }
+        let config = try String(contentsOf: tmpDir.appendingPathComponent(".site-config"), encoding: .utf8)
+        #expect(SiteConfigFile.value(forKey: "WEBSUB_ENABLED", in: config) == "true")
     }
 }
