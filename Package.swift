@@ -372,7 +372,7 @@ packageTargets.append(contentsOf: [
         // AnglesiteCore is added explicitly (not just relied on transitively through
         // AnglesiteP2P) because Task 5's RemoteContainerSession consumes
         // LocalContainerControl/LocalContainerSession directly — see
-        // Sources/AnglesiteCore/LocalContainerControl.swift.
+        // Sources/AnglesiteCore/Container/LocalContainerControl.swift.
         dependencies: ["AnglesiteP2P", "AnglesiteCore"],
         path: "Sources/AnglesiteRemote",
         swiftSettings: strictConcurrency

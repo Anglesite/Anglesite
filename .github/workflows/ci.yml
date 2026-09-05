@@ -380,6 +380,12 @@ jobs:
       - name: Test prune-worktrees.sh safety rails
         run: scripts/prune-worktrees.test.sh
 
+      # No docker/network dependency — runs against throwaway container/ fixtures, so
+      # the CANONICAL_IMAGE_DIGEST -> Dockerfile.cloudflare rewrite (#1644) is checked
+      # without touching this repo's real files.
+      - name: Test pin-cloudflare-canonical-image.sh digest rewrite
+        run: scripts/pin-cloudflare-canonical-image.test.sh
+
       - name: Save SwiftPM build cache (main only)
         if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
@@ -499,6 +505,11 @@ jobs:
     timeout-minutes: 25
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # Pure `git grep` over Tests/*.swift, no Xcode/build needed — runs first so a violation
+      # fails in seconds instead of after the ~13-14m build+test steps below (#1810).
+      - name: Check no unjustified Task.sleep/usleep in tests
+        run: scripts/check-test-sleep-marker.sh
 
       # The end-to-end tests spawn the real plugin's MCP server, so CI needs the sibling repo
       # present and `npm ci`-installed. Without these, the Swift Testing suites gated with

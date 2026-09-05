@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 /// Shell fixture shared by the SIGTERM-cancellation tests here, in `DeployCommandTests`, and in
@@ -89,18 +90,8 @@ struct AuditCommandTests {
 
     // MARK: Cancellation
 
-    /// Poll `center` for a marker line up to `timeout`. Returns true once it appears.
-    private func waitForMarker(_ marker: String, in center: LogCenter, timeout: Duration = .seconds(3)) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if await center.snapshot().contains(where: { $0.text.contains(marker) }) { return true }
-            try? await Task.sleep(for: .milliseconds(50))
-        }
-        return false
-    }
-
     @Test("Cancelling the task actually SIGTERMs the in-flight build subprocess")
-    func cancellationTerminatesBuild() async {
+    func cancellationTerminatesBuild() async throws {
         // The fixture arms a SIGTERM trap, echoes __STARTED__, then blocks. We cancel exactly once
         // the build is running (synchronized on __STARTED__, not a fixed delay). Cancellation
         // resolves only after the child has really exited and its output is drained
@@ -114,7 +105,9 @@ struct AuditCommandTests {
             build: { _ in self.shFixture(SIGTERMTrapFixture.script) }
         )
         let task = Task { await cmd.audit(siteID: "site", siteDirectory: tmpDir) }
-        #expect(await waitForMarker("__STARTED__", in: center, timeout: .seconds(10)), "build never started")
+        try await waitUntil("build never started", timeout: .seconds(10)) {
+            await center.snapshot().contains { $0.text.contains("__STARTED__") }
+        }
         task.cancel()
         let result = await task.value
         guard case .failed(let reason, _, let tail) = result else {

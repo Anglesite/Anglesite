@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 #if compiler(>=6.4) && canImport(FoundationModels)
 import FoundationModels
@@ -203,11 +204,9 @@ struct ExternalLLMBackendConversationTests {
     /// Suspends until `count` gated requests have reached the stub's `startLoading` — i.e. that
     /// many `converse()` calls are genuinely parked inside their network `await`.
     private func awaitGatedRequests(_ count: Int) async throws {
-        for _ in 0..<500 {
-            if ExternalLLMStubURLProtocol.gatedRequestsEntered >= count { return }
-            try await Task.sleep(nanoseconds: 2_000_000)
+        try await waitUntil("\(count) gated request(s) to start") {
+            ExternalLLMStubURLProtocol.gatedRequestsEntered >= count
         }
-        Issue.record("timed out waiting for \(count) gated request(s) to start")
     }
 
     /// The `messages` array of the last request the stub captured, as role/content pairs.

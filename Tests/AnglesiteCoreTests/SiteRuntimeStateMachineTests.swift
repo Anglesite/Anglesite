@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 /// Focused spec for the shared `SiteRuntimeStateMachine` plumbing extracted from the three
@@ -79,7 +80,7 @@ struct SiteRuntimeStateMachineTests {
     // MARK: - Observer removal
 
     @Test("removeObserver: cancelling the consumer's task unregisters it")
-    func observerRemovedWhenConsumerCancels() async {
+    func observerRemovedWhenConsumerCancels() async throws {
         let machine = SiteRuntimeStateMachine()
         let stream = machine.observe()
         #expect(machine.observerCount == 1)
@@ -90,12 +91,7 @@ struct SiteRuntimeStateMachineTests {
         drainTask.cancel()
         _ = await drainTask.result
 
-        var count = machine.observerCount
-        for _ in 0..<20 where count > 0 {
-            try? await Task.sleep(nanoseconds: 20_000_000)
-            count = machine.observerCount
-        }
-        #expect(count == 0)
+        try await waitUntil("the cancelled observer to unregister") { machine.observerCount == 0 }
     }
 
     // MARK: - Generation guard

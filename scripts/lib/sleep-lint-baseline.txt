@@ -1,0 +1,77 @@
+# Pre-existing Task.sleep/Thread.sleep/usleep call sites under Tests/, snapshotted when
+# scripts/check-test-sleep-marker.sh (#1810) was added, so the lint can start enforcing the
+# "justify a new sleep with a marker comment" rule immediately without first requiring every
+# one of the ~130 sites #1810's audit found (only 38 files/its own tracked list were actually
+# reviewed) to be individually re-judged or migrated in this one PR.
+#
+# Format: one entry per line, `<path>\t<trimmed source line text>` (tab-separated). Matched by
+# content, not line number, so an unrelated edit that shifts a grandfathered line up or down
+# the file doesn't trip the lint. A line already reviewed and confirmed legitimate (the
+# deliberate scenario under test, a negative "confirm nothing happened" assertion, a real
+# wall-clock-elapsed proof, a real E2E/subprocess wait, etc. — see the file's own comment for
+# which) should be REMOVED from here once it's rewritten with a `// sleep-is-subject` marker
+# comment instead, so the baseline shrinks over time rather than growing.
+#
+# Do not add new entries here to silence a fresh violation — mark the line instead
+# (`// sleep-is-subject`) with a comment explaining why, matching the existing style in the
+# suites #1810 already migrated. This baseline is a one-time debt snapshot, not an escape hatch.
+Tests/AnglesiteAppTests/BuyDomainModelTests.swift	try? await Task.sleep(for: registerDelay)
+Tests/AnglesiteAppTests/CommunitiesModelTests.swift	try await Task.sleep(for: .milliseconds(100))
+Tests/AnglesiteAppTests/ComponentEditorModelDraftStateTests.swift	sleep: @escaping ComponentEditorModel.Sleep = { try await Task.sleep(for: $0) }
+Tests/AnglesiteAppTests/ContactsModelTests.swift	try? await Task.sleep(for: delay)
+Tests/AnglesiteAppTests/FollowersModelTests.swift	try await Task.sleep(for: .milliseconds(120))
+Tests/AnglesiteAppTests/FollowersModelTests.swift	try await Task.sleep(for: .milliseconds(20))
+Tests/AnglesiteContainerLocalTests/ContainerizationControlTests.swift	try await Task.sleep(for: .milliseconds(500))
+Tests/AnglesiteContainerLocalTests/ContainerizationControlTests.swift	try? await Task.sleep(for: .milliseconds(100))
+Tests/AnglesiteContainerLocalTests/ContainerizationControlTests.swift	try? await Task.sleep(for: .milliseconds(500))
+Tests/AnglesiteContainerLocalTests/GuestProcessSupervisorTests.swift	try await Task.sleep(for: .milliseconds(50))
+Tests/AnglesiteContainerLocalTests/RacingTimeoutTests.swift	try await Task.sleep(for: .milliseconds(200))
+Tests/AnglesiteContainerLocalTests/RacingTimeoutTests.swift	try await Task.sleep(for: .seconds(3600))
+Tests/AnglesiteContainerLocalTests/VsockEchoEndToEndTests.swift	try await Task.sleep(for: .milliseconds(100))
+Tests/AnglesiteContainerLocalTests/VsockEchoEndToEndTests.swift	try await Task.sleep(for: .milliseconds(250))
+Tests/AnglesiteContainerLocalTests/WorkerToggleEndToEndTests.swift	try? await Task.sleep(for: .milliseconds(500))
+Tests/AnglesiteCoreTests/ACPClientTests.swift	try await Task.sleep(nanoseconds: .max)
+Tests/AnglesiteCoreTests/AvatarLoaderTests.swift	try? await Task.sleep(for: .milliseconds(100))
+Tests/AnglesiteCoreTests/CMSModeLiveE2ETests.swift	try await Task.sleep(nanoseconds: 3_000_000_000)
+Tests/AnglesiteCoreTests/ContainerAuditExecutorTests.swift	try await Task.sleep(for: .seconds(3600))
+Tests/AnglesiteCoreTests/ContainerDeployExecutorTests.swift	try await Task.sleep(for: .seconds(3600))
+Tests/AnglesiteCoreTests/DeployCommandTests.swift	try? await Task.sleep(for: .milliseconds(50))
+Tests/AnglesiteCoreTests/E2EServerReadinessTests.swift	try await Task.sleep(nanoseconds: 50_000_000)
+Tests/AnglesiteCoreTests/E2EServerReadinessTests.swift	while true { try await Task.sleep(nanoseconds: 50_000_000) }
+Tests/AnglesiteCoreTests/ExternalLLMBackendTests.swift	fatalError("unreachable — Task.sleep(nanoseconds: .max) never returns normally")
+Tests/AnglesiteCoreTests/ExternalLLMBackendTests.swift	try await Task.sleep(nanoseconds: .max)
+Tests/AnglesiteCoreTests/FoundationModelAssistantTests.swift	try await Task.sleep(for: .seconds(1))
+Tests/AnglesiteCoreTests/GitIdentityTests.swift	try await Task.sleep(for: .milliseconds(20))
+Tests/AnglesiteCoreTests/InotifyFileWatcherTests.swift	try? await Task.sleep(nanoseconds: 1_000_000_000)
+Tests/AnglesiteCoreTests/InotifyFileWatcherTests.swift	try? await Task.sleep(nanoseconds: 200_000_000)
+Tests/AnglesiteCoreTests/InotifyFileWatcherTests.swift	try? await Task.sleep(nanoseconds: 2_000_000_000)
+Tests/AnglesiteCoreTests/LocalContainerSiteRuntimeTests.swift	try await Task.sleep(for: .milliseconds(10))
+Tests/AnglesiteCoreTests/MCPApplyEditRouterTests.swift	try? await Task.sleep(nanoseconds: 50_000_000)
+Tests/AnglesiteCoreTests/MCPClientHTTPEndToEndTests.swift	try await Task.sleep(nanoseconds: 200_000_000)
+Tests/AnglesiteCoreTests/MCPClientTests.swift	try await Task.sleep(nanoseconds: 50_000_000)
+Tests/AnglesiteCoreTests/ProcessSupervisorShutdownTests.swift	try await Task.sleep(for: .milliseconds(100))   // let the waiter park on the exit continuation
+Tests/AnglesiteCoreTests/ProcessSupervisorShutdownTests.swift	try? await Task.sleep(nanoseconds: 100_000_000)
+Tests/AnglesiteCoreTests/SecurityReportsModelTests.swift	try await Task.sleep(nanoseconds: 200_000_000)
+Tests/AnglesiteCoreTests/SiteFileWatcherTests.swift	try? await Task.sleep(nanoseconds: 300_000_000)
+Tests/AnglesiteCoreTests/SyncSchedulerTests.swift	try await Task.sleep(for: .milliseconds(50))
+Tests/AnglesiteCoreTests/VsockTCPProxyTests.swift	try? await Task.sleep(for: .milliseconds(5))
+Tests/AnglesiteIntentsTests/SiteEntityUbiquityDiscoveryTests.swift	try await Task.sleep(for: .milliseconds(150))
+Tests/AnglesiteP2PTests/CloudKitPairingServiceTests.swift	try await Task.sleep(for: .milliseconds(100))
+Tests/AnglesiteP2PTests/CloudKitPairingServiceTests.swift	try await Task.sleep(for: .milliseconds(50))
+Tests/AnglesiteP2PTests/CloudKitPairingServiceTests.swift	try? await Task.sleep(for: timeout)
+Tests/AnglesiteP2PTests/CloudKitSignalingChannelTests.swift	try await Task.sleep(for: .seconds(3))
+Tests/AnglesiteP2PTests/CloudKitSignalingChannelTests.swift	try? await Task.sleep(for: .seconds(5))
+Tests/AnglesiteP2PTests/FetchBridgeTests.swift	try await Task.sleep(for: .seconds(60)) // cancelled when serverTask is torn down
+Tests/AnglesiteP2PTests/FileSignalingChannelTests.swift	try await Task.sleep(for: .milliseconds(150))
+Tests/AnglesiteP2PTests/FileSignalingChannelTests.swift	try? await Task.sleep(for: timeout)
+Tests/AnglesiteP2PTests/HMRRelayTests.swift	try await Task.sleep(for: .milliseconds(50))
+Tests/AnglesiteP2PTests/HMRRelayTests.swift	try await Task.sleep(for: .milliseconds(500))
+Tests/AnglesiteP2PTests/HMRRelayTests.swift	try await Task.sleep(for: .seconds(3))
+Tests/AnglesiteP2PTests/PresenceHeartbeatWriterTests.swift	try await Task.sleep(for: .seconds(2))
+Tests/AnglesiteP2PTests/SignedSignalingChannelTests.swift	group.addTask { try? await Task.sleep(for: .milliseconds(300)); return nil }
+Tests/AnglesiteP2PTests/TwoProcessE2ETests.swift	try await Task.sleep(for: .milliseconds(100))
+Tests/AnglesiteRemoteTests/HelperContainerE2ETests.swift	try await Task.sleep(for: .milliseconds(500))
+Tests/AnglesiteRemoteTests/HelperContainerE2ETests.swift	try? await Task.sleep(for: .milliseconds(100))
+Tests/AnglesiteRemoteTests/HelperContainerE2ETests.swift	try? await Task.sleep(for: .milliseconds(250))
+Tests/AnglesiteRemoteTests/HelperContainerE2ETests.swift	try? await Task.sleep(for: .milliseconds(500))
+Tests/AnglesiteRemoteTests/HelperContainerE2ETests.swift	try? await Task.sleep(for: timeout)
