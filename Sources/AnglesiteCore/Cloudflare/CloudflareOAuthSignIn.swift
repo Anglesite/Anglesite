@@ -3,7 +3,7 @@ import Foundation
 /// Drives one Cloudflare OAuth sign-in attempt: authorize → present the browser sheet → exchange
 /// the callback for a token. Presentation is injected so callers can be tested without
 /// `AuthenticationServices` or a real browser window — the same seam philosophy
-/// `TokenVerifying`/``CloudflareOAuthClient/Transport`` already use elsewhere in this codebase.
+/// `TokenVerifying`/``CloudflareTransport`` already use elsewhere in this codebase.
 ///
 /// Shared by both UI shells (#891): the macOS app supplies an `ASWebAuthenticationSession`
 /// presenter anchored to a window (`CloudflareOAuthSignIn.defaultPresenter` in the app target);
