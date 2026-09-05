@@ -31,5 +31,13 @@ FROM ${CANONICAL_IMAGE}
 # NOT at /sandbox). Copy the whole dir so any sibling files come along. It starts the
 # Sandbox HTTP API, then spawns CMD as a child with signal forwarding.
 COPY --from=sandbox /container-server /container-server
+
+# ---- Guest scripts (#1643) -----------------------------------------------------
+# worker.ts's /start route runs these two in-guest, esbuild-bundled scripts via
+# sandbox.startProcess(). They're substrate-specific (the local Apple
+# Containerization runtime drives the guest a different way), so they're layered
+# on here rather than in the shared base container/Dockerfile.
+COPY Workers/ControlWorker/dist/guest/auth-proxy.js Workers/ControlWorker/dist/guest/mcp-server.js /opt/anglesite/
+
 ENTRYPOINT ["/container-server/sandbox"]
 CMD ["start-dev-server.sh"]

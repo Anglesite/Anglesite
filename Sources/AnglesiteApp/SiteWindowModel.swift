@@ -2666,7 +2666,7 @@ final class SiteWindowModel {
         )
         var migrationTouchedPaths: [String] = []
         // `SiteRuntimeState.ready` carries associated values (siteID/url/workersDevURL), so this
-        // is a pattern match, not `== .ready` (`Sources/AnglesiteCore/SiteRuntime.swift:15`).
+        // is a pattern match, not `== .ready` (`Sources/AnglesiteCore/Site/SiteRuntime.swift:15`).
         let wasRuntimeAlreadyReady: Bool = {
             if case .ready = preview.state { return true }
             return false
