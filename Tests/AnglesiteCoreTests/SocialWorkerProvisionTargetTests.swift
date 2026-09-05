@@ -149,6 +149,31 @@ struct SocialWorkerProvisionTargetPublishTests {
         #expect(resources.d1DatabaseID == "db-abc")
     }
 
+    @Test("domain-config-drift blocks before any resource is created")
+    func domainDriftBlocksBeforeResourceCreation() async throws {
+        let tmpDir = try temporaryDirectory()
+        try DomainConfigStore(sourceDirectory: tmpDir).save(DomainConfig(domain: .init(hostname: "example.com")))
+        let inner = CloudflareDeployTarget(
+            tokenSource: { "tok" },
+            domainConfigDriftSource: { _, _, _ in
+                [DomainConfigAudit.Finding(category: .dns, title: "dns", detail: "drift", remediation: .informational)]
+            })
+        // No steps scripted on this executor — if `publish` ever ran a wrangler subcommand before
+        // the domain-drift gate, `ran(_:)` below would still (correctly) report it, since `run`
+        // records every step it's actually invoked with regardless of whether it was pre-stubbed.
+        let executor = FakeExecutor()
+        let indieauth = worker(WorkerComposition.indieauthWorkerID, d1: true, kv: false, r2: false)
+        let target = SocialWorkerProvisionTarget(
+            cloudflareTarget: inner, siteName: "site", workers: [indieauth],
+            keyPairSource: stubKeyPairSource, solidOidcSigningKeySource: stubSolidOidcSigningKeySource,
+            webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
+            accountIDSource: stubAccountIDSource)
+        let cmd = DeployCommand(target: target, executor: executor)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        guard case .domainConfigDrift = result else { Issue.record("expected .domainConfigDrift, got \(result)"); return }
+        #expect(!executor.ran(.wranglerSubcommand(args: ["d1", "create", "site-social"])))
+    }
+
     @Test("publish returns .webmentionPaidPlanConfirmationNeeded before creating a Queue when unacknowledged")
     func publishGatesQueueOnPaidPlanAcknowledgement() async throws {
         let tmpDir = try temporaryDirectory()
