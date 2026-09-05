@@ -1321,6 +1321,32 @@ struct SocialWorkerProvisionCommandTests {
         #expect(!executor.wranglerSubcommandArguments.contains(where: { $0.first == "queues" }))
     }
 
+    @Test("webmention and websub active together create both queues under one acknowledgment")
+    func webmentionAndWebsubCreateBothQueues() async throws {
+        let site = try temporaryDirectory()
+        let executor = successExecutor(url: "https://example.com")
+            .set(.wranglerSubcommand(args: ["queues", "create", "my-site-webmention"]), exitCode: 0, output: #"{"result":{"queue_name":"my-site-webmention"}}"#)
+            .set(.wranglerSubcommand(args: ["queues", "create", "my-site-websub"]), exitCode: 0, output: #"{"result":{"queue_name":"my-site-websub"}}"#)
+        let command = SocialWorkerProvisionCommand(tokenSource: { "tok" }, executor: executor)
+        let webmention = WorkerDescriptor(
+            id: "webmention", displayName: "Webmentions", description: "test", group: "social",
+            binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
+        let websub = WorkerDescriptor(
+            id: "websub", displayName: "WebSub", description: "test", group: "social",
+            binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
+
+        let result = await command.provision(
+            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            workers: [webmention, websub], acknowledgesPaidPlan: true)
+
+        guard case .succeeded(_, let resources, _) = result else {
+            Issue.record("expected .succeeded, got \(result)")
+            return
+        }
+        #expect(resources.queueName == "my-site-webmention")
+        #expect(resources.websubQueueName == "my-site-websub")
+    }
+
     @Test("websub writes WEBSUB_ENABLED into .site-config, and deactivation reconciles it to false")
     func websubWritesEnabledFlagAndReconciles() async throws {
         let siteDirectory = try temporaryDirectory()
