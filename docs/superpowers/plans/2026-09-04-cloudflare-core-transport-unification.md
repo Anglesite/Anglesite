@@ -1,5 +1,7 @@
 # Cloudflare Core Transport Unification (Phase 1 of #1818) Implementation Plan
 
+**Status:** historical
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Extract the shared HTTP primitives duplicated across `HTTPCloudflareClient.swift`'s six protocol conformances into one reusable, directly-testable type; split that 997-line file into one file per conformance on top of it; and migrate the app's Cloudflare stragglers off raw `URLSession` construction onto the codebase's existing closure-based `CloudflareTransport` injection seam.
