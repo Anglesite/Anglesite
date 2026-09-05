@@ -122,10 +122,61 @@ struct SiteShellSplitControllerTests {
         }
 
         #expect(toolbar.items.map(\.itemIdentifier) == SiteShellToolbarDelegate.defaultItemIdentifiers)
-        #expect(toolbar.items.first?.itemIdentifier == .toggleSidebar)
+        #expect(toolbar.items.first?.itemIdentifier == SiteShellToolbarDelegate.sidebarToggle)
         #expect(toolbar.items[1] is NSTrackingSeparatorToolbarItem)
         #expect(toolbar.items[toolbar.items.count - 2] is NSTrackingSeparatorToolbarItem)
         #expect(toolbar.items.last === searchItem)
+    }
+
+    @Test("the toolbar's sidebar toggle collapses and expands the real sidebar")
+    @MainActor
+    func sidebarToggleItemCollapsesAndExpandsTheSidebar() throws {
+        // The end-to-end half of the Task 7 fix (#1699 slice 2): `installToolbar` hands the
+        // delegate a closure onto this controller's own `setSidebarCollapsed`, so sending the
+        // item's action to the item's target — what AppKit does on a click — really moves the
+        // split view. The bug this replaces was the opposite: `.toggleSidebar` was declared in the
+        // default set, and the item AppKit substitutes for it rendered nothing at all in the real
+        // window.
+        let controller = makeController()
+        controller.installToolbar(
+            itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] },
+            searchItem: makeSearchItem())
+        let toolbar = try #require(controller.ownedToolbar)
+        let delegate = try #require(toolbar.delegate)
+        let item = try #require(
+            delegate.toolbar?(
+                toolbar,
+                itemForItemIdentifier: SiteShellToolbarDelegate.sidebarToggle,
+                willBeInsertedIntoToolbar: true))
+        let target = try #require(item.target as? NSObject)
+        let action = try #require(item.action)
+
+        // Set the starting state explicitly rather than assuming it: `splitView.autosaveName` is
+        // the shipping app's, so a machine that has run Anglesite restores whatever that window
+        // was left in.
+        controller.setSidebarCollapsed(false, animated: false)
+        #expect(!controller.sidebarItem.isCollapsed, "precondition: the sidebar starts visible")
+        target.perform(action, with: item)
+        #expect(controller.sidebarItem.isCollapsed, "the toolbar item must collapse the sidebar")
+        target.perform(action, with: item)
+        #expect(!controller.sidebarItem.isCollapsed, "and expand it again on the next click")
+    }
+
+    @Test("the toolbar's sidebar toggle doesn't keep its controller alive")
+    @MainActor
+    func sidebarToggleDoesNotRetainTheController() throws {
+        // `installToolbar` stores a closure onto the controller in a delegate the controller
+        // itself owns — a strong capture there is a per-window leak of the whole shell.
+        weak var weakController: SiteShellSplitController<Text, Text, Text>?
+        autoreleasepool {
+            let controller = SiteShellSplitController(
+                sidebar: Text("s"), content: Text("c"), inspector: Text("i"))
+            controller.installToolbar(
+                itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] },
+                searchItem: makeSearchItem())
+            weakController = controller
+        }
+        #expect(weakController == nil)
     }
 
     @Test("attaching the toolbar is idempotent and doesn't mutate the item set")

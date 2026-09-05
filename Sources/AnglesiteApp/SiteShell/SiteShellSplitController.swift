@@ -12,7 +12,9 @@ import AnglesiteCore
 /// widths are governed solely by the constant thicknesses below plus the split view's own
 /// autosave. Collapse changes are explicit, app-ordered mutations; the KVO hooks report
 /// user/AppKit-driven changes (drag-collapse, `toggleSidebar:` from the stock View-menu
-/// item, which `NSSplitViewController` answers natively) back to the SwiftUI bindings.
+/// item, which `NSSplitViewController` answers natively — observed working under the shell in
+/// slice 1's windowed gate) back to the SwiftUI bindings. The *toolbar's* sidebar toggle does not
+/// go through that message at all; see `SiteShellToolbarDelegate.defaultItemIdentifiers`.
 @MainActor
 final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: View>:
     NSSplitViewController {
@@ -130,6 +132,16 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
         toolbar.autosavesConfiguration = true
         delegate.splitView = splitView
         delegate.searchItem = searchItem
+        // The toolbar's sidebar toggle routes through `setSidebarCollapsed` — the shell's one
+        // mutation point — rather than leaving it to AppKit's system item and its responder-chain
+        // `toggleSidebar:`, which produced no visible toolbar item here at all (see
+        // `SiteShellToolbarDelegate.defaultItemIdentifiers`). Going through the setter also means
+        // the `isCollapsed` KVO fires as usual, so `SiteShellView`'s write-back keeps SwiftUI's
+        // `sidebarVisible` binding in step with a click on the button.
+        delegate.toggleSidebar = { [weak self] in
+            guard let self else { return }
+            setSidebarCollapsed(!sidebarItem.isCollapsed, animated: true)
+        }
         toolbarDelegate = delegate
         ownedToolbar = toolbar
         attachOwnedToolbarIfNeeded()

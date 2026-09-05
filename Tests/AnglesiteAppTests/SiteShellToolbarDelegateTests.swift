@@ -26,7 +26,7 @@ struct SiteShellToolbarDelegateTests {
     /// The shell's own four identifiers — everything in the toolbar that isn't a
     /// `SiteToolbarItemID`.
     private static let shellOwned: Set<NSToolbarItem.Identifier> = [
-        .toggleSidebar,
+        SiteShellToolbarDelegate.sidebarToggle,
         SiteShellSearchToolbarItem.identifier,
         SiteShellToolbarDelegate.sidebarTrackingSeparator,
         SiteShellToolbarDelegate.inspectorTrackingSeparator,
@@ -39,7 +39,7 @@ struct SiteShellToolbarDelegateTests {
         // sheet restores exactly what this array says, and the seeding it replaced was a
         // one-shot latch per window, so the search field and separators never came back.
         let expected: [NSToolbarItem.Identifier] =
-            [.toggleSidebar, SiteShellToolbarDelegate.sidebarTrackingSeparator]
+            [SiteShellToolbarDelegate.sidebarToggle, SiteShellToolbarDelegate.sidebarTrackingSeparator]
             + SiteToolbarItemID.allCases
                 .filter(\.isDefaultVisible)
                 .map { SiteShellToolbarDelegate.itemIdentifier(for: $0) }
@@ -52,7 +52,7 @@ struct SiteShellToolbarDelegateTests {
         // The design doc's compatibility table requires the shell to supply its own sidebar
         // toggle item once `NavigationSplitView` (which auto-inserted one) is gone.
         let defaults = SiteShellToolbarDelegate.defaultItemIdentifiers
-        #expect(defaults.first == .toggleSidebar)
+        #expect(defaults.first == SiteShellToolbarDelegate.sidebarToggle)
         #expect(defaults.dropFirst().first == SiteShellToolbarDelegate.sidebarTrackingSeparator)
         #expect(defaults.last == SiteShellSearchToolbarItem.identifier)
         #expect(defaults.dropLast().last == SiteShellToolbarDelegate.inspectorTrackingSeparator)
@@ -92,37 +92,117 @@ struct SiteShellToolbarDelegateTests {
         }
     }
 
-    @Test("AppKit builds the sidebar toggle itself — the delegate is never asked for it")
-    func sidebarToggleIsAStandardSystemItem() throws {
-        // Why `toolbar(_:itemForItemIdentifier:willBeInsertedIntoToolbar:)` has no
-        // `.toggleSidebar` case: standard system identifiers are constructed by AppKit, not the
-        // delegate. Asserted rather than assumed — the whole default-set restructuring depends
-        // on it, and a silently-dropped leading item is exactly the failure this test catches.
-        final class AskRecorder: NSObject {
-            var asked: [NSToolbarItem.Identifier] = []
-        }
-        let recorder = AskRecorder()
+    @Test("the shell builds its own sidebar toggle, targeted at the delegate")
+    func sidebarToggleIsBuiltByTheDelegate() throws {
+        // The Task 7 fix (#1699 slice 2): the toggle used to be declared as AppKit's own
+        // `.toggleSidebar`, which never rendered in the real app — see
+        // `systemSidebarToggleNeverReachesTheDelegate` below for the mechanism. It is the
+        // delegate's item now, with a real target/action pair instead of a responder-chain hunt.
         let delegate = SiteShellToolbarDelegate(
-            itemView: { _ in
-                recorder.asked.append(NSToolbarItem.Identifier("itemView"))
-                return AnyView(EmptyView())
-            },
-            insertMenuItems: { [] })
+            itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
         let toolbar = NSToolbar(identifier: SiteShellToolbarDelegate.toolbarIdentifier)
-        toolbar.delegate = delegate
+
+        let item = try #require(
+            delegate.toolbar(
+                toolbar,
+                itemForItemIdentifier: SiteShellToolbarDelegate.sidebarToggle,
+                willBeInsertedIntoToolbar: true),
+            "the delegate must build the sidebar toggle — nothing else will")
+        #expect(item.itemIdentifier == SiteShellToolbarDelegate.sidebarToggle)
+        #expect(!item.label.isEmpty)
+        #expect(item.paletteLabel == item.label)
+        #expect(item.image != nil, "an item with neither title nor view draws as an empty slot")
+        #expect(item.isBordered)
+        #expect(item.target as? SiteShellToolbarDelegate === delegate, "a direct target, not the responder chain")
+        #expect(item.action != nil)
+    }
+
+    @Test("clicking the sidebar toggle runs the delegate's toggle closure")
+    func sidebarToggleActionRunsTheToggleClosure() throws {
+        // Sending the item's own action to the item's own target is exactly what AppKit does on a
+        // click, so this covers the wiring end to end on the delegate's side;
+        // `SiteShellSplitControllerTests.sidebarToggleItemCollapsesAndExpandsTheSidebar` drives
+        // the same action against a real split controller.
+        var toggles = 0
+        let delegate = SiteShellToolbarDelegate(
+            itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
+        delegate.toggleSidebar = { toggles += 1 }
+        let toolbar = NSToolbar(identifier: SiteShellToolbarDelegate.toolbarIdentifier)
+        let item = try #require(
+            delegate.toolbar(
+                toolbar,
+                itemForItemIdentifier: SiteShellToolbarDelegate.sidebarToggle,
+                willBeInsertedIntoToolbar: true))
+
+        let target = try #require(item.target as? NSObject)
+        let action = try #require(item.action)
+        target.perform(action, with: item)
+        #expect(toggles == 1)
+        target.perform(action, with: item)
+        #expect(toggles == 2, "the item toggles on every click rather than latching")
+    }
+
+    @Test("a sidebar toggle with no toggle closure set is inert, not a crash")
+    func sidebarToggleWithoutClosureIsInert() throws {
+        // `toggleSidebar` is set by `SiteShellSplitController.installToolbar`; a delegate built
+        // without one (or one whose controller has gone away — the closure captures it weakly)
+        // must simply do nothing.
+        let delegate = SiteShellToolbarDelegate(
+            itemView: { _ in AnyView(EmptyView()) }, insertMenuItems: { [] })
+        let toolbar = NSToolbar(identifier: SiteShellToolbarDelegate.toolbarIdentifier)
+        let item = try #require(
+            delegate.toolbar(
+                toolbar,
+                itemForItemIdentifier: SiteShellToolbarDelegate.sidebarToggle,
+                willBeInsertedIntoToolbar: true))
+        let target = try #require(item.target as? NSObject)
+        target.perform(try #require(item.action), with: item)
+    }
+
+    @Test("AppKit's own .toggleSidebar identifier never reaches a delegate — the reason the shell has its own")
+    func systemSidebarToggleNeverReachesTheDelegate() throws {
+        // The root cause of the Task 7 bug, pinned so nobody re-derives it the hard way (and so
+        // the comment on `defaultItemIdentifiers` can't silently go stale): `NSToolbar` constructs
+        // `NSToolbarToggleSidebarItem` for `.toggleSidebar` *itself* and does not ask the
+        // delegate, so a delegate cannot supply, target or repair that item. What it builds
+        // carries a nil target and `toggleSidebar:` — and under the SwiftUI-hosted shell that item
+        // rendered nothing at all (measured live; the exact reason is left open in
+        // `SiteShellToolbarDelegate.defaultItemIdentifiers`, because this test's fact already
+        // rules the identifier out).
+        //
+        // Note the earlier version of this test asserted the delegate "is never asked" using a
+        // recorder wired to the `itemView` closure, which the `.toggleSidebar` path never calls
+        // for an unrelated reason — it proved nothing. This spy records the delegate callback
+        // itself and offers a fully-formed item for every identifier, so a future AppKit that
+        // starts consulting the delegate makes it fail loudly.
+        let spy = SpyToolbarDelegate()
+        let toolbar = NSToolbar(identifier: NSToolbar.Identifier("site.shell.test.systemToggle"))
+        toolbar.delegate = spy
 
         toolbar.insertItem(withItemIdentifier: .toggleSidebar, at: 0)
+        toolbar.insertItem(withItemIdentifier: SiteShellToolbarDelegate.sidebarToggle, at: 1)
 
-        let item = try #require(toolbar.items.first)
-        #expect(item.itemIdentifier == .toggleSidebar)
-        #expect(item.action == #selector(NSSplitViewController.toggleSidebar(_:)))
-        #expect(item.target == nil, "nil target = down the responder chain to NSSplitViewController")
-        #expect(!item.label.isEmpty, "AppKit supplies the system item's own localized label")
-        #expect(recorder.asked.isEmpty, "the delegate must not be consulted for a system identifier")
-        // And the delegate still answers nil for it, which is fine precisely because nothing asks.
+        // Read `items` *before* asserting on the recorded callbacks: `insertItem` only records the
+        // identifier, and AppKit doesn't ask the delegate to build anything until the item set is
+        // actually read (or displayed). Asserting first sees an empty log for every identifier and
+        // "passes" the wrong way round.
+        let items = toolbar.items
+        #expect(items.map(\.itemIdentifier) == [.toggleSidebar, SiteShellToolbarDelegate.sidebarToggle])
         #expect(
-            delegate.toolbar(toolbar, itemForItemIdentifier: .toggleSidebar, willBeInsertedIntoToolbar: true)
-                == nil)
+            spy.asked == [SiteShellToolbarDelegate.sidebarToggle],
+            "AppKit intercepts .toggleSidebar and only delegates the shell's own identifier")
+        let systemItem = try #require(items.first)
+        #expect(systemItem.target == nil, "nil target = a responder-chain hunt this app's window loses")
+        #expect(systemItem.action == #selector(NSSplitViewController.toggleSidebar(_:)))
+    }
+
+    @Test("the system sidebar-toggle identifier is neither offered nor accepted by the shell")
+    func systemSidebarToggleIsNotAllowed() {
+        // Allowing it would let it back in from View ▸ Customize Toolbar… or from a pre-fix
+        // autosaved configuration, in either case as an item that renders nothing here.
+        #expect(!SiteShellToolbarDelegate.allowedItemIdentifiers.contains(.toggleSidebar))
+        #expect(!SiteShellToolbarDelegate.defaultItemIdentifiers.contains(.toggleSidebar))
+        #expect(SiteShellToolbarDelegate.sidebarToggle != .toggleSidebar)
     }
 
     @Test("non-insert items become a plain NSToolbarItem hosting the supplied view")
@@ -319,6 +399,36 @@ struct SiteShellToolbarDelegateTests {
                 toolbar,
                 itemForItemIdentifier: SiteShellToolbarDelegate.inspectorTrackingSeparator,
                 willBeInsertedIntoToolbar: true) == nil)
+    }
+}
+
+/// Records every `toolbar(_:itemForItemIdentifier:willBeInsertedIntoToolbar:)` callback, for
+/// `systemSidebarToggleNeverReachesTheDelegate`. It offers a fully-formed item for whatever it is
+/// asked, so "the delegate was never asked" is the only way that test can see nothing.
+///
+/// File scope rather than nested in the test function: a function-local class's `@objc` protocol
+/// conformance doesn't reach the AppKit runtime here, and `NSToolbar` then silently treats the
+/// delegate as implementing none of these methods (confirmed the hard way — every callback list
+/// came back empty, including for the shell's own identifier).
+private final class SpyToolbarDelegate: NSObject, NSToolbarDelegate {
+    var asked: [NSToolbarItem.Identifier] = []
+
+    /// Both sets are required, not decoration: `NSToolbar.insertItem` silently no-ops for an
+    /// identifier the delegate doesn't allow, which would make the test pass vacuously.
+    func toolbarAllowedItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.toggleSidebar, SiteShellToolbarDelegate.sidebarToggle]
+    }
+
+    func toolbarDefaultItemIdentifiers(_ toolbar: NSToolbar) -> [NSToolbarItem.Identifier] {
+        [.toggleSidebar, SiteShellToolbarDelegate.sidebarToggle]
+    }
+
+    func toolbar(
+        _ toolbar: NSToolbar, itemForItemIdentifier itemIdentifier: NSToolbarItem.Identifier,
+        willBeInsertedIntoToolbar flag: Bool
+    ) -> NSToolbarItem? {
+        asked.append(itemIdentifier)
+        return NSToolbarItem(itemIdentifier: itemIdentifier)
     }
 }
 

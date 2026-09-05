@@ -3949,6 +3949,9 @@
     "Show or hide the page inspector" : {
 
     },
+    "Show or hide the sidebar" : {
+
+    },
     "Show or hide the website inspector" : {
 
     },
@@ -3965,6 +3968,9 @@
 
     },
     "Shows this site's open GitHub security advisories and Dependabot alerts" : {
+
+    },
+    "Sidebar" : {
 
     },
     "Sign In" : {
