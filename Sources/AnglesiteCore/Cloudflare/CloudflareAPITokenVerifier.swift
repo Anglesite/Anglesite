@@ -7,21 +7,18 @@ import FoundationNetworking
 
 /// Verifies a Cloudflare API token by calling the Cloudflare REST API directly — no Node, no
 /// wrangler. `GET /user/tokens/verify` confirms the token is valid and active; a best-effort
-/// `GET /accounts` supplies the account-name nicety. The HTTP step is injected (`Transport`) so the
+/// `GET /accounts` supplies the account-name nicety. The HTTP step is injected (`CloudflareTransport`) so the
 /// classification logic is unit-testable without real network — the same seam philosophy the old
 /// wrangler-based verifier used for its process step. Conforms to `TokenVerifying`.
 public struct CloudflareAPITokenVerifier: TokenVerifying {
-    /// Performs one authenticated GET and returns its body + response. Throws on connection failure.
-    public typealias Transport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)
-
     private let baseURL: URL
-    private let transport: Transport
+    private let transport: CloudflareTransport
 
     /// Creates a verifier. Both parameters exist for tests — `baseURL` points at a stub server,
     /// `transport` fakes the HTTP layer entirely; production callers take the defaults.
     public init(
         baseURL: URL = URL(string: "https://api.cloudflare.com/client/v4")!,
-        transport: @escaping Transport = CloudflareAPITokenVerifier.defaultTransport
+        transport: @escaping CloudflareTransport = CloudflareAPITokenVerifier.defaultTransport
     ) {
         self.baseURL = baseURL
         self.transport = transport
@@ -78,7 +75,7 @@ public struct CloudflareAPITokenVerifier: TokenVerifying {
     }
 
     /// Production transport: a plain `URLSession` GET.
-    public static let defaultTransport: Transport = { request in
+    public static let defaultTransport: CloudflareTransport = { request in
         let (data, response) = try await URLSession.shared.data(for: request)
         guard let http = response as? HTTPURLResponse else { throw URLError(.badServerResponse) }
         return (data, http)

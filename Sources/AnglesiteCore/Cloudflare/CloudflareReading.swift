@@ -79,5 +79,5 @@ public protocol CloudflareReading: Sendable {
     func workerScriptNames(apiToken: String) async throws -> [String]
 }
 
-/// Injectable HTTP boundary — identical shape to `CloudflareAPITokenVerifier.Transport`.
+/// Injectable HTTP boundary shared by every Cloudflare v4 REST client in this module.
 public typealias CloudflareTransport = @Sendable (URLRequest) async throws -> (Data, HTTPURLResponse)

@@ -12,7 +12,7 @@ struct CloudflareAPITokenVerifierTests {
     private static func transport(
         verify: (Int, String),
         accounts: (Int, String) = (200, #"{"success":true,"result":[]}"#)
-    ) -> CloudflareAPITokenVerifier.Transport {
+    ) -> CloudflareTransport {
         { request in
             let path = request.url?.path ?? ""
             let (status, json): (Int, String) = path.hasSuffix("tokens/verify") ? verify : accounts
