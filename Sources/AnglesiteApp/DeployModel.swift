@@ -997,10 +997,11 @@ final class DeployModel {
         // through the Workers UI in the first place) is #1683's capability gating, deliberately
         // not this slice.
         //
-        // `resolvedTarget`, not a fresh `target(for:)` read: `provision()`'s own internal
-        // `DeployCommand` publishes through this same conformer, so what these closures authorize
-        // against and what `deploy(…)` publishes through are the same object rather than two reads
-        // of a file the owner can edit between them.
+        // `resolvedTarget`, not a fresh `target(for:)` read: `provision()` builds its own internal
+        // `CloudflareDeployTarget` forwarding every seam below from this same conformer, so what
+        // these closures authorize against and what `deploy(…)` publishes through carry equivalent
+        // behavior — the same seams, not literally the same object — rather than two reads of a
+        // file the owner can edit between them.
         let cloudflareTarget = resolvedTarget as? CloudflareDeployTarget
         let socialCommand = SocialWorkerProvisionCommand(
             tokenSource: {
@@ -1017,6 +1018,21 @@ final class DeployModel {
             workerScriptNamesSource: { token in
                 guard let cloudflareTarget else { return [] }
                 return try await cloudflareTarget.workerScriptNamesSource(token)
+            },
+            // #1821 final review finding 2: `provision()` builds its own `CloudflareDeployTarget`
+            // internally and used to only receive `tokenSource`/`workerScriptNamesSource`/
+            // `accountIDSource`, silently defaulting the remaining three seams to production —
+            // defeating a test's injected fake `customDomainAttachCommand`/
+            // `markdownForAgentsCommand`/`domainConfigDriftSource` and, worse, bypassing the very
+            // "authorize checks domain-drift before provisioning" behavior this seam exists for.
+            // Forwarded from `cloudflareTarget` the same way `tokenSource`/`workerScriptNamesSource`
+            // are above, falling back to the production default when there's no resolved
+            // Cloudflare target (a GitHub Pages site — see the comment block above).
+            customDomainAttachCommand: cloudflareTarget?.customDomainAttachCommand ?? CustomDomainAttachCommand(),
+            markdownForAgentsCommand: cloudflareTarget?.markdownForAgentsCommand ?? MarkdownForAgentsCommand(),
+            domainConfigDriftSource: { declared, hostname, apiToken in
+                guard let cloudflareTarget else { return [] }
+                return try await cloudflareTarget.domainConfigDriftSource(declared, hostname, apiToken)
             }
         )
 
@@ -1099,6 +1115,31 @@ final class DeployModel {
                 }
             }
         )
+
+        // #1821 final review finding 1: persist the resources provisioned so far on EVERY
+        // outcome, not just `.succeeded` — every `SocialWorkerProvisionCommand.Result` case
+        // carries them (see that type's own doc comment). Since the TOML-rescrape fallback that
+        // used to recover already-created resource ids from `wrangler.toml` on disk is gone,
+        // `provisionedWorkerResources` is now the ONLY source of truth for "what's already been
+        // created" — leaving this gated on `.succeeded` meant a failure partway through (e.g. a
+        // KV create failing after D1 succeeded, or a `.webmentionPaidPlanConfirmationNeeded` park
+        // below with resources already created) lost those ids entirely, and the next attempt
+        // would re-issue `d1 create`/`kv namespace create` against names that already exist on
+        // the account. Placed before the early `.webmentionPaidPlanConfirmationNeeded` return
+        // below so that outcome is covered too. `persistProvisionedResources` further down
+        // bundles `.succeeded`-only side effects (`lastDeployedWorkerIDs`, `apUsername`,
+        // `communityActorURL`) that assume a deployed URL exists, so it can't just be called
+        // unconditionally here — this narrower write covers every other outcome, and
+        // `persistProvisionedResources` harmlessly re-writes the same `resources` value again
+        // when `.succeeded` does run it.
+        if case .succeeded = provisionResult {
+            // Handled below by `persistProvisionedResources`, which also writes
+            // `provisionedWorkerResources` alongside its `.succeeded`-only fields.
+        } else {
+            var resourcesOnlyUpdate = settings
+            resourcesOnlyUpdate.provisionedWorkerResources = provisionResult.resources
+            try? await configStore.save(resourcesOnlyUpdate)
+        }
 
         if case .webmentionPaidPlanConfirmationNeeded = provisionResult {
             pendingDeploy = (siteID, siteDirectory, configDirectory, currentRoutes, containerControlProvider, siteName)

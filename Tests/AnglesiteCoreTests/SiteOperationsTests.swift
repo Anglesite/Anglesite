@@ -498,6 +498,60 @@ struct SiteOperationsTests {
         #expect(config.contains("SECURITY_TXT_MODE=generated"))
     }
 
+    @Test("#1821 final review finding 1: a partial provisioning failure persists resources so a retry doesn't re-create them")
+    func partialProvisioningFailurePersistsResourcesForResumableRetry() async throws {
+        // Root cause: `SiteSettings.provisionedWorkerResources` used to be persisted only on
+        // `.succeeded`. Since the TOML-rescrape fallback that used to recover already-created
+        // resource ids from `wrangler.toml` on disk is gone, that setting is now the ONLY source
+        // of truth for "what's already been created" — so a KV-create failure after D1 succeeded
+        // used to leave nothing persisted, and a retry would re-issue `d1 create` against a
+        // database that already exists on the account and fail forever.
+        let package = try temporaryPackage()
+        defer { try? FileManager.default.removeItem(at: package) }
+        let site = makeSite(name: "Blue Bottle Cafe", packageURL: package)
+        let configStore = SiteConfigStore(configDirectory: site.configDirectory)
+        try await configStore.save(SiteSettings(activeWorkerIDs: ["indieauth"]))
+
+        let recorder = FlakyKVRecorder()
+        let ops = SiteOperations(
+            factory: FlakyKVFactory(recorder: recorder),
+            store: throwawayStore(),
+            socialWorkerAccess: { site, store, body in try await SiteAccess.withScopedAccess(to: site, in: store, body) },
+            cachedWorkerCatalog: { [self.descriptor(id: "indieauth")] }
+        )
+
+        // First attempt: D1 create succeeds, KV create fails (a transient wrangler error) — the
+        // exact partial-failure shape this finding is about.
+        let firstResult = await ops.deploy(site: site)
+        guard case .failed = firstResult else {
+            Issue.record("expected the first attempt to fail at the KV step, got \(firstResult)")
+            return
+        }
+        let afterFirstAttempt = try await configStore.load()
+        #expect(
+            afterFirstAttempt.provisionedWorkerResources?.d1DatabaseID == "d1-id",
+            "the D1 id created before the KV failure must survive the failed outcome"
+        )
+        #expect(afterFirstAttempt.provisionedWorkerResources?.kvNamespaceID == nil)
+
+        // Second attempt (a retry, e.g. the owner pressing Deploy again): must resume from the
+        // persisted D1 id rather than re-issuing `d1 create` against a database that already
+        // exists on the Cloudflare account.
+        let secondResult = await ops.deploy(site: site)
+        guard case .succeeded = secondResult else {
+            Issue.record("expected the retry to succeed once KV create stops failing, got \(secondResult)")
+            return
+        }
+        let d1CreateCalls = await recorder.arguments.filter { $0 == ["d1", "create", "blue-bottle-cafe-social"] }
+        #expect(d1CreateCalls.count == 1, "a resumed retry must not re-issue `d1 create` for a resource already known")
+        let kvCreateCalls = await recorder.arguments.filter { $0 == ["kv", "namespace", "create", "blue-bottle-cafe-social"] }
+        #expect(kvCreateCalls.count == 2, "KV create is retried since it never succeeded on the first attempt")
+
+        let afterSecondAttempt = try await configStore.load()
+        #expect(afterSecondAttempt.provisionedWorkerResources?.d1DatabaseID == "d1-id")
+        #expect(afterSecondAttempt.provisionedWorkerResources?.kvNamespaceID == "kv-id")
+    }
+
     @Test("headless deploy still reports coarse progress milestones through onProgress")
     func headlessDeployReportsProgress() async throws {
         let package = try temporaryPackage()
@@ -580,6 +634,65 @@ private actor SocialWorkerRecorder: DeployExecutor {
             }
             return DeployStepResult(exitCode: 127, output: "unexpected arguments \(args)")
         }
+    }
+}
+
+/// Fakes `SocialWorkerProvisionCommand`'s `executor:` seam so `partialProvisioningFailurePersistsResourcesForResumableRetry`
+/// can script a KV-namespace-create failure on its first attempt only, succeeding on any later
+/// attempt — reproducing the exact partial-provisioning-failure shape #1821's final review
+/// finding 1 is about (D1 already created, KV still pending).
+private actor FlakyKVRecorder: DeployExecutor {
+    private var kvAttempts = 0
+    private var seenArguments: [[String]] = []
+
+    var arguments: [[String]] { seenArguments }
+
+    func reportOwnedPathClaims() async -> [RuntimeOwnedPathClaim] { [] }
+
+    func run(step: DeployStep, siteDirectory: URL, environment: [String: String], source: String) async -> DeployStepResult {
+        switch step {
+        case .build:
+            return DeployStepResult(exitCode: 0, output: "")
+        case .preflight:
+            return DeployStepResult(exitCode: 0, output: #"{"version":1,"ok":true,"failures":[],"warnings":[]}"#)
+        case .wrangler:
+            return DeployStepResult(exitCode: 0, output: "Published site (0.1 sec)\n  https://blue-bottle-cafe.example.workers.dev")
+        case .bundleUpload, .githubPagesPublish:
+            return DeployStepResult(exitCode: 0, output: "")
+        case .wranglerSubcommand(let args):
+            seenArguments.append(args)
+            if args.first == "d1" {
+                if args.dropFirst().first == "create" {
+                    return DeployStepResult(exitCode: 0, output: #"{"uuid":"d1-id"}"#)
+                }
+                // AUTH_DB migration — always succeeds once reached.
+                return DeployStepResult(exitCode: 0, output: "")
+            }
+            if args.first == "kv" {
+                kvAttempts += 1
+                if kvAttempts == 1 {
+                    return DeployStepResult(exitCode: 1, output: "kv namespace create: transient network error")
+                }
+                return DeployStepResult(exitCode: 0, output: #"{"id":"kv-id"}"#)
+            }
+            return DeployStepResult(exitCode: 127, output: "unexpected arguments \(args)")
+        }
+    }
+}
+
+private struct FlakyKVFactory: CommandFactory {
+    let recorder: FlakyKVRecorder
+
+    func deploy() -> DeployCommand { DeployCommand() }
+    func backup() -> BackupCommand { BackupCommand(runner: { _, _ in .init(stdout: "", stderr: "", exitCode: 1) }, streamer: { _, _, _ in (1, "") }) }
+    func audit() -> AuditCommand {
+        AuditCommand(
+            executor: HostAuditExecutor(resolveCommand: { _ in { _ in .unavailable(reason: "noop") } }),
+            runners: []
+        )
+    }
+    func socialWorkerProvision() -> SocialWorkerProvisionCommand {
+        SocialWorkerProvisionCommand(tokenSource: { "token" }, executor: recorder)
     }
 }
 

@@ -182,10 +182,20 @@ public struct SiteOperations: Sendable {
         onProgress?(.deployFinalizing)
 
         let activitypubProvisioned = workers.contains(where: { $0.id == WorkerComposition.activitypubWorkerID })
-        if case .succeeded(let deployedURL, let resources, _) = provisionResult {
-            var updated = settings
+        // #1821 final review finding 1: persist the resources provisioned so far on EVERY outcome,
+        // not just `.succeeded` — every `SocialWorkerProvisionCommand.Result` case carries them
+        // (see that type's own doc comment), and since the TOML-rescrape fallback that used to
+        // recover already-created resource ids from `wrangler.toml` on disk is gone,
+        // `provisionedWorkerResources` is now the ONLY source of truth for "what's already been
+        // created". Leaving this gated on `.succeeded` meant a failure partway through (e.g. a KV
+        // create failing after D1 succeeded) lost the D1 id entirely, and the next attempt would
+        // re-issue `d1 create` against a name that already exists on the account. The
+        // `.succeeded`-only side effects (`lastDeployedWorkerIDs`, `communityActorURL`) stay gated
+        // exactly as before — only the resources persistence itself is unconditional.
+        var updated = settings
+        updated.provisionedWorkerResources = provisionResult.resources
+        if case .succeeded(let deployedURL, _, _) = provisionResult {
             updated.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
-            updated.provisionedWorkerResources = resources
             if isHostedCommunity && activitypubProvisioned {
                 // Same derivation `DeployModel.runDeploy` and `ModerationModel.ownActorURL` use —
                 // prefer the confirmed site URL (which may already carry a custom domain) over the
@@ -195,8 +205,8 @@ public struct SiteOperations: Sendable {
                     DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory).flatMap { URL(string: $0) } ?? deployedURL
                 updated.communityActorURL = ActivityPubActor.actorURL(siteURL: communityActorSiteURL)
             }
-            try? await configStore.save(updated)
         }
+        try? await configStore.save(updated)
 
         return provisionResult.asDeployCommandResult
     }

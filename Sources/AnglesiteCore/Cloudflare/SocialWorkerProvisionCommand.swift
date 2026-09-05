@@ -17,7 +17,11 @@ public actor SocialWorkerProvisionCommand {
         /// Provisioning and the downstream deploy both completed; `url` is the live Worker URL.
         case succeeded(url: URL, resources: WorkerComposition.ProvisionedResources, duration: TimeInterval)
         /// The pre-deploy security gate (``PreDeployCheck``) refused the deploy. Resources were
-        /// still provisioned — the gate runs at the deploy stage, after resource creation.
+        /// still provisioned — the shared deploy spine's build+`PreDeployCheck` scan now runs
+        /// *before* `publish(context:)` (and thus before this command's own resource creation),
+        /// so a fresh provisioning attempt that blocks here typically has no resources yet;
+        /// `resources` still rides along for the (less common) case where a prior partial attempt
+        /// already created some.
         case blocked(failures: [PreDeployCheck.ScanFailure], warnings: [PreDeployCheck.ScanWarning], resources: WorkerComposition.ProvisionedResources)
         /// The candidate Worker name is already in use on the connected Cloudflare account by a
         /// project this site's own local config doesn't already claim as its own (`.site-config`'s
@@ -38,8 +42,11 @@ public actor SocialWorkerProvisionCommand {
         /// plan fact.)
         case webmentionPaidPlanConfirmationNeeded(resources: WorkerComposition.ProvisionedResources)
         /// Mirrors `DeployCommand.Result.domainConfigDrift` (#1173) — the downstream deploy's
-        /// declared-vs-live check found drift. Resources provisioned before the deploy stage
-        /// still ride along, same as `.blocked`.
+        /// declared-vs-live check found drift. This check runs in `authorize(siteDirectory:)`,
+        /// before any of this command's own resource creation (`publish(context:)` is only
+        /// reached once `authorize` returns `.ready`), so a fresh provisioning attempt that hits
+        /// drift here typically has no resources yet; `resources` still rides along, same as
+        /// `.blocked`, for the case where a prior partial attempt already created some.
         case domainConfigDrift(findings: [DomainConfigAudit.Finding], resources: WorkerComposition.ProvisionedResources)
         /// A wrangler call, secret push, or the downstream deploy failed. `exitCode` is `nil` when
         /// the process couldn't run at all (as opposed to running and exiting non-zero).
@@ -95,6 +102,9 @@ public actor SocialWorkerProvisionCommand {
     private let secretRunner: SecretRunner
     private let workerScriptNamesSource: CloudflareDeployTarget.WorkerScriptNamesSource
     private let accountIDSource: AccountIDSource
+    private let customDomainAttachCommand: CustomDomainAttachCommand
+    private let markdownForAgentsCommand: MarkdownForAgentsCommand
+    private let domainConfigDriftSource: CloudflareDeployTarget.DomainConfigDriftSource
 
     /// Creates a provisioner. Every dependency defaults to its production conformer; tests (and
     /// `DeployModel`, which threads its own executor) override only the seams they need.
@@ -108,7 +118,21 @@ public actor SocialWorkerProvisionCommand {
         workerScriptNamesSource: @escaping CloudflareDeployTarget.WorkerScriptNamesSource = CloudflareDeployTarget.defaultWorkerScriptNames,
         /// Same seam shape as `workerScriptNamesSource`; only used by the inbox-capture block
         /// (#764) to persist the owning account id.
-        accountIDSource: @escaping AccountIDSource = SocialWorkerProvisionCommand.defaultAccountIDSource
+        accountIDSource: @escaping AccountIDSource = SocialWorkerProvisionCommand.defaultAccountIDSource,
+        /// Exposed like `workerScriptNamesSource`/`accountIDSource` (#1821 final review finding 2)
+        /// so a caller building a parallel `CloudflareDeployTarget` alongside a resolved one
+        /// (`DeployModel.runDeploy`) forwards the exact same seam into `provision()`'s internal
+        /// target instead of silently defaulting to production and diverging from a test's
+        /// injected fake — see `CloudflareDeployTarget.customDomainAttachCommand`'s own doc.
+        customDomainAttachCommand: CustomDomainAttachCommand = CustomDomainAttachCommand(),
+        /// Same rationale as `customDomainAttachCommand` — mirrors
+        /// `CloudflareDeployTarget.markdownForAgentsCommand`.
+        markdownForAgentsCommand: MarkdownForAgentsCommand = MarkdownForAgentsCommand(),
+        /// Same rationale as `customDomainAttachCommand` — mirrors
+        /// `CloudflareDeployTarget.domainConfigDriftSource`. This is the seam the "authorize
+        /// checks domain-drift before provisioning" behavior (#1173) depends on; forwarding it is
+        /// what lets a test's injected fake actually govern `provision()`'s internal target.
+        domainConfigDriftSource: @escaping CloudflareDeployTarget.DomainConfigDriftSource = CloudflareDeployTarget.defaultDomainConfigDriftSource
     ) {
         self.tokenSource = tokenSource
         self.executor = executor
@@ -118,6 +142,9 @@ public actor SocialWorkerProvisionCommand {
         self.secretRunner = secretRunner
         self.workerScriptNamesSource = workerScriptNamesSource
         self.accountIDSource = accountIDSource
+        self.customDomainAttachCommand = customDomainAttachCommand
+        self.markdownForAgentsCommand = markdownForAgentsCommand
+        self.domainConfigDriftSource = domainConfigDriftSource
     }
 
     /// Provisions every Cloudflare resource the active workers need (D1, KV, R2, Queues,
@@ -245,6 +272,9 @@ public actor SocialWorkerProvisionCommand {
         let target = SocialWorkerProvisionTarget(
             cloudflareTarget: CloudflareDeployTarget(
                 tokenSource: { token }, workerScriptNamesSource: workerScriptNamesSource,
+                customDomainAttachCommand: customDomainAttachCommand,
+                markdownForAgentsCommand: markdownForAgentsCommand,
+                domainConfigDriftSource: domainConfigDriftSource,
                 accountIDSource: { apiToken in await self.accountIDSource(apiToken) }),
             siteName: siteName, workers: workers, routeClaims: routeClaims, knownResources: knownResources,
             siteURL: siteURL, displayName: displayName, apUsername: apUsername, apIcon: apIcon,
@@ -351,6 +381,23 @@ public actor SocialWorkerProvisionCommand {
 }
 
 extension SocialWorkerProvisionCommand.Result {
+    /// The resources provisioned so far, regardless of outcome — every case carries this payload
+    /// (see the type's own doc comment on why: provisioning is incremental and resumable, so a
+    /// failure partway through must not lose ids already created). Callers persist this
+    /// unconditionally into `SiteSettings.provisionedWorkerResources` (#1821 final review finding
+    /// 1) rather than gating that persistence on `.succeeded`, since it's the sole source of truth
+    /// for "what's already been created" now that the TOML-rescrape fallback is gone.
+    public var resources: WorkerComposition.ProvisionedResources {
+        switch self {
+        case .succeeded(_, let resources, _): return resources
+        case .blocked(_, _, let resources): return resources
+        case .workerNameConflict(_, let resources): return resources
+        case .webmentionPaidPlanConfirmationNeeded(let resources): return resources
+        case .domainConfigDrift(_, let resources): return resources
+        case .failed(_, _, let resources): return resources
+        }
+    }
+
     /// Maps this result onto `DeployCommand.Result`'s shape, dropping the `resources` payload
     /// (no caller surfaces it through this seam) — the shared mapping both `DeployModel.runDeploy`
     /// and `SiteOperations.deployWithWorkerComposition` need after routing every deploy through
