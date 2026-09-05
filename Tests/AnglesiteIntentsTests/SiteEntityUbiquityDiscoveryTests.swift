@@ -109,7 +109,7 @@ struct SiteEntityUbiquityDiscoveryTests {
             containerResult: container, discovery: discovery, cacheTTL: .milliseconds(10))
 
         _ = await subject.discoveredURLs()
-        try await Task.sleep(for: .milliseconds(150))
+        try await Task.sleep(for: .milliseconds(150))  // sleep-is-subject: real wall-clock proof the cacheTTL actually elapsed
         _ = await subject.discoveredURLs()
 
         let callCount = await discovery.callCount
