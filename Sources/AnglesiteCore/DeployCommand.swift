@@ -123,13 +123,14 @@ public actor DeployCommand {
 
     /// The executor `deploy(siteID:siteDirectory:…)` runs every step through.
     ///
-    /// Public (safe to read without `await`: `DeployExecutor` is `Sendable` and this is an
+    /// Package-scoped (safe to read without `await`: `DeployExecutor` is `Sendable` and this is an
     /// immutable stored property, the same exception `pinning(target:)` below already relies on
     /// internally) so a caller building a companion command against the same site —
     /// `DeployModel.runDeploy`'s `SocialWorkerProvisionCommand` wiring — can hand it the exact
     /// same executor instance this command publishes through, rather than constructing a second,
     /// separately-configured one that a test's injected fake executor wouldn't be reused by.
-    public nonisolated let executor: any DeployExecutor
+    /// Reaches across module boundaries within this package without going fully public.
+    package nonisolated let executor: any DeployExecutor
 
     /// The target `deploy(siteID:siteDirectory:…)` would publish `siteDirectory` through.
     ///
