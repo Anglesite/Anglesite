@@ -8,23 +8,30 @@ import Foundation
 public actor ContactStore {
     public static let filename = "contacts.json"
 
-    private struct Envelope: Codable { let contacts: [Contact] }
+    private struct Envelope: Codable, Sendable { let contacts: [Contact] }
 
-    public let fileURL: URL
-    private let fileManager: FileManager
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
+    private let store: CodableFileStore<Envelope>
+
+    /// The file this store reads and writes.
+    public var fileURL: URL { store.url }
 
     public init(configDirectory: URL, fileManager: FileManager = .default) {
-        self.fileURL = configDirectory.appendingPathComponent(Self.filename)
-        self.fileManager = fileManager
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        self.encoder = encoder
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        self.decoder = decoder
+        self.store = CodableFileStore(
+            fileURL: configDirectory.appendingPathComponent(Self.filename),
+            fileManager: fileManager,
+            encode: { value in
+                let encoder = JSONEncoder()
+                encoder.dateEncodingStrategy = .iso8601
+                encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+                return try encoder.encode(value)
+            },
+            decode: { data in
+                guard !data.isEmpty else { return Envelope(contacts: []) }
+                let decoder = JSONDecoder()
+                decoder.dateDecodingStrategy = .iso8601
+                return try decoder.decode(Envelope.self, from: data)
+            }
+        )
     }
 
     /// A missing file is the normal first-run state (`[]`, no error). A file that exists but
@@ -32,10 +39,7 @@ public actor ContactStore {
     /// disposable, re-fetchable cache), a contact list is owner-curated data, and silently
     /// showing zero contacts risks the owner believing the list was lost and re-entering it.
     public func load() throws -> [Contact] {
-        guard fileManager.fileExists(atPath: fileURL.path) else { return [] }
-        let data = try Data(contentsOf: fileURL)
-        guard !data.isEmpty else { return [] }
-        let envelope = try decoder.decode(Envelope.self, from: data)
+        guard let envelope = try store.load() else { return [] }
         return envelope.contacts.sorted {
             $0.displayName.localizedStandardCompare($1.displayName) == .orderedAscending
         }
@@ -74,11 +78,6 @@ public actor ContactStore {
     }
 
     private func write(_ contacts: [Contact]) throws {
-        let parent = fileURL.deletingLastPathComponent()
-        if !fileManager.fileExists(atPath: parent.path) {
-            try fileManager.createDirectory(at: parent, withIntermediateDirectories: true)
-        }
-        let data = try encoder.encode(Envelope(contacts: contacts))
-        try data.write(to: fileURL, options: .atomic)
+        try store.save(Envelope(contacts: contacts))
     }
 }

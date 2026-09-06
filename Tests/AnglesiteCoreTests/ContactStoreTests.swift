@@ -105,4 +105,34 @@ struct ContactStoreTests {
         let known = try await store.knownMeURLs()
         #expect(known.contains(normalizedIdentityKey(for: URL(string: "http://alice.example")!)))
     }
+
+    // MARK: - Byte-compatibility with the pre-`CodableFileStore` encoder (#1917)
+
+    private struct LegacyEnvelope: Codable { let contacts: [Contact] }
+
+    @Test("an old-encoder contacts.json round-trips to identical bytes through the migrated store")
+    func byteCompatibilityRoundTrip() async throws {
+        let directory = try Self.makeConfigDirectory()
+        defer { try? FileManager.default.removeItem(at: directory) }
+        let fileURL = directory.appendingPathComponent(ContactStore.filename)
+
+        let contact = Self.contact()
+        let oldEncoder = JSONEncoder()
+        oldEncoder.dateEncodingStrategy = .iso8601
+        oldEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let fixtureBytes = try oldEncoder.encode(LegacyEnvelope(contacts: [contact]))
+        try fixtureBytes.write(to: fileURL)
+
+        let store = ContactStore(configDirectory: directory)
+        let loaded = try await store.load()
+        #expect(loaded.count == 1)
+        #expect(loaded.first?.id == contact.id)
+
+        // Re-save through the only public write path (update rewrites the whole file) and
+        // confirm the migrated store still produces identical bytes for identical content.
+        try await store.update(loaded[0])
+
+        let resavedBytes = try Data(contentsOf: fileURL)
+        #expect(resavedBytes == fixtureBytes)
+    }
 }

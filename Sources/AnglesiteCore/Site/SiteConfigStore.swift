@@ -177,32 +177,29 @@ public struct SiteSettings: Sendable, Codable, Equatable {
 /// `Config/`. Its first consumer — applying `SiteSettings.displayName` to the displayed site name —
 /// is tracked in #266; until then `Config/` holds chat history and this settings file.
 public actor SiteConfigStore {
-    private let fileURL: URL
-    private let fileManager: FileManager
+    private let store: CodableFileStore<SiteSettings>
 
     /// Points the store at `<configDirectory>/settings.plist` — the package's app-owned
     /// `Config/` directory, never the git-tracked `Source/`. `fileManager` is injectable for
     /// tests.
     public init(configDirectory: URL, fileManager: FileManager = .default) {
-        self.fileURL = configDirectory.appendingPathComponent("settings.plist")
-        self.fileManager = fileManager
+        self.store = Self.makeStore(configDirectory: configDirectory, fileManager: fileManager)
     }
 
-    /// Load settings, or a default (empty) `SiteSettings` when the file is absent or unreadable.
+    /// Load settings, or a default (empty) `SiteSettings` when the file is absent, unreadable, or
+    /// fails to decode.
     ///
-    /// A decode failure falls back to defaults rather than throwing: settings are non-critical
-    /// (every field is optional with a sensible default), so a config written by a newer build, or
-    /// a corrupt one, must never block opening a site — the next `save` rewrites it cleanly. I/O
-    /// errors reading an existing file still throw.
+    /// Settings are non-critical (every field is optional with a sensible default), so a config
+    /// written by a newer build, or a corrupt one, must never block opening a site — the next
+    /// `save` rewrites it cleanly.
     public func load() throws -> SiteSettings {
-        try Self.read(from: fileURL.deletingLastPathComponent(), fileManager: fileManager)
+        Self.loadSettings(using: store)
     }
 
     /// Synchronous, actor-independent read of a package's `settings.plist`. Same contract as
-    /// `load()` — absent or undecodable file → default `SiteSettings`; an I/O error reading an
-    /// existing file throws. Exists so synchronous call sites (e.g. `SiteStore.Site.make`, which
-    /// resolves the `displayName` override at construction, #266) can read settings without
-    /// hopping onto the actor.
+    /// `load()` — absent, unreadable, or undecodable file → default `SiteSettings`. Exists so
+    /// synchronous call sites (e.g. `SiteStore.Site.make`, which resolves the `displayName`
+    /// override at construction, #266) can read settings without hopping onto the actor.
     ///
     /// - Important: Performs synchronous, blocking file I/O on the calling executor. Today's only
     ///   callers reach it via `Site.make` from `SiteStore` actor methods (off the main thread).
@@ -212,12 +209,19 @@ public actor SiteConfigStore {
         from configDirectory: URL,
         fileManager: FileManager = .default
     ) throws -> SiteSettings {
-        let fileURL = configDirectory.appendingPathComponent("settings.plist")
-        guard fileManager.fileExists(atPath: fileURL.path) else { return SiteSettings() }
-        let data = try Data(contentsOf: fileURL)
-        guard var settings = try? PropertyListDecoder().decode(SiteSettings.self, from: data) else {
-            return SiteSettings()
-        }
+        Self.loadSettings(using: makeStore(configDirectory: configDirectory, fileManager: fileManager))
+    }
+
+    private static func makeStore(configDirectory: URL, fileManager: FileManager) -> CodableFileStore<SiteSettings> {
+        .plist(fileURL: configDirectory.appendingPathComponent("settings.plist"), fileManager: fileManager)
+    }
+
+    /// Shared `load()`/`read(from:)` body: decode via `store` (falling back to defaults per
+    /// ``CodableFileStore/loadOrDefault(_:)``), then apply the one-time legacy-field migration
+    /// below against the file's raw bytes.
+    private static func loadSettings(using store: CodableFileStore<SiteSettings>) -> SiteSettings {
+        var settings = store.loadOrDefault(SiteSettings())
+        guard store.exists(), let data = try? Data(contentsOf: store.url) else { return settings }
         migrateLegacyInboxCaptureFields(into: &settings, from: data)
         return settings
     }
@@ -230,7 +234,7 @@ public actor SiteConfigStore {
     /// on the next load. Only fills `provisionedWorkerResources` when it doesn't already carry
     /// inbox ids of its own — a value the new Settings UI wrote always wins over a stale legacy
     /// one. Not persisted here; the next `save()` naturally rewrites the file in the new shape.
-    private nonisolated static func migrateLegacyInboxCaptureFields(into settings: inout SiteSettings, from data: Data) {
+    private static func migrateLegacyInboxCaptureFields(into settings: inout SiteSettings, from data: Data) {
         guard settings.provisionedWorkerResources?.inboxAccountID == nil,
               settings.provisionedWorkerResources?.inboxKVNamespaceID == nil,
               let legacy = try? PropertyListDecoder().decode(LegacyInboxCaptureFields.self, from: data),
@@ -249,10 +253,6 @@ public actor SiteConfigStore {
 
     /// Persist settings to `settings.plist` (XML plist, atomic), creating `Config/` if needed.
     public func save(_ settings: SiteSettings) throws {
-        try fileManager.createDirectory(at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let encoder = PropertyListEncoder()
-        encoder.outputFormat = .xml
-        let data = try encoder.encode(settings)
-        try data.write(to: fileURL, options: [.atomic])
+        try store.save(settings)
     }
 }

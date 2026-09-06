@@ -79,4 +79,37 @@ struct ExperimentHistoryStoreTests {
             contentsOf: configDirectory.appendingPathComponent("experiment-history.json"), encoding: .utf8)
         #expect(raw.contains("\"promote\""))
     }
+
+    // MARK: - Byte-compatibility with the pre-`CodableFileStore` encoder (#1917)
+
+    @Test("an old-encoder experiment-history.json round-trips to identical bytes through the migrated store")
+    func byteCompatibilityRoundTrip() async throws {
+        let configDirectory = makeConfigDirectory()
+        try FileManager.default.createDirectory(at: configDirectory, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: configDirectory) }
+        let fileURL = configDirectory.appendingPathComponent("experiment-history.json")
+
+        let outcomes = [
+            makeOutcome(experimentID: "first", concludedAt: "2026-08-01"),
+            makeOutcome(experimentID: "second", concludedAt: "2026-08-20"),
+        ]
+        let oldEncoder = JSONEncoder()
+        oldEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let fixtureBytes = try oldEncoder.encode(outcomes)
+        try fixtureBytes.write(to: fileURL)
+
+        let store = ExperimentHistoryStore(configDirectory: configDirectory)
+        let loaded = await store.load()
+        #expect(loaded == outcomes)
+
+        // Re-save through the only public write path (append replays the whole array) and
+        // confirm the migrated store still produces identical bytes for identical content.
+        try FileManager.default.removeItem(at: fileURL)
+        for outcome in loaded {
+            await store.append(outcome)
+        }
+
+        let resavedBytes = try Data(contentsOf: fileURL)
+        #expect(resavedBytes == fixtureBytes)
+    }
 }
