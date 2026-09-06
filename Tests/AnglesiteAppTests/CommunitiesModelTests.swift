@@ -464,7 +464,7 @@ final class CommunitiesModelTests {
         // right after the collection-head fetch and return without ever requesting A's page or
         // touching `timeline`/`isLoadingTimeline`.
         await fake.release(aOutbox)
-        try await Task.sleep(for: .milliseconds(100))
+        try await Task.sleep(for: .milliseconds(100))  // sleep-is-subject: negative assertion, no event to wait for
 
         #expect(model.timeline.first?.title == "B post")
         #expect(model.isLoadingTimeline == false)
