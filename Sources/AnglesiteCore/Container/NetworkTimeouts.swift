@@ -32,4 +32,9 @@ public enum NetworkTimeouts {
     /// `ACPClient.sendPrompt`'s `session/prompt` request bound — long enough for a real turn
     /// (thinking, tool use) to complete normally while still bounding a crashed in-container agent.
     public static let acpPromptTimeout: TimeInterval = 120
+
+    /// `SafariMCPBridgeClient.connect(...)`'s `initialize` request bound — kept short since this
+    /// is a Settings-pane reachability check the user expects to resolve almost instantly, not a
+    /// deploy-critical operation.
+    public static let safariMCPBridgeProbe: TimeInterval = 3
 }
