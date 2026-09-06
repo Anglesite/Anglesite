@@ -363,7 +363,7 @@ struct MCPClientTests {
                 return try await client.listTools()
             } catch MCPClient.MCPError.notInitialized, MCPClient.MCPError.reconnecting {
                 guard Date() < deadline else { throw MCPClient.MCPError.timeout }
-                try await Task.sleep(nanoseconds: 50_000_000)
+                try await Task.sleep(nanoseconds: 50_000_000) // sleep-is-subject: real retry-with-backoff poll against a real subprocess, not a guessed-interval assertion wait
             }
         }
     }

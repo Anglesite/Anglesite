@@ -206,7 +206,7 @@ struct SecurityReportsModelTests {
             func openSecurityAdvisories(owner: String, name: String, token: String) async throws -> [SecurityAdvisory] {
                 callCount += 1
                 guard callCount == 1 else { return [] }
-                try await Task.sleep(nanoseconds: 200_000_000)
+                try await Task.sleep(nanoseconds: 200_000_000) // sleep-is-subject: deliberate simulated latency so the second call supersedes this one
                 return [staleAdvisory]
             }
             func openDependabotAlerts(owner: String, name: String, token: String) async throws -> [DependabotAlert] {

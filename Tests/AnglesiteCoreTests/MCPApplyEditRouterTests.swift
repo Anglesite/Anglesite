@@ -283,7 +283,7 @@ struct MCPApplyEditRouterTests {
         _ = await router.apply(sampleMessage)
         // Negative assertion (onEdit must not fire): there's no event to wait for, so this
         // settles briefly and confirms nothing landed, rather than polling for absence.
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        try? await Task.sleep(nanoseconds: 50_000_000) // sleep-is-subject: negative assertion, no event to wait for
         let captured = await observed.replies
         #expect(captured.isEmpty)
     }
