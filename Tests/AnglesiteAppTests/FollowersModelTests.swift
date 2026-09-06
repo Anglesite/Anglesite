@@ -561,7 +561,7 @@ struct FollowersModelTests {
 
         // Negative assertion: there's no event to wait for, so this settles briefly and confirms
         // the baseline load never notified, rather than polling for a condition that shouldn't occur.
-        try await Task.sleep(for: .milliseconds(20))
+        try await Task.sleep(for: .milliseconds(20))  // sleep-is-subject: negative assertion, no event to wait for
         let notified = await recorder.events
         #expect(notified.isEmpty)
     }
@@ -699,7 +699,7 @@ struct FollowersModelTests {
         model.onNewPendingRequests = { siteID, count in Task { await recorder.record((siteID, count)) } }
         await model.loadPending()
         // Negative assertion (baseline reset must stay silent) — settle briefly rather than poll.
-        try await Task.sleep(for: .milliseconds(20))
+        try await Task.sleep(for: .milliseconds(20))  // sleep-is-subject: negative assertion, no event to wait for
 
         #expect(await recorder.events.isEmpty)
         #expect(model.pendingRows.count == 3)
@@ -793,7 +793,7 @@ struct FollowersModelTests {
         // Give several poll intervals' worth of time to elapse, then confirm no further request
         // ever landed beyond the initial `loadPending()` above — the guard should have returned
         // before spawning the recurring `Task` at all.
-        try await Task.sleep(for: .milliseconds(120))
+        try await Task.sleep(for: .milliseconds(120))  // sleep-is-subject: negative assertion, no event to wait for
         let requestsAfterWaiting = await membershipServer.requestedPaths.count
 
         #expect(requestsAfterWaiting == requestsBeforeStart)

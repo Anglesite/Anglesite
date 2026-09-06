@@ -86,7 +86,7 @@ struct ComponentEditorModelDraftStateTests {
     private func makeLoadedModel(
         router: EditRouter,
         json: String = ComponentEditorModelDraftStateTests.fixtureJSON,
-        sleep: @escaping ComponentEditorModel.Sleep = { try await Task.sleep(for: $0) }
+        sleep: @escaping ComponentEditorModel.Sleep = { try await Task.sleep(for: $0) }  // sleep-is-subject: production default for the injected seam, not a wait
     ) async -> ComponentEditorModel {
         let context = ComponentEditorContext(
             baseURL: nil,
