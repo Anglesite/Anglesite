@@ -49,6 +49,8 @@ struct AXIDTests {
         #expect(AXID.settingsTabs == "settings.tabs")
         #expect(AXID.settingsWorkersLogs == "settings.workers.logs")
         #expect(AXID.settingsWorkersAnalytics == "settings.workers.analytics")
+        #expect(AXID.settingsSafariMCPBridgePort == "settings.safariMCPBridge.port")
+        #expect(AXID.settingsSafariMCPBridgeStatus == "settings.safariMCPBridge.status")
     }
 
     /// Per-worker ids embed the catalog's worker id verbatim — including its hyphens

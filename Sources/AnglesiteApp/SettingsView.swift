@@ -413,12 +413,11 @@ private struct AdvancedSettingsView: View {
     }
 
     /// The effective port for the Safari MCP Bridge section below — falls back to
-    /// `SafariMCPBridgeDetector.defaultPort` for an empty or out-of-range field, mirroring
-    /// `AppSettings.safariMCPBridgePort`'s own fallback so the two never disagree.
+    /// `SafariMCPBridgeDetector.defaultPort` for an empty or out-of-range field, via the shared
+    /// `AppSettings.parsePort(_:default:)` rule so this and `AppSettings.safariMCPBridgePort`
+    /// can never silently diverge.
     private var safariMCPBridgePort: Int {
-        guard let port = Int(safariMCPBridgePortText.trimmingCharacters(in: .whitespaces)),
-              (1...65535).contains(port) else { return SafariMCPBridgeDetector.defaultPort }
-        return port
+        AppSettings.parsePort(safariMCPBridgePortText, default: SafariMCPBridgeDetector.defaultPort)
     }
 
     var body: some View {
@@ -475,7 +474,7 @@ private struct AdvancedSettingsView: View {
             Section("Safari MCP Bridge") {
                 LabeledContent("Bridge port") {
                     TextField("", text: $safariMCPBridgePortText,
-                              prompt: Text(verbatim: String(SafariMCPBridgeDetector.defaultPort)))
+                              prompt: Text(verbatim: AdvancedSettingsCopy.portPlaceholder(SafariMCPBridgeDetector.defaultPort)))
                         .textFieldStyle(.roundedBorder)
                         .frame(width: 100)
                         .accessibilityLabel("Safari MCP bridge port")
@@ -966,8 +965,14 @@ private struct SafariMCPBridgeStatusRow: View {
 
     private func check() async {
         status = .checking
-        let result = await SafariMCPBridgeDetector().checkReachability(port: port)
-        guard !Task.isCancelled else { return }
+        let probedPort = port
+        let result = await SafariMCPBridgeDetector().checkReachability(port: probedPort)
+        // Guard against both a torn-down `.task(id:)` (Task.isCancelled) and a stale in-flight
+        // check from the manual "Check Again" button, whose bare `Task { await check() }` isn't
+        // tied to `.task(id:)`'s cancellation — if the port field changed while this probe was
+        // in flight, its result is for a port that's no longer current, so don't let it clobber
+        // whatever the newer automatic check already wrote.
+        guard !Task.isCancelled, probedPort == port else { return }
         switch result.state {
         case .reachable(let name): status = .reachable(name)
         case .unreachable: status = .unreachable

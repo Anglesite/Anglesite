@@ -56,6 +56,9 @@ public actor SafariMCPBridgeClient {
     /// initialization completes. Logs the outcome to `LogCenter` (source `"safari-mcp"`) either
     /// way, so the Debug pane shows every probe without new UI plumbing. Returns the negotiated
     /// ``ServerInfo``.
+    ///
+    /// Each instance supports exactly one `connect()` attempt — a failed connect closes the
+    /// client internally; create a fresh instance to retry.
     public func connect(
         clientName: String = "Anglesite",
         clientVersion: String = "0.1.0",
@@ -87,8 +90,8 @@ public actor SafariMCPBridgeClient {
             var name = "MCP server"
             var version: String?
             if case .object(let serverInfo)? = dict["serverInfo"] {
-                if case .string(let n)? = serverInfo["name"] { name = n }
-                if case .string(let v)? = serverInfo["version"] { version = v }
+                if case .string(let n)? = serverInfo["name"] { name = Self.sanitize(n) }
+                if case .string(let v)? = serverInfo["version"] { version = Self.sanitize(v) }
             }
             try await transport.send(.object([
                 "jsonrpc": .string("2.0"),
@@ -151,16 +154,34 @@ public actor SafariMCPBridgeClient {
         // Same local-capture reasoning as `connect()`'s reader task above: `t` is a plain local,
         // not an actor-isolated property reached through `self` from outside the actor.
         let t = transport
-        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<JSONValue, Error>) in
-            pending[id] = cont
-            Task { [weak self] in
-                do {
-                    try await t.send(message)
-                } catch {
-                    await self?.failPending(id: id, error: error)
+        return try await withTaskCancellationHandler {
+            try await withCheckedThrowingContinuation { (cont: CheckedContinuation<JSONValue, Error>) in
+                pending[id] = cont
+                Task { [weak self] in
+                    do {
+                        try await t.send(message)
+                    } catch {
+                        await self?.failPending(id: id, error: error)
+                    }
                 }
             }
+        } onCancel: {
+            // The awaiting task was cancelled. Resolve the pending continuation with Swift's
+            // CancellationError, matching `MCPClient.sendRequest`'s parity handling — if the
+            // response already arrived, `failPending` finds no entry and no-ops, preserving
+            // single-resume.
+            Task { [self] in await self.failPending(id: id, error: CancellationError()) }
         }
+    }
+
+    /// Strips control characters and caps the length of a field the (unauthenticated,
+    /// user-configured) remote bridge self-reports in its `initialize` response — `serverInfo`'s
+    /// `name`/`version` flow straight into a `LogCenter` line and the Settings UI's "Connected to
+    /// …" label, so a hostile or malformed bridge shouldn't be able to inject newlines/control
+    /// characters or blow out either surface's layout with an unbounded string.
+    private static func sanitize(_ value: String) -> String {
+        let stripped = value.unicodeScalars.filter { !CharacterSet.controlCharacters.contains($0) }
+        return String(String.UnicodeScalarView(stripped)).prefix(100).description
     }
 
     private func failPending(id: Int, error: Error) {

@@ -30,4 +30,35 @@ final class AppSettingsSafariMCPBridgeTests {
         let settings = AppSettings(defaults: defaults)
         #expect(settings.safariMCPBridgePort == SafariMCPBridgeDetector.defaultPort)
     }
+
+    // MARK: AppSettings.parsePort — the shared rule behind the getter above and
+    // AdvancedSettingsView's reactive text field (final-review finding #2).
+
+    @Test("parsePort accepts a valid in-range port")
+    func parsePortValid() {
+        #expect(AppSettings.parsePort("9001", default: 1234) == 9001)
+    }
+
+    @Test("parsePort trims whitespace")
+    func parsePortTrimsWhitespace() {
+        #expect(AppSettings.parsePort("  9001  ", default: 1234) == 9001)
+    }
+
+    @Test("parsePort falls back to the default for a blank value")
+    func parsePortBlank() {
+        #expect(AppSettings.parsePort("", default: 1234) == 1234)
+        #expect(AppSettings.parsePort("   ", default: 1234) == 1234)
+    }
+
+    @Test("parsePort falls back to the default for a non-numeric value")
+    func parsePortNonNumeric() {
+        #expect(AppSettings.parsePort("not-a-port", default: 1234) == 1234)
+    }
+
+    @Test("parsePort falls back to the default for an out-of-range value")
+    func parsePortOutOfRange() {
+        #expect(AppSettings.parsePort("0", default: 1234) == 1234)
+        #expect(AppSettings.parsePort("65536", default: 1234) == 1234)
+        #expect(AppSettings.parsePort("-1", default: 1234) == 1234)
+    }
 }

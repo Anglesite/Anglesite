@@ -90,7 +90,10 @@ enum AXID {
 
     // MARK: Safari MCP Bridge (#1910)
 
+    /// The Safari MCP Bridge section's "Bridge port" text field.
     static let settingsSafariMCPBridgePort = "settings.safariMCPBridge.port"
+    /// The Safari MCP Bridge section's connection status row (`SafariMCPBridgeStatusRow`) —
+    /// covers the reachability label and the "Check Again" button together.
     static let settingsSafariMCPBridgeStatus = "settings.safariMCPBridge.status"
 
     /// Every hand-assigned identifier, for `AXIDTests`' uniqueness/format checks (the

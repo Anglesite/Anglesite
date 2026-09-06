@@ -196,8 +196,17 @@ public final class AppSettings: @unchecked Sendable {
     /// Ports are stored as strings (the Settings UI uses plain text fields whose empty state
     /// means "default"); `UserDefaults.string(forKey:)` also coerces a number if one was stored.
     private func port(forKey key: String, default defaultPort: Int) -> Int {
-        guard let raw = defaults.string(forKey: key)?.trimmingCharacters(in: .whitespaces),
-              let port = Int(raw), (1...65535).contains(port) else { return defaultPort }
+        guard let raw = defaults.string(forKey: key) else { return defaultPort }
+        return Self.parsePort(raw, default: defaultPort)
+    }
+
+    /// Parses a Settings text field's port value with the shared fallback rule: trims whitespace,
+    /// requires a valid port number in 1...65535, and falls back to `defaultPort` for anything else
+    /// (blank, non-numeric, out of range). Shared by `AppSettings.safariMCPBridgePort` (the
+    /// `UserDefaults`-backed getter, via `port(forKey:default:)`) and `AdvancedSettingsView`'s
+    /// reactive `@AppStorage`-backed text field, so the two can never silently diverge.
+    public static func parsePort(_ raw: String, default defaultPort: Int) -> Int {
+        guard let port = Int(raw.trimmingCharacters(in: .whitespaces)), (1...65535).contains(port) else { return defaultPort }
         return port
     }
 

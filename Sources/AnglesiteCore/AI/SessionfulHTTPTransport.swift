@@ -86,6 +86,9 @@ public actor SessionfulHTTPTransport: MCPTransport {
         case 202:
             return  // notification accepted; no response body
         case 404:
+            // A 404 means the session is gone server-side — clear the captured id so a later
+            // request on this instance doesn't replay a now-invalid `Mcp-Session-Id`.
+            sessionID = nil
             throw HTTPError.connectionFailed
         case 200:
             break
