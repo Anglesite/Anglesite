@@ -325,30 +325,28 @@ public struct ContainerDeployExecutor: DeployExecutor {
     /// would shadow the guest's Linux PATH and break `node`/`npm`/`wrangler` resolution, and
     /// `HOME`/`TMPDIR`/`XPC_*`/`__CF*` are host-only noise. The guest provides its own PATH/HOME; the
     /// only host-originated values the deploy ever needs across the boundary are per-step secrets —
-    /// the Cloudflare token for `.wrangler`/`.bundleUpload` (both invoke `wrangler`), plus the
-    /// account id `CloudflareDeployTarget.publish` resolves for the same two steps so `wrangler`
-    /// doesn't have to auto-discover it itself (#1853) — and the GitHub Pages token for
-    /// `.githubPagesPublish`. Scoped per step, not merely per key: a secret for one deploy target
-    /// must never reach a step that has no business seeing it, e.g. a GitHub Pages push must never
-    /// see `CLOUDFLARE_API_TOKEN` even when both happen to be present in the caller-supplied
-    /// environment dict. Keep each step's list tight — add a key only when that step demonstrably
-    /// needs it in-guest.
-    private static func guestEnvAllowlist(for step: DeployStep) -> Set<String> {
+    /// the Cloudflare token for `.wrangler`/`.bundleUpload`/`.wranglerSubcommand` (all three invoke
+    /// `wrangler`), plus the account id `CloudflareDeployTarget.publish` resolves for `.wrangler`/
+    /// `.bundleUpload` so `wrangler` doesn't have to auto-discover it itself (#1853) — and the
+    /// GitHub Pages token for `.githubPagesPublish`. Scoped per step, not merely per key: a secret
+    /// for one deploy target must never reach a step that has no business seeing it, e.g. a GitHub
+    /// Pages push must never see `CLOUDFLARE_API_TOKEN` even when both happen to be present in the
+    /// caller-supplied environment dict. The three wrangler-invoking steps delegate to
+    /// `WranglerInvocation.guestEnvironment(from:scope:)` — the single source of truth for which
+    /// Cloudflare keys a wrangler call may see in-guest (#1821 final review) — rather than
+    /// re-declaring the same sets here, so a future change to `WranglerInvocation.EnvScope` reaches
+    /// every wrangler call site instead of silently missing this one.
+    private static func guestEnvironment(from hostEnvironment: [String: String], step: DeployStep) -> [String: String] {
         switch step {
         case .build, .preflight:
-            return []
+            return [:]
         case .wrangler, .bundleUpload:
-            return ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
-        case .githubPagesPublish:
-            return ["GITHUB_PAGES_TOKEN"]
+            return WranglerInvocation.guestEnvironment(from: hostEnvironment, scope: .tokenAndAccount)
         case .wranglerSubcommand:
-            return ["CLOUDFLARE_API_TOKEN"]
+            return WranglerInvocation.guestEnvironment(from: hostEnvironment, scope: .tokenOnly)
+        case .githubPagesPublish:
+            return hostEnvironment.filter { $0.key == "GITHUB_PAGES_TOKEN" }
         }
-    }
-
-    private static func guestEnvironment(from hostEnvironment: [String: String], step: DeployStep) -> [String: String] {
-        let allowlist = guestEnvAllowlist(for: step)
-        return hostEnvironment.filter { allowlist.contains($0.key) }
     }
 
     // MARK: wrangler.toml sync (#1084)
@@ -407,7 +405,7 @@ public struct ContainerDeployExecutor: DeployExecutor {
             // via `$1`/`$2`, POSITIONAL shell parameters, the same injection-safety pattern
             // `.bundleUpload` uses for CF_SOURCE_BUCKET above. The token crosses the host→guest
             // boundary only via `$GITHUB_PAGES_TOKEN` (an environment variable, never a shell
-            // argument, never logged) — see `guestEnvAllowlist`. `touch .nojekyll` before staging:
+            // argument, never logged) — see `guestEnvironment`. `touch .nojekyll` before staging:
             // GitHub Pages' branch-source publish path runs the site through Jekyll by default,
             // which excludes every underscore-prefixed path — including Astro's `dist/_astro/`
             // asset directory — unless `.nojekyll` exists at the repo root. Without it, a deploy

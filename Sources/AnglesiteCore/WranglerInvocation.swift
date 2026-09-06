@@ -4,11 +4,13 @@ import Foundation
 /// in-guest, and runs the exec-and-drain-to-`LogCenter` loop shared by every `wrangler` call site
 /// (`ContainerCommandRunner`, `ContainerDeployExecutor`) — see #1821.
 public enum WranglerInvocation {
-    /// Which Cloudflare secrets a wrangler call may see in-guest. `.tokenOnly` matches
-    /// `SocialWorkerProvisionCommand`'s resource-creation/secret-push/migration calls (today's
-    /// `ContainerCommandRunner.guestEnvAllowlist`); `.tokenAndAccount` matches the fixed
-    /// `.wrangler`/`.bundleUpload` deploy steps (today's `ContainerDeployExecutor
-    /// .guestEnvAllowlist`), which also need `CLOUDFLARE_ACCOUNT_ID` (#1853).
+    /// Which Cloudflare secrets a wrangler call may see in-guest — the single source of truth
+    /// every wrangler call site (`ContainerCommandRunner`'s resource-creation/secret-push/
+    /// migration calls, and `ContainerDeployExecutor`'s `.wrangler`/`.bundleUpload`/
+    /// `.wranglerSubcommand` steps) delegates to via `guestEnvironment(from:scope:)` below,
+    /// rather than each re-declaring its own allowlist. `.tokenOnly` covers the arbitrary
+    /// provisioning subcommands; `.tokenAndAccount` covers `.wrangler`/`.bundleUpload`, which also
+    /// need `CLOUDFLARE_ACCOUNT_ID` (#1853).
     public enum EnvScope: Sendable {
         case tokenOnly
         case tokenAndAccount
