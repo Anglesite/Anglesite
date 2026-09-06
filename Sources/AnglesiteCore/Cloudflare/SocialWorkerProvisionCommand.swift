@@ -254,19 +254,29 @@ public actor SocialWorkerProvisionCommand {
         /// Forwarded verbatim to `DeployCommand.deploy` so a caller can surface deploy progress.
         onProgress: ProgressHandler? = nil
     ) async -> Result {
+        // #1821 PR review: `knownResources` (from `SiteSettings.provisionedWorkerResources`) is
+        // the primary source of truth, but it's only backfilled by a *successful* `provision()`
+        // call — a site whose Worker resources were created before that persistence existed (or
+        // whose settings were reset independently of its `wrangler.toml`) would otherwise look
+        // unprovisioned here and re-issue `wrangler d1/kv/r2/queues create` against names that
+        // already exist on the account, which Cloudflare rejects. Falling back to a best-effort
+        // scrape of the site's own `wrangler.toml` — the same file `persistConfig` writes the
+        // real ids into — is strictly safer than trusting the caller-supplied value alone.
+        let resources = knownResources == .init() ? Self.readPersistedResources(from: siteDirectory) : knownResources
+
         let token: String?
         do {
             token = try await tokenSource()
         } catch {
-            return .failed(reason: "couldn't read Cloudflare API token: \(error)", exitCode: nil, resources: knownResources)
+            return .failed(reason: "couldn't read Cloudflare API token: \(error)", exitCode: nil, resources: resources)
         }
         guard let token, !token.isEmpty else {
             return .failed(
                 reason: "no CLOUDFLARE_API_TOKEN — add it in Settings → Advanced → Credentials, or set the env var",
-                exitCode: nil, resources: knownResources)
+                exitCode: nil, resources: resources)
         }
         guard WorkerComposition.isValidSiteName(siteName) else {
-            return .failed(reason: "invalid Worker name: \(siteName)", exitCode: nil, resources: knownResources)
+            return .failed(reason: "invalid Worker name: \(siteName)", exitCode: nil, resources: resources)
         }
 
         let target = SocialWorkerProvisionTarget(
@@ -276,7 +286,7 @@ public actor SocialWorkerProvisionCommand {
                 markdownForAgentsCommand: markdownForAgentsCommand,
                 domainConfigDriftSource: domainConfigDriftSource,
                 accountIDSource: { apiToken in await self.accountIDSource(apiToken) }),
-            siteName: siteName, workers: workers, routeClaims: routeClaims, knownResources: knownResources,
+            siteName: siteName, workers: workers, routeClaims: routeClaims, knownResources: resources,
             siteURL: siteURL, displayName: displayName, apUsername: apUsername, apIcon: apIcon,
             acknowledgesPaidPlan: acknowledgesPaidPlan, inboxCaptureEnabled: inboxCaptureEnabled,
             inboxForwardEmail: inboxForwardEmail, activityPubActorType: activityPubActorType,
@@ -304,6 +314,85 @@ public actor SocialWorkerProvisionCommand {
             return .webmentionPaidPlanConfirmationNeeded(resources: finalResources)
         case .failed(let reason, let exitCode):
             return .failed(reason: reason, exitCode: exitCode, resources: finalResources)
+        }
+    }
+
+    /// Best-effort recovery of already-provisioned resource ids from the site's own
+    /// `wrangler.toml` — the fallback `provision()` uses when `knownResources` (normally seeded
+    /// from `SiteSettings.provisionedWorkerResources`) is empty, so a site whose resources were
+    /// created before that persisted field existed (or whose settings were reset independently of
+    /// its `wrangler.toml`) doesn't get silently treated as unprovisioned and re-create Cloudflare
+    /// resources that already exist. `.init()` (all-nil) when there's no file to read, which
+    /// `provision()` then treats exactly like a genuinely fresh site.
+    static func readPersistedResources(from siteDirectory: URL) -> WorkerComposition.ProvisionedResources {
+        let url = siteDirectory.appendingPathComponent("wrangler.toml")
+        guard let toml = try? String(contentsOf: url, encoding: .utf8) else {
+            return .init()
+        }
+        // Three features each own a queue; the generated names are deterministic
+        // (`<site>-webmention` / `<site>-websub` / `<site>-microsub`), so classify every
+        // `queue = "…"` value by its suffix rather than taking the first match (which would
+        // mis-assign whichever block happened to be emitted first). All matches are positive
+        // (rather than "webmention = doesn't end in -websub") so a future queue-backed feature
+        // can't get silently misclassified as another's queue just because it doesn't end in
+        // that other feature's suffix.
+        let queueNames = extractAllTomlStrings(named: "queue", from: toml)
+        // Same reasoning applies to R2 bucket names: Micropub's `MEDIA` bucket
+        // (`<site>-media`) and solid-pod/webdav's `BLOBS` bucket (`<site>-pod-blobs`) can both
+        // be present as separate `[[r2_buckets]]` blocks, so classify every `bucket_name = "…"`
+        // value by its suffix rather than taking the first match — otherwise a redeploy with
+        // both buckets provisioned would read back only one, and the other would look
+        // unprovisioned and get re-created against wrangler on every deploy.
+        let bucketNames = extractAllTomlStrings(named: "bucket_name", from: toml)
+        return .init(
+            d1DatabaseID: extractTomlString(named: "database_id", from: toml),
+            // KV namespace ids are opaque Cloudflare-assigned strings, not deterministic names
+            // like the queue/bucket names above — they can't be classified by suffix. Instead,
+            // `wrangler.toml` can carry up to two `[[kv_namespaces]]` blocks (SOCIAL_KV and
+            // INBOX_KV), each with its own `binding = "…"` line immediately followed by its own
+            // `id = "…"` line (see `WorkerComposition.generateWranglerToml`'s `[[kv_namespaces]]`
+            // emission), so `extractKVNamespaceID` scopes the match to the binding line that
+            // precedes it. A flat first-`id`-match scrape would misattribute INBOX_KV's id to
+            // this field whenever SOCIAL_KV wasn't also present.
+            kvNamespaceID: extractKVNamespaceID(binding: "SOCIAL_KV", from: toml),
+            r2BucketName: bucketNames.first(where: { $0.hasSuffix("-media") }),
+            queueName: queueNames.first(where: { $0.hasSuffix("-webmention") }),
+            websubQueueName: queueNames.first(where: { $0.hasSuffix("-websub") }),
+            microsubQueueName: queueNames.first(where: { $0.hasSuffix("-microsub") }),
+            podBlobsR2BucketName: bucketNames.first(where: { $0.hasSuffix("-pod-blobs") }),
+            inboxKVNamespaceID: extractKVNamespaceID(binding: "INBOX_KV", from: toml)
+        )
+    }
+
+    private static func extractTomlString(named key: String, from toml: String) -> String? {
+        extractAllTomlStrings(named: key, from: toml).first
+    }
+
+    /// Finds a `[[kv_namespaces]]` block by its `binding = "<name>"` line and returns the
+    /// `id = "…"` value immediately following it in that same block. `generateWranglerToml`
+    /// always emits `binding` immediately followed by `id` within a `[[kv_namespaces]]` block, so
+    /// matching that adjacency is enough to scope the match to the right block without a full
+    /// TOML parser.
+    private static func extractKVNamespaceID(binding: String, from toml: String) -> String? {
+        let escaped = NSRegularExpression.escapedPattern(for: binding)
+        let pattern = ##"(?m)^\s*binding\s*=\s*"@@BINDING@@"\s*\n\s*id\s*=\s*"([^"]+)""##
+            .replacingOccurrences(of: "@@BINDING@@", with: escaped)
+        guard let regex = try? NSRegularExpression(pattern: pattern),
+              let match = regex.firstMatch(in: toml, range: NSRange(toml.startIndex..., in: toml)),
+              match.numberOfRanges > 1,
+              let range = Range(match.range(at: 1), in: toml)
+        else { return nil }
+        return String(toml[range])
+    }
+
+    private static func extractAllTomlStrings(named key: String, from toml: String) -> [String] {
+        let escaped = NSRegularExpression.escapedPattern(for: key)
+        let pattern = #"(?m)^\s*#(KEY)\s*=\s*"([^"]+)""#.replacingOccurrences(of: "#(KEY)", with: escaped)
+        guard let regex = try? NSRegularExpression(pattern: pattern) else { return [] }
+        return regex.matches(in: toml, range: NSRange(toml.startIndex..., in: toml)).compactMap { match in
+            guard match.numberOfRanges > 1, let range = Range(match.range(at: 1), in: toml) else { return nil }
+            let value = String(toml[range])
+            return value.isEmpty ? nil : value
         }
     }
 

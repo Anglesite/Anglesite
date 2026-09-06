@@ -159,6 +159,62 @@ struct SocialWorkerProvisionCommandTests {
         #expect(d1CreateCall == ["d1", "create", "my-site-social"])
     }
 
+    @Test("a site whose wrangler.toml already has a real D1 id, but empty knownResources, reuses it instead of re-creating (#1821 PR review)")
+    func recoversResourcesFromExistingWranglerTomlWhenKnownResourcesIsEmpty() async throws {
+        // Simulates a site whose Worker resources were provisioned before `knownResources` was
+        // ever backfilled from `SiteSettings.provisionedWorkerResources` (or whose settings were
+        // reset independently of its `wrangler.toml`) — `knownResources` is `.init()` (the
+        // default a caller passes when it genuinely has nothing persisted), but the site's own
+        // `wrangler.toml` already has a real, live database id. `provision()` must recover that
+        // id from disk rather than treating the site as unprovisioned and re-issuing `d1 create`
+        // against a name that already exists on the Cloudflare account.
+        let site = try temporaryDirectory()
+        let existingTOML = """
+        name = "my-site"
+        compatibility_date = "2026-07-15"
+        compatibility_flags = ["nodejs_compat"]
+        main = "worker/worker.ts"
+
+        [assets]
+        directory = "dist"
+        binding = "ASSETS"
+
+        [[d1_databases]]
+        binding = "AUTH_DB"
+        database_name = "my-site-social"
+        migrations_dir = "worker/migrations"
+        database_id = "already-provisioned-d1-id"
+
+        [observability]
+        enabled = true
+        head_sampling_rate = 1
+        """
+        try existingTOML.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
+
+        // No `.set(.wranglerSubcommand(args: ["d1", "create", ...]))` script at all: if `provision()`
+        // ever attempted that call, `FakeExecutor.run` would still return a default success (so
+        // this alone can't fail the test) — the real proof is the explicit `!executor.ran(...)`
+        // assertion below. The AUTH_DB migration always runs when indieauth is active regardless
+        // of whether D1 was just created or already known, so it still needs scripting.
+        let executor = successExecutor()
+            .set(.wranglerSubcommand(args: ["d1", "migrations", "apply", "AUTH_DB", "--remote"]), exitCode: 0, output: "Migrations applied")
+        let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, executor: executor)
+        let indieauth = worker(WorkerComposition.indieauthWorkerID, d1: true, kv: false, r2: false)
+
+        let result = await command.provision(
+            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            workers: [indieauth], knownResources: .init()
+        )
+
+        guard case .succeeded(_, let resources, _) = result else {
+            Issue.record("expected .succeeded, got \(result)")
+            return
+        }
+        #expect(!executor.ran(.wranglerSubcommand(args: ["d1", "create", "my-site-social"])),
+                "d1 create must not run when wrangler.toml already has a real database id")
+        #expect(resources.d1DatabaseID == "already-provisioned-d1-id")
+    }
+
     @Test("provisions V-2 D1 and KV, writes wrangler.toml, then deploys through DeployCommand seam")
     func provisionsV2Worker() async throws {
         let site = try temporaryDirectory()
