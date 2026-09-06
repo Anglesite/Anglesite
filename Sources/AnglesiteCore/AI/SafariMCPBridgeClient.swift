@@ -105,6 +105,7 @@ public actor SafariMCPBridgeClient {
                 source: "safari-mcp", stream: .stderr,
                 text: "Failed to connect to Safari MCP bridge at \(endpointDescription): \(error)"
             )
+            await self.close()
             throw error
         }
     }
