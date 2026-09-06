@@ -9,7 +9,11 @@ import AnglesiteCore
 /// could disagree with an actual Redirects edit. These tests drive `SiteWindowModel` with a real
 /// `.plist` editor whose *only* dirty facet is Redirects, proving the aggregate accessors now
 /// pick it up via `PlistEditorModel.hasAnyUnsavedEdits`/`isAnySaving`/`saveAllDirty()`.
-@Suite("SiteWindowModel settings aggregation (#741)")
+/// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
+/// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
+/// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
+/// unambiguous time-limit violation instead of hanging the whole run forever.
+@Suite("SiteWindowModel settings aggregation (#741)", .timeLimit(.minutes(1)))
 @MainActor
 struct SiteWindowModelSettingsAggregationTests {
     private static let emptyPlist = """

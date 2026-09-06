@@ -6,7 +6,11 @@ import AnglesiteCore
 /// Regression coverage for `ProjectCleanupModel`'s `isBusy` and stale-candidate guards (PR #535,
 /// issue #555). Both guards were previously asserted only by code comments — no automated
 /// coverage existed.
-@Suite("ProjectCleanupModel")
+/// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
+/// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
+/// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
+/// unambiguous time-limit violation instead of hanging the whole run forever.
+@Suite("ProjectCleanupModel", .timeLimit(.minutes(1)))
 @MainActor
 struct ProjectCleanupModelTests {
     @Test("delete refuses a candidate no longer in the current list")
