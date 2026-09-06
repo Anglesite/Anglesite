@@ -1019,6 +1019,14 @@ final class DeployModel {
                 guard let cloudflareTarget else { return [] }
                 return try await cloudflareTarget.workerScriptNamesSource(token)
             },
+            // Forwards the same seam `cloudflareTarget.publish` uses for its own account-id
+            // resolution (#1853), so a test's injected fake `CloudflareDeployTarget` governs
+            // `provision()`'s inbox-capture account-id lookup too, instead of this defaulting to
+            // `SocialWorkerProvisionCommand.defaultAccountIDSource`'s real network call.
+            accountIDSource: { token in
+                guard let cloudflareTarget else { return nil }
+                return await cloudflareTarget.accountIDSource(token)
+            },
             // #1821 final review finding 2: `provision()` builds its own `CloudflareDeployTarget`
             // internally and used to only receive `tokenSource`/`workerScriptNamesSource`/
             // `accountIDSource`, silently defaulting the remaining three seams to production —

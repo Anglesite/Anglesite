@@ -307,7 +307,7 @@ private actor FakeRegistrarOps: RegistrarOperationsService {
     func registerDomain(name: String) async -> Result<RegistrarRegistrationOutcome, RegistrarOperationError> {
         registeredNames.append(name)
         if let registerDelay {
-            try? await Task.sleep(for: registerDelay)
+            try? await Task.sleep(for: registerDelay)  // sleep-is-subject: fake's simulated registrar latency, not a wait-then-assert
         }
         return registerResult
     }

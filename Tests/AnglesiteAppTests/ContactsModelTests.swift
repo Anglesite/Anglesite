@@ -333,7 +333,7 @@ private actor OrderedPushRecorder {
         record("start-\(index)")
         let delay = index - 1 < delays.count ? delays[index - 1] : .zero
         if delay > .zero {
-            try? await Task.sleep(for: delay)
+            try? await Task.sleep(for: delay)  // sleep-is-subject: fake's simulated push latency, not a wait-then-assert
         }
         record("end-\(index)")
     }
