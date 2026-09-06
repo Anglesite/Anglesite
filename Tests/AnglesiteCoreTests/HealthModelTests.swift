@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 @MainActor
@@ -238,16 +239,12 @@ final class GateRunner: HealthCheckRunner, @unchecked Sendable {
     /// tasks reach `run` is unspecified, so `respondOldestPending` could deliver the cancellation
     /// to the wrong task and leave the latest result unset (flaky `.unknown`).
     func waitForPending(_ count: Int) async {
-        while pendingCount < count { try? await Task.sleep(for: .milliseconds(5)) }
+        try? await waitUntil("at least \(count) pending call(s) to register") { pendingCount >= count }
     }
 
     private func dequeueOldest() async -> CheckedContinuation<PreDeployCheck.Outcome, Error> {
-        while true {
-            if let cont = lock.withLock({ pending.isEmpty ? nil : pending.removeFirst() }) {
-                return cont
-            }
-            try? await Task.sleep(for: .milliseconds(5))
-        }
+        try? await waitUntil("a pending call to register") { pendingCount > 0 }
+        return lock.withLock { pending.removeFirst() }
     }
 
     private func deliver(_ cont: CheckedContinuation<PreDeployCheck.Outcome, Error>, _ result: Result<PreDeployCheck.Outcome, Error>) {

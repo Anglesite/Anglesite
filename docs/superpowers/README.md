@@ -26,6 +26,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-04 | [Safari MCP transport spike: how a sandboxed `Anglesite.app` reaches a user-launched `safaridriver --mcp`](specs/2026-09-04-safari-mcp-transport-spike.md) | [#1887](https://github.com/Anglesite/Anglesite/issues/1887), [#453](https://github.com/Anglesite/Anglesite/issues/453) | current |
 | 2026-09-03 | [Generated docs index and `Status:` convention for design docs](specs/2026-09-03-docs-index-and-status-convention-design.md) | [#1816](https://github.com/Anglesite/Anglesite/issues/1816) | current |
 | 2026-09-02 | [WYSIWYG slice 6 — on-device AI services — design](specs/2026-09-02-wysiwyg-ai-services-design.md) | [#1227](https://github.com/Anglesite/Anglesite/issues/1227) | — |
 | 2026-09-02 | [RSVP, check-in, and repost as publishable post types](specs/2026-09-02-rsvp-checkin-repost-post-types-design.md) | [#1598](https://github.com/Anglesite/Anglesite/issues/1598) | current |
@@ -41,7 +42,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 | 2026-08-20 | [Vouch protocol for webmention spam mitigation (#1597)](specs/2026-08-20-vouch-webmention-design.md) | [#1597](https://github.com/Anglesite/Anglesite/issues/1597) | current |
 | 2026-08-20 | [IndieMark self-assessment page — design](specs/2026-08-20-indiemark-self-assessment-page-design.md) | [#1599](https://github.com/Anglesite/Anglesite/issues/1599) | — |
 | 2026-08-20 | [Cloudflare OAuth — optional (task-based) scopes — design](specs/2026-08-20-cloudflare-oauth-optional-scopes-design.md) | [#1608](https://github.com/Anglesite/Anglesite/issues/1608) | current |
-| 2026-08-20 | [atproto OAuth (DPoP/PAR) client — design](specs/2026-08-20-atproto-oauth-dpop-par-design.md) | [#1485](https://github.com/Anglesite/Anglesite/issues/1485), [#1230](https://github.com/Anglesite/Anglesite/issues/1230) | _Deliberately held (🏭 Blocked: human) —…_ |
+| 2026-08-20 | [atproto OAuth (DPoP/PAR) client — design](specs/2026-08-20-atproto-oauth-dpop-par-design.md) | [#1485](https://github.com/Anglesite/Anglesite/issues/1485), [#1230](https://github.com/Anglesite/Anglesite/issues/1230) | current |
 | 2026-08-19 | [Site MCP server (read-only tools) + MCP server card — design](specs/2026-08-19-site-mcp-server-design.md) | [#1576](https://github.com/Anglesite/Anglesite/issues/1576), [#1326](https://github.com/Anglesite/Anglesite/issues/1326) | — |
 | 2026-08-19 | [Agent Skills manifest — design (#1579)](specs/2026-08-19-agent-skills-manifest-design.md) | [#1579](https://github.com/Anglesite/Anglesite/issues/1579) | — |
 | 2026-08-18 | [Worker read gate: IndieAuth-gated permalinks + private h-feed — design (#1568)](specs/2026-08-18-worker-read-gate-design.md) | [#1568](https://github.com/Anglesite/Anglesite/issues/1568) | current |
@@ -219,6 +220,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-04 | [Cloudflare Core Transport Unification (Phase 1 of #1818) Implementation Plan](plans/2026-09-04-cloudflare-core-transport-unification.md) | [#1818](https://github.com/Anglesite/Anglesite/issues/1818) | historical |
 | 2026-09-04 | [AppKit Shell Slice 2 (owned toolbar) Implementation Plan](plans/2026-09-04-appkit-shell-slice2-1699.md) | [#1699](https://github.com/Anglesite/Anglesite/issues/1699) | current |
 | 2026-09-02 | [WYSIWYG AI Services — Writing Help (PR 2 of 3) Implementation Plan](plans/2026-09-02-wysiwyg-writing-help.md) | [#1793](https://github.com/Anglesite/Anglesite/issues/1793) | — |
 | 2026-09-02 | [WYSIWYG Undo Correctness + Component-Insert Manifest Path Implementation Plan](plans/2026-09-02-wysiwyg-undo-correctness-and-component-insert.md) | [#1602](https://github.com/Anglesite/Anglesite/issues/1602) | historical |

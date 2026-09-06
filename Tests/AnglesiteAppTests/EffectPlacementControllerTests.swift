@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 
 @Suite @MainActor struct EffectPlacementControllerTests {
@@ -156,7 +157,7 @@ import AnglesiteCore
         }
     }
 
-    @Test func acknowledgeIsNoOpFromApplying() async {
+    @Test func acknowledgeIsNoOpFromApplying() async throws {
         // Gate the model fetch on a manually-controlled `AsyncStream` so the test can observe
         // `.applying` and call `acknowledge()` mid-flight, deterministically, rather than racing
         // a fixed sleep against `handlePick`'s internal awaits.
@@ -174,7 +175,7 @@ import AnglesiteCore
             path: "/", element: .init(tag: "SECTION", id: nil, classes: ["hero"], nthChild: 1, ancestors: [], dataAnglesiteId: nil, dataTestId: nil, role: nil, ariaLabel: nil, textContent: nil))
         let handlePickTask = Task { await controller.handlePick(click) }
 
-        await pollUntil(timeout: .seconds(5)) {
+        try await waitUntil("controller to reach .applying") {
             if case .applying = controller.state { return true }
             return false
         }
@@ -206,14 +207,6 @@ import AnglesiteCore
             path: "/", element: .init(tag: "SECTION", id: nil, classes: ["hero"], nthChild: 1, ancestors: [], dataAnglesiteId: nil, dataTestId: nil, role: nil, ariaLabel: nil, textContent: nil))
         await controller.handlePick(click)
         return controller
-    }
-
-    private func pollUntil(timeout: Duration, _ condition: () -> Bool) async {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if condition() { return }
-            try? await Task.sleep(for: .milliseconds(5))
-        }
     }
 }
 

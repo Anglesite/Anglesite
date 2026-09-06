@@ -1,4 +1,5 @@
 import Testing
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 struct MCPApplyEditRouterTests {
@@ -206,7 +207,7 @@ struct MCPApplyEditRouterTests {
         #expect(reply.commit == nil)
     }
 
-    @Test("On edit fires for applied reply with commit") func onEditFiresForAppliedReplyWithCommit() async {
+    @Test("On edit fires for applied reply with commit") func onEditFiresForAppliedReplyWithCommit() async throws {
         let body = #"{"type":"anglesite:edit-applied","id":"e-1","file":"src/pages/about.astro","range":{"start":12,"end":25},"commit":"abc1234567890abcdef1234567890abcdef12345"}"#
         let recorder = ToolCallRecorder(result: .success(MCPClient.ToolCallResult(
             content: [.init(type: "text", text: body)],
@@ -218,7 +219,7 @@ struct MCPApplyEditRouterTests {
             onEdit: { reply in Task { await observed.record(reply) } }
         )
         _ = await router.apply(sampleMessage)
-        try? await Task.sleep(nanoseconds: 50_000_000)
+        try await waitUntil("onEdit's detached Task to record the reply") { await !observed.replies.isEmpty }
         let captured = await observed.replies
         #expect(captured.count == 1)
         #expect(captured.first?.commit == "abc1234567890abcdef1234567890abcdef12345")
@@ -280,6 +281,8 @@ struct MCPApplyEditRouterTests {
             onEdit: { reply in Task { await observed.record(reply) } }
         )
         _ = await router.apply(sampleMessage)
+        // Negative assertion (onEdit must not fire): there's no event to wait for, so this
+        // settles briefly and confirms nothing landed, rather than polling for absence.
         try? await Task.sleep(nanoseconds: 50_000_000)
         let captured = await observed.replies
         #expect(captured.isEmpty)

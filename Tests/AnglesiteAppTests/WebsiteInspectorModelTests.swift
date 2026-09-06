@@ -13,7 +13,7 @@ struct WebsiteInspectorModelTests {
     /// recognize it (so `SiteFileTree.layout(for:)` resolves the `Source/`/`Config/` split
     /// rather than treating it as a plain pre-package directory), a `Source/.site-config` with
     /// the real keys `SiteLanguageAsset.parseSettings`/`WebsiteAnalyticsAsset.bestHost` read
-    /// (`LANG`, `DOMAIN` — confirmed in `Sources/AnglesiteCore/SiteLanguageAsset.swift` and
+    /// (`LANG`, `DOMAIN` — confirmed in `Sources/AnglesiteCore/Site/SiteLanguageAsset.swift` and
     /// `WebsiteAnalyticsAsset.swift:152`), and a stylesheet under `Source/src/styles`.
     private func makeFixturePackage(title: String, domain: String?, lang: String) throws -> URL {
         let packageURL = FileManager.default.temporaryDirectory

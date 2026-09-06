@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 import AnglesiteCore
+import AnglesiteTestSupport
 @testable import AnglesiteAppCore
 #if canImport(FoundationNetworking)
 import FoundationNetworking
@@ -531,9 +532,9 @@ struct FollowersModelTests {
         #expect(model.pendingRows.first?.profile == nil)
 
         model.enrichIfNeeded(actor)
-        // enrichIfNeeded fires a detached Task; give it a beat to land.
-        for _ in 0..<50 where model.pendingRows.first?.profile == nil {
-            try await Task.sleep(for: .milliseconds(10))
+        // enrichIfNeeded fires a detached Task; wait for it to land instead of guessing how long.
+        try await waitUntil("the pending row's profile to be enriched") {
+            model.pendingRows.first?.profile != nil
         }
 
         #expect(model.pendingRows.first?.profile?.name == "Alice")
@@ -558,7 +559,9 @@ struct FollowersModelTests {
 
         await model.loadPending()
 
-        try await Task.sleep(for: .milliseconds(20))
+        // Negative assertion: there's no event to wait for, so this settles briefly and confirms
+        // the baseline load never notified, rather than polling for a condition that shouldn't occur.
+        try await Task.sleep(for: .milliseconds(20))  // sleep-is-subject: negative assertion, no event to wait for
         let notified = await recorder.events
         #expect(notified.isEmpty)
     }
@@ -598,11 +601,10 @@ struct FollowersModelTests {
         model.startPendingPollingIfNeeded()
         defer { model.stopPendingPolling() }
 
-        var events: [(String, Int)] = []
-        for _ in 0..<50 where events.isEmpty {
-            try await Task.sleep(for: .milliseconds(10))
-            events = await recorder.events
+        try await waitUntil("the poll loop to notify of the pending-count growth") {
+            !(await recorder.events.isEmpty)
         }
+        let events = await recorder.events
 
         // `[(String, Int)]` doesn't conform to `Equatable` (tuples can't conform to protocols),
         // so this compares the array's shape field-by-field instead of via `==`.
@@ -696,7 +698,8 @@ struct FollowersModelTests {
         let recorder = Recorder()
         model.onNewPendingRequests = { siteID, count in Task { await recorder.record((siteID, count)) } }
         await model.loadPending()
-        try await Task.sleep(for: .milliseconds(20))
+        // Negative assertion (baseline reset must stay silent) — settle briefly rather than poll.
+        try await Task.sleep(for: .milliseconds(20))  // sleep-is-subject: negative assertion, no event to wait for
 
         #expect(await recorder.events.isEmpty)
         #expect(model.pendingRows.count == 3)
@@ -790,7 +793,7 @@ struct FollowersModelTests {
         // Give several poll intervals' worth of time to elapse, then confirm no further request
         // ever landed beyond the initial `loadPending()` above — the guard should have returned
         // before spawning the recurring `Task` at all.
-        try await Task.sleep(for: .milliseconds(120))
+        try await Task.sleep(for: .milliseconds(120))  // sleep-is-subject: negative assertion, no event to wait for
         let requestsAfterWaiting = await membershipServer.requestedPaths.count
 
         #expect(requestsAfterWaiting == requestsBeforeStart)

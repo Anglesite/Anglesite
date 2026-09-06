@@ -10,7 +10,7 @@ This plan turns the high-level design into a concrete, phased implementation roa
 
 **Goal:** A buildable, signable, empty SwiftUI app committed to its own git repo.
 
-1. `git init` in `Anglesite-app/`. Add `.gitignore` (Xcode, SwiftPM, DerivedData, `.DS_Store`).
+1. `git init` in what was then a separate `Anglesite-app/` repo (later consolidated into `Anglesite/Anglesite`, #1059). Add `.gitignore` (Xcode, SwiftPM, DerivedData, `.DS_Store`).
 2. Create Xcode project: macOS App, SwiftUI lifecycle, Swift. *(Originally macOS 14; bumped to macOS 27+ after the Xcode 27 migration in #108.)*
    - Bundle id: `io.dwk.anglesite`.
    - Capabilities: App Sandbox **on**, Hardened Runtime **on**. *(The original bundled Node/JIT path shipped here, then retired in #70 once the dev server moved into the container runtime.)*
@@ -19,7 +19,7 @@ This plan turns the high-level design into a concrete, phased implementation roa
    - `AnglesiteApp/` — SwiftUI views + app entry
    - `AnglesiteCore/` — subprocess supervision, MCP client, edit pipeline
    - `AnglesiteBridge/` — WKWebView script messages + JS injection
-5. Set up CI (GitHub Actions) for `xcodebuild` build + unit tests on `macos-15`.
+5. Set up CI (GitHub Actions) for `xcodebuild` build + unit tests. *(Originally targeted `macos-15`; CI has since moved to `swift test` on `macos-26`, with no hosted `xcodebuild test` lane — #646.)*
 6. **App Store signing/export** dry run with a placeholder build before any real code lands.
 
 ## Phase 1 — Embedded Node runtime
@@ -65,7 +65,7 @@ This work lands in `anglesite/server/` — the app repo just calls it.
 5. ✅ Tests in `anglesite/test/patcher.test.js` + `apply-edit-dispatcher.test.js` + `edit-history.test.js` covering each resolver, ambiguous-match refusal, write-failed mapping, and the onApplied hook contract.
 6. Ambiguous edits surface as `edit-failed` reasons (`no-match`, `dynamic-expression`, `ambiguous-match`) and can be handed to chat for a higher-level repair flow rather than bypassing the patcher's safety checks.
 
-**End-to-end verification (2026-05-22):** typed h1 edit in `~/Sites/smoke/src/pages/index.astro` flowed through the WKWebView overlay → `AnglesiteScriptHandler.decode` → `MCPApplyEditRouter` → bundled MCP server → dispatcher → atomic file write. Tracking issues `Anglesite/anglesite#294` and `Anglesite/Anglesite-app#19` closed. The `AppliesEditEndToEndTests` xctest gives this round-trip ongoing CI coverage.
+**End-to-end verification (2026-05-22):** typed h1 edit in `~/Sites/smoke/src/pages/index.astro` flowed through the WKWebView overlay → `AnglesiteScriptHandler.decode` → `MCPApplyEditRouter` → bundled MCP server → dispatcher → atomic file write. Tracking issues `Anglesite/anglesite#294` and `#19` (filed in the pre-consolidation `Anglesite-app` repo, since merged into this one, #1059) closed. The `AppliesEditEndToEndTests` xctest gives this round-trip ongoing CI coverage.
 
 ## Phase 6 — Deploy button (v0 finishing)
 
@@ -182,7 +182,7 @@ These issues target macOS 27 APIs available with Xcode 27 / Swift 6.4 (all lande
 
 - **Platform-native UX.** Every user-facing feature must meet the applicable platform standard and release checklist: [macOS](mac-assed-app-spec.md), [iOS and iPadOS](ios-ipados-assed-app-spec.md), [Android](android-assed-app-spec.md), [Windows](windows-assed-app-spec.md), or [Linux (Ubuntu GNOME baseline)](linux-assed-app-spec.md). The shared core exposes behavior and capabilities; each native shell owns its platform-appropriate commands, windows, files, accessibility, and system integration. Do not use cross-platform reuse as a reason to ship a lowest-common-denominator interface.
 - **Multi-window — one window per site.** *(Decided 2026-05-12, overriding the earlier "single-window with tabs" recommendation; landed in Phase 9.)* Each open site gets its own top-level window with its own dev server / preview / debug pane; switching sites = `⌘\`` / Window menu, not in-window tabs. As shipped: `AnglesiteApp` uses `WindowGroup(for: String.self)` keyed by `SiteStore.Site.id`, and the Phase 9 "sidebar" became a separate `Window("Sites", id: "sites")` launcher rather than an in-window list.
-- **Chat history per-site, local-only.** *(Decided 2026-06-09.)* Persisted to `<package>/Config/chat-history.jsonl` as append-only JSONL (one `{timestamp, role, content, metadata?}` record per line, plus `{kind: "undone", messageID, newCommit}` sidecar lines for the undo trail). Implemented in `Sources/AnglesiteCore/ChatHistoryStore.swift`. **Not** included in the GitHub backup — `Config/` is app-owned per-site state outside the package's `Source/` git repo (post-#242), which keeps drafts/strategy/voice notes out of the backup repo. Trade-off accepted: reinstalling the app or switching machines drops local history.
+- **Chat history per-site, local-only.** *(Decided 2026-06-09.)* Persisted to `<package>/Config/chat-history.jsonl` as append-only JSONL (one `{timestamp, role, content, metadata?}` record per line, plus `{kind: "undone", messageID, newCommit}` sidecar lines for the undo trail). Implemented in `Sources/AnglesiteCore/AI/ChatHistoryStore.swift`. **Not** included in the GitHub backup — `Config/` is app-owned per-site state outside the package's `Source/` git repo (post-#242), which keeps drafts/strategy/voice notes out of the backup repo. Trade-off accepted: reinstalling the app or switching machines drops local history.
 - **Swift architecture: plain SwiftUI + actors for supervisors.** *(Decided 2026-06-09 — already in effect.)* No TCA for v0 — keeps the maintainer pool wide. See `CLAUDE.md`.
 - **Two repos, coordinated:** *(Decided 2026-06-09 — already in effect.)* Changes spanning `anglesite/server/patcher.mjs` and the app land as paired PRs. Both repos carry a `.github/PULL_REQUEST_TEMPLATE.md` with an explicit "Does this need a paired PR in the other repo?" prompt. See `CLAUDE.md` "Two-repo coordination".
 - **Bundle id: `io.dwk.anglesite`**. The previous direct-download target was retired once local Apple Containerization became viable for the App Store build.
