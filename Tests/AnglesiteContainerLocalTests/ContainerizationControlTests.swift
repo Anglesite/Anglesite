@@ -106,8 +106,8 @@ struct ContainerizationControlTests {
             onOutput: { line, _ in receivedLines.append(line) }
         )
         try await handle.write(Data("hello from the host\n".utf8))
-        // `cat` echoes what it reads from stdin; give the guest a moment before asserting.
-        try await Task.sleep(for: .milliseconds(500))
+        // `cat` echoes what it reads from stdin; wait for the guest to echo it back.
+        try await waitUntil("stdin echoed back") { receivedLines.contains("hello from the host") }
         #expect(receivedLines.contains("hello from the host"))
         await handle.terminate()
 
@@ -143,12 +143,8 @@ struct ContainerizationControlTests {
 
         // observe() replays the current state on subscribe, so `.running` must have been
         // delivered by the time the endpoint answers HTTP (#699).
-        var states = await collector.states
-        for _ in 0..<50 {
-            if !states.isEmpty { break }
-            try? await Task.sleep(for: .milliseconds(100))
-            states = await collector.states
-        }
+        try await waitUntil("first worker state observed") { !(await collector.states).isEmpty }
+        let states = await collector.states
         #expect(states.first == .running)
 
         try? await control.stop(siteID: siteID)
@@ -163,17 +159,15 @@ struct ContainerizationControlTests {
     /// here rather than sharing code across the test target/executable boundary (SwiftPM test
     /// targets aren't importable from an executable target).
     private func pollForHTTPResponse(_ url: URL, timeout: Duration) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
+        (try? await waitUntil("HTTP response from \(url)", timeout: timeout) {
             do {
                 let (_, response) = try await URLSession.shared.data(from: url)
-                if response is HTTPURLResponse { return true }
+                return response is HTTPURLResponse
             } catch {
                 // Not ready yet — wrangler-dev may still be starting up inside the guest.
+                return false
             }
-            try? await Task.sleep(for: .milliseconds(500))
-        }
-        return false
+        }) != nil
     }
 
     /// Create a throwaway on-disk git repo containing a minimal Astro site and an initial commit.

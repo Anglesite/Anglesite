@@ -185,7 +185,7 @@ struct GuestProcessSupervisorTests {
         #expect(await launcher.handles[0].killed)
 
         // Give the (now-cancelled) supervise loop a beat to prove it does NOT relaunch.
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: .milliseconds(50)) // sleep-is-subject: negative assertion, no event to wait for
         #expect(await launcher.launchCalls.count == 1)
     }
 }
