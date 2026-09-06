@@ -154,7 +154,7 @@ public actor SiteStore {
     public typealias ChangeHandler = @Sendable ([Site]) async -> Void
 
     private let fileManager: FileManager
-    private let persistenceURL: URL
+    private let store: CodableFileStore<[Site]>
     /// Where to best-effort mirror the registry for the share extension (#1450). `nil` means
     /// sharing is unavailable (no App Group entitlement) — every publish call becomes a no-op.
     private let sharedRegistryDirectory: URL?
@@ -183,7 +183,10 @@ public actor SiteStore {
         sharedRegistryDirectory: URL? = nil
     ) {
         self.fileManager = fileManager
-        self.persistenceURL = persistenceURL ?? Self.defaultPersistenceURL(fileManager: fileManager)
+        self.store = .json(
+            fileURL: persistenceURL ?? Self.defaultPersistenceURL(fileManager: fileManager),
+            fileManager: fileManager
+        )
         self.sharedRegistryDirectory = sharedRegistryDirectory ?? SharedContainer.url(fileManager: fileManager)
     }
 
@@ -202,12 +205,10 @@ public actor SiteStore {
     /// loaded list changes, it is persisted back so the launcher, Open Recent, Dock menu, and
     /// Spotlight all start from the same healed registry.
     public func load() async throws {
-        guard fileManager.fileExists(atPath: persistenceURL.path) else {
+        guard var loaded = try store.load() else {
             sites = []
             return
         }
-        let data = try Data(contentsOf: persistenceURL)
-        var loaded = try Self.decoder.decode([Site].self, from: data)
         let changed = Self.refreshFilesystemState(&loaded, fileManager: fileManager)
         sites = loaded
         if changed { try? persist() }
@@ -423,10 +424,7 @@ public actor SiteStore {
     // MARK: - Persistence
 
     private func persist() throws {
-        let dir = persistenceURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
-        let data = try Self.encoder.encode(sites)
-        try data.write(to: persistenceURL, options: [.atomic])
+        try store.save(sites)
         publishSharedRegistry()
     }
 
@@ -442,19 +440,6 @@ public actor SiteStore {
             return SharedSite(id: site.id, name: site.name, bookmarkData: bookmarkData, lastSeen: site.lastSeen)
         }
         SharedSiteRegistry.publish(shared, to: sharedRegistryDirectory, fileManager: fileManager)
-    }
-
-    private static var encoder: JSONEncoder {
-        let e = JSONEncoder()
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        e.dateEncodingStrategy = .iso8601
-        return e
-    }
-
-    private static var decoder: JSONDecoder {
-        let d = JSONDecoder()
-        d.dateDecodingStrategy = .iso8601
-        return d
     }
 
     private static func defaultPersistenceURL(fileManager: FileManager) -> URL {

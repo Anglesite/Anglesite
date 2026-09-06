@@ -3,12 +3,18 @@ import Foundation
 /// Registry of paired Anywhere-runtime devices, persisted as JSON — mirrors `ACPAgentStore`
 /// exactly (synchronous, not an actor; tiny; touched rarely — Settings edits and pairing events).
 public final class PairedDeviceStore: @unchecked Sendable {
-    private let fileManager: FileManager
-    private let persistenceURL: URL
-    /// Sibling of ``persistenceURL`` holding the revocation tombstones — see ``remove(id:)``.
+    /// The store's original hand-rolled encoder/decoder never set a date strategy, so `Date`
+    /// values (`PairedDevice.pairedAt`/`lastConnectedAt`, the revocation tombstone timestamps)
+    /// were written with `JSONEncoder`'s default `.deferredToDate` (a raw numeric
+    /// `timeIntervalSinceReferenceDate`) rather than `CodableFileStore.json`'s ISO 8601 default.
+    /// Both stores below pass this explicitly so migrating onto `CodableFileStore` doesn't change
+    /// the on-disk byte format or break decoding an existing `paired-devices.json`/
+    /// `revoked-devices.json`.
+    private let devicesStore: CodableFileStore<[PairedDevice]>
+    /// Sibling of the devices store holding the revocation tombstones — see ``remove(id:)``.
     /// Derived rather than injected so every existing call site (and every test that already passes
     /// a temp `persistenceURL`) gets a correctly co-located, correctly isolated one for free.
-    private let revocationsURL: URL
+    private let revocationsStore: CodableFileStore<[String: Date]>
 
     /// - Parameters:
     ///   - persistenceURL: where to read/write `paired-devices.json`. Defaults to
@@ -16,18 +22,24 @@ public final class PairedDeviceStore: @unchecked Sendable {
     ///     Revocation tombstones go in `revoked-devices.json` beside it.
     ///   - fileManager: Injectable for tests; defaults to `.default`.
     public init(persistenceURL: URL? = nil, fileManager: FileManager = .default) {
-        self.fileManager = fileManager
         let url = persistenceURL ?? Self.defaultPersistenceURL(fileManager: fileManager)
-        self.persistenceURL = url
-        self.revocationsURL = url.deletingLastPathComponent()
-            .appendingPathComponent("revoked-devices.json")
+        self.devicesStore = .json(
+            fileURL: url,
+            fileManager: fileManager,
+            dateEncodingStrategy: .deferredToDate,
+            dateDecodingStrategy: .deferredToDate
+        )
+        self.revocationsStore = .json(
+            fileURL: url.deletingLastPathComponent().appendingPathComponent("revoked-devices.json"),
+            fileManager: fileManager,
+            dateEncodingStrategy: .deferredToDate,
+            dateDecodingStrategy: .deferredToDate
+        )
     }
 
     /// Reads the full list fresh from disk. Returns `[]` if no file exists yet.
     public func load() throws -> [PairedDevice] {
-        guard fileManager.fileExists(atPath: persistenceURL.path) else { return [] }
-        let data = try Data(contentsOf: persistenceURL)
-        return try Self.decoder.decode([PairedDevice].self, from: data)
+        try devicesStore.load() ?? []
     }
 
     /// Appends `device`. Callers are responsible for using a fresh `UUID`.
@@ -110,15 +122,11 @@ public final class PairedDeviceStore: @unchecked Sendable {
 
     /// Every recorded tombstone, keyed by peer `deviceID`. Returns `[:]` if none were ever written.
     private func revocations() throws -> [String: Date] {
-        guard fileManager.fileExists(atPath: revocationsURL.path) else { return [:] }
-        let data = try Data(contentsOf: revocationsURL)
-        return try Self.decoder.decode([String: Date].self, from: data)
+        try revocationsStore.load() ?? [:]
     }
 
     private func persistRevocations(_ tombstones: [String: Date]) throws {
-        try fileManager.createDirectory(
-            at: revocationsURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try Self.encoder.encode(tombstones).write(to: revocationsURL, options: [.atomic])
+        try revocationsStore.save(tombstones)
     }
 
     /// Looks up a paired device by its peer-supplied `deviceID` (not this store's own `id`) — the
@@ -129,19 +137,8 @@ public final class PairedDeviceStore: @unchecked Sendable {
     }
 
     private func persist(_ devices: [PairedDevice]) throws {
-        let dir = persistenceURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
-        let data = try Self.encoder.encode(devices)
-        try data.write(to: persistenceURL, options: [.atomic])
+        try devicesStore.save(devices)
     }
-
-    private static var encoder: JSONEncoder {
-        let e = JSONEncoder()
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return e
-    }
-
-    private static var decoder: JSONDecoder { JSONDecoder() }
 
     private static func defaultPersistenceURL(fileManager: FileManager) -> URL {
         let support = (try? fileManager.url(

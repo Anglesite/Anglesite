@@ -5,23 +5,22 @@ import Foundation
 /// `AssistantBackendResolver`, which runs from a non-async closure (`SiteAssistantSessionFactory`'s
 /// `AssistantBuilder`), and the store is tiny and touched rarely (Settings edits only).
 public final class ACPAgentStore: @unchecked Sendable {
-    private let fileManager: FileManager
-    private let persistenceURL: URL
+    private let store: CodableFileStore<[ACPAgentConnection]>
 
     /// - Parameters:
     ///   - persistenceURL: where to read/write `acp-agents.json`. Defaults to
     ///     `~/Library/Application Support/Anglesite/acp-agents.json`. Tests should pass a temp URL.
     ///   - fileManager: Injectable for tests; defaults to `.default`.
     public init(persistenceURL: URL? = nil, fileManager: FileManager = .default) {
-        self.fileManager = fileManager
-        self.persistenceURL = persistenceURL ?? Self.defaultPersistenceURL(fileManager: fileManager)
+        self.store = .json(
+            fileURL: persistenceURL ?? Self.defaultPersistenceURL(fileManager: fileManager),
+            fileManager: fileManager
+        )
     }
 
     /// Reads the full list fresh from disk. Returns `[]` if no file exists yet.
     public func load() throws -> [ACPAgentConnection] {
-        guard fileManager.fileExists(atPath: persistenceURL.path) else { return [] }
-        let data = try Data(contentsOf: persistenceURL)
-        return try Self.decoder.decode([ACPAgentConnection].self, from: data)
+        try store.load() ?? []
     }
 
     /// Appends `connection`. Callers are responsible for using a fresh `UUID` — this does not
@@ -48,19 +47,8 @@ public final class ACPAgentStore: @unchecked Sendable {
     }
 
     private func persist(_ connections: [ACPAgentConnection]) throws {
-        let dir = persistenceURL.deletingLastPathComponent()
-        try fileManager.createDirectory(at: dir, withIntermediateDirectories: true)
-        let data = try Self.encoder.encode(connections)
-        try data.write(to: persistenceURL, options: [.atomic])
+        try store.save(connections)
     }
-
-    private static var encoder: JSONEncoder {
-        let e = JSONEncoder()
-        e.outputFormatting = [.prettyPrinted, .sortedKeys]
-        return e
-    }
-
-    private static var decoder: JSONDecoder { JSONDecoder() }
 
     private static func defaultPersistenceURL(fileManager: FileManager) -> URL {
         let support = (try? fileManager.url(

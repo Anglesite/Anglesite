@@ -57,4 +57,26 @@ final class ACPAgentStoreTests {
         let reader = ACPAgentStore(persistenceURL: persistenceURL)
         #expect(try reader.load() == [connection])
     }
+
+    /// #1916: `ACPAgentStore` migrated its hand-rolled encode/write/decode onto `CodableFileStore`.
+    /// A fixture written with the store's original encoder configuration must still decode through
+    /// the migrated store, and re-saving it must reproduce the exact same bytes — i.e. the swap is
+    /// a pure internal refactor with no on-disk format change.
+    @Test("byte-compatible with the pre-migration encoder configuration") func byteCompatibleWithPreMigrationFormat() throws {
+        let connections = [
+            ACPAgentConnection(id: UUID(), name: "Local Agent", transport: .stdio(command: "acp-agent", arguments: ["--flag"])),
+            ACPAgentConnection(id: UUID(), name: "Remote Agent", transport: .remote(url: URL(string: "https://example.com")!)),
+        ]
+        let legacyEncoder = JSONEncoder()
+        legacyEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let fixture = try legacyEncoder.encode(connections)
+        try fixture.write(to: persistenceURL)
+
+        let store = ACPAgentStore(persistenceURL: persistenceURL)
+        #expect(try store.load() == connections)
+
+        try store.update(connections[0])
+        let resaved = try Data(contentsOf: persistenceURL)
+        #expect(resaved == fixture)
+    }
 }
