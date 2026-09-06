@@ -26,6 +26,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-04 | [Safari MCP transport spike: how a sandboxed `Anglesite.app` reaches a user-launched `safaridriver --mcp`](specs/2026-09-04-safari-mcp-transport-spike.md) | [#1887](https://github.com/Anglesite/Anglesite/issues/1887), [#453](https://github.com/Anglesite/Anglesite/issues/453) | current |
 | 2026-09-03 | [Generated docs index and `Status:` convention for design docs](specs/2026-09-03-docs-index-and-status-convention-design.md) | [#1816](https://github.com/Anglesite/Anglesite/issues/1816) | current |
 | 2026-09-02 | [WYSIWYG slice 6 — on-device AI services — design](specs/2026-09-02-wysiwyg-ai-services-design.md) | [#1227](https://github.com/Anglesite/Anglesite/issues/1227) | — |
 | 2026-09-02 | [RSVP, check-in, and repost as publishable post types](specs/2026-09-02-rsvp-checkin-repost-post-types-design.md) | [#1598](https://github.com/Anglesite/Anglesite/issues/1598) | current |
