@@ -398,6 +398,7 @@ private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.lanRuntimeHost) private var lanRuntimeHost: String = ""
     @AppStorage(AppSettings.Key.lanRuntimePreviewPort) private var lanRuntimePreviewPort: String = ""
     @AppStorage(AppSettings.Key.lanRuntimeMCPPort) private var lanRuntimeMCPPort: String = ""
+    @AppStorage(AppSettings.Key.safariMCPBridgePort) private var safariMCPBridgePortText: String = ""
     @StateObject private var lanScan = LANHostScanCoordinator()
 
     /// Same visibility rule as the Debug pane (`DebugPaneVisibility`): always present in Debug
@@ -409,6 +410,15 @@ private struct AdvancedSettingsView: View {
         #else
         return debugPaneEnabled
         #endif
+    }
+
+    /// The effective port for the Safari MCP Bridge section below — falls back to
+    /// `SafariMCPBridgeDetector.defaultPort` for an empty or out-of-range field, mirroring
+    /// `AppSettings.safariMCPBridgePort`'s own fallback so the two never disagree.
+    private var safariMCPBridgePort: Int {
+        guard let port = Int(safariMCPBridgePortText.trimmingCharacters(in: .whitespaces)),
+              (1...65535).contains(port) else { return SafariMCPBridgeDetector.defaultPort }
+        return port
     }
 
     var body: some View {
@@ -460,6 +470,18 @@ private struct AdvancedSettingsView: View {
                 Text("Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write, Administration: Read and write access (Administration is needed to create a new repo when publishing), Pages: Read and write access (needed to publish a site via the GitHub Pages deploy target), Repository security advisories: Read, and Dependabot alerts: Read (both are used to show a site's open security reports) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+            }
+
+            Section("Safari MCP Bridge") {
+                LabeledContent("Bridge port") {
+                    TextField("", text: $safariMCPBridgePortText,
+                              prompt: Text(verbatim: String(SafariMCPBridgeDetector.defaultPort)))
+                        .textFieldStyle(.roundedBorder)
+                        .frame(width: 100)
+                        .accessibilityLabel("Safari MCP bridge port")
+                        .accessibilityIdentifier(AXID.settingsSafariMCPBridgePort)
+                }
+                SafariMCPBridgeStatusRow(port: safariMCPBridgePort)
             }
 
             if showsLANRuntimeSection {
@@ -869,6 +891,85 @@ private struct KeychainTokenRow: View {
         } catch {
             status = .error("couldn't clear: \(error)")
             savedMessage = nil
+        }
+    }
+}
+
+/// Reachability status + setup guidance for a user-launched Safari MCP bridge (#1910). Probes
+/// `port` with `SafariMCPBridgeDetector` on appear and whenever the port changes; shows the two
+/// Safari Technology Preview toggles and the exact bridge command only while unreachable, so a
+/// working connection doesn't stay cluttered with setup instructions. The app never spawns the
+/// bridge itself — this row can only observe, never fix, the connection.
+private struct SafariMCPBridgeStatusRow: View {
+    let port: Int
+
+    @State private var status: Status = .checking
+
+    private enum Status: Equatable {
+        case checking
+        case reachable(String)
+        case unreachable
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            LabeledContent("Connection") {
+                HStack(spacing: 8) {
+                    statusLabel
+                    Button("Check Again") { Task { await check() } }
+                        .disabled(status == .checking)
+                }
+            }
+            .accessibilityIdentifier(AXID.settingsSafariMCPBridgeStatus)
+
+            if case .unreachable = status {
+                setupGuidance
+            }
+
+            Text("Safari MCP runs locally on this Mac. Once bridged, it can expose the active Safari tab's page content, screenshots, and console logs to whatever is listening on that port — only run the bridge command when you trust what's on the other end.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .task(id: port) { await check() }
+    }
+
+    @ViewBuilder
+    private var statusLabel: some View {
+        switch status {
+        case .checking:
+            ProgressView().controlSize(.small)
+        case .reachable(let name):
+            Label("Connected to \(name)", systemImage: "checkmark.circle.fill")
+                .foregroundStyle(.green)
+                .font(.caption)
+        case .unreachable:
+            Label("Not reachable", systemImage: "xmark.circle")
+                .foregroundStyle(.secondary)
+                .font(.caption)
+        }
+    }
+
+    @ViewBuilder
+    private var setupGuidance: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text("Requires Safari Technology Preview with two settings enabled: Settings ▸ Advanced ▸ \u{201C}Show features for web developers\u{201D}, then Settings ▸ Developer ▸ \u{201C}Enable remote automation and external agents.\u{201D} Then run this in Terminal:")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+            Text(verbatim: "npx -y mcp-proxy --port \(port) -- safaridriver --mcp")
+                .font(.system(.caption, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(6)
+                .background(Color(NSColor.textBackgroundColor))
+                .clipShape(RoundedRectangle(cornerRadius: 4))
+        }
+    }
+
+    private func check() async {
+        status = .checking
+        let result = await SafariMCPBridgeDetector().checkReachability(port: port)
+        switch result.state {
+        case .reachable(let name): status = .reachable(name)
+        case .unreachable: status = .unreachable
         }
     }
 }

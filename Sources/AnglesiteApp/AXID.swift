@@ -88,6 +88,11 @@ enum AXID {
     static func debugWorkerCopy(_ siteID: String) -> String { "debug.worker.\(siteID).copy" }
     static func debugWorkerFailure(_ siteID: String) -> String { "debug.worker.\(siteID).failure" }
 
+    // MARK: Safari MCP Bridge (#1910)
+
+    static let settingsSafariMCPBridgePort = "settings.safariMCPBridge.port"
+    static let settingsSafariMCPBridgeStatus = "settings.safariMCPBridge.status"
+
     /// Every hand-assigned identifier, for `AXIDTests`' uniqueness/format checks (the
     /// toolbar family is generated from `SiteToolbarItemID`, and the per-worker / per-site
     /// families above from their stable ids; each is frozen by its own formatting test).
@@ -101,5 +106,6 @@ enum AXID {
         debugPauseToggle, debugAutoScrollToggle,
         debugClearButton, debugCopyButton, debugSaveButton,
         debugServerHeader, debugLocalWorkersHeader,
+        settingsSafariMCPBridgePort, settingsSafariMCPBridgeStatus,
     ]
 }
