@@ -25,6 +25,8 @@ public final class AppSettings: @unchecked Sendable {
         /// MCP-port component of ``AppSettings/lanRuntimeConfiguration``. Stored as a string
         /// (the Settings text field's empty state means "default").
         public static let lanRuntimeMCPPort     = "anglesite.lanRuntimeMCPPort"
+        /// Backs ``AppSettings/safariMCPBridgePort`` (#1910).
+        public static let safariMCPBridgePort = "anglesite.safariMCPBridgePort"
         /// Backs ``AppSettings/debugPaneEnabled``.
         public static let debugPaneEnabled   = "anglesite.debugPaneEnabled"
         /// Backs ``AppSettings/botPreferenceSyncUIEnabled``.
@@ -197,6 +199,15 @@ public final class AppSettings: @unchecked Sendable {
         guard let raw = defaults.string(forKey: key)?.trimmingCharacters(in: .whitespaces),
               let port = Int(raw), (1...65535).contains(port) else { return defaultPort }
         return port
+    }
+
+    /// The loopback port Settings probes for a user-launched Safari MCP bridge (#1910) — e.g.
+    /// `npx -y mcp-proxy --port <port> -- safaridriver --mcp`. Stored as a string (the Settings
+    /// text field's empty state means "default"); falls back to
+    /// ``SafariMCPBridgeDetector/defaultPort`` when blank or out of range.
+    public var safariMCPBridgePort: Int {
+        get { port(forKey: Key.safariMCPBridgePort, default: SafariMCPBridgeDetector.defaultPort) }
+        set { defaults.set(String(newValue), forKey: Key.safariMCPBridgePort) }
     }
 
     /// Effective root for site discovery (#865): `sitesRootOverride` when set (dev/test escape
