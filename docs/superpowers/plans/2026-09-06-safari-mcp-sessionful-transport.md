@@ -29,7 +29,9 @@
 - Test: `Tests/AnglesiteCoreTests/SessionfulHTTPTransportTests.swift`
 
 **Interfaces:**
-- Consumes: `MCPTransport` protocol (`Sources/AnglesiteCore/AI/MCPTransport.swift`) — `open()`, `send(_:)`, `inbound() -> AsyncStream<JSONValue>`, `close()`. `JSONValue` (`Sources/AnglesiteCore/AI/MCPClient.swift`). The existing `StubURLProtocol` test double (`Tests/AnglesiteCoreTests/HTTPTransportTests.swift`, internal access, no import needed within the same test target).
+- Consumes: `MCPTransport` protocol (`Sources/AnglesiteCore/AI/MCPTransport.swift`) — `open()`, `send(_:)`, `inbound() -> AsyncStream<JSONValue>`, `close()`. `JSONValue` (`Sources/AnglesiteCore/AI/MCPClient.swift`).
+
+**Post-hoc correction (found during controller verification, applies to the actual implementation — not the Step 1 sketch below):** the Step 1 test code below was originally written to reuse `HTTPTransportTests.swift`'s shared `StubURLProtocol`. Running `HTTPTransportTests` and `SessionfulHTTPTransportTests` together segfaulted — Swift Testing runs separate suites concurrently by default even though each is individually `.serialized`, and the two suites share `StubURLProtocol`'s unsynchronized static `queue`/`lastSessionHeaders` arrays. `Tests/AnglesiteCoreTests/ACPHTTPTransportTests.swift:5-8` already documents and solves this exact problem — "A dedicated `URLProtocol` stub for these tests... a separate type/instance so this suite's per-test queue mutations can never race with that suite's, even though both can run concurrently" (`ACPStubURLProtocol`). The actual implementation therefore defines its own dedicated `SessionfulStubURLProtocol` in `SessionfulHTTPTransportTests.swift`, modeled on `ACPStubURLProtocol`'s exact shape, instead of reusing `StubURLProtocol` — replace every `StubURLProtocol` reference in the Step 1 code below with `SessionfulStubURLProtocol`, and add the dedicated stub type (copy `ACPStubURLProtocol`'s structure, with `queue`, `lastSessionHeaders: [String?]`, and `lastProtocolVersionHeaders: [String?]` fields, a `reset()`, and a `startLoading()` that appends to both header arrays) at the top of that file. Tasks 2 and 3 below have already been corrected to follow this same pattern.
 - Produces: `public actor SessionfulHTTPTransport: MCPTransport` with `public init(endpoint: URL, urlSession: URLSession = .shared)` and nested `public enum HTTPError: Error, Sendable, Equatable { case http(status: Int), case connectionFailed, case badResponse }` — consumed by Task 2's `SafariMCPBridgeClient`.
 
 - [ ] **Step 1: Write the failing tests**
@@ -378,11 +380,37 @@ import Testing
 import Foundation
 @testable import AnglesiteCore
 
+/// A dedicated `URLProtocol` stub for these tests — modeled on `HTTPTransportTests.swift`'s
+/// `StubURLProtocol` (and `ACPHTTPTransportTests.swift`'s `ACPStubURLProtocol`) but a separate
+/// type/instance so this suite's per-test queue mutations can never race with those suites',
+/// even though Swift Testing can run all three concurrently (each is independently `.serialized`,
+/// which only serializes tests *within* a suite, not across suites — see
+/// `Tests/AnglesiteCoreTests/ACPHTTPTransportTests.swift:5-8`'s identical rationale).
+final class SafariMCPBridgeClientStubURLProtocol: URLProtocol, @unchecked Sendable {
+    struct Response { let status: Int; let headers: [String: String]; let body: Data }
+    nonisolated(unsafe) static var queue: [Response] = []
+    nonisolated(unsafe) static var lastSessionHeaders: [String?] = []
+
+    static func reset() { queue = []; lastSessionHeaders = [] }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        Self.lastSessionHeaders.append(request.value(forHTTPHeaderField: "Mcp-Session-Id"))
+        let r = Self.queue.isEmpty ? Response(status: 500, headers: [:], body: Data()) : Self.queue.removeFirst()
+        let http = HTTPURLResponse(url: request.url!, statusCode: r.status, httpVersion: "HTTP/1.1", headerFields: r.headers)!
+        client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
+        if !r.body.isEmpty { client?.urlProtocol(self, didLoad: r.body) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @Suite(.serialized)
 struct SafariMCPBridgeClientTests {
     private func makeClient(logCenter: LogCenter = LogCenter()) -> (SafariMCPBridgeClient, URLSession) {
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [StubURLProtocol.self]
+        config.protocolClasses = [SafariMCPBridgeClientStubURLProtocol.self]
         let session = URLSession(configuration: config)
         let client = SafariMCPBridgeClient(
             endpoint: URL(string: "http://127.0.0.1:4399/mcp")!,
@@ -393,15 +421,15 @@ struct SafariMCPBridgeClientTests {
     }
 
     @Test("connect sends a real initialize request and decodes serverInfo") func connectDecodesServerInfo() async throws {
-        StubURLProtocol.reset()
-        StubURLProtocol.queue.append(.init(
+        SafariMCPBridgeClientStubURLProtocol.reset()
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(
             status: 200,
             headers: ["Content-Type": "application/json", "Mcp-Session-Id": "sess-1"],
             body: #"""
             {"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","capabilities":{"tools":{}},"serverInfo":{"name":"Safari","version":"1.0.0"}}}
             """#.data(using: .utf8)!
         ))
-        StubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))  // notifications/initialized
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))  // notifications/initialized
 
         let logCenter = LogCenter()
         let (client, _) = makeClient(logCenter: logCenter)
@@ -410,7 +438,7 @@ struct SafariMCPBridgeClientTests {
 
         // The initialize request itself must never send MCP-Protocol-Version, and the id=1
         // request must have no session header yet.
-        #expect(StubURLProtocol.lastSessionHeaders.first == nil)
+        #expect(SafariMCPBridgeClientStubURLProtocol.lastSessionHeaders.first == nil)
 
         let logged = await logCenter.snapshot()
         #expect(logged.contains { $0.source == "safari-mcp" && $0.stream == .stdout && $0.text.contains("Safari") })
@@ -418,14 +446,14 @@ struct SafariMCPBridgeClientTests {
     }
 
     @Test("listTools decodes the tools array") func listToolsDecodes() async throws {
-        StubURLProtocol.reset()
-        StubURLProtocol.queue.append(.init(
+        SafariMCPBridgeClientStubURLProtocol.reset()
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(
             status: 200,
             headers: ["Content-Type": "application/json", "Mcp-Session-Id": "sess-1"],
             body: #"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","serverInfo":{"name":"Safari"}}}"#.data(using: .utf8)!
         ))
-        StubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))
-        StubURLProtocol.queue.append(.init(
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(
             status: 200,
             headers: ["Content-Type": "application/json"],
             body: #"{"jsonrpc":"2.0","id":2,"result":{"tools":[{"name":"browser_console_messages","description":"Read console"}]}}"#.data(using: .utf8)!
@@ -439,8 +467,8 @@ struct SafariMCPBridgeClientTests {
     }
 
     @Test("a JSON-RPC error response surfaces as ClientError.rpcError") func rpcErrorSurfaces() async throws {
-        StubURLProtocol.reset()
-        StubURLProtocol.queue.append(.init(
+        SafariMCPBridgeClientStubURLProtocol.reset()
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(
             status: 200,
             headers: ["Content-Type": "application/json"],
             body: #"{"jsonrpc":"2.0","id":1,"error":{"code":-32000,"message":"nope"}}"#.data(using: .utf8)!
@@ -457,8 +485,8 @@ struct SafariMCPBridgeClientTests {
     }
 
     @Test("connection failure logs to LogCenter and rethrows") func connectionFailureLogs() async throws {
-        StubURLProtocol.reset()
-        // Empty queue -> StubURLProtocol answers 500 by default.
+        SafariMCPBridgeClientStubURLProtocol.reset()
+        // Empty queue -> the stub answers 500 by default.
         let logCenter = LogCenter()
         let (client, _) = makeClient(logCenter: logCenter)
         await #expect(throws: (any Error).self) {
@@ -746,30 +774,52 @@ import Testing
 import Foundation
 @testable import AnglesiteCore
 
+/// A dedicated `URLProtocol` stub for these tests — same rationale as
+/// `SafariMCPBridgeClientStubURLProtocol` (Task 2): a separate type/instance so this suite can
+/// never race with `SafariMCPBridgeClientTests` (or any other suite's stub) when Swift Testing
+/// runs suites concurrently. See `Tests/AnglesiteCoreTests/ACPHTTPTransportTests.swift:5-8`.
+final class SafariMCPBridgeDetectorStubURLProtocol: URLProtocol, @unchecked Sendable {
+    struct Response { let status: Int; let headers: [String: String]; let body: Data }
+    nonisolated(unsafe) static var queue: [Response] = []
+
+    static func reset() { queue = [] }
+
+    override class func canInit(with request: URLRequest) -> Bool { true }
+    override class func canonicalRequest(for request: URLRequest) -> URLRequest { request }
+    override func startLoading() {
+        let r = Self.queue.isEmpty ? Response(status: 500, headers: [:], body: Data()) : Self.queue.removeFirst()
+        let http = HTTPURLResponse(url: request.url!, statusCode: r.status, httpVersion: "HTTP/1.1", headerFields: r.headers)!
+        client?.urlProtocol(self, didReceive: http, cacheStoragePolicy: .notAllowed)
+        if !r.body.isEmpty { client?.urlProtocol(self, didLoad: r.body) }
+        client?.urlProtocolDidFinishLoading(self)
+    }
+    override func stopLoading() {}
+}
+
 @Suite(.serialized)
 struct SafariMCPBridgeDetectorTests {
     private func makeDetector() -> (SafariMCPBridgeDetector, URLSession) {
         let config = URLSessionConfiguration.ephemeral
-        config.protocolClasses = [StubURLProtocol.self]
+        config.protocolClasses = [SafariMCPBridgeDetectorStubURLProtocol.self]
         let session = URLSession(configuration: config)
         return (SafariMCPBridgeDetector(urlSession: session, logCenter: LogCenter()), session)
     }
 
     @Test("a reachable bridge reports .reachable with the server name") func reachable() async throws {
-        StubURLProtocol.reset()
-        StubURLProtocol.queue.append(.init(
+        SafariMCPBridgeDetectorStubURLProtocol.reset()
+        SafariMCPBridgeDetectorStubURLProtocol.queue.append(.init(
             status: 200,
             headers: ["Content-Type": "application/json", "Mcp-Session-Id": "sess-1"],
             body: #"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","serverInfo":{"name":"Safari"}}}"#.data(using: .utf8)!
         ))
-        StubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))
+        SafariMCPBridgeDetectorStubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))
         let (detector, _) = makeDetector()
         let status = await detector.checkReachability(port: 8931)
         #expect(status == SafariMCPBridgeStatus(state: .reachable(serverName: "Safari"), port: 8931))
     }
 
     @Test("an unreachable port reports .unreachable") func unreachable() async throws {
-        StubURLProtocol.reset()  // empty queue -> 500 from every request
+        SafariMCPBridgeDetectorStubURLProtocol.reset()  // empty queue -> 500 from every request
         let (detector, _) = makeDetector()
         let status = await detector.checkReachability(port: 8931)
         #expect(status == SafariMCPBridgeStatus(state: .unreachable, port: 8931))

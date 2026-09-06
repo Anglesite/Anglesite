@@ -967,6 +967,7 @@ private struct SafariMCPBridgeStatusRow: View {
     private func check() async {
         status = .checking
         let result = await SafariMCPBridgeDetector().checkReachability(port: port)
+        guard !Task.isCancelled else { return }
         switch result.state {
         case .reachable(let name): status = .reachable(name)
         case .unreachable: status = .unreachable
