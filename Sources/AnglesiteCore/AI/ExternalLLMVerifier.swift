@@ -59,7 +59,10 @@ public struct ExternalLLMVerifier: Sendable {
 #if canImport(Darwin)
         do {
             let (asyncBytes, response) = try await urlSession.bytes(for: request)
-            guard let http = response as? HTTPURLResponse else { return .failure("no HTTP response") }
+            guard let http = response as? HTTPURLResponse else {
+                asyncBytes.task.cancel()
+                return .failure("no HTTP response")
+            }
             guard (200...299).contains(http.statusCode) else {
                 asyncBytes.task.cancel()
                 return .failure("HTTP \(http.statusCode)")
