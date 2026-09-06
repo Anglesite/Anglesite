@@ -60,12 +60,27 @@ for entry in "${target_baseline_lines[@]}"; do
 done
 
 echo "-- checking every remaining sleep call in the 9 target files carries the marker --"
+marker="sleep-is-subject"
 for file in "${target_files[@]}"; do
+  # Same field parsing as check-test-sleep-marker.sh (lineno:content split, then a leading
+  # "//" trim check) rather than a line-level regex — a regex guessing "comment-only" from
+  # ": //" risks a false negative on a genuine violation whose own trailing text happens to
+  # contain that sequence.
   unmarked="$(
-    git grep -n -E 'Task\.sleep|Thread\.sleep|usleep\(' -- "$file" 2>/dev/null \
-      | grep -v 'sleep-is-subject' \
-      | grep -vE ':\s*//' \
-      || true
+    git grep -n -E 'Task\.sleep|Thread\.sleep|usleep\(' -- "$file" 2>/dev/null | awk -v marker="$marker" -F ':' '
+    {
+      c1 = index($0, ":")
+      rest = substr($0, c1 + 1)
+      c2 = index(rest, ":")
+      lineno = substr(rest, 1, c2 - 1)
+      content = substr(rest, c2 + 1)
+      trimmed = content
+      sub(/^[ \t]+/, "", trimmed)
+      sub(/[ \t]+$/, "", trimmed)
+      if (trimmed ~ /^\/\//) next
+      if (index(content, marker) > 0) next
+      print lineno ": " trimmed
+    }' || true
   )"
   if [[ -n "$unmarked" ]]; then
     echo "FAIL unmarked sleep(s) remain in $file:"
