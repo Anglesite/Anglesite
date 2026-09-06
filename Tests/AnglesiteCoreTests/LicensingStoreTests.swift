@@ -516,4 +516,27 @@ struct LicensingStoreTests {
         #expect(LicensableCollection(routePath: "/") == nil)
         #expect(LicensableCollection(routePath: "/about/") == nil)
     }
+
+    @Test("re-saving a fixture written with the pre-CodableFileStore encoder produces identical bytes")
+    func byteCompatibleWithPreMigrationEncoder() throws {
+        let dir = try makeDirectory()
+        var policy = LicensingPolicy()
+        policy.defaultLicense = ccBY
+        policy.collections[.notes] = .assertNothing
+        policy.collections[.photos] = .license(ccBY)
+        policy.usage = AIUsage(search: .yes, aiInput: .no, aiTrain: .no, blockAICrawlers: true)
+        // Reproduces LicensingStore.save()'s encoder configuration before the CodableFileStore migration.
+        let legacyEncoder = JSONEncoder()
+        legacyEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let legacyBytes = try legacyEncoder.encode(policy)
+        let fileURL = dir.appendingPathComponent(LicensingStore.relativePath)
+        try FileManager.default.createDirectory(
+            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try legacyBytes.write(to: fileURL)
+
+        let store = LicensingStore(sourceDirectory: dir)
+        try store.save(try store.load())
+
+        #expect(try Data(contentsOf: fileURL) == legacyBytes)
+    }
 }

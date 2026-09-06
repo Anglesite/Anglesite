@@ -137,4 +137,24 @@ struct UTMCodesStoreTests {
             #expect(!target.displayName.isEmpty)
         }
     }
+
+    @Test("re-saving a fixture written with the pre-CodableFileStore encoder produces identical bytes")
+    func byteCompatibleWithPreMigrationEncoder() throws {
+        let dir = try tempSourceDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let campaigns = [
+            UTMCodesStore.Campaign(source: "rss", medium: "feed", campaign: "affiliate-2026", appliesTo: [.blog, .notes]),
+        ]
+        // Reproduces UTMCodesStore.save()'s encoder configuration before the CodableFileStore migration.
+        let legacyEncoder = JSONEncoder()
+        legacyEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let legacyBytes = try legacyEncoder.encode(campaigns)
+        let fileURL = dir.appendingPathComponent("utm-codes.json")
+        try legacyBytes.write(to: fileURL)
+
+        let store = UTMCodesStore(sourceDirectory: dir)
+        try store.save(try store.load())
+
+        #expect(try Data(contentsOf: fileURL) == legacyBytes)
+    }
 }
