@@ -12,10 +12,11 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
     nonisolated(unsafe) static var lastAuthHeaders: [String?] = []
     nonisolated(unsafe) static var lastMethodHeaders: [String?] = []
     nonisolated(unsafe) static var lastNameHeaders: [String?] = []
+    nonisolated(unsafe) static var lastProtocolVersionHeaders: [String?] = []
 
     static func reset() {
         queue = []; lastRequestBodies = []; lastSessionHeaders = []; lastAuthHeaders = []
-        lastMethodHeaders = []; lastNameHeaders = []
+        lastMethodHeaders = []; lastNameHeaders = []; lastProtocolVersionHeaders = []
     }
 
     override class func canInit(with request: URLRequest) -> Bool { true }
@@ -34,6 +35,7 @@ final class StubURLProtocol: URLProtocol, @unchecked Sendable {
         Self.lastAuthHeaders.append(request.value(forHTTPHeaderField: "Authorization"))
         Self.lastMethodHeaders.append(request.value(forHTTPHeaderField: "Mcp-Method"))
         Self.lastNameHeaders.append(request.value(forHTTPHeaderField: "Mcp-Name"))
+        Self.lastProtocolVersionHeaders.append(request.value(forHTTPHeaderField: "MCP-Protocol-Version"))
 
         let r = Self.queue.isEmpty
             ? Response(status: 500, headers: [:], body: Data())

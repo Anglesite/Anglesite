@@ -49,6 +49,7 @@ struct SessionfulHTTPTransportTests {
         let (t, _) = makeTransport()
         try await t.open()
         try await t.send(.object(["jsonrpc": .string("2.0"), "id": .int(1), "method": .string("initialize")]))
+        #expect(StubURLProtocol.lastProtocolVersionHeaders == [nil])
         await t.close()
     }
 
