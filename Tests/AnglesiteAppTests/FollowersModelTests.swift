@@ -10,7 +10,11 @@ import FoundationNetworking
 /// Covers the recovery and paging behavior the whole-branch review found missing: every error
 /// state has to be escapable from inside the pane, and paging has to be additive — a page that
 /// fails, or a page that arrives twice, must not cost the owner the rows already on screen.
-@Suite("FollowersModel")
+/// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
+/// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
+/// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
+/// unambiguous time-limit violation instead of hanging the whole run forever.
+@Suite("FollowersModel", .timeLimit(.minutes(1)))
 @MainActor
 struct FollowersModelTests {
     // MARK: - Fixtures

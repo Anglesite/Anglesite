@@ -10,7 +10,11 @@ import AnglesiteCore
 /// survive `openFile`'s async model-construction `Task` via `pendingWebsiteSettingsTab`) and the
 /// already-open path (the request lands directly on the live `PlistEditorModel` instead of
 /// rebuilding it) — see `SiteWindowModel.websiteSettingsFileRef()`/`openWebsiteSettings(landOn:)`.
-@Suite("SiteWindowModel website settings navigation (#975 follow-up)")
+/// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
+/// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
+/// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
+/// unambiguous time-limit violation instead of hanging the whole run forever.
+@Suite("SiteWindowModel website settings navigation (#975 follow-up)", .timeLimit(.minutes(1)))
 @MainActor
 struct SiteWindowModelWebsiteSettingsNavigationTests {
     private func makeModel() -> SiteWindowModel {

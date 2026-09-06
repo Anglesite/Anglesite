@@ -27,7 +27,11 @@ struct NeverStartedSiteRuntimeFactory: SiteRuntimeFactory {
 /// testable, so this file is deliberately narrow: it proves the model can be built with real
 /// (if empty) dependencies, and that `deleteCleanupCandidate` runs its guard chain end-to-end
 /// without needing a live preview/runtime.
-@Suite("SiteWindowModel")
+/// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
+/// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
+/// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
+/// unambiguous time-limit violation instead of hanging the whole run forever.
+@Suite("SiteWindowModel", .timeLimit(.minutes(1)))
 @MainActor
 struct SiteWindowModelTests {
     private func makeModel(contentGraph: SiteContentGraph = SiteContentGraph()) -> SiteWindowModel {
