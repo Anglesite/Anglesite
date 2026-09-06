@@ -847,6 +847,9 @@
     "Brand terms (exact capitalization)" : {
 
     },
+    "Bridge port" : {
+
+    },
     "Bring Forward" : {
 
     },
@@ -981,6 +984,9 @@
 
     },
     "Check ${site}" : {
+
+    },
+    "Check Again" : {
 
     },
     "Check Cloudflare's Agent Readiness score for this site's published URL" : {
@@ -1215,15 +1221,6 @@
     "Connect" : {
 
     },
-    "Connect a GitHub account in Settings to check this repository's reporting setup." : {
-
-    },
-    "Connect a GitHub account in Settings to enable private vulnerability reporting." : {
-
-    },
-    "Connect and Publish" : {
-
-    },
     "Connect This Site" : {
 
     },
@@ -1237,6 +1234,12 @@
 
     },
     "Connect a Domain…" : {
+
+    },
+    "Connect a GitHub account in Settings to check this repository's reporting setup." : {
+
+    },
+    "Connect a GitHub account in Settings to enable private vulnerability reporting." : {
 
     },
     "Connect and Publish" : {
@@ -1261,6 +1264,9 @@
 
     },
     "Connected to %@" : {
+
+    },
+    "Connection" : {
 
     },
     "Contacts" : {
@@ -1556,10 +1562,10 @@
         }
       }
     },
-    "Couldn't rename: %@" : {
+    "Couldn't rename the Worker: %@" : {
 
     },
-    "Couldn't rename the Worker: %@" : {
+    "Couldn't rename: %@" : {
 
     },
     "Couldn't run the check" : {
@@ -1737,15 +1743,6 @@
 
     },
     "Dependency Updates Available" : {
-
-    },
-    "No usable MX records were found for %@. Enter the receiving mail hosts manually." : {
-
-    },
-    "Nothing is waiting to publish — close this and click Publish Site again." : {
-
-    },
-    "Publish Site" : {
 
     },
     "Deploy ${site}" : {
@@ -2879,6 +2876,9 @@
     "No unused files found" : {
 
     },
+    "No usable MX records were found for %@. Enter the receiving mail hosts manually." : {
+
+    },
     "No website details" : {
 
     },
@@ -2921,10 +2921,16 @@
     "Not now" : {
 
     },
+    "Not reachable" : {
+
+    },
     "Not reviewed" : {
 
     },
     "Notes" : {
+
+    },
+    "Nothing is waiting to publish — close this and click Publish Site again." : {
 
     },
     "Nothing without asking" : {
@@ -3567,6 +3573,9 @@
     "Required DNS records" : {
 
     },
+    "Requires Safari Technology Preview with two settings enabled: Settings ▸ Advanced ▸ “Show features for web developers”, then Settings ▸ Developer ▸ “Enable remote automation and external agents.” Then run this in Terminal:" : {
+
+    },
     "Rescan" : {
 
     },
@@ -3695,6 +3704,15 @@
 
     },
     "Safari" : {
+
+    },
+    "Safari MCP Bridge" : {
+
+    },
+    "Safari MCP bridge port" : {
+
+    },
+    "Safari MCP runs locally on this Mac. Once bridged, it can expose the active Safari tab's page content, screenshots, and console logs to whatever is listening on that port — only run the bridge command when you trust what's on the other end." : {
 
     },
     "Save" : {
