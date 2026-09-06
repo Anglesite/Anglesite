@@ -115,7 +115,7 @@ struct VsockTCPProxyTests {
                 return acc      // terminal: the caller's #expect reports the shortfall
             case .wouldBlock:
                 await Task.yield()
-                try? await Task.sleep(for: .milliseconds(5))
+                try? await Task.sleep(for: .milliseconds(5)) // sleep-is-subject: deliberately no per-call deadline (see file header) — this is the backoff between non-blocking read attempts, not a guessed wait before an assertion
             }
         }
         return acc
@@ -135,7 +135,7 @@ struct VsockTCPProxyTests {
                 return acc
             case .wouldBlock:
                 await Task.yield()
-                try? await Task.sleep(for: .milliseconds(5))
+                try? await Task.sleep(for: .milliseconds(5)) // sleep-is-subject: deliberately no per-call deadline (see file header) — this is the backoff between non-blocking read attempts, not a guessed wait before an assertion
             }
         }
         return acc
@@ -149,7 +149,7 @@ struct VsockTCPProxyTests {
             let count = await proxy.connectionCount
             if count == n { return count }
             await Task.yield()
-            try? await Task.sleep(for: .milliseconds(5))
+            try? await Task.sleep(for: .milliseconds(5)) // sleep-is-subject: deliberately no per-call deadline (see file header) — this is the poll backoff, not a guessed wait before an assertion
         }
         return await proxy.connectionCount
     }
