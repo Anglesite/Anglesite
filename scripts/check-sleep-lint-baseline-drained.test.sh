@@ -11,12 +11,18 @@
 # merely still tolerated by the baseline. Fails on a tree where the baseline still carries any
 # of the 10 target lines.
 #
-# Pure git grep/awk against the real working tree (no fixture, no external dependency) — runs
-# in CI's linux-build-test lane alongside the other self-contained .sh tests.
+# Pure grep/awk against the real working tree (no fixture, no external dependency) — runs in
+# CI's linux-build-test lane alongside the other self-contained .sh tests. Derives repo_root
+# from the script's own path rather than `git rev-parse --show-toplevel`, matching the other
+# .test.sh scripts in this lane: linux-build-test's containerized job mounts the checkout with
+# different ownership than the container user, and `git` (unlike plain grep) refuses to operate
+# on a repo it doesn't trust ("detected dubious ownership") without a safe.directory exception
+# this lane doesn't set.
 
 set -euo pipefail
 
-repo_root="$(git rev-parse --show-toplevel)"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+repo_root="$(cd "$script_dir/.." && pwd)"
 cd "$repo_root"
 
 baseline_file="scripts/lib/sleep-lint-baseline.txt"
@@ -67,7 +73,7 @@ for file in "${target_files[@]}"; do
   # ": //" risks a false negative on a genuine violation whose own trailing text happens to
   # contain that sequence.
   unmarked="$(
-    git grep -n -E 'Task\.sleep|Thread\.sleep|usleep\(' -- "$file" 2>/dev/null | awk -v marker="$marker" -F ':' '
+    grep -n -E 'Task\.sleep|Thread\.sleep|usleep\(' "$file" 2>/dev/null | awk -v marker="$marker" -F ':' '
     {
       c1 = index($0, ":")
       rest = substr($0, c1 + 1)
