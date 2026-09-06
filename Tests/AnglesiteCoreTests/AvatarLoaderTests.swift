@@ -113,7 +113,7 @@ struct AvatarLoaderTests {
         let tracker = ConcurrencyTracker()
         let loader = AvatarLoader(transport: { request in
             await tracker.enter()
-            try? await Task.sleep(for: .milliseconds(100))
+            try? await Task.sleep(for: .milliseconds(100))  // sleep-is-subject: simulated transport latency so concurrent loads actually overlap
             await tracker.exit()
             let http = HTTPURLResponse(
                 url: request.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!

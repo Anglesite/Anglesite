@@ -168,7 +168,7 @@ struct CMSModeLiveE2ETests {
                     isLive = true
                     break
                 }
-                try await Task.sleep(nanoseconds: 3_000_000_000)
+                try await Task.sleep(nanoseconds: 3_000_000_000)  // sleep-is-subject: bounded-retry poll of a live external site's rebuild bake-lag
             }
             #expect(isLive, "published post at \(createdURL) never became live within the poll budget")
         } catch {

@@ -25,7 +25,10 @@ struct InotifyFileWatcherTests {
         try watcher.start(root: root) { box.add($0) }
         defer { watcher.stop() }
 
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        // Brief settle before the write this test is watching for — mirrors the FSEvents
+        // watcher's startup settle window; the watch itself is armed synchronously inside
+        // `start()`, but this gives the read source's queue a beat to begin draining.
+        try? await Task.sleep(nanoseconds: 200_000_000)  // sleep-is-subject: startup settle before the tracked write
         try Data("hi".utf8).write(to: root.appendingPathComponent("hello.astro"))
 
         try await waitUntil("the write to be reported", timeout: .seconds(10)) {
@@ -44,7 +47,7 @@ struct InotifyFileWatcherTests {
         try watcher.start(root: root) { box.add($0) }
         defer { watcher.stop() }
 
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        try? await Task.sleep(nanoseconds: 200_000_000)  // sleep-is-subject: startup settle before the tracked change
         let sub = root.appendingPathComponent("posts", isDirectory: true)
         try FileManager.default.createDirectory(at: sub, withIntermediateDirectories: true)
 
@@ -73,7 +76,7 @@ struct InotifyFileWatcherTests {
         try watcher.start(root: root) { box.add($0) }
         defer { watcher.stop() }
 
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        try? await Task.sleep(nanoseconds: 200_000_000)  // sleep-is-subject: startup settle before the tracked change
         let nodeModules = root.appendingPathComponent("node_modules", isDirectory: true)
         try FileManager.default.createDirectory(at: nodeModules, withIntermediateDirectories: true)
         try Data("noise".utf8).write(to: nodeModules.appendingPathComponent("pkg.js"))
@@ -81,7 +84,7 @@ struct InotifyFileWatcherTests {
         // Give it as long as the other tests wait for a positive signal, then assert nothing
         // arrived — a skipped directory should never be watched, so it should never produce
         // a batch (rescan or otherwise).
-        try? await Task.sleep(nanoseconds: 2_000_000_000)
+        try? await Task.sleep(nanoseconds: 2_000_000_000)  // sleep-is-subject: settle-and-confirm-nothing-happened, no event to wait for
         #expect(box.all().isEmpty)
     }
 
@@ -98,7 +101,7 @@ struct InotifyFileWatcherTests {
         try watcher.start(root: root) { box.add($0) }
         defer { watcher.stop() }
 
-        try? await Task.sleep(nanoseconds: 200_000_000)
+        try? await Task.sleep(nanoseconds: 200_000_000)  // sleep-is-subject: startup settle before the tracked move
         let outside = FileManager.default.temporaryDirectory
             .appendingPathComponent("inotify-outside-\(UUID().uuidString)", isDirectory: true)
         try FileManager.default.moveItem(at: sub, to: outside)
@@ -114,7 +117,7 @@ struct InotifyFileWatcherTests {
         // deletion), this edit would show up as a batch reporting a path under the stale,
         // no-longer-existent `root/posts` — see the review that caught this.
         try Data("y".utf8).write(to: outside.appendingPathComponent("f.txt"))
-        try? await Task.sleep(nanoseconds: 1_000_000_000)
+        try? await Task.sleep(nanoseconds: 1_000_000_000)  // sleep-is-subject: settle-and-confirm-nothing-new-happened, no event to wait for
         #expect(box.all().count == countAfterMove)
     }
 

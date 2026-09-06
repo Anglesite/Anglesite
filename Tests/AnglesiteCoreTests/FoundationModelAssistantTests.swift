@@ -246,7 +246,7 @@ struct FoundationModelAssistantTests {
         }
         // Give the abandoned background drains time to keep iterating the model stream — if an early
         // teardown still cancelled one, the trap would crash the test process rather than survive.
-        try await Task.sleep(for: .seconds(1))
+        try await Task.sleep(for: .seconds(1))  // sleep-is-subject: settle-and-confirm-no-crash, no event to wait for
     }
 
     @Test("generateStructured returns the requested Generable type")

@@ -29,7 +29,7 @@ struct E2EServerReadinessTests {
                 timeout: 20
             ) {
                 // Readiness never succeeds — mimics polling a server that will never start listening.
-                while true { try await Task.sleep(nanoseconds: 50_000_000) }
+                while true { try await Task.sleep(nanoseconds: 50_000_000) }  // sleep-is-subject: readiness poll that must never win the race
             }
             Issue.record("expected awaitReady to throw ServerExited, but it returned")
         } catch let error as E2EServer.ServerExited {
@@ -66,7 +66,7 @@ struct E2EServerReadinessTests {
             logCenter: logCenter,
             timeout: 20
         ) {
-            try await Task.sleep(nanoseconds: 50_000_000)
+            try await Task.sleep(nanoseconds: 50_000_000)  // sleep-is-subject: readiness poll standing in for the real server's own delay
         }
     }
 
@@ -93,7 +93,7 @@ struct E2EServerReadinessTests {
                 logCenter: logCenter,
                 timeout: 0.3
             ) {
-                while true { try await Task.sleep(nanoseconds: 50_000_000) }
+                while true { try await Task.sleep(nanoseconds: 50_000_000) }  // sleep-is-subject: readiness poll that must never win the race
             }
             Issue.record("expected awaitReady to throw ServerTimedOut, but it returned")
         } catch let error as E2EServer.ServerTimedOut {

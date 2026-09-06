@@ -11,7 +11,7 @@ import Foundation
     @Test("appFallback stamps a fresh time on each access")
     func appFallbackTimeAdvances() async throws {
         let first = GitIdentity.appFallback
-        try await Task.sleep(for: .milliseconds(20))
+        try await Task.sleep(for: .milliseconds(20))  // sleep-is-subject: real wall-clock elapsed proof that the timestamp advances
         let second = GitIdentity.appFallback
 
         #expect(first.time != second.time)

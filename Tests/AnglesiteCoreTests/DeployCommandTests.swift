@@ -1,6 +1,7 @@
 import Testing
 import Foundation
 @testable import AnglesiteCore
+import AnglesiteTestSupport
 
 struct DeployCommandTests {
     /// A real, existing directory — the host executor `cd`s into the site dir before spawning, so a
@@ -1075,12 +1076,14 @@ struct DeployCommandTests {
 
     /// Poll `center` for a marker line up to `timeout`. Returns true once it appears.
     private func waitForMarker(_ marker: String, in center: LogCenter, timeout: Duration = .seconds(3)) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
-            if await center.snapshot().contains(where: { $0.text.contains(marker) }) { return true }
-            try? await Task.sleep(for: .milliseconds(50))
+        do {
+            try await waitUntil("marker \"\(marker)\" in log center", timeout: timeout) {
+                await center.snapshot().contains(where: { $0.text.contains(marker) })
+            }
+            return true
+        } catch {
+            return false
         }
-        return false
     }
 
     /// Budget for observing the fixture's readiness marker — a "has the wrangler step started

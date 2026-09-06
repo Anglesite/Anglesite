@@ -222,7 +222,7 @@ import Foundation
         nonisolated func inbound() -> AsyncStream<JSONValue> { AsyncStream { _ in } }
         func close() async {}
         func send(_ message: JSONValue) async throws {
-            try await Task.sleep(nanoseconds: .max)
+            try await Task.sleep(nanoseconds: .max)  // sleep-is-subject: models a transport that never returns
         }
     }
 

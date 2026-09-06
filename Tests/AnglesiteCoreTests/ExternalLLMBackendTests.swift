@@ -606,8 +606,8 @@ struct ExternalLLMBackendConversationTests {
         // connection promptly," which was false during this window before the fix).
         let backend = makeBackend()
         let sentinel = Task<(URLSession.AsyncBytes, URLResponse), Error> {
-            try await Task.sleep(nanoseconds: .max)
-            fatalError("unreachable — Task.sleep(nanoseconds: .max) never returns normally")
+            try await Task.sleep(nanoseconds: .max)  // sleep-is-subject: cancellation sentinel, never meant to elapse
+            fatalError("unreachable — the preceding sleep never returns normally")
         }
         await backend.setActiveSetupTaskForTesting(sentinel)
         await backend.cancel()

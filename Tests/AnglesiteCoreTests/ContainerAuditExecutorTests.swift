@@ -275,8 +275,10 @@ private actor CancelParkingFakeAuditContainerControl: LocalContainerControl {
         workingDirectory: String,
         onOutput: @escaping @Sendable (String, LogCenter.Stream) -> Void
     ) async throws -> ContainerExecResult {
+        // Signal we've parked, then sleep "forever" — `Task.sleep` throws `CancellationError` the
+        // instant the Task is cancelled, which is exactly the abort path we want to exercise.
         signalParked()
-        try await Task.sleep(for: .seconds(3600))
+        try await Task.sleep(for: .seconds(3600))  // sleep-is-subject: cancellation sentinel, never meant to elapse
         return ContainerExecResult(exitCode: 0, stdout: "", stderr: "")
     }
 
