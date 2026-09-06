@@ -221,6 +221,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 | Date | Title | Issue | Status |
 |---|---|---|---|
 | 2026-09-04 | [Cloudflare Core Transport Unification (Phase 1 of #1818) Implementation Plan](plans/2026-09-04-cloudflare-core-transport-unification.md) | [#1818](https://github.com/Anglesite/Anglesite/issues/1818) | historical |
+| 2026-09-04 | [AppKit Shell Slice 2 (owned toolbar) Implementation Plan](plans/2026-09-04-appkit-shell-slice2-1699.md) | [#1699](https://github.com/Anglesite/Anglesite/issues/1699) | current |
 | 2026-09-02 | [WYSIWYG AI Services — Writing Help (PR 2 of 3) Implementation Plan](plans/2026-09-02-wysiwyg-writing-help.md) | [#1793](https://github.com/Anglesite/Anglesite/issues/1793) | — |
 | 2026-09-02 | [WYSIWYG Undo Correctness + Component-Insert Manifest Path Implementation Plan](plans/2026-09-02-wysiwyg-undo-correctness-and-component-insert.md) | [#1602](https://github.com/Anglesite/Anglesite/issues/1602) | historical |
 | 2026-09-02 | [WYSIWYG AI Services — Alt-Text Proposals (PR 1 of 3) Implementation Plan](plans/2026-09-02-wysiwyg-alt-text-proposals.md) | [#1227](https://github.com/Anglesite/Anglesite/issues/1227) | — |

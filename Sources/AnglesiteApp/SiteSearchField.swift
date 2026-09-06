@@ -144,6 +144,22 @@ extension SiteSearchScope {
         case .styles: LocalizedStringKey("Styles")
         }
     }
+
+    /// The same catalog strings as `title`, as a plain `String` for AppKit call sites that can't
+    /// take a `LocalizedStringKey` (`NSMenuItem.title` — `SiteShellSearchToolbarItem`'s scope
+    /// menu). `LocalizedStringKey` has no public accessor for its underlying key, so this can't
+    /// be derived from `title`; `String(localized:)`'s literal argument extracts into the same
+    /// String Catalog key `Text(title)` does, so this isn't a second translation slot to keep in
+    /// sync — just a second call site for the same source strings.
+    var menuItemTitle: String {
+        switch self {
+        case .all: String(localized: "All")
+        case .pages: String(localized: "Pages")
+        case .posts: String(localized: "Posts")
+        case .components: String(localized: "Components")
+        case .styles: String(localized: "Styles")
+        }
+    }
 }
 
 extension SiteKnowledgeIndex.Document.Kind {
