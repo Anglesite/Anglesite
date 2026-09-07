@@ -1,5 +1,6 @@
 import AppKit
 import SwiftUI
+import AnglesiteCore
 
 /// The site window's AppKit split shell (#1699 Stage 3, slice 1): sidebar | content |
 /// inspector as native `NSSplitViewItem`s over `NSHostingController` columns.
@@ -11,7 +12,9 @@ import SwiftUI
 /// widths are governed solely by the constant thicknesses below plus the split view's own
 /// autosave. Collapse changes are explicit, app-ordered mutations; the KVO hooks report
 /// user/AppKit-driven changes (drag-collapse, `toggleSidebar:` from the stock View-menu
-/// item, which `NSSplitViewController` answers natively) back to the SwiftUI bindings.
+/// item, which `NSSplitViewController` answers natively — observed working under the shell in
+/// slice 1's windowed gate) back to the SwiftUI bindings. The *toolbar's* sidebar toggle does not
+/// go through that message at all; see `SiteShellToolbarDelegate.defaultItemIdentifiers`.
 @MainActor
 final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: View>:
     NSSplitViewController {
@@ -36,6 +39,9 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
 
     private var observations: [NSKeyValueObservation] = []
     private var appliedInitialLayout = false
+
+    private(set) var ownedToolbar: NSToolbar?
+    private var toolbarDelegate: SiteShellToolbarDelegate?
 
     init(sidebar: Sidebar, content: Content, inspector: Inspector) {
         sidebarHost = NSHostingController(rootView: sidebar)
@@ -102,6 +108,71 @@ final class SiteShellSplitController<Sidebar: View, Content: View, Inspector: Vi
     override func viewDidLayout() {
         super.viewDidLayout()
         applyInitialLayoutIfNeeded()
+    }
+
+    /// Builds this window's owned `NSToolbar` (#1699 slice 2). Idempotent — a second call is a
+    /// no-op, since `SiteShellView.makeNSViewController` runs once per window but `viewDidAppear`
+    /// can fire more than once (e.g. window re-key).
+    ///
+    /// Building and *attaching* are deliberately separate: this runs from
+    /// `makeNSViewController`, before the controller's view has ever been in a window, so
+    /// `view.window` is still nil here. `attachOwnedToolbarIfNeeded()` — driven by
+    /// `viewDidAppear()` — is what hands the finished toolbar to the window.
+    func installToolbar(
+        itemView: @escaping @MainActor (SiteToolbarItemID) -> AnyView,
+        insertMenuItems: @escaping @MainActor () -> [NSMenuItem],
+        searchItem: SiteShellSearchToolbarItem
+    ) {
+        guard ownedToolbar == nil else { return }
+        let delegate = SiteShellToolbarDelegate(itemView: itemView, insertMenuItems: insertMenuItems)
+        let toolbar = NSToolbar(identifier: SiteShellToolbarDelegate.toolbarIdentifier)
+        toolbar.delegate = delegate
+        toolbar.displayMode = .iconOnly
+        toolbar.allowsUserCustomization = true
+        toolbar.autosavesConfiguration = true
+        delegate.splitView = splitView
+        delegate.searchItem = searchItem
+        // The toolbar's sidebar toggle routes through `setSidebarCollapsed` — the shell's one
+        // mutation point — rather than leaving it to AppKit's system item and its responder-chain
+        // `toggleSidebar:`, which produced no visible toolbar item here at all (see
+        // `SiteShellToolbarDelegate.defaultItemIdentifiers`). Going through the setter also means
+        // the `isCollapsed` KVO fires as usual, so `SiteShellView`'s write-back keeps SwiftUI's
+        // `sidebarVisible` binding in step with a click on the button.
+        delegate.toggleSidebar = { [weak self] in
+            guard let self else { return }
+            setSidebarCollapsed(!sidebarItem.isCollapsed, animated: true)
+        }
+        toolbarDelegate = delegate
+        ownedToolbar = toolbar
+        attachOwnedToolbarIfNeeded()
+    }
+
+    override func viewDidAppear() {
+        super.viewDidAppear()
+        attachOwnedToolbarIfNeeded()
+    }
+
+    /// Hands `ownedToolbar` to the window. It can't happen in `installToolbar`: that is called
+    /// from `SiteShellView.makeNSViewController`, one full layout pass before this controller's
+    /// view reaches a window.
+    ///
+    /// Called from three places on purpose — `installToolbar` (a no-op then, but free),
+    /// `viewDidAppear()`, and `SiteShellView.updateNSViewController` on every SwiftUI update. The
+    /// last one makes the attachment *self-healing* rather than single-shot: if `viewDidAppear`
+    /// ever fails to reach us through the representable's containment, or SwiftUI re-assigns
+    /// `window.toolbar` on its own (the flag-on branch still applies `.toolbarRole`/
+    /// `.navigationTitle`/`.navigationDocument` to this window), the next update puts the shell's
+    /// toolbar back instead of leaving the window permanently toolbar-less. It is cheap and
+    /// idempotent: the window assignment compares identity.
+    ///
+    /// There is deliberately no item *seeding* here any more (#1699 slice 2, final-review fix).
+    /// The search field and both tracking separators are declared in
+    /// `SiteShellToolbarDelegate.defaultItemIdentifiers`, so AppKit populates them the same way
+    /// it populates every other default item — including on "Restore Default Set", which the
+    /// old one-shot-latched imperative seeding could not survive.
+    func attachOwnedToolbarIfNeeded() {
+        guard let toolbar = ownedToolbar, let window = view.window else { return }
+        if window.toolbar !== toolbar { window.toolbar = toolbar }
     }
 
     /// First-run column widths (the legacy chrome's ideals). Subsequent runs are restored by

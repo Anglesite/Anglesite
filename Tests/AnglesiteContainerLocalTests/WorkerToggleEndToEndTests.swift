@@ -2,6 +2,7 @@ import Testing
 import Foundation
 import AnglesiteContainer
 import AnglesiteCore
+import AnglesiteTestSupport
 
 /// Local-only, entitlement-gated e2e test for the toggle→restart path a future Workers tab
 /// (#917) drives through `SiteRuntimeContainerCapability.updateActiveWorkers`. Owed from the
@@ -94,17 +95,15 @@ struct WorkerToggleEndToEndTests {
     /// self-contained duplicate here per that file's own precedent (no shared test-support target
     /// for this local-only suite).
     private func pollForHTTPResponse(_ url: URL, timeout: Duration) async -> Bool {
-        let deadline = ContinuousClock.now.advanced(by: timeout)
-        while ContinuousClock.now < deadline {
+        (try? await waitUntil("HTTP response from \(url)", timeout: timeout) {
             do {
                 let (_, response) = try await URLSession.shared.data(from: url)
-                if response is HTTPURLResponse { return true }
+                return response is HTTPURLResponse
             } catch {
                 // Not ready yet — wrangler-dev may still be starting up inside the guest.
+                return false
             }
-            try? await Task.sleep(for: .milliseconds(500))
-        }
-        return false
+        }) != nil
     }
 
     /// Creates a throwaway `.anglesite` package: `Source/` holds a minimal Astro project with an

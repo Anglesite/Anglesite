@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 import WebKit
@@ -28,6 +29,14 @@ struct SiteWindow: View {
     /// persisted across launches — the palette is only meaningful while Site ▸ Edit Page is on
     /// (see the toolbar item's `.disabled`), so there's no stable state to restore between runs.
     @State private var showWYSIWYGPalette = false
+    /// `NSMenuItem.target` for the AppKit shell's Insert menu (#1699 slice 2) and the lazy home
+    /// of its search field. Both are per-window and outlive any single `body` evaluation; see
+    /// `ShellInsertMenuActions` / `ShellSearchItemStore` below for why each has to be an object
+    /// rather than something `SiteWindow` (a `struct View`) can hold directly. Unused while
+    /// `SiteShellFlag.isEnabled` is false — the store stays empty, so the legacy chrome never
+    /// builds a search item at all.
+    @State private var shellInsertActions: ShellInsertMenuActions
+    @State private var shellSearchItemStore: ShellSearchItemStore
     /// Which inspector occupies the trailing panel while `inspectorShown` is true (#714 v2 slice
     /// 1): the existing per-selection inspector, or the new Website inspector. Mutually exclusive
     /// — switching one on switches the other off. Persisted per window like `inspectorShown`.
@@ -112,6 +121,8 @@ struct SiteWindow: View {
             runtimeFactory: runtimeFactory,
             contentIndexerStore: contentIndexerStore
         ))
+        _shellInsertActions = State(initialValue: ShellInsertMenuActions())
+        _shellSearchItemStore = State(initialValue: ShellSearchItemStore())
     }
 
     var body: some View {
@@ -398,6 +409,409 @@ struct SiteWindow: View {
         model.websiteInspectorPresented = websiteInspectorVisible
     }
 
+    /// `NSMenuItem.target` for the shell's Insert menu (#1699 slice 2) — exists only because
+    /// `SiteWindow` (a `struct View`) can't itself be an `NSMenuItem` target, which AppKit
+    /// requires to be an `NSObject`. Closures are re-pointed on every `body` evaluation
+    /// (`shellChrome`, below) rather than the instance being recreated, so a menu that's open
+    /// across a re-render keeps working and `NSMenuItem.target`'s weak reference can't dangle.
+    @MainActor
+    private final class ShellInsertMenuActions: NSObject {
+        var onNewPage: () -> Void = {}
+        var onNewPost: () -> Void = {}
+        var onNewCollection: () -> Void = {}
+        var onInsertBlock: (WYSIWYGBlockPaletteEntry) -> Void = { _ in }
+
+        @objc func newPage() { onNewPage() }
+        @objc func newPost() { onNewPost() }
+        @objc func newCollection() { onNewCollection() }
+        @objc func insertBlock(_ sender: NSMenuItem) {
+            guard let entry = sender.representedObject as? WYSIWYGBlockPaletteEntry else { return }
+            onInsertBlock(entry)
+        }
+    }
+
+    /// Per-window home for the shell's one `SiteShellSearchToolbarItem` (#1699 slice 2).
+    ///
+    /// A reference box rather than a plain `@State private var shellSearchItem:
+    /// SiteShellSearchToolbarItem?`: the item can only be built lazily, from inside
+    /// `shellChrome` — and assigning to `@State` there would be a write during a view update.
+    /// Mutating a reference type SwiftUI already holds is not, so this keeps the design intent
+    /// (exactly one search item per window, never one per `body` evaluation — a fresh
+    /// `NSSearchToolbarItem` each time would drop the field's text and first-responder state)
+    /// without the update-phase write.
+    ///
+    /// Lazy rather than built in `init` on purpose: `SiteShellSearchToolbarItem` starts an
+    /// `Observation` loop over `model.hits` that pops a suggestions menu, and that must never run
+    /// for the legacy chrome, whose search field is `.searchable`'s and whose shell field would
+    /// belong to no window at all.
+    @MainActor
+    private final class ShellSearchItemStore {
+        private var item: SiteShellSearchToolbarItem?
+
+        func item(
+            model: SiteSearchModel, activate: @escaping (SiteSearchIndex.Hit) -> Void
+        ) -> SiteShellSearchToolbarItem {
+            if let item { return item }
+            let created = SiteShellSearchToolbarItem(model: model, activate: activate)
+            item = created
+            return created
+        }
+    }
+
+    /// This window's shell search field, built on first use. Safe to call from anywhere in `body`
+    /// — the store makes every call after the first return the same instance.
+    private var shellSearchItem: SiteShellSearchToolbarItem {
+        shellSearchItemStore.item(
+            model: model.search, activate: { hit in model.openSearchHit(hit) })
+    }
+
+    /// The shell Insert menu's items, rebuilt on every menu open by
+    /// `SiteShellToolbarDelegate.menuNeedsUpdate(_:)` because the Blocks section depends on live
+    /// WYSIWYG canvas state. Mirrors `toolbarItemContent(.insert, site:)`'s SwiftUI `Menu` item
+    /// for item — same three commands, same `Section("Blocks")` over the same
+    /// `WYSIWYGCanvasController.blockPalette`. `static` so it stays out of `shellChrome`'s
+    /// type-checking budget.
+    @MainActor
+    private static func shellInsertMenuItems(
+        actions: ShellInsertMenuActions, blockPalette: [WYSIWYGBlockPaletteEntry]
+    ) -> [NSMenuItem] {
+        // `String(localized:)` throughout: an `NSMenuItem` title is an AppKit property, invisible
+        // to Xcode's SwiftUI string extraction, so a bare literal here would ship untranslated
+        // even though the SwiftUI `Menu` above uses the very same source strings (the pattern
+        // `SiteSearchScope.menuItemTitle` established).
+        var items = [
+            NSMenuItem(
+                title: String(localized: "New Page…"),
+                action: #selector(ShellInsertMenuActions.newPage),
+                keyEquivalent: ""),
+            NSMenuItem(
+                title: String(localized: "New Post…"),
+                action: #selector(ShellInsertMenuActions.newPost),
+                keyEquivalent: ""),
+            NSMenuItem(
+                title: String(localized: "New Collection Entry…"),
+                action: #selector(ShellInsertMenuActions.newCollection),
+                keyEquivalent: ""),
+        ]
+        for item in items { item.target = actions }
+        guard !blockPalette.isEmpty else { return items }
+        items.append(NSMenuItem.sectionHeader(title: String(localized: "Blocks")))
+        for entry in blockPalette {
+            let blockItem = NSMenuItem(
+                title: entry.displayName,
+                action: #selector(ShellInsertMenuActions.insertBlock(_:)),
+                keyEquivalent: "")
+            blockItem.target = actions
+            blockItem.representedObject = entry
+            items.append(blockItem)
+        }
+        return items
+    }
+
+    /// The SwiftUI content for one toolbar item — everything inside its `ToolbarItem` closure
+    /// (label, help, disabled state, accessibility id), extracted verbatim from the legacy
+    /// `.toolbar(id: "site")` block (#1699 slice 2) so the AppKit shell's `NSHostingView`-backed
+    /// items and the legacy SwiftUI toolbar render the exact same view. `ToolbarItem`'s own
+    /// wrapper (id, placement, `.defaultCustomization`, `.customizationBehavior`) is NOT part of
+    /// this function — those apply to the `ToolbarItem`/`NSToolbarItem`, not its content, and
+    /// each caller (legacy toolbar, `SiteShellToolbarDelegate`) supplies its own.
+    @ViewBuilder
+    private func toolbarItemContent(_ id: SiteToolbarItemID, site: SiteStore.Site) -> some View {
+        switch id {
+        case .insert:
+            Menu {
+                Button("New Page…") { newContentActions?.newPage() }
+                Button("New Post…") { newContentActions?.newPost() }
+                Button("New Collection Entry…") { newContentActions?.newCollection() }
+                if let canvas = model.preview.wysiwygCanvas {
+                    Section("Blocks") {
+                        ForEach(canvas.blockPalette) { entry in
+                            Button(entry.displayName) {
+                                Task { await canvas.insertBlock(entry) }
+                            }
+                        }
+                    }
+                }
+            } label: {
+                Label("Insert", systemImage: "plus")
+            }
+            .help("Add a new page, post, collection entry, or block")
+            .accessibilityIdentifier(AXID.toolbar(.insert))
+
+        case .sync:
+            SyncStatusView(model: model.sync)
+                .accessibilityIdentifier(AXID.toolbar(.sync))
+
+        case .securityReports:
+            SecurityReportsBadgeView(
+                model: model.securityReports,
+                onRecheck: { model.recheckSecurityReports() },
+                onViewAll: { model.openWebsiteSettings(landOn: .securityReports) }
+            )
+            .accessibilityIdentifier(AXID.toolbar(.securityReports))
+
+        case .openInBrowser:
+            Button {
+                model.openPreviewInBrowser()
+            } label: {
+                Label("Open in Browser", systemImage: "arrow.up.forward.app")
+            }
+            .disabled(!model.canOpenPreviewInBrowser)
+            .help("Open the live preview in your default browser")
+            .accessibilityIdentifier(AXID.toolbar(.openInBrowser))
+
+        case .graph:
+            Button {
+                Task { await model.showGraph() }
+            } label: {
+                Label("Site Graph", systemImage: "point.3.connected.trianglepath.dotted")
+            }
+            .help("Explore pages, layouts, components, collections, and assets")
+            .accessibilityIdentifier(AXID.toolbar(.graph))
+
+        case .backup:
+            Button {
+                model.backupSite()
+            } label: {
+                Label("Backup", systemImage: "externaldrive.fill.badge.icloud")
+            }
+            .disabled(!model.canRunBackup)
+            .help(site.isValid
+                  ? "Commit and push working-tree changes to your current branch"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.backup))
+
+        case .audit:
+            Button {
+                model.auditSite()
+            } label: {
+                if model.audit.isRunning {
+                    Label("Auditing…", systemImage: "magnifyingglass")
+                } else {
+                    Label("Audit", systemImage: "checkmark.shield.fill")
+                }
+            }
+            .disabled(!model.canRunAudit)
+            .help(site.isValid && model.preview.canDeploy
+                  ? "Run the structured accessibility audit against this site"
+                  : site.isValid
+                    ? "Open the preview first to start the runtime before auditing"
+                    : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.audit))
+
+        case .harden:
+            Button {
+                model.harden.openSheet()
+            } label: {
+                if model.harden.isRunning {
+                    Label("Hardening…", systemImage: "shield.lefthalf.filled")
+                } else {
+                    Label("Harden", systemImage: "shield.lefthalf.filled")
+                }
+            }
+            .disabled(!model.canRunHarden)
+            .help(site.isValid
+                  ? "Preview and apply Cloudflare security hardening for this site"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.harden))
+
+        case .aiSearch:
+            Button {
+                model.aiSearch.openSheet()
+            } label: {
+                if model.aiSearch.isRunning {
+                    Label("Setting Up AI Search…", systemImage: "text.magnifyingglass")
+                } else {
+                    Label("AI Search", systemImage: "text.magnifyingglass")
+                }
+            }
+            .disabled(!model.canRunAISearch)
+            .help(site.isValid
+                  ? "Provision Cloudflare AI Search for this site"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.aiSearch))
+
+        case .domainConfigAudit:
+            Button {
+                model.domainConfigAudit.openSheet()
+            } label: {
+                if model.domainConfigAudit.isRunning {
+                    Label("Checking Domain Config…", systemImage: "arrow.triangle.2.circlepath")
+                } else {
+                    Label("Domain Config", systemImage: "arrow.triangle.2.circlepath")
+                }
+            }
+            .disabled(!model.canRunDomainConfigAudit)
+            .help(site.isValid
+                  ? "Compare anglesite.json's declared domain/DNS/edge config against live Cloudflare state"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.domainConfigAudit))
+
+        case .agentReadiness:
+            Button {
+                model.agentReadiness.openSheet()
+            } label: {
+                if model.agentReadiness.isRunning {
+                    Label("Checking Agent Readiness…", systemImage: "sparkle.magnifyingglass")
+                } else {
+                    Label("Agent Readiness", systemImage: "sparkle.magnifyingglass")
+                }
+            }
+            .disabled(!model.canRunAgentReadiness)
+            .help(site.isValid
+                  ? "Check Cloudflare's Agent Readiness score for this site's published URL"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.agentReadiness))
+
+        case .onionRouting:
+            Button {
+                model.onionRouting.openSheet()
+            } label: {
+                Label("Onion Routing", systemImage: "network")
+            }
+            .disabled(!model.canRunOnionRouting)
+            .help(site.isValid
+                  ? "Enable Tor Browser access for this site via Cloudflare's zone-level setting"
+                  : "Site is missing required files")
+            .accessibilityIdentifier(AXID.toolbar(.onionRouting))
+
+        case .domain:
+            Button {
+                model.domain.openSheet()
+            } label: {
+                Label("Domain", systemImage: "globe")
+            }
+            .disabled(!model.canOpenDomain)
+            .help("View and manage this domain's DNS records")
+            .accessibilityIdentifier(AXID.toolbar(.domain))
+
+        case .integration:
+            Button {
+                model.openIntegrationWizard()
+            } label: {
+                Label("Add Integration…", systemImage: "puzzlepiece.extension")
+            }
+            .disabled(!model.canOpenIntegrationWizard)
+            .help("Set up a third-party integration for this site")
+            .accessibilityIdentifier(AXID.toolbar(.integration))
+
+        case .siriReadiness:
+            Button {
+                model.openSiriReadiness()
+            } label: {
+                Label("Siri AI Readiness", systemImage: "sparkles")
+            }
+            .disabled(!model.canOpenSiriReadiness)
+            .help("Check whether Siri workflows are ready for this site")
+            .accessibilityIdentifier(AXID.toolbar(.siriReadiness))
+
+        case .relatedPages:
+            Button {
+                model.relatedPagesPresented.toggle()
+            } label: {
+                Label("Related Pages", systemImage: model.relatedPagesPresented
+                      ? "link.badge.plus" : "link")
+            }
+            .help(model.relatedPagesPresented ? "Hide related pages" : "Show related pages")
+            .accessibilityIdentifier(AXID.toolbar(.relatedPages))
+
+        case .styleGuide:
+            Button {
+                model.openStyleGuide()
+            } label: {
+                Label("Style Guide", systemImage: "textformat.abc")
+            }
+            .help("See and edit this site's learned writing, image, and naming conventions")
+            .accessibilityIdentifier(AXID.toolbar(.styleGuide))
+
+        case .github:
+            if let remote = model.publish.existingRemote {
+                Button {
+                    NSWorkspace.shared.open(remote.url)
+                } label: {
+                    Label("View on GitHub", systemImage: "arrow.up.forward.square")
+                }
+                .help("Open this site's GitHub repository")
+                .accessibilityIdentifier(AXID.toolbar(.github))
+            } else {
+                Button {
+                    model.publish.publish(source: site.sourceDirectory, repoName: site.name)
+                } label: {
+                    Label("Publish to GitHub", systemImage: "square.and.arrow.up.on.square")
+                }
+                .disabled(!model.canPublishToGitHub)
+                .help(site.isValid ? "Create a private GitHub repo and push this site" : "Site is missing required files")
+                .accessibilityIdentifier(AXID.toolbar(.github))
+            }
+
+        case .deploy:
+            HStack(spacing: 8) {
+                HealthBadgeView(
+                    model: model.health,
+                    onRecheck: { model.recheckHealth() },
+                    onAskAssistant: {
+                        guard let chat = model.chat else { return }
+                        model.chatPresented = true
+                        chat.send(SiteWindowModel.healthAssistantPrompt)
+                    }
+                )
+                Button {
+                    model.deploySite()
+                } label: {
+                    Label("Publish Site", systemImage: "paperplane.fill")
+                }
+                .buttonStyle(.borderedProminent)
+                .disabled(!model.canRunDeploy)
+                .help(site.isValid && model.preview.canDeploy
+                      ? "Build, scan, and publish this site to Cloudflare"
+                      : site.isValid
+                        ? "Open the preview first to start the runtime before publishing"
+                        : "Site is missing required files")
+                .accessibilityIdentifier(AXID.toolbar(.deploy))
+            }
+
+        case .chat:
+            Button {
+                model.toggleChat()
+            } label: {
+                Label("Chat", systemImage: model.chatPresented
+                    ? "bubble.left.and.bubble.right.fill"
+                    : "bubble.left.and.bubble.right")
+            }
+            .help(model.chatPresented ? "Hide chat panel" : "Show chat panel")
+            .accessibilityIdentifier(AXID.toolbar(.chat))
+
+        case .wysiwygPalette:
+            Button {
+                showWYSIWYGPalette.toggle()
+            } label: {
+                Label("Block Palette", systemImage: "square.grid.2x2")
+            }
+            .disabled(!model.preview.isEditModeEnabled)
+            .help("Show or hide the block palette")
+            .accessibilityIdentifier(AXID.toolbar(.wysiwygPalette))
+
+        case .websiteInspector:
+            Button {
+                toggleWebsiteInspector()
+            } label: {
+                Label("Website Inspector", systemImage: "globe")
+            }
+            .help("Show or hide the website inspector")
+            .accessibilityIdentifier(AXID.toolbar(.websiteInspector))
+
+        case .inspector:
+            Button {
+                toggleSelectionInspector()
+            } label: {
+                Label("Inspector", systemImage: "sidebar.right")
+            }
+            .disabled(model.inspectorSelection == nil)
+            .help("Show or hide the inspector")
+            .accessibilityIdentifier(AXID.toolbar(.inspector))
+        }
+    }
+
     @ViewBuilder
     private func siteUI(for site: SiteStore.Site) -> some View {
         // Shared with `SiteSearchFieldModifier` below (#1126): search-field activation is
@@ -497,11 +911,44 @@ struct SiteWindow: View {
     }
 
     /// The AppKit shell chrome (#1699 Stage 3 slice 1) — same columns, negotiation-free by
-    /// construction; see `SiteShellSplitController`'s doc comment.
+    /// construction; see `SiteShellSplitController`'s doc comment. Since slice 2 it also carries
+    /// this window's toolbar wiring: the same `toolbarItemContent(_:site:)` the legacy toolbar
+    /// renders, a native Insert menu, and the shell's own search field.
     private func shellChrome(for site: SiteStore.Site, inspectorPresented: Binding<Bool>) -> some View {
-        SiteShellView(
+        // Re-point the shim's closures at this evaluation's `self` rather than rebuilding it —
+        // see `ShellInsertMenuActions`' doc comment.
+        let actions = shellInsertActions
+        actions.onNewPage = { newContentActions?.newPage() }
+        actions.onNewPost = { newContentActions?.newPost() }
+        actions.onNewCollection = { newContentActions?.newCollection() }
+        actions.onInsertBlock = { entry in
+            guard let canvas = model.preview.wysiwygCanvas else { return }
+            Task { await canvas.insertBlock(entry) }
+        }
+
+        return SiteShellView(
             sidebarVisible: $sidebarVisible,
-            inspectorPresented: inspectorPresented
+            inspectorPresented: inspectorPresented,
+            // Captured once, in `makeNSViewController`, and read for the window's lifetime: both
+            // closures reach live state through `@State` storage that outlives any single `body`
+            // evaluation — the same property `body`'s own `onAppear` seam relies on. `model.site`
+            // rather than the captured `site` for the same reason: the capture is frozen at the
+            // first evaluation, so a site that is later renamed or invalidated would keep
+            // rendering the old value in `toolbarItemContent`'s `site.isValid` help strings. The
+            // parameter is the fallback for the window's pre-load moment.
+            //
+            // What makes that re-read actually happen is `HostedToolbarItemContent`: the delegate
+            // calls this closure from *its* `body`, not at item-construction time, so each
+            // evaluation reads today's `model.site` and every `model.*` read inside
+            // `toolbarItemContent` registers as an `@Observable` dependency (#1699 slice 2,
+            // final-review fix — before it, each item rendered one frozen snapshot forever).
+            itemView: { id in AnyView(self.toolbarItemContent(id, site: self.model.site ?? site)) },
+            insertMenuItems: {
+                Self.shellInsertMenuItems(
+                    actions: actions,
+                    blockPalette: self.model.preview.wysiwygCanvas?.blockPalette ?? [])
+            },
+            searchItem: shellSearchItem
         ) {
             sidebarColumn(for: site)
         } content: {
@@ -601,7 +1048,12 @@ struct SiteWindow: View {
         over chrome: some View, for site: SiteStore.Site, inspectorPresented: Binding<Bool>
     ) -> some View {
         @Bindable var bindableModel = model
-        return chrome
+        // Title/document/role chrome — identical for both chromes, so it's held as its own value
+        // and the flag branch below slots in at exactly the position the previously unbranched
+        // chain put the toolbar and search modifiers. Keeping that position byte-for-byte is the
+        // point: with the flag off, `titledChrome` + the `else` branch reproduce the old chain
+        // modifier for modifier, in order.
+        let titledChrome = chrome
         .navigationTitle(model.preview.editingPageTitle ?? site.name)
         .navigationSubtitle(model.preview.readyURL?.absoluteString ?? "")
         // Titlebar proxy icon (#521): ⌘-click shows the package's path, and the icon drags as the
@@ -616,385 +1068,192 @@ struct SiteWindow: View {
         // item occupies that center anymore: Editor/Graph/Cleanup are drill-in takeovers reached
         // by opening a file or a Website-menu command, not a toolbar-centered mode switch.
         .toolbarRole(.editor)
-        // Customizable toolbar (#519): every item has a STABLE id — saved customizations key off
-        // these strings, so renaming one silently discards users' layouts (the id set is frozen
-        // by SiteToolbarItemIDTests in AnglesiteCoreTests). Items must also be
-        // unconditional (no `if let` wrappers): identity-swapping or appearing/vanishing items
-        // fight the customization palette, so state-dependent items render disabled instead.
-        // Curated default ≈9 items (sync/securityReports often render empty); episodic
-        // setup/maintenance actions ship hidden and live in the palette (View ▸ Customize
-        // Toolbar…, added in #510).
-        .toolbar(id: "site") {
-            // Leading, per Pages/Freeform convention for the content-creation `+` menu (#714 v2
-            // slice 3). The Blocks section (#714 v2 slice 4) reuses the exact same
-            // `WYSIWYGCanvasController.blockPalette`/`insertBlock(_:)` pair the block palette
-            // panel and Insert ▸ Component already call — see `InsertCommands.swift`'s identical
-            // `if let canvas = wysiwygCanvas { ... }` shape, the shared action layer spec §4 asks
-            // for. Present only in WYSIWYG edit mode (unlike the Block Palette toggle, this
-            // doesn't also depend on the palette panel's own visibility).
-            ToolbarItem(id: SiteToolbarItemID.insert.rawValue, placement: .primaryAction) {
-                Menu {
-                    Button("New Page…") { newContentActions?.newPage() }
-                    Button("New Post…") { newContentActions?.newPost() }
-                    Button("New Collection Entry…") { newContentActions?.newCollection() }
-                    if let canvas = model.preview.wysiwygCanvas {
-                        Section("Blocks") {
-                            ForEach(canvas.blockPalette) { entry in
-                                Button(entry.displayName) {
-                                    Task { await canvas.insertBlock(entry) }
-                                }
-                            }
-                        }
+
+        return Group {
+            if SiteShellFlag.isEnabled {
+                // `SiteShellSplitController` owns this window's real `NSToolbar` (#1699 slice 2),
+                // so the SwiftUI toolbar/search chain below must not also run: a second,
+                // SwiftUI-owned toolbar would either be silently dropped or fight the shell for
+                // `window.toolbar`. What `.searchable` does *besides* minting a toolbar item
+                // still has to happen, though — it's what makes any search field work at all —
+                // so `SiteSearchFieldModifier`'s two non-toolbar jobs are restated here against
+                // the shell's own `NSSearchToolbarItem`: the debounced search driver (whose
+                // results `SiteShellSearchToolbarItem` observes to raise its suggestions menu),
+                // and the ⇧⌘F focus action the Find command reads.
+                //
+                // The focus action deliberately drops `SiteSearchFieldModifier`'s
+                // `AppKitConstraintStormMitigation` inspector-dismiss dance. That mitigation is
+                // for #1126: activating a SwiftUI `.searchable` field inserts its scope bar, and
+                // that toolbar re-layout, coalesced with a presented SwiftUI inspector, is what
+                // storms. Neither half exists here — the shell's scopes live in the field's own
+                // `searchMenuTemplate` (no bar to insert), and the inspector is an
+                // `NSSplitViewItem`, not a SwiftUI `.inspector`. Dismissing the panel to focus a
+                // search field would be a gratuitous, visible side effect under this chrome.
+                titledChrome
+                    .task(id: model.search.request) { await model.search.search(siteID: site.id) }
+                    .focusedSceneValue(\.siteSearchActions, SiteSearchActions(
+                        focusSearchField: { shellSearchItem.beginSearchInteraction() }
+                    ))
+            } else {
+                titledChrome
+                // Customizable toolbar (#519): every item has a STABLE id — saved customizations key off
+                // these strings, so renaming one silently discards users' layouts (the id set is frozen
+                // by SiteToolbarItemIDTests in AnglesiteCoreTests). Items must also be
+                // unconditional (no `if let` wrappers): identity-swapping or appearing/vanishing items
+                // fight the customization palette, so state-dependent items render disabled instead.
+                // Curated default ≈9 items (sync/securityReports often render empty); episodic
+                // setup/maintenance actions ship hidden and live in the palette (View ▸ Customize
+                // Toolbar…, added in #510).
+                .toolbar(id: "site") {
+                    // Leading, per Pages/Freeform convention for the content-creation `+` menu (#714 v2
+                    // slice 3). The Blocks section (#714 v2 slice 4) reuses the exact same
+                    // `WYSIWYGCanvasController.blockPalette`/`insertBlock(_:)` pair the block palette
+                    // panel and Insert ▸ Component already call — see `InsertCommands.swift`'s identical
+                    // `if let canvas = wysiwygCanvas { ... }` shape, the shared action layer spec §4 asks
+                    // for. Present only in WYSIWYG edit mode (unlike the Block Palette toggle, this
+                    // doesn't also depend on the palette panel's own visibility).
+                    ToolbarItem(id: SiteToolbarItemID.insert.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.insert, site: site)
                     }
-                } label: {
-                    Label("Insert", systemImage: "plus")
-                }
-                .help("Add a new page, post, collection entry, or block")
-                .accessibilityIdentifier(AXID.toolbar(.insert))
-            }
 
-            // iCloud sync status (#881): renders nothing for a package that isn't in iCloud
-            // Drive (`SyncStatusView` is an `EmptyView` when `!model.sync.isEligible`), so this
-            // item never widens a local-only site's toolbar.
-            ToolbarItem(id: SiteToolbarItemID.sync.rawValue, placement: .primaryAction) {
-                SyncStatusView(model: model.sync)
-                    .accessibilityIdentifier(AXID.toolbar(.sync))
-            }
-
-            // Open GitHub security advisories/Dependabot alerts (#975). Renders nothing (an
-            // EmptyView) for a clean site — see SecurityReportsBadgeView's doc comment.
-            ToolbarItem(id: SiteToolbarItemID.securityReports.rawValue, placement: .primaryAction) {
-                SecurityReportsBadgeView(
-                    model: model.securityReports,
-                    onRecheck: { model.recheckSecurityReports() },
-                    onViewAll: { model.openWebsiteSettings(landOn: .securityReports) }
-                )
-                .accessibilityIdentifier(AXID.toolbar(.securityReports))
-            }
-
-            ToolbarItem(id: SiteToolbarItemID.openInBrowser.rawValue, placement: .primaryAction) {
-                Button {
-                    model.openPreviewInBrowser()
-                } label: {
-                    Label("Open in Browser", systemImage: "arrow.up.forward.app")
-                }
-                .disabled(!model.canOpenPreviewInBrowser)
-                .help("Open the live preview in your default browser")
-                .accessibilityIdentifier(AXID.toolbar(.openInBrowser))
-            }
-
-            // — Palette-only items (View ▸ Customize Toolbar…) —
-
-            ToolbarItem(id: SiteToolbarItemID.graph.rawValue, placement: .primaryAction) {
-                Button {
-                    Task { await model.showGraph() }
-                } label: {
-                    Label("Site Graph", systemImage: "point.3.connected.trianglepath.dotted")
-                }
-                .help("Explore pages, layouts, components, collections, and assets")
-                .accessibilityIdentifier(AXID.toolbar(.graph))
-            }
-            .defaultCustomization(SiteToolbarItemID.graph.isDefaultVisible ? .visible : .hidden)
-
-            ToolbarItem(id: SiteToolbarItemID.backup.rawValue, placement: .primaryAction) {
-                Button {
-                    model.backupSite()
-                } label: {
-                    Label("Backup", systemImage: "externaldrive.fill.badge.icloud")
-                }
-                .disabled(!model.canRunBackup)
-                .help(site.isValid
-                      ? "Commit and push working-tree changes to your current branch"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.backup))
-            }
-            .defaultCustomization(SiteToolbarItemID.backup.isDefaultVisible ? .visible : .hidden)
-
-            ToolbarItem(id: SiteToolbarItemID.audit.rawValue, placement: .primaryAction) {
-                Button {
-                    model.auditSite()
-                } label: {
-                    if model.audit.isRunning {
-                        Label("Auditing…", systemImage: "magnifyingglass")
-                    } else {
-                        Label("Audit", systemImage: "checkmark.shield.fill")
+                    // iCloud sync status (#881): renders nothing for a package that isn't in iCloud
+                    // Drive (`SyncStatusView` is an `EmptyView` when `!model.sync.isEligible`), so this
+                    // item never widens a local-only site's toolbar.
+                    ToolbarItem(id: SiteToolbarItemID.sync.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.sync, site: site)
                     }
-                }
-                .disabled(!model.canRunAudit)
-                .help(site.isValid && model.preview.canDeploy
-                      ? "Run the structured accessibility audit against this site"
-                      : site.isValid
-                        ? "Open the preview first to start the runtime before auditing"
-                        : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.audit))
-            }
-            .defaultCustomization(SiteToolbarItemID.audit.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.harden.rawValue, placement: .primaryAction) {
-                Button {
-                    model.harden.openSheet()
-                } label: {
-                    if model.harden.isRunning {
-                        Label("Hardening…", systemImage: "shield.lefthalf.filled")
-                    } else {
-                        Label("Harden", systemImage: "shield.lefthalf.filled")
+                    // Open GitHub security advisories/Dependabot alerts (#975). Renders nothing (an
+                    // EmptyView) for a clean site — see SecurityReportsBadgeView's doc comment.
+                    ToolbarItem(id: SiteToolbarItemID.securityReports.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.securityReports, site: site)
                     }
-                }
-                .disabled(!model.canRunHarden)
-                .help(site.isValid
-                      ? "Preview and apply Cloudflare security hardening for this site"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.harden))
-            }
-            .defaultCustomization(SiteToolbarItemID.harden.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.aiSearch.rawValue, placement: .primaryAction) {
-                Button {
-                    model.aiSearch.openSheet()
-                } label: {
-                    if model.aiSearch.isRunning {
-                        Label("Setting Up AI Search…", systemImage: "text.magnifyingglass")
-                    } else {
-                        Label("AI Search", systemImage: "text.magnifyingglass")
+                    ToolbarItem(id: SiteToolbarItemID.openInBrowser.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.openInBrowser, site: site)
                     }
-                }
-                .disabled(!model.canRunAISearch)
-                .help(site.isValid
-                      ? "Provision Cloudflare AI Search for this site"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.aiSearch))
-            }
-            .defaultCustomization(SiteToolbarItemID.aiSearch.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.domainConfigAudit.rawValue, placement: .primaryAction) {
-                Button {
-                    model.domainConfigAudit.openSheet()
-                } label: {
-                    if model.domainConfigAudit.isRunning {
-                        Label("Checking Domain Config…", systemImage: "arrow.triangle.2.circlepath")
-                    } else {
-                        Label("Domain Config", systemImage: "arrow.triangle.2.circlepath")
+                    // — Palette-only items (View ▸ Customize Toolbar…) —
+
+                    ToolbarItem(id: SiteToolbarItemID.graph.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.graph, site: site)
                     }
-                }
-                .disabled(!model.canRunDomainConfigAudit)
-                .help(site.isValid
-                      ? "Compare anglesite.json's declared domain/DNS/edge config against live Cloudflare state"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.domainConfigAudit))
-            }
-            .defaultCustomization(SiteToolbarItemID.domainConfigAudit.isDefaultVisible ? .visible : .hidden)
+                    .defaultCustomization(SiteToolbarItemID.graph.isDefaultVisible ? .visible : .hidden)
 
-            ToolbarItem(id: SiteToolbarItemID.agentReadiness.rawValue, placement: .primaryAction) {
-                Button {
-                    model.agentReadiness.openSheet()
-                } label: {
-                    if model.agentReadiness.isRunning {
-                        Label("Checking Agent Readiness…", systemImage: "sparkle.magnifyingglass")
-                    } else {
-                        Label("Agent Readiness", systemImage: "sparkle.magnifyingglass")
+                    ToolbarItem(id: SiteToolbarItemID.backup.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.backup, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.backup.isDefaultVisible ? .visible : .hidden)
+
+                    ToolbarItem(id: SiteToolbarItemID.audit.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.audit, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.audit.isDefaultVisible ? .visible : .hidden)
+
+                    ToolbarItem(id: SiteToolbarItemID.harden.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.harden, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.harden.isDefaultVisible ? .visible : .hidden)
+
+                    ToolbarItem(id: SiteToolbarItemID.aiSearch.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.aiSearch, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.aiSearch.isDefaultVisible ? .visible : .hidden)
+
+                    ToolbarItem(id: SiteToolbarItemID.domainConfigAudit.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.domainConfigAudit, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.domainConfigAudit.isDefaultVisible ? .visible : .hidden)
+
+                    ToolbarItem(id: SiteToolbarItemID.agentReadiness.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.agentReadiness, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.agentReadiness.isDefaultVisible ? .visible : .hidden)
+
+                    ToolbarItem(id: SiteToolbarItemID.onionRouting.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.onionRouting, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.onionRouting.isDefaultVisible ? .visible : .hidden)
+
+                    ToolbarItem(id: SiteToolbarItemID.domain.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.domain, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.domain.isDefaultVisible ? .visible : .hidden)
+
+                    ToolbarItem(id: SiteToolbarItemID.integration.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.integration, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.integration.isDefaultVisible ? .visible : .hidden)
+
+                    ToolbarItem(id: SiteToolbarItemID.siriReadiness.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.siriReadiness, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.siriReadiness.isDefaultVisible ? .visible : .hidden)
+
+                    ToolbarItem(id: SiteToolbarItemID.relatedPages.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.relatedPages, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.relatedPages.isDefaultVisible ? .visible : .hidden)
+
+                    ToolbarItem(id: SiteToolbarItemID.styleGuide.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.styleGuide, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.styleGuide.isDefaultVisible ? .visible : .hidden)
+
+                    // One stable item whose label/action reflects publish state — two swapping items
+                    // would break saved customizations.
+                    ToolbarItem(id: SiteToolbarItemID.github.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.github, site: site)
+                    }
+                    .defaultCustomization(SiteToolbarItemID.github.isDefaultVisible ? .visible : .hidden)
+
+                    // — Default trailing cluster —
+
+                    // Health badge and Deploy are one item: the badge is the readiness signal for the
+                    // button it gates, so customization can never separate them.
+                    ToolbarItem(id: SiteToolbarItemID.deploy.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.deploy, site: site)
+                    }
+                    .customizationBehavior(.reorderable)
+
+                    ToolbarItem(id: SiteToolbarItemID.chat.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.chat, site: site)
+                    }
+                    // The shortcut (⌃⌘K, re-keyed from ⌘K per menu-bar spec §3) lives on View ▸
+                    // Show/Hide Chat (#512) — a second registration here would recreate the
+                    // duplicate-shortcut ambiguity #509 removed for ⌘S.
+
+                    // Moved ahead of the two inspector toggles (#714 v2 slice 3 final review) so
+                    // websiteInspector/inspector are genuinely last, per spec §4.
+                    // Unconditional per the file's own toolbar-customization rule above: disabled (not
+                    // hidden) outside Site ▸ Edit Page, so Customize Toolbar always shows it (#1588 Task 20).
+                    ToolbarItem(id: SiteToolbarItemID.wysiwygPalette.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.wysiwygPalette, site: site)
+                    }
+
+                    // Far trailing, immediately before the selection inspector toggle (#714 v2 slice 3) —
+                    // the Website inspector (Document analog) is always available, unlike `inspector`
+                    // (Format analog) which disables with no selection, so this item never disables.
+                    ToolbarItem(id: SiteToolbarItemID.websiteInspector.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.websiteInspector, site: site)
+                    }
+
+                    // Far trailing, adjacent to the inspector panel it controls (Pages/Freeform convention).
+                    ToolbarItem(id: SiteToolbarItemID.inspector.rawValue, placement: .primaryAction) {
+                        toolbarItemContent(.inspector, site: site)
                     }
                 }
-                .disabled(!model.canRunAgentReadiness)
-                .help(site.isValid
-                      ? "Check Cloudflare's Agent Readiness score for this site's published URL"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.agentReadiness))
-            }
-            .defaultCustomization(SiteToolbarItemID.agentReadiness.isDefaultVisible ? .visible : .hidden)
-
-            ToolbarItem(id: SiteToolbarItemID.onionRouting.rawValue, placement: .primaryAction) {
-                Button {
-                    model.onionRouting.openSheet()
-                } label: {
-                    Label("Onion Routing", systemImage: "network")
-                }
-                .disabled(!model.canRunOnionRouting)
-                .help(site.isValid
-                      ? "Enable Tor Browser access for this site via Cloudflare's zone-level setting"
-                      : "Site is missing required files")
-                .accessibilityIdentifier(AXID.toolbar(.onionRouting))
-            }
-            .defaultCustomization(SiteToolbarItemID.onionRouting.isDefaultVisible ? .visible : .hidden)
-
-            ToolbarItem(id: SiteToolbarItemID.domain.rawValue, placement: .primaryAction) {
-                Button {
-                    model.domain.openSheet()
-                } label: {
-                    Label("Domain", systemImage: "globe")
-                }
-                .disabled(!model.canOpenDomain)
-                .help("View and manage this domain's DNS records")
-                .accessibilityIdentifier(AXID.toolbar(.domain))
-            }
-            .defaultCustomization(SiteToolbarItemID.domain.isDefaultVisible ? .visible : .hidden)
-
-            ToolbarItem(id: SiteToolbarItemID.integration.rawValue, placement: .primaryAction) {
-                Button {
-                    model.openIntegrationWizard()
-                } label: {
-                    Label("Add Integration…", systemImage: "puzzlepiece.extension")
-                }
-                .disabled(!model.canOpenIntegrationWizard)
-                .help("Set up a third-party integration for this site")
-                .accessibilityIdentifier(AXID.toolbar(.integration))
-            }
-            .defaultCustomization(SiteToolbarItemID.integration.isDefaultVisible ? .visible : .hidden)
-
-            ToolbarItem(id: SiteToolbarItemID.siriReadiness.rawValue, placement: .primaryAction) {
-                Button {
-                    model.openSiriReadiness()
-                } label: {
-                    Label("Siri AI Readiness", systemImage: "sparkles")
-                }
-                .disabled(!model.canOpenSiriReadiness)
-                .help("Check whether Siri workflows are ready for this site")
-                .accessibilityIdentifier(AXID.toolbar(.siriReadiness))
-            }
-            .defaultCustomization(SiteToolbarItemID.siriReadiness.isDefaultVisible ? .visible : .hidden)
-
-            ToolbarItem(id: SiteToolbarItemID.relatedPages.rawValue, placement: .primaryAction) {
-                Button {
-                    model.relatedPagesPresented.toggle()
-                } label: {
-                    Label("Related Pages", systemImage: model.relatedPagesPresented
-                          ? "link.badge.plus" : "link")
-                }
-                .help(model.relatedPagesPresented ? "Hide related pages" : "Show related pages")
-                .accessibilityIdentifier(AXID.toolbar(.relatedPages))
-            }
-            .defaultCustomization(SiteToolbarItemID.relatedPages.isDefaultVisible ? .visible : .hidden)
-
-            ToolbarItem(id: SiteToolbarItemID.styleGuide.rawValue, placement: .primaryAction) {
-                Button {
-                    model.openStyleGuide()
-                } label: {
-                    Label("Style Guide", systemImage: "textformat.abc")
-                }
-                .help("See and edit this site's learned writing, image, and naming conventions")
-                .accessibilityIdentifier(AXID.toolbar(.styleGuide))
-            }
-            .defaultCustomization(SiteToolbarItemID.styleGuide.isDefaultVisible ? .visible : .hidden)
-
-            // One stable item whose label/action reflects publish state — two swapping items
-            // would break saved customizations.
-            ToolbarItem(id: SiteToolbarItemID.github.rawValue, placement: .primaryAction) {
-                if let remote = model.publish.existingRemote {
-                    Button {
-                        NSWorkspace.shared.open(remote.url)
-                    } label: {
-                        Label("View on GitHub", systemImage: "arrow.up.forward.square")
-                    }
-                    .help("Open this site's GitHub repository")
-                    .accessibilityIdentifier(AXID.toolbar(.github))
-                } else {
-                    Button {
-                        model.publish.publish(source: site.sourceDirectory, repoName: site.name)
-                    } label: {
-                        Label("Publish to GitHub", systemImage: "square.and.arrow.up.on.square")
-                    }
-                    .disabled(!model.canPublishToGitHub)
-                    .help(site.isValid ? "Create a private GitHub repo and push this site" : "Site is missing required files")
-                    .accessibilityIdentifier(AXID.toolbar(.github))
-                }
-            }
-            .defaultCustomization(SiteToolbarItemID.github.isDefaultVisible ? .visible : .hidden)
-
-            // — Default trailing cluster —
-
-            // Health badge and Deploy are one item: the badge is the readiness signal for the
-            // button it gates, so customization can never separate them.
-            ToolbarItem(id: SiteToolbarItemID.deploy.rawValue, placement: .primaryAction) {
-                HStack(spacing: 8) {
-                    HealthBadgeView(
-                        model: model.health,
-                        onRecheck: { model.recheckHealth() },
-                        onAskAssistant: {
-                            guard let chat = model.chat else { return }
-                            model.chatPresented = true
-                            chat.send(SiteWindowModel.healthAssistantPrompt)
-                        }
-                    )
-                    Button {
-                        model.deploySite()
-                    } label: {
-                        Label("Publish Site", systemImage: "paperplane.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!model.canRunDeploy)
-                    .help(site.isValid && model.preview.canDeploy
-                          ? "Build, scan, and publish this site to Cloudflare"
-                          : site.isValid
-                            ? "Open the preview first to start the runtime before publishing"
-                            : "Site is missing required files")
-                    .accessibilityIdentifier(AXID.toolbar(.deploy))
-                }
-            }
-            .customizationBehavior(.reorderable)
-
-            ToolbarItem(id: SiteToolbarItemID.chat.rawValue, placement: .primaryAction) {
-                Button {
-                    model.toggleChat()
-                } label: {
-                    Label("Chat", systemImage: model.chatPresented
-                        ? "bubble.left.and.bubble.right.fill"
-                        : "bubble.left.and.bubble.right")
-                }
-                .help(model.chatPresented ? "Hide chat panel" : "Show chat panel")
-                .accessibilityIdentifier(AXID.toolbar(.chat))
-                // The shortcut (⌃⌘K, re-keyed from ⌘K per menu-bar spec §3) lives on View ▸
-                // Show/Hide Chat (#512) — a second registration here would recreate the
-                // duplicate-shortcut ambiguity #509 removed for ⌘S.
-            }
-
-            // Moved ahead of the two inspector toggles (#714 v2 slice 3 final review) so
-            // websiteInspector/inspector are genuinely last, per spec §4.
-            // Unconditional per the file's own toolbar-customization rule above: disabled (not
-            // hidden) outside Site ▸ Edit Page, so Customize Toolbar always shows it (#1588 Task 20).
-            ToolbarItem(id: SiteToolbarItemID.wysiwygPalette.rawValue, placement: .primaryAction) {
-                Button {
-                    showWYSIWYGPalette.toggle()
-                } label: {
-                    Label("Block Palette", systemImage: "square.grid.2x2")
-                }
-                .disabled(!model.preview.isEditModeEnabled)
-                .help("Show or hide the block palette")
-                .accessibilityIdentifier(AXID.toolbar(.wysiwygPalette))
-            }
-
-            // Far trailing, immediately before the selection inspector toggle (#714 v2 slice 3) —
-            // the Website inspector (Document analog) is always available, unlike `inspector`
-            // (Format analog) which disables with no selection, so this item never disables.
-            ToolbarItem(id: SiteToolbarItemID.websiteInspector.rawValue, placement: .primaryAction) {
-                Button {
-                    toggleWebsiteInspector()
-                } label: {
-                    Label("Website Inspector", systemImage: "globe")
-                }
-                .help("Show or hide the website inspector")
-                .accessibilityIdentifier(AXID.toolbar(.websiteInspector))
-            }
-
-            // Far trailing, adjacent to the inspector panel it controls (Pages/Freeform convention).
-            ToolbarItem(id: SiteToolbarItemID.inspector.rawValue, placement: .primaryAction) {
-                Button {
-                    toggleSelectionInspector()
-                } label: {
-                    Label("Inspector", systemImage: "sidebar.right")
-                }
-                .disabled(model.inspectorSelection == nil)
-                .help("Show or hide the inspector")
-                .accessibilityIdentifier(AXID.toolbar(.inspector))
+                // Trailing search field (#520). Not a `.toolbar(id:)` item: `.searchable` mints its own
+                // toolbar item id, so it stays out of the frozen `SiteToolbarItemID` set and out of
+                // users' saved customizations.
+                .modifier(SiteSearchFieldModifier(
+                    model: model.search,
+                    siteID: site.id,
+                    inspectorPresented: inspectorPresented,
+                    activate: { hit in model.openSearchHit(hit) }
+                ))
             }
         }
-        // Trailing search field (#520). Not a `.toolbar(id:)` item: `.searchable` mints its own
-        // toolbar item id, so it stays out of the frozen `SiteToolbarItemID` set and out of
-        // users' saved customizations.
-        .modifier(SiteSearchFieldModifier(
-            model: model.search,
-            siteID: site.id,
-            inspectorPresented: inspectorPresented,
-            activate: { hit in model.openSearchHit(hit) }
-        ))
         .sheet(isPresented: $bindableModel.deploy.blockedPresented) {
             if case .blocked(let failures, let warnings) = model.deploy.phase {
                 BlockedDeploySheetView(failures: failures, warnings: warnings) {

@@ -39,7 +39,7 @@ import Testing
                     break
                 } catch {
                     lastError = error
-                    try await Task.sleep(for: .milliseconds(250))
+                    try await Task.sleep(for: .milliseconds(250)) // sleep-is-subject: real vsock dial retry against a live guest, no completion event to await
                 }
             }
             let fh = try #require(
@@ -55,7 +55,7 @@ import Testing
             while received.count < payload.count, ContinuousClock.now < deadline {
                 let chunk = fh.availableData
                 if chunk.isEmpty {
-                    try await Task.sleep(for: .milliseconds(100))
+                    try await Task.sleep(for: .milliseconds(100)) // sleep-is-subject: real raw-socket read poll against a live guest, no completion event to await
                 } else {
                     received.append(chunk)
                 }

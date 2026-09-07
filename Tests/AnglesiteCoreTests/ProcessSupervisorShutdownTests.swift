@@ -67,7 +67,7 @@ struct ProcessSupervisorShutdownTests {
             restartPolicy: .onCrash(maxAttempts: 100, baseBackoff: 0.2),
             logCenter: center
         )
-        try? await Task.sleep(nanoseconds: 100_000_000)
+        try? await Task.sleep(nanoseconds: 100_000_000) // sleep-is-subject: let the real crash-loop actually begin restarting before shutdownAll must break it
 
         await supervisor.shutdownAll(timeout: 1)
 
@@ -97,7 +97,7 @@ struct ProcessSupervisorShutdownTests {
         #expect(await awaitMarker("__STARTED__", in: center), "fixture never started")
 
         let waiter = Task { await supervisor.waitForExitOrTerminate(handle) }
-        try await Task.sleep(for: .milliseconds(100))   // let the waiter park on the exit continuation
+        try await Task.sleep(for: .milliseconds(100))   // sleep-is-subject: let the waiter park on the exit continuation before cancelling — the scenario under test is cancellation while parked, not before
         waiter.cancel()
         let reason = await waiter.value
 

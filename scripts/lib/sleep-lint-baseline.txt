@@ -15,15 +15,6 @@
 # Do not add new entries here to silence a fresh violation — mark the line instead
 # (`// sleep-is-subject`) with a comment explaining why, matching the existing style in the
 # suites #1810 already migrated. This baseline is a one-time debt snapshot, not an escape hatch.
-Tests/AnglesiteContainerLocalTests/ContainerizationControlTests.swift	try await Task.sleep(for: .milliseconds(500))
-Tests/AnglesiteContainerLocalTests/ContainerizationControlTests.swift	try? await Task.sleep(for: .milliseconds(100))
-Tests/AnglesiteContainerLocalTests/ContainerizationControlTests.swift	try? await Task.sleep(for: .milliseconds(500))
-Tests/AnglesiteContainerLocalTests/GuestProcessSupervisorTests.swift	try await Task.sleep(for: .milliseconds(50))
-Tests/AnglesiteContainerLocalTests/RacingTimeoutTests.swift	try await Task.sleep(for: .milliseconds(200))
-Tests/AnglesiteContainerLocalTests/RacingTimeoutTests.swift	try await Task.sleep(for: .seconds(3600))
-Tests/AnglesiteContainerLocalTests/VsockEchoEndToEndTests.swift	try await Task.sleep(for: .milliseconds(100))
-Tests/AnglesiteContainerLocalTests/VsockEchoEndToEndTests.swift	try await Task.sleep(for: .milliseconds(250))
-Tests/AnglesiteContainerLocalTests/WorkerToggleEndToEndTests.swift	try? await Task.sleep(for: .milliseconds(500))
 Tests/AnglesiteCoreTests/ACPClientTests.swift	try await Task.sleep(nanoseconds: .max)
 Tests/AnglesiteCoreTests/AvatarLoaderTests.swift	try? await Task.sleep(for: .milliseconds(100))
 Tests/AnglesiteCoreTests/CMSModeLiveE2ETests.swift	try await Task.sleep(nanoseconds: 3_000_000_000)
@@ -39,16 +30,7 @@ Tests/AnglesiteCoreTests/GitIdentityTests.swift	try await Task.sleep(for: .milli
 Tests/AnglesiteCoreTests/InotifyFileWatcherTests.swift	try? await Task.sleep(nanoseconds: 1_000_000_000)
 Tests/AnglesiteCoreTests/InotifyFileWatcherTests.swift	try? await Task.sleep(nanoseconds: 200_000_000)
 Tests/AnglesiteCoreTests/InotifyFileWatcherTests.swift	try? await Task.sleep(nanoseconds: 2_000_000_000)
-Tests/AnglesiteCoreTests/LocalContainerSiteRuntimeTests.swift	try await Task.sleep(for: .milliseconds(10))
-Tests/AnglesiteCoreTests/MCPApplyEditRouterTests.swift	try? await Task.sleep(nanoseconds: 50_000_000)
-Tests/AnglesiteCoreTests/MCPClientHTTPEndToEndTests.swift	try await Task.sleep(nanoseconds: 200_000_000)
-Tests/AnglesiteCoreTests/MCPClientTests.swift	try await Task.sleep(nanoseconds: 50_000_000)
-Tests/AnglesiteCoreTests/ProcessSupervisorShutdownTests.swift	try await Task.sleep(for: .milliseconds(100))   // let the waiter park on the exit continuation
-Tests/AnglesiteCoreTests/ProcessSupervisorShutdownTests.swift	try? await Task.sleep(nanoseconds: 100_000_000)
-Tests/AnglesiteCoreTests/SecurityReportsModelTests.swift	try await Task.sleep(nanoseconds: 200_000_000)
-Tests/AnglesiteCoreTests/SiteFileWatcherTests.swift	try? await Task.sleep(nanoseconds: 300_000_000)
-Tests/AnglesiteCoreTests/SyncSchedulerTests.swift	try await Task.sleep(for: .milliseconds(50))
-Tests/AnglesiteCoreTests/VsockTCPProxyTests.swift	try? await Task.sleep(for: .milliseconds(5))
+Tests/AnglesiteIntentsTests/SiteEntityUbiquityDiscoveryTests.swift	try await Task.sleep(for: .milliseconds(150))
 Tests/AnglesiteP2PTests/CloudKitPairingServiceTests.swift	try await Task.sleep(for: .milliseconds(100))
 Tests/AnglesiteP2PTests/CloudKitPairingServiceTests.swift	try await Task.sleep(for: .milliseconds(50))
 Tests/AnglesiteP2PTests/CloudKitPairingServiceTests.swift	try? await Task.sleep(for: timeout)

@@ -60,23 +60,21 @@ public struct RedirectsStore: Sendable {
         case destinationMustBeAbsolutePathOrURL(String)
     }
 
-    private let fileURL: URL
-    private let fileManager: FileManager
+    private let store: CodableFileStore<[RedirectEntry]>
 
     /// Roots the store at `<sourceDirectory>/redirects.json` — inside the `Source/` git repo,
     /// per the type-level rationale that redirects are site content, not app state.
     /// `fileManager` is injectable for tests.
     public init(sourceDirectory: URL, fileManager: FileManager = .default) {
-        self.fileURL = sourceDirectory.appendingPathComponent("redirects.json")
-        self.fileManager = fileManager
+        self.store = .json(
+            fileURL: sourceDirectory.appendingPathComponent("redirects.json"),
+            fileManager: fileManager)
     }
 
     /// `[]` (not a throw) when the file is absent — the normal "no redirects yet" case for a
     /// freshly scaffolded site.
     public func load() throws -> [RedirectEntry] {
-        guard fileManager.fileExists(atPath: fileURL.path) else { return [] }
-        let data = try Data(contentsOf: fileURL)
-        return try JSONDecoder().decode([RedirectEntry].self, from: data)
+        try store.load() ?? []
     }
 
     /// Validates, then writes the full entry list (pretty-printed, sorted keys, atomic — the
@@ -88,10 +86,7 @@ public struct RedirectsStore: Sendable {
     ///   error.
     public func save(_ entries: [RedirectEntry]) throws {
         try Self.validate(entries)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(entries)
-        try data.write(to: fileURL, options: .atomic)
+        try store.save(entries)
     }
 
     /// Checks the whole list's invariants: absolute sources, no whitespace, valid destinations,

@@ -116,7 +116,7 @@ import AnglesiteTestSupport
         let engine = FakeEngine()
         _ = SyncScheduler(package: package, engine: engine)
         // No trigger called — give any errant background activity a chance to happen, then assert none did.
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: .milliseconds(50)) // sleep-is-subject: negative assertion, no event to wait for
         #expect(await engine.pullCount == 0)
         #expect(await engine.pushCount == 0)
     }
@@ -366,7 +366,7 @@ import AnglesiteTestSupport
 
         // Negative assertion, so there's no state to wait *for*: settle briefly and assert nothing
         // happened, exactly as `idleSchedulerTouchesNothing` does.
-        try await Task.sleep(for: .milliseconds(50))
+        try await Task.sleep(for: .milliseconds(50)) // sleep-is-subject: negative assertion, no event to wait for
         #expect(await engine.pushCount == 0)
     }
 

@@ -24,7 +24,7 @@ struct SiteFileWatcherTests {
         defer { watcher.stop() }
 
         // Give the stream a beat to arm, then write a file.
-        try? await Task.sleep(nanoseconds: 300_000_000)
+        try? await Task.sleep(nanoseconds: 300_000_000) // sleep-is-subject: real FSEvents subsystem needs time to arm before the write it must observe — there's no API to poll for "armed"
         let target = root.appendingPathComponent("hello.astro")
         try Data("hi".utf8).write(to: target)
 

@@ -8,7 +8,11 @@ private func flatten(_ nodes: [URLTreeNode]) -> [URLTreeNode] {
     nodes.flatMap { [$0] + flatten($0.children ?? []) }
 }
 
-@Suite("SiteNavigatorModel")
+/// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
+/// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
+/// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
+/// unambiguous time-limit violation instead of hanging the whole run forever.
+@Suite("SiteNavigatorModel", .timeLimit(.minutes(1)))
 @MainActor
 struct SiteNavigatorModelTests {
     @Test("canDelete and canDuplicate are true for a route (page/post) target")
@@ -414,7 +418,9 @@ struct SiteNavigatorModelTests {
 /// `SiteWindowModel.confirmDelete()` deletes a page. Deletion itself is #516's (tested above via
 /// `canDelete`/`canDuplicate`, and in `SiteWindowModelTests`); this suite only covers the
 /// redirect-save path this model still owns.
-@Suite("SiteNavigatorModel saveRedirect (#530)")
+/// `.timeLimit`: see #1349 — matches `SiteNavigatorModelTests`' own trait above; this suite
+/// polls the same `model.nodes.isEmpty` yield-loop and is an equally observed stall point.
+@Suite("SiteNavigatorModel saveRedirect (#530)", .timeLimit(.minutes(1)))
 @MainActor
 struct SiteNavigatorModelRedirectsTests {
     private func tempSourceDir() throws -> URL {
@@ -497,7 +503,9 @@ final class SiteNavigatorRedirectCommitSpy: @unchecked Sendable {
     func messages() -> [String] { lock.lock(); defer { lock.unlock() }; return calls.map(\.1) }
 }
 
-@Suite("SiteNavigatorModel publish/unpublish gating (#798)")
+/// `.timeLimit`: see #1349 — matches `SiteNavigatorModelTests`' own trait above; this suite
+/// polls the same `model.nodes.isEmpty` yield-loop and is an equally observed stall point.
+@Suite("SiteNavigatorModel publish/unpublish gating (#798)", .timeLimit(.minutes(1)))
 @MainActor
 struct SiteNavigatorModelPublishGatingTests {
     @Test("canPublish/canUnpublish are mutually exclusive for a typed post, false for pages and blog posts")
