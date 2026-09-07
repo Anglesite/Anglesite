@@ -118,7 +118,8 @@ public actor SafariMCPBridgeClient {
         }
     }
 
-    /// Fetches the server's tool catalog. Requires a prior successful ``connect(...)``.
+    /// Fetches the server's tool catalog. Requires a prior successful
+    /// ``connect(clientName:clientVersion:timeout:)``.
     public func listTools() async throws -> [ToolDescriptor] {
         let result = try await sendRequest(method: "tools/list", params: .object([:]), timeout: NetworkTimeouts.mcpToolsListRequest)
         guard case .object(let dict) = result, case .array(let tools)? = dict["tools"] else {
