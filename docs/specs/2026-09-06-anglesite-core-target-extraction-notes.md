@@ -252,10 +252,14 @@ conditional `SwiftGit2` product dependency `AnglesiteCore` already declares
 CI lanes that would need the new target name(s) added: `linux-build-test`
 (`.github/workflows/ci.yml:300`, required) and, for full local coverage,
 `scripts/swift-test.sh` needs no change (it wraps `swift test`, which picks up new targets
-automatically) but the four required macOS jobs (`build-test`, `xcode27-compile`, `ios-build`,
-`concurrency-tsan` — see `.github/workflows/ci.yml:488,758,870,983` and CONTRIBUTING.md's "four
-macOS jobs" note) all build the whole package graph already, so they need no target-name
-edits, just the new targets to actually compile.
+automatically). The other four macOS jobs a Swift PR runs (CONTRIBUTING.md's "four macOS
+jobs" note, `.github/workflows/ci.yml:488,758,870,983`) are `build-test`, `ios-build`, and
+`concurrency-tsan` — required, per the `ci` aggregator's `needs:` list at
+`.github/workflows/ci.yml:1134-1150` — plus `xcode27-compile`, which is explicitly
+**non-required** (its own job name says "Xcode 27 preview, non-required," and it's excluded
+from that `needs:` list). All four build the whole package graph already regardless of
+required-ness, so none of them need target-name edits, just the new targets to actually
+compile.
 
 ## Appendix: names excluded as declared in more than one cluster
 
