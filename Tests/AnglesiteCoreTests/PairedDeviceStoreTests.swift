@@ -135,4 +135,62 @@ struct PairedDeviceStoreTests {
         #expect(try store.device(deviceID: "phone-1") == device)
         #expect(try store.device(deviceID: "unknown-device") == nil)
     }
+
+    /// #1916: `PairedDeviceStore` migrated both `paired-devices.json` and `revoked-devices.json`
+    /// onto `CodableFileStore`. Neither file's original hand-rolled encoder set a date strategy, so
+    /// `Date` fields (`pairedAt`/`lastConnectedAt`, tombstone timestamps) were written with
+    /// `JSONEncoder`'s default `.deferredToDate` — a raw numeric `timeIntervalSinceReferenceDate` —
+    /// not `CodableFileStore.json`'s ISO 8601 default. A fixture written the old way must still
+    /// decode, and re-saving it must reproduce the exact same bytes.
+    @Test func byteCompatibleWithPreMigrationDevicesFormat() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("paired-devices-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let persistenceURL = dir.appendingPathComponent("paired-devices.json")
+
+        let devices = [
+            PairedDevice(deviceID: "phone-1", displayName: "David's iPhone", pinnedPublicKey: Data([0x04, 0x01]), pairedAt: Date(timeIntervalSince1970: 1000), lastConnectedAt: Date(timeIntervalSince1970: 2000)),
+        ]
+        let legacyEncoder = JSONEncoder()
+        legacyEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let fixture = try legacyEncoder.encode(devices)
+        try fixture.write(to: persistenceURL)
+
+        let store = PairedDeviceStore(persistenceURL: persistenceURL)
+        #expect(try store.load() == devices)
+
+        try store.update(devices[0])
+        let resaved = try Data(contentsOf: persistenceURL)
+        #expect(resaved == fixture)
+    }
+
+    /// Same guarantee as ``byteCompatibleWithPreMigrationDevicesFormat`` for the sibling
+    /// `revoked-devices.json` tombstone file. `PairedDeviceStore.remove(id:)` always stamps a fresh
+    /// `Date()` tombstone, so it can't be used to exercise a byte-identical re-save of a fixed
+    /// fixture value — instead this constructs the `CodableFileStore` with the exact configuration
+    /// `PairedDeviceStore` uses internally for `revoked-devices.json` (`.deferredToDate` on both
+    /// sides, matching the original hand-rolled encoder/decoder's un-set date strategy) and drives
+    /// it directly.
+    @Test func byteCompatibleWithPreMigrationRevocationsFormat() throws {
+        let dir = FileManager.default.temporaryDirectory.appendingPathComponent("paired-devices-\(UUID().uuidString)")
+        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
+        let revocationsURL = dir.appendingPathComponent("revoked-devices.json")
+
+        let tombstones = ["phone-1": Date(timeIntervalSince1970: 3000)]
+        let legacyEncoder = JSONEncoder()
+        legacyEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let fixture = try legacyEncoder.encode(tombstones)
+        try fixture.write(to: revocationsURL)
+
+        let store = CodableFileStore<[String: Date]>.json(
+            fileURL: revocationsURL,
+            dateEncodingStrategy: .deferredToDate,
+            dateDecodingStrategy: .deferredToDate
+        )
+        let loaded = try store.load()
+        #expect(loaded == tombstones)
+
+        try store.save(try #require(loaded))
+        let resaved = try Data(contentsOf: revocationsURL)
+        #expect(resaved == fixture)
+    }
 }

@@ -174,6 +174,39 @@ final class SiteStoreTests {
         #expect(!site.needsReauthorization)
     }
 
+    /// #1916: `SiteStore` migrated its hand-rolled encode/write/decode of `recents.json` onto
+    /// `CodableFileStore`. Its original encoder already used `[.prettyPrinted, .sortedKeys]` output
+    /// formatting and `.iso8601` date strategies, matching `CodableFileStore.json`'s defaults
+    /// exactly — so a fixture written the old way must decode and re-save byte-for-byte unchanged.
+    @Test("byte-compatible with the pre-migration encoder configuration")
+    func byteCompatibleWithPreMigrationFormat() throws {
+        let sites = [
+            SiteStore.Site(
+                id: "legacy-id",
+                name: "legacy",
+                packageURL: URL(string: "file:///tmp/legacy.anglesite/")!,
+                isValid: true,
+                missingSentinels: [],
+                lastSeen: Date(timeIntervalSince1970: 1_700_000_000),
+                bookmarkData: Data([0x01, 0x02]),
+                needsReauthorization: false
+            ),
+        ]
+        let legacyEncoder = JSONEncoder()
+        legacyEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        legacyEncoder.dateEncodingStrategy = .iso8601
+        let fixture = try legacyEncoder.encode(sites)
+        try fixture.write(to: persistenceURL)
+
+        let store = CodableFileStore<[SiteStore.Site]>.json(fileURL: persistenceURL)
+        let loaded = try store.load()
+        #expect(loaded == sites)
+
+        try store.save(try #require(loaded))
+        let resaved = try Data(contentsOf: persistenceURL)
+        #expect(resaved == fixture)
+    }
+
     /// Regression: validity is cached in `recents.json` but recomputed on `load()`. A registry
     /// written by an older build (or before a sentinel-list fix) can hold a stale `isValid:false`
     /// for a package that is actually valid on disk — that left every site greyed-out in the
