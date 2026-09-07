@@ -55,7 +55,7 @@ struct SafariMCPBridgeClientTests {
 
         let logCenter = LogCenter()
         let (client, _) = makeClient(logCenter: logCenter)
-        let info = try await client.connect()
+        let info = try await client.connect(timeout: 10)
         #expect(info == SafariMCPBridgeClient.ServerInfo(name: "Safari", version: "1.0.0", protocolVersion: "2024-11-05"))
 
         // The initialize request itself must never send MCP-Protocol-Version, and the id=1
@@ -83,7 +83,7 @@ struct SafariMCPBridgeClientTests {
         ))
 
         let (client, _) = makeClient()
-        _ = try await client.connect()
+        _ = try await client.connect(timeout: 10)
         let tools = try await client.listTools()
         #expect(tools == [.init(name: "browser_console_messages", description: "Read console")])
         await client.close()
@@ -98,7 +98,7 @@ struct SafariMCPBridgeClientTests {
         ))
         let (client, _) = makeClient()
         do {
-            _ = try await client.connect()
+            _ = try await client.connect(timeout: 10)
             Issue.record("expected ClientError.rpcError to be thrown")
         } catch SafariMCPBridgeClient.ClientError.rpcError(let code, let message) {
             #expect(code == -32000)
@@ -113,7 +113,7 @@ struct SafariMCPBridgeClientTests {
         let logCenter = LogCenter()
         let (client, _) = makeClient(logCenter: logCenter)
         await #expect(throws: (any Error).self) {
-            _ = try await client.connect()
+            _ = try await client.connect(timeout: 10)
         }
         let logged = await logCenter.snapshot()
         #expect(logged.contains { $0.source == "safari-mcp" && $0.stream == .stderr })

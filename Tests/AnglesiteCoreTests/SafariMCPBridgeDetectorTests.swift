@@ -42,14 +42,14 @@ struct SafariMCPBridgeDetectorTests {
         ))
         SafariMCPBridgeDetectorStubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))
         let (detector, _) = makeDetector()
-        let status = await detector.checkReachability(port: 8931)
+        let status = await detector.checkReachability(port: 8931, timeout: 10)
         #expect(status == SafariMCPBridgeStatus(state: .reachable(serverName: "Safari"), port: 8931))
     }
 
     @Test("an unreachable port reports .unreachable") func unreachable() async throws {
         SafariMCPBridgeDetectorStubURLProtocol.reset()  // empty queue -> 500 from every request
         let (detector, _) = makeDetector()
-        let status = await detector.checkReachability(port: 8931)
+        let status = await detector.checkReachability(port: 8931, timeout: 10)
         #expect(status == SafariMCPBridgeStatus(state: .unreachable, port: 8931))
     }
 }
