@@ -56,6 +56,10 @@ nav.toc li { margin: 0.5em 0; }
 }
 .related a { margin-right: 1em; }
 figure { margin: 1.4em 0; }
+figure img {
+	display: block; max-width: 100%; height: auto;
+	border: 1px solid var(--rule); border-radius: 10px;
+}
 figcaption { font-size: 13px; color: var(--fg-dim); margin-top: 0.5em; }
 .screenshot-placeholder {
 	display: flex; align-items: center; justify-content: center;
