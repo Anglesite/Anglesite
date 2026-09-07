@@ -386,6 +386,11 @@ jobs:
       - name: Test pin-cloudflare-canonical-image.sh digest rewrite
         run: scripts/pin-cloudflare-canonical-image.test.sh
 
+      # Pure git grep/awk against the real tree — regression test for #1903 (sleep-lint
+      # baseline drain, batch 2 of 2), no fixture or external dependency needed.
+      - name: Test sleep-lint baseline batch 2 is drained
+        run: scripts/check-sleep-lint-baseline-drained.test.sh
+
       - name: Save SwiftPM build cache (main only)
         if: github.ref == 'refs/heads/main'
         uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0

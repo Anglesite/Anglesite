@@ -74,7 +74,7 @@ struct MCPClientHTTPEndToEndTests {
                 do { try await client.connect(httpEndpoint: endpoint); return }
                 catch {
                     guard Date() < deadline else { throw error }
-                    try await Task.sleep(nanoseconds: 200_000_000)
+                    try await Task.sleep(nanoseconds: 200_000_000) // sleep-is-subject: real E2E retry against a real subprocess server
                 }
             }
         }

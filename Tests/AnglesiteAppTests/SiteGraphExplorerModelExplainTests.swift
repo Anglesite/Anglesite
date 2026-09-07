@@ -29,7 +29,11 @@ private struct ThrowingExplainer: SiteGraphNodeExplaining {
     }
 }
 
-@Suite("SiteGraphExplorerModel explain (#614)")
+/// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
+/// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
+/// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
+/// unambiguous time-limit violation instead of hanging the whole run forever.
+@Suite("SiteGraphExplorerModel explain (#614)", .timeLimit(.minutes(1)))
 @MainActor
 struct SiteGraphExplorerModelExplainTests {
     /// A started model with one page node loaded and selected.

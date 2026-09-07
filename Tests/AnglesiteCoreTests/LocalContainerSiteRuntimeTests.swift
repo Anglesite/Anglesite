@@ -692,13 +692,11 @@ struct LocalContainerSiteRuntimeTests {
             siteID: "s1", displayName: "s1",
             status: .running(url: URL(string: "http://127.0.0.1:51003")!))])
         // The fake replays its onOutput lines synchronously inside startWorkersDev, but the
-        // runtime's sink hops through a Task per line — poll briefly for arrival.
-        var workerLines: [LogCenter.LogLine] = []
-        for _ in 0..<50 {
-            workerLines = await logCenter.snapshot().filter { $0.source == "worker:s1" }
-            if !workerLines.isEmpty { break }
-            try await Task.sleep(for: .milliseconds(10))
+        // runtime's sink hops through a Task per line — wait briefly for arrival.
+        try await waitUntil("worker:s1 log line to arrive") {
+            await !logCenter.snapshot().filter { $0.source == "worker:s1" }.isEmpty
         }
+        let workerLines = await logCenter.snapshot().filter { $0.source == "worker:s1" }
         #expect(workerLines.map(\.text) == ["Ready on http://localhost:8787"])
     }
 

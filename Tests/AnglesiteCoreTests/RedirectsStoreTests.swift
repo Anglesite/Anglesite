@@ -156,4 +156,25 @@ struct RedirectsStoreTests {
         try store.save(entries)
         #expect(try store.load() == entries)
     }
+
+    @Test("re-saving a fixture written with the pre-CodableFileStore encoder produces identical bytes")
+    func byteCompatibleWithPreMigrationEncoder() throws {
+        let dir = try tempSourceDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let entries = [
+            RedirectsStore.RedirectEntry(source: "/old", destination: "/new", code: .permanent),
+            RedirectsStore.RedirectEntry(source: "/temp", destination: "https://example.com", code: .temporary),
+        ]
+        // Reproduces RedirectsStore.save()'s encoder configuration before the CodableFileStore migration.
+        let legacyEncoder = JSONEncoder()
+        legacyEncoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        let legacyBytes = try legacyEncoder.encode(entries)
+        let fileURL = dir.appendingPathComponent("redirects.json")
+        try legacyBytes.write(to: fileURL)
+
+        let store = RedirectsStore(sourceDirectory: dir)
+        try store.save(try store.load())
+
+        #expect(try Data(contentsOf: fileURL) == legacyBytes)
+    }
 }

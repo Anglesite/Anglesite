@@ -205,62 +205,20 @@ private struct AgentsSettingsView: View {
         }
     }
 
-    /// Upper bound on the `/models` response body this reads while verifying — the same
-    /// user-supplied-endpoint threat model `ExternalLLMBackend`'s SSE draining guards against
-    /// (a typo'd URL, a hostile host, or a plain never-ending response can all reach here), so
-    /// this read is bounded rather than trusted like the old unbounded `data(for:)` call was
-    /// (#1482 review). Generous for a real `/models` list — the far side of this limit only ever
-    /// costs the cosmetic model-count `detail`, never verification success itself.
-    private static let verifyResponseByteLimit = 65_536
-
-    /// GETs `{baseURL}/models` — the OpenAI-compatible endpoint every mainstream provider and
-    /// self-hosted server (OpenAI, Groq, vLLM, Ollama, LM Studio) implements — to confirm the
-    /// endpoint and key work before the owner starts a chat. A 2xx response whose body parses as
-    /// `{"data": [...]}` (the OpenAI list shape) reports a model count; a 2xx response in any
-    /// other shape still counts as a successful connection. On success, persists the verified
-    /// base URL + detail to `AppSettings` so `KeychainTokenRow`'s `cachedIdentity` can show
-    /// "Connected" next time Settings opens without repeating this network call (#1482 review).
+    /// Thin mapping from `ExternalLLMVerifier`'s Core-level result to the App-side
+    /// `KeychainTokenRow.VerifyOutcome` UI type (#1907 — step 3 of #1818's owner-approved plan).
+    /// On success, persists the verified base URL + detail to `AppSettings` so
+    /// `KeychainTokenRow`'s `cachedIdentity` can show "Connected" next time Settings opens
+    /// without repeating this network call (#1482 review) — `ExternalLLMVerifier` itself stays
+    /// free of `AppSettings` side effects so it's testable in isolation.
     private static func verifyExternalLLMEndpoint(baseURLText: String, apiKey: String) async -> KeychainTokenRow.VerifyOutcome {
-        let trimmed = baseURLText.trimmingCharacters(in: .whitespaces)
-        guard !trimmed.isEmpty, var base = URL(string: trimmed) else {
-            return .failure("enter a base URL first")
-        }
-        if base.absoluteString.hasSuffix("/") {
-            guard let trimmedBase = URL(string: String(base.absoluteString.dropLast())) else {
-                return .failure("enter a base URL first")
-            }
-            base = trimmedBase
-        }
-        guard let url = URL(string: base.absoluteString + "/models") else {
-            return .failure("enter a base URL first")
-        }
-        var request = URLRequest(url: url)
-        if !apiKey.isEmpty { request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization") }
-        do {
-            let (asyncBytes, response) = try await URLSession.shared.bytes(for: request)
-            guard let http = response as? HTTPURLResponse else { return .failure("no HTTP response") }
-            guard (200...299).contains(http.statusCode) else {
-                asyncBytes.task.cancel()
-                return .failure("HTTP \(http.statusCode)")
-            }
-            var data = Data()
-            for try await byte in asyncBytes {
-                data.append(byte)
-                if data.count >= verifyResponseByteLimit { break }
-            }
-            // Stop the rest of a large or never-ending body from continuing to arrive into a
-            // stream nothing reads — a no-op if it already finished on its own (#1482 review).
-            asyncBytes.task.cancel()
-            var detail: String?
-            if let json = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
-               let models = json["data"] as? [Any] {
-                detail = "\(models.count) model\(models.count == 1 ? "" : "s") available"
-            }
-            AppSettings.shared.externalLLMVerifiedBaseURL = trimmed
+        switch await ExternalLLMVerifier().verify(baseURLText: baseURLText, apiKey: apiKey) {
+        case .success(let detail):
+            AppSettings.shared.externalLLMVerifiedBaseURL = baseURLText.trimmingCharacters(in: .whitespaces)
             AppSettings.shared.externalLLMVerifiedDetail = detail
             return .success(.init(label: "Connected", detail: detail, avatarURL: nil))
-        } catch {
-            return .failure(error.localizedDescription)
+        case .failure(let message):
+            return .failure(message)
         }
     }
 }

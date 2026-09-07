@@ -81,23 +81,21 @@ public struct UTMCodesStore: Sendable {
         case missingRequiredField(UUID, field: String)
     }
 
-    private let fileURL: URL
-    private let fileManager: FileManager
+    private let store: CodableFileStore<[Campaign]>
 
     /// Roots the store at `<sourceDirectory>/utm-codes.json` — inside the `Source/` git repo, for
     /// the same reason `RedirectsStore` does: this is site content the build/deploy pipeline
     /// reads, not app-owned state. `fileManager` is injectable for tests.
     public init(sourceDirectory: URL, fileManager: FileManager = .default) {
-        self.fileURL = sourceDirectory.appendingPathComponent("utm-codes.json")
-        self.fileManager = fileManager
+        self.store = .json(
+            fileURL: sourceDirectory.appendingPathComponent("utm-codes.json"),
+            fileManager: fileManager)
     }
 
     /// `[]` (not a throw) when the file is absent — the normal "no UTM codes yet" case for a
     /// freshly scaffolded site.
     public func load() throws -> [Campaign] {
-        guard fileManager.fileExists(atPath: fileURL.path) else { return [] }
-        let data = try Data(contentsOf: fileURL)
-        return try JSONDecoder().decode([Campaign].self, from: data)
+        try store.load() ?? []
     }
 
     /// Validates, normalizes each campaign's `appliesTo` to a deterministic order, then writes the
@@ -123,10 +121,7 @@ public struct UTMCodesStore: Sendable {
             campaign.content = (trimmedContent?.isEmpty ?? true) ? nil : trimmedContent
             return campaign
         }
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(normalized)
-        try data.write(to: fileURL, options: .atomic)
+        try store.save(normalized)
         return normalized
     }
 

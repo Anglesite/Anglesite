@@ -394,7 +394,7 @@ public actor DeployCommand {
 
     /// Keys that a host-path build or preflight step legitimately needs. The allowlist is
     /// intentionally conservative — add a key only when a build script demonstrably requires it.
-    /// Mirrors the tight `guestEnvAllowlist` in `ContainerDeployExecutor`, adapted for the host
+    /// Mirrors the tight `guestEnvironment` scoping in `ContainerDeployExecutor`, adapted for the host
     /// where Node/npm/Astro rely on the user's shell plumbing.
     private static let hostEnvAllowlist: Set<String> = [
         // Shell / process fundamentals

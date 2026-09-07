@@ -31,6 +31,8 @@ private actor GatedDeployExecutor: DeployExecutor {
             return DeployStepResult(exitCode: 0, output: "")
         case .githubPagesPublish:
             return DeployStepResult(exitCode: 0, output: "")
+        case .wranglerSubcommand:
+            return DeployStepResult(exitCode: 0, output: "")
         }
     }
 

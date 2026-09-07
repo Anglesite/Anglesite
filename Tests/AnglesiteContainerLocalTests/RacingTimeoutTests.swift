@@ -33,7 +33,7 @@ struct RacingTimeoutTests {
                 timeoutError: TestError(message: "timed out")
             ) {
                 // Never returns within the test's lifetime — simulates a genuine VZ hang.
-                try await Task.sleep(for: .seconds(3600))
+                try await Task.sleep(for: .seconds(3600)) // sleep-is-subject: never-resolving sentinel, the scenario under test
                 return "never"
             }
         }
@@ -60,7 +60,7 @@ struct RacingTimeoutTests {
                 timeoutError: TestError(message: "timed out"),
                 onLateSuccess: { value in lateResult.set(value) }
             ) {
-                try await Task.sleep(for: .milliseconds(200))
+                try await Task.sleep(for: .milliseconds(200)) // sleep-is-subject: deliberately slower than the timeout, the scenario under test
                 return "late"
             }
         }

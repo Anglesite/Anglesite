@@ -3,8 +3,12 @@ import Foundation
 @testable import AnglesiteAppCore
 @testable import AnglesiteCore
 
+/// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
+/// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
+/// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
+/// unambiguous time-limit violation instead of hanging the whole run forever.
 @MainActor
-@Suite struct BuyDomainModelTests {
+@Suite(.timeLimit(.minutes(1))) struct BuyDomainModelTests {
     private func makeSite() throws -> (site: CurrentSite, dir: URL) {
         let tmp = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
         try FileManager.default.createDirectory(at: tmp, withIntermediateDirectories: true)

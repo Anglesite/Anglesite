@@ -16,7 +16,11 @@ private actor SnapshotCapture {
     func capture(_ snapshot: SiteGraphExplorerSnapshot) { received = snapshot }
 }
 
-@Suite("SiteAssistantSessionFactory")
+/// `.timeLimit`: see #1349 — the full `AnglesiteAppTests` target has hung indefinitely under
+/// local machine contention (many concurrent `swift test` runs oversubscribing the cooperative
+/// thread pool), with this suite one of the observed stall points. A wedged test now fails as an
+/// unambiguous time-limit violation instead of hanging the whole run forever.
+@Suite("SiteAssistantSessionFactory", .timeLimit(.minutes(1)))
 @MainActor
 struct SiteAssistantSessionFactoryTests {
     @Test("makeSession forwards the graph snapshot provider to the assistant builder")
