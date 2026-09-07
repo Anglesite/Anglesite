@@ -481,21 +481,26 @@ public struct LicensingStore: Sendable {
     /// callers and tests build the same path instead of duplicating the constant.
     public static let relativePath = "src/data/licensing.json"
 
-    private let fileURL: URL
+    private let store: CodableFileStore<LicensingPolicy>
     private let fileManager: FileManager
 
     /// `sourceDirectory` is the package's `Source/` git repo (see the type doc for why the
     /// policy lives there, not in `Config/`); `fileManager` is injectable for tests.
     public init(sourceDirectory: URL, fileManager: FileManager = .default) {
-        self.fileURL = sourceDirectory.appendingPathComponent(Self.relativePath)
+        self.store = .json(
+            fileURL: sourceDirectory.appendingPathComponent(Self.relativePath),
+            fileManager: fileManager)
         self.fileManager = fileManager
     }
 
     /// An empty policy (not a throw) when the file is absent — the normal state of a site
     /// scaffolded before it had one.
+    ///
+    /// - Throws: Whatever the underlying decode throws for an existing-but-corrupt file —
+    ///   deliberately not ``CodableFileStore/loadOrDefault(_:)``, which would also swallow that
+    ///   case.
     public func load() throws -> LicensingPolicy {
-        guard fileManager.fileExists(atPath: fileURL.path) else { return LicensingPolicy() }
-        return try JSONDecoder().decode(LicensingPolicy.self, from: try Data(contentsOf: fileURL))
+        try store.load() ?? LicensingPolicy()
     }
 
     /// Whether `usage.botBlocklistManagedBy` was present as an explicit key in the raw JSON,
@@ -510,8 +515,8 @@ public struct LicensingStore: Sendable {
     /// throws on shape) for a missing file, unparseable JSON, or a document whose top level or
     /// `usage` isn't an object — every one of those is already "no explicit choice was made".
     public func hasExplicitBotBlocklistManagedBy() -> Bool {
-        guard fileManager.fileExists(atPath: fileURL.path),
-              let data = try? Data(contentsOf: fileURL),
+        guard fileManager.fileExists(atPath: store.url.path),
+              let data = try? Data(contentsOf: store.url),
               let json = try? JSONSerialization.jsonObject(with: data),
               let object = json as? [String: Any],
               let usage = object["usage"] as? [String: Any]
@@ -539,12 +544,7 @@ public struct LicensingStore: Sendable {
     public func save(_ policy: LicensingPolicy) throws {
         let policy = Self.normalized(policy)
         try Self.validate(policy)
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        let data = try encoder.encode(policy)
-        try fileManager.createDirectory(
-            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try data.write(to: fileURL, options: .atomic)
+        try store.save(policy)
     }
 
     /// Refuses any policy carrying a license URL that fails ``LicenseRef/isSafeLicenseURL(_:)``
