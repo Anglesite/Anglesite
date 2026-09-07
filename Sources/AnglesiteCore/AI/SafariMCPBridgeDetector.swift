@@ -1,4 +1,9 @@
 import Foundation
+// URLSession lives in FoundationNetworking on non-Darwin platforms (swift-corelibs-foundation);
+// this import is a no-op on macOS.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// The result of one reachability probe against a configured loopback port.
 public struct SafariMCPBridgeStatus: Sendable, Equatable {

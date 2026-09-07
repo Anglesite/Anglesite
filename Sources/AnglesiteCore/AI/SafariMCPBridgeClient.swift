@@ -1,4 +1,9 @@
 import Foundation
+// URLSession lives in FoundationNetworking on non-Darwin platforms (swift-corelibs-foundation);
+// this import is a no-op on macOS.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// A minimal JSON-RPC 2.0 client speaking the *standard* (sessionful) MCP Streamable HTTP
 /// handshake over a ``SessionfulHTTPTransport`` — the real `initialize` → `Mcp-Session-Id` →

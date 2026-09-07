@@ -53,7 +53,7 @@ struct SafariMCPBridgeE2ETests {
                 } catch {
                     await c.close()
                     guard Date() < deadline else { throw error }
-                    try await Task.sleep(nanoseconds: 500_000_000)
+                    try await Task.sleep(nanoseconds: 500_000_000)  // sleep-is-subject: real E2E/subprocess retry backoff
                 }
             }
         }
