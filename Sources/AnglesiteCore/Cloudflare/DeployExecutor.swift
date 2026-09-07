@@ -21,6 +21,12 @@ public enum DeployStep: Sendable {
     /// host, so this step (like `.wrangler`) must run in-guest. Not yet reached by any
     /// `DeployTarget` — the conformer that calls it is a later slice.
     case githubPagesPublish
+    /// An arbitrary `wrangler <args>` subcommand outside the fixed pipeline — `d1 create`,
+    /// `kv namespace create`, `queues create`, `d1 migrations apply`, etc. Used by
+    /// `SocialWorkerProvisionTarget`'s resource-creation sequence (#1821) so those calls run
+    /// through the same executor abstraction as `.wrangler`/`.bundleUpload`, instead of a
+    /// separately-injected `CommandRunner` seam.
+    case wranglerSubcommand(args: [String])
 }
 
 /// The result of running a single deploy step.
@@ -161,7 +167,7 @@ public struct ContainerDeployExecutor: DeployExecutor {
         // dynamic route 404s and `wrangler tail` refuses to attach. Only `.wrangler` needs this:
         // `astro build` and the preflight scan never read `wrangler.toml` (confirmed against
         // `Resources/Template`), so re-syncing before them would be pure overhead.
-        if step == .wrangler, let syncArgv = Self.wranglerTomlSyncArgv(hostSiteDirectory: siteDirectory) {
+        if case .wrangler = step, let syncArgv = Self.wranglerTomlSyncArgv(hostSiteDirectory: siteDirectory) {
             do {
                 let syncResult = try await control.exec(
                     siteID: siteID,
@@ -182,47 +188,26 @@ public struct ContainerDeployExecutor: DeployExecutor {
                 return DeployStepResult(exitCode: nil, output: "couldn't sync wrangler.toml into the container: \(error)")
             }
         }
+        // Stream guest output to LogCenter LIVE (matching the host path) and drain fully on every
+        // exit path (success or thrown error) — `WranglerInvocation.exec` (#1821) owns that
+        // AsyncStream/detached-task mechanics now, so there's no local `continuation`/`drain` to
+        // finish here; a `catch` below must NOT attempt to drain again. Never log the environment
+        // dict — CLOUDFLARE_API_TOKEN stays off disk and out of logs.
         let argv = Self.guestArgv(for: step, siteDirectory: siteDirectory)
-        // Stream guest output to LogCenter LIVE (matching the host path): the `@escaping @Sendable`
-        // `onOutput` callback yields each (line, stream) into an AsyncStream (`yield` is nonisolated
-        // + Sendable, so it's safe from the closure even when fired after `exec` returns), and a
-        // DETACHED task drains it, appending to the actor-isolated LogCenter under the line's own
-        // stream (so wrangler's stderr progress is labelled `.stderr`, not mislabelled `.stdout`).
-        //
-        // The drain is `Task.detached`, NOT `async let`: a structured child is cancelled the instant
-        // this task is cancelled — *before* it consumes the buffered lines — which would silently
-        // drop the kill-triggered final log lines. A detached task is independent of structured
-        // cancellation, so it drains exactly what was yielded. We `continuation.finish()` then
-        // `await drain.value` on EVERY exit path, so no line leaks and the drain always completes.
-        // Never log the environment dict — CLOUDFLARE_API_TOKEN stays off disk and out of logs.
-        let (lines, continuation) = AsyncStream<(String, LogCenter.Stream)>.makeStream(bufferingPolicy: .unbounded)
-        let logCenter = self.logCenter
-        let drain = Task.detached(priority: .utility) {
-            for await (line, stream) in lines {
-                await logCenter.append(source: source, stream: stream, text: line)
-            }
-        }
         let result: ContainerExecResult
         do {
-            result = try await control.exec(
-                siteID: siteID,
-                argv: argv,
+            result = try await WranglerInvocation.exec(
+                control: control, siteID: siteID, argv: argv,
                 environment: Self.guestEnvironment(from: environment, step: step),
-                workingDirectory: "/workspace/site",
-                onOutput: { line, stream in continuation.yield((line, stream)) }
-            )
+                logCenter: logCenter, source: source)
         } catch is CancellationError {
-            // A cancelled deploy: drain whatever the kill-triggered output produced, then surface a
-            // termination (nil exitCode, empty output). `DeployCommand` checks `Task.isCancelled`
-            // and renders "terminated" — we must NOT bury cancellation under a generic exec-error
-            // string. (The `DeployExecutor` seam is non-throwing, so we signal termination via the
-            // nil/empty result rather than re-throwing; `Task.isCancelled` carries the intent.)
-            continuation.finish()
-            _ = await drain.value
+            // A cancelled deploy: surface a termination (nil exitCode, empty output).
+            // `DeployCommand` checks `Task.isCancelled` and renders "terminated" — we must NOT bury
+            // cancellation under a generic exec-error string. (The `DeployExecutor` seam is
+            // non-throwing, so we signal termination via the nil/empty result rather than
+            // re-throwing; `Task.isCancelled` carries the intent.)
             return DeployStepResult(exitCode: nil, output: "")
         } catch let error as LocalContainerError {
-            continuation.finish()
-            _ = await drain.value
             // A dead/never-booted container surfaces as `.bootFailed`; give the user an actionable
             // message instead of the raw error (the Deploy-button gating half lives app-side).
             if case .bootFailed = error {
@@ -232,12 +217,15 @@ public struct ContainerDeployExecutor: DeployExecutor {
             }
             return DeployStepResult(exitCode: nil, output: "couldn't exec in the container: \(error)")
         } catch let error {
-            continuation.finish()
-            _ = await drain.value
             return DeployStepResult(exitCode: nil, output: "couldn't exec in the container: \(error)")
         }
-        continuation.finish()
-        _ = await drain.value
+        // `.wranglerSubcommand` needs the same stdout-or-stderr fallback
+        // `SocialWorkerProvisionCommand.runWrangler` relied on before this refactor (a failed wrangler
+        // subcommand can write its error to stderr with empty stdout, e.g. a name-conflict on `d1
+        // create`) — every other step keeps stdout-only capture, its existing behavior.
+        if case .wranglerSubcommand = step {
+            return DeployStepResult(exitCode: result.exitCode, output: result.stdout.isEmpty ? result.stderr : result.stdout)
+        }
         return DeployStepResult(exitCode: result.exitCode, output: result.stdout)
     }
 
@@ -275,35 +263,22 @@ public struct ContainerDeployExecutor: DeployExecutor {
         }
         let argv = Self.wellKnownSeamArgv(manifestBase64: manifestData.base64EncodedString())
 
-        let (lines, continuation) = AsyncStream<(String, LogCenter.Stream)>.makeStream(bufferingPolicy: .unbounded)
-        let logCenter = self.logCenter
-        let drain = Task.detached(priority: .utility) {
-            for await (line, stream) in lines {
-                await logCenter.append(source: source, stream: stream, text: line)
-            }
-        }
+        // `WranglerInvocation.exec` (#1821) owns the stream-to-LogCenter/drain mechanics now — it
+        // drains fully on both the success and throw paths, so there's no local
+        // `continuation`/`drain` to finish here.
         let result: ContainerExecResult
         do {
-            result = try await control.exec(
-                siteID: siteID,
-                argv: argv,
+            result = try await WranglerInvocation.exec(
+                control: control, siteID: siteID, argv: argv,
                 environment: Self.guestEnvironment(from: environment, step: .build),
-                workingDirectory: "/workspace/site",
-                onOutput: { line, stream in continuation.yield((line, stream)) }
-            )
+                logCenter: logCenter, source: source)
         } catch is CancellationError {
-            continuation.finish()
-            _ = await drain.value
             return .cancelled
         } catch {
-            continuation.finish()
-            _ = await drain.value
             return .completed(
                 DeployStepResult(exitCode: nil, output: "couldn't exec in the container: \(error)"),
                 WellKnownBuildSeamResult())
         }
-        continuation.finish()
-        _ = await drain.value
 
         let outputLines = result.stdout.components(separatedBy: "\n")
         let seamResult: WellKnownBuildSeamResult
@@ -350,28 +325,28 @@ public struct ContainerDeployExecutor: DeployExecutor {
     /// would shadow the guest's Linux PATH and break `node`/`npm`/`wrangler` resolution, and
     /// `HOME`/`TMPDIR`/`XPC_*`/`__CF*` are host-only noise. The guest provides its own PATH/HOME; the
     /// only host-originated values the deploy ever needs across the boundary are per-step secrets —
-    /// the Cloudflare token for `.wrangler`/`.bundleUpload` (both invoke `wrangler`), plus the
-    /// account id `CloudflareDeployTarget.publish` resolves for the same two steps so `wrangler`
-    /// doesn't have to auto-discover it itself (#1853) — and the GitHub Pages token for
-    /// `.githubPagesPublish`. Scoped per step, not merely per key: a secret for one deploy target
-    /// must never reach a step that has no business seeing it, e.g. a GitHub Pages push must never
-    /// see `CLOUDFLARE_API_TOKEN` even when both happen to be present in the caller-supplied
-    /// environment dict. Keep each step's list tight — add a key only when that step demonstrably
-    /// needs it in-guest.
-    private static func guestEnvAllowlist(for step: DeployStep) -> Set<String> {
+    /// the Cloudflare token for `.wrangler`/`.bundleUpload`/`.wranglerSubcommand` (all three invoke
+    /// `wrangler`), plus the account id `CloudflareDeployTarget.publish` resolves for `.wrangler`/
+    /// `.bundleUpload` so `wrangler` doesn't have to auto-discover it itself (#1853) — and the
+    /// GitHub Pages token for `.githubPagesPublish`. Scoped per step, not merely per key: a secret
+    /// for one deploy target must never reach a step that has no business seeing it, e.g. a GitHub
+    /// Pages push must never see `CLOUDFLARE_API_TOKEN` even when both happen to be present in the
+    /// caller-supplied environment dict. The three wrangler-invoking steps delegate to
+    /// `WranglerInvocation.guestEnvironment(from:scope:)` — the single source of truth for which
+    /// Cloudflare keys a wrangler call may see in-guest (#1821 final review) — rather than
+    /// re-declaring the same sets here, so a future change to `WranglerInvocation.EnvScope` reaches
+    /// every wrangler call site instead of silently missing this one.
+    private static func guestEnvironment(from hostEnvironment: [String: String], step: DeployStep) -> [String: String] {
         switch step {
         case .build, .preflight:
-            return []
+            return [:]
         case .wrangler, .bundleUpload:
-            return ["CLOUDFLARE_API_TOKEN", "CLOUDFLARE_ACCOUNT_ID"]
+            return WranglerInvocation.guestEnvironment(from: hostEnvironment, scope: .tokenAndAccount)
+        case .wranglerSubcommand:
+            return WranglerInvocation.guestEnvironment(from: hostEnvironment, scope: .tokenOnly)
         case .githubPagesPublish:
-            return ["GITHUB_PAGES_TOKEN"]
+            return hostEnvironment.filter { $0.key == "GITHUB_PAGES_TOKEN" }
         }
-    }
-
-    private static func guestEnvironment(from hostEnvironment: [String: String], step: DeployStep) -> [String: String] {
-        let allowlist = guestEnvAllowlist(for: step)
-        return hostEnvironment.filter { allowlist.contains($0.key) }
     }
 
     // MARK: wrangler.toml sync (#1084)
@@ -430,7 +405,7 @@ public struct ContainerDeployExecutor: DeployExecutor {
             // via `$1`/`$2`, POSITIONAL shell parameters, the same injection-safety pattern
             // `.bundleUpload` uses for CF_SOURCE_BUCKET above. The token crosses the host→guest
             // boundary only via `$GITHUB_PAGES_TOKEN` (an environment variable, never a shell
-            // argument, never logged) — see `guestEnvAllowlist`. `touch .nojekyll` before staging:
+            // argument, never logged) — see `guestEnvironment`. `touch .nojekyll` before staging:
             // GitHub Pages' branch-source publish path runs the site through Jekyll by default,
             // which excludes every underscore-prefixed path — including Astro's `dist/_astro/`
             // asset directory — unless `.nojekyll` exists at the repo root. Without it, a deploy
@@ -444,6 +419,8 @@ public struct ContainerDeployExecutor: DeployExecutor {
                 "git push -q --force \"https://x-access-token:$GITHUB_PAGES_TOKEN@github.com/$1/$2.git\" HEAD:main",
                 "sh", owner, repo
             ]
+        case .wranglerSubcommand(let args):
+            return WranglerInvocation.argv(subcommand: args)
         }
     }
 
@@ -605,6 +582,8 @@ public struct HostDeployExecutor: DeployExecutor {
             return { _ in .unavailable(reason: HostNodeRetirement.reason("source bundle upload")) }
         case .githubPagesPublish:
             return { _ in .unavailable(reason: HostNodeRetirement.reason("GitHub Pages publish")) }
+        case .wranglerSubcommand:
+            return { _ in .unavailable(reason: HostNodeRetirement.reason("social worker provisioning")) }
         }
     }
 
