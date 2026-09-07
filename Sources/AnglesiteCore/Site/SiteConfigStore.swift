@@ -186,20 +186,21 @@ public actor SiteConfigStore {
         self.store = Self.makeStore(configDirectory: configDirectory, fileManager: fileManager)
     }
 
-    /// Load settings, or a default (empty) `SiteSettings` when the file is absent, unreadable, or
-    /// fails to decode.
+    /// Load settings, or a default (empty) `SiteSettings` when the file is absent or undecodable.
     ///
-    /// Settings are non-critical (every field is optional with a sensible default), so a config
-    /// written by a newer build, or a corrupt one, must never block opening a site — the next
-    /// `save` rewrites it cleanly.
+    /// A decode failure falls back to defaults rather than throwing: settings are non-critical
+    /// (every field is optional with a sensible default), so a config written by a newer build, or
+    /// a corrupt one, must never block opening a site — the next `save` rewrites it cleanly. I/O
+    /// errors reading an existing file still throw.
     public func load() throws -> SiteSettings {
-        Self.loadSettings(using: store)
+        try Self.loadSettings(using: store)
     }
 
     /// Synchronous, actor-independent read of a package's `settings.plist`. Same contract as
-    /// `load()` — absent, unreadable, or undecodable file → default `SiteSettings`. Exists so
-    /// synchronous call sites (e.g. `SiteStore.Site.make`, which resolves the `displayName`
-    /// override at construction, #266) can read settings without hopping onto the actor.
+    /// `load()` — absent or undecodable file → default `SiteSettings`; an I/O error reading an
+    /// existing file throws. Exists so synchronous call sites (e.g. `SiteStore.Site.make`, which
+    /// resolves the `displayName` override at construction, #266) can read settings without
+    /// hopping onto the actor.
     ///
     /// - Important: Performs synchronous, blocking file I/O on the calling executor. Today's only
     ///   callers reach it via `Site.make` from `SiteStore` actor methods (off the main thread).
@@ -209,19 +210,23 @@ public actor SiteConfigStore {
         from configDirectory: URL,
         fileManager: FileManager = .default
     ) throws -> SiteSettings {
-        Self.loadSettings(using: makeStore(configDirectory: configDirectory, fileManager: fileManager))
+        try Self.loadSettings(using: makeStore(configDirectory: configDirectory, fileManager: fileManager))
     }
 
     private static func makeStore(configDirectory: URL, fileManager: FileManager) -> CodableFileStore<SiteSettings> {
         .plist(fileURL: configDirectory.appendingPathComponent("settings.plist"), fileManager: fileManager)
     }
 
-    /// Shared `load()`/`read(from:)` body: decode via `store` (falling back to defaults per
-    /// ``CodableFileStore/loadOrDefault(_:)``), then apply the one-time legacy-field migration
-    /// below against the file's raw bytes.
-    private static func loadSettings(using store: CodableFileStore<SiteSettings>) -> SiteSettings {
-        var settings = store.loadOrDefault(SiteSettings())
-        guard store.exists(), let data = try? Data(contentsOf: store.url) else { return settings }
+    /// Shared `load()`/`read(from:)` body. Deliberately reads the file once and reuses those same
+    /// bytes for both the primary decode and the legacy-field migration below, rather than going
+    /// through ``CodableFileStore/loadOrDefault(_:)`` (which would swallow the `Data(contentsOf:)`
+    /// I/O error this method must still propagate — #1917 review).
+    private static func loadSettings(using store: CodableFileStore<SiteSettings>) throws -> SiteSettings {
+        guard store.exists() else { return SiteSettings() }
+        let data = try Data(contentsOf: store.url)
+        guard var settings = try? PropertyListDecoder().decode(SiteSettings.self, from: data) else {
+            return SiteSettings()
+        }
         migrateLegacyInboxCaptureFields(into: &settings, from: data)
         return settings
     }
