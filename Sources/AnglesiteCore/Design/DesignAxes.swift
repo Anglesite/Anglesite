@@ -112,7 +112,7 @@ public enum DesignAxesCatalog {
 
     /// The five axes' pole-label pairs, in ``DesignAxes``' own declared order — the single place
     /// that names which word means which end of which axis. Carries each axis's own
-    /// `KeyPath` (mirroring ``DesignAdjectiveHint/keyPath``) rather than just its name, so a
+    /// `KeyPath` (mirroring `DesignAdjectiveHint.keyPath`) rather than just its name, so a
     /// caller reading the value back (``DesignContextDocument``) can't drift out of sync with
     /// this list the way a parallel string-keyed switch could. A computed property, not a stored
     /// `static let` — `KeyPath` isn't `Sendable`-checked as global state, and recomputing this
