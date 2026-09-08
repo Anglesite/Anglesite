@@ -4,7 +4,7 @@ import Foundation
 /// section is independently either present or degraded to `.unavailable(reason:)` — a capability
 /// whose tool is missing from `tools/list`, or whose call fails, never fails the whole pass (see
 /// #1944's resolved default 3). The only section that isn't representable here as `.unavailable`
-/// is navigation itself — a failed navigate throws out of ``SafariVerificationPass/run(previewURL:port:)``
+/// is navigation itself — a failed navigate throws out of ``SafariVerificationPass/run(previewURL:port:connectTimeout:)``
 /// entirely, since every other section would be meaningless against an unknown page.
 public struct SafariVerificationReport: Sendable, Equatable {
     /// One report section: present with a decoded payload, or degraded with a human-readable
@@ -70,7 +70,7 @@ public struct SafariVerificationReport: Sendable, Equatable {
     /// over the 8 MiB cap (#1944's resolved default 5), which is dropped rather than retained.
     public let screenshot: Section<Data>
 
-    /// Memberwise; assembled by `SafariVerificationPass.run(previewURL:port:)` in production,
+    /// Memberwise; assembled by `SafariVerificationPass.run(previewURL:port:connectTimeout:)` in production,
     /// directly by tests.
     public init(
         console: Section<CappedList<ConsoleEntry>>,
