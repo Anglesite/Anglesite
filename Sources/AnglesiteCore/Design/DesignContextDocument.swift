@@ -39,7 +39,7 @@ public enum DesignContextDocument {
             let mood = DesignAxesCatalog.moodWords(for: axes).joined(separator: ", ")
             let rows = zip(DesignAxesCatalog.poleLabels, DesignAxesCatalog.moodWords(for: axes))
                 .map { label, word -> String in
-                    let value = axesValue(axes, named: label.axis)
+                    let value = axes[keyPath: label.keyPath]
                     return "| \(label.axis.capitalized) (\(label.low) ↔ \(label.high)) | \(value) | \(word) |"
                 }
             sections.append("""
@@ -126,13 +126,4 @@ public enum DesignContextDocument {
             .map { "| `--\($0.key)` | `\($0.value)` |" }
     }
 
-    private static func axesValue(_ axes: DesignAxes, named axis: String) -> Double {
-        switch axis {
-        case "temperature": return axes.temperature
-        case "weight": return axes.weight
-        case "register": return axes.register
-        case "time": return axes.time
-        default: return axes.voice
-        }
-    }
 }

@@ -52,13 +52,13 @@ public final class DesignInterviewModel: Identifiable {
     public func send(_ userMessage: String) async {
         transcript.append((role: "user", text: userMessage))
         // The `.intent` stage is the only place the owner is asked what the site is for and who
-        // it's for (`DesignInterviewPrompts.intentPrompt`) — capture their raw answer into
-        // `freeTextNotes` here so `confirmAndApply()` can carry it into PRODUCT.md's Audience
-        // section (#1947). Other stages' replies are style/axis talk, already captured
-        // structurally via axes, so they're not duplicated into free-text notes.
-        if draft.stage == .intent {
-            draft.freeTextNotes.append(userMessage)
-        }
+        // it's for (`DesignInterviewPrompts.intentPrompt`) — captured into `freeTextNotes` on the
+        // success path below so `confirmAndApply()` can carry it into PRODUCT.md's Audience
+        // section (#1947). Captured *before* `draft.advance()` runs (which is what stops this
+        // stage from being `.intent` on a later call), not up front here — every early `return`
+        // below leaves the stage at `.intent` too, so appending before those guards would
+        // duplicate the same note on every retry of a failed turn.
+        let isIntentStage = draft.stage == .intent
         let prompt = DesignInterviewPrompts.prompt(for: draft.stage, draft: draft, userMessage: userMessage)
         let context = AssistantContext(siteID: siteID, siteDirectory: package.sourceURL)
         guard let stream = try? await assistant.converse(prompt: prompt, context: context) else {
@@ -88,6 +88,9 @@ public final class DesignInterviewModel: Identifiable {
             return
         }
         transcript.append((role: "assistant", text: reply))
+        if isIntentStage {
+            draft.freeTextNotes.append(userMessage)
+        }
         draft.advance()
     }
 

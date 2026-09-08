@@ -71,6 +71,30 @@ import FoundationModels
         #expect(model.draft.freeTextNotes == ["It's a cozy neighborhood bakery for regulars who work nearby."])
     }
 
+    @Test @MainActor func sendOnIntentStageFailureDoesNotCaptureAFreeTextNote() async throws {
+        // Regression for a PR #1950 review comment: appending before the failure-path early
+        // returns would leave a stray note for a turn whose reply never actually landed — and
+        // duplicate it again on every retry, since the stage (and thus this guard) never
+        // advances past `.intent` on failure.
+        let model = DesignInterviewModel(
+            businessType: "bakery",
+            assistant: FakeConversationalAssistant(failureMessage: "model unavailable"),
+            package: try makeSite())
+        await model.send("It's a cozy neighborhood bakery.")
+        #expect(model.draft.stage == .intent)
+        #expect(model.draft.freeTextNotes.isEmpty)
+    }
+
+    @Test @MainActor func sendOnIntentStageEmptyReplyDoesNotCaptureAFreeTextNote() async throws {
+        let model = DesignInterviewModel(
+            businessType: "bakery",
+            assistant: FakeConversationalAssistant(emitsEmptyReply: true),
+            package: try makeSite())
+        await model.send("It's a cozy neighborhood bakery.")
+        #expect(model.draft.stage == .intent)
+        #expect(model.draft.freeTextNotes.isEmpty)
+    }
+
     @Test @MainActor func sendOnLaterStagesDoesNotDuplicateIntoFreeTextNotes() async throws {
         let model = DesignInterviewModel(businessType: "bakery", assistant: FakeConversationalAssistant(), package: try makeSite())
         await model.send("It's a cozy neighborhood bakery.") // .intent -> .mood
