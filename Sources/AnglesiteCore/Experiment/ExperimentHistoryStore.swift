@@ -53,28 +53,22 @@ public actor ExperimentHistoryStore {
         }
     }
 
-    private let fileURL: URL
-    private let fileManager: FileManager
-    private let encoder: JSONEncoder
-    private let decoder: JSONDecoder
+    private let store: CodableFileStore<[Outcome]>
 
     /// Points the store at `<configDirectory>/experiment-history.json`. `fileManager` is
     /// injectable for tests.
     public init(configDirectory: URL, fileManager: FileManager = .default) {
-        self.fileURL = configDirectory.appendingPathComponent("experiment-history.json")
-        self.fileManager = fileManager
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        self.encoder = encoder
-        self.decoder = JSONDecoder()
+        self.store = .json(
+            fileURL: configDirectory.appendingPathComponent("experiment-history.json"),
+            fileManager: fileManager
+        )
     }
 
     /// Every recorded outcome, oldest first. Returns `[]` when the file is missing or fails to
     /// decode — a missing/corrupt history is never worth failing a caller over, matching
     /// `ProjectConventionsStore.load()`'s "derived/best-effort" tolerance.
     public func load() -> [Outcome] {
-        guard let data = try? Data(contentsOf: fileURL) else { return [] }
-        return (try? decoder.decode([Outcome].self, from: data)) ?? []
+        store.loadOrDefault([])
     }
 
     /// Appends one outcome, creating the `Config/` directory and the file if needed. Best-effort:
@@ -84,9 +78,6 @@ public actor ExperimentHistoryStore {
     public func append(_ outcome: Outcome) {
         var all = load()
         all.append(outcome)
-        guard let data = try? encoder.encode(all) else { return }
-        try? fileManager.createDirectory(
-            at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try? data.write(to: fileURL, options: .atomic)
+        try? store.save(all)
     }
 }

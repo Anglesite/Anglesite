@@ -322,4 +322,30 @@ struct SiteConfigStoreTests {
         let loaded = try await store.load()
         #expect(loaded.contentImportCompleted == nil)
     }
+
+    // MARK: - Byte-compatibility with the pre-`CodableFileStore` encoder (#1917)
+
+    @Test("an old-encoder settings.plist round-trips to identical bytes through the migrated store")
+    func byteCompatibilityRoundTrip() async throws {
+        let dir = try tempConfigDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let fileURL = dir.appendingPathComponent("settings.plist")
+
+        let settings = SiteSettings(
+            displayName: "Acme HQ",
+            activeWorkerIDs: ["solid-pod", "webdav"],
+            provisionedWorkerResources: .init(d1DatabaseID: "d1-id", kvNamespaceID: "kv-id", r2BucketName: nil)
+        )
+        let oldEncoder = PropertyListEncoder()
+        oldEncoder.outputFormat = .xml
+        let fixtureBytes = try oldEncoder.encode(settings)
+        try fixtureBytes.write(to: fileURL)
+
+        let store = SiteConfigStore(configDirectory: dir)
+        let loaded = try await store.load()
+        try await store.save(loaded)
+
+        let resavedBytes = try Data(contentsOf: fileURL)
+        #expect(resavedBytes == fixtureBytes)
+    }
 }
