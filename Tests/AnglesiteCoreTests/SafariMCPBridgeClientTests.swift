@@ -119,4 +119,81 @@ struct SafariMCPBridgeClientTests {
         #expect(logged.contains { $0.source == "safari-mcp" && $0.stream == .stderr })
         await client.close()
     }
+
+    @Test("callTool decodes text and image content blocks") func callToolDecodesContent() async throws {
+        SafariMCPBridgeClientStubURLProtocol.reset()
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(
+            status: 200,
+            headers: ["Content-Type": "application/json", "Mcp-Session-Id": "sess-1"],
+            body: #"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","serverInfo":{"name":"Safari"}}}"#.data(using: .utf8)!
+        ))
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(
+            status: 200,
+            headers: ["Content-Type": "application/json"],
+            body: #"""
+            {"jsonrpc":"2.0","id":2,"result":{"isError":false,"content":[
+              {"type":"text","text":"hello"},
+              {"type":"image","data":"YWJj","mimeType":"image/png"}
+            ]}}
+            """#.data(using: .utf8)!
+        ))
+
+        let (client, _) = makeClient()
+        _ = try await client.connect(timeout: 10)
+        let result = try await client.callTool(name: "get_page_content")
+        #expect(result.content == [
+            .init(type: "text", text: "hello", data: nil, mimeType: nil),
+            .init(type: "image", text: nil, data: "YWJj", mimeType: "image/png"),
+        ])
+        await client.close()
+    }
+
+    @Test("callTool throws ClientError.toolError when isError is true") func callToolSurfacesToolError() async throws {
+        SafariMCPBridgeClientStubURLProtocol.reset()
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(
+            status: 200,
+            headers: ["Content-Type": "application/json", "Mcp-Session-Id": "sess-1"],
+            body: #"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","serverInfo":{"name":"Safari"}}}"#.data(using: .utf8)!
+        ))
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(
+            status: 200,
+            headers: ["Content-Type": "application/json"],
+            body: #"""
+            {"jsonrpc":"2.0","id":2,"result":{"isError":true,"content":[{"type":"text","text":"boom"}]}}
+            """#.data(using: .utf8)!
+        ))
+
+        let (client, _) = makeClient()
+        _ = try await client.connect(timeout: 10)
+        do {
+            _ = try await client.callTool(name: "navigate_to_url")
+            Issue.record("expected ClientError.toolError to be thrown")
+        } catch SafariMCPBridgeClient.ClientError.toolError(let message) {
+            #expect(message == "boom")
+        }
+        await client.close()
+    }
+
+    @Test("callTool replays the captured Mcp-Session-Id") func callToolReplaysSessionID() async throws {
+        SafariMCPBridgeClientStubURLProtocol.reset()
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(
+            status: 200,
+            headers: ["Content-Type": "application/json", "Mcp-Session-Id": "sess-77"],
+            body: #"{"jsonrpc":"2.0","id":1,"result":{"protocolVersion":"2024-11-05","serverInfo":{"name":"Safari"}}}"#.data(using: .utf8)!
+        ))
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(status: 202, headers: [:], body: Data()))
+        SafariMCPBridgeClientStubURLProtocol.queue.append(.init(
+            status: 200,
+            headers: ["Content-Type": "application/json"],
+            body: #"{"jsonrpc":"2.0","id":2,"result":{"isError":false,"content":[]}}"#.data(using: .utf8)!
+        ))
+
+        let (client, _) = makeClient()
+        _ = try await client.connect(timeout: 10)
+        _ = try await client.callTool(name: "get_page_content")
+        #expect(SafariMCPBridgeClientStubURLProtocol.lastSessionHeaders.last == "sess-77")
+        await client.close()
+    }
 }
