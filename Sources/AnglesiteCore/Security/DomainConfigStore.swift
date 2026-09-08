@@ -33,6 +33,11 @@ public struct DomainConfigStore: Sendable {
         self.fileURL = fileURL
         self.sourceDirectory = sourceDirectory
         self.fileManager = fileManager
+        // `.json`'s default `dateDecodingStrategy` (`.iso8601`) differs from the bare
+        // `JSONDecoder()` (`.deferredToDate`) this store used pre-migration — a behavior-neutral
+        // difference only because `DomainConfig` has no `Date`-typed properties today (dates are
+        // plain ISO-8601 strings, e.g. `expiresAt`/`startedAt`). If a future field is ever typed
+        // `Date`, revisit this rather than assume the default still matches.
         self.store = CodableFileStore<DomainConfig>.json(
             fileURL: fileURL, fileManager: fileManager, merge: Self.mergeOverExistingFile
         )
