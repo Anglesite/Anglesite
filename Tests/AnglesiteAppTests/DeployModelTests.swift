@@ -1077,7 +1077,7 @@ struct DeployModelTests {
         // Mirrors the real presenter after the #1951 fix: it waits for the session and honours
         // cancellation (`Task.sleep` throws `CancellationError` when the model gives up on it).
         let oauthSignIn = CloudflareOAuthSignIn(client: client, present: { _ in
-            try await Task.sleep(for: .seconds(60))
+            try await Task.sleep(for: .seconds(60)) // sleep-is-subject: a session that never reports back
             throw Boom()
         })
         let keychain = InMemorySecretStore()
@@ -1129,7 +1129,7 @@ struct DeployModelTests {
             })
         let oauthSignIn = CloudflareOAuthSignIn(client: client, present: { _ in
             do {
-                try await Task.sleep(for: .seconds(60))
+                try await Task.sleep(for: .seconds(60)) // sleep-is-subject: a session that never reports back
             } catch is CancellationError {
                 await probe.markCancelled()
                 throw CancellationError()
@@ -1173,7 +1173,7 @@ struct DeployModelTests {
                 return (Data(json.utf8), response)
             })
         let oauthSignIn = CloudflareOAuthSignIn(client: client, present: { _ in
-            try await Task.sleep(for: .seconds(60))
+            try await Task.sleep(for: .seconds(60)) // sleep-is-subject: a session that never reports back
             throw Boom()
         })
         let keychain = InMemorySecretStore()
