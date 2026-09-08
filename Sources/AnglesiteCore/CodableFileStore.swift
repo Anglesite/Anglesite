@@ -10,7 +10,7 @@ import Foundation
 /// with each call site, since those vary by store (e.g. ``RedirectsStore`` validates before every
 /// save; ``ProjectConventionsStore`` treats its file as a re-derivable cache).
 ///
-/// Use ``json(fileURL:fileManager:outputFormatting:dateEncodingStrategy:dateDecodingStrategy:migrate:)``
+/// Use ``json(fileURL:fileManager:outputFormatting:dateEncodingStrategy:dateDecodingStrategy:migrate:merge:)``
 /// or ``plist(fileURL:fileManager:outputFormat:migrate:)`` for the two formats already in use across
 /// Core; the memberwise initializer accepts a custom `encode`/`decode` pair for anything else.
 public struct CodableFileStore<Value: Codable & Sendable>: Sendable {
@@ -19,29 +19,37 @@ public struct CodableFileStore<Value: Codable & Sendable>: Sendable {
     /// exists; never sees a missing file.
     public typealias Migrate = @Sendable (Data) throws -> Data
 
+    /// Combines freshly-encoded bytes with the file's existing bytes (`nil` if the file doesn't
+    /// exist yet) into what actually gets written. Runs inside `save(_:)`, after `encode` and
+    /// before the atomic write.
+    public typealias Merge = @Sendable (_ new: Data, _ existing: Data?) throws -> Data
+
     private let fileURL: URL
     private let fileManager: FileManager
     private let encode: @Sendable (Value) throws -> Data
     private let decode: @Sendable (Data) throws -> Value
     private let migrate: Migrate?
+    private let merge: Merge?
 
     /// The file this store reads and writes.
     public var url: URL { fileURL }
 
-    /// Creates a store with a custom encode/decode pair. Prefer ``json(fileURL:fileManager:outputFormatting:dateEncodingStrategy:dateDecodingStrategy:migrate:)``
+    /// Creates a store with a custom encode/decode pair. Prefer ``json(fileURL:fileManager:outputFormatting:dateEncodingStrategy:dateDecodingStrategy:migrate:merge:)``
     /// or ``plist(fileURL:fileManager:outputFormat:migrate:)`` unless neither format fits.
     public init(
         fileURL: URL,
         fileManager: FileManager = .default,
         encode: @escaping @Sendable (Value) throws -> Data,
         decode: @escaping @Sendable (Data) throws -> Value,
-        migrate: Migrate? = nil
+        migrate: Migrate? = nil,
+        merge: Merge? = nil
     ) {
         self.fileURL = fileURL
         self.fileManager = fileManager
         self.encode = encode
         self.decode = decode
         self.migrate = migrate
+        self.merge = merge
     }
 
     /// Whether the backing file currently exists.
@@ -77,12 +85,17 @@ public struct CodableFileStore<Value: Codable & Sendable>: Sendable {
         return (try? decode(data)) ?? `default`()
     }
 
-    /// Encodes `value` and writes it atomically, creating the parent directory first if needed.
+    /// Encodes `value`, runs it through `merge` (if any) against whatever is already on disk, and
+    /// writes the result atomically, creating the parent directory first if needed.
     public func save(_ value: Value) throws {
         try fileManager.createDirectory(
             at: fileURL.deletingLastPathComponent(), withIntermediateDirectories: true
         )
-        let data = try encode(value)
+        var data = try encode(value)
+        if let merge {
+            let existing = try? Data(contentsOf: fileURL)
+            data = try merge(data, existing)
+        }
         try data.write(to: fileURL, options: .atomic)
     }
 }
@@ -97,7 +110,8 @@ extension CodableFileStore {
         outputFormatting: JSONEncoder.OutputFormatting = [.prettyPrinted, .sortedKeys],
         dateEncodingStrategy: JSONEncoder.DateEncodingStrategy = .iso8601,
         dateDecodingStrategy: JSONDecoder.DateDecodingStrategy = .iso8601,
-        migrate: Migrate? = nil
+        migrate: Migrate? = nil,
+        merge: Merge? = nil
     ) -> CodableFileStore<Value> {
         CodableFileStore(
             fileURL: fileURL,
@@ -113,7 +127,8 @@ extension CodableFileStore {
                 decoder.dateDecodingStrategy = dateDecodingStrategy
                 return try decoder.decode(Value.self, from: data)
             },
-            migrate: migrate
+            migrate: migrate,
+            merge: merge
         )
     }
 
