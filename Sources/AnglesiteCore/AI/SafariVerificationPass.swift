@@ -1,4 +1,9 @@
 import Foundation
+// URLSession lives in FoundationNetworking on non-Darwin platforms (swift-corelibs-foundation);
+// this import is a no-op on macOS.
+#if canImport(FoundationNetworking)
+import FoundationNetworking
+#endif
 
 /// Runs one headless, read-only Safari-backed inspection of a preview URL over the Safari MCP
 /// bridge and returns a structured ``SafariVerificationReport`` — the `tools/call` follow-up to
