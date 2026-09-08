@@ -22,7 +22,7 @@
   },
   "dependencies": {
     "@astroanimate/core": "0.1.2",
-    "@astrojs/markdown-remark": "^7.2.4",
+    "@astrojs/markdown-remark": "^7.3.0",
     "@astrojs/rss": "^4.0.0",
     "@dwk/activitypub": "1.0.0-beta.5",
     "@dwk/indieauth": "1.0.0-beta.2",
@@ -35,28 +35,28 @@
     "@dwk/webmention": "1.0.0-beta.2",
     "@dwk/websub": "1.0.0-beta.1",
     "@tgwf/co2": "^0.19.0",
-    "astro": "^7.2.9",
+    "astro": "^7.3.1",
     "astro-seo-schema": "^7.0.0"
   },
   "devDependencies": {
     "@astrojs/check": "^0.9.10",
-    "@astrojs/react": "^6.0.4",
+    "@astrojs/react": "^6.0.5",
     "@cloudflare/vitest-pool-workers": "0.22.0",
-    "@cloudflare/workers-types": "5.20260831.1",
+    "@cloudflare/workers-types": "5.20260905.1",
     "@keystatic/astro": "^6.0.0",
     "@keystatic/core": "^0.6.9",
-    "@types/node": "^26.4.0",
-    "html-validate": "^11.11.0",
+    "@types/node": "^26.4.1",
+    "html-validate": "^11.14.0",
     "impeccable": "4.0.4",
     "microformats-parser": "^2.0.4",
     "pagefind": "^1.5.2",
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
-    "schema-dts": "^1.1.5",
+    "schema-dts": "^2.0.0",
     "tsx": "^4.23.13",
-    "typescript": "^5.9.3",
-    "vitest": "4.1.11",
-    "wrangler": "4.127.1"
+    "typescript": "^7.0.2",
+    "vitest": "5.0.0",
+    "wrangler": "4.129.0"
   },
   "overrides": {
     "@astroanimate/core": {
