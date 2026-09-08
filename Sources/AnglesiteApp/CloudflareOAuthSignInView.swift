@@ -8,11 +8,19 @@ struct CloudflareOAuthSignInView: View {
     let model: DeployModel
     let onCancel: () -> Void
 
-    private var isBusy: Bool {
-        switch model.tokenVerification {
-        case .checking, .connected: return true
-        case .idle, .failed: return false
-        }
+    /// Sign-in is waiting on Cloudflare (or the system's sign-in window). The button is disabled
+    /// so a second session can't be started on top of the first; Cancel stays enabled — a sign-in
+    /// that never reports back (#1951) must always be escapable from the sheet itself.
+    private var isSigningIn: Bool {
+        if case .checking = model.tokenVerification { return true }
+        return false
+    }
+
+    /// The credential is verified and the parked deploy is about to be dispatched; both buttons
+    /// are disabled for the brief hand-off since there's nothing left to cancel.
+    private var isHandingOff: Bool {
+        if case .connected = model.tokenVerification { return true }
+        return false
     }
 
     var body: some View {
@@ -35,13 +43,13 @@ struct CloudflareOAuthSignInView: View {
                     onCancel()
                 }
                 .keyboardShortcut(.cancelAction)
-                .disabled(isBusy)
+                .disabled(isHandingOff)
                 Button("Sign in with Cloudflare") {
-                    Task { await model.signInWithCloudflare() }
+                    model.beginSignInWithCloudflare()
                 }
                 .keyboardShortcut(.defaultAction)
                 .buttonStyle(.borderedProminent)
-                .disabled(isBusy)
+                .disabled(isSigningIn || isHandingOff)
             }
         }
         .padding(20)
@@ -54,9 +62,16 @@ struct CloudflareOAuthSignInView: View {
         case .idle:
             EmptyView()
         case .checking:
-            HStack(spacing: 6) {
-                ProgressView().controlSize(.small)
-                Text("Signing in…").foregroundStyle(.secondary)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 6) {
+                    ProgressView().controlSize(.small)
+                    Text("Signing in…").foregroundStyle(.secondary)
+                }
+                if let hint = model.signInHint {
+                    Text(hint)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
             }
             .font(.footnote)
         case .connected(let accountName):

@@ -1137,6 +1137,9 @@
     "Cloudflare's Onion Routing lets Tor Browser users reach your site over the Tor network without exiting through a third-party relay. No changes to your site or URLs." : {
 
     },
+    "Cloudflare's sign-in never finished. If no sign-in window appeared, macOS hasn't verified this build's Associated Domains — the Debug pane has the fix — or paste a legacy Cloudflare API token in Settings ▸ Advanced ▸ Credentials." : {
+
+    },
     "Code" : {
 
     },
@@ -4178,6 +4181,9 @@
         }
       }
     },
+    "Still waiting for Cloudflare. If no sign-in window appeared, click Cancel and try again — the Debug pane has details." : {
+
+    },
     "Stop" : {
 
     },
@@ -4956,6 +4962,9 @@
 
     },
     "mac-studio.local" : {
+
+    },
+    "macOS wouldn't open the Cloudflare sign-in window: this build's Associated Domains aren't verified on this Mac. The Debug pane has the fix, or paste a legacy Cloudflare API token in Settings ▸ Advanced ▸ Credentials." : {
 
     },
     "name" : {
