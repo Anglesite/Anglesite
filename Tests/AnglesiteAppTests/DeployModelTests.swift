@@ -1054,6 +1054,195 @@ struct DeployModelTests {
         })
     }
 
+    @Test("signInWithCloudflare fails with a diagnostic when the session never reports back (#1951)")
+    func signInTimesOutWhenSessionNeverReportsBack() async {
+        // Regression for #1951: with the Associated Domains entitlement present but the domain
+        // association not verified by macOS for this copy of the app, `ASWebAuthenticationSession`
+        // starts successfully, the system session host rejects it ("not associated with domain"),
+        // and the completion handler is never invoked — so the presenter's continuation never
+        // resumes and the sheet sat at "Signing in…" forever. The model must bound the wait and
+        // turn it into a `.failed` state with a developer-facing message plus a Debug-pane line.
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
+        defer { cfToken.release() }
+        struct Boom: Error {}
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: GatedDeployExecutor())
+        let client = CloudflareOAuthClient(
+            scope: "workers_scripts",
+            discoveryURL: URL(string: "https://dash.cloudflare.com/.well-known/openid-configuration")!,
+            transport: { req in
+                let response = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                let json = #"{"authorization_endpoint":"https://dash.cloudflare.com/oauth2/auth","token_endpoint":"https://dash.cloudflare.com/oauth2/token"}"#
+                return (Data(json.utf8), response)
+            })
+        // Mirrors the real presenter after the #1951 fix: it waits for the session and honours
+        // cancellation (`Task.sleep` throws `CancellationError` when the model gives up on it).
+        let oauthSignIn = CloudflareOAuthSignIn(client: client, present: { _ in
+            try await Task.sleep(for: .seconds(60))
+            throw Boom()
+        })
+        let keychain = InMemorySecretStore()
+        let logCenter = LogCenter()
+        let model = DeployModel(
+            command: command, logCenter: logCenter, keychain: keychain, oauthSignIn: oauthSignIn,
+            signInTimeout: .milliseconds(50))
+        let directory = FileManager.default.temporaryDirectory
+
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        await model.signInWithCloudflare()
+
+        // See the comment on `tokenPromptPresented` in `signInFailureStaysOnSheet` for why this
+        // binds to a local before asserting rather than `#expect(model.x)` directly.
+        let tokenPromptPresented = model.tokenPromptPresented
+        #expect(tokenPromptPresented)
+        guard case .failed(let message) = model.tokenVerification else {
+            Issue.record("expected .failed, got \(model.tokenVerification)"); return
+        }
+        #expect(message.contains("Associated Domains"))
+        let hint = model.signInHint
+        #expect(hint == nil)
+
+        let loggedLines = await logCenter.snapshot()
+        #expect(loggedLines.contains { $0.source == "cloudflare-oauth-sign-in" && $0.text.contains("never reported back") })
+    }
+
+    @Test("cancelTokenPrompt cancels an in-flight sign-in and closes the sheet (#1951)")
+    func cancelTokenPromptCancelsInFlightSignIn() async {
+        // Before #1951 the sheet's Cancel button was disabled while `.checking`, so a sign-in that
+        // never reported back could only be escaped by force-quitting the app. Cancel must now
+        // cancel the presenter (which tears down the `ASWebAuthenticationSession`) and dismiss.
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
+        defer { cfToken.release() }
+        struct Boom: Error {}
+        actor PresenterProbe {
+            var sawCancellation = false
+            func markCancelled() { sawCancellation = true }
+        }
+        let probe = PresenterProbe()
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: GatedDeployExecutor())
+        let client = CloudflareOAuthClient(
+            scope: "workers_scripts",
+            discoveryURL: URL(string: "https://dash.cloudflare.com/.well-known/openid-configuration")!,
+            transport: { req in
+                let response = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                let json = #"{"authorization_endpoint":"https://dash.cloudflare.com/oauth2/auth","token_endpoint":"https://dash.cloudflare.com/oauth2/token"}"#
+                return (Data(json.utf8), response)
+            })
+        let oauthSignIn = CloudflareOAuthSignIn(client: client, present: { _ in
+            do {
+                try await Task.sleep(for: .seconds(60))
+            } catch is CancellationError {
+                await probe.markCancelled()
+                throw CancellationError()
+            }
+            throw Boom()
+        })
+        let keychain = InMemorySecretStore()
+        let model = DeployModel(command: command, logCenter: LogCenter(), keychain: keychain, oauthSignIn: oauthSignIn)
+        let directory = FileManager.default.temporaryDirectory
+
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        model.beginSignInWithCloudflare()
+        while model.tokenVerification != .checking { await Task.yield() }
+
+        model.cancelTokenPrompt()
+        await model.signInTask?.value
+
+        let sawCancellation = await probe.sawCancellation
+        #expect(sawCancellation)
+        let tokenPromptPresented = model.tokenPromptPresented
+        #expect(!tokenPromptPresented)
+        let tokenVerification = model.tokenVerification
+        #expect(tokenVerification == .idle)
+    }
+
+    @Test("signInWithCloudflare shows a stall hint and logs once the grace period passes (#1951)")
+    func signInStallHintAppearsAfterGracePeriod() async {
+        // The app can't observe whether the system's sign-in window actually appeared, so while a
+        // sign-in is still pending after the grace period it advises rather than guesses: the
+        // sheet gains a hint that points at Cancel, and the Debug pane gets the likely cause.
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
+        defer { cfToken.release() }
+        struct Boom: Error {}
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: GatedDeployExecutor())
+        let client = CloudflareOAuthClient(
+            scope: "workers_scripts",
+            discoveryURL: URL(string: "https://dash.cloudflare.com/.well-known/openid-configuration")!,
+            transport: { req in
+                let response = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                let json = #"{"authorization_endpoint":"https://dash.cloudflare.com/oauth2/auth","token_endpoint":"https://dash.cloudflare.com/oauth2/token"}"#
+                return (Data(json.utf8), response)
+            })
+        let oauthSignIn = CloudflareOAuthSignIn(client: client, present: { _ in
+            try await Task.sleep(for: .seconds(60))
+            throw Boom()
+        })
+        let keychain = InMemorySecretStore()
+        let logCenter = LogCenter()
+        let model = DeployModel(
+            command: command, logCenter: logCenter, keychain: keychain, oauthSignIn: oauthSignIn,
+            signInStallHintDelay: .milliseconds(10))
+        let directory = FileManager.default.temporaryDirectory
+
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        model.beginSignInWithCloudflare()
+        while model.signInHint == nil { await Task.yield() }
+
+        let hint = model.signInHint
+        #expect(hint?.contains("Cancel") == true)
+        let tokenVerification = model.tokenVerification
+        #expect(tokenVerification == .checking)
+        let loggedLines = await logCenter.snapshot()
+        #expect(loggedLines.contains { $0.source == "cloudflare-oauth-sign-in" && $0.text.contains("Associated Domains") })
+
+        model.cancelTokenPrompt()
+        await model.signInTask?.value
+        let hintAfterCancel = model.signInHint
+        #expect(hintAfterCancel == nil)
+    }
+
+    @Test("signInWithCloudflare surfaces a rejected session as a failure, not a silent cancel (#1951)")
+    func signInRejectedBeforePresentingSurfacesDiagnostic() async {
+        // Regression for the second half of #1951: once the session is started on the main thread,
+        // macOS delivers the "not associated with domain" rejection as `canceledLogin` (code 1),
+        // which the model used to treat as the user closing the sheet — back to `.idle` with no
+        // message and nothing in the Debug pane. The presenter now classifies that as
+        // `sessionRejectedBeforePresenting`; the model must surface it like `sessionFailedToStart`.
+        let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
+        defer { cfToken.release() }
+        let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: GatedDeployExecutor())
+        let client = CloudflareOAuthClient(
+            scope: "workers_scripts",
+            discoveryURL: URL(string: "https://dash.cloudflare.com/.well-known/openid-configuration")!,
+            transport: { req in
+                let response = HTTPURLResponse(url: req.url!, statusCode: 200, httpVersion: nil, headerFields: nil)!
+                let json = #"{"authorization_endpoint":"https://dash.cloudflare.com/oauth2/auth","token_endpoint":"https://dash.cloudflare.com/oauth2/token"}"#
+                return (Data(json.utf8), response)
+            })
+        let reason = "Application with identifier M34HBJZNYA.io.dwk.anglesite is not associated with domain auth.anglesite.dwk.io."
+        let oauthSignIn = CloudflareOAuthSignIn(client: client, present: { _ in
+            throw CloudflareOAuthPresentationError.sessionRejectedBeforePresenting(reason: reason)
+        })
+        let keychain = InMemorySecretStore()
+        let logCenter = LogCenter()
+        let model = DeployModel(command: command, logCenter: logCenter, keychain: keychain, oauthSignIn: oauthSignIn)
+        let directory = FileManager.default.temporaryDirectory
+
+        model.deploy(siteID: "s", siteDirectory: directory, configDirectory: directory, currentRoutes: [])
+        await model.signInWithCloudflare()
+
+        // See the comment on `tokenPromptPresented` in `signInFailureStaysOnSheet` for why this
+        // binds to a local before asserting rather than `#expect(model.x)` directly.
+        let tokenPromptPresented = model.tokenPromptPresented
+        #expect(tokenPromptPresented)
+        guard case .failed(let message) = model.tokenVerification else {
+            Issue.record("expected .failed, got \(model.tokenVerification)"); return
+        }
+        #expect(message.contains("Associated Domains"))
+
+        let loggedLines = await logCenter.snapshot()
+        #expect(loggedLines.contains { $0.source == "cloudflare-oauth-sign-in" && $0.text.contains(reason) })
+    }
+
     /// A unique per-test site directory with a content license already recorded, so the deploy
     /// tests that use this helper (all of which are exercising something other than the
     /// first-publish license gate, #999) reach their actual pipeline step instead of parking on

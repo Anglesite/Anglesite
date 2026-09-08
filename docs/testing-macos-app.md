@@ -239,6 +239,26 @@ for smoke runs (#1766, #1767):
   (`DEVELOPMENT_TEAM = M34HBJZNYA`, `CODE_SIGN_IDENTITY = Apple Development`,
   `ANGLESITE_DEBUG_ENTITLEMENTS = Resources/Anglesite-Debug-iCloud.entitlements`) and build
   with `-allowProvisioningUpdates`. The Mac must be registered as a device on that team.
+- **macOS must also *verify* the association — the entitlement alone isn't enough.** `swcd`
+  has to have fetched the AASA for this particular copy of the app. A team-signed build
+  launched straight from DerivedData was observed with no association at all (2026-09-08,
+  #1951): the system session host rejected the session — `SafariLaunchAgent` logs
+  *"Application with identifier M34HBJZNYA.io.dwk.anglesite is not associated with domain
+  auth.anglesite.dwk.io"* — 1 ms after `start()` returned `true`. How that surfaced depended
+  on which thread started the session: started off the main thread (the pre-#1951 presenter
+  ran on whatever cooperative-pool thread `run()` resumed on after discovery) the reply never
+  reached the app at all, so the sheet sat at "Signing in…" until a force-quit; started on the
+  main thread the same rejection is delivered as `ASWebAuthenticationSessionError.canceledLogin`,
+  which used to read as the user closing the sheet. The presenter now starts on the main actor,
+  classifies a `canceledLogin` that carries the host's reason or arrives within a second as a
+  rejection (`sessionRejectedBeforePresenting`), and the sheet shows the Associated Domains
+  message with the fix in the Debug pane; as a backstop, Cancel works throughout, a hint
+  appears after 20 s of silence, and the attempt fails after 10 min. Confirm the OS side with
+  `log show --last 10m --predicate 'process == "SafariLaunchAgent" AND category == "AuthenticationSession"'`
+  (use `/usr/bin/log` from zsh, which has a builtin named `log`). The run that did get a sheet
+  (#1826, 2026-09-03) launched the app from `~/Applications`; copy the built app there (or
+  `/Applications`) and launch it with `open` so LaunchServices registers it and `swcd` can
+  associate it.
 - **The Worker must be deployed.** `auth.anglesite.dwk.io` is a `custom_domain` route of
   `Workers/anglesite-oauth-callback`, deployed (2026-09-02, #1767) from the Cloudflare
   account that owns the `dwk.io` zone. If the host stops resolving or the AASA at

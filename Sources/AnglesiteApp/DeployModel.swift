@@ -133,6 +133,14 @@ final class DeployModel {
     /// `.connected`; a `.failed` state keeps the sheet open and leaves storage untouched. Shared
     /// with `BuyDomainModel` (`CloudflareTokenPromptView.swift`) since the case shape is identical.
     private(set) var tokenVerification: CloudflareTokenVerification = .idle
+    /// Advisory shown under the sign-in spinner once a pending Cloudflare sign-in has been silent
+    /// for `signInStallHintDelay` (#1951). `nil` whenever no sign-in is pending or it reported
+    /// back in time. Consumed by `CloudflareOAuthSignInView`.
+    private(set) var signInHint: String?
+    /// The in-flight `signInWithCloudflare()` started by `beginSignInWithCloudflare()`, so
+    /// `cancelTokenPrompt()` can cancel it — which cancels the presenter and, through it, the
+    /// `ASWebAuthenticationSession` (#1951). Exposed read-only so tests can await its completion.
+    @ObservationIgnored private(set) var signInTask: Task<Void, Never>?
 
     /// Fires every time the deploy pipeline's preflight step resolves, with the
     /// `PreDeployCheck.Outcome` that was used to decide whether to continue.
@@ -162,6 +170,16 @@ final class DeployModel {
     private let keychain: any SecretStore
     private let onboarding: TokenOnboarding
     private let oauthSignIn: CloudflareOAuthSignIn
+    /// Upper bound on one `signInWithCloudflare()` attempt. A real sign-in takes as long as the
+    /// user takes on Cloudflare's pages, so this is a safety net, not a UX budget: it exists
+    /// because `ASWebAuthenticationSession` can start successfully and then never report back
+    /// (#1951 — macOS hasn't verified this build's Associated Domains), and without a bound that
+    /// attempt held the sheet at "Signing in…" until the app was force-quit.
+    private let signInTimeout: Duration
+    /// How long a pending sign-in stays silent before `signInHint` appears (#1951). The app can't
+    /// observe whether the system's sign-in window actually presented, so past this point it
+    /// advises — Cancel is always available — rather than guessing at a failure.
+    private let signInStallHintDelay: Duration
     private let summarizer: any DeployFailureSummarizing
     private let contentGraph: SiteContentGraph
     /// Returns the current `@dwk/workers` catalog. Defaults to `{ [] }` (no network, no active
@@ -209,6 +227,8 @@ final class DeployModel {
         oauthSignIn: CloudflareOAuthSignIn = CloudflareOAuthSignIn(
             client: CloudflareOAuthClient(scope: AnglesiteTokenTemplate.oauthScope),
             present: CloudflareOAuthSignIn.defaultPresenter),
+        signInTimeout: Duration = .seconds(600),
+        signInStallHintDelay: Duration = .seconds(20),
         summarizer: any DeployFailureSummarizing = DeploySummarizerFactory.makeDefault(),
         suddenTerminationController: SuddenTerminationController = .shared,
         tokenAvailabilityOverride: (() -> Bool)? = nil,
@@ -226,6 +246,8 @@ final class DeployModel {
         self.keychain = keychain
         self.onboarding = TokenOnboarding(verifier: verifier)
         self.oauthSignIn = oauthSignIn
+        self.signInTimeout = signInTimeout
+        self.signInStallHintDelay = signInStallHintDelay
         self.summarizer = summarizer
         self.suddenTerminationController = suddenTerminationController
         self.tokenAvailabilityOverride = tokenAvailabilityOverride
@@ -403,11 +425,24 @@ final class DeployModel {
         }
     }
 
-    /// Called by the sign-in sheet's "Sign in with Cloudflare" button. Runs the OAuth flow,
-    /// verifies the resulting access token against Cloudflare exactly as a pasted token was
-    /// verified — `TokenOnboarding` can't tell the two apart, since both are just Cloudflare API
-    /// bearer tokens — then persists the full credential (access + refresh + expiry) and dispatches
-    /// the parked deploy.
+    /// Called by the sign-in sheet's "Sign in with Cloudflare" button: runs
+    /// `signInWithCloudflare()` in a task the model owns, so the sheet's Cancel button
+    /// (`cancelTokenPrompt()`) can cancel a sign-in that is still waiting on the system session
+    /// (#1951). No-op while one is already in flight.
+    func beginSignInWithCloudflare() {
+        guard signInTask == nil else { return }
+        signInTask = Task { @MainActor [weak self] in
+            await self?.signInWithCloudflare()
+            self?.signInTask = nil
+        }
+    }
+
+    /// Runs the OAuth flow, verifies the resulting access token against Cloudflare exactly as a
+    /// pasted token was verified — `TokenOnboarding` can't tell the two apart, since both are just
+    /// Cloudflare API bearer tokens — then persists the full credential (access + refresh +
+    /// expiry) and dispatches the parked deploy. The sheet's button goes through
+    /// `beginSignInWithCloudflare()` so the attempt is cancellable; calling this directly (tests)
+    /// still bounds the wait with `signInTimeout`.
     func signInWithCloudflare() async {
         guard let pending = pendingDeploy else {
             tokenVerification = .failed(message: "Nothing is waiting to publish — close this and click Publish Site again.")
@@ -415,9 +450,64 @@ final class DeployModel {
         }
 
         tokenVerification = .checking
+        signInHint = nil
+        let stallHintDelay = signInStallHintDelay
+        let stallHint = Task { @MainActor [weak self] in
+            try? await Task.sleep(for: stallHintDelay)
+            guard !Task.isCancelled, let self, case .checking = tokenVerification else { return }
+            // Log before flipping the hint, so a reader who reacts to the hint finds the line.
+            await logCenter.append(
+                source: "cloudflare-oauth-sign-in", stream: .stderr,
+                text: Self.unverifiedAssociationDiagnostic(silentFor: stallHintDelay))
+            guard !Task.isCancelled, case .checking = tokenVerification else { return }
+            signInHint = String(localized: """
+                Still waiting for Cloudflare. If no sign-in window appeared, click Cancel and try \
+                again — the Debug pane has details.
+                """)
+        }
+        defer {
+            stallHint.cancel()
+            signInHint = nil
+        }
+
         let signInResult: CloudflareOAuthSignIn.Result
         do {
-            signInResult = try await oauthSignIn.run()
+            signInResult = try await Self.run(oauthSignIn, timeout: signInTimeout)
+        } catch is CancellationError {
+            // The sheet's Cancel button (`cancelTokenPrompt()`) — it has already reset the sheet
+            // state; nothing to report.
+            tokenVerification = .idle
+            return
+        } catch is SignInTimedOut {
+            // The session never reported back — neither a callback nor an error — within the
+            // bound. Observed (#1951) when macOS has the Associated Domains entitlement but hasn't
+            // verified the association for this copy of the app: the system session host rejects
+            // the session and nothing tells the app. Worth a developer-facing message and a
+            // Debug-pane line, since the OS gives no other hint why sign-in went nowhere.
+            await logCenter.append(
+                source: "cloudflare-oauth-sign-in", stream: .stderr,
+                text: "Cloudflare sign-in never reported back within \(Self.seconds(signInTimeout))s; giving up. "
+                    + Self.unverifiedAssociationDiagnostic(silentFor: signInTimeout))
+            tokenVerification = .failed(message: String(localized: """
+                Cloudflare's sign-in never finished. If no sign-in window appeared, macOS hasn't \
+                verified this build's Associated Domains — the Debug pane has the fix — or paste a \
+                legacy Cloudflare API token in Settings ▸ Advanced ▸ Credentials.
+                """))
+            return
+        } catch CloudflareOAuthPresentationError.sessionRejectedBeforePresenting(let reason) {
+            // `start()` succeeded but macOS refused to present — reported as `canceledLogin`, which
+            // the presenter has already told apart from a real cancel (#1951). Same treatment as
+            // `sessionFailedToStart`: this is the build's Associated Domains, not the user.
+            await logCenter.append(
+                source: "cloudflare-oauth-sign-in", stream: .stderr,
+                text: "macOS rejected the Cloudflare sign-in session before it could present ("
+                    + (reason ?? "no reason reported") + "). Most likely " + Self.unverifiedAssociationRemedy)
+            tokenVerification = .failed(message: String(localized: """
+                macOS wouldn't open the Cloudflare sign-in window: this build's Associated Domains \
+                aren't verified on this Mac. The Debug pane has the fix, or paste a legacy \
+                Cloudflare API token in Settings ▸ Advanced ▸ Credentials.
+                """))
+            return
         } catch CloudflareOAuthPresentationError.sessionFailedToStart {
             // The browser sheet never presented — not a user cancel. Most commonly a Debug build
             // signed without the Associated Domains entitlement that `.https(host:path:)` callback
@@ -500,9 +590,59 @@ final class DeployModel {
     }
 
     func cancelTokenPrompt() {
+        signInTask?.cancel()
+        signInHint = nil
         pendingDeploy = nil
         tokenPromptPresented = false
         tokenVerification = .idle
+    }
+
+    /// Marker thrown by `run(_:timeout:)` when the presenter outlives `signInTimeout`.
+    private struct SignInTimedOut: Error {}
+
+    /// Races the sign-in against `timeout`. Whichever child finishes first wins; the loser is
+    /// cancelled — for the sign-in that means the presenter's `ASWebAuthenticationSession` is
+    /// torn down (see `CloudflareOAuthSignIn.defaultPresenter`), so a session that never reported
+    /// back (#1951) doesn't linger after the sheet has moved on. Cancelling the calling task
+    /// cancels both children, surfacing as `CancellationError`.
+    private nonisolated static func run(
+        _ signIn: CloudflareOAuthSignIn, timeout: Duration
+    ) async throws -> CloudflareOAuthSignIn.Result {
+        try await withThrowingTaskGroup(of: CloudflareOAuthSignIn.Result.self) { group in
+            group.addTask { try await signIn.run() }
+            group.addTask {
+                try await Task.sleep(for: timeout)
+                throw SignInTimedOut()
+            }
+            defer { group.cancelAll() }
+            // Both children throw or return, so `next()` only yields `nil` on an empty group.
+            guard let first = try await group.next() else { throw SignInTimedOut() }
+            return first
+        }
+    }
+
+    private nonisolated static func seconds(_ duration: Duration) -> Int64 {
+        duration.components.seconds
+    }
+
+    /// Debug-pane text for a sign-in that has been silent for `silentFor` — the likely cause and
+    /// how to confirm and fix it, aimed at whoever is running this build (#1951). Shared by the
+    /// stall hint and the timeout so the two can't drift apart.
+    private nonisolated static func unverifiedAssociationDiagnostic(silentFor: Duration) -> String {
+        "Cloudflare sign-in has been silent for \(seconds(silentFor))s. If no sign-in window appeared, "
+            + "most likely " + unverifiedAssociationRemedy
+    }
+
+    /// The one cause every #1951 branch points at, and what to do about it — kept in one place so
+    /// the stall hint, the timeout, and the rejected-session branch can't drift apart.
+    private nonisolated static var unverifiedAssociationRemedy: String {
+        "macOS hasn't verified this build's Associated Domains "
+            + "(webcredentials:\(CloudflareOAuthConfiguration.redirectURI.host ?? "")): the system "
+            + "session host then refuses the session (\"not associated with domain\"). Confirm with: "
+            + "log show --last 10m --predicate 'process == \"SafariLaunchAgent\" AND category == "
+            + "\"AuthenticationSession\"'. Fix: launch a copy installed in /Applications or "
+            + "~/Applications so macOS associates it, or paste a legacy Cloudflare API token in "
+            + "Settings ▸ Advanced ▸ Credentials."
     }
 
     /// The licensing policy of the deploy currently parked on the license gate — `nil` when no
