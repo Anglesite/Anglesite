@@ -65,15 +65,19 @@ public actor SafariVerificationPass {
 
     /// Constructs its own ``SafariMCPBridgeClient`` against `http://127.0.0.1:<port>/mcp`,
     /// connects, runs one pass against `previewURL`, and always closes the client before
-    /// returning or throwing — mirroring ``SafariMCPBridgeDetector/checkReachability(port:timeout:)``.
+    /// returning or throwing — mirroring ``SafariMCPBridgeDetector/checkReachability(port:timeout:)``,
+    /// including that same method's injectable `timeout` (defaulting to the same
+    /// `NetworkTimeouts.safariMCPBridgeProbe` #1944's resolved default 4 specifies) so tests never
+    /// have to race a real bridge's connect window under CI scheduling contention.
     public func run(
         previewURL: URL,
-        port: Int = SafariMCPBridgeDetector.defaultPort
+        port: Int = SafariMCPBridgeDetector.defaultPort,
+        connectTimeout: TimeInterval = NetworkTimeouts.safariMCPBridgeProbe
     ) async throws -> SafariVerificationReport {
         let endpoint = URL(string: "http://127.0.0.1:\(port)/mcp") ?? URL(string: "http://127.0.0.1/mcp")!
         let client = SafariMCPBridgeClient(endpoint: endpoint, urlSession: urlSession, logCenter: logCenter)
         do {
-            _ = try await client.connect(timeout: NetworkTimeouts.safariMCPBridgeProbe)
+            _ = try await client.connect(timeout: connectTimeout)
         } catch {
             await client.close()
             throw error

@@ -113,6 +113,16 @@ struct SafariVerificationPassTests {
 
     private let previewURL = URL(string: "http://localhost:4321/")!
 
+    /// The stub answers every request synchronously and in-memory, so this only needs to be
+    /// generous enough to survive Swift Testing's own scheduling latency on a heavily parallel CI
+    /// run (which — unlike the default `NetworkTimeouts.safariMCPBridgeProbe` production reachability
+    /// probe this overrides — has no reason to stay tight): CI's `build-test` job runs several
+    /// thousand tests across hundreds of concurrently-scheduled suites, and that contention alone
+    /// was enough to blow through the 3-second production default and fail two of these tests with
+    /// `ClientError.timeout` even though every response here is already queued before the request
+    /// is ever sent.
+    private let ciConnectTimeout: TimeInterval = 30
+
     @Test("happy path: all five sections populated from stubbed tools/call responses") func happyPath() async throws {
         SafariVerificationPassStubURLProtocol.reset()
         enqueueHandshake(tools: [
@@ -131,7 +141,7 @@ struct SafariVerificationPassTests {
         SafariVerificationPassStubURLProtocol.queue.append(toolCallResponse(content: [imageContent(base64: screenshotData.base64EncodedString())]))
 
         let (pass, _) = makePass()
-        let report = try await pass.run(previewURL: previewURL, port: 4399)
+        let report = try await pass.run(previewURL: previewURL, port: 4399, connectTimeout: ciConnectTimeout)
 
         guard case .available(let console) = report.console else { Issue.record("console unavailable"); return }
         #expect(console.entries == [.init(level: "error", text: "boom"), .init(level: "log", text: "hi")])
@@ -160,7 +170,7 @@ struct SafariVerificationPassTests {
         SafariVerificationPassStubURLProtocol.queue.append(toolCallResponse(content: [imageContent(base64: Data("x".utf8).base64EncodedString())]))  // screenshot
 
         let (pass, _) = makePass()
-        let report = try await pass.run(previewURL: previewURL, port: 4399)
+        let report = try await pass.run(previewURL: previewURL, port: 4399, connectTimeout: ciConnectTimeout)
 
         guard case .unavailable(let reason) = report.network else { Issue.record("expected network unavailable"); return }
         #expect(reason.contains("no network tool"))
@@ -174,7 +184,7 @@ struct SafariVerificationPassTests {
 
         let (pass, _) = makePass()
         do {
-            _ = try await pass.run(previewURL: previewURL, port: 4399)
+            _ = try await pass.run(previewURL: previewURL, port: 4399, connectTimeout: ciConnectTimeout)
             Issue.record("expected PassError.navigateToolUnavailable to be thrown")
         } catch SafariVerificationPass.PassError.navigateToolUnavailable {
             // expected
@@ -188,7 +198,7 @@ struct SafariVerificationPassTests {
 
         let (pass, _) = makePass()
         do {
-            _ = try await pass.run(previewURL: previewURL, port: 4399)
+            _ = try await pass.run(previewURL: previewURL, port: 4399, connectTimeout: ciConnectTimeout)
             Issue.record("expected PassError.navigateFailed to be thrown")
         } catch SafariVerificationPass.PassError.navigateFailed {
             // expected
@@ -203,7 +213,7 @@ struct SafariVerificationPassTests {
         SafariVerificationPassStubURLProtocol.queue.append(toolCallResponse(content: [imageContent(base64: oversized.base64EncodedString())]))
 
         let (pass, _) = makePass()
-        let report = try await pass.run(previewURL: previewURL, port: 4399)
+        let report = try await pass.run(previewURL: previewURL, port: 4399, connectTimeout: ciConnectTimeout)
 
         guard case .unavailable(let reason) = report.screenshot else { Issue.record("expected screenshot unavailable"); return }
         #expect(reason.contains("cap"))
@@ -217,7 +227,7 @@ struct SafariVerificationPassTests {
         SafariVerificationPassStubURLProtocol.queue.append(toolCallResponse(content: [textContent(jsonArrayText(items))]))
 
         let (pass, _) = makePass()
-        let report = try await pass.run(previewURL: previewURL, port: 4399)
+        let report = try await pass.run(previewURL: previewURL, port: 4399, connectTimeout: ciConnectTimeout)
 
         guard case .available(let console) = report.console else { Issue.record("expected console available"); return }
         #expect(console.entries.count == 200)
@@ -235,7 +245,7 @@ struct SafariVerificationPassTests {
         SafariVerificationPassStubURLProtocol.queue.append(toolCallResponse(content: [imageContent(base64: Data("x".utf8).base64EncodedString())]))  // screenshot
 
         let (pass, _) = makePass()
-        _ = try await pass.run(previewURL: previewURL, port: 4399)
+        _ = try await pass.run(previewURL: previewURL, port: 4399, connectTimeout: ciConnectTimeout)
 
         let allowedSet = Set(allowed)
         #expect(!SafariVerificationPassStubURLProtocol.capturedToolCallNames.isEmpty)
