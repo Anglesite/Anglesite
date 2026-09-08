@@ -99,4 +99,31 @@ public enum DesignAxesCatalog {
         [axes.temperature, axes.weight, axes.register, axes.time, axes.voice]
             .allSatisfy { !$0.isNaN && $0 >= 0 && $0 <= 1 }
     }
+
+    /// Threshold-based prose reading for one axis value: `low` at ≤0.4, `high` at ≥0.6, else the
+    /// straddling phrase. The single source of this wording — ``DesignTokenWriter/rationaleMarkdown(for:)``
+    /// and ``DesignContextDocument`` both call this rather than each rolling their own thresholds,
+    /// so an axis reads identically wherever it's described.
+    public static func proseDescription(_ value: Double, low: String, high: String) -> String {
+        if value <= 0.4 { return low }
+        if value >= 0.6 { return high }
+        return "between \(low) and \(high)"
+    }
+
+    /// The five axes' pole-label pairs, in ``DesignAxes``' own declared order — the single place
+    /// that names which word means which end of which axis.
+    public static let poleLabels: [(axis: String, low: String, high: String)] = [
+        ("temperature", "cool", "warm"),
+        ("weight", "airy", "dense"),
+        ("register", "playful", "authoritative"),
+        ("time", "classic", "contemporary"),
+        ("voice", "subtle", "bold"),
+    ]
+
+    /// One prose word/phrase per axis (temperature, weight, register, time, voice, in that
+    /// order), via ``proseDescription(_:low:high:)`` and ``poleLabels``.
+    public static func moodWords(for axes: DesignAxes) -> [String] {
+        let values = [axes.temperature, axes.weight, axes.register, axes.time, axes.voice]
+        return zip(values, poleLabels).map { proseDescription($0, low: $1.low, high: $1.high) }
+    }
 }

@@ -40,4 +40,23 @@ import Testing
         #expect(DesignAxesCatalog.isValid(DesignAxes(temperature: 1.5, weight: 0.4, register: 0.5, time: 0.5, voice: 0.4)) == false)
         #expect(DesignAxesCatalog.isValid(DesignAxes(temperature: 0.5, weight: 0.4, register: 0.5, time: 0.5, voice: 0.4)) == true)
     }
+
+    @Test func proseDescriptionReturnsLowAtOrBelowFourTenths() {
+        #expect(DesignAxesCatalog.proseDescription(0.4, low: "cool", high: "warm") == "cool")
+        #expect(DesignAxesCatalog.proseDescription(0.0, low: "cool", high: "warm") == "cool")
+    }
+
+    @Test func proseDescriptionReturnsHighAtOrAboveSixTenths() {
+        #expect(DesignAxesCatalog.proseDescription(0.6, low: "cool", high: "warm") == "warm")
+        #expect(DesignAxesCatalog.proseDescription(1.0, low: "cool", high: "warm") == "warm")
+    }
+
+    @Test func proseDescriptionStraddlesInBetween() {
+        #expect(DesignAxesCatalog.proseDescription(0.5, low: "cool", high: "warm") == "between cool and warm")
+    }
+
+    @Test func moodWordsReturnsOnePerAxisInDeclarationOrder() {
+        let axes = DesignAxes(temperature: 0.75, weight: 0.35, register: 0.25, time: 0.3, voice: 0.45)
+        #expect(DesignAxesCatalog.moodWords(for: axes) == ["warm", "airy", "playful", "classic", "between subtle and bold"])
+    }
 }

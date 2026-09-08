@@ -68,4 +68,15 @@ public enum SiteConfigValues {
         let dirName = sourceDirectory.lastPathComponent
         return dirName.isEmpty ? nil : dirName
     }
+
+    /// Reads `SITE_TYPE` from `.site-config` — the same key `SiteScaffolder.appendSiteConfig`
+    /// writes from `NewSiteDraft.siteType` at creation time (mirrors
+    /// `DeployCoordinator.resolveIsHostedCommunity`'s read of the same key). `nil` when absent —
+    /// notably for `.blank`, which deliberately writes no key (#1071), and for any site created
+    /// before `SITE_TYPE` existed.
+    public static func siteType(sourceDirectory: URL) -> String? {
+        let url = sourceDirectory.appendingPathComponent(".site-config")
+        guard let contents = try? String(contentsOf: url, encoding: .utf8) else { return nil }
+        return SiteConfigFile.value(forKey: "SITE_TYPE", in: contents)
+    }
 }

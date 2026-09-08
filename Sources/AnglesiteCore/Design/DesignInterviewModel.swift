@@ -51,6 +51,14 @@ public final class DesignInterviewModel: Identifiable {
     /// any reply and lets the user correct axes via ``nudge(_:)``.
     public func send(_ userMessage: String) async {
         transcript.append((role: "user", text: userMessage))
+        // The `.intent` stage is the only place the owner is asked what the site is for and who
+        // it's for (`DesignInterviewPrompts.intentPrompt`) — capture their raw answer into
+        // `freeTextNotes` here so `confirmAndApply()` can carry it into PRODUCT.md's Audience
+        // section (#1947). Other stages' replies are style/axis talk, already captured
+        // structurally via axes, so they're not duplicated into free-text notes.
+        if draft.stage == .intent {
+            draft.freeTextNotes.append(userMessage)
+        }
         let prompt = DesignInterviewPrompts.prompt(for: draft.stage, draft: draft, userMessage: userMessage)
         let context = AssistantContext(siteID: siteID, siteDirectory: package.sourceURL)
         guard let stream = try? await assistant.converse(prompt: prompt, context: context) else {
@@ -114,11 +122,25 @@ public final class DesignInterviewModel: Identifiable {
     /// instead of ending on an unapplied design.
     public func confirmAndApply() async {
         let config = DesignConfigGenerator.config(axes: draft.axes, siteType: draft.businessType, brandColor: draft.brandColorHex)
+        let cssVars = DesignTokenWriter.templateCSSVars(for: config)
+        let brandVoicePreamble = BrandVoiceGuidance.preamble(conventions: nil, businessType: draft.businessType)
+        let designContextMarkdown = DesignContextDocument.render(
+            axes: draft.axes, cssVars: cssVars, brandVoicePreamble: brandVoicePreamble,
+            freedesignmdSystem: nil, appliedThemeOrPackID: nil
+        )
+        let productContextMarkdown = ProductContextDocument.render(
+            displayName: SiteConfigValues.siteName(sourceDirectory: package.sourceURL),
+            businessType: draft.businessType,
+            siteType: SiteConfigValues.siteType(sourceDirectory: package.sourceURL),
+            audienceAndIntentNotes: draft.freeTextNotes
+        )
         let input = DesignApplyInput(
-            cssVars: DesignTokenWriter.templateCSSVars(for: config),
+            cssVars: cssVars,
             rationaleMarkdown: DesignTokenWriter.rationaleMarkdown(for: config),
             brandSummary: "Generated from a design interview for a \(draft.businessType).",
-            sourceLabel: "design-interview"
+            sourceLabel: "design-interview",
+            designContextMarkdown: designContextMarkdown,
+            productContextMarkdown: productContextMarkdown
         )
         let result = DesignApplyService.apply(input, to: package)
         applyResult = result

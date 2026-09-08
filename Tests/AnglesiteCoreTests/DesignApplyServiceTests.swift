@@ -257,6 +257,91 @@ import Foundation
         #expect(updated.contains("--color-accent: #f59e0b;")) // untouched var preserved
     }
 
+    @Test func writesDesignAndProductContextDocumentsWhenProvided() throws {
+        let dir = try makeSite()
+        let input = DesignApplyInput(
+            cssVars: [:], rationaleMarkdown: nil, brandSummary: "x", sourceLabel: "x",
+            designContextMarkdown: "generated design context", productContextMarkdown: "generated product context"
+        )
+        let result = DesignApplyService.apply(input, to: dir)
+        guard case .success(let applied) = result else { Issue.record("expected success"); return }
+        #expect(applied.writtenFiles.contains("DESIGN.md"))
+        #expect(applied.writtenFiles.contains("PRODUCT.md"))
+        #expect(applied.skippedNotices.isEmpty)
+        #expect(try String(contentsOf: dir.appendingPathComponent("DESIGN.md"), encoding: .utf8) == "generated design context")
+        #expect(try String(contentsOf: dir.appendingPathComponent("PRODUCT.md"), encoding: .utf8) == "generated product context")
+    }
+
+    @Test func skipsDesignAndProductContextDocumentsWhenNilAndWritesNoFiles() throws {
+        let dir = try makeSite()
+        let input = DesignApplyInput(cssVars: [:], rationaleMarkdown: nil, brandSummary: "x", sourceLabel: "x")
+        guard case .success(let applied) = DesignApplyService.apply(input, to: dir) else {
+            Issue.record("expected success"); return
+        }
+        #expect(!applied.writtenFiles.contains("DESIGN.md"))
+        #expect(!applied.writtenFiles.contains("PRODUCT.md"))
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("DESIGN.md").path))
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("PRODUCT.md").path))
+    }
+
+    @Test func regeneratesDesignContextDocumentWhenStillOwnedByThisGenerator() throws {
+        let dir = try makeSite()
+        let firstInput = DesignApplyInput(
+            cssVars: [:], rationaleMarkdown: nil, brandSummary: "x", sourceLabel: "x",
+            designContextMarkdown: GeneratedDesignDocument.marker + "\n\nfirst version"
+        )
+        _ = DesignApplyService.apply(firstInput, to: dir)
+
+        let secondInput = DesignApplyInput(
+            cssVars: [:], rationaleMarkdown: nil, brandSummary: "x", sourceLabel: "x",
+            designContextMarkdown: GeneratedDesignDocument.marker + "\n\nsecond version"
+        )
+        guard case .success(let applied) = DesignApplyService.apply(secondInput, to: dir) else {
+            Issue.record("expected success"); return
+        }
+        #expect(applied.writtenFiles.contains("DESIGN.md"))
+        #expect(applied.skippedNotices.isEmpty)
+        let contents = try String(contentsOf: dir.appendingPathComponent("DESIGN.md"), encoding: .utf8)
+        #expect(contents.contains("second version"))
+        #expect(!contents.contains("first version"))
+    }
+
+    @Test func leavesHandEditedDesignContextDocumentUntouchedWithNotice() throws {
+        let dir = try makeSite()
+        try "# My own design notes — please don't overwrite".write(
+            to: dir.appendingPathComponent("DESIGN.md"), atomically: true, encoding: .utf8)
+
+        let input = DesignApplyInput(
+            cssVars: [:], rationaleMarkdown: nil, brandSummary: "x", sourceLabel: "x",
+            designContextMarkdown: GeneratedDesignDocument.marker + "\n\ngenerated content"
+        )
+        guard case .success(let applied) = DesignApplyService.apply(input, to: dir) else {
+            Issue.record("expected success"); return
+        }
+        #expect(!applied.writtenFiles.contains("DESIGN.md"))
+        #expect(applied.skippedNotices.contains { $0.contains("DESIGN.md") })
+        let contents = try String(contentsOf: dir.appendingPathComponent("DESIGN.md"), encoding: .utf8)
+        #expect(contents == "# My own design notes — please don't overwrite")
+    }
+
+    @Test func leavesHandEditedProductContextDocumentUntouchedWithNotice() throws {
+        let dir = try makeSite()
+        try "# My own product notes".write(
+            to: dir.appendingPathComponent("PRODUCT.md"), atomically: true, encoding: .utf8)
+
+        let input = DesignApplyInput(
+            cssVars: [:], rationaleMarkdown: nil, brandSummary: "x", sourceLabel: "x",
+            productContextMarkdown: GeneratedDesignDocument.marker + "\n\ngenerated content"
+        )
+        guard case .success(let applied) = DesignApplyService.apply(input, to: dir) else {
+            Issue.record("expected success"); return
+        }
+        #expect(!applied.writtenFiles.contains("PRODUCT.md"))
+        #expect(applied.skippedNotices.contains { $0.contains("PRODUCT.md") })
+        let contents = try String(contentsOf: dir.appendingPathComponent("PRODUCT.md"), encoding: .utf8)
+        #expect(contents == "# My own product notes")
+    }
+
     @Test func writeFailureAfterGlobalCSSReportsPartiallyWrittenFiles() throws {
         let dir = try makeSite()
         let failingManager = FailingFileManager(failingPathSubstring: "docs")

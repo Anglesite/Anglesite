@@ -70,6 +70,10 @@ extension AppIntentsTests {
 
             #expect(dialog.contains("Applied the Sunset theme"))
             #expect(try String(contentsOf: cssURL, encoding: .utf8).contains("--color-primary: #ff0000;"))
+
+            let designMD = try String(contentsOf: package.appendingPathComponent("Source/DESIGN.md"), encoding: .utf8)
+            #expect(designMD.contains("`sunset`"))
+            #expect(FileManager.default.fileExists(atPath: package.appendingPathComponent("Source/PRODUCT.md").path))
         }
 
         @Test("a site missing its stylesheet reports the failure instead of throwing")

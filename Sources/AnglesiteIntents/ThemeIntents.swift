@@ -56,11 +56,24 @@ public struct ApplyThemeIntent: AppIntent {
             try await requestConfirmation(dialog: "Apply the \(theme.name) theme to \(site.displayName)?")
         }
         let package = AnglesitePackage(url: packageURL)
+        let businessType = SiteBusinessType.read(sourceDirectory: package.sourceURL)
+        let cssVars = DesignTokenWriter.templateCSSVars(for: theme)
         let input = DesignApplyInput(
-            cssVars: DesignTokenWriter.templateCSSVars(for: theme),
+            cssVars: cssVars,
             rationaleMarkdown: nil,
             brandSummary: theme.blurb,
-            sourceLabel: "Built-in theme: \(theme.name)"
+            sourceLabel: "Built-in theme: \(theme.name)",
+            designContextMarkdown: DesignContextDocument.render(
+                axes: nil, cssVars: cssVars,
+                brandVoicePreamble: BrandVoiceGuidance.preamble(conventions: nil, businessType: businessType),
+                freedesignmdSystem: nil, appliedThemeOrPackID: theme.id
+            ),
+            productContextMarkdown: ProductContextDocument.render(
+                displayName: SiteConfigValues.siteName(sourceDirectory: package.sourceURL),
+                businessType: businessType,
+                siteType: SiteConfigValues.siteType(sourceDirectory: package.sourceURL),
+                audienceAndIntentNotes: []
+            )
         )
         let result = DesignApplyService.apply(input, to: package)
         return SetupThemeArguments.reply(for: result, themeName: theme.name)

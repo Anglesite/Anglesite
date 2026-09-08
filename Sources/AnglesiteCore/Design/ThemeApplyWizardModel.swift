@@ -145,11 +145,23 @@ public final class ThemeApplyWizardModel: Identifiable {
                 applyResult = .failure(.writeFailed(message: "No theme selected to apply.", partiallyWritten: []))
                 return
             }
+            let cssVars = DesignTokenWriter.templateCSSVars(for: theme)
             let input = DesignApplyInput(
-                cssVars: DesignTokenWriter.templateCSSVars(for: theme),
+                cssVars: cssVars,
                 rationaleMarkdown: nil,
                 brandSummary: theme.blurb,
-                sourceLabel: "Built-in theme: \(theme.name)"
+                sourceLabel: "Built-in theme: \(theme.name)",
+                designContextMarkdown: DesignContextDocument.render(
+                    axes: nil, cssVars: cssVars,
+                    brandVoicePreamble: BrandVoiceGuidance.preamble(conventions: nil, businessType: businessType),
+                    freedesignmdSystem: nil, appliedThemeOrPackID: theme.id
+                ),
+                productContextMarkdown: ProductContextDocument.render(
+                    displayName: SiteConfigValues.siteName(sourceDirectory: package.sourceURL),
+                    businessType: businessType,
+                    siteType: SiteConfigValues.siteType(sourceDirectory: package.sourceURL),
+                    audienceAndIntentNotes: []
+                )
             )
             applyResult = DesignApplyService.apply(input, to: package)
         case .freedesignmd:
@@ -165,11 +177,25 @@ public final class ThemeApplyWizardModel: Identifiable {
             // described tokens onto the template's 12 vars) is deliberately stubbed to `[:]` —
             // see the plan's Task 8/9 note. This flow currently only records the description as
             // brand rationale; it does not yet write new CSS vars.
+            let pickedSystem = FreedesignmdSystem(
+                slug: slug, name: freedesignmdCandidates.first { $0.slug == slug }?.name ?? slug
+            )
             let input = DesignApplyInput(
                 cssVars: [:],
                 rationaleMarkdown: nil,
                 brandSummary: description ?? "Applied from freedesignmd.com/system/\(slug).",
-                sourceLabel: "freedesignmd: \(slug)"
+                sourceLabel: "freedesignmd: \(slug)",
+                designContextMarkdown: DesignContextDocument.render(
+                    axes: nil, cssVars: [:],
+                    brandVoicePreamble: BrandVoiceGuidance.preamble(conventions: nil, businessType: businessType),
+                    freedesignmdSystem: pickedSystem, appliedThemeOrPackID: nil
+                ),
+                productContextMarkdown: ProductContextDocument.render(
+                    displayName: SiteConfigValues.siteName(sourceDirectory: package.sourceURL),
+                    businessType: businessType,
+                    siteType: SiteConfigValues.siteType(sourceDirectory: package.sourceURL),
+                    audienceAndIntentNotes: []
+                )
             )
             applyResult = DesignApplyService.apply(input, to: package)
         case nil:
