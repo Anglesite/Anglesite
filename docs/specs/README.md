@@ -24,6 +24,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-06 | [AnglesiteCore target extraction — measured dependency notes](2026-09-06-anglesite-core-target-extraction-notes.md) | [#1919](https://github.com/Anglesite/Anglesite/issues/1919), [#1820](https://github.com/Anglesite/Anglesite/issues/1820) | draft |
 | 2026-08-16 | [Semantic Accessibility Audit (SwiftUI)](2026-08-16-semantic-accessibility-audit.md) | [#1096](https://github.com/Anglesite/Anglesite/issues/1096) | — |
 | 2026-08-04 | [Software factory — design proposal](2026-08-04-software-factory-design.md) | [#1256](https://github.com/Anglesite/Anglesite/issues/1256) | draft |
 | 2026-07-10 | [PCC escalation feasibility spike — findings (2026-07-10)](2026-07-10-pcc-escalation-spike-notes.md) | [#464](https://github.com/Anglesite/Anglesite/issues/464) | — |
