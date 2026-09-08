@@ -134,6 +134,7 @@ struct SafariVerificationPassTests {
         let networkItems: [[String: Any]] = [
             ["url": "https://example.com/a.js", "method": "GET", "status": 200],
             ["url": "https://example.com/missing.js", "method": "GET", "status": 404],
+            ["url": "https://example.com/pending.js", "method": "GET"],
         ]
         SafariVerificationPassStubURLProtocol.queue.append(toolCallResponse(content: [textContent(jsonArrayText(networkItems))]))
         SafariVerificationPassStubURLProtocol.queue.append(toolCallResponse(content: [textContent("<html>hello</html>")]))
@@ -151,6 +152,10 @@ struct SafariVerificationPassTests {
         #expect(network.entries == [
             .init(url: "https://example.com/a.js", method: "GET", status: 200, failed: false),
             .init(url: "https://example.com/missing.js", method: "GET", status: 404, failed: true),
+            // No status at all — not assumed to be a failure (review finding on #1945): the wire
+            // format can't yet distinguish "still in flight" from "errored", so this stays
+            // failed == false rather than over-reporting.
+            .init(url: "https://example.com/pending.js", method: "GET", status: nil, failed: false),
         ])
         #expect(!network.truncated)
 
@@ -232,6 +237,40 @@ struct SafariVerificationPassTests {
         guard case .available(let console) = report.console else { Issue.record("expected console available"); return }
         #expect(console.entries.count == 200)
         #expect(console.truncated)
+    }
+
+    @Test("a malformed console payload records .unavailable instead of a silently-empty result") func malformedConsolePayloadDegrades() async throws {
+        SafariVerificationPassStubURLProtocol.reset()
+        enqueueHandshake(tools: ["navigate_to_url", "browser_console_messages"])
+        SafariVerificationPassStubURLProtocol.queue.append(toolCallResponse(content: []))  // navigate
+        // Malformed: the tool's text content is an object, not a JSON array — distinct from a
+        // genuine "no console messages" empty array (review finding on #1945).
+        SafariVerificationPassStubURLProtocol.queue.append(toolCallResponse(content: [textContent(#"{"not":"an array"}"#)]))
+
+        let (pass, _) = makePass()
+        let report = try await pass.run(previewURL: previewURL, port: 4399, connectTimeout: ciConnectTimeout)
+
+        guard case .unavailable(let reason) = report.console else {
+            Issue.record("expected console unavailable for a malformed (non-array) payload, not a silent empty list")
+            return
+        }
+        #expect(reason.contains("wasn't a JSON array"))
+    }
+
+    @Test("a genuinely empty JSON array still records .available with zero entries") func emptyConsolePayloadStaysAvailable() async throws {
+        SafariVerificationPassStubURLProtocol.reset()
+        enqueueHandshake(tools: ["navigate_to_url", "browser_console_messages"])
+        SafariVerificationPassStubURLProtocol.queue.append(toolCallResponse(content: []))  // navigate
+        SafariVerificationPassStubURLProtocol.queue.append(toolCallResponse(content: [textContent("[]")]))
+
+        let (pass, _) = makePass()
+        let report = try await pass.run(previewURL: previewURL, port: 4399, connectTimeout: ciConnectTimeout)
+
+        guard case .available(let console) = report.console else {
+            Issue.record("expected console available (empty) for a genuinely empty array, not unavailable")
+            return
+        }
+        #expect(console.entries.isEmpty)
     }
 
     @Test("only the five allowlisted tool names are ever called") func readOnlyByConstruction() async throws {

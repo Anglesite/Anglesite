@@ -142,7 +142,7 @@ public actor SafariVerificationPass {
         }
         do {
             let result = try await client.callTool(name: toolName)
-            let entries = Self.decodeJSONArray(from: result).compactMap { entry -> SafariVerificationReport.ConsoleEntry? in
+            let entries = try Self.decodeJSONArray(from: result, toolName: toolName).compactMap { entry -> SafariVerificationReport.ConsoleEntry? in
                 guard case .object(let fields) = entry, case .string(let text)? = fields["text"] else { return nil }
                 let level: String = { if case .string(let l)? = fields["level"] { return l }; return "log" }()
                 return SafariVerificationReport.ConsoleEntry(level: level, text: text)
@@ -162,11 +162,16 @@ public actor SafariVerificationPass {
         }
         do {
             let result = try await client.callTool(name: toolName)
-            let entries = Self.decodeJSONArray(from: result).compactMap { entry -> SafariVerificationReport.NetworkEntry? in
+            let entries = try Self.decodeJSONArray(from: result, toolName: toolName).compactMap { entry -> SafariVerificationReport.NetworkEntry? in
                 guard case .object(let fields) = entry, case .string(let url)? = fields["url"] else { return nil }
                 let method: String? = { if case .string(let m)? = fields["method"] { return m }; return nil }()
                 let status: Int? = { if case .int(let s)? = fields["status"] { return s }; return nil }()
-                let failed = status.map { $0 >= 400 } ?? true
+                // Only a confirmed >= 400 status counts as failed. A missing status is NOT assumed
+                // to be a failure — the wire-format assumption this file documents doesn't tell us
+                // whether the bridge reports in-flight/pending requests without a status yet, and
+                // defaulting those to "failed" would over-report against a real bridge (review
+                // finding on #1945).
+                let failed = status.map { $0 >= 400 } ?? false
                 return SafariVerificationReport.NetworkEntry(url: url, method: method, status: status, failed: failed)
             }
             return .available(Self.cap(entries))
@@ -235,15 +240,31 @@ public actor SafariVerificationPass {
         )
     }
 
+    /// A tool's `text` content wasn't a well-formed JSON array, per this file's wire-format
+    /// assumption — distinct from a *valid* empty array (a genuine "nothing to report"), which
+    /// ``decodeJSONArray(from:toolName:)`` returns as `[]` without throwing. Conflating the two
+    /// would let a malformed or truncated bridge response silently read as "no console
+    /// errors"/"no failed requests" instead of "couldn't parse this section" — the opposite of
+    /// what a verification report should communicate (review finding on #1945).
+    private struct MalformedListPayload: Error, CustomStringConvertible {
+        let description: String
+    }
+
     /// Decodes the first `text` content block as a JSON array, per this file's wire-format
-    /// assumption. Returns `[]` for anything that doesn't parse — a malformed payload degrades to
-    /// an empty list rather than throwing, matching this pass's overall degrade-don't-fail stance.
-    private static func decodeJSONArray(from result: SafariMCPBridgeClient.ToolCallResult) -> [JSONValue] {
-        guard let text = result.content.first(where: { $0.type == "text" })?.text,
-              let data = text.data(using: .utf8),
+    /// assumption. Throws ``MalformedListPayload`` — surfaced by callers as `.unavailable(reason:)`
+    /// — when there's no text content, the text isn't valid JSON, or it doesn't decode to an
+    /// array; a *valid* empty array decodes to `[]` normally, since that's a genuine "nothing to
+    /// report" rather than a parse failure.
+    private static func decodeJSONArray(from result: SafariMCPBridgeClient.ToolCallResult, toolName: String) throws -> [JSONValue] {
+        guard let text = result.content.first(where: { $0.type == "text" })?.text else {
+            throw MalformedListPayload(description: "\(toolName) returned no text content")
+        }
+        guard let data = text.data(using: .utf8),
               let raw = try? JSONSerialization.jsonObject(with: data),
               let array = raw as? [Any]
-        else { return [] }
+        else {
+            throw MalformedListPayload(description: "\(toolName) returned a payload that wasn't a JSON array")
+        }
         return array.compactMap { JSONValue.from($0) }
     }
 

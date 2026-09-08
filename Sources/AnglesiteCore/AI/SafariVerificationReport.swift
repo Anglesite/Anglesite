@@ -46,9 +46,12 @@ public struct SafariVerificationReport: Sendable, Equatable {
         public let url: String
         public let method: String?
         public let status: Int?
-        /// Whether this request should be treated as a failure — a missing status (the request
-        /// never completed) or a >= 400 status. Computed once here so callers don't reimplement
-        /// the rule themselves.
+        /// Whether this request should be treated as a failure — true only for a confirmed >= 400
+        /// status. A missing `status` does *not* imply `failed`: this wire format has no way yet
+        /// to distinguish "still in flight when captured" from "errored before a response came
+        /// back," and defaulting the former to failed would over-report against a real bridge. A
+        /// caller that wants stricter tracking (e.g. "no status at all is suspicious") can check
+        /// `status` directly rather than relying on this field alone.
         public let failed: Bool
 
         public init(url: String, method: String?, status: Int?, failed: Bool) {
