@@ -293,4 +293,71 @@ struct DomainConfigStoreTests {
         let store = DomainConfigStore(sourceDirectory: dir)
         #expect(try store.load().experimental == nil)
     }
+
+    /// Byte-compatibility regression guard for #1948: `DomainConfigStore.save(_:)`'s
+    /// read-existing → deep-merge → `JSONSerialization` + trailing-newline re-serialization moved
+    /// onto `CodableFileStore`'s `merge` hook verbatim. This reimplements that exact pre-migration
+    /// algorithm independently (not by calling into `DomainConfigStore`) and checks the migrated
+    /// store's actual on-disk bytes match it byte-for-byte for a save that both preserves an
+    /// unknown key and floors the on-disk version.
+    @Test("save through the migrated store reproduces the pre-migration byte-for-byte output")
+    func saveReproducesPreMigrationBytes() throws {
+        let dir = try tempSourceDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fileURL = dir.appendingPathComponent("anglesite.json")
+        let existingText = #"{"version":2,"domain":{"hostname":"old.example.com","futureField":"x"}}"#
+        try existingText.write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let config = DomainConfig(domain: .init(hostname: "new.example.com"))
+        let expectedBytes = try Self.legacyMergedBytes(
+            existing: Data(existingText.utf8), config: config
+        )
+
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(config)
+        let actualBytes = try Data(contentsOf: fileURL)
+
+        #expect(actualBytes == expectedBytes)
+    }
+
+    /// A standalone reimplementation of `DomainConfigStore`'s pre-#1948 `performSave(_:)` body —
+    /// deliberately independent of `DomainConfigStore` itself, so this test can catch the merge
+    /// hook drifting from that original algorithm rather than just asserting it against itself.
+    private static func legacyMergedBytes(existing: Data, config: DomainConfig) throws -> Data {
+        func objectFields(fromJSONData data: Data) -> [String: JSONValue] {
+            guard let any = try? JSONSerialization.jsonObject(with: data),
+                  case .object(let fields)? = JSONValue.from(any) else {
+                return [:]
+            }
+            return fields
+        }
+        func merge(_ new: [String: JSONValue], into old: [String: JSONValue]) -> [String: JSONValue] {
+            var result = old
+            for (key, newValue) in new {
+                if case .object(let newNested) = newValue, case .object(let oldNested)? = old[key] {
+                    result[key] = .object(merge(newNested, into: oldNested))
+                } else {
+                    result[key] = newValue
+                }
+            }
+            return result
+        }
+
+        let newData = try JSONEncoder().encode(config)
+        var newFields = objectFields(fromJSONData: newData)
+        let existingFields = objectFields(fromJSONData: existing)
+
+        if case .int(let onDiskVersion)? = existingFields["version"], onDiskVersion > config.version {
+            newFields["version"] = .int(onDiskVersion)
+        }
+
+        let merged = merge(newFields, into: existingFields)
+        let mergedData = try JSONSerialization.data(
+            withJSONObject: JSONValue.object(merged).rawValue,
+            options: [.prettyPrinted, .sortedKeys]
+        )
+        let mergedString = String(data: mergedData, encoding: .utf8) ?? "{}"
+        let text = mergedString.hasSuffix("\n") ? mergedString : mergedString + "\n"
+        return Data(text.utf8)
+    }
 }

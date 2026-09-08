@@ -23,12 +23,19 @@ public struct DomainConfigStore: Sendable {
     private static let fileLocks = SharedInstanceCache<NSLock>()
 
     private let fileURL: URL
+    private let sourceDirectory: URL
     private let fileManager: FileManager
+    private let store: CodableFileStore<DomainConfig>
 
     /// `fileManager` is injectable for tests.
     public init(sourceDirectory: URL, fileManager: FileManager = .default) {
-        self.fileURL = sourceDirectory.appendingPathComponent("anglesite.json")
+        let fileURL = sourceDirectory.appendingPathComponent("anglesite.json")
+        self.fileURL = fileURL
+        self.sourceDirectory = sourceDirectory
         self.fileManager = fileManager
+        self.store = CodableFileStore<DomainConfig>.json(
+            fileURL: fileURL, fileManager: fileManager, merge: Self.mergeOverExistingFile
+        )
     }
 
     /// A default, all-`nil`-sections `DomainConfig` when the file is absent — the normal "no
@@ -38,9 +45,7 @@ public struct DomainConfigStore: Sendable {
     ///   doesn't match the schema — invalid files fail with a fix-it rather than being silently
     ///   dropped (§5.5), unlike the unknown-key tolerance `save(_:)` applies to *valid* JSON.
     public func load() throws -> DomainConfig {
-        guard fileManager.fileExists(atPath: fileURL.path) else { return DomainConfig() }
-        let data = try Data(contentsOf: fileURL)
-        return try JSONDecoder().decode(DomainConfig.self, from: data)
+        try store.load() ?? DomainConfig()
     }
 
     /// Writes `config`, merging it over whatever is already on disk so unknown keys survive.
@@ -102,27 +107,47 @@ public struct DomainConfigStore: Sendable {
 
     /// The unlocked body of `save(_:)`, reused by `update(_:)` so it can hold the lock across its
     /// own load+mutate+save without `NSLock`'s non-reentrancy deadlocking a nested `save()` call.
+    ///
+    /// Unlike `CodableFileStore.save(_:)`'s own default (create the parent directory if it's
+    /// missing), this store has never done that — `sourceDirectory` is the site's `Source/` git
+    /// repo, which must already exist by the time anything writes `anglesite.json` into it, and a
+    /// missing `sourceDirectory` is a caller bug this should surface as a failure rather than
+    /// silently create. So this checks first and throws instead of ever reaching
+    /// `CodableFileStore`'s directory-creating path.
     private func performSave(_ config: DomainConfig) throws {
-        let newData = try JSONEncoder().encode(config)
-        var newFields = Self.objectFields(fromJSONData: newData)
+        guard fileManager.fileExists(atPath: sourceDirectory.path) else {
+            throw CocoaError(.fileNoSuchFile)
+        }
+        try store.save(config)
+    }
+
+    /// The `CodableFileStore.Merge` hook that gives `save(_:)` its read-existing → deep-merge →
+    /// re-serialize behavior. `new` is always a freshly-encoded `DomainConfig` (always a JSON
+    /// object with `version` present), so whatever `CodableFileStore.json`'s own default encoder
+    /// produced is fully discarded here in favor of this store's own `JSONSerialization` +
+    /// trailing-newline serialization — matching the on-disk format this store has always written.
+    @Sendable
+    private static func mergeOverExistingFile(new: Data, existing: Data?) throws -> Data {
+        var newFields = objectFields(fromJSONData: new)
 
         var existingFields: [String: JSONValue] = [:]
-        if let existingData = try? Data(contentsOf: fileURL) {
-            existingFields = Self.objectFields(fromJSONData: existingData)
+        if let existing {
+            existingFields = objectFields(fromJSONData: existing)
         }
 
-        if case .int(let onDiskVersion)? = existingFields["version"], onDiskVersion > config.version {
+        if case .int(let onDiskVersion)? = existingFields["version"],
+            case .int(let newVersion)? = newFields["version"], onDiskVersion > newVersion {
             newFields["version"] = .int(onDiskVersion)
         }
 
-        let merged = Self.merge(newFields, into: existingFields)
+        let merged = merge(newFields, into: existingFields)
         let mergedData = try JSONSerialization.data(
             withJSONObject: JSONValue.object(merged).rawValue,
             options: [.prettyPrinted, .sortedKeys]
         )
         let mergedString = String(data: mergedData, encoding: .utf8) ?? "{}"
         let text = mergedString.hasSuffix("\n") ? mergedString : mergedString + "\n"
-        try text.write(to: fileURL, atomically: true, encoding: .utf8)
+        return Data(text.utf8)
     }
 
     /// Parses `data` as a JSON object into `JSONValue` fields, or `[:]` for anything that isn't

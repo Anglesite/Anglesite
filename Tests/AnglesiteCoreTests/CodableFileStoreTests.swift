@@ -135,4 +135,49 @@ struct CodableFileStoreTests {
         try store.save(Fixture(name: "x", count: 1))
         #expect(store.exists())
     }
+
+    @Test("merge receives nil existing bytes when the file doesn't exist yet")
+    func mergeReceivesNilForNewFile() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fileURL = dir.appendingPathComponent("fixture.json")
+        nonisolated(unsafe) var observedExisting: Data??
+        let store = CodableFileStore<Fixture>.json(fileURL: fileURL, merge: { new, existing in
+            observedExisting = existing
+            return new
+        })
+        try store.save(Fixture(name: "first", count: 1))
+        #expect(observedExisting == .some(nil))
+        #expect(try store.load() == Fixture(name: "first", count: 1))
+    }
+
+    @Test("merge combines freshly-encoded bytes with the file's existing bytes")
+    func mergeCombinesWithExistingBytes() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fileURL = dir.appendingPathComponent("fixture.json")
+        // Merge hook that always keeps the existing file's `count`, ignoring the new value —
+        // exercises that `merge` sees both the fresh bytes and whatever is already on disk.
+        let store = CodableFileStore<Fixture>.json(fileURL: fileURL, merge: { new, existing in
+            guard let existing else { return new }
+            var newValue = try JSONDecoder().decode(Fixture.self, from: new)
+            let existingValue = try JSONDecoder().decode(Fixture.self, from: existing)
+            newValue.count = existingValue.count
+            return try JSONEncoder().encode(newValue)
+        })
+        try store.save(Fixture(name: "first", count: 1))
+        try store.save(Fixture(name: "second", count: 99))
+        #expect(try store.load() == Fixture(name: "second", count: 1))
+    }
+
+    @Test("passing no merge hook is a no-op — save behaves exactly as before")
+    func noMergeHookIsNoOp() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fileURL = dir.appendingPathComponent("fixture.json")
+        let store = CodableFileStore<Fixture>.json(fileURL: fileURL)
+        try store.save(Fixture(name: "first", count: 1))
+        try store.save(Fixture(name: "second", count: 2))
+        #expect(try store.load() == Fixture(name: "second", count: 2))
+    }
 }
