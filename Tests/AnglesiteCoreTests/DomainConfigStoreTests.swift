@@ -293,4 +293,32 @@ struct DomainConfigStoreTests {
         let store = DomainConfigStore(sourceDirectory: dir)
         #expect(try store.load().experimental == nil)
     }
+
+    @Test("save over an existing file produces byte-identical output to the pre-CodableFileStore format (#1948)")
+    func saveByteCompatibility() throws {
+        let dir = try tempSourceDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fileURL = dir.appendingPathComponent("anglesite.json")
+        try #"{"version":1,"legacyUnknown":{"foo":"bar"},"domain":{"hostname":"old.example.com","futureField":"x"}}"#
+            .write(to: fileURL, atomically: true, encoding: .utf8)
+
+        let store = DomainConfigStore(sourceDirectory: dir)
+        try store.save(DomainConfig(domain: .init(hostname: "new.example.com")))
+
+        let contents = try String(contentsOf: fileURL, encoding: .utf8)
+        let expected = """
+        {
+          "domain" : {
+            "futureField" : "x",
+            "hostname" : "new.example.com"
+          },
+          "legacyUnknown" : {
+            "foo" : "bar"
+          },
+          "version" : 1
+        }
+
+        """
+        #expect(contents == expected)
+    }
 }

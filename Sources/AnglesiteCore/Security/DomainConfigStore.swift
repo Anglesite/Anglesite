@@ -10,7 +10,9 @@ import Foundation
 /// a field written by a newer app version survives being loaded and re-saved by an older one.
 /// This is what "unknown-key-preserving" (investigation doc §7) means in practice: only the
 /// exact fields `DomainConfig` declares are ever overwritten; everything else in the existing
-/// file rides along untouched.
+/// file rides along untouched. Implemented as a `CodableFileStore` `merge` hook (#1948) rather
+/// than a plain encode-and-overwrite, since `CodableFileStore.save(_:)` alone has no
+/// merge-with-existing-file step — `Self.mergedFileContents(new:existing:)` below is that hook.
 public struct DomainConfigStore: Sendable {
     /// Per-file-path locks that serialize access to `anglesite.json` to prevent concurrent writes from
     /// dropping updates (#1189). Multiple producers (DomainOperations, HardenExecutor,
@@ -22,13 +24,19 @@ public struct DomainConfigStore: Sendable {
     /// reconsidered if contention becomes a concern (#1189).
     private static let fileLocks = SharedInstanceCache<NSLock>()
 
-    private let fileURL: URL
+    private let store: CodableFileStore<DomainConfig>
+    private let sourceDirectory: URL
     private let fileManager: FileManager
 
     /// `fileManager` is injectable for tests.
     public init(sourceDirectory: URL, fileManager: FileManager = .default) {
-        self.fileURL = sourceDirectory.appendingPathComponent("anglesite.json")
+        self.sourceDirectory = sourceDirectory
         self.fileManager = fileManager
+        self.store = .json(
+            fileURL: sourceDirectory.appendingPathComponent("anglesite.json"),
+            fileManager: fileManager,
+            merge: { new, existing in try Self.mergedFileContents(new: new, existing: existing) }
+        )
     }
 
     /// A default, all-`nil`-sections `DomainConfig` when the file is absent — the normal "no
@@ -38,9 +46,7 @@ public struct DomainConfigStore: Sendable {
     ///   doesn't match the schema — invalid files fail with a fix-it rather than being silently
     ///   dropped (§5.5), unlike the unknown-key tolerance `save(_:)` applies to *valid* JSON.
     public func load() throws -> DomainConfig {
-        guard fileManager.fileExists(atPath: fileURL.path) else { return DomainConfig() }
-        let data = try Data(contentsOf: fileURL)
-        return try JSONDecoder().decode(DomainConfig.self, from: data)
+        try store.load() ?? DomainConfig()
     }
 
     /// Writes `config`, merging it over whatever is already on disk so unknown keys survive.
@@ -70,11 +76,11 @@ public struct DomainConfigStore: Sendable {
     /// as any other non-object value. A hand-added array element, or an unknown field inside one,
     /// does not survive a save that touches the containing array.
     public func save(_ config: DomainConfig) throws {
-        let lock = Self.fileLocks.instance(forKey: fileURL.path) { NSLock() }
+        let lock = Self.fileLocks.instance(forKey: store.url.path) { NSLock() }
         lock.lock()
         defer { lock.unlock() }
 
-        try performSave(config)
+        try saveToExistingSourceDirectory(config)
     }
 
     /// Loads the current config (falling back to an empty `DomainConfig` if the file is absent or
@@ -83,7 +89,7 @@ public struct DomainConfigStore: Sendable {
     /// (#1189) across the *entire* load-mutate-save sequence, not just the save. This is what
     /// closes #1255: two concurrent calls that both mutate the same top-level section can no
     /// longer both load the same stale snapshot before either saves, because the second caller's
-    /// `load()` here can't run until the first caller's `performSave(_:)` has released the lock.
+    /// `load()` here can't run until the first caller's save has released the lock.
     ///
     /// - Warning: `mutate` runs while the per-file lock is held. It must not call back into
     ///   `save(_:)` or `update(_:)` on a `DomainConfigStore` for this same `anglesite.json` path —
@@ -91,27 +97,45 @@ public struct DomainConfigStore: Sendable {
     ///   in-memory `DomainConfig` field mutation; keep new ones that way too.
     @discardableResult
     public func update(_ mutate: (inout DomainConfig) -> Void) -> Bool {
-        let lock = Self.fileLocks.instance(forKey: fileURL.path) { NSLock() }
+        let lock = Self.fileLocks.instance(forKey: store.url.path) { NSLock() }
         lock.lock()
         defer { lock.unlock() }
 
         var config = (try? load()) ?? DomainConfig()
         mutate(&config)
-        return (try? performSave(config)) != nil
+        return (try? saveToExistingSourceDirectory(config)) != nil
     }
 
-    /// The unlocked body of `save(_:)`, reused by `update(_:)` so it can hold the lock across its
-    /// own load+mutate+save without `NSLock`'s non-reentrancy deadlocking a nested `save()` call.
-    private func performSave(_ config: DomainConfig) throws {
-        let newData = try JSONEncoder().encode(config)
-        var newFields = Self.objectFields(fromJSONData: newData)
+    /// `CodableFileStore.save(_:)` creates its file's parent directory if missing (the right
+    /// default for `Config/`-rooted stores like `SiteConfigStore`/`ProjectConventionsStore`,
+    /// which may run before `Config/` exists yet). `anglesite.json`'s parent is `sourceDirectory`
+    /// itself — the site's `Source/` git repo — which must already exist by the time anything
+    /// saves into it; silently creating a missing `Source/` here would paper over a site whose
+    /// package is gone or half-imported instead of surfacing that to the caller, so this checks
+    /// first and throws rather than letting `CodableFileStore` conjure the directory.
+    private func saveToExistingSourceDirectory(_ config: DomainConfig) throws {
+        guard fileManager.fileExists(atPath: sourceDirectory.path) else {
+            throw CocoaError(.fileNoSuchFile, userInfo: [NSFilePathErrorKey: sourceDirectory.path])
+        }
+        try store.save(config)
+    }
+
+    /// The `CodableFileStore` `merge` hook backing `save(_:)`/`update(_:)`: deep-merges the
+    /// freshly-encoded `new` value's fields over `existing`'s (this is what "unknown-key-
+    /// preserving" means, per the type doc), never lets the merge lower `version` (see the
+    /// `version` doc on `save(_:)`), then re-serializes as pretty-printed, sorted-keys JSON with
+    /// a trailing newline so the git-tracked file stays hand-readable and diffs stay minimal.
+    private static func mergedFileContents(new: Data, existing: Data?) throws -> Data {
+        var newFields = Self.objectFields(fromJSONData: new)
 
         var existingFields: [String: JSONValue] = [:]
-        if let existingData = try? Data(contentsOf: fileURL) {
-            existingFields = Self.objectFields(fromJSONData: existingData)
+        if let existing {
+            existingFields = Self.objectFields(fromJSONData: existing)
         }
 
-        if case .int(let onDiskVersion)? = existingFields["version"], onDiskVersion > config.version {
+        if case .int(let onDiskVersion)? = existingFields["version"],
+           case .int(let newVersion)? = newFields["version"],
+           onDiskVersion > newVersion {
             newFields["version"] = .int(onDiskVersion)
         }
 
@@ -122,7 +146,7 @@ public struct DomainConfigStore: Sendable {
         )
         let mergedString = String(data: mergedData, encoding: .utf8) ?? "{}"
         let text = mergedString.hasSuffix("\n") ? mergedString : mergedString + "\n"
-        try text.write(to: fileURL, atomically: true, encoding: .utf8)
+        return Data(text.utf8)
     }
 
     /// Parses `data` as a JSON object into `JSONValue` fields, or `[:]` for anything that isn't

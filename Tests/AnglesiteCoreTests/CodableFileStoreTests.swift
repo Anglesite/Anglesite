@@ -135,4 +135,45 @@ struct CodableFileStoreTests {
         try store.save(Fixture(name: "x", count: 1))
         #expect(store.exists())
     }
+
+    @Test("save with a merge hook writes the hook's output, not the plain encoded bytes")
+    func mergeHookOutputIsWhatGetsWritten() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fileURL = dir.appendingPathComponent("fixture.json")
+        let store = CodableFileStore<Fixture>.json(fileURL: fileURL, merge: { _, _ in
+            Data("\"replaced-by-merge\"".utf8)
+        })
+        try store.save(Fixture(name: "site", count: 3))
+        #expect(try Data(contentsOf: fileURL) == Data("\"replaced-by-merge\"".utf8))
+    }
+
+    @Test("merge hook receives nil for the existing data when the file is missing")
+    func mergeHookReceivesNilForMissingFile() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fileURL = dir.appendingPathComponent("fixture.json")
+        var receivedExisting: Data??
+        let store = CodableFileStore<Fixture>.json(fileURL: fileURL, merge: { new, existing in
+            receivedExisting = existing
+            return new
+        })
+        try store.save(Fixture(name: "site", count: 3))
+        #expect(receivedExisting == .some(nil))
+    }
+
+    @Test("merge hook receives the file's existing bytes when present")
+    func mergeHookReceivesExistingBytes() throws {
+        let dir = try tempDir()
+        defer { try? FileManager.default.removeItem(at: dir) }
+        let fileURL = dir.appendingPathComponent("fixture.json")
+        try Data("\"pre-existing\"".utf8).write(to: fileURL)
+        var receivedExisting: Data?
+        let store = CodableFileStore<Fixture>.json(fileURL: fileURL, merge: { new, existing in
+            receivedExisting = existing
+            return new
+        })
+        try store.save(Fixture(name: "site", count: 3))
+        #expect(receivedExisting == Data("\"pre-existing\"".utf8))
+    }
 }
