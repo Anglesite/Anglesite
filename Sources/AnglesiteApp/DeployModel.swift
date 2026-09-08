@@ -396,6 +396,8 @@ final class DeployModel {
             return .failed(reason: "Worker name \"\(name)\" is already in use on your Cloudflare account — rename it in the app and publish again.")
         case .domainConfigDrift(let findings):
             return .failed(reason: "\(findings.count) declared domain configuration item(s) don't match your live Cloudflare setup — review the Domain Config Audit in the app and deploy again.")
+        case .webmentionPaidPlanConfirmationNeeded:
+            return .failed(reason: "unexpected: paid-plan confirmation needed outside worker provisioning")
         case .failed(let reason, _):
             return .failed(reason: reason)
         }
@@ -851,38 +853,35 @@ final class DeployModel {
         let containerControl = await containerControlProvider()
 
         // Where this site publishes (#1682) — resolved exactly once per deploy attempt, right
-        // here, and then *pinned* into `activeCommand` below so every consumer downstream (the
-        // `SocialWorkerProvisionCommand` closures built from the Cloudflare downcast, and
-        // `DeployCommand.deploy`'s own authorize-then-publish pair) provably sees the same
-        // conformer. The production resolver re-reads `anglesite.json` on every call and several
-        // `await`s separate those consumers, so two independent reads could genuinely disagree if
-        // the owner flipped Website Settings ▸ Publishing mid-deploy. Resolved at attempt time
-        // rather than threaded in from `deploy(…)`, for the same reason `containerControl` is
-        // (#823): a token-prompt/rename retry re-enters here and picks up the current declaration.
+        // here, so the `SocialWorkerProvisionCommand` closures built from the Cloudflare downcast
+        // below provably see the same conformer `provision()`'s own internal `DeployCommand`
+        // publishes through. The production resolver re-reads `anglesite.json` on every call and
+        // several `await`s separate those consumers, so two independent reads could genuinely
+        // disagree if the owner flipped Website Settings ▸ Publishing mid-deploy. Resolved at
+        // attempt time rather than threaded in from `deploy(…)`, for the same reason
+        // `containerControl` is (#823): a token-prompt/rename retry re-enters here and picks up
+        // the current declaration.
         let resolvedTarget = command.target(for: siteDirectory)
 
-        // Select the executor: in-container when the runtime is a started container;
-        // explicit unavailable result otherwise. The token source always comes from the
-        // injected `command` so the test-injection path (a fully pre-built
-        // `DeployCommand`) continues to work unmodified.
-        let activeCommand: DeployCommand
-        let containerRunner: SocialWorkerProvisionCommand.CommandRunner?
+        // Select the executor: in-container when the runtime is a started container; whatever
+        // `command` (the injected `DeployCommand`) was itself built with otherwise, via its
+        // exposed `executor` — so the test-injection path (a fully pre-built `DeployCommand` with
+        // a fake executor) continues to work unmodified. Shared with `socialCommand` below rather
+        // than each seam building its own, separately-configured executor, so a container-backed
+        // deploy's wrangler-subcommand provisioning runs through the exact same in-guest executor
+        // the deploy steps themselves do (#1821 task 15).
+        let containerExecutor: any DeployExecutor
         let containerSecretRunner: SocialWorkerProvisionCommand.SecretRunner?
         if let cc = containerControl {
-            activeCommand = DeployCommand(
-                target: resolvedTarget,
-                executor: ContainerDeployExecutor(
-                    control: cc.control,
-                    siteID: cc.siteID,
-                    logCenter: logCenter
-                )
+            containerExecutor = ContainerDeployExecutor(
+                control: cc.control,
+                siteID: cc.siteID,
+                logCenter: logCenter
             )
             let containerCommandRunner = ContainerCommandRunner(control: cc.control, siteID: cc.siteID, logCenter: logCenter)
-            containerRunner = containerCommandRunner.runner
             containerSecretRunner = containerCommandRunner.secretRunner
         } else {
-            activeCommand = command.pinning(target: resolvedTarget)
-            containerRunner = nil
+            containerExecutor = command.executor
             containerSecretRunner = nil
         }
 
@@ -998,59 +997,24 @@ final class DeployModel {
         // through the Workers UI in the first place) is #1683's capability gating, deliberately
         // not this slice.
         //
-        // `resolvedTarget`, not a fresh `target(for:)` read: `activeCommand` is pinned to this
-        // same conformer, so what these closures authorize against and what `deploy(…)` publishes
-        // through are the same object rather than two reads of a file the owner can edit between
-        // them.
+        // `resolvedTarget`, not a fresh `target(for:)` read: `provision()` builds its own internal
+        // `CloudflareDeployTarget` forwarding every seam below from this same conformer, so what
+        // these closures authorize against and what `deploy(…)` publishes through carry equivalent
+        // behavior — the same seams, not literally the same object — rather than two reads of a
+        // file the owner can edit between them.
         let cloudflareTarget = resolvedTarget as? CloudflareDeployTarget
         let socialCommand = SocialWorkerProvisionCommand(
             tokenSource: {
                 guard let cloudflareTarget else { return nil }
                 return try await cloudflareTarget.tokenSource()
             },
-            runner: containerRunner ?? SocialWorkerProvisionCommand.defaultRunner,
+            executor: containerExecutor,
             secretRunner: containerSecretRunner ?? SocialWorkerProvisionCommand.defaultSecretRunner,
-            deployer: { [weak self] _, deploySiteID, deploySiteDirectory, _ in
-                await activeCommand.deploy(
-                    siteID: deploySiteID,
-                    siteDirectory: deploySiteDirectory,
-                    configDirectory: configDirectory,
-                    currentRoutes: currentRoutes,
-                    // #744: feeds the same already-validated active route claims (#746, computed
-                    // above) into DeployCommand's pre-build /.well-known/ collision check.
-                    wellKnownDynamicClaims: WorkerRouteClaims.wellKnownClaims(effectiveRouteClaims),
-                    onPreflight: { [weak self] outcome in
-                        Task { @MainActor in self?.onScanComplete?(outcome) }
-                    },
-                    // Unlike `onPreflight`/`onProgress` (fire-and-forget display state), this
-                    // value is read back synchronously in the `.succeeded` case below to decide
-                    // the URL swap and the conflict sheet — so the MainActor hop here has an
-                    // implicit happens-before dependency, not just a display one. It holds today
-                    // only because MainActor drains equal-priority jobs FIFO and several real
-                    // `await`s (`uploadSourceBundleIfConfigured`, `runPostDeploySequencing`, the
-                    // `SiteConfigStore` load) sit between this closure firing and that read — there
-                    // is no structural guarantee. If those intervening `await`s are ever shortened
-                    // or removed, this needs an explicit wait instead of relying on scheduling.
-                    onDomainAttach: { [weak self] outcome in
-                        Task { @MainActor in self?.domainAttachStatus = outcome }
-                    },
-                    onMarkdownForAgents: { [weak self] outcome in
-                        Task { @MainActor in self?.markdownForAgentsStatus = outcome }
-                    },
-                    onProgress: { [weak self] progress in
-                        Task { @MainActor in
-                            self?.currentMilestone = progress.label
-                            self?.currentMilestonePhase = progress.phase
-                            self?.onMilestone?(siteID, progress)
-                        }
-                    }
-                )
-            },
-            // Forwards the same seam `activeCommand` uses for its own end-of-pipeline check (both
-            // are built from `cloudflareTarget.workerScriptNamesSource` above), so `provision()`'s
-            // pre-provisioning check (#1075) agrees with `deployer`'s — and so a test's injected
-            // fake `DeployCommand`/`CloudflareDeployTarget` governs both instead of this defaulting
-            // to the real network implementation.
+            // Forwards the same seam `provision()`'s internal `DeployCommand.deploy` uses for its
+            // own end-of-pipeline check (both are built from `cloudflareTarget.workerScriptNamesSource`
+            // above), so `provision()`'s pre-provisioning check (#1075) agrees with `deploy`'s —
+            // and so a test's injected fake `DeployCommand`/`CloudflareDeployTarget` governs both
+            // instead of this defaulting to the real network implementation.
             workerScriptNamesSource: { token in
                 guard let cloudflareTarget else { return [] }
                 return try await cloudflareTarget.workerScriptNamesSource(token)
@@ -1062,6 +1026,21 @@ final class DeployModel {
             accountIDSource: { token in
                 guard let cloudflareTarget else { return nil }
                 return await cloudflareTarget.accountIDSource(token)
+            },
+            // #1821 final review finding 2: `provision()` builds its own `CloudflareDeployTarget`
+            // internally and used to only receive `tokenSource`/`workerScriptNamesSource`/
+            // `accountIDSource`, silently defaulting the remaining three seams to production —
+            // defeating a test's injected fake `customDomainAttachCommand`/
+            // `markdownForAgentsCommand`/`domainConfigDriftSource` and, worse, bypassing the very
+            // "authorize checks domain-drift before provisioning" behavior this seam exists for.
+            // Forwarded from `cloudflareTarget` the same way `tokenSource`/`workerScriptNamesSource`
+            // are above, falling back to the production default when there's no resolved
+            // Cloudflare target (a GitHub Pages site — see the comment block above).
+            customDomainAttachCommand: cloudflareTarget?.customDomainAttachCommand ?? CustomDomainAttachCommand(),
+            markdownForAgentsCommand: cloudflareTarget?.markdownForAgentsCommand ?? MarkdownForAgentsCommand(),
+            domainConfigDriftSource: { declared, hostname, apiToken in
+                guard let cloudflareTarget else { return [] }
+                return try await cloudflareTarget.domainConfigDriftSource(declared, hostname, apiToken)
             }
         )
 
@@ -1107,13 +1086,68 @@ final class DeployModel {
             apUsername: apUsername,
             apIcon: apIcon,
             acknowledgesPaidPlan: acknowledgesPaidPlan,
+            // #744: feeds the same already-validated active route claims (#746, computed above)
+            // into DeployCommand's pre-build /.well-known/ collision check.
+            wellKnownDynamicClaims: WorkerRouteClaims.wellKnownClaims(effectiveRouteClaims),
             inboxCaptureEnabled: settings.inboxCaptureEnabled ?? false,
             inboxForwardEmail: inboxForwardEmail,
             activityPubActorType: isHostedCommunity ? "Group" : nil,
             moderators: isHostedCommunity ? settings.moderators : nil,
             experiments: runningExperiments,
-            mcpEnabled: mcpEnabled
+            mcpEnabled: mcpEnabled,
+            configDirectory: configDirectory,
+            currentRoutes: currentRoutes,
+            onPreflight: { [weak self] outcome in
+                Task { @MainActor in self?.onScanComplete?(outcome) }
+            },
+            // Unlike `onPreflight`/`onProgress` (fire-and-forget display state), this value is
+            // read back synchronously in the `.succeeded` case below to decide the URL swap and
+            // the conflict sheet — so the MainActor hop here has an implicit happens-before
+            // dependency, not just a display one. It holds today only because MainActor drains
+            // equal-priority jobs FIFO and several real `await`s (`uploadSourceBundleIfConfigured`,
+            // `runPostDeploySequencing`, the `SiteConfigStore` load) sit between this closure
+            // firing and that read — there is no structural guarantee. If those intervening
+            // `await`s are ever shortened or removed, this needs an explicit wait instead of
+            // relying on scheduling.
+            onDomainAttach: { [weak self] outcome in
+                Task { @MainActor in self?.domainAttachStatus = outcome }
+            },
+            onMarkdownForAgents: { [weak self] outcome in
+                Task { @MainActor in self?.markdownForAgentsStatus = outcome }
+            },
+            onProgress: { [weak self] progress in
+                Task { @MainActor in
+                    self?.currentMilestone = progress.label
+                    self?.currentMilestonePhase = progress.phase
+                    self?.onMilestone?(siteID, progress)
+                }
+            }
         )
+
+        // #1821 final review finding 1: persist the resources provisioned so far on EVERY
+        // outcome, not just `.succeeded` — every `SocialWorkerProvisionCommand.Result` case
+        // carries them (see that type's own doc comment). Since the TOML-rescrape fallback that
+        // used to recover already-created resource ids from `wrangler.toml` on disk is gone,
+        // `provisionedWorkerResources` is now the ONLY source of truth for "what's already been
+        // created" — leaving this gated on `.succeeded` meant a failure partway through (e.g. a
+        // KV create failing after D1 succeeded, or a `.webmentionPaidPlanConfirmationNeeded` park
+        // below with resources already created) lost those ids entirely, and the next attempt
+        // would re-issue `d1 create`/`kv namespace create` against names that already exist on
+        // the account. Placed before the early `.webmentionPaidPlanConfirmationNeeded` return
+        // below so that outcome is covered too. `persistProvisionedResources` further down
+        // bundles `.succeeded`-only side effects (`lastDeployedWorkerIDs`, `apUsername`,
+        // `communityActorURL`) that assume a deployed URL exists, so it can't just be called
+        // unconditionally here — this narrower write covers every other outcome, and
+        // `persistProvisionedResources` harmlessly re-writes the same `resources` value again
+        // when `.succeeded` does run it.
+        if case .succeeded = provisionResult {
+            // Handled below by `persistProvisionedResources`, which also writes
+            // `provisionedWorkerResources` alongside its `.succeeded`-only fields.
+        } else {
+            var resourcesOnlyUpdate = settings
+            resourcesOnlyUpdate.provisionedWorkerResources = provisionResult.resources
+            try? await configStore.save(resourcesOnlyUpdate)
+        }
 
         if case .webmentionPaidPlanConfirmationNeeded = provisionResult {
             pendingDeploy = (siteID, siteDirectory, configDirectory, currentRoutes, containerControlProvider, siteName)
@@ -1315,6 +1349,20 @@ final class DeployModel {
             webmentionPaidPlanConfirmationPresented = false
             activityPubHandleRenameConfirmationPresented = false
             domainConfigDriftPresented = presentation == .foreground
+        case .webmentionPaidPlanConfirmationNeeded:
+            // Unreachable in practice: `provisionResult`'s own `.webmentionPaidPlanConfirmationNeeded`
+            // case (with its `resources` payload) is handled by the early return above, before
+            // `asDeployCommandResult` ever runs — this arm exists only to keep the switch exhaustive.
+            workerNameConflictPresented = false
+            webmentionPaidPlanConfirmationPresented = false
+            activityPubHandleRenameConfirmationPresented = false
+            transition(
+                siteID: siteID,
+                to: .failed(
+                    reason: "unexpected: paid-plan confirmation needed outside worker provisioning",
+                    exitCode: nil
+                )
+            )
         }
         return result
     }

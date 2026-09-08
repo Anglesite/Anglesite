@@ -170,7 +170,7 @@ struct SiteOperationsTests {
             ["d1", "create", "blue-bottle-cafe-social"],
             ["kv", "namespace", "create", "blue-bottle-cafe-social"],
         ])
-        #expect(await recorder.deployCalls.isEmpty)
+        #expect(await recorder.ran(.wrangler) == false)
         #expect(resources.d1DatabaseID == "d1-id")
         #expect(resources.kvNamespaceID == "kv-id")
     }
@@ -412,8 +412,19 @@ struct SiteOperationsTests {
         ])
     }
 
-    @Test("headless deploy forwards active /.well-known/ route claims to the deployer (#934)")
+    @Test("headless deploy forwards active /.well-known/ route claims into the deploy spine's collision check (#934)")
     func headlessDeployForwardsWellKnownDynamicClaimsToDeployer() async throws {
+        // `wellKnownDynamicClaims` is consumed entirely inside `DeployCommand.deploy`'s own #744
+        // collision merge — it's never threaded into anything the executor's `run(step:...)` can
+        // observe directly (there's no separate "deploy call" to record anymore now that
+        // `provision()` drives a real `DeployCommand` spine). So the only way to prove the
+        // headless path (App Intents/Shortcuts/Siri, #934) actually forwards the active worker's
+        // route claim — matching `DeployModel.runDeploy`'s GUI-path wiring (#744/#746) — is to
+        // plant a colliding runtime reservation at the exact same suffix and confirm the deploy
+        // blocks: that's only possible if the claim genuinely reached the merge. Mirrors
+        // `DeployCommandTests.wellKnownDynamicRuntimeCollisionBlocks` and
+        // `SocialWorkerProvisionCommandTests.forwardsWellKnownDynamicClaimsToDeployer`, which use
+        // the same technique for the same reason.
         let package = try temporaryPackage()
         defer { try? FileManager.default.removeItem(at: package) }
         let site = makeSite(name: "Blue Bottle Cafe", packageURL: package)
@@ -429,6 +440,9 @@ struct SiteOperationsTests {
         )
 
         let recorder = SocialWorkerRecorder()
+        await recorder.withRuntimeClaims([RuntimeOwnedPathClaim(
+            id: "webfinger-collision", owner: "some-other-owner", path: "webfinger", match: .exact,
+            capability: "test collision")])
         let ops = SiteOperations(
             factory: SocialWorkerFactory(recorder: recorder),
             store: throwawayStore(),
@@ -438,26 +452,12 @@ struct SiteOperationsTests {
 
         let result = await ops.deploy(site: site)
 
-        guard case .succeeded = result else {
-            Issue.record("expected success, got \(result)")
+        guard case .blocked(let failures, _) = result else {
+            Issue.record("expected .blocked once the forwarded webfinger claim collides with the planted runtime reservation, got \(result)")
             return
         }
-        // Mirrors DeployModel.runDeploy's GUI-path wiring (#744/#746): the headless deploy path
-        // (App Intents/Shortcuts/Siri, #934) must see the same active dynamic /.well-known/
-        // route claims, or a static/dynamic collision that the GUI Deploy button would block
-        // could slip through here. Also carries the #1659 RFC 9727 API Catalog claim
-        // (`WorkerComposition.apiCatalogRouteClaim`), appended whenever any worker is active —
-        // see `withAPICatalogClaim`.
-        #expect(await recorder.deployCalls == [
-            .init(
-                token: "token", siteID: "s1", siteDirectory: site.sourceDirectory,
-                wellKnownDynamicClaims: [
-                    WorkerRouteClaims.OwnedClaim(owner: "webfinger", claim: webfingerRoute),
-                    WorkerRouteClaims.OwnedClaim(
-                        owner: WorkerComposition.apiCatalogOwnerID, claim: WorkerComposition.apiCatalogRouteClaim),
-                ]
-            ),
-        ])
+        #expect(failures.first?.category == .wellKnownCollision)
+        #expect(await recorder.ran(.build) == false, "the collision must block before any build/provisioning work runs")
     }
 
     @Test("headless deploy with no activated workers still deploys through the plain static path")
@@ -498,6 +498,60 @@ struct SiteOperationsTests {
         #expect(config.contains("SECURITY_TXT_MODE=generated"))
     }
 
+    @Test("#1821 final review finding 1: a partial provisioning failure persists resources so a retry doesn't re-create them")
+    func partialProvisioningFailurePersistsResourcesForResumableRetry() async throws {
+        // Root cause: `SiteSettings.provisionedWorkerResources` used to be persisted only on
+        // `.succeeded`. Since the TOML-rescrape fallback that used to recover already-created
+        // resource ids from `wrangler.toml` on disk is gone, that setting is now the ONLY source
+        // of truth for "what's already been created" — so a KV-create failure after D1 succeeded
+        // used to leave nothing persisted, and a retry would re-issue `d1 create` against a
+        // database that already exists on the account and fail forever.
+        let package = try temporaryPackage()
+        defer { try? FileManager.default.removeItem(at: package) }
+        let site = makeSite(name: "Blue Bottle Cafe", packageURL: package)
+        let configStore = SiteConfigStore(configDirectory: site.configDirectory)
+        try await configStore.save(SiteSettings(activeWorkerIDs: ["indieauth"]))
+
+        let recorder = FlakyKVRecorder()
+        let ops = SiteOperations(
+            factory: FlakyKVFactory(recorder: recorder),
+            store: throwawayStore(),
+            socialWorkerAccess: { site, store, body in try await SiteAccess.withScopedAccess(to: site, in: store, body) },
+            cachedWorkerCatalog: { [self.descriptor(id: "indieauth")] }
+        )
+
+        // First attempt: D1 create succeeds, KV create fails (a transient wrangler error) — the
+        // exact partial-failure shape this finding is about.
+        let firstResult = await ops.deploy(site: site)
+        guard case .failed = firstResult else {
+            Issue.record("expected the first attempt to fail at the KV step, got \(firstResult)")
+            return
+        }
+        let afterFirstAttempt = try await configStore.load()
+        #expect(
+            afterFirstAttempt.provisionedWorkerResources?.d1DatabaseID == "d1-id",
+            "the D1 id created before the KV failure must survive the failed outcome"
+        )
+        #expect(afterFirstAttempt.provisionedWorkerResources?.kvNamespaceID == nil)
+
+        // Second attempt (a retry, e.g. the owner pressing Deploy again): must resume from the
+        // persisted D1 id rather than re-issuing `d1 create` against a database that already
+        // exists on the Cloudflare account.
+        let secondResult = await ops.deploy(site: site)
+        guard case .succeeded = secondResult else {
+            Issue.record("expected the retry to succeed once KV create stops failing, got \(secondResult)")
+            return
+        }
+        let d1CreateCalls = await recorder.arguments.filter { $0 == ["d1", "create", "blue-bottle-cafe-social"] }
+        #expect(d1CreateCalls.count == 1, "a resumed retry must not re-issue `d1 create` for a resource already known")
+        let kvCreateCalls = await recorder.arguments.filter { $0 == ["kv", "namespace", "create", "blue-bottle-cafe-social"] }
+        #expect(kvCreateCalls.count == 2, "KV create is retried since it never succeeded on the first attempt")
+
+        let afterSecondAttempt = try await configStore.load()
+        #expect(afterSecondAttempt.provisionedWorkerResources?.d1DatabaseID == "d1-id")
+        #expect(afterSecondAttempt.provisionedWorkerResources?.kvNamespaceID == "kv-id")
+    }
+
     @Test("headless deploy still reports coarse progress milestones through onProgress")
     func headlessDeployReportsProgress() async throws {
         let package = try temporaryPackage()
@@ -517,41 +571,129 @@ struct SiteOperationsTests {
     }
 }
 
-private actor SocialWorkerRecorder {
+/// Fakes `SocialWorkerProvisionCommand`'s `executor:` seam directly (rather than the old
+/// `runner:`/`deployer:` closures) so the many `deploy()`/`provisionSocialWorker()` tests above
+/// that share this recorder keep observing the same `d1`/`kv` wrangler-subcommand argv, now
+/// exercised through the real `DeployCommand` spine (`.build`/`.preflight`/`.wrangler` all run
+/// for real, scripted here to succeed) instead of a canned deployer closure.
+private actor SocialWorkerRecorder: DeployExecutor {
     private var seenArguments: [[String]] = []
-    private var seenDeployCalls: [DeployCall] = []
+    private var seenSteps: [String] = []
+    private var runtimeClaims: [RuntimeOwnedPathClaim] = []
 
     var arguments: [[String]] { seenArguments }
-    var deployCalls: [DeployCall] { seenDeployCalls }
 
-    func run(arguments: [String]) -> ProcessSupervisor.RunResult {
-        seenArguments.append(arguments)
-        switch arguments.first {
-        case "d1":
-            return .init(stdout: #"{"uuid":"d1-id"}"#, stderr: "", exitCode: 0)
-        case "kv":
-            return .init(stdout: #"{"id":"kv-id"}"#, stderr: "", exitCode: 0)
-        default:
-            return .init(stdout: "unexpected arguments \(arguments)", stderr: "", exitCode: 127)
+    /// Plants a runtime-reported `.well-known` ownership claim `reportOwnedPathClaims()` returns
+    /// on every subsequent call — lets a test prove a dynamic claim genuinely reached
+    /// `DeployCommand.deploy`'s #744 collision merge by colliding it against a claim at the same
+    /// path (mirrors `DeployCommandTests.swift`'s `FakeExecutor.withRuntimeClaims`).
+    func withRuntimeClaims(_ claims: [RuntimeOwnedPathClaim]) {
+        runtimeClaims = claims
+    }
+
+    func reportOwnedPathClaims() async -> [RuntimeOwnedPathClaim] {
+        runtimeClaims
+    }
+
+    private func key(_ step: DeployStep) -> String {
+        switch step {
+        case .build: return "build"
+        case .preflight: return "preflight"
+        case .wrangler: return "wrangler"
+        case .bundleUpload: return "bundleUpload"
+        case .githubPagesPublish: return "githubPagesPublish"
+        case .wranglerSubcommand(let args): return "wranglerSubcommand:\(args.joined(separator: " "))"
         }
     }
 
-    func deploy(
-        token: String, siteID: String, siteDirectory: URL,
-        wellKnownDynamicClaims: [WorkerRouteClaims.OwnedClaim]
-    ) -> DeployCommand.Result {
-        seenDeployCalls.append(.init(
-            token: token, siteID: siteID, siteDirectory: siteDirectory,
-            wellKnownDynamicClaims: wellKnownDynamicClaims))
-        return .succeeded(url: URL(string: "https://blue-bottle-cafe.example.workers.dev")!, duration: 1)
+    /// Whether `step` actually ran through `run(step:...)` — used where a test needs to confirm
+    /// the deploy stage was (or wasn't) reached, the equivalent of the old `deployCalls.isEmpty`
+    /// check against a fake `deployer` closure.
+    func ran(_ step: DeployStep) -> Bool {
+        seenSteps.contains(key(step))
+    }
+
+    func run(step: DeployStep, siteDirectory: URL, environment: [String: String], source: String) async -> DeployStepResult {
+        seenSteps.append(key(step))
+        switch step {
+        case .build:
+            return DeployStepResult(exitCode: 0, output: "")
+        case .preflight:
+            return DeployStepResult(exitCode: 0, output: #"{"version":1,"ok":true,"failures":[],"warnings":[]}"#)
+        case .wrangler:
+            return DeployStepResult(exitCode: 0, output: "Published site (0.1 sec)\n  https://blue-bottle-cafe.example.workers.dev")
+        case .bundleUpload, .githubPagesPublish:
+            return DeployStepResult(exitCode: 0, output: "")
+        case .wranglerSubcommand(let args):
+            seenArguments.append(args)
+            if args.first == "d1" {
+                return DeployStepResult(exitCode: 0, output: #"{"uuid":"d1-id"}"#)
+            }
+            if args.first == "kv" {
+                return DeployStepResult(exitCode: 0, output: #"{"id":"kv-id"}"#)
+            }
+            return DeployStepResult(exitCode: 127, output: "unexpected arguments \(args)")
+        }
     }
 }
 
-private struct DeployCall: Sendable, Equatable {
-    let token: String
-    let siteID: String
-    let siteDirectory: URL
-    let wellKnownDynamicClaims: [WorkerRouteClaims.OwnedClaim]
+/// Fakes `SocialWorkerProvisionCommand`'s `executor:` seam so `partialProvisioningFailurePersistsResourcesForResumableRetry`
+/// can script a KV-namespace-create failure on its first attempt only, succeeding on any later
+/// attempt — reproducing the exact partial-provisioning-failure shape #1821's final review
+/// finding 1 is about (D1 already created, KV still pending).
+private actor FlakyKVRecorder: DeployExecutor {
+    private var kvAttempts = 0
+    private var seenArguments: [[String]] = []
+
+    var arguments: [[String]] { seenArguments }
+
+    func reportOwnedPathClaims() async -> [RuntimeOwnedPathClaim] { [] }
+
+    func run(step: DeployStep, siteDirectory: URL, environment: [String: String], source: String) async -> DeployStepResult {
+        switch step {
+        case .build:
+            return DeployStepResult(exitCode: 0, output: "")
+        case .preflight:
+            return DeployStepResult(exitCode: 0, output: #"{"version":1,"ok":true,"failures":[],"warnings":[]}"#)
+        case .wrangler:
+            return DeployStepResult(exitCode: 0, output: "Published site (0.1 sec)\n  https://blue-bottle-cafe.example.workers.dev")
+        case .bundleUpload, .githubPagesPublish:
+            return DeployStepResult(exitCode: 0, output: "")
+        case .wranglerSubcommand(let args):
+            seenArguments.append(args)
+            if args.first == "d1" {
+                if args.dropFirst().first == "create" {
+                    return DeployStepResult(exitCode: 0, output: #"{"uuid":"d1-id"}"#)
+                }
+                // AUTH_DB migration — always succeeds once reached.
+                return DeployStepResult(exitCode: 0, output: "")
+            }
+            if args.first == "kv" {
+                kvAttempts += 1
+                if kvAttempts == 1 {
+                    return DeployStepResult(exitCode: 1, output: "kv namespace create: transient network error")
+                }
+                return DeployStepResult(exitCode: 0, output: #"{"id":"kv-id"}"#)
+            }
+            return DeployStepResult(exitCode: 127, output: "unexpected arguments \(args)")
+        }
+    }
+}
+
+private struct FlakyKVFactory: CommandFactory {
+    let recorder: FlakyKVRecorder
+
+    func deploy() -> DeployCommand { DeployCommand() }
+    func backup() -> BackupCommand { BackupCommand(runner: { _, _ in .init(stdout: "", stderr: "", exitCode: 1) }, streamer: { _, _, _ in (1, "") }) }
+    func audit() -> AuditCommand {
+        AuditCommand(
+            executor: HostAuditExecutor(resolveCommand: { _ in { _ in .unavailable(reason: "noop") } }),
+            runners: []
+        )
+    }
+    func socialWorkerProvision() -> SocialWorkerProvisionCommand {
+        SocialWorkerProvisionCommand(tokenSource: { "token" }, executor: recorder)
+    }
 }
 
 private struct TestAccessError: LocalizedError, Sendable {
@@ -579,16 +721,11 @@ private struct SocialWorkerFactory: CommandFactory {
     func socialWorkerProvision() -> SocialWorkerProvisionCommand {
         SocialWorkerProvisionCommand(
             tokenSource: { "token" },
-            runner: { _, arguments, _, _ in await recorder.run(arguments: arguments) },
+            executor: recorder,
             // Only exercised when the activitypub worker is active (it's the only one that pushes
             // a secret, `AP_PRIVATE_KEY`) — always-succeeds is fine for the indieauth/webfinger
             // fixtures elsewhere in this file, which never call it.
-            secretRunner: { _, _, _, _, _ in .init(stdout: "Success!", stderr: "", exitCode: 0) },
-            deployer: { token, siteID, siteDirectory, wellKnownDynamicClaims in
-                await recorder.deploy(
-                    token: token, siteID: siteID, siteDirectory: siteDirectory,
-                    wellKnownDynamicClaims: wellKnownDynamicClaims)
-            }
+            secretRunner: { _, _, _, _, _ in .init(stdout: "Success!", stderr: "", exitCode: 0) }
         )
     }
 }

