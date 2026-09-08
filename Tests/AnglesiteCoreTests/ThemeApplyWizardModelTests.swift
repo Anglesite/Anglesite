@@ -66,6 +66,14 @@ private final class WizardFreedesignmdStubURLProtocol: URLProtocol, @unchecked S
         #expect(model.step == .applying)
         guard case .success(let applied) = model.applyResult else { Issue.record("expected success"); return }
         #expect(applied.updatedVars["color-primary"] == "#a11111")
+
+        #expect(applied.writtenFiles.contains("DESIGN.md"))
+        #expect(applied.writtenFiles.contains("PRODUCT.md"))
+        let designMD = try String(contentsOf: package.sourceURL.appendingPathComponent("DESIGN.md"), encoding: .utf8)
+        #expect(designMD.contains("`warm`")) // the applied theme id
+        #expect(designMD.contains("`--color-primary`"))
+        let productMD = try String(contentsOf: package.sourceURL.appendingPathComponent("PRODUCT.md"), encoding: .utf8)
+        #expect(productMD.contains("website of a bakery"))
     }
 
     @Test @MainActor func canContinueRequiresSourceChoiceFirst() {
@@ -197,5 +205,13 @@ private final class WizardFreedesignmdStubURLProtocol: URLProtocol, @unchecked S
         let brand = try String(contentsOf: brandURL, encoding: .utf8)
         #expect(brand.contains("freedesignmd: linear-orbit"))
         #expect(brand.contains("Hairline-thin product workspace."))
+
+        #expect(applied.writtenFiles.contains("DESIGN.md"))
+        #expect(applied.writtenFiles.contains("PRODUCT.md"))
+        let designMD = try String(contentsOf: package.sourceURL.appendingPathComponent("DESIGN.md"), encoding: .utf8)
+        // No candidates were loaded in this test (selectedFreedesignmdSlug was set directly), so
+        // the system's display name falls back to its slug — see ThemeApplyWizardModel.apply()'s
+        // `freedesignmdCandidates.first { ... }?.name ?? slug` fallback.
+        #expect(designMD.contains("/system/linear-orbit"))
     }
 }

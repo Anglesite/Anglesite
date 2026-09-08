@@ -99,4 +99,37 @@ public enum DesignAxesCatalog {
         [axes.temperature, axes.weight, axes.register, axes.time, axes.voice]
             .allSatisfy { !$0.isNaN && $0 >= 0 && $0 <= 1 }
     }
+
+    /// Threshold-based prose reading for one axis value: `low` at ≤0.4, `high` at ≥0.6, else the
+    /// straddling phrase. The single source of this wording — ``DesignTokenWriter/rationaleMarkdown(for:)``
+    /// and ``DesignContextDocument`` both call this rather than each rolling their own thresholds,
+    /// so an axis reads identically wherever it's described.
+    public static func proseDescription(_ value: Double, low: String, high: String) -> String {
+        if value <= 0.4 { return low }
+        if value >= 0.6 { return high }
+        return "between \(low) and \(high)"
+    }
+
+    /// The five axes' pole-label pairs, in ``DesignAxes``' own declared order — the single place
+    /// that names which word means which end of which axis. Carries each axis's own
+    /// `KeyPath` (mirroring `DesignAdjectiveHint.keyPath`) rather than just its name, so a
+    /// caller reading the value back (``DesignContextDocument``) can't drift out of sync with
+    /// this list the way a parallel string-keyed switch could. A computed property, not a stored
+    /// `static let` — `KeyPath` isn't `Sendable`-checked as global state, and recomputing this
+    /// 5-element array per access is free.
+    public static var poleLabels: [(axis: String, low: String, high: String, keyPath: KeyPath<DesignAxes, Double>)] {
+        [
+            ("temperature", "cool", "warm", \.temperature),
+            ("weight", "airy", "dense", \.weight),
+            ("register", "playful", "authoritative", \.register),
+            ("time", "classic", "contemporary", \.time),
+            ("voice", "subtle", "bold", \.voice),
+        ]
+    }
+
+    /// One prose word/phrase per axis (temperature, weight, register, time, voice, in that
+    /// order), via ``proseDescription(_:low:high:)`` and ``poleLabels``.
+    public static func moodWords(for axes: DesignAxes) -> [String] {
+        poleLabels.map { proseDescription(axes[keyPath: $0.keyPath], low: $0.low, high: $0.high) }
+    }
 }

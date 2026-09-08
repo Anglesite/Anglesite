@@ -18,12 +18,25 @@ public struct DesignApplyInput: Sendable {
     /// Names the flow that produced this design (e.g. `design-interview`); becomes the heading
     /// of the `docs/brand.md` entry so successive applies stay attributable to their source.
     public let sourceLabel: String
+    /// ``DesignContextDocument/render(axes:cssVars:brandVoicePreamble:freedesignmdSystem:appliedThemeOrPackID:)``'s
+    /// output for `Source/DESIGN.md`, when the caller wants that file (re)generated; `nil` skips
+    /// it entirely. Regenerated only when the file is absent or still owned by this generator —
+    /// see ``GeneratedDesignDocument``.
+    public let designContextMarkdown: String?
+    /// ``ProductContextDocument/render(displayName:businessType:siteType:audienceAndIntentNotes:)``'s
+    /// output for `Source/PRODUCT.md`, under the same ownership gate as ``designContextMarkdown``.
+    public let productContextMarkdown: String?
 
     /// Memberwise initializer — public so both design flows (theme wizard and interview) can
-    /// build inputs from outside this file.
-    public init(cssVars: [String: String], rationaleMarkdown: String?, brandSummary: String, sourceLabel: String) {
+    /// build inputs from outside this file. `designContextMarkdown`/`productContextMarkdown`
+    /// default to `nil` so existing call sites that don't render those documents are unaffected.
+    public init(
+        cssVars: [String: String], rationaleMarkdown: String?, brandSummary: String, sourceLabel: String,
+        designContextMarkdown: String? = nil, productContextMarkdown: String? = nil
+    ) {
         self.cssVars = cssVars; self.rationaleMarkdown = rationaleMarkdown
         self.brandSummary = brandSummary; self.sourceLabel = sourceLabel
+        self.designContextMarkdown = designContextMarkdown; self.productContextMarkdown = productContextMarkdown
     }
 }
 
@@ -34,6 +47,19 @@ public struct AppliedDesign: Sendable, Equatable {
     public let updatedVars: [String: String]
     /// `Source/`-relative paths of every file written, in write order.
     public let writtenFiles: [String]
+    /// One-line notices for a generated document (`DESIGN.md`/`PRODUCT.md`) that was requested
+    /// but left untouched because it's been hand-edited since the last apply — see
+    /// ``GeneratedDesignDocument``. Empty when every requested document was writable, and always
+    /// empty for callers who don't pass those documents at all — defaulted so existing
+    /// `AppliedDesign(updatedVars:writtenFiles:)` call sites keep compiling unchanged.
+    public let skippedNotices: [String]
+
+    /// Explicit initializer (rather than the implicit memberwise one, which a `public` struct
+    /// only gets `internal`) with `skippedNotices` defaulted so pre-#1947 call sites that built
+    /// this with just `updatedVars`/`writtenFiles` keep compiling unchanged.
+    public init(updatedVars: [String: String], writtenFiles: [String], skippedNotices: [String] = []) {
+        self.updatedVars = updatedVars; self.writtenFiles = writtenFiles; self.skippedNotices = skippedNotices
+    }
 }
 
 /// Why an apply failed. Distinguishes "the template file the tokens live in is missing or
@@ -57,10 +83,18 @@ public enum DesignApplyService {
     static let globalCSSRelativePath = "src/styles/global.css"
     static let rationaleRelativePath = "docs/DESIGN.md"
     static let brandRelativePath = "docs/brand.md"
+    static let designContextRelativePath = "DESIGN.md"
+    static let productContextRelativePath = "PRODUCT.md"
 
     /// Applies `input` to a site's `Source/` directory: upserts the CSS vars into `global.css`
     /// (skipped when `cssVars` is empty — see the inline note), overwrites `docs/DESIGN.md` with
-    /// the rationale, and appends the brand summary to `docs/brand.md`.
+    /// the rationale, appends the brand summary to `docs/brand.md`, and (re)generates the
+    /// root-level `DESIGN.md`/`PRODUCT.md` agent-context documents when the caller provides them —
+    /// skipping either one, with a note in ``AppliedDesign/skippedNotices``, if it's been
+    /// hand-edited since this generator last wrote it (see ``GeneratedDesignDocument``). The two
+    /// root-level documents are a distinct artifact from `docs/DESIGN.md`: that file is an
+    /// owner-facing rationale for *this* apply, while `Source/DESIGN.md` is a living, external-
+    /// agent-facing summary of the site's *current* design (#1947).
     ///
     /// Returns `Result` rather than throwing so the partial-write list travels with the failure
     /// (see ``DesignApplyError/writeFailed(message:partiallyWritten:)``). The CSS write happens
@@ -92,6 +126,7 @@ public enum DesignApplyService {
         }
 
         var written: [String] = input.cssVars.isEmpty ? [] : [globalCSSRelativePath]
+        var notices: [String] = []
         do {
             if let rationaleMarkdown = input.rationaleMarkdown {
                 let rationaleURL = sourceDirectory.appendingPathComponent(rationaleRelativePath)
@@ -106,11 +141,42 @@ public enum DesignApplyService {
             let entry = "\n## \(input.sourceLabel)\n\n\(input.brandSummary)\n"
             try (existingBrand + entry).write(to: brandURL, atomically: true, encoding: .utf8)
             written.append(brandRelativePath)
+
+            if let designContextMarkdown = input.designContextMarkdown {
+                if let notice = try writeGeneratedDocument(
+                    designContextMarkdown, relativePath: designContextRelativePath,
+                    to: sourceDirectory, fileManager: fileManager, written: &written
+                ) { notices.append(notice) }
+            }
+            if let productContextMarkdown = input.productContextMarkdown {
+                if let notice = try writeGeneratedDocument(
+                    productContextMarkdown, relativePath: productContextRelativePath,
+                    to: sourceDirectory, fileManager: fileManager, written: &written
+                ) { notices.append(notice) }
+            }
         } catch {
             return .failure(.writeFailed(message: (error as NSError).localizedDescription, partiallyWritten: written))
         }
 
-        return .success(AppliedDesign(updatedVars: input.cssVars, writtenFiles: written))
+        return .success(AppliedDesign(updatedVars: input.cssVars, writtenFiles: written, skippedNotices: notices))
+    }
+
+    /// Writes `markdown` to `relativePath` unless a hand-edited file is already there — absent or
+    /// still owned by this generator (``GeneratedDesignDocument/isOwned(_:)``) means safe to
+    /// (re)write; anything else is left untouched and reported back as a one-line notice instead.
+    private static func writeGeneratedDocument(
+        _ markdown: String, relativePath: String, to sourceDirectory: URL,
+        fileManager: FileManager, written: inout [String]
+    ) throws -> String? {
+        let url = sourceDirectory.appendingPathComponent(relativePath)
+        let existing = try? String(contentsOf: url, encoding: .utf8)
+        guard existing == nil || GeneratedDesignDocument.isOwned(existing) else {
+            return "\(relativePath) has been edited by hand — leaving it as-is."
+        }
+        try fileManager.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try markdown.write(to: url, atomically: true, encoding: .utf8)
+        written.append(relativePath)
+        return nil
     }
 
     /// Replaces or appends `--<key>: <value>;` lines inside the top-level `:root { ... }` block,

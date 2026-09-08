@@ -79,11 +79,24 @@ public struct SetupThemeTool: Tool, Sendable {
             let names = catalog.themes.map(\.name).joined(separator: ", ")
             return "I don't recognize that theme. Available themes: \(names)."
         }
+        let businessType = SiteBusinessType.read(sourceDirectory: sourceDirectory)
+        let cssVars = DesignTokenWriter.templateCSSVars(for: theme)
         let input = DesignApplyInput(
-            cssVars: DesignTokenWriter.templateCSSVars(for: theme),
+            cssVars: cssVars,
             rationaleMarkdown: nil,
             brandSummary: theme.blurb,
-            sourceLabel: "Built-in theme: \(theme.name)"
+            sourceLabel: "Built-in theme: \(theme.name)",
+            designContextMarkdown: DesignContextDocument.render(
+                axes: nil, cssVars: cssVars,
+                brandVoicePreamble: BrandVoiceGuidance.preamble(conventions: nil, businessType: businessType),
+                freedesignmdSystem: nil, appliedThemeOrPackID: theme.id
+            ),
+            productContextMarkdown: ProductContextDocument.render(
+                displayName: SiteConfigValues.siteName(sourceDirectory: sourceDirectory),
+                businessType: businessType,
+                siteType: SiteConfigValues.siteType(sourceDirectory: sourceDirectory),
+                audienceAndIntentNotes: []
+            )
         )
         let result = DesignApplyService.apply(input, to: sourceDirectory)
         return SetupThemeArguments.reply(for: result, themeName: theme.name)

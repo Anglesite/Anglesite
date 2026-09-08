@@ -51,6 +51,14 @@ public final class DesignInterviewModel: Identifiable {
     /// any reply and lets the user correct axes via ``nudge(_:)``.
     public func send(_ userMessage: String) async {
         transcript.append((role: "user", text: userMessage))
+        // The `.intent` stage is the only place the owner is asked what the site is for and who
+        // it's for (`DesignInterviewPrompts.intentPrompt`) — captured into `freeTextNotes` on the
+        // success path below so `confirmAndApply()` can carry it into PRODUCT.md's Audience
+        // section (#1947). Captured *before* `draft.advance()` runs (which is what stops this
+        // stage from being `.intent` on a later call), not up front here — every early `return`
+        // below leaves the stage at `.intent` too, so appending before those guards would
+        // duplicate the same note on every retry of a failed turn.
+        let isIntentStage = draft.stage == .intent
         let prompt = DesignInterviewPrompts.prompt(for: draft.stage, draft: draft, userMessage: userMessage)
         let context = AssistantContext(siteID: siteID, siteDirectory: package.sourceURL)
         guard let stream = try? await assistant.converse(prompt: prompt, context: context) else {
@@ -80,6 +88,9 @@ public final class DesignInterviewModel: Identifiable {
             return
         }
         transcript.append((role: "assistant", text: reply))
+        if isIntentStage {
+            draft.freeTextNotes.append(userMessage)
+        }
         draft.advance()
     }
 
@@ -114,11 +125,25 @@ public final class DesignInterviewModel: Identifiable {
     /// instead of ending on an unapplied design.
     public func confirmAndApply() async {
         let config = DesignConfigGenerator.config(axes: draft.axes, siteType: draft.businessType, brandColor: draft.brandColorHex)
+        let cssVars = DesignTokenWriter.templateCSSVars(for: config)
+        let brandVoicePreamble = BrandVoiceGuidance.preamble(conventions: nil, businessType: draft.businessType)
+        let designContextMarkdown = DesignContextDocument.render(
+            axes: draft.axes, cssVars: cssVars, brandVoicePreamble: brandVoicePreamble,
+            freedesignmdSystem: nil, appliedThemeOrPackID: nil
+        )
+        let productContextMarkdown = ProductContextDocument.render(
+            displayName: SiteConfigValues.siteName(sourceDirectory: package.sourceURL),
+            businessType: draft.businessType,
+            siteType: SiteConfigValues.siteType(sourceDirectory: package.sourceURL),
+            audienceAndIntentNotes: draft.freeTextNotes
+        )
         let input = DesignApplyInput(
-            cssVars: DesignTokenWriter.templateCSSVars(for: config),
+            cssVars: cssVars,
             rationaleMarkdown: DesignTokenWriter.rationaleMarkdown(for: config),
             brandSummary: "Generated from a design interview for a \(draft.businessType).",
-            sourceLabel: "design-interview"
+            sourceLabel: "design-interview",
+            designContextMarkdown: designContextMarkdown,
+            productContextMarkdown: productContextMarkdown
         )
         let result = DesignApplyService.apply(input, to: package)
         applyResult = result

@@ -34,16 +34,12 @@ public enum DesignTokenWriter {
     /// `scripts/design.ts`.
     public static func rationaleMarkdown(for config: DesignConfig) -> String {
         let axes = config.axes
-        func describe(_ axis: String, _ value: Double, low: String, high: String) -> String {
-            if value <= 0.4 { return low }
-            if value >= 0.6 { return high }
-            return "between \(low) and \(high)"
-        }
-        let temperature = describe("temperature", axes.temperature, low: "cool", high: "warm")
-        let weight = describe("weight", axes.weight, low: "airy", high: "dense")
-        let register = describe("register", axes.register, low: "playful", high: "authoritative")
-        let time = describe("time", axes.time, low: "classic", high: "contemporary")
-        let voice = describe("voice", axes.voice, low: "subtle", high: "bold")
+        let describe = DesignAxesCatalog.proseDescription
+        let temperature = describe(axes.temperature, "cool", "warm")
+        let weight = describe(axes.weight, "airy", "dense")
+        let register = describe(axes.register, "playful", "authoritative")
+        let time = describe(axes.time, "classic", "contemporary")
+        let voice = describe(axes.voice, "subtle", "bold")
         let moodWords = [temperature, weight, register, time, voice]
             .reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
 

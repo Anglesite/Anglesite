@@ -64,6 +64,63 @@ import FoundationModels
         #expect(model.draft.stage == .done)
     }
 
+    @Test @MainActor func sendOnIntentStageCapturesUserMessageAsFreeTextNote() async throws {
+        let model = DesignInterviewModel(businessType: "bakery", assistant: FakeConversationalAssistant(), package: try makeSite())
+        #expect(model.draft.stage == .intent)
+        await model.send("It's a cozy neighborhood bakery for regulars who work nearby.")
+        #expect(model.draft.freeTextNotes == ["It's a cozy neighborhood bakery for regulars who work nearby."])
+    }
+
+    @Test @MainActor func sendOnIntentStageFailureDoesNotCaptureAFreeTextNote() async throws {
+        // Regression for a PR #1950 review comment: appending before the failure-path early
+        // returns would leave a stray note for a turn whose reply never actually landed — and
+        // duplicate it again on every retry, since the stage (and thus this guard) never
+        // advances past `.intent` on failure.
+        let model = DesignInterviewModel(
+            businessType: "bakery",
+            assistant: FakeConversationalAssistant(failureMessage: "model unavailable"),
+            package: try makeSite())
+        await model.send("It's a cozy neighborhood bakery.")
+        #expect(model.draft.stage == .intent)
+        #expect(model.draft.freeTextNotes.isEmpty)
+    }
+
+    @Test @MainActor func sendOnIntentStageEmptyReplyDoesNotCaptureAFreeTextNote() async throws {
+        let model = DesignInterviewModel(
+            businessType: "bakery",
+            assistant: FakeConversationalAssistant(emitsEmptyReply: true),
+            package: try makeSite())
+        await model.send("It's a cozy neighborhood bakery.")
+        #expect(model.draft.stage == .intent)
+        #expect(model.draft.freeTextNotes.isEmpty)
+    }
+
+    @Test @MainActor func sendOnLaterStagesDoesNotDuplicateIntoFreeTextNotes() async throws {
+        let model = DesignInterviewModel(businessType: "bakery", assistant: FakeConversationalAssistant(), package: try makeSite())
+        await model.send("It's a cozy neighborhood bakery.") // .intent -> .mood
+        await model.send("Warm and inviting.") // .mood -> .brandAnchor
+        #expect(model.draft.freeTextNotes == ["It's a cozy neighborhood bakery."])
+    }
+
+    @Test @MainActor func confirmAndApplyWritesDesignAndProductContextDocuments() async throws {
+        let package = try makeSite()
+        let model = DesignInterviewModel(businessType: "bakery", assistant: FakeConversationalAssistant(), package: package)
+        await model.send("It's a cozy neighborhood bakery for regulars.") // captures the intent note
+        model.skipToAxisConfirmation()
+        await model.confirmAndApply()
+        guard case .success(let applied) = model.applyResult else { Issue.record("expected success"); return }
+        #expect(applied.writtenFiles.contains("DESIGN.md"))
+        #expect(applied.writtenFiles.contains("PRODUCT.md"))
+
+        let designMD = try String(contentsOf: package.sourceURL.appendingPathComponent("DESIGN.md"), encoding: .utf8)
+        #expect(designMD.hasPrefix(GeneratedDesignDocument.marker))
+        #expect(designMD.contains("## Mood"))
+
+        let productMD = try String(contentsOf: package.sourceURL.appendingPathComponent("PRODUCT.md"), encoding: .utf8)
+        #expect(productMD.contains("website of a bakery"))
+        #expect(productMD.contains("It's a cozy neighborhood bakery for regulars."))
+    }
+
     @Test @MainActor func sendOnInBandFailureAppendsErrorAndDoesNotAdvanceStage() async throws {
         let model = DesignInterviewModel(
             businessType: "bakery",
