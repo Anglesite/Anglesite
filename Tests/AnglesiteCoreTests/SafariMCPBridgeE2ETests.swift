@@ -65,6 +65,62 @@ struct SafariMCPBridgeE2ETests {
         #expect(!tools.isEmpty)
     }
 
+    @Test(
+        "SafariVerificationPass.run drives a full pass against a live bridge",
+        .enabled(
+            if: SafariMCPBridgeE2EPrerequisites.met,
+            "requires ANGLESITE_SAFARI_MCP_E2E=1, safaridriver on PATH, and network access for npx to fetch mcp-proxy"
+        )
+    )
+    func liveVerificationPass() async throws {
+        let port = try Self.freePort()
+        let supervisor = ProcessSupervisor()
+        let logCenter = LogCenter()
+        let handle = try await supervisor.launch(
+            source: "safari-mcp-e2e",
+            executable: URL(fileURLWithPath: "/usr/bin/env"),
+            arguments: ["npx", "-y", "mcp-proxy", "--port", String(port), "--host", "127.0.0.1", "--", "safaridriver", "--mcp"],
+            environment: [:],
+            currentDirectoryURL: nil,
+            restartPolicy: .never,
+            attachStdin: false,
+            onRespawn: nil,
+            logCenter: logCenter
+        )
+        defer { Task { await supervisor.terminate(handle, timeout: 2) } }
+
+        let readyBudget: TimeInterval = 60
+        try await E2EServer.awaitReady(handle: handle, supervisor: supervisor, logCenter: logCenter, timeout: readyBudget) {
+            let deadline = Date().addingTimeInterval(readyBudget - 5)
+            while true {
+                let c = SafariMCPBridgeClient(endpoint: URL(string: "http://127.0.0.1:\(port)/mcp")!)
+                do {
+                    _ = try await c.connect(timeout: 2)
+                    await c.close()
+                    return
+                } catch {
+                    await c.close()
+                    guard Date() < deadline else { throw error }
+                    try await Task.sleep(nanoseconds: 500_000_000)  // sleep-is-subject: real E2E/subprocess retry backoff
+                }
+            }
+        }
+
+        let pass = SafariVerificationPass(logCenter: logCenter)
+        let report = try await pass.run(previewURL: URL(string: "https://example.com/")!, port: port)
+
+        // The live bridge's exact tool catalog is version-dependent (resolved default 2 tries a
+        // preferred name per capability and degrades what it can't find), so this only asserts
+        // the pass completed a real round-trip against a live Safari session — at least one
+        // section resolved to real data — not which specific capabilities that server exposes.
+        let anyAvailable =
+            { if case .available = report.console { return true }; return false }()
+            || { if case .available = report.network { return true }; return false }()
+            || { if case .available = report.pageContent { return true }; return false }()
+            || { if case .available = report.screenshot { return true }; return false }()
+        #expect(anyAvailable)
+    }
+
     // NB: do not interpolate `errno` into these messages — see the identical note in
     // `MCPClientHTTPEndToEndTests.freePort()` (macOS-27-SDK-only symbol, absent on the macOS-15 CI
     // runner, breaks `dlopen`). Moot in practice here since this whole suite is gated off CI, but

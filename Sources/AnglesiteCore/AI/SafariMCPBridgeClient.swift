@@ -32,12 +32,52 @@ public actor SafariMCPBridgeClient {
         public let protocolVersion: String
     }
 
+    /// The result of a `tools/call`. Unlike `MCPClient.ToolCallResult`, a tool-level failure
+    /// (`isError: true`) never reaches this type — ``callTool(name:arguments:timeout:)`` throws
+    /// ``ClientError/toolError(message:)`` instead, since every caller in this client
+    /// (`SafariVerificationPass`) wants tool failures raised, not branched on.
+    public struct ToolCallResult: Sendable, Equatable {
+        /// The content items, in server order.
+        public let content: [Content]
+
+        /// Memberwise init — public so tests can fabricate results without a live server.
+        public init(content: [Content]) {
+            self.content = content
+        }
+
+        /// One content item. `text` and `data`/`mimeType` are mutually exclusive in practice
+        /// (MCP's `text` vs `image` content block kinds) but both are decoded here — richer
+        /// kinds this client doesn't know about keep their `type` with every payload field nil.
+        public struct Content: Sendable, Equatable {
+            /// The MCP content type (e.g. `"text"`, `"image"`).
+            public let type: String
+            /// The text payload for `text` content; nil for other kinds.
+            public let text: String?
+            /// The base64-encoded payload for `image` content; nil for other kinds.
+            public let data: String?
+            /// The `image` content's declared MIME type; nil for other kinds.
+            public let mimeType: String?
+
+            /// Memberwise init — public so tests can fabricate content items.
+            public init(type: String, text: String?, data: String?, mimeType: String?) {
+                self.type = type
+                self.text = text
+                self.data = data
+                self.mimeType = mimeType
+            }
+        }
+    }
+
     /// Failures specific to this client (transport failures pass through from
     /// ``SessionfulHTTPTransport/HTTPError`` unchanged).
     public enum ClientError: Error, Sendable, Equatable {
         case invalidResponse(String)
         case rpcError(code: Int, message: String)
         case timeout
+        /// The tool ran but its result reported `isError: true` — MCP's tool-level failure
+        /// signal, distinct from a JSON-RPC error. `message` is the first text content block,
+        /// or a generic fallback when the result carried none.
+        case toolError(message: String)
     }
 
     private let transport: SessionfulHTTPTransport
@@ -130,6 +170,41 @@ public actor SafariMCPBridgeClient {
             let description: String? = { if case .string(let s)? = obj["description"] { return s }; return nil }()
             return ToolDescriptor(name: name, description: description)
         }
+    }
+
+    /// Invokes a server tool and decodes its result content blocks. Requires a prior successful
+    /// ``connect(clientName:clientVersion:timeout:)`` — replays the session's captured
+    /// `Mcp-Session-Id` exactly like ``listTools()``, since both go through the same private
+    /// `sendRequest(method:params:timeout:)`. A result with `isError: true` is thrown as
+    /// ``ClientError/toolError(message:)`` rather than returned.
+    public func callTool(
+        name: String,
+        arguments: JSONValue = .object([:]),
+        timeout: TimeInterval = NetworkTimeouts.mcpToolCallRequest
+    ) async throws -> ToolCallResult {
+        let params: JSONValue = .object([
+            "name": .string(name),
+            "arguments": arguments,
+        ])
+        let result = try await sendRequest(method: "tools/call", params: params, timeout: timeout)
+        guard case .object(let dict) = result else {
+            throw ClientError.invalidResponse("tools/call result not an object")
+        }
+        var contents: [ToolCallResult.Content] = []
+        if case .array(let items)? = dict["content"] {
+            for item in items {
+                guard case .object(let obj) = item, case .string(let type)? = obj["type"] else { continue }
+                let text: String? = { if case .string(let s)? = obj["text"] { return s }; return nil }()
+                let data: String? = { if case .string(let s)? = obj["data"] { return s }; return nil }()
+                let mimeType: String? = { if case .string(let s)? = obj["mimeType"] { return s }; return nil }()
+                contents.append(.init(type: type, text: text, data: data, mimeType: mimeType))
+            }
+        }
+        if case .bool(true)? = dict["isError"] {
+            let message = contents.first(where: { $0.type == "text" })?.text ?? "tool call failed"
+            throw ClientError.toolError(message: message)
+        }
+        return ToolCallResult(content: contents)
     }
 
     /// Closes the transport and fails every still-pending request. Safe to call more than once.
