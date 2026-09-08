@@ -47,6 +47,7 @@
     "@keystatic/core": "^0.6.9",
     "@types/node": "^26.4.0",
     "html-validate": "^11.11.0",
+    "impeccable": "4.0.4",
     "microformats-parser": "^2.0.4",
     "pagefind": "^1.5.2",
     "react": "^19.2.8",
