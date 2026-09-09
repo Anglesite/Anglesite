@@ -43,7 +43,12 @@ struct ProcessSupervisorRunLoggingPortableTests {
         #expect(result.exitCode == 0)
         #expect(result.stdout == "spawned\n")
         #expect(result.stderr == "note\n")
-        #expect(ContinuousClock.now - start < .seconds(4))
+        // Half the grandchild's 5s sleep: comfortable headroom over a real (sub-second)
+        // return, but still squarely on the immediate side of "waited for the daemon"
+        // (~5s+). This suite runs in the isolated timing-sensitive lane (see
+        // scripts/lib/timing-sensitive-tests.sh), so it no longer needs slack for
+        // build-test's full-parallel scheduler contention.
+        #expect(ContinuousClock.now - start < .seconds(2.5))
         let snapshot = await center.snapshot().filter { $0.source == "portable-detach" }
         #expect(snapshot.filter { $0.stream == .stdout }.map(\.text) == ["spawned"])
         #expect(snapshot.filter { $0.stream == .stderr }.map(\.text) == ["note"])
