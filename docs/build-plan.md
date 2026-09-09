@@ -1,6 +1,6 @@
 # Anglesite Mac App — Build Plan
 
-**Status:** Active — Phases 0–9 complete, Phase 10 in progress. The phase model covers the release track only; the 2026-08/09 epics below run on per-epic slices. Product-direction decisions from the 2026-09-08 review: [`specs/2026-09-08-product-direction-review-decisions.md`](specs/2026-09-08-product-direction-review-decisions.md).
+**Status:** Active — Phases 0–9 complete, Phase 10 in progress. The phase model covers the release track only; the 2026-08/09 epics below run on per-epic slices. Product-direction decisions from the 2026-09-08 review: [`specs/2026-09-08-product-direction-review-decisions.md`](specs/2026-09-08-product-direction-review-decisions.md). Milestones (#1967, decision D8): `v0.5.0-Alpha` and `v1.0.0-Beta` were closed on 2026-09-08 and their open items folded into `v1.0`; `v1.0` = App Store submission (#617) + software factory (#1256) + WYSIWYG (#1221) + overlay removal (#1957) + gate pin (#1958) + the D1 UX issues (#1962, #1963, #1964), and only `v1.0` and `Future` remain open.
 **Companion design doc:** [`anglesite/docs/dev/mac-app-design.md`](../../anglesite/docs/dev/mac-app-design.md)
 **Audience:** Contributors building the native macOS app in this repo.
 
