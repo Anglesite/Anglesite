@@ -15,17 +15,19 @@ public enum TemplateScriptsSyncAction: Sendable, Equatable {
     }
 }
 
-/// A `scripts/` file the owner has customized, where the template has also moved on past the
-/// content the owner customized from — the one case this mechanism can't silently resolve
-/// (design doc §Divergence UX).
+/// An app-owned file (`scripts/`, `src/lib/`) whose site copy differs from the app's and can't be
+/// classified as a plain stale-but-untouched refresh: it was customized since its last baseline,
+/// or it predates any baseline (a legacy site, #745). Before #1962 this was the one case put to
+/// the owner ("Keep My Version" / "Update This File"); owner decision D1 (2026-09-08) closed that
+/// — these are the app's own build/security machinery, so the app restores them without asking
+/// (#1053) and tells the owner in consequences afterwards. The type survives as the record of
+/// *which* files were restored rather than merely refreshed, so the site-open notice can say so.
 public struct TemplateScriptsDivergence: Sendable, Equatable, Identifiable {
-    /// `Identifiable` via the path — at most one divergence per file per check pass, and stable
-    /// ids keep the divergence sheet's SwiftUI rows from resetting between passes.
+    /// `Identifiable` via the path — at most one divergence per file per check pass.
     public var id: String { relativePath }
     /// The divergent file's template-relative path.
     public let relativePath: String
-    /// Hash of the template's current content — recorded so a "keep my version" decision can
-    /// remember exactly which template revision was declined (and re-ask only when it changes).
+    /// Hash of the template's current content — the content the restore writes.
     public let templateHash: String
 
     /// Creates a divergence record; normally only `TemplateScriptsSyncChecker` does.
@@ -35,13 +37,14 @@ public struct TemplateScriptsDivergence: Sendable, Equatable, Identifiable {
     }
 }
 
-/// The full result of one `TemplateScriptsSyncChecker.check` pass.
+/// The full result of one `TemplateScriptsSyncChecker.check` pass. Every entry in both lists is
+/// applied by the app without an owner decision (#1053, D1); the split only drives how the
+/// outcome is reported.
 public struct TemplateScriptsSyncPlan: Sendable, Equatable {
-    /// Actions safe to apply silently, immediately, without asking the owner — the app knows the
-    /// right answer for these (#1053).
+    /// Files to create or refresh silently — nothing of the owner's is overwritten.
     public let toApply: [TemplateScriptsSyncAction]
-    /// Files needing an owner decision — each is surfaced through the divergence UX, never
-    /// auto-resolved.
+    /// App-owned files whose site copy had been changed — restored to the app's copy, and named
+    /// as "restored" (not merely "updated") when the owner is told.
     public let divergences: [TemplateScriptsDivergence]
 
     /// Creates a plan; the all-empty default is the nothing-to-do result.
@@ -49,4 +52,7 @@ public struct TemplateScriptsSyncPlan: Sendable, Equatable {
         self.toApply = toApply
         self.divergences = divergences
     }
+
+    /// True when the pass found nothing to write.
+    public var isEmpty: Bool { toApply.isEmpty && divergences.isEmpty }
 }

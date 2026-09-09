@@ -33,6 +33,13 @@ enum AXID {
     /// reads its accessibility label to learn which sheet is frontmost.
     static let sheetHeader = "sheet.header"
 
+    // MARK: Site-update notice banner (#1962)
+
+    /// The non-blocking "Anglesite updated the parts of this site it maintains" banner docked
+    /// above the site content — automation reads its label to confirm the site-open migration
+    /// reported (rather than blocked on a sheet).
+    static let siteUpdateNoticeBanner = "siteUpdateNotice.banner"
+
     // MARK: Main-pane takeover header (#714 v2 slice 2)
 
     /// The title group `MainPaneTakeoverHeader` renders for every takeover (Editor/Settings,
@@ -103,6 +110,7 @@ enum AXID {
         navigatorList, navigatorRenameField,
         launcherList,
         sheetHeader,
+        siteUpdateNoticeBanner,
         mainPaneTakeoverHeader, mainPaneTakeoverDone,
         settingsTabs, settingsWorkersLogs, settingsWorkersAnalytics,
         debugSourceFilter, debugStreamFilter, debugSearchField,

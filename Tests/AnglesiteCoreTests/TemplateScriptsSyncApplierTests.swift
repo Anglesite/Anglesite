@@ -109,26 +109,7 @@ import Foundation
         #expect(baseline.files["scripts/a.ts"]?.baselineHash == VectorMath.stableHash("template content A"))
     }
 
-    @Test func resolveUpdateOverwritesTheOwnersVersion() throws {
-        let template = try makeTemplate("template content")
-        let (source, config) = makeSite()
-        try writeFile("owner's customized content", to: source.appendingPathComponent("scripts/pre-deploy-check.ts"))
-        let divergence = TemplateScriptsDivergence(
-            relativePath: "scripts/pre-deploy-check.ts", templateHash: VectorMath.stableHash("template content")
-        )
-
-        try TemplateScriptsSyncApplier.resolve(
-            divergence, decision: .update,
-            sourceDirectory: source, configDirectory: config, templateDirectory: template
-        )
-
-        let written = try String(contentsOf: source.appendingPathComponent("scripts/pre-deploy-check.ts"), encoding: .utf8)
-        #expect(written == "template content")
-        let baseline = TemplateScriptsBaseline.load(from: config)
-        #expect(baseline.files["scripts/pre-deploy-check.ts"]?.baselineHash == VectorMath.stableHash("template content"))
-    }
-
-    @Test func resolveKeepMineLeavesTheFileUntouchedAndRecordsAcknowledgement() throws {
+    @Test func restoreOverwritesTheChangedCopyAndRebaselinesIt() throws {
         let template = try makeTemplate("template content")
         let (source, config) = makeSite()
         try writeFile("owner's customized content", to: source.appendingPathComponent("scripts/pre-deploy-check.ts"))
@@ -139,15 +120,28 @@ import Foundation
             relativePath: "scripts/pre-deploy-check.ts", templateHash: VectorMath.stableHash("template content")
         )
 
-        try TemplateScriptsSyncApplier.resolve(
-            divergence, decision: .keepMine,
-            sourceDirectory: source, configDirectory: config, templateDirectory: template
+        try TemplateScriptsSyncApplier.restore(
+            divergence, sourceDirectory: source, configDirectory: config, templateDirectory: template
         )
 
+        let written = try String(contentsOf: source.appendingPathComponent("scripts/pre-deploy-check.ts"), encoding: .utf8)
+        #expect(written == "template content")
+        let saved = TemplateScriptsBaseline.load(from: config)
+        #expect(saved.files["scripts/pre-deploy-check.ts"]?.baselineHash == VectorMath.stableHash("template content"))
+    }
+
+    @Test func restoreThrowsWhenTheTemplateFileIsUnreadableAndLeavesTheSiteCopyAlone() throws {
+        let template = tmpDir()  // no scripts/ directory at all
+        let (source, config) = makeSite()
+        try writeFile("owner's customized content", to: source.appendingPathComponent("scripts/pre-deploy-check.ts"))
+        let divergence = TemplateScriptsDivergence(relativePath: "scripts/pre-deploy-check.ts", templateHash: "x")
+
+        #expect(throws: TemplateScriptsSyncApplier.ApplyError.templateReadFailed(relativePath: "scripts/pre-deploy-check.ts")) {
+            try TemplateScriptsSyncApplier.restore(
+                divergence, sourceDirectory: source, configDirectory: config, templateDirectory: template
+            )
+        }
         let unchanged = try String(contentsOf: source.appendingPathComponent("scripts/pre-deploy-check.ts"), encoding: .utf8)
         #expect(unchanged == "owner's customized content")
-        let saved = TemplateScriptsBaseline.load(from: config)
-        #expect(saved.files["scripts/pre-deploy-check.ts"]?.baselineHash == "original-baseline-hash")
-        #expect(saved.files["scripts/pre-deploy-check.ts"]?.acknowledgedTemplateHash == VectorMath.stableHash("template content"))
     }
 }

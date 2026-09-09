@@ -277,18 +277,21 @@ final class SiteWindowModel {
     /// Non-nil ⟺ the Add Integration wizard is presented. Coupling presentation to the model
     /// (`.sheet(item:)`) prevents an empty sheet if construction somehow lags.
     var integrationWizardModel: IntegrationWizardModel?
-    /// Non-nil ⟺ the dependency-update-offer sheet is presented (`.sheet(item:)`), set by the
-    /// detection hook in `loadAndStart()` when `DependencySyncChecker` finds offers to show.
+    /// Non-nil ⟺ the single-package dependency fix sheet is presented (`.sheet(item:)`) — the
+    /// Security Reports tab's "Update available" action (#975). Since #1962 the site-open
+    /// dependency check no longer presents this sheet; it applies its offers directly and reports
+    /// through ``siteUpdateNotice``.
     var dependencyUpdateModel: DependencyUpdateModel?
     /// The most recent `DependencySyncChecker.check` result from `loadAndStart()`, kept even
     /// when empty so the Security Reports tab's Dependabot-alert rows can offer the same fix
     /// (`DependencySync.fixOffer`, #975) without a second `package.json` read. Set once per site
     /// open; not re-derived reactively.
     private(set) var dependencySyncOffers = DependencySyncOffers()
-    /// Non-nil ⟺ the scripts/-divergence sheet is presented (`.sheet(item:)`), set by the
-    /// detection hook in `loadAndStart()` when `TemplateScriptsSyncChecker` finds files the owner
-    /// customized that the template has also moved on past (#1053).
-    var scriptSyncModel: ScriptSyncModel?
+    /// Non-nil ⟺ the non-blocking "Anglesite updated the parts of this site it maintains" banner
+    /// is showing (#1962). Set once per site open by `loadAndStart()` from what
+    /// `ExistingSiteMigration.run` and the dependency sync actually applied; cleared by the
+    /// banner's dismiss control. Never a sheet — the site stays fully usable while it's up.
+    var siteUpdateNotice: SiteOpenUpdateNotice?
     /// Non-nil ⟺ the security.txt Adopt/Preserve sheet is presented (`.sheet(item:)`), set by the
     /// detection hook in `loadAndStart()` when `SecurityTxtMigrationChecker` finds an unmarked
     /// legacy file needing a decision (#745).
@@ -1198,6 +1201,24 @@ final class SiteWindowModel {
             // package.json rewrite failed — nothing was written, so the site keeps its
             // unchanged files; this boot/action is not treated as a post-update one.
         }
+    }
+
+    /// Presents the `security.txt` Adopt/Preserve sheet (#745) and suspends until the owner
+    /// answers — the one migration decision still put to the owner, asked through
+    /// `ExistingSiteMigration.run`'s `securityTxtDecision` seam so the windowed and headless
+    /// paths share the rest of the migration verbatim (#1962).
+    private func askSecurityTxtDecision() async -> SecurityTxtMigrationApplier.Decision {
+        await withCheckedContinuation { (continuation: CheckedContinuation<SecurityTxtMigrationApplier.Decision, Never>) in
+            securityTxtMigrationModel = SecurityTxtMigrationModel { [weak self] decision in
+                self?.securityTxtMigrationModel = nil
+                continuation.resume(returning: decision)
+            }
+        }
+    }
+
+    /// The site-update banner's dismiss control (#1962).
+    func dismissSiteUpdateNotice() {
+        siteUpdateNotice = nil
     }
 
     /// Opens the dependency-update sheet pre-scoped to a single package bump — the Security
@@ -2621,6 +2642,15 @@ final class SiteWindowModel {
             PreviewAnnotationProviderRegistry.shared.register(provider, for: resolved.id)
         }
 
+        // #1962 (owner decision D1): the app applies every update it maintains — dependency bumps
+        // and additions the bundled template offers, and the app-owned `scripts/`/`src/lib/`
+        // files — without asking, then tells the owner in consequences through a non-blocking
+        // banner (`siteUpdateNotice`). The two blocking sheets this replaced ("Dependency Updates
+        // Available", "Site Scripts Customized") asked the owner to adjudicate semver ranges and
+        // raw file paths; #1053 already says the app knows the answer for these. Held-back bumps
+        // (#1440) are still applied through the same path so the version stamp lands and the
+        // check doesn't re-run on every open; they surface as "kept as it is" under Details.
+        var appliedDependencyOffers: DependencySyncOffers?
         if let templateURL = TemplateRuntime.bundledURL(), let runningVersion = AppVersion.current() {
             let offers = DependencySyncChecker.check(
                 sourceDirectory: resolved.sourceDirectory,
@@ -2630,41 +2660,12 @@ final class SiteWindowModel {
             )
             dependencySyncOffers = offers
             if !offers.isEmpty {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    dependencyUpdateModel = DependencyUpdateModel(offers: offers) { [weak self] accepted in
-                        guard let self else { continuation.resume(); return }
-                        if accepted {
-                            self.applyDependencySyncOffers(
-                                offers, sourceDirectory: resolved.sourceDirectory, configDirectory: resolved.configDirectory)
-                        }
-                        self.dependencyUpdateModel = nil
-                        continuation.resume()
-                    }
-                }
+                applyDependencySyncOffers(
+                    offers, sourceDirectory: resolved.sourceDirectory, configDirectory: resolved.configDirectory)
+                appliedDependencyOffers = offers
             }
         }
-        // Give SwiftUI a moment to fully settle the dependency-sync sheet's dismissal (including
-        // its dismiss *animation*, not just the state change) before the scripts-sync sheet below
-        // requests its own presentation — back-to-back `.sheet(item:)` presentations in the same
-        // synchronous continuation-resumption stack risk a silently-failed second presentation,
-        // which (with `.interactiveDismissDisabled()` on both sheets) would leave this method's
-        // `CheckedContinuation` unresumed forever. Same mitigation, same class of problem, as
-        // `clearInspectorThenSwitchPane` above (`AppKitConstraintStormMitigation`) — a real
-        // guarantee would mean gating on the first sheet's actual `onDisappear`, which isn't done
-        // here; accepted as low-risk because this path only triggers when a single site-open
-        // queues both a dependency offer and a script divergence at once (an app-upgrade edge
-        // case) — narrow enough that a manual QA pass covering it (see this PR's test plan) is the
-        // practical verification, not a proof.
-        await AppKitConstraintStormMitigation.settle()
 
-        // #745: retry a commit an interrupted prior migration didn't finish, before looking for
-        // any new work — otherwise a stale pending commit could sit alongside a fresh one.
-        await ExistingSiteMigrationCommitter.retryPendingCommit(
-            sourceDirectory: resolved.sourceDirectory,
-            configDirectory: resolved.configDirectory,
-            message: "chore: migrate existing site to current template baseline"
-        )
-        var migrationTouchedPaths: [String] = []
         // `SiteRuntimeState.ready` carries associated values (siteID/url/workersDevURL), so this
         // is a pattern match, not `== .ready` (`Sources/AnglesiteCore/Site/SiteRuntime.swift:15`).
         let wasRuntimeAlreadyReady: Bool = {
@@ -2672,122 +2673,31 @@ final class SiteWindowModel {
             return false
         }()
 
-        if let templateURL = TemplateRuntime.resolve().url {
-            let plan = TemplateScriptsSyncChecker.check(
-                sourceDirectory: resolved.sourceDirectory,
-                configDirectory: resolved.configDirectory,
-                templateDirectory: templateURL
-            )
-            // Applied one action at a time, not as a single batch: `applyQueued` throws on the
-            // first file it can't process but leaves every earlier write (and its baseline entry)
-            // intact — batching the call would silently drop those already-landed files from
-            // `migrationTouchedPaths`, so they'd never reach the committer (their baselines are
-            // already reconciled, so the checker wouldn't re-flag them either). Matches the fix
-            // already applied to the headless orchestrator, `ExistingSiteMigration.swift`.
-            for action in plan.toApply {
-                do {
-                    try TemplateScriptsSyncApplier.applyQueued(
-                        [action],
-                        sourceDirectory: resolved.sourceDirectory,
-                        configDirectory: resolved.configDirectory,
-                        templateDirectory: templateURL
-                    )
-                    migrationTouchedPaths.append(action.relativePath)
-                } catch {
-                    Self.logger.error(
-                        "scripts/ silent refresh failed for \(action.relativePath, privacy: .public) in \(resolved.id, privacy: .public): \(String(describing: error), privacy: .public)"
-                    )
-                }
-            }
-            if !plan.divergences.isEmpty {
-                await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                    scriptSyncModel = ScriptSyncModel(
-                        divergences: plan.divergences,
-                        onResolve: { [weak self] divergence, decision in
-                            guard let self else { return false }
-                            do {
-                                try TemplateScriptsSyncApplier.resolve(
-                                    divergence,
-                                    decision: decision,
-                                    sourceDirectory: resolved.sourceDirectory,
-                                    configDirectory: resolved.configDirectory,
-                                    templateDirectory: templateURL
-                                )
-                                if decision == .update {
-                                    migrationTouchedPaths.append(divergence.relativePath)
-                                }
-                                return true
-                            } catch {
-                                // Logged, and the row stays in `ScriptSyncModel.pending` rather than
-                                // being silently marked resolved — a failed write must not read to
-                                // the owner as a successful one (that's the exact failure mode
-                                // #1053 exists to close, just moved one layer down).
-                                Self.logger.error(
-                                    "scripts/ divergence resolve failed for \(divergence.relativePath, privacy: .public): \(String(describing: error), privacy: .public)"
-                                )
-                                return false
-                            }
-                        },
-                        onFinished: { [weak self] in
-                            self?.scriptSyncModel = nil
-                            continuation.resume()
-                        }
-                    )
-                }
-            }
-        }
-
-        // Same mitigation, same reasoning, as the `settle()` call above between the dependency-sync
-        // and scripts-sync sheets: this security.txt sheet is a THIRD `.sheet(item:)` +
-        // `.interactiveDismissDisabled()` presentation that can follow the scripts-sync sheet in
-        // the same synchronous continuation-resumption stack, and without settling here a
-        // silently-failed presentation would leave this method's `CheckedContinuation` unresumed
-        // forever — hanging the site open with no way to dismiss.
-        await AppKitConstraintStormMitigation.settle()
-
-        switch SecurityTxtMigrationChecker.check(sourceDirectory: resolved.sourceDirectory) {
-        case .nothingToDo:
-            break
-        case .silentBackfillMode(let mode):
-            migrationTouchedPaths += SecurityTxtMigrationApplier.applyBackfill(
-                mode: mode, sourceDirectory: resolved.sourceDirectory
-            )
-        case .silentAdopt:
-            // Already positively resolved by the checker (marker-owned, or an exact match against
-            // the old generator's shape) — applies the same way an unmodified `scripts/` file
-            // silently refreshes above, no decision needed even interactively.
-            migrationTouchedPaths += SecurityTxtMigrationApplier.applyDecision(
-                .adopt, sourceDirectory: resolved.sourceDirectory
-            )
-        case .needsDecision:
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                securityTxtMigrationModel = SecurityTxtMigrationModel { [weak self] decision in
-                    guard let self else { continuation.resume(); return }
-                    migrationTouchedPaths += SecurityTxtMigrationApplier.applyDecision(
-                        decision, sourceDirectory: resolved.sourceDirectory
-                    )
-                    self.securityTxtMigrationModel = nil
-                    continuation.resume()
-                }
-            }
-        }
-
-        let migrationCommitted = await ExistingSiteMigrationCommitter.commit(
-            touchedPaths: migrationTouchedPaths,
+        // One implementation for this windowed path and the headless App Intents path
+        // (`SiteOperations.deploy` → `ExistingSiteMigration.runNoninteractively`): app-owned files
+        // are created/refreshed/restored identically on both; only the one genuinely ambiguous
+        // item — a hand-authored `security.txt` the checker can't classify — is a question, and
+        // here it's asked through the Adopt/Preserve sheet (#745).
+        let migration = await ExistingSiteMigration.run(
             sourceDirectory: resolved.sourceDirectory,
             configDirectory: resolved.configDirectory,
-            message: "chore: migrate existing site to current template baseline"
+            templateDirectory: TemplateRuntime.resolve().url,
+            securityTxtDecision: { [weak self] in
+                await self?.askSecurityTxtDecision() ?? .preserve
+            },
+            source: "site:\(resolved.id):open"
         )
-        if !migrationCommitted {
+        siteUpdateNotice = SiteOpenUpdateNotice.build(migration: migration, dependencyOffers: appliedDependencyOffers)
+        if !migration.committed {
             // Files are correctly migrated on disk (git-recoverable either way) but the commit
             // itself failed — surfaced per the design doc's "surface partial failures"
             // requirement rather than silently retrying forever with no signal. The pending-commit
-            // record (Task 7) already ensures the next site-open retries it.
+            // record already ensures the next site-open retries it.
             Self.logger.error(
                 "existing-site migration wrote files for \(resolved.id, privacy: .public) but couldn't commit them — will retry on next open"
             )
         }
-        if migrationCommitted, !migrationTouchedPaths.isEmpty, wasRuntimeAlreadyReady {
+        if migration.committed, !migration.isEmpty, wasRuntimeAlreadyReady {
             // The common case (a fresh site-open) hasn't started the runtime yet at this point in
             // `loadAndStart()`, so `preview.open()` below naturally picks up the migrated files.
             // This only fires for the narrow case where the runtime was already running before

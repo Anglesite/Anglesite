@@ -158,34 +158,18 @@ import Foundation
         ])
     }
 
-    @Test func acknowledgedDivergenceAtTheSameTemplateHashIsSkipped() throws {
+    @Test func aLegacyKeepMineAcknowledgementNoLongerSuppressesTheDivergence() throws {
+        // Pre-#1962 baselines could carry `acknowledgedTemplateHash` from a "keep my version" the
+        // owner once chose. Owner decision D1/D5 (2026-09-08): app-owned files are the app's to
+        // keep current and keep-mine is never honored — so the old key decodes harmlessly and the
+        // file is queued as a divergence (restored) exactly like any other changed copy.
         let template = try makeTemplate("new template content")
         let (source, config) = makeSite()
         try writeFile("owner's customized content", to: source.appendingPathComponent("scripts/pre-deploy-check.ts"))
-        var baseline = TemplateScriptsBaseline()
-        baseline.files["scripts/pre-deploy-check.ts"] = .init(
-            baselineHash: VectorMath.stableHash("scaffolded content"),
-            acknowledgedTemplateHash: VectorMath.stableHash("new template content")
-        )
-        try baseline.save(to: config)
-
-        let plan = TemplateScriptsSyncChecker.check(
-            sourceDirectory: source, configDirectory: config, templateDirectory: template
-        )
-        #expect(plan.toApply.isEmpty)
-        #expect(plan.divergences.isEmpty)
-    }
-
-    @Test func divergenceIsRequeuedWhenTemplateChangesAgainAfterAnAcknowledgement() throws {
-        let template = try makeTemplate("yet another template revision")
-        let (source, config) = makeSite()
-        try writeFile("owner's customized content", to: source.appendingPathComponent("scripts/pre-deploy-check.ts"))
-        var baseline = TemplateScriptsBaseline()
-        baseline.files["scripts/pre-deploy-check.ts"] = .init(
-            baselineHash: VectorMath.stableHash("scaffolded content"),
-            acknowledgedTemplateHash: VectorMath.stableHash("new template content")  // an older revision
-        )
-        try baseline.save(to: config)
+        let legacyBaseline = """
+        {"files":{"scripts/pre-deploy-check.ts":{"baselineHash":"\(VectorMath.stableHash("scaffolded content"))","acknowledgedTemplateHash":"\(VectorMath.stableHash("new template content"))"}}}
+        """
+        try writeFile(legacyBaseline, to: config.appendingPathComponent(TemplateScriptsBaseline.filename))
 
         let plan = TemplateScriptsSyncChecker.check(
             sourceDirectory: source, configDirectory: config, templateDirectory: template
@@ -194,7 +178,7 @@ import Foundation
         #expect(plan.divergences == [
             TemplateScriptsDivergence(
                 relativePath: "scripts/pre-deploy-check.ts",
-                templateHash: VectorMath.stableHash("yet another template revision")
+                templateHash: VectorMath.stableHash("new template content")
             )
         ])
     }
