@@ -33,11 +33,10 @@ public actor InProcessBackend: SupervisorBackend {
     /// continuation-based rather than `waitUntilExit()`, which blocked a cooperative-pool thread
     /// and deadlocked under load (see `ProcessSupervisorConcurrencyTests`).
     ///
-    /// With a `logCenter`, each pipe goes through the same line reader `launch` uses
-    /// (`attachLineReader`) with a byte accumulator riding along, so the caller gets live lines in
-    /// the debug pane *and* the complete capture — and both drain tasks are awaited before the
-    /// exit code is read, so the last line has landed before this returns (#1966). Without one,
-    /// the pipes are simply read to EOF.
+    /// With a `logCenter`, each pipe is drained by `streamToEnd`,
+    /// which splits lines into the debug pane as they arrive *and* hands back the complete
+    /// capture — both drains are awaited before the exit code is read, so the last line has
+    /// landed before this returns (#1966). Without one, the pipes are simply read to EOF.
     ///
     /// - Throws: ``SupervisorBackendError/spawnFailed(_:)`` when the executable can't be
     ///   launched at all (missing binary, bad permissions); a non-zero exit is *not* an error —
@@ -73,24 +72,15 @@ public actor InProcessBackend: SupervisorBackend {
         let out: Data
         let err: Data
         if let logCenter {
-            let stdoutCapture = DataAccumulator()
-            let stderrCapture = DataAccumulator()
-            let stdoutDrain = Self.attachLineReader(
-                to: stdoutPipe.fileHandleForReading, source: spec.logSource, stream: .stdout,
-                logCenter: logCenter, capture: stdoutCapture)
-            let stderrDrain = Self.attachLineReader(
-                to: stderrPipe.fileHandleForReading, source: spec.logSource, stream: .stderr,
-                logCenter: logCenter, capture: stderrCapture)
-            await stdoutDrain.value
-            await stderrDrain.value
-            out = stdoutCapture.contents
-            err = stderrCapture.contents
+            async let stdoutData = Self.streamToEnd(
+                stdoutPipe, source: spec.logSource, stream: .stdout, logCenter: logCenter)
+            async let stderrData = Self.streamToEnd(
+                stderrPipe, source: spec.logSource, stream: .stderr, logCenter: logCenter)
+            (out, err) = await (stdoutData, stderrData)
         } else {
             async let stdoutData = Self.readToEnd(stdoutPipe)
             async let stderrData = Self.readToEnd(stderrPipe)
-            let (capturedOut, capturedErr) = await (stdoutData, stderrData)
-            out = capturedOut
-            err = capturedErr
+            (out, err) = await (stdoutData, stderrData)
         }
         let exitCode = await exitLatch.value()
 
@@ -100,6 +90,36 @@ public actor InProcessBackend: SupervisorBackend {
     private static func readToEnd(_ pipe: Pipe) async -> Data {
         await Task.detached(priority: .userInitiated) {
             (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
+        }.value
+    }
+
+    /// Streaming counterpart of `readToEnd` for the one-shot path (#1966): blocking chunked
+    /// reads on the same kind of detached task, each chunk split into complete lines that are
+    /// appended to `logCenter` under `source` before the next read, and the whole capture
+    /// returned at EOF (trailing partial line included, both in the capture and the pane).
+    ///
+    /// Deliberately *not* `attachLineReader`'s `readabilityHandler`, which is what `launch` uses:
+    /// swift-corelibs-foundation never delivers EOF through that handler for a `Process` pipe, so
+    /// on Linux a one-shot drained that way waits forever (the portable suite's
+    /// `runStreamsBothPipes` hung there). A blocking read loop is what `readToEnd` already
+    /// relied on, and it behaves the same on Darwin and Glibc.
+    private static func streamToEnd(
+        _ pipe: Pipe, source: String, stream: LogCenter.Stream, logCenter: LogCenter
+    ) async -> Data {
+        await Task.detached(priority: .userInitiated) {
+            let handle = pipe.fileHandleForReading
+            let buffer = LineBuffer()
+            var captured = Data()
+            while let chunk = try? handle.read(upToCount: 65_536), !chunk.isEmpty {
+                captured.append(chunk)
+                for line in buffer.append(chunk) {
+                    await logCenter.append(source: source, stream: stream, text: line)
+                }
+            }
+            if let trailing = buffer.flush() {
+                await logCenter.append(source: source, stream: stream, text: trailing)
+            }
+            return captured
         }.value
     }
 
@@ -652,15 +672,12 @@ public actor InProcessBackend: SupervisorBackend {
     /// the handler finishes the stream and the drain `Task` ends — so awaiting the returned
     /// `Task` is equivalent to "every byte read from this pipe has been written to LogCenter".
     /// That awaitable boundary is what `finalize` uses to fix the prior race where the process
-    /// could exit before its last few log lines landed. `capture`, when given, also receives
-    /// every raw byte — `runOneShot` uses it to hand the complete output back while still
-    /// streaming lines live.
+    /// could exit before its last few log lines landed.
     private static func attachLineReader(
         to handle: FileHandle,
         source: String,
         stream: LogCenter.Stream,
-        logCenter: LogCenter,
-        capture: DataAccumulator? = nil
+        logCenter: LogCenter
     ) -> Task<Void, Never> {
         let buffer = LineBuffer()
         let (lineStream, continuation) = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
@@ -677,7 +694,6 @@ public actor InProcessBackend: SupervisorBackend {
                 handle.readabilityHandler = nil
                 return
             }
-            capture?.append(data)
             for line in buffer.append(data) {
                 continuation.yield(line)
             }
@@ -687,23 +703,6 @@ public actor InProcessBackend: SupervisorBackend {
             for await line in lineStream {
                 await logCenter.append(source: source, stream: stream, text: line)
             }
-        }
-    }
-
-    /// Lock-guarded byte sink for `attachLineReader`'s `capture` — appended from the
-    /// libdispatch readability handler, read once the drain task has finished.
-    private final class DataAccumulator: @unchecked Sendable {
-        private let lock = NSLock()
-        private var data = Data()
-
-        func append(_ chunk: Data) {
-            lock.lock(); defer { lock.unlock() }
-            data.append(chunk)
-        }
-
-        var contents: Data {
-            lock.lock(); defer { lock.unlock() }
-            return data
         }
     }
 
