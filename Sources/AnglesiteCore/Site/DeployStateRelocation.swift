@@ -27,7 +27,8 @@ public enum DeployStateRelocation {
     /// The `.site-config` keys that move to `SiteSettings`, in the order they are migrated.
     public static let legacyMarkerKeys = ["CF_WORKER_DEPLOYED", "CF_WORKER_PROVISIONED", "CF_SOURCE_BUCKET"]
 
-    /// What ``check(sourceDirectory:configDirectory:)`` found still living in `Source/`.
+    /// What ``DeployStateRelocation/check(sourceDirectory:configDirectory:fileManager:)`` found still
+    /// living in `Source/`.
     public struct Plan: Equatable, Sendable {
         /// `Source/wrangler.toml` exists and must move (or, if `Config/` already has one, go).
         public var legacyWranglerConfigPresent = false
