@@ -290,6 +290,7 @@ public actor BackupCommand {
     /// git remains correct here rather than a gap to fill.
     public static let defaultRunner: GitRunner = { siteDirectory, arguments in
         try await ProcessSupervisor.shared.run(
+            source: "git:backup",
             executable: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: ["git"] + arguments,
             currentDirectoryURL: siteDirectory

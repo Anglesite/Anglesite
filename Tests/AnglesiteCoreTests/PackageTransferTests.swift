@@ -179,6 +179,7 @@ struct PackageTransferTests {
     @discardableResult
     private func gitFixture(_ arguments: [String], in dir: URL) async throws -> ProcessSupervisor.RunResult {
         try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: ["git"] + arguments,
             currentDirectoryURL: dir

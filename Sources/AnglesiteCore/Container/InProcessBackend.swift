@@ -4,6 +4,8 @@
 import Foundation
 #if canImport(Darwin)
 import Darwin
+#elseif canImport(Glibc)
+import Glibc
 #endif
 
 /// The `SupervisorBackend`: spawns and supervises subprocesses with `Process()` directly, in the
@@ -31,10 +33,16 @@ public actor InProcessBackend: SupervisorBackend {
     /// continuation-based rather than `waitUntilExit()`, which blocked a cooperative-pool thread
     /// and deadlocked under load (see `ProcessSupervisorConcurrencyTests`).
     ///
+    /// With a `logCenter`, each pipe goes through the same line reader `launch` uses
+    /// (`attachLineReader`) with a byte accumulator riding along, so the caller gets live lines in
+    /// the debug pane *and* the complete capture — and both drain tasks are awaited before the
+    /// exit code is read, so the last line has landed before this returns (#1966). Without one,
+    /// the pipes are simply read to EOF.
+    ///
     /// - Throws: ``SupervisorBackendError/spawnFailed(_:)`` when the executable can't be
     ///   launched at all (missing binary, bad permissions); a non-zero exit is *not* an error —
     ///   it comes back in ``ProcessResult/exitCode``.
-    public func runOneShot(_ spec: SpawnSpec) async throws -> ProcessResult {
+    public func runOneShot(_ spec: SpawnSpec, logCenter: LogCenter?) async throws -> ProcessResult {
         let process = Process()
         process.executableURL = spec.executable
         process.arguments = spec.arguments
@@ -62,9 +70,28 @@ public actor InProcessBackend: SupervisorBackend {
             throw SupervisorBackendError.spawnFailed(String(describing: error))
         }
 
-        async let stdoutData = Self.readToEnd(stdoutPipe)
-        async let stderrData = Self.readToEnd(stderrPipe)
-        let (out, err) = await (stdoutData, stderrData)
+        let out: Data
+        let err: Data
+        if let logCenter {
+            let stdoutCapture = DataAccumulator()
+            let stderrCapture = DataAccumulator()
+            let stdoutDrain = Self.attachLineReader(
+                to: stdoutPipe.fileHandleForReading, source: spec.logSource, stream: .stdout,
+                logCenter: logCenter, capture: stdoutCapture)
+            let stderrDrain = Self.attachLineReader(
+                to: stderrPipe.fileHandleForReading, source: spec.logSource, stream: .stderr,
+                logCenter: logCenter, capture: stderrCapture)
+            await stdoutDrain.value
+            await stderrDrain.value
+            out = stdoutCapture.contents
+            err = stderrCapture.contents
+        } else {
+            async let stdoutData = Self.readToEnd(stdoutPipe)
+            async let stderrData = Self.readToEnd(stderrPipe)
+            let (capturedOut, capturedErr) = await (stdoutData, stderrData)
+            out = capturedOut
+            err = capturedErr
+        }
         let exitCode = await exitLatch.value()
 
         return ProcessResult(stdout: out, stderr: err, exitCode: exitCode)
@@ -74,6 +101,128 @@ public actor InProcessBackend: SupervisorBackend {
         await Task.detached(priority: .userInitiated) {
             (try? pipe.fileHandleForReading.readToEnd()) ?? Data()
         }.value
+    }
+
+    // MARK: Daemon-tolerant one-shot
+
+    /// See `SupervisorBackend.runDetaching` and `ProcessSupervisor.runDetaching` for the why.
+    /// The work runs on a detached task because `waitpid` blocks its thread, and the cooperative
+    /// pool must never host a blocking wait — the same reasoning that moved `runOneShot` off
+    /// `waitUntilExit()`.
+    public func runDetaching(_ spec: SpawnSpec) async throws -> ProcessResult {
+        try await Task.detached(priority: .userInitiated) {
+            try Self.spawnAndWait(spec)
+        }.value
+    }
+
+    /// `posix_spawn` + `waitpid`, with stdin from `/dev/null` (a daemonizing child must never
+    /// inherit — and hold — the app's stdin) and stdout/stderr redirected to two private capture
+    /// files the child's daemon grandchild can keep open without affecting us: once the direct
+    /// child has exited we read whatever it wrote and delete the files. No shell is involved, so
+    /// argv needs no quoting. The environment is always passed explicitly (the spec's, else the
+    /// app's own) rather than through the `environ` global, which Swift doesn't expose uniformly
+    /// across Darwin and Glibc.
+    private static func spawnAndWait(_ spec: SpawnSpec) throws -> ProcessResult {
+        let token = UUID().uuidString
+        let captureDirectory = FileManager.default.temporaryDirectory
+        let stdoutPath = captureDirectory.appendingPathComponent("anglesite-detach-\(token).out").path
+        let stderrPath = captureDirectory.appendingPathComponent("anglesite-detach-\(token).err").path
+        defer {
+            try? FileManager.default.removeItem(atPath: stdoutPath)
+            try? FileManager.default.removeItem(atPath: stderrPath)
+        }
+
+        // `posix_spawn_file_actions_t` is an opaque pointer on Darwin (the C API takes it as an
+        // optional) and a struct on Glibc.
+        #if canImport(Darwin)
+        var fileActions: posix_spawn_file_actions_t? = nil
+        #else
+        var fileActions = posix_spawn_file_actions_t()
+        #endif
+        guard posix_spawn_file_actions_init(&fileActions) == 0 else {
+            throw SupervisorBackendError.spawnFailed("posix_spawn_file_actions_init failed")
+        }
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+        let stdinResult = "/dev/null".withCString { path in
+            posix_spawn_file_actions_addopen(&fileActions, 0, path, O_RDONLY, 0)
+        }
+        guard stdinResult == 0 else {
+            throw SupervisorBackendError.spawnFailed("couldn't redirect stdin from /dev/null (errno \(stdinResult))")
+        }
+        for (fd, path) in [(Int32(1), stdoutPath), (Int32(2), stderrPath)] {
+            let openResult = path.withCString { cPath in
+                posix_spawn_file_actions_addopen(&fileActions, fd, cPath, O_WRONLY | O_CREAT | O_TRUNC, 0o600)
+            }
+            guard openResult == 0 else {
+                throw SupervisorBackendError.spawnFailed("couldn't redirect fd \(fd) to a capture file (errno \(openResult))")
+            }
+        }
+        if let cwd = spec.workingDirectory {
+            let chdirResult = cwd.path.withCString { posix_spawn_file_actions_addchdir_np(&fileActions, $0) }
+            guard chdirResult == 0 else {
+                throw SupervisorBackendError.spawnFailed("couldn't set working directory \(cwd.path) (errno \(chdirResult))")
+            }
+        }
+
+        // `posix_spawn` hands the child every fd this process holds open, and a daemonizing
+        // child's grandchild (conmon) then keeps them for its whole life — including the write
+        // end of any pipe a concurrent `run`/`launch` is draining, whose reader would never see
+        // EOF: the very hang this primitive exists to avoid, relocated. Close everything above
+        // stderr in the child; fds 0–2 were just re-opened by the file actions above and stay.
+        // Caught by the portable test suite running its `run` and `runDetaching` cases in
+        // parallel: the `printf` run took exactly as long as the other case's `sleep 5 &`.
+        #if canImport(Darwin)
+        var attributes: posix_spawnattr_t? = nil
+        guard posix_spawnattr_init(&attributes) == 0 else {
+            throw SupervisorBackendError.spawnFailed("posix_spawnattr_init failed")
+        }
+        defer { posix_spawnattr_destroy(&attributes) }
+        guard posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_CLOEXEC_DEFAULT)) == 0 else {
+            throw SupervisorBackendError.spawnFailed("posix_spawnattr_setflags(POSIX_SPAWN_CLOEXEC_DEFAULT) failed")
+        }
+        #else
+        let closeFromResult = posix_spawn_file_actions_addclosefrom_np(&fileActions, 3)
+        guard closeFromResult == 0 else {
+            throw SupervisorBackendError.spawnFailed("couldn't schedule closefrom(3) in the child (errno \(closeFromResult))")
+        }
+        #endif
+
+        let argv: [UnsafeMutablePointer<CChar>?] = ([spec.executable.path] + spec.arguments).map { strdup($0) } + [nil]
+        defer { for pointer in argv { free(pointer) } }
+        let environment = spec.environment ?? ProcessInfo.processInfo.environment
+        let envp: [UnsafeMutablePointer<CChar>?] = environment.map { strdup("\($0.key)=\($0.value)") } + [nil]
+        defer { for pointer in envp { free(pointer) } }
+
+        var pid: pid_t = 0
+        #if canImport(Darwin)
+        let spawnResult = posix_spawn(&pid, spec.executable.path, &fileActions, &attributes, argv, envp)
+        #else
+        let spawnResult = posix_spawn(&pid, spec.executable.path, &fileActions, nil, argv, envp)
+        #endif
+        guard spawnResult == 0 else {
+            throw SupervisorBackendError.spawnFailed("\(spec.executable.path): \(String(cString: strerror(spawnResult)))")
+        }
+
+        var status: Int32 = 0
+        while waitpid(pid, &status, 0) == -1 {
+            guard errno == EINTR else {
+                throw SupervisorBackendError.spawnFailed("waitpid(\(pid)) failed: \(String(cString: strerror(errno)))")
+            }
+        }
+        return ProcessResult(
+            stdout: FileManager.default.contents(atPath: stdoutPath) ?? Data(),
+            stderr: FileManager.default.contents(atPath: stderrPath) ?? Data(),
+            exitCode: exitCode(fromWaitStatus: status)
+        )
+    }
+
+    /// `WEXITSTATUS`/`WTERMSIG` by hand — the C macros don't import into Swift. A death by
+    /// signal maps to `128 + signal` (the shell convention) so it can't be mistaken for a clean
+    /// exit, which the old `(status >> 8) & 0xff` alone would have reported as 0.
+    static func exitCode(fromWaitStatus status: Int32) -> Int32 {
+        let signal = status & 0x7f
+        return signal == 0 ? (status >> 8) & 0xff : 128 + signal
     }
 
     /// One-shot async bridge for `Process.terminationHandler`: register before `run()`, then
@@ -503,12 +652,15 @@ public actor InProcessBackend: SupervisorBackend {
     /// the handler finishes the stream and the drain `Task` ends — so awaiting the returned
     /// `Task` is equivalent to "every byte read from this pipe has been written to LogCenter".
     /// That awaitable boundary is what `finalize` uses to fix the prior race where the process
-    /// could exit before its last few log lines landed.
+    /// could exit before its last few log lines landed. `capture`, when given, also receives
+    /// every raw byte — `runOneShot` uses it to hand the complete output back while still
+    /// streaming lines live.
     private static func attachLineReader(
         to handle: FileHandle,
         source: String,
         stream: LogCenter.Stream,
-        logCenter: LogCenter
+        logCenter: LogCenter,
+        capture: DataAccumulator? = nil
     ) -> Task<Void, Never> {
         let buffer = LineBuffer()
         let (lineStream, continuation) = AsyncStream<String>.makeStream(bufferingPolicy: .unbounded)
@@ -525,6 +677,7 @@ public actor InProcessBackend: SupervisorBackend {
                 handle.readabilityHandler = nil
                 return
             }
+            capture?.append(data)
             for line in buffer.append(data) {
                 continuation.yield(line)
             }
@@ -534,6 +687,23 @@ public actor InProcessBackend: SupervisorBackend {
             for await line in lineStream {
                 await logCenter.append(source: source, stream: stream, text: line)
             }
+        }
+    }
+
+    /// Lock-guarded byte sink for `attachLineReader`'s `capture` — appended from the
+    /// libdispatch readability handler, read once the drain task has finished.
+    private final class DataAccumulator: @unchecked Sendable {
+        private let lock = NSLock()
+        private var data = Data()
+
+        func append(_ chunk: Data) {
+            lock.lock(); defer { lock.unlock() }
+            data.append(chunk)
+        }
+
+        var contents: Data {
+            lock.lock(); defer { lock.unlock() }
+            return data
         }
     }
 

@@ -43,7 +43,7 @@ struct PodmanContainerControlIntegrationTests {
             ["-c", "user.email=test@example.com", "-c", "user.name=Test", "add", "marker.txt"],
             ["-c", "user.email=test@example.com", "-c", "user.name=Test", "commit", "-q", "-m", "initial"],
         ] {
-            let result = try await supervisor.run(executable: git, arguments: args, currentDirectoryURL: dir)
+            let result = try await supervisor.run(source: "test", executable: git, arguments: args, currentDirectoryURL: dir)
             #expect(result.exitCode == 0, "git \(args) failed: \(result.stderr)")
         }
         return dir
@@ -95,6 +95,7 @@ struct PodmanContainerControlIntegrationTests {
 
         // Teardown actually removed the container (--rm), not just stopped it.
         let psResult = try await ProcessSupervisor().run(
+            source: "test",
             executable: URL(fileURLWithPath: "/usr/bin/podman"),
             arguments: ["ps", "-a", "--filter", "name=\(PodmanContainerControl.containerName(for: siteID))", "--format", "{{.Names}}"]
         )

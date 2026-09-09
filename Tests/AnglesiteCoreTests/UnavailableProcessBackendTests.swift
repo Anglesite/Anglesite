@@ -15,7 +15,13 @@ struct UnavailableProcessBackendTests {
 
     @Test func runOneShotThrowsSpawnFailed() async {
         await #expect(throws: SupervisorBackendError.self) {
-            _ = try await backend.runOneShot(spec)
+            _ = try await backend.runOneShot(spec, logCenter: nil)
+        }
+    }
+
+    @Test func runDetachingThrowsSpawnFailed() async {
+        await #expect(throws: SupervisorBackendError.self) {
+            _ = try await backend.runDetaching(spec)
         }
     }
 

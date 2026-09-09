@@ -40,8 +40,19 @@ public typealias RespawnHandler = @Sendable () async -> Void
 /// helper was removed per the Task 6.7 spike.
 /// The protocol is kept as a clean boundary and test seam (`MockBackend`).
 public protocol SupervisorBackend: Sendable {
-    /// Synchronous one-shot. Spawns, drains stdout+stderr concurrently, waits for exit.
-    func runOneShot(_ spec: SpawnSpec) async throws -> ProcessResult
+    /// Synchronous one-shot. Spawns, drains stdout+stderr concurrently, waits for exit. When
+    /// `logCenter` is non-nil, every line is also streamed into it under `spec.logSource` as it
+    /// arrives, and all of them have landed before this returns; `nil` captures only (the
+    /// supervisor passes `nil` for `ProcessSupervisor.RunLogging.redacted`/`.relayed`).
+    func runOneShot(_ spec: SpawnSpec, logCenter: LogCenter?) async throws -> ProcessResult
+
+    /// One-shot for a command that forks a daemon which outlives it (`podman run -d` → conmon).
+    /// Spawns without `Foundation.Process` — whose exit detection hangs on such a child on
+    /// Linux — and captures stdout/stderr through files, since a pipe would stay open in the
+    /// daemon grandchild. Output is therefore available only after exit; the supervisor replays
+    /// it into the log center itself, which is why this takes none. See
+    /// `ProcessSupervisor.runDetaching`.
+    func runDetaching(_ spec: SpawnSpec) async throws -> ProcessResult
 
     /// Long-lived spawn. Returns once the process is launched. Stdout/stderr lines flow into
     /// `logCenter` tagged with `spec.logSource`. The restart loop (`restartPolicy` enforcement +
@@ -89,7 +100,12 @@ public struct UnavailableProcessBackend: SupervisorBackend {
     private static let message = "Subprocess spawning is unavailable on this platform."
 
     /// Always throws `SupervisorBackendError.spawnFailed` — no process ever runs here.
-    public func runOneShot(_ spec: SpawnSpec) async throws -> ProcessResult {
+    public func runOneShot(_ spec: SpawnSpec, logCenter: LogCenter?) async throws -> ProcessResult {
+        throw SupervisorBackendError.spawnFailed(Self.message)
+    }
+
+    /// Always throws `SupervisorBackendError.spawnFailed` — no process ever runs here.
+    public func runDetaching(_ spec: SpawnSpec) async throws -> ProcessResult {
         throw SupervisorBackendError.spawnFailed(Self.message)
     }
 
