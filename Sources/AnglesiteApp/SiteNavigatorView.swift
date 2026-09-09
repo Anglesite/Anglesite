@@ -8,10 +8,10 @@ struct SiteNavigatorView: View {
     /// True while the live preview's `WKWebView` holds real keyboard focus elsewhere in the window
     /// (#1423, widened #1715) — while true, this view's `.onDeleteCommand` AND its
     /// `.background`-attached ⌘⌫ Button are both withheld, so nothing here competes with the
-    /// preview's own delete/text-editing handling for the keystroke. Covers both the full
-    /// `wysiwygCanvas` block editor AND the overlay JS's lighter-weight `contentEditable`
-    /// quick-edit (e.g. clicking a page/post title) — see `PreviewModel.hasKeyboardFocus`'s doc
-    /// comment for why the two need one shared flag rather than a canvas-only check. See
+    /// preview's own delete/text-editing handling for the keystroke. Covers the `wysiwygCanvas`
+    /// block editor's text editing AND plain focus on a link or video while the canvas is off or
+    /// being replaced on a navigation (#1957) — see `PreviewModel.hasKeyboardFocus`'s doc
+    /// comment for why that needs one pane-level flag rather than a canvas-only check. See
     /// `SiteWindow.previewPane(for:)`'s matching canvas-side gate and
     /// `onDeleteCommand(active:perform:)`'s doc comment (`PreviewView.swift`) for why two
     /// simultaneously-attached handlers made AppKit's Edit ▸ Delete menu unreliable.

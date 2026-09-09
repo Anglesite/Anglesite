@@ -6,6 +6,7 @@
 "Example photo" checklist row), #32 (closed — shipped the replace-only drag-drop
 pipeline this issue extends), #496 (closed epic — Component Editor write path),
 #960 (disabled-`PlannedItem` UX, orthogonal)
+**Note (2026-09-08, #1957):** the overlay drop-insert branch below was superseded — the click-to-edit overlay is removed; dropping onto an `<img>` is `JS/wysiwyg-engine/src/host/image-drop.ts` (replace in place) and dropping away from any picture is the preview pane's native `.onDrop` insert (#1588). The `insert-image` op and sidecar side are as described.
 
 ## 1. Summary
 
