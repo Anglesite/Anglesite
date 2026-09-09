@@ -2798,6 +2798,9 @@
     "No component usage learned yet." : {
 
     },
+    "No console messages." : {
+
+    },
     "No contacts yet" : {
 
     },
@@ -2844,6 +2847,9 @@
 
     },
     "No matching graph nodes" : {
+
+    },
+    "No network requests observed." : {
 
     },
     "No open reports." : {
@@ -3691,6 +3697,12 @@
     "Route Reports to GitHub" : {
 
     },
+    "Run Again" : {
+
+    },
+    "Run Verification" : {
+
+    },
     "Run again" : {
 
     },
@@ -3698,6 +3710,12 @@
 
     },
     "Running" : {
+
+    },
+    "Running a Safari-backed verification pass…" : {
+
+    },
+    "Runs one read-only inspection pass of the live preview over the connected Safari MCP session — console errors, failed network requests, a page-content summary, and a screenshot. It never edits site files." : {
 
     },
     "Runtime host" : {
@@ -3716,6 +3734,9 @@
 
     },
     "Safari MCP runs locally on this Mac. Once bridged, it can expose the active Safari tab's page content, screenshots, and console logs to whatever is listening on that port — only run the bridge command when you trust what's on the other end." : {
+
+    },
+    "Safari Verification…" : {
 
     },
     "Save" : {
@@ -3980,6 +4001,9 @@
 
     },
     "Show this content in traditional search results." : {
+
+    },
+    "Showing the first 200 entries." : {
 
     },
     "Shows the most recent pre-deploy scan results" : {
@@ -4518,6 +4542,9 @@
     "UTM Codes" : {
 
     },
+    "Unavailable — %@" : {
+
+    },
     "Unavailable — newer edits have been made since" : {
 
     },
@@ -4642,6 +4669,9 @@
 
     },
     "Verifies via /.well-known/atproto-did when the site is published here; otherwise adds a DNS record." : {
+
+    },
+    "Verify with Safari?" : {
 
     },
     "Vertically" : {
@@ -4847,6 +4877,16 @@
     },
     "Zoom Out" : {
 
+    },
+    "[%@] %@" : {
+      "localizations" : {
+        "en" : {
+          "stringUnit" : {
+            "state" : "new",
+            "value" : "[%1$@] %2$@"
+          }
+        }
+      }
     },
     "^[%lld contact](inflect: true)" : {
 

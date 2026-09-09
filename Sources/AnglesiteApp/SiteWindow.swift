@@ -1333,6 +1333,12 @@ struct SiteWindow: View {
         .sheet(isPresented: $bindableModel.onionRouting.sheetPresented) {
             OnionRoutingSheetView(model: model.onionRouting)
         }
+        .sheet(isPresented: $bindableModel.safariVerification.sheetPresented) {
+            SafariVerificationSheetView(
+                model: model.safariVerification,
+                onRun: { model.runSafariVerification() }
+            )
+        }
         .sheet(isPresented: Binding(
             get: { bindableModel.styleGuide?.sheetPresented ?? false },
             set: { bindableModel.styleGuide?.sheetPresented = $0 }
