@@ -435,25 +435,34 @@ struct SiteScaffolderTests {
     /// CommandRunner the other tests use) to confirm .site-config is still generated correctly
     /// now that the heredoc has been replaced with printf. Other tests in this file mock
     /// scaffold.sh entirely, so they wouldn't catch a reintroduced heredoc-shaped regression here.
+    ///
+    /// Runs under `TemplateBuildSerializer` because the script rsyncs the *shared*
+    /// `Resources/Template/` tree, which the render-smoke suites build into and `rm -rf dist`
+    /// around — rsync walking into a directory being deleted underneath it exits 23 (#1955).
+    /// scaffold.sh now also excludes `dist/` outright (guarded hermetically by the template's own
+    /// `scripts/scaffold.test.ts`), so this lock is belt-and-braces: it keeps the case from ever
+    /// observing a half-deleted template regardless of the exclude list.
     @Test(
         "the real scaffold.sh script writes .site-config without a heredoc",
         .enabled(if: SiteScaffolderTests.realScaffoldScriptExists, "scaffold.sh not found")
     )
-    func realScaffoldScriptWritesSiteConfigWithoutHeredoc() throws {
+    func realScaffoldScriptWritesSiteConfigWithoutHeredoc() async throws {
         let script = Self.realScaffoldScriptURL()
         let target = tmpDir().appendingPathComponent("scaffold-test")
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/zsh")
-        process.arguments = [script.path, "--yes", target.path]
-        let stderrPipe = Pipe()
-        process.standardError = stderrPipe
-        try process.run()
-        process.waitUntilExit()
+        try await TemplateBuildSerializer.shared.serialize {
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/bin/zsh")
+            process.arguments = [script.path, "--yes", target.path]
+            let stderrPipe = Pipe()
+            process.standardError = stderrPipe
+            try process.run()
+            process.waitUntilExit()
 
-        let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-        #expect(process.terminationStatus == 0, "scaffold.sh failed: \(stderr)")
-        #expect(!stderr.contains("here document"), "heredoc scratch-file error reintroduced: \(stderr)")
+            let stderr = String(data: stderrPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+            #expect(process.terminationStatus == 0, "scaffold.sh failed: \(stderr)")
+            #expect(!stderr.contains("here document"), "heredoc scratch-file error reintroduced: \(stderr)")
+        }
 
         let cfg = try String(contentsOf: target.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(cfg.contains("ANGLESITE_VERSION=1.0.0"))

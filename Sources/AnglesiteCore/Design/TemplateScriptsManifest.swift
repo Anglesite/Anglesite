@@ -10,7 +10,7 @@ import Foundation
 /// `scaffold.sh` copies it wholesale with no excludes of its own, so it belongs in the same
 /// app-owned set as `scripts/` rather than behind #745's general "`src/` is out of scope"
 /// boundary (which is about site content, not this directory). Mirrors `scaffold.sh`'s own
-/// exclude list (`Resources/Template/scripts/scaffold.sh:33-43`) rather than re-parsing the shell
+/// exclude list (`Resources/Template/scripts/scaffold.sh:43-58`) rather than re-parsing the shell
 /// script; the two lists are kept in sync by hand, the same way every other template-path
 /// consumer (`TemplateRuntime`, `ThemeCatalog`) already duplicates path knowledge rather than
 /// sharing it with the shell script.
