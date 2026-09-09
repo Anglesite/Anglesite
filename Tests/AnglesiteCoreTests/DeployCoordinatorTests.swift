@@ -323,10 +323,13 @@ struct DeployCoordinatorTests {
         let dir = try temporaryDirectory()
         let configStore = SiteConfigStore(configDirectory: dir)
         let resources = WorkerComposition.ProvisionedResources(d1DatabaseID: "d1-1", kvNamespaceID: "kv-1", r2BucketName: nil)
+        // The caller's snapshot is what it loaded from this same store at deploy start.
+        let snapshot = SiteSettings(displayName: "Keep Me")
+        try await configStore.save(snapshot)
 
         await DeployCoordinator.persistProvisionedResources(
             configStore: configStore,
-            settings: SiteSettings(displayName: "Keep Me"),
+            settings: snapshot,
             effectiveActiveIDs: ["websub", "indieauth"],
             resources: resources
         )
@@ -334,7 +337,27 @@ struct DeployCoordinatorTests {
         let saved = try await configStore.load()
         #expect(saved.lastDeployedWorkerIDs == ["indieauth", "websub"])
         #expect(saved.provisionedWorkerResources == resources)
-        // Unrelated fields on the passed-in settings are preserved, not clobbered.
+        // Unrelated fields are preserved, not clobbered.
+        #expect(saved.displayName == "Keep Me")
+    }
+
+    @Test("persistProvisionedResources keeps a field another writer set after the caller's snapshot (#1960)")
+    func persistProvisionedResourcesDoesNotClobberConcurrentWrites() async throws {
+        // `CloudflareDeployTarget.persistWorkerDeployed` writes `workerDeployed` into the same
+        // plist while the deploy runs, after `DeployModel` loaded its snapshot — saving that
+        // stale snapshot used to drop the marker.
+        let dir = try temporaryDirectory()
+        let configStore = SiteConfigStore(configDirectory: dir)
+        let snapshot = SiteSettings(displayName: "Keep Me")
+        try await configStore.save(snapshot)
+        try await SiteConfigStore(configDirectory: dir).update { $0.workerDeployed = true }
+
+        await DeployCoordinator.persistProvisionedResources(
+            configStore: configStore, settings: snapshot, effectiveActiveIDs: [], resources: .init()
+        )
+
+        let saved = try await configStore.load()
+        #expect(saved.workerDeployed == true)
         #expect(saved.displayName == "Keep Me")
     }
 
@@ -555,6 +578,8 @@ struct DeployCoordinatorTests {
         let dir = try temporaryDirectory()
         let configStore = SiteConfigStore(configDirectory: dir)
         let resources = WorkerComposition.ProvisionedResources()
+        // The caller's snapshot is what it loaded from this same store at deploy start (#1960).
+        try await configStore.save(SiteSettings(lastDeployedAPUsername: "example.com"))
 
         await DeployCoordinator.persistProvisionedResources(
             configStore: configStore,

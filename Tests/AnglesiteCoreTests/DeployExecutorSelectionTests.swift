@@ -38,6 +38,7 @@ struct DeployExecutorSelectionTests {
         let executor = ContainerDeployExecutor(
             control: fake,
             siteID: "site-1",
+            configDirectory: TestSiteLayout.configDirectory(for: tmpDir),
             logCenter: LogCenter()
         )
         let cmd = DeployCommand(
@@ -50,7 +51,7 @@ struct DeployExecutorSelectionTests {
         // build→preflight→wrangler flow reaches all three exec() calls (wrangler then fails on the
         // missing URL, but only AFTER routing). Asserting `== 3` proves every step routes through
         // the container; step-argv ordering is covered by `allStepsRouteViaContainer`.
-        _ = await cmd.deploy(siteID: "site-1", siteDirectory: tmpDir)
+        _ = await cmd.deploy(siteID: "site-1", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         let calls = await fake.execCalls
         #expect(calls.count == 3, "all three deploy steps must route through container control.exec()")
         #expect(calls.allSatisfy { $0.siteID == "site-1" })
@@ -63,9 +64,9 @@ struct DeployExecutorSelectionTests {
             execResult: ContainerExecResult(exitCode: 0, stdout: scanOK, stderr: ""),
             execStdoutLines: []
         )
-        let executor = ContainerDeployExecutor(control: fake, siteID: "my-site", logCenter: LogCenter())
+        let executor = ContainerDeployExecutor(control: fake, siteID: "my-site", configDirectory: TestSiteLayout.configDirectory(for: tmpDir), logCenter: LogCenter())
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: executor)
-        _ = await cmd.deploy(siteID: "my-site", siteDirectory: tmpDir)
+        _ = await cmd.deploy(siteID: "my-site", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         let calls = await fake.execCalls
         for call in calls {
             #expect(call.siteID == "my-site")
@@ -89,7 +90,7 @@ struct DeployExecutorSelectionTests {
             resolveCommand: { _ in { _ in .unavailable(reason: "host path chosen") } }
         )
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: hostExecutor)
-        _ = await cmd.deploy(siteID: "site-1", siteDirectory: tmpDir)
+        _ = await cmd.deploy(siteID: "site-1", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         let calls = await fake.execCalls
         #expect(calls.isEmpty, "container control.exec() must NOT be called when the host executor is used")
     }
@@ -100,9 +101,9 @@ struct DeployExecutorSelectionTests {
     func allStepsRouteViaContainer() async {
         // Use a step-aware fake: intercept exec calls in order and return the right payload.
         let stepAware = StepAwareFakeContainerControl()
-        let executor = ContainerDeployExecutor(control: stepAware, siteID: "s", logCenter: LogCenter())
+        let executor = ContainerDeployExecutor(control: stepAware, siteID: "s", configDirectory: TestSiteLayout.configDirectory(for: tmpDir), logCenter: LogCenter())
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: executor)
-        _ = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        _ = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         let calls = await stepAware.calls
         let argvs = calls.map(\.argv)
         #expect(argvs.count == 3)

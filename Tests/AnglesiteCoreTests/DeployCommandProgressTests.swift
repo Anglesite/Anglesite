@@ -12,6 +12,8 @@ struct DeployCommandProgressTests {
         let exec = BlockingPreflightExecutor()
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "token" }), executor: exec)
         _ = await cmd.deploy(siteID: "s", siteDirectory: URL(fileURLWithPath: NSTemporaryDirectory()),
+                             configDirectory: FileManager.default.temporaryDirectory
+                                 .appendingPathComponent("DeployCommandProgressTests-\(UUID().uuidString)", isDirectory: true),
                              onProgress: { recorder.record($0) })
         let phases = recorder.phases()
         #expect(phases.prefix(2) == ["building", "preflightScan"])

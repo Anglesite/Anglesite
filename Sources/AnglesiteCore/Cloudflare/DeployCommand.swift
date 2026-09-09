@@ -9,7 +9,7 @@ import Foundation
 /// A deploy is a single foreground action, run through the injected `DeployExecutor` seam for the
 /// steps this spine owns directly (build, preflight). Container runtimes run the steps in a
 /// guest; the default process-backed executor fails explicitly after embedded Node retirement.
-///   1. `target.authorize(siteDirectory:)` — credential resolution plus any target-specific
+///   1. `target.authorize(siteDirectory:configDirectory:)` — credential resolution plus any target-specific
 ///      fail-fast checks (e.g. Cloudflare's worker-name-conflict and domain-config-drift checks).
 ///      `.blocked` short-circuits immediately, before any build time is spent.
 ///   2. `executor.runBuildWithClaimManifest(…)` so `dist/` is fresh — the build carries the derived
@@ -55,7 +55,7 @@ public actor DeployCommand {
         case blocked(failures: [PreDeployCheck.ScanFailure], warnings: [PreDeployCheck.ScanWarning])
         /// The candidate Worker name (`.site-config`'s `CF_PROJECT_NAME`) already exists on the
         /// connected Cloudflare account, and this site has never deployed before
-        /// (`CF_WORKER_DEPLOYED` is not yet set in `.site-config`) — refusing to silently let
+        /// (`SiteSettings.workerDeployed` is not yet set, #1960) — refusing to silently let
         /// `wrangler deploy` take over an unrelated (or stale) Worker. Carries the taken name for
         /// the UI's rename prompt (#740).
         case workerNameConflict(name: String)
@@ -196,13 +196,11 @@ public actor DeployCommand {
     public func deploy(
         siteID: String,
         siteDirectory: URL,
-        /// The site's `Config/` directory. `nil` skips route-coverage scanning and the
-        /// deployed-routes snapshot write entirely — callers that don't pass it (tests, and the
-        /// two non-primary deploy paths in `SocialWorkerProvisionCommand`/`SiteOperations`) are
-        /// unaffected (#530).
-        configDirectory: URL? = nil,
-        /// The site's currently published route set (from `SiteContentGraph`), used only when
-        /// `configDirectory` is non-nil.
+        /// The site's `Config/` directory — home of the generated `wrangler.toml`, the deploy
+        /// markers (#1960), and the deployed-routes snapshot that route-coverage scanning
+        /// compares against (#530).
+        configDirectory: URL,
+        /// The site's currently published route set (from `SiteContentGraph`).
         currentRoutes: [String] = [],
         /// Effective active dynamic `/.well-known/` route claims (#746), already validated via
         /// `WorkerRouteClaims.activeClaims` and filtered with `WorkerRouteClaims.wellKnownClaims`.
@@ -225,7 +223,7 @@ public actor DeployCommand {
         // build or scan. The credential comes back opaque here — only the target that produced it
         // knows what to do with it.
         let credential: String
-        switch await target.authorize(siteDirectory: siteDirectory) {
+        switch await target.authorize(siteDirectory: siteDirectory, configDirectory: configDirectory) {
         case .blocked(let result):
             return result
         case .ready(let resolvedCredential):
@@ -356,15 +354,13 @@ public actor DeployCommand {
         // Swift-computed warnings, not emitted by the JS scan script — merged into the outcome
         // the same way `RouteCoverageScanner`'s `.orphanedRoute` findings always have been.
         var extraWarnings = wellKnownScanWarnings + wellKnownArtifactWarnings
-        if let configDirectory {
-            let previousRoutes = DeployedRoutesSnapshot.load(from: configDirectory)
-            let redirects = (try? RedirectsStore(sourceDirectory: siteDirectory).load()) ?? []
-            extraWarnings += RouteCoverageScanner.scan(
-                currentRoutes: currentRoutes,
-                previousRoutes: previousRoutes,
-                redirectSources: Set(redirects.map(\.source))
-            )
-        }
+        let previousRoutes = DeployedRoutesSnapshot.load(from: configDirectory)
+        let redirects = (try? RedirectsStore(sourceDirectory: siteDirectory).load()) ?? []
+        extraWarnings += RouteCoverageScanner.scan(
+            currentRoutes: currentRoutes,
+            previousRoutes: previousRoutes,
+            redirectSources: Set(redirects.map(\.source))
+        )
         if !extraWarnings.isEmpty {
             switch preflightOutcome {
             case .passed(let warnings):

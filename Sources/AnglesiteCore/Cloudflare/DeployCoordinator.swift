@@ -449,6 +449,8 @@ public enum DeployCoordinator {
     /// failed one, so this never throws.
     public static func persistProvisionedResources(
         configStore: SiteConfigStore,
+        /// The caller's deploy-start snapshot. Kept for source compatibility and as
+        /// documentation of intent; the write itself re-reads the store (see the body).
         settings: SiteSettings,
         effectiveActiveIDs: Set<String>,
         resources: WorkerComposition.ProvisionedResources,
@@ -468,16 +470,21 @@ public enum DeployCoordinator {
         /// every other site, leaving the field untouched (it's already `nil` there).
         communityActorURL: URL? = nil
     ) async {
-        var updated = settings
-        updated.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
-        updated.provisionedWorkerResources = resources
-        if let apUsername {
-            updated.lastDeployedAPUsername = apUsername
+        // Read-modify-write against the file's *current* contents, not the `settings` snapshot
+        // the caller loaded at deploy start (#1960): the deploy target writes `workerDeployed`/
+        // `workerProvisioned` and `deployedSourceBundleCommit` into the same plist while the
+        // deploy runs, and saving the stale snapshot would silently drop them. `settings` is
+        // only the fallback when the file can't be read at all.
+        try? await configStore.update { current in
+            current.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
+            current.provisionedWorkerResources = resources
+            if let apUsername {
+                current.lastDeployedAPUsername = apUsername
+            }
+            if let communityActorURL {
+                current.communityActorURL = communityActorURL
+            }
         }
-        if let communityActorURL {
-            updated.communityActorURL = communityActorURL
-        }
-        try? await configStore.save(updated)
     }
 
     /// Runs the eight post-deploy passes — webmention-send, Standard.site record publish,

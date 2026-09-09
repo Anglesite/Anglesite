@@ -84,7 +84,7 @@ struct DeployDrawerView: View {
                         .foregroundStyle(.secondary)
                 }
                 // First-publish nudge (#1180): shown exactly once, on the deploy that flips
-                // `.site-config`'s CF_WORKER_DEPLOYED from unset to set. `wasFirstDeploy`
+                // `SiteSettings.workerDeployed` from unset to set (#1960). `wasFirstDeploy`
                 // structurally cannot be true again for this site afterward, so this line cannot
                 // reappear on a later deploy — no separate "already prompted" flag is needed.
                 // Gated on `domainAttachStatus` too: the sheet is reachable before a first

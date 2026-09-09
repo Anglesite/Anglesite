@@ -47,7 +47,7 @@ final class DeployModel {
     private(set) var failureSummary: DeployFailureSummary?
     /// "Code changes not yet deployed" status for the deployed-source bundle (#799). Refreshed
     /// after every successful deploy; `nil` before any deploy has completed this session or when
-    /// the check couldn't be performed. `.notConfigured` (no `CF_SOURCE_BUCKET`) is the expected
+    /// the check couldn't be performed. `.notConfigured` (no `sourceBundleBucket`) is the expected
     /// value for every site today — the drawer only renders a line for `.dirty`.
     private(set) var sourceBundleStatus: SourceBundleStatus?
     /// Outcome of attempting to attach this site's configured "Transfer an existing domain" host
@@ -59,12 +59,12 @@ final class DeployModel {
     /// session, or when the deploy never confirmed a custom domain (no zone to apply it to).
     private(set) var markdownForAgentsStatus: MarkdownForAgentsCommand.Result?
     /// Whether the deploy currently in flight (or most recently completed) is this site's first
-    /// successful publish — captured from `.site-config`'s `CF_WORKER_DEPLOYED` *before* the
+    /// successful publish — captured from `SiteSettings.workerDeployed` *before* the
     /// deploy pipeline runs (#1180), so it reflects the site's history going into this attempt,
     /// not the flag `DeployCommand` writes as a side effect of this same deploy succeeding.
     /// `DeployDrawerView` reads this on `.succeeded` to show the one-time "connect a domain?"
     /// nudge — it can structurally never be true again for a site after its first successful
-    /// deploy, since that deploy is what sets `CF_WORKER_DEPLOYED`.
+    /// deploy, since that deploy is what sets `workerDeployed`.
     ///
     /// A background/automatic publish (`deployAutomatically`, `presentation: .background`) can
     /// also be a site's first successful deploy, and this flag flips correctly for it. But
@@ -715,7 +715,8 @@ final class DeployModel {
             return
         }
         do {
-            try WorkerNameRename.apply(newName: newName, siteDirectory: pending.siteDirectory)
+            try WorkerNameRename.apply(
+                newName: newName, siteDirectory: pending.siteDirectory, configDirectory: pending.configDirectory)
         } catch let error as WorkerNameRename.RenameError {
             switch error {
             case .invalidName:
@@ -960,7 +961,7 @@ final class DeployModel {
     ) async -> DeployCommand.Result {
         defer { suddenTerminationLease.release() }
         transition(siteID: siteID, to: .running(siteID: siteID, since: Date()))
-        wasFirstDeploy = !CloudflareDeployTarget.hasDeployedBefore(siteDirectory: siteDirectory)
+        wasFirstDeploy = await !CloudflareDeployTarget.hasDeployedBefore(configDirectory: configDirectory)
         logLines = []
         currentMilestone = nil
         currentMilestonePhase = nil
@@ -1016,9 +1017,11 @@ final class DeployModel {
             containerExecutor = ContainerDeployExecutor(
                 control: cc.control,
                 siteID: cc.siteID,
+                configDirectory: configDirectory,
                 logCenter: logCenter
             )
-            let containerCommandRunner = ContainerCommandRunner(control: cc.control, siteID: cc.siteID, logCenter: logCenter)
+            let containerCommandRunner = ContainerCommandRunner(
+                control: cc.control, siteID: cc.siteID, configDirectory: configDirectory, logCenter: logCenter)
             containerSecretRunner = containerCommandRunner.secretRunner
         } else {
             containerExecutor = command.executor
@@ -1217,6 +1220,7 @@ final class DeployModel {
         let provisionResult = await socialCommand.provision(
             siteID: siteID,
             siteDirectory: siteDirectory,
+            configDirectory: configDirectory,
             siteName: workerSiteName,
             workers: workers,
             routeClaims: effectiveRouteClaims.map(\.claim),
@@ -1235,7 +1239,6 @@ final class DeployModel {
             moderators: isHostedCommunity ? settings.moderators : nil,
             experiments: runningExperiments,
             mcpEnabled: mcpEnabled,
-            configDirectory: configDirectory,
             currentRoutes: currentRoutes,
             onPreflight: { [weak self] outcome in
                 Task { @MainActor in self?.onScanComplete?(outcome) }
@@ -1284,9 +1287,10 @@ final class DeployModel {
             // Handled below by `persistProvisionedResources`, which also writes
             // `provisionedWorkerResources` alongside its `.succeeded`-only fields.
         } else {
-            var resourcesOnlyUpdate = settings
-            resourcesOnlyUpdate.provisionedWorkerResources = provisionResult.resources
-            try? await configStore.save(resourcesOnlyUpdate)
+            // Read-modify-write (#1960): `SocialWorkerProvisionTarget.authorize` wrote
+            // `workerProvisioned` into this same plist during the attempt — saving the
+            // deploy-start `settings` snapshot would drop it.
+            try? await configStore.update { $0.provisionedWorkerResources = provisionResult.resources }
         }
 
         if case .webmentionPaidPlanConfirmationNeeded = provisionResult {

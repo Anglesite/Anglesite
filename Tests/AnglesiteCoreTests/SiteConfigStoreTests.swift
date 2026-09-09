@@ -348,4 +348,32 @@ struct SiteConfigStoreTests {
         let resavedBytes = try Data(contentsOf: fileURL)
         #expect(resavedBytes == fixtureBytes)
     }
+
+    @Test("deploy markers round-trip through settings.plist and default to nil (#1960)")
+    func deployMarkersRoundTrip() async throws {
+        let dir = try tempConfigDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        let store = SiteConfigStore(configDirectory: dir)
+        #expect(try await store.load().workerDeployed == nil)
+        try await store.save(SiteSettings(workerDeployed: true, workerProvisioned: true, sourceBundleBucket: "acme-source"))
+        let loaded = try await store.load()
+        #expect(loaded.workerDeployed == true)
+        #expect(loaded.workerProvisioned == true)
+        #expect(loaded.sourceBundleBucket == "acme-source")
+    }
+
+    @Test("update is a read-modify-write that preserves fields another writer set (#1960)")
+    func updatePreservesConcurrentlyWrittenFields() async throws {
+        let dir = try tempConfigDir()
+        defer { try? FileManager.default.removeItem(at: dir.deletingLastPathComponent()) }
+        try SiteConfigStore.write(SiteSettings(displayName: "Acme"), to: dir)
+        // A second writer lands between this store's construction and its update — the update
+        // must start from what's on disk now, not from a stale snapshot.
+        try await SiteConfigStore(configDirectory: dir).update { $0.workerProvisioned = true }
+        let saved = try await SiteConfigStore(configDirectory: dir).update { $0.workerDeployed = true }
+        #expect(saved.displayName == "Acme")
+        #expect(saved.workerProvisioned == true)
+        #expect(saved.workerDeployed == true)
+        #expect(try SiteConfigStore.read(from: dir) == saved)
+    }
 }

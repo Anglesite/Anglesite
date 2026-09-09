@@ -99,6 +99,14 @@ flowchart TB
   executes lives in the site's `Source/`, so the app also pins its hash and restores it on
   mismatch (decision D5, `specs/2026-09-08-product-direction-review-decisions.md`).
 - **Amended 2026-09-08:** the PCC tier in the diagram is the intended escalation path, not a live one; see the boundary table.
+- **`Source/` holds content; `Config/` holds infrastructure (D6, #1960).** The generated
+  `wrangler.toml` and the deploy markers (`workerDeployed` / `workerProvisioned` /
+  `sourceBundleBucket` in `settings.plist`) live in the package's `Config/`, never in the git
+  repo; the deploy path stages `wrangler.toml` into the guest before every wrangler call that
+  reads it. `.site-config`'s template-read keys, `annotations.json` and `docs/DESIGN.md` /
+  `docs/brand.md` are content and stay committed — the full classification and the test that
+  decides a borderline file are in
+  [`specs/2026-09-08-site-file-ownership-classification-decision.md`](specs/2026-09-08-site-file-ownership-classification-decision.md).
 - **This is the current state, not a future one.** The container runtimes landed (#66/#69/#70):
   the diagram reflects how Anglesite runs today — all JavaScript executes in-guest via the
   per-site container's MCP HTTP/WS transport, and the host-spawned Node sidecar plus the

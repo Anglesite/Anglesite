@@ -10,14 +10,18 @@ import Foundation
 public struct ContainerCommandRunner: Sendable {
     private let control: any LocalContainerControl
     private let siteID: String
+    private let configDirectory: URL
     private let logCenter: LogCenter
 
-    /// Creates a runner bound to `siteID`'s already-running container. Every line of command
-    /// output streams into `logCenter` (default: the shared debug-pane log — logs are sacred,
-    /// so provisioning output is never dropped even though callers only see the final result).
-    public init(control: any LocalContainerControl, siteID: String, logCenter: LogCenter = .shared) {
+    /// Creates a runner bound to `siteID`'s already-running container. `configDirectory` is the
+    /// site package's `Config/`, whose `wrangler.toml` is staged into the guest before `wrangler
+    /// secret put` (#1960). Every line of command output streams into `logCenter` (default: the
+    /// shared debug-pane log — logs are sacred, so provisioning output is never dropped even
+    /// though callers only see the final result).
+    public init(control: any LocalContainerControl, siteID: String, configDirectory: URL, logCenter: LogCenter = .shared) {
         self.control = control
         self.siteID = siteID
+        self.configDirectory = configDirectory
         self.logCenter = logCenter
     }
 
@@ -43,6 +47,21 @@ public struct ContainerCommandRunner: Sendable {
         environment: [String: String],
         source: String
     ) async throws -> ProcessSupervisor.RunResult {
+        // `wrangler secret put` resolves the Worker's name from `wrangler.toml` in the working
+        // directory, and the guest's clone of `Source/` no longer carries one (#1960) — stage the
+        // host package's `Config/wrangler.toml` first, exactly as `ContainerDeployExecutor` does
+        // before `wrangler deploy`. A site with no config yet has nothing to stage; wrangler then
+        // reports the missing name itself.
+        if let stagingArgv = WranglerInvocation.configStagingArgv(configDirectory: configDirectory) {
+            let staged = try await control.exec(
+                siteID: siteID, argv: stagingArgv, environment: [:],
+                workingDirectory: "/workspace/site", onOutput: { _, _ in })
+            guard staged.exitCode == 0 else {
+                return ProcessSupervisor.RunResult(
+                    stdout: "", stderr: "couldn't sync wrangler.toml into the container (exit \(staged.exitCode))",
+                    exitCode: staged.exitCode)
+            }
+        }
         var guestEnvironment = WranglerInvocation.guestEnvironment(from: environment, scope: .tokenOnly)
         guestEnvironment["WRANGLER_SECRET_NAME"] = name
         guestEnvironment["WRANGLER_SECRET_VALUE"] = value

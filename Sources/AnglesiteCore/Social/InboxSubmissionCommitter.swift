@@ -127,11 +127,35 @@ public enum InboxSubmissionCommitter {
         SwiftGit2Bootstrap.ensureInitialized
         guard case .success(let repo) = Repository.at(projectRoot) else { return nil }
         for relPath in relPaths {
-            guard case .success = repo.add(path: relPath) else { return nil }
+            // `add(path:)` is `git_index_add_all`, which leaves a deleted file's index entry in
+            // place — a path that's gone from the working tree (e.g. `DeployStateRelocation`
+            // moving `Source/wrangler.toml` out of the repo, #1960) is staged as a removal
+            // instead, the way `git add <deleted-path>` records it.
+            if FileManager.default.fileExists(atPath: projectRoot.appendingPathComponent(relPath).path) {
+                guard case .success = repo.add(path: relPath) else { return nil }
+            } else {
+                guard case .success = repo.remove(path: relPath) else { return nil }
+            }
         }
         let signature = await GitIdentity.signature(for: repo)
         guard case .success(let commit) = repo.commit(message: message, signature: signature) else { return nil }
         return commit.oid.description
+    }
+
+    /// Whether `relPath` is tracked by the repo at `projectRoot` — specifically, whether the
+    /// index still carries it even though the working tree no longer does (`git status`'s
+    /// "deleted" state). `false` for an untracked path, or when `projectRoot` isn't a repo at
+    /// all. `ExistingSiteMigrationCommitter` uses this to keep a deliberately removed tracked
+    /// file in its batch so ``processGitCommitBatch(_:_:_:)`` commits the removal (#1960).
+    @Sendable public static func isTracked(_ projectRoot: URL, _ relPath: String) async -> Bool {
+        SwiftGit2Bootstrap.ensureInitialized
+        guard case .success(let repo) = Repository.at(projectRoot),
+              case .success(let entries) = repo.status(options: [])
+        else { return false }
+        return entries.contains { entry in
+            (entry.status.contains(.workTreeDeleted) || entry.status.contains(.indexDeleted))
+                && (entry.indexToWorkDir?.oldFile?.path == relPath || entry.headToIndex?.oldFile?.path == relPath)
+        }
     }
     #else
     /// Stages and commits multiple relative paths in one commit — the batched counterpart to
@@ -154,6 +178,15 @@ public enum InboxSubmissionCommitter {
               let head = await run(["rev-parse", "HEAD"])
         else { return nil }
         return head.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// Off-Darwin counterpart of the Darwin `isTracked` above: `git ls-files --error-unmatch`
+    /// exits 0 only for a path the index knows.
+    @Sendable public static func isTracked(_ projectRoot: URL, _ relPath: String) async -> Bool {
+        let git = URL(fileURLWithPath: "/usr/bin/git")
+        let result = try? await ProcessSupervisor.shared.run(
+            executable: git, arguments: ["ls-files", "--error-unmatch", "--", relPath], currentDirectoryURL: projectRoot)
+        return result?.exitCode == 0
     }
     #endif
 }

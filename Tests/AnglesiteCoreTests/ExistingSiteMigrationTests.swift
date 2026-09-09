@@ -39,6 +39,45 @@ import Foundation
         #expect(lines.isEmpty)
     }
 
+    @Test func relocatesLegacyDeployStateIntoConfigWithoutAskingOrLoggingAFinding() async throws {
+        // #1960: a pre-relocation site carries wrangler.toml and the CF_WORKER_* markers inside
+        // Source/. The app knows where its own state belongs, so this is a silent step — no
+        // "unresolved ownership" finding, and the moved paths ride the same batch commit as every
+        // other migration write. The commit itself fails here (a bare temp dir isn't a git repo),
+        // which is exactly what the pending-commit record is for; that path is asserted on
+        // separately below.
+        let (source, config, template) = tmpDirs()
+        let logCenter = LogCenter()
+        try writeFile("shared", to: template.appendingPathComponent("scripts/pre-deploy-check.ts"))
+        try writeFile("shared", to: source.appendingPathComponent("scripts/pre-deploy-check.ts"))
+        try writeFile("name = \"acme\"\n", to: source.appendingPathComponent("wrangler.toml"))
+        try writeFile("SECURITY_TXT_MODE=disabled\nCF_PROJECT_NAME=acme\nCF_WORKER_DEPLOYED=true\n", to: source.appendingPathComponent(".site-config"))
+        try writeFile("node_modules/\n", to: source.appendingPathComponent(".gitignore"))
+
+        await ExistingSiteMigration.runNoninteractively(
+            sourceDirectory: source, configDirectory: config, templateDirectory: template,
+            source: "test", logCenter: logCenter
+        )
+
+        #expect(WranglerConfigFile.read(configDirectory: config) == "name = \"acme\"\n")
+        #expect(!FileManager.default.fileExists(atPath: source.appendingPathComponent("wrangler.toml").path))
+        #expect(try SiteConfigStore.read(from: config).workerDeployed == true)
+        let siteConfig = try String(contentsOf: source.appendingPathComponent(".site-config"), encoding: .utf8)
+        #expect(!siteConfig.contains("CF_WORKER_DEPLOYED"))
+        #expect(siteConfig.contains("CF_PROJECT_NAME=acme"))
+        let gitignore = try String(contentsOf: source.appendingPathComponent(".gitignore"), encoding: .utf8)
+        #expect(gitignore.split(separator: "\n").contains("wrangler.toml"))
+
+        let lines = await logCenter.snapshot()
+        #expect(!lines.contains { $0.text.contains("unresolved ownership") })
+        // The relocated paths are queued for commit: `.site-config` and `.gitignore` exist on
+        // disk, and `wrangler.toml` is excluded only because this temp dir isn't a repo that
+        // tracks it (see `ExistingSiteMigrationCommitterTests` for the tracked-deletion case).
+        let pending = ExistingSiteMigrationPendingCommit.load(from: config).pendingPaths
+        #expect(pending.contains(".site-config"))
+        #expect(pending.contains(".gitignore"))
+    }
+
     @Test func unbaselinedCustomizedScriptFileIsPreservedAndReportedAsUnresolved() async throws {
         let (source, config, template) = tmpDirs()
         let logCenter = LogCenter()

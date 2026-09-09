@@ -26,11 +26,20 @@ import Foundation
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    @Test("no CF_SOURCE_BUCKET configured reports .notConfigured")
+    @Test("no sourceBundleBucket in settings reports .notConfigured")
     func notConfigured() async throws {
         let siteDir = try makeGitRepo()
         defer { try? FileManager.default.removeItem(at: siteDir) }
-        // No .site-config at all.
+        let status = await SourceBundleStatus.check(siteDirectory: siteDir, settings: SiteSettings())
+        #expect(status == .notConfigured)
+    }
+
+    @Test("a legacy CF_SOURCE_BUCKET left in .site-config is not consulted (#1960 — the bucket lives in settings)")
+    func legacySiteConfigKeyIsIgnored() async throws {
+        let siteDir = try makeGitRepo()
+        defer { try? FileManager.default.removeItem(at: siteDir) }
+        try "CF_SOURCE_BUCKET=my-site-source\n".write(
+            to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
         let status = await SourceBundleStatus.check(siteDirectory: siteDir, settings: SiteSettings())
         #expect(status == .notConfigured)
     }
@@ -39,10 +48,9 @@ import Foundation
     func notYetUploaded() async throws {
         let siteDir = try makeGitRepo()
         defer { try? FileManager.default.removeItem(at: siteDir) }
-        try "CF_SOURCE_BUCKET=my-site-source\n".write(
-            to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
-        let status = await SourceBundleStatus.check(siteDirectory: siteDir, settings: SiteSettings())
+        let status = await SourceBundleStatus.check(
+            siteDirectory: siteDir, settings: SiteSettings(sourceBundleBucket: "my-site-source"))
         #expect(status == .notYetUploaded)
     }
 
@@ -50,13 +58,11 @@ import Foundation
     func upToDate() async throws {
         let siteDir = try makeGitRepo()
         defer { try? FileManager.default.removeItem(at: siteDir) }
-        try "CF_SOURCE_BUCKET=my-site-source\n".write(
-            to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
         let head = await currentHEAD(of: siteDir)
 
         let status = await SourceBundleStatus.check(
             siteDirectory: siteDir,
-            settings: SiteSettings(deployedSourceBundleCommit: head)
+            settings: SiteSettings(deployedSourceBundleCommit: head, sourceBundleBucket: "my-site-source")
         )
         #expect(status == .upToDate)
     }
@@ -65,8 +71,6 @@ import Foundation
     func dirty() async throws {
         let siteDir = try makeGitRepo()
         defer { try? FileManager.default.removeItem(at: siteDir) }
-        try "CF_SOURCE_BUCKET=my-site-source\n".write(
-            to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
         let uploadedCommit = await currentHEAD(of: siteDir)
 
         // A new commit lands after the upload.
@@ -81,7 +85,7 @@ import Foundation
 
         let status = await SourceBundleStatus.check(
             siteDirectory: siteDir,
-            settings: SiteSettings(deployedSourceBundleCommit: uploadedCommit)
+            settings: SiteSettings(deployedSourceBundleCommit: uploadedCommit, sourceBundleBucket: "my-site-source")
         )
         #expect(status == .dirty(uploadedCommit: uploadedCommit, currentCommit: currentCommit))
     }

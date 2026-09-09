@@ -18,6 +18,7 @@ Architecture decision records (ADRs): specs named `…-decision.md` / `…-decis
 
 | Date | Title | Issue | Status |
 |---|---|---|---|
+| 2026-09-08 | [Site file ownership: what lives in `Source/` versus `Config/`](2026-09-08-site-file-ownership-classification-decision.md) | [#1960](https://github.com/Anglesite/Anglesite/issues/1960) | current |
 | 2026-09-08 | [Product direction review — decision record (2026-09-08)](2026-09-08-product-direction-review-decisions.md) | [#1957](https://github.com/Anglesite/Anglesite/issues/1957), [#1968](https://github.com/Anglesite/Anglesite/issues/1968) | current |
 | 2026-06-29 | [C.1: Adopt IndieWeb as the Explicit Content + Protocol Model](2026-06-29-c1-indieweb-content-model-decision.md) | [#340](https://github.com/Anglesite/Anglesite/issues/340), [#334](https://github.com/Anglesite/Anglesite/issues/334) | current |
 
