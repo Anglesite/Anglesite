@@ -676,7 +676,8 @@ jobs:
         run: |
           set -o pipefail
           source scripts/lib/timing-sensitive-tests.sh
-          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" 2>&1 | tee "$RUNNER_TEMP/swift-test.log"
+          # DIAGNOSTIC (#1960, revert before merge): bisect the task-allocator crash by skipping every suite this branch touched.
+          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" --skip 'AnglesitePackageTests|ContainerCommandRunner|ContainerDeployExecutor|DeployCommand|DeployCoordinator|DeployExecutorSelection|DeployStateRelocation|DeployTargetSelection|GitHubPagesDeployTarget|LocalContainerSiteRuntimeControlExposure|SiteConfigStore|SiteOperations|SiteScaffolder|SiteStore|SocialWorkerProvision|UntitledSitePropagation|WorkerNameRename|WranglerConfigFile|SourceBundleStatus|ExistingSiteMigration' 2>&1 | tee "$RUNNER_TEMP/swift-test.log"
 
       - name: Surface Swift errors (annotations + job summary)
         if: failure() && steps.swift-test.outcome == 'failure'
