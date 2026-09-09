@@ -2,6 +2,7 @@
 
 **Date:** 2026-07-08
 **Status:** Approved design (desk analysis — no compilation spikes yet)
+**Supersedes:** the "separate native apps, not ports" direction in `docs/specs/2026-06-26-personal-publishing-os-pivot-analysis.md` §5.8 — reconfirmed as a shared-code port by the owner on 2026-09-08 (`docs/specs/2026-09-08-product-direction-review-decisions.md` D2).
 **Scope decisions (owner-approved):** platform-native AI by default with opt-in external LLMs via Settings; all-Swift per-platform UI bindings; native containers per platform; incremental seams in the existing package (no separate kit repo, no daemon restructuring).
 
 ## 1. Summary

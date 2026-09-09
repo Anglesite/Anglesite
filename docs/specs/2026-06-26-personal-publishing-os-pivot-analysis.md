@@ -2,6 +2,7 @@
 
 **Date:** 2026-06-26
 **Status:** Analysis / strategy review (no implementation)
+**Amended 2026-09-08:** three "decided" items below were reversed by later owner decisions — §5.4 (import: now in scope), §5.5 (Cloudflare-only deploy: now a `DeployTarget` seam with GitHub Pages), and §5.8 (Windows/Linux: now a shared-code port). See [`2026-09-08-product-direction-review-decisions.md`](2026-09-08-product-direction-review-decisions.md) D2/D3.
 **Input:** The "Anglesite Vision — A Personal Publishing Operating System" brief.
 **Question answered:** What would actually have to change — in product scope,
 architecture, and roadmap — to pivot the shipping app to this vision?

@@ -1,6 +1,6 @@
 # Anglesite Mac App — Build Plan
 
-**Status:** Active — Phases 0–9 complete, Phase 10 in progress
+**Status:** Active — Phases 0–9 complete, Phase 10 in progress. The phase model covers the release track only; the 2026-08/09 epics below run on per-epic slices. Product-direction decisions from the 2026-09-08 review: [`specs/2026-09-08-product-direction-review-decisions.md`](specs/2026-09-08-product-direction-review-decisions.md).
 **Companion design doc:** [`anglesite/docs/dev/mac-app-design.md`](../../anglesite/docs/dev/mac-app-design.md)
 **Audience:** Contributors building the native macOS app in this repo.
 
@@ -175,6 +175,15 @@ These issues target macOS 27 APIs available with Xcode 27 / Swift 6.4 (all lande
 - **Curated theme ports (#1179, status 2026-08-27)** — port MIT-licensed Astro themes into the template chassis as layout/component/style packs, browsed by a category sidebar in the New Site chooser (follow-up to the #1071 template chooser, PR #1183). Spec: [`docs/superpowers/specs/2026-07-31-curated-theme-ports-design.md`](superpowers/specs/2026-07-31-curated-theme-ports-design.md). Landed: curation criteria + shortlist ([`docs/theme-curation.md`](theme-curation.md), PR #1200 — AstroWind, Astro Cactus, AstroPaper, Starfolio, Astroplate, all MIT-verified), the pack mechanism (catalog `category`/`pack`/`thumbnail`/`credit` fields, `PackApplier` overlay, `check-pack.ts` port-contract lint, per-pack CI build loop — PR #1205), the chooser category sidebar + `SITE_TYPE` recording (#1452, PR #1458), and the QA/docs mop-up (#1199). Remaining: the theme ports themselves — one issue per shortlisted theme (~5), unblocked since #1452 landed but **not yet filed**; until they land, `Resources/Template/packs/` doesn't exist and every non-Blank chooser category shows an empty grid.
 - **v2.0 / deferred:** Cloudflare remote runtime (#66, needs Workers Paid plan for boot smoke), iOS thin client (#71) under the iOS/iPadOS epic (#342), multi-editor collaboration (#399). Quick-capture posting (#531) graduated out of this list — see the Phase 10 entry above.
 - **Blocked / external:** Safari MCP preview debugging (#453), CI `#if compiler(>=6.4)` cleanup once GH runners ship Xcode 27 (#128).
+
+**Added 2026-09-08** — epics active since the snapshot above, none of which the phase model contains:
+
+- **Modern WYSIWYG page editor (#1221)** — block editor on the true render, slices 1–6 (`docs/superpowers/specs/2026-08-03-modern-wysiwyg-editor-design.md`). Per decision D4 it is the only editing surface; `JS/edit-overlay` is removed before 1.0 (#1957). Gates v1.0 (D8: #617 + #1256 + #1221 + #1957 + #1958).
+- **Site-window AppKit shell (#1699)** — replaces `NavigationSplitView`/`.inspector()` chrome after the macOS 27 split-storm crash; stages 0–3, slices 1–2 landed.
+- **Anywhere runtime (#1208)** — WebRTC P2P access to the Mac-hosted runtime via the embedded `AnglesiteRemote` login item; P0–P2.
+- **Software factory (#1256)** — automated intake → repro → fix pipeline, Phases A–E (`docs/specs/2026-08-04-software-factory-design.md`). Gates v1.0 (D8).
+- **Deploy-target seam + GitHub Pages (#1015)** and **Website import (#1615)** — both shipped; both amend the pivot's V1 scope (D3).
+- **Gate integrity (D5, #1958/#1959)**, **`wrangler.toml` → `Config/` (D6, #1960)**, **catalog pinning (D7, #1961)**, and the **owner-surface cleanup (D1, #1962–#1964)** — follow-ups from the review, see the decision record §4.
 
 ---
 

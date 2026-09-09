@@ -81,7 +81,7 @@ Notes:
 ## Code guidelines
 
 - **Swift/SwiftUI with Apple frameworks only** — plain SwiftUI + actors, no TCA or third-party state libraries. New dependencies need explicit approval in an issue first.
-- **Process spawning is centralized** in `AnglesiteCore/ProcessSupervisor` — never call `Process()` from a view.
+- **Process spawning is centralized** in `AnglesiteCore/Container/ProcessSupervisor` — never call `Process()` from a view.
 - **Logs are sacred** — every spawned subprocess streams stdout+stderr to the debug pane. Don't silently discard output.
 - **Git is the source of truth for sites** — the app must never become the only way to edit a site. A site's `Source/` repo stays clonable and editable outside the app.
 - **The app cannot bypass the template security gate** — `pre-deploy-check.ts` runs before every deploy; surface failures, don't add overrides.
