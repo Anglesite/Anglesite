@@ -80,7 +80,9 @@ struct ShareComposeModelTests {
 
     @Test("an unparseable URL skips the fetch entirely")
     func invalidURLSkipsFetch() async {
-        let (model, _) = Self.makeModel(urlString: "not a url", metadata: { _ in
+        // `URL(string:)` percent-encodes a stray space these days ("not a url" parses), so use
+        // a string no parser accepts: an unterminated IPv6 host.
+        let (model, _) = Self.makeModel(urlString: "http://[bad", metadata: { _ in
             Issue.record("fetch must not run for an unparseable URL")
             throw URLError(.badURL)
         })

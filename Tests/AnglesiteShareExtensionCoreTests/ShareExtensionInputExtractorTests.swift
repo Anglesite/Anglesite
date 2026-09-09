@@ -1,10 +1,9 @@
 // Tests for the share extension's request parsing (#1968): what Safari hands over — an
 // `NSExtensionItem` with a URL attachment and the page title as content text — and every way
 // that can be missing. Real `NSItemProvider`s, so the URL round-trips through the same
-// `loadItem(forTypeIdentifier:)` path the extension uses.
+// `loadObject(ofClass:)` path the extension uses.
 import Foundation
 import Testing
-import UniformTypeIdentifiers
 @testable import AnglesiteShareExtensionCore
 
 @Suite("ShareExtensionInputExtractor")
@@ -13,7 +12,7 @@ struct ShareExtensionInputExtractorTests {
         let item = NSExtensionItem()
         var attachments = extraProviders
         if let url {
-            attachments.append(NSItemProvider(item: url as NSURL, typeIdentifier: UTType.url.identifier))
+            attachments.append(NSItemProvider(object: url as NSURL))
         }
         item.attachments = attachments
         if let text {
@@ -41,7 +40,7 @@ struct ShareExtensionInputExtractorTests {
 
     @Test("a non-URL attachment ahead of the URL is skipped, not mistaken for the page")
     func skipsNonURLAttachments() async {
-        let text = NSItemProvider(item: "just text" as NSString, typeIdentifier: UTType.plainText.identifier)
+        let text = NSItemProvider(object: "just text" as NSString)
         let input = await ShareExtensionInputExtractor.extract(fromItems: [
             Self.item(url: URL(string: "https://example.com/page")!, text: "Page", extraProviders: [text])
         ])
@@ -52,7 +51,7 @@ struct ShareExtensionInputExtractorTests {
     func missingURLYieldsNil() async {
         #expect(await ShareExtensionInputExtractor.extract(fromItems: []) == nil)
         #expect(await ShareExtensionInputExtractor.extract(fromItems: [Self.item(url: nil, text: "Title")]) == nil)
-        let textOnly = NSItemProvider(item: "text" as NSString, typeIdentifier: UTType.plainText.identifier)
+        let textOnly = NSItemProvider(object: "text" as NSString)
         #expect(await ShareExtensionInputExtractor.extract(fromItems: [Self.item(url: nil, extraProviders: [textOnly])]) == nil)
         #expect(await ShareExtensionInputExtractor.extract(fromItems: ["not an extension item"]) == nil)
     }

@@ -46,8 +46,8 @@ public enum ShareExtensionInputExtractor {
 
         var urlString: String?
         for provider in attachments where provider.hasItemConformingToTypeIdentifier(UTType.url.identifier) {
-            if let value = try? await provider.loadItem(forTypeIdentifier: UTType.url.identifier) as? URL {
-                urlString = value.absoluteString
+            if let url = await loadURL(from: provider) {
+                urlString = url.absoluteString
                 break
             }
         }
@@ -55,5 +55,23 @@ public enum ShareExtensionInputExtractor {
 
         let title = item.attributedContentText?.string.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
         return ShareExtensionInput(urlString: urlString, title: title)
+    }
+
+    /// Loads the URL a `public.url` provider carries via `loadObject(ofClass:)` — the typed API
+    /// Apple points `loadItem(forTypeIdentifier:)` users at since macOS 27, and the only one that
+    /// yields an `NSURL` for every provider shape: Safari's XPC-delivered attachment, and an
+    /// in-process `NSItemProvider` (what the tests build), for which the older `loadItem` returns
+    /// the URL's UTF-8 bytes as `Data` instead — a payload the pre-#1968 extractor silently
+    /// dropped by only accepting `URL`.
+    ///
+    /// - Parameter provider: An attachment that conforms to `public.url`.
+    /// - Returns: The URL, or `nil` when the provider can't produce one.
+    static func loadURL(from provider: NSItemProvider) async -> URL? {
+        guard provider.canLoadObject(ofClass: NSURL.self) else { return nil }
+        return await withCheckedContinuation { (continuation: CheckedContinuation<URL?, Never>) in
+            _ = provider.loadObject(ofClass: NSURL.self) { object, _ in
+                continuation.resume(returning: (object as? NSURL) as URL?)
+            }
+        }
     }
 }
