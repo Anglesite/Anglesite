@@ -277,6 +277,16 @@ final class AppSettingsTests {
         #expect(defaults.object(forKey: "anglesite.preferFoundationModels") != nil)
     }
 
+    // MARK: Developer tools (#1964)
+
+    @Test("developer tools are off by default and round-trip") func developerToolsDefaultOff() {
+        let settings = AppSettings(defaults: defaults)
+        #expect(!settings.developerToolsEnabled)
+        settings.developerToolsEnabled = true
+        #expect(settings.developerToolsEnabled)
+        #expect(defaults.bool(forKey: AppSettings.Key.developerToolsEnabled))
+    }
+
     // MARK: DebugPaneVisibility
 
     @Test("Debug menu always visible in debug builds") func debugMenuAlwaysVisibleInDebugBuilds() {

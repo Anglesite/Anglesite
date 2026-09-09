@@ -39,6 +39,41 @@ public actor SyncConflictResolver {
         public let oursText: String?
         /// The other Mac's version of the file, or `nil` when deleted/binary/too large (see type doc).
         public let theirsText: String?
+        /// When this Mac's side was committed (the conflict's `ourOID` committer time), or `nil`
+        /// when that commit couldn't be read. Drives ``defaultChoice``.
+        public let oursDate: Date?
+        /// When the other Mac's side was committed (the `theirOID` committer time), or `nil`.
+        public let theirsDate: Date?
+
+        /// Owner-facing name for the sheet: the file's name without directory or extension
+        /// (`about` for `src/pages/about.astro`). The full path is a developer detail, exposed
+        /// only as a tooltip.
+        public var displayName: String {
+            URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        }
+
+        /// The side the resolution sheet preselects for this file — see
+        /// ``SyncConflictResolver/defaultChoice(oursDate:theirsDate:)``.
+        public var defaultChoice: Choice {
+            SyncConflictResolver.defaultChoice(oursDate: oursDate, theirsDate: theirsDate)
+        }
+    }
+
+    /// The default the sheet opens with, so the owner is never handed an unanswered per-file
+    /// question (decision D1, #1964: the app advises; it does not delegate the decision). The
+    /// newer edit wins. When the two can't be ordered — either timestamp unreadable, or the same
+    /// instant — this Mac's version stays: it's what the owner is looking at right now, so
+    /// keeping it never changes anything on screen unexpectedly.
+    public static func defaultChoice(oursDate: Date?, theirsDate: Date?) -> Choice {
+        guard let oursDate, let theirsDate, theirsDate > oursDate else { return .keepMine }
+        return .keepTheirs
+    }
+
+    /// ``defaultChoice(oursDate:theirsDate:)`` for every file, keyed by path — the shape
+    /// ``resolve(package:conflict:choices:)`` takes, so the sheet's initial `choices` are exactly
+    /// what Apply would commit untouched.
+    public static func defaultChoices(for files: [ConflictedFile]) -> [String: Choice] {
+        Dictionary(uniqueKeysWithValues: files.map { ($0.path, $0.defaultChoice) })
     }
 
     /// Why a `resolve` call couldn't commit. Messages are lower-case fragments meant to be
@@ -82,11 +117,18 @@ public actor SyncConflictResolver {
               let ourOID = OID(string: conflict.ourOID), let theirOID = OID(string: conflict.theirOID)
         else { return [] }
 
+        // Tip-commit times, not per-path last-touch times: one revwalk per side is enough to
+        // order "which Mac edited more recently", and every path in one conflict shares the
+        // same two tips anyway.
+        let oursDate = (try? repo.commit(ourOID).get())?.committer.time
+        let theirsDate = (try? repo.commit(theirOID).get())?.committer.time
         return conflict.conflictedPaths.map { path in
             ConflictedFile(
                 path: path,
                 oursText: Self.blobText(repo: repo, commitOID: ourOID, path: path),
-                theirsText: Self.blobText(repo: repo, commitOID: theirOID, path: path)
+                theirsText: Self.blobText(repo: repo, commitOID: theirOID, path: path),
+                oursDate: oursDate,
+                theirsDate: theirsDate
             )
         }
     }

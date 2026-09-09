@@ -261,6 +261,9 @@
     "%lld%%" : {
 
     },
+    "(newer)" : {
+
+    },
     "." : {
 
     },
@@ -498,6 +501,9 @@
     "Adds View → Show Debug Pane (⌥⌘D), a live tail of every subprocess. Takes effect on the next launch. You can also hold ⌥ while launching Anglesite to reveal it once." : {
 
     },
+    "Adds a Source tab and code-level Style and Metadata inspectors to the Component Editor, opens your site's other files as plain text, and shows the Safari bridge setup below. Off by default: Anglesite takes care of these files for you, and everything you publish works without them." : {
+
+    },
     "Adds robots.txt rules refusing 17 known AI crawlers (GPTBot, ClaudeBot, and others). This reduces your site's visibility to AI assistants and AI-generated search summaries — it does not affect traditional search engines." : {
 
     },
@@ -579,7 +585,16 @@
     "Anglesite Website" : {
 
     },
+    "Anglesite already has this content saved, so discarding the copy doesn't lose anything" : {
+
+    },
     "Anglesite already supports this — redeploy the site to pick it up." : {
+
+    },
+    "Anglesite couldn't read this component's layout, so it can't be edited visually. It may use code Anglesite doesn't understand yet, or an edit made outside Anglesite may have left it incomplete. Your other pages and components aren't affected." : {
+
+    },
+    "Anglesite keeps the newer version of each. Choose the other version for anything you'd rather keep from this Mac or the other one, then click Apply." : {
 
     },
     "Anglesite lost access to this site, likely after a restart. Double-click to relocate it and restore access." : {
@@ -974,6 +989,9 @@
     "Change to" : {
 
     },
+    "Changed on both Macs" : {
+
+    },
     "Changing your Fediverse handle" : {
 
     },
@@ -1180,6 +1198,9 @@
 
     },
     "Community Name" : {
+
+    },
+    "Compare Both…" : {
 
     },
     "Compare anglesite.json's declared domain/DNS/edge config against live Cloudflare state" : {
@@ -1778,6 +1799,9 @@
     "Destination path (e.g. /new-page)" : {
 
     },
+    "Details" : {
+
+    },
     "Details & Summary" : {
 
     },
@@ -1791,6 +1815,9 @@
 
     },
     "Dev/test only: when this Mac can't boot the local container runtime (e.g. inside a VM without nested virtualization), Anglesite connects preview and editing to a dev server already running on the named host over the trusted local network. Leave the host blank to disable. Takes effect the next time a site window opens." : {
+
+    },
+    "Developer Tools" : {
 
     },
     "Diagnostics" : {
@@ -1877,7 +1904,13 @@
     "Edit its content from the page editor, then choose what counts as a win below." : {
 
     },
+    "Edited on Two Macs" : {
+
+    },
     "Editing" : {
+
+    },
+    "Editing this component's underlying code is a developer tool. Turn on Show Developer Tools in Settings ▸ Advanced to use it." : {
 
     },
     "Editor" : {
@@ -2010,6 +2043,9 @@
 
     },
     "External LLM Endpoint" : {
+
+    },
+    "Extra copies iCloud saved" : {
 
     },
     "Extract" : {
@@ -2606,6 +2642,9 @@
     "Manage in Cloudflare Dashboard →" : {
 
     },
+    "Managed by Anglesite" : {
+
+    },
     "Medium (e.g. feed)" : {
 
     },
@@ -3014,6 +3053,9 @@
     "Open Reports" : {
 
     },
+    "Open Settings…" : {
+
+    },
     "Open Site…" : {
 
     },
@@ -3057,6 +3099,9 @@
 
     },
     "Opens %@ in the default editor" : {
+
+    },
+    "Opens both versions of %@ in Finder so you can compare them before choosing" : {
 
     },
     "Opens both versions of %@ in Finder to compare before choosing" : {
@@ -3952,10 +3997,16 @@
     "Show Related Pages" : {
 
     },
+    "Show Source" : {
+
+    },
     "Show Website Inspector" : {
 
     },
     "Show chat panel" : {
+
+    },
+    "Show developer tools" : {
 
     },
     "Show or hide %@" : {
@@ -4331,6 +4382,9 @@
     "Thinking…" : {
 
     },
+    "This Component Can't Be Shown Yet" : {
+
+    },
     "This Mac" : {
 
     },
@@ -4362,6 +4416,9 @@
 
     },
     "This file has been customized. An update is available with changes it doesn't include yet." : {
+
+    },
+    "This file is part of how your site is built, and Anglesite takes care of it for you. Editing it by hand is a developer tool — turn on Show Developer Tools in Settings ▸ Advanced to open it." : {
 
     },
     "This image isn't stored in the site, so its license can't be read or changed here." : {
@@ -4950,6 +5007,9 @@
 
     },
     "iCloud Sync" : {
+
+    },
+    "iCloud set these aside while the two Macs were syncing. Anglesite already has their content, so discarding them doesn't lose anything." : {
 
     },
     "iCloud sync status" : {
