@@ -2,6 +2,7 @@ import SwiftUI
 import WebKit
 import AnglesiteCore
 import AnglesiteBridge
+import AnglesiteBridgeCore
 
 /// Center pane: the harness `WKWebView`, the viewport-width preset toolbar, and the knobs bar
 /// generated from the component's `Props` interface (design spec §3/§4.2).
@@ -69,7 +70,6 @@ struct ComponentEditorCanvasPane: View {
         if context.baseURL != nil, let url = model.harnessURL {
             let content = ComponentCanvasView(
                 url: url,
-                editRouter: context.editRouter,
                 onSelection: { model.canvasSelected($0) },
                 onComputedStyles: { model.computedStyles = $0.styles },
                 onWebView: { newWebView in
@@ -101,7 +101,7 @@ struct ComponentEditorCanvasPane: View {
         }
     }
 
-    /// Resolves a canvas drop point to an insertion target via the overlay's `dropTargetAt`, then
+    /// Resolves a canvas drop point to an insertion target via the harness canvas's `dropTargetAt`, then
     /// hands the raw line/column/zone off to `ComponentEditorModel.performCanvasDrop`, which maps
     /// the source location back to a node id the same way `canvasSelected` does and issues the
     /// `insert-node` op.
@@ -188,15 +188,13 @@ struct ComponentEditorCanvasPane: View {
     }
 }
 
-/// Harness-page WKWebView: same bridge as the preview, wired to the
-/// component-canvas handlers. Routes edits (e.g. a Styles panel change)
-/// through `editRouter` when the site window has wired one up;
-/// falls back to `LoggingEditRouter()` — logs to the Debug pane instead of
-/// applying — when it hasn't (dev server not started yet, or a context that
-/// intentionally has no write capability).
+/// Harness-page WKWebView: same bridge as the preview (the injected engine bundle's page
+/// bridge installs `component-canvas.ts` on `/_anglesite/component/*` pages), wired to the
+/// component-canvas handlers. No block engine is ever mounted here — the Component Editor
+/// drives the canvas from native (`window.anglesiteCanvas`) and applies its edits through
+/// `ComponentEditorModel`, so the handler carries no transport (#1957).
 private struct ComponentCanvasView: NSViewRepresentable {
     let url: URL
-    var editRouter: EditRouter?
     let onSelection: @MainActor (CanvasSelectionMessage) -> Void
     let onComputedStyles: @MainActor (ComputedStylesReport) -> Void
     var onWebView: (WKWebView) -> Void = { _ in }
@@ -216,10 +214,12 @@ private struct ComponentCanvasView: NSViewRepresentable {
     func makeNSView(context: Context) -> WKWebView {
         let onSelection = self.onSelection
         let onComputedStyles = self.onComputedStyles
-        let handler = AnglesiteScriptHandler(
-            router: resolveEditRouter(editRouter),
-            onCanvasSelection: { message in await MainActor.run { onSelection(message) } },
-            onComputedStyles: { report in await MainActor.run { onComputedStyles(report) } }
+        let handler = WYSIWYGScriptHandler(
+            transport: nil,
+            handlers: .init(
+                onCanvasSelection: { message in await MainActor.run { onSelection(message) } },
+                onComputedStyles: { report in await MainActor.run { onComputedStyles(report) } }
+            )
         )
         let configuration = WebViewBridge.localDevConfiguration(handler: handler)
         let webView = WKWebView(frame: .zero, configuration: configuration)

@@ -46,7 +46,6 @@ fastlane/test_output
 # Bundled resources populated at build time, not committed.
 # (Resources/plugin stays listed only to keep stale pre-#466 build output out of git.)
 Resources/plugin
-Resources/edit-overlay/
 Resources/wysiwyg-engine/
 Resources/ImportEngine/
 Resources/SafariExtension/content-script.js

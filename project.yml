@@ -45,10 +45,6 @@ targets:
       - path: Resources/Attributions
         type: folder
         buildPhase: resources
-      - path: Resources/edit-overlay
-        type: folder
-        buildPhase: resources
-        optional: true
       - path: Resources/wysiwyg-engine
         type: folder
         buildPhase: resources
@@ -86,9 +82,6 @@ targets:
       # resources fails before the remaining (slower) build phases run. Debug only warns.
       - name: Check container resources
         script: "\"${PROJECT_DIR}/scripts/check-container-resources.sh\""
-        basedOnDependencyAnalysis: false
-      - name: Build edit overlay
-        script: "\"${PROJECT_DIR}/scripts/build-overlay.sh\""
         basedOnDependencyAnalysis: false
       - name: Build WYSIWYG engine
         script: "\"${PROJECT_DIR}/scripts/build-wysiwyg-engine.sh\""
@@ -192,10 +185,6 @@ targets:
       # code both targets link, so one manifest covers both. Re-audit when P2P/QR-pairing
       # code (#1431, #1208 P2) adds categories the Mac target doesn't use.
       - path: Resources/PrivacyInfo.xcprivacy
-      - path: Resources/edit-overlay
-        type: folder
-        buildPhase: resources
-        optional: true
       - path: Resources/wysiwyg-engine
         type: folder
         buildPhase: resources
@@ -210,9 +199,6 @@ targets:
           else
             echo "warning: xcodegen not found on PATH — skipping project regeneration (brew install xcodegen)." >&2
           fi
-        basedOnDependencyAnalysis: false
-      - name: Build edit overlay
-        script: "\"${PROJECT_DIR}/scripts/build-overlay.sh\""
         basedOnDependencyAnalysis: false
       - name: Build WYSIWYG engine
         script: "\"${PROJECT_DIR}/scripts/build-wysiwyg-engine.sh\""

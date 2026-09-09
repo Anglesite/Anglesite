@@ -1,12 +1,12 @@
 # Anglesite (Mac app)
 
-A native macOS app that gives non-technical site owners a click-to-edit experience for their website.
+A native macOS app that gives non-technical site owners a visual, edit-in-place experience for their website.
 
 Scaffolding, deploys, and design flows are deterministic Swift; generative features run on Apple Intelligence (on-device Foundation Models). Edits and content operations go through the [Anglesite MCP sidecar](https://github.com/Anglesite/anglesite-skills) (`server/` in the sibling repo), which runs inside the app's container runtime. The former Claude Code dependency — the `claude --print` subprocess and the markdown-skill machinery — is fully retired (epic #459).
 
 ## Status
 
-**Pre-release.** The v0 → v1 core is built (Phases 0–9): site plumbing, supervised subprocesses, the WKWebView live preview with click-to-edit overlay routed through the MCP sidecar, deploy via `wrangler` (with the mandatory pre-deploy scan), Keychain/`gh` credentials, the per-site chat panel, multi-window, the deploy-readiness health badge, image-drop optimization, and per-edit undo.
+**Pre-release.** The v0 → v1 core is built (Phases 0–9): site plumbing, supervised subprocesses, the WKWebView live preview with the block editor (`JS/wysiwyg-engine`, edits routed through the MCP sidecar), deploy via `wrangler` (with the mandatory pre-deploy scan), Keychain/`gh` credentials, the per-site chat panel, multi-window, the deploy-readiness health badge, image-drop optimization, and per-edit undo.
 
 In progress (Phase 10, v2 polish):
 - **Mac App Store build.** `Anglesite` is the single sandboxed app target (`io.dwk.anglesite`). The old direct-download target has been retired. The host-side embedded Node runtime has been retired (#70); local Apple Containerization is the macOS runtime direction.

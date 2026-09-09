@@ -228,7 +228,7 @@ excluded.
 
 **What it runs:** builds `packaging/flatpak/io.dwk.anglesite.linux.yml` for
 real inside a GNOME-SDK Flatpak sandbox and runs `AnglesiteLinuxTests`
-(`ShellModel`'s pure overlay-candidate logic — the only Linux-portable target
+(`ShellModel`'s pure engine-candidate logic — the only Linux-portable target
 today; `AnglesiteCoreTests` is out of scope, tracked in
 [#1284](https://github.com/Anglesite/Anglesite/issues/1284)) inside the build
 shell via `flatpak-builder --build-shell`.
@@ -447,7 +447,7 @@ expected only until [#1467](https://github.com/Anglesite/Anglesite/issues/1467)
 lands; if you see the skip warning after that PR merged, something removed
 `REUSE.toml`.
 
-## The JS/Node lanes (`edit-overlay`, `safari-extension`, `wysiwyg-engine`, `template-worker`, `workers-tests`, `help-book-links`)
+## The JS/Node lanes (`wysiwyg-engine`, `safari-extension`, `template-worker`, `workers-tests`, `help-book-links`)
 
 These are the straightforward `ubuntu-latest` lanes: `npm ci` +
 lint/typecheck/test (plus Playwright e2e for `wysiwyg-engine`, and
@@ -455,10 +455,10 @@ lint/typecheck/test (plus Playwright e2e for `wysiwyg-engine`, and
 special CI-only behavior beyond the standard `npm run lint && npm run
 typecheck && npm test` cycle described in `CONTRIBUTING.md` ▸ Development
 setup — a red run here reproduces locally in the corresponding directory
-(`JS/edit-overlay`, `JS/safari-extension`, `JS/wysiwyg-engine`,
+(`JS/wysiwyg-engine`, `JS/safari-extension`,
 `Resources/Template`, `Workers/<project>`). `help-book-links` is a
-plain-bash link checker (`scripts/check-help-links.sh`) split out of
-`edit-overlay` so a Help Book-only change doesn't pay for a full npm
+plain-bash link checker (`scripts/check-help-links.sh`) kept as its own
+lane so a Help Book-only change doesn't pay for a full npm
 install/lint/typecheck/test cycle just to reach it.
 
 `linux-build-test` (portable SwiftPM targets, `swift:6.3.3-noble`

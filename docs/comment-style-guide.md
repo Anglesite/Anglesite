@@ -61,9 +61,9 @@ tags exist to add clarity a signature doesn't already give you, not to pad every
   it (or a symbol that target genuinely re-exports). Single backticks (`` `TypeName` ``) render as
   plain code with no link — use those for:
   - a cross-module reference: a symbol defined in a different SwiftPM target than the file
-    referencing it (e.g. `` `AnglesiteMessageDispatcher` `` and `` `AnglesiteOverlayBundle` ``,
+    referencing it (e.g. `` `WYSIWYGOpsDispatcher` `` and `` `AnglesiteWysiwygEngineBundle` ``,
     both defined in `AnglesiteBridgeCore`, referenced from `AnglesiteBridge`'s
-    `WebViewBridge.swift` and `AnglesiteScriptHandler.swift`) — DocC's default symbol graph
+    `WebViewBridge.swift` and `WYSIWYGScriptHandler.swift`) — DocC's default symbol graph
     doesn't resolve these without an experimental cross-module-links flag this repo doesn't use;
   - a `private`/`internal` symbol — DocC's symbol graph only includes public API, so these never
     resolve regardless of which target they're in;

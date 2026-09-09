@@ -1,18 +1,18 @@
 // VisibleElementReport collector — feeds Phase B onscreen awareness (App Intents).
 //
 // Watches priority-category elements (headings, images, nav items, interactive controls) via
-// IntersectionObserver, and posts a typed `anglesite:visible-elements` message whenever the
-// visible set changes. The native side (`PreviewAnnotationProvider`, #146) maps those reports
-// into `ElementEntity` instances that AppKit's `appEntityUIElementProvider` (#148) returns when
-// Siri hit-tests the WKWebView.
+// IntersectionObserver, and posts a typed `anglesite:visible-elements` message on the `wysiwyg`
+// bridge whenever the visible set changes. The native side (`PreviewAnnotationProvider`, #146)
+// maps those reports into `ElementEntity` instances that AppKit's `appEntityUIElementProvider`
+// (#148) returns when Siri hit-tests the WKWebView. Installed for every non-harness page by
+// `page-bridge.ts` at injection time — independent of whether a block engine is mounted.
 //
 // Selector field: we send structured `ElementInfo` rather than a CSS string. The issue (#145)
-// sketched `selector: string`, but `selector.ts` (decided in #18) keeps the CSS-resolution
-// strategy in one place — the plugin's `server/selector.mjs`. The native side already knows
-// how to resolve `ElementInfo` for `apply-edit` messages; reusing the same shape here avoids
-// shipping a fork-prone JS port of `buildSelector`.
+// sketched `selector: string`, but `element-info.ts` (decided in #18) keeps the CSS-resolution
+// strategy in one place — the plugin's `server/selector.mjs`. Moved here verbatim from the
+// retired `JS/edit-overlay/src/visible-elements.ts` (#1957); only the bridge namespace changed.
 
-import { elementInfoFor, type ElementInfo } from "./selector.js";
+import { elementInfoFor, type ElementInfo } from "./element-info.js";
 
 export interface VisibleElement {
   /** Stable per-tab id. Sourced from `data-anglesite-id` when present, otherwise a generated
@@ -177,18 +177,18 @@ export function collectVisibleElements(
 interface WebKitWindow {
   webkit?: {
     messageHandlers?: {
-      anglesite?: { postMessage: (body: unknown) => void };
+      wysiwyg?: { postMessage: (body: unknown) => void };
     };
   };
 }
 
 /** Post a report to native. Returns `false` (no throw) if the WKWebView bridge is absent —
- *  e.g. when the overlay is loaded in a plain browser tab for local debugging. */
+ *  e.g. when the engine is loaded in a plain browser tab for local debugging. */
 export function postVisibleElements(
   report: VisibleElementReport,
   win: WebKitWindow = window as unknown as WebKitWindow,
 ): boolean {
-  const handler = win.webkit?.messageHandlers?.anglesite;
+  const handler = win.webkit?.messageHandlers?.wysiwyg;
   if (!handler) return false;
   handler.postMessage(report);
   return true;
@@ -206,9 +206,9 @@ interface InstallableWindow {
  * Idempotent — a second call is a no-op. Returns silently when `IntersectionObserver` is
  * unavailable (older environments / non-WKWebView hosts).
  *
- * Internal `emit()` posts via the default `window` — same convention as `messages.ts`'s
- * `attachClickToEdit` etc. The `postVisibleElements` `win` seam exists for unit-test direct
- * invocation; the install path is integration-tested via the global `window.webkit` stub.
+ * Internal `emit()` posts via the default `window`. The `postVisibleElements` `win` seam exists
+ * for unit-test direct invocation; the install path is integration-tested via the global
+ * `window.webkit` stub.
  */
 export function installVisibleElementsReporter(): void {
   const win = window as unknown as InstallableWindow;

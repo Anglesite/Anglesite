@@ -1,7 +1,7 @@
 import Foundation
 
-/// One ancestor in a clicked element's root-first chain, as collected by the overlay's
-/// `elementInfoFor()`/`collectAncestors()` (JS/edit-overlay/src/selector.ts). Mirrors
+/// One ancestor in a clicked element's root-first chain, as collected by the page bridge's
+/// `elementInfoFor()`/`collectAncestors()` (JS/wysiwyg-engine/src/host/element-info.ts). Mirrors
 /// `AncestorInfo` there field-for-field.
 public struct AncestorInfo: Sendable, Equatable {
     public let tag: String
@@ -36,7 +36,7 @@ public struct AncestorInfo: Sendable, Equatable {
     }
 }
 
-/// Structured element metadata collected by the overlay's `elementInfoFor()` — the same shape
+/// Structured element metadata collected by the page bridge's `elementInfoFor()` — the same shape
 /// `EditMessage.selector` relays opaquely to the sidecar's `selector.mjs`, but here decoded
 /// field-by-field because `PlacementMatcher` (Task 7) interprets it client-side against a
 /// fetched `PageModel` instead of forwarding it server-side.
@@ -84,7 +84,7 @@ public struct ElementInfo: Sendable, Equatable {
     }
 }
 
-/// The overlay's placement-pick mode (Task 9) reporting a click on an arbitrary element while
+/// The page bridge's placement-pick mode (Task 9) reporting a click on an arbitrary element while
 /// the app is placing an effect. Distinct from `anglesite:apply-edit` — no reply is sent back
 /// into the page; the whole match/apply/refresh flow (Task 10) runs natively and updates the
 /// app's own placement HUD.

@@ -12,9 +12,10 @@ public struct RemotePreviewWebView: UIViewRepresentable {
     /// `UIViewRepresentable` conformance: the represented view is the `WKWebView` itself.
     public typealias UIViewType = WKWebView
 
-    /// The script-message name the JS edit overlay posts to — must match
-    /// `AnglesiteMessageDispatcher.scriptMessageNamespace` on the macOS side.
-    public static let defaultScriptMessageNamespace = "anglesite"
+    /// The script-message name the injected engine bundle's page bridge posts to — must match
+    /// `WYSIWYGOpsDispatcher.scriptMessageNamespace` on the macOS side (the single namespace
+    /// since #1957).
+    public static let defaultScriptMessageNamespace = "wysiwyg"
 
     private let url: URL
     private let scriptHandler: WKScriptMessageHandler?
@@ -41,7 +42,7 @@ public struct RemotePreviewWebView: UIViewRepresentable {
     }
 
     /// Caller-owned configuration variant: the session shell builds the full
-    /// `WKWebViewConfiguration` itself (script handler, overlay user script) and can await
+    /// `WKWebViewConfiguration` itself (script handler, engine user script) and can await
     /// `prepareBeforeLoad` — e.g. injecting the session-token cookie so the auth-proxy sees it
     /// on the very first request — before the preview URL is loaded.
     public init(

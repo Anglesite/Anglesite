@@ -4,29 +4,33 @@ import AnglesiteCore
 import AnglesiteBridgeCore
 import CWebKitGTK
 
-/// WebKitGTK adapter for the preview + edit-overlay bridge — the Linux twin of
-/// `AnglesiteBridge`'s WKWebView stack (`WebViewBridge` + `AnglesiteScriptHandler`). All
-/// message schema, decoding, and routing live in the portable `AnglesiteMessageDispatcher`;
-/// this widget's only jobs are the WebKitGTK equivalents of the WKWebView adapter's:
+/// WebKitGTK adapter for the preview + page bridge — the Linux twin of `AnglesiteBridge`'s
+/// WKWebView stack (`WebViewBridge` + `WYSIWYGScriptHandler`). All message schema, decoding,
+/// and routing live in the portable `WYSIWYGOpsDispatcher`; this widget's only jobs are the
+/// WebKitGTK equivalents of the WKWebView adapter's:
 ///
-/// - inject the compiled overlay bundle (`WebKitUserScript` at document-end, all frames —
-///   mirroring `WebViewBridge.makeOverlayUserScript`),
-/// - register the shared `anglesite` script-message namespace on the user-content manager and
+/// - inject the compiled engine bundle (`WebKitUserScript` at document-end, all frames —
+///   mirroring `WebViewBridge.makeEngineUserScript`),
+/// - register the shared `wysiwyg` script-message namespace on the user-content manager and
 ///   forward each `JSCValue` body (via its JSON projection) to the dispatcher,
-/// - evaluate apply-edit replies back into the page as `window.anglesite?._handleReply?.(...)`.
+/// - evaluate request/reply answers back into the page as
+///   `window.__anglesiteWysiwygHost?.<callback>?.(...)`.
+///
+/// No block engine is mounted here yet — the Mac host's `WYSIWYGCanvasController` is the only
+/// host, so this preview is view-only since #1957 retired the click-to-edit overlay; hosting
+/// the block editor in the GTK shell is the cross-platform port's job (#571). The dispatcher
+/// therefore runs with no transport, and the page bridge's reports land silently until the
+/// shell grows consumers for them.
 ///
 /// WebKitGTK's `WebKitUserContentManager` script-message API maps 1:1 onto the
 /// `WKScriptMessageHandler` pattern (port design §6), so the shape here deliberately follows
-/// `AnglesiteScriptHandler.userContentController(_:didReceive:)`.
+/// `WYSIWYGScriptHandler.userContentController(_:didReceive:)`.
 struct PreviewWebView: AdwaitaWidget {
     /// The dev-server URL to display. Loaded on first render and re-loaded whenever it changes.
     var url: String
-    /// Routes decoded `apply-edit` messages (production: `MCPApplyEditRouter` over the site's
-    /// MCP client).
-    var router: any EditRouter
-    /// The overlay JS to inject, or `nil` to preview without edit affordances (non-fatal,
-    /// matching the WKWebView adapter when the bundle wasn't produced).
-    var overlaySource: String?
+    /// The engine JS to inject, or `nil` to preview without it (non-fatal, matching the
+    /// WKWebView adapter when the bundle wasn't produced).
+    var engineSource: String?
     var logCenter: LogCenter = .shared
 
     func container<Data>(data: WidgetData, type: Data.Type) -> ViewStorage where Data: ViewRenderData {
@@ -45,9 +49,9 @@ struct PreviewWebView: AdwaitaWidget {
         webkit_settings_set_enable_developer_extras(webkit_web_view_get_settings(webView), 1)
 
         guard let ucm = webkit_web_view_get_user_content_manager(webView) else { return storage }
-        if let overlaySource {
+        if let engineSource {
             let script = webkit_user_script_new(
-                overlaySource,
+                engineSource,
                 WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES,
                 WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_END,
                 nil,
@@ -57,9 +61,8 @@ struct PreviewWebView: AdwaitaWidget {
             webkit_user_script_unref(script)
         }
 
-        let namespace = AnglesiteMessageDispatcher.scriptMessageNamespace
+        let namespace = WYSIWYGOpsDispatcher.scriptMessageNamespace
         webkit_user_content_manager_register_script_message_handler(ucm, namespace, nil)
-        let router = router
         let logCenter = logCenter
         // The reply hops threads (GTK signal → Swift concurrency → GTK idle), so the webview
         // travels as a bit pattern rather than a non-Sendable pointer. Lifetime: the webview
@@ -101,20 +104,36 @@ struct PreviewWebView: AdwaitaWidget {
                     await logCenter.append(source: "bridge-gtk", stream: .stderr, text: "undecodable script message: \(json)")
                     return
                 }
-                switch await AnglesiteMessageDispatcher.dispatch(body: body, via: router) {
-                case .editReply(let reply):
-                    guard let encoded = try? JSONEncoder().encode(reply),
-                          let replyJSON = String(data: encoded, encoding: .utf8)
+                // Evaluates `window.__anglesiteWysiwygHost?.<callback>?.(<requestId>, <payload>)`
+                // back into the page — the one reply shape every request/reply message on this
+                // bridge shares (`WYSIWYGScriptHandler.reply` is the WKWebView twin).
+                func reply(_ callback: String, requestId: String, payload: some Encodable) async {
+                    guard let encoded = try? JSONEncoder().encode(payload),
+                          let payloadJSON = String(data: encoded, encoding: .utf8),
+                          let idData = try? JSONEncoder().encode(requestId),
+                          let idJSON = String(data: idData, encoding: .utf8)
                     else {
-                        await logCenter.append(source: "bridge-gtk", stream: .stderr, text: "failed to encode reply for id=\(reply.id)")
+                        await logCenter.append(source: "bridge-gtk", stream: .stderr, text: "failed to encode \(callback) reply for id=\(requestId)")
                         return
                     }
-                    let script = "window.anglesite?._handleReply?.(\(replyJSON))"
+                    let script = "window.__anglesiteWysiwygHost?.\(callback)?.(\(idJSON), \(payloadJSON))"
                     Idle {
                         let webView = UnsafeMutableRawPointer(bitPattern: webViewBits)?
                             .assumingMemoryBound(to: WebKitWebView.self)
                         webkit_web_view_evaluate_javascript(webView, script, -1, nil, nil, nil, nil, nil)
                     }
+                }
+                switch await WYSIWYGOpsDispatcher.dispatch(body: body, via: nil) {
+                case .opResult(let requestId, let result):
+                    await reply("_handleOpResult", requestId: requestId, payload: result)
+                case .writingHelpReply(let requestId, let outcome):
+                    await reply("_handleWritingHelpReply", requestId: requestId, payload: outcome)
+                case .imageReplaceReply(let requestId, let editReply):
+                    await reply("_handleImageReplaceReply", requestId: requestId, payload: editReply)
+                case .contextMenu, .selectionChanged, .focusInspector:
+                    // Engine chrome messages — unreachable without a mounted engine, and the GTK
+                    // shell has no block-editor host chrome to drive yet.
+                    return
                 case .visibleElementsHandled, .canvasSelectionHandled, .computedStylesHandled, .placementPickHandled, .goalElementPickHandled:
                     return
                 case .visibleElementsDropped, .canvasSelectionDropped, .computedStylesDropped, .placementPickDropped, .goalElementPickDropped:

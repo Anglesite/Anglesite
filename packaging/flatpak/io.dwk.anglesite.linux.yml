@@ -55,7 +55,7 @@ build-options:
   # run) fails on the first `swift build` invocation. --share=network here makes local
   # verification builds actually work; it is NOT Flathub-submittable as-is — Flathub requires
   # hermetic builds, so a real submission needs SwiftPM's dependencies vendored ahead of time the
-  # same way the overlay JS's npm dependencies do (see the build-commands comment below), which is
+  # same way the engine JS's npm dependencies do (see the build-commands comment below), which is
   # exactly the kind of gap #1293 (live manifest verification + Flathub submission) tracks.
   build-args:
     - --share=network
@@ -106,13 +106,13 @@ modules:
         install -Dm755
         "$(find .build -type f \( -name anglesite-linux -o -name AnglesiteLinux \) -path '*/release/*' | head -n1)"
         /app/bin/anglesite-linux
-      # Assumes scripts/build-overlay.sh already ran against this checkout (it bundles
-      # JS/edit-overlay/ into Resources/edit-overlay/overlay.js — same output the macOS app
+      # Assumes scripts/build-wysiwyg-engine.sh already ran against this checkout (it bundles
+      # JS/wysiwyg-engine/ into Resources/wysiwyg-engine/engine.js — same output the macOS app
       # bundle copies). A Flathub-submittable build can't reach npm during the sandboxed build
-      # step, so a real submission needs the overlay's node dependencies vendored ahead of time
+      # step, so a real submission needs the engine's node dependencies vendored ahead of time
       # (e.g. via a flatpak-node-generator-produced sources list) — deferred along with the rest
       # of actual Flathub submission (investigation doc §8).
-      - install -Dm644 Resources/edit-overlay/overlay.js /app/share/anglesite/edit-overlay/overlay.js
+      - install -Dm644 Resources/wysiwyg-engine/engine.js /app/share/anglesite/wysiwyg-engine/engine.js
       - >-
         install -Dm644 packaging/flatpak/io.dwk.anglesite.linux.metainfo.xml
         /app/share/metainfo/io.dwk.anglesite.linux.metainfo.xml

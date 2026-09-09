@@ -109,7 +109,7 @@ public final class PreviewAnnotationProvider: ElementEntityProviding, Sendable {
     /// author-chosen strings. Rule 2's `graph.post(id:)` lookup should only run when the id
     /// could plausibly be an author-tagged PostEntity id — the prefix-test below cheaply
     /// avoids the actor hop for every generated id. Source of truth for the prefix is
-    /// `JS/edit-overlay/src/visible-elements.ts`'s `idFor()`.
+    /// `JS/wysiwyg-engine/src/host/visible-elements.ts`'s `idFor()`.
     private static let generatedIDPrefix = "v-"
 
     private func resolve(

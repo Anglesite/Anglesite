@@ -78,7 +78,8 @@ final class PreviewModel {
     /// not about breaking a retain.
     private var webViewObservations: [NSKeyValueObservation] = []
 
-    /// The `EditRouter` that the WKWebView's `AnglesiteScriptHandler` forwards overlay edits to.
+    /// The `EditRouter` the preview's `WYSIWYGScriptHandler` applies page-originated edits through
+    /// (a file dropped onto an `<img>`, #1957) and every in-app edit path shares.
     /// Wired to the runtime's `MCPClient` via a weak getter so the router doesn't outlive the
     /// model. If the MCP client isn't running (runtime not started yet, or graceful spawn
     /// failure), `MCPApplyEditRouter` returns `.failed("MCP not running")` per its existing shape.
@@ -128,15 +129,13 @@ final class PreviewModel {
     private var editModeGeneration = 0
 
     /// True while the preview `WKWebView` holds real AppKit keyboard focus, for ANY reason —
-    /// the full `wysiwygCanvas` block editor, or the lighter-weight inline `contentEditable` quick
-    /// edit the overlay JS (`JS/edit-overlay/src/overlay.ts`) opens on a plain click, e.g. a
-    /// page/post title (#1715). The two never both exist: quick-edit works whether or not
-    /// `wysiwygCanvas` is mounted, so this can't just be `wysiwygCanvas?.hasKeyboardFocus == true`
-    /// — that stayed `false` for a quick-edit session with no canvas at all, which is what let
-    /// `SiteNavigatorView`'s ⌘⌫ delete the selected Navigator item out from under someone typing
-    /// in the title instead of editing it. Driven by `PreviewFocusSentinel` (`PreviewView.swift`),
-    /// mounted unconditionally on `previewPane(for:)` rather than only while `wysiwygCanvas`
-    /// exists.
+    /// the `wysiwygCanvas` block editor's text editing, or plain focus on a link or video (#1715).
+    /// Kept separate from `wysiwygCanvas?.hasKeyboardFocus` because the canvas comes and goes
+    /// (edit mode toggled off, or replaced on a navigation — #1957) while the pane keeps its
+    /// focus; a canvas-only check let `SiteNavigatorView`'s ⌘⌫ delete the selected Navigator item
+    /// out from under someone typing in the preview. Driven by `PreviewFocusSentinel`
+    /// (`PreviewView.swift`), mounted unconditionally on `previewPane(for:)` rather than only while
+    /// `wysiwygCanvas` exists.
     var hasKeyboardFocus = false
 
     /// The `Source/`-relative page file currently mounted in the WYSIWYG canvas, resolved against

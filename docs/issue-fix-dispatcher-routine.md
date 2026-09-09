@@ -17,7 +17,7 @@ recreated on any surface, copy the config and prompt below verbatim.
   `taskId`; see "Operational update (2026-08-31)" below)
 - **Description:** Reaps orphaned `🛠️ In Progress` claims, claims `🏭 Ready` issues whose
   scope fits one reviewable PR within the current allowlist (docs, `Resources/Template/`,
-  the JS edit overlay, the hosted macOS app target `Sources/AnglesiteApp`, the local Apple
+  the JS block editor (`JS/wysiwyg-engine/`), the hosted macOS app target `Sources/AnglesiteApp`, the local Apple
   Containerization runtime `AnglesiteContainer`, the Cloudflare control Worker
   `Workers/ControlWorker/`, the container image `container/` with its build/pin scripts, or a
   portable SwiftPM target), and launches
@@ -116,8 +116,8 @@ Your job this run:
       >
       > The test: **would this issue land as one coherent, reviewable PR** touching only the
       > Tier-1 allowlist — docs (including repo-root metadata text files such as `LICENSE`,
-      > `LICENSES/`, `REUSE.toml`, `README.md`), `Resources/Template/`, the JS edit overlay
-      > (`JS/edit-overlay/`), the hosted macOS app target (`Sources/AnglesiteApp`), the local
+      > `LICENSES/`, `REUSE.toml`, `README.md`), `Resources/Template/`, the JS block editor
+      > (`JS/wysiwyg-engine/`), the hosted macOS app target (`Sources/AnglesiteApp`), the local
       > Apple Containerization runtime (`AnglesiteContainer`), or a portable SwiftPM target
       > (check `Package.swift`'s `portableTargets` set)? This routine runs locally on the
       > owner's Mac with Xcode available, so `Sources/AnglesiteApp` is in scope (a hosted
@@ -279,7 +279,7 @@ Your job this run:
    > <TEST_BASIS_INSTRUCTION>
    >
    > Scope: you may only touch paths within docs, `Resources/Template/`,
-   > `JS/edit-overlay/`, the hosted macOS app target (`Sources/AnglesiteApp`), the local
+   > `JS/wysiwyg-engine/`, the hosted macOS app target (`Sources/AnglesiteApp`), the local
    > Apple Containerization runtime (`AnglesiteContainer`), the Cloudflare control Worker
    > (`Workers/ControlWorker/`), the container image and its build/pin scripts (`container/`,
    > `scripts/build-container-image.sh`, `scripts/pin-cloudflare-canonical-image.sh`,

@@ -1,5 +1,5 @@
-// UndoManager is a Darwin-only Foundation type — see EditUndoCoordinator.swift's header for the
-// same rationale; this coordinator compiles out on non-Darwin for the identical reason.
+// UndoManager is a Darwin-only Foundation type — see UndoBridge.swift's header for the same
+// rationale; this coordinator compiles out on non-Darwin for the identical reason.
 #if canImport(Darwin)
 import Foundation
 
@@ -16,11 +16,10 @@ public enum WYSIWYGPerformOutcome: Sendable {
     case applied(freshInverse: WYSIWYGReversal?)
 }
 
-/// Bridges applied WYSIWYG ops into a window's `UndoManager` with **real redo** — unlike
-/// `EditUndoCoordinator` (git-revert LIFO, no redo), every op ships its own inverse (spec §3.2),
-/// so undoing an action re-registers the forward op as the next redo/undo step: standard
-/// `UndoManager` usage for a redo-capable client. Sibling of ``ContentUndoCoordinator`` and
-/// ``EditUndoCoordinator`` (#1824): the token lifecycle, re-arm-on-outcome rule, and undo/redo
+/// Bridges applied WYSIWYG ops into a window's `UndoManager` with **real redo** — every op ships
+/// its own inverse (spec §3.2), so undoing an action re-registers the forward op as the next
+/// redo/undo step: standard `UndoManager` usage for a redo-capable client. Sibling of
+/// ``ContentUndoCoordinator`` (#1824): the token lifecycle, re-arm-on-outcome rule, and undo/redo
 /// stack routing all live in the shared `UndoBridge` — this type adds only the `Op`/
 /// `WYSIWYGReversal` outcome mapping and typing-coalescing policy on top.
 @MainActor
@@ -112,8 +111,7 @@ public final class WYSIWYGUndoCoordinator {
 
     /// The in-flight `perform` spawned by the most recent undo/redo fire. Exposed for tests
     /// (and any other caller that needs to observe completion), which `await` it to see the
-    /// conditional-registration-rollback/-correction behavior deterministically — mirrors
-    /// `EditUndoCoordinator.pendingPerform`.
+    /// conditional-registration-rollback/-correction behavior deterministically.
     var pendingPerform: Task<Void, Never>? { bridge.pendingPerform }
 }
 #endif

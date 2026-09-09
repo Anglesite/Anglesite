@@ -2,7 +2,7 @@ import Foundation
 
 /// Builds a literal CSS-selector string for the A/B testing "visible" goal (#1270 slice 5) from
 /// the same `ElementInfo`/`AncestorInfo` payload `PlacementPickMessage` already decodes. Reuses
-/// the proven priority order documented in `JS/edit-overlay/src/selector.ts`
+/// the proven priority order documented in `JS/wysiwyg-engine/src/host/element-info.ts`
 /// (`data-anglesite-id` > `data-testid` > `#id` > `role`/`aria-label` > stable classes >
 /// `tag:nth-child`) — nothing before this emitted a literal selector string; the two adjacent
 /// mechanisms (the sidecar's `selector.mjs`, `PlacementMatcher`) resolve to a source-file patch
