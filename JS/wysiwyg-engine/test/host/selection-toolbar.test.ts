@@ -146,6 +146,57 @@ describe("SelectionToolbar", () => {
     toolbar.dispose();
   });
 
+  it("a reply's model-tier notice renders under the preview, separate from the suggested text (#1965)", async () => {
+    const range = makeRange("Range A");
+    const editor = makeRichTextEditor();
+    vi.spyOn(editor, "currentSelectionContext").mockReturnValue({ blockId: "t1", range, text: "Range A" });
+    const applied = vi.spyOn(editor, "applyTextReplacement").mockImplementation(() => {});
+
+    const transport = new FakeWritingHelpTransport();
+    const toolbar = new SelectionToolbar(editor, transport, document);
+
+    document.dispatchEvent(new Event("selectionchange"));
+    (document.querySelector("[data-selection-toolbar] button") as HTMLButtonElement).click();
+
+    const notice = "Runs on the on-device model; results may be shorter.";
+    transport.resolveOldest({ status: "rewritten", text: "Rewrite of A", notice });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    const toolbarEl = document.querySelector("[data-selection-toolbar]")!;
+    expect(toolbarEl.textContent).toContain("Rewrite of A");
+    const badge = toolbarEl.querySelector("[data-model-tier-notice]");
+    expect(badge?.textContent).toBe(notice);
+
+    // The badge is its own node, so Accept applies only the rewrite — never the notice text.
+    const accept = [...toolbarEl.querySelectorAll("button")].find((b) => b.textContent === "Accept");
+    accept?.click();
+    expect(applied).toHaveBeenCalledWith(range, "Rewrite of A");
+
+    toolbar.dispose();
+  });
+
+  it("a reply without a notice renders no badge", async () => {
+    const range = makeRange("Range A");
+    const editor = makeRichTextEditor();
+    vi.spyOn(editor, "currentSelectionContext").mockReturnValue({ blockId: "t1", range, text: "Range A" });
+
+    const transport = new FakeWritingHelpTransport();
+    const toolbar = new SelectionToolbar(editor, transport, document);
+
+    document.dispatchEvent(new Event("selectionchange"));
+    (document.querySelector("[data-selection-toolbar] button") as HTMLButtonElement).click();
+
+    transport.resolveOldest({ status: "rewritten", text: "Rewrite of A" });
+    await Promise.resolve();
+    await Promise.resolve();
+
+    expect(document.querySelector("[data-selection-toolbar]")?.textContent).toContain("Rewrite of A");
+    expect(document.querySelector("[data-model-tier-notice]")).toBeNull();
+
+    toolbar.dispose();
+  });
+
   // Reviewer finding (task-6 fix round 1): `#request()` had no try/catch around the
   // `requestWritingHelp()` await, so a rejected promise (as opposed to a `{status:"unavailable"}`
   // reply) left the toolbar stuck on "Rewriting…" forever with an unhandled rejection.

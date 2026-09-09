@@ -11,11 +11,16 @@ struct CopyEditReportView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("Review Copy").font(.title2.bold())
-                Spacer()
-                if model.running { ProgressView().controlSize(.small) }
-                Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack {
+                    Text("Review Copy").font(.title2.bold())
+                    Spacer()
+                    if model.running { ProgressView().controlSize(.small) }
+                    Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
+                }
+                // `CopyEditAuditor` requests the PCC tier (#1965): badge the sheet while it's served on-device.
+                // Not when Apple Intelligence is unavailable — that state has its own explanation.
+                if !model.unavailable { ModelTierNoticeView(tier: .privateCloudCompute) }
             }
             .padding()
             Divider()

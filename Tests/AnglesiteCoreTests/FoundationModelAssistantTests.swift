@@ -80,11 +80,13 @@ struct FoundationModelAssistantTests {
         #expect(caps.supportsTools)
     }
 
-    @Test("PCC tier advertises a larger context window and PCC provider name")
+    @Test("PCC tier advertises the on-device capabilities that actually serve it (#1965)")
     func pccCapabilities() {
         let caps = FoundationModelAssistant(tier: .privateCloudCompute).capabilities
-        #expect(caps.providerName == "Private Cloud Compute")
-        #expect(caps.maxContextTokens == 32_768)
+        // The alias is labeled, never silent: no 32K window or PCC name for a 4K on-device session.
+        #expect(caps.providerName == "On-Device")
+        #expect(caps.maxContextTokens == 4_096)
+        #expect(caps == FoundationModelAssistant(tier: .onDevice).capabilities)
     }
 
     @Test("default tier is on-device")
@@ -192,7 +194,7 @@ struct FoundationModelAssistantTests {
     func pccConstructsAndIsUsable() {
         // `capabilities` is a nonisolated var, so it reads synchronously off the actor.
         let assistant = FoundationModelAssistant(tier: .privateCloudCompute)
-        #expect(assistant.capabilities.maxContextTokens == 32_768)
+        #expect(assistant.capabilities.maxContextTokens == 4_096)
     }
 
     // MARK: Error path (meaningful only on a host WITHOUT the model)

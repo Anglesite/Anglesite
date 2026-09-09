@@ -106,7 +106,7 @@ public struct RewriteBlockTool: Tool, Sendable {
         switch outcome {
         case .unavailable(let message):
             return RewriteBlockReply.confirmation(for: .unavailable(message))
-        case .rewritten(let newText):
+        case .rewritten(let newText, _):
             let applied = await access.submitRewrite(blockId: blockId, newText: newText)
             return RewriteBlockReply.confirmation(for: applied ? .success : .submitFailed)
         }

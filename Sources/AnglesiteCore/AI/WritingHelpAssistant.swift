@@ -4,7 +4,11 @@ import Foundation
 /// covers every failure mode (no FM on this Mac, a generation error) with one owner-facing
 /// message, matching PR 1's alt-text "silent degrade, never surface a raw error" convention.
 public enum WritingHelpOutcome: Equatable, Sendable {
-    case rewritten(String)
+    /// `notice` is the model-tier badge for the surface that renders the rewrite (the canvas
+    /// selection toolbar) — `FoundationModelTier.degradationNotice` when the feature ran on a
+    /// smaller model than it was designed for (#1965), `nil` when served as designed or when
+    /// the producer has no tier to report (test fakes, the chat tool's own reply).
+    case rewritten(String, notice: String? = nil)
     case unavailable(String)
 }
 
@@ -14,14 +18,16 @@ public enum WritingHelpOutcome: Equatable, Sendable {
 /// `{"status": "unavailable", "message": "..."}` shape the JS side (`WritingHelpReply`,
 /// #1227 PR 2) needs.
 extension WritingHelpOutcome: Codable {
-    private enum CodingKeys: String, CodingKey { case status, text, message }
+    private enum CodingKeys: String, CodingKey { case status, text, message, notice }
 
     public init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         let status = try container.decode(String.self, forKey: .status)
         switch status {
         case "rewritten":
-            self = .rewritten(try container.decode(String.self, forKey: .text))
+            self = .rewritten(
+                try container.decode(String.self, forKey: .text),
+                notice: try container.decodeIfPresent(String.self, forKey: .notice))
         case "unavailable":
             self = .unavailable(try container.decode(String.self, forKey: .message))
         default:
@@ -32,9 +38,11 @@ extension WritingHelpOutcome: Codable {
     public func encode(to encoder: Encoder) throws {
         var container = encoder.container(keyedBy: CodingKeys.self)
         switch self {
-        case .rewritten(let text):
+        case .rewritten(let text, let notice):
             try container.encode("rewritten", forKey: .status)
             try container.encode(text, forKey: .text)
+            // Omitted rather than `null` so the JS side's `notice?: string` reads it as absent.
+            try container.encodeIfPresent(notice, forKey: .notice)
         case .unavailable(let message):
             try container.encode("unavailable", forKey: .status)
             try container.encode(message, forKey: .message)
@@ -92,19 +100,27 @@ public enum WritingHelpPrompt {
 /// one-shot FM feature (`CopyEditAuditor`, `SiteGraphNodeExplainer`) already goes through.
 public struct FoundationModelWritingHelpAssistant: WritingHelpAssisting {
     /// Injected so tests can fake the backend without a live model. Production default resolves
-    /// through the shared tier seam, matching `CopyEditAuditor`'s own `.privateCloudCompute`
-    /// request (today backed on-device; the seam is what changes when real PCC lands).
+    /// through the shared tier seam for `designedTier`, matching `CopyEditAuditor`'s own
+    /// `.privateCloudCompute` request (today backed on-device; the seam is what changes when
+    /// real PCC lands).
     private let assistantFactory: @Sendable () -> (any ContentAssistant)?
+
+    /// The tier this feature was designed for. Drives the `notice` attached to every
+    /// `.rewritten` outcome (`FoundationModelTier.degradationNotice`, #1965) — so the badge
+    /// tells the truth even when a test injects a fake backend.
+    private let designedTier: FoundationModelTier
 
     /// Logs errors from generation failures ("logs are sacred" convention). Defaults to no-op for
     /// best-effort behavior; production passes the debug-pane logger so failures leave a trace.
     private let log: @Sendable (String) async -> Void
 
     public init(
-        assistantFactory: @escaping @Sendable () -> (any ContentAssistant)? = { ContentAssistantFactory.make(tier: .privateCloudCompute) },
+        designedTier: FoundationModelTier = .privateCloudCompute,
+        assistantFactory: (@Sendable () -> (any ContentAssistant)?)? = nil,
         log: @escaping @Sendable (String) async -> Void = { _ in }
     ) {
-        self.assistantFactory = assistantFactory
+        self.designedTier = designedTier
+        self.assistantFactory = assistantFactory ?? { ContentAssistantFactory.make(tier: designedTier) }
         self.log = log
     }
 
@@ -120,7 +136,7 @@ public struct FoundationModelWritingHelpAssistant: WritingHelpAssisting {
                 context: AssistantContext(siteID: siteID, siteDirectory: siteDirectory),
                 resultType: GeneratedRewrite.self
             )
-            return .rewritten(generated.rewrittenText)
+            return .rewritten(generated.rewrittenText, notice: designedTier.degradationNotice)
         } catch {
             await log("writing-help generation failed: \(error)")
             return .unavailable(ContentHelpDialogs.assistantUnavailable(feature: "Writing help"))

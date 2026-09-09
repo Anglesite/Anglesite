@@ -116,6 +116,12 @@ private struct AgentsSettingsView: View {
                 Text("Works with any OpenAI-compatible chat-completions endpoint — hosted providers or a self-hosted server on this machine or your network (e.g. Ollama, llama.cpp, vLLM). The base URL should not include \"/chat/completions\"; Anglesite appends it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // Off-device disclosure (#1965, LLM policy 2026-07-08 §8): the opt-in has to say
+                // what leaves the Mac. `ExternalLLMBackend` sends the page text (capped at
+                // `maxPageContentCharacters`) plus up to `maxHistoryMessages` of history per request.
+                Text("While Custom Endpoint is the active model, your chat messages, the recent conversation, and the text of the page you're editing are sent to this server with every request — they leave this Mac unless the server is one you run here. Choose a provider you trust with your site's content.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("ACP Agents") {
@@ -300,6 +306,15 @@ private struct ACPAgentEditorSheet: View {
                     clear: { try KeychainStore().clearACPAgentToken(id: agentID) }
                 )
             }
+
+            // Same disclosure as the External LLM section (#1965): an agent is an opt-in that
+            // sees the owner's content. A `.stdio` agent execs inside the site's container with
+            // `Source/` as its working directory; a `.remote` one receives the chat over the network.
+            Text(kind == .local
+                 ? "This agent runs alongside your site and can read and change its files while it works. Only add agents you trust with your site's content."
+                 : "Your chat messages are sent to this address over the network while the agent is the active model. Only add agents you trust with your site's content.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
 
             HStack {
                 Button("Cancel", action: onCancel)
