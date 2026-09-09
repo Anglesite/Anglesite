@@ -735,7 +735,7 @@ struct SiteWindow: View {
                 .accessibilityIdentifier(AXID.toolbar(.github))
             } else {
                 Button {
-                    model.publish.publish(source: site.sourceDirectory, repoName: site.name)
+                    model.publish.publish(siteID: site.id, source: site.sourceDirectory, repoName: site.name)
                 } label: {
                     Label("Publish to GitHub", systemImage: "square.and.arrow.up.on.square")
                 }
@@ -1377,6 +1377,23 @@ struct SiteWindow: View {
         }
         .sheet(isPresented: $bindableModel.publish.sheetPresented) {
             PublishSheet(model: model.publish, siteName: site.name)
+        }
+        // #1959: a publish or backup the source push gate refused shows the same no-override
+        // sheet a blocked deploy does — one presentation for every "this can't leave your Mac
+        // yet" outcome.
+        .sheet(isPresented: $bindableModel.publish.blockedPresented) {
+            if case .blocked(let failures, let warnings) = model.publish.phase {
+                BlockedDeploySheetView(failures: failures, warnings: warnings) {
+                    model.publish.dismissBlocked()
+                }
+            }
+        }
+        .sheet(isPresented: $bindableModel.backup.blockedPresented) {
+            if case .blocked(let failures, let warnings) = model.backup.phase {
+                BlockedDeploySheetView(failures: failures, warnings: warnings) {
+                    model.backup.dismissBlocked()
+                }
+            }
         }
         .sheet(isPresented: $bindableModel.publish.tokenPromptPresented) {
             GitHubTokenPromptView(model: model.publish) {

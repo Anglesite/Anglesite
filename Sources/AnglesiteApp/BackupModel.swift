@@ -12,6 +12,9 @@ final class BackupModel {
         case succeeded(commitSHA: String, branch: String, remote: String, duration: TimeInterval)
         case noChanges
         case failed(reason: String, exitCode: Int32?)
+        /// The source push gate refused the push (#1959) — rendered by the same
+        /// `BlockedDeploySheetView` the deploy uses, with no override.
+        case blocked(failures: [PreDeployCheck.ScanFailure], warnings: [PreDeployCheck.ScanWarning])
     }
 
     private(set) var phase: Phase = .idle
@@ -24,6 +27,9 @@ final class BackupModel {
     /// user clicks "Dismiss" — we never auto-close on success because the commit SHA is
     /// worth letting the user see + copy, and on `.noChanges` the user explicitly asked.
     var drawerPresented: Bool = false
+    /// Bound to the blocked sheet in `SiteWindow` for the `.blocked` phase (#1959) — dismiss-only,
+    /// like `DeployModel.blockedPresented`.
+    var blockedPresented: Bool = false
 
     /// Fires on every phase change — start and terminal alike — with the site id of the run the
     /// transition belongs to (delivered per-run, not captured at wiring time, so a window
@@ -65,6 +71,11 @@ final class BackupModel {
         drawerPresented = false
     }
 
+    /// The blocked sheet's only action (#1959).
+    func dismissBlocked() {
+        blockedPresented = false
+    }
+
     /// Set `phase` and notify the transition hook.
     private func transition(siteID: String, to newPhase: Phase) {
         phase = newPhase
@@ -77,6 +88,7 @@ final class BackupModel {
         logLines = []
         currentMilestone = nil
         drawerPresented = true
+        blockedPresented = false
 
         let source = "backup:\(siteID)"
         let subscription = await logCenter.subscribe()
@@ -109,6 +121,12 @@ final class BackupModel {
             transition(siteID: siteID, to: .noChanges)
         case .failed(let reason, let exit):
             transition(siteID: siteID, to: .failed(reason: reason, exitCode: exit))
+        case .blocked(let failures, let warnings):
+            // The modal blocked sheet carries the actionable findings; the streaming-log drawer
+            // would just be noise behind it (mirrors `DeployModel`'s `.blocked` handling).
+            transition(siteID: siteID, to: .blocked(failures: failures, warnings: warnings))
+            drawerPresented = false
+            blockedPresented = true
         }
     }
 }

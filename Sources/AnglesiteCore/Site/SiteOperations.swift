@@ -312,6 +312,10 @@ public struct SiteOperations: Sendable {
             return "Backed up \(sha.prefix(7)) to \(remote)."
         case .noChanges:
             return "No changes to back up."
+        case .blocked(let failures, _):
+            let count = failures.count
+            let noun = count == 1 ? "issue" : "issues"
+            return "Backup stopped by Anglesite's safety check (\(count) \(noun) to fix before this site can leave your Mac). Open the site in Anglesite to see them."
         case .failed(let reason, _):
             return "Backup failed: \(reason)"
         }

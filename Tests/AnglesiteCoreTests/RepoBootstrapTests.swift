@@ -89,8 +89,8 @@ import Foundation
 
     @Test func publishShortCircuitsWhenAlreadyPublished() async throws {
         let source = try await makeSourceDir(initialized: true, commit: true, remoteURL: "https://github.com/acme/site.git")
-        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner())
-        let events = await collect(b.publish(source: source, repoName: "site", isPrivate: true))
+        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner(), gate: .passing)
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
         #expect(events.last == .published(repo()))
         // Short-circuits before even checking auth — .needsAuth must never appear.
         #expect(!events.contains(.needsAuth))
@@ -98,8 +98,8 @@ import Foundation
 
     @Test func publishEmitsNeedsAuthWhenNotAuthenticated() async throws {
         let source = try await makeSourceDir(initialized: true, commit: true)   // no origin
-        let b = RepoBootstrap(provider: StubProvider(authed: false, result: .success(repo())), run: unusedRunner())
-        let events = await collect(b.publish(source: source, repoName: "site", isPrivate: true))
+        let b = RepoBootstrap(provider: StubProvider(authed: false, result: .success(repo())), run: unusedRunner(), gate: .passing)
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
         #expect(events.contains(.needsAuth))
         #expect(events.last == .needsAuth)
     }
@@ -118,8 +118,8 @@ import Foundation
         // needs to prove the init half actually ran.
         let source = try await makeSourceDir(initialized: false)
         try "hello".write(to: source.appendingPathComponent("index.md"), atomically: true, encoding: .utf8)
-        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner())
-        let events = await collect(b.publish(source: source, repoName: "site", isPrivate: true))
+        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner(), gate: .passing)
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
         #expect(events.contains(.progress(step: .initializing, message: "Initializing git repository…")))
         #expect(FileManager.default.fileExists(atPath: source.appendingPathComponent(".git").path))
     }
@@ -130,8 +130,8 @@ import Foundation
         // no commits yet must still stage and commit before publishing.
         let source = try await makeSourceDir(initialized: true)   // no commit — first commit is due
         try "hello".write(to: source.appendingPathComponent("index.md"), atomically: true, encoding: .utf8)
-        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner())
-        let events = await collect(b.publish(source: source, repoName: "site", isPrivate: true))
+        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner(), gate: .passing)
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
         #expect(events.last == .published(repo()))
         #expect(events.contains(.progress(step: .committing, message: "Committing your site…")))
         // Never took the init path — the repo was already there.
@@ -144,7 +144,7 @@ import Foundation
 
         let bootstrap = RepoBootstrap(
             provider: StubProvider(authed: true, result: .success(repo())),
-            run: unusedRunner()
+            run: unusedRunner(), gate: .passing
         )
         try await bootstrap.commitAll(source: source)
 
@@ -160,26 +160,26 @@ import Foundation
         let source = try await makeSourceDir(initialized: true, commit: true)   // clean, has commits
         let b = RepoBootstrap(
             provider: StubProvider(authed: true, result: .failure(RepoBootstrapError(reason: "Name already exists"))),
-            run: unusedRunner())
-        let events = await collect(b.publish(source: source, repoName: "site", isPrivate: true))
+            run: unusedRunner(), gate: .passing)
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
         #expect(events.last == .failed(reason: "Name already exists"))
     }
 
     @Test func remoteReturnsParsedRepoWhenOriginSet() async throws {
         let source = try await makeSourceDir(initialized: true, remoteURL: "https://github.com/acme/site.git")
-        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner())
+        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner(), gate: .passing)
         #expect(await b.remote(of: source)?.owner == "acme")
     }
 
     @Test func remoteReturnsNilWhenNoOrigin() async throws {
         let source = try await makeSourceDir(initialized: true)
-        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner())
+        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner(), gate: .passing)
         #expect(await b.remote(of: source) == nil)
     }
 
     @Test func remoteReturnsNilOutsideAGitRepo() async throws {
         let source = try await makeSourceDir(initialized: false)
-        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner())
+        let b = RepoBootstrap(provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner(), gate: .passing)
         #expect(await b.remote(of: source) == nil)
     }
 
@@ -187,8 +187,8 @@ import Foundation
         // Display names with spaces/punctuation must be slugified before reaching the provider.
         let source = try await makeSourceDir(initialized: true, commit: true)
         let capturing = CapturingProvider(result: .success(repo()))
-        let b = RepoBootstrap(provider: capturing, run: unusedRunner())
-        _ = await collect(b.publish(source: source, repoName: "My Cool Site!", isPrivate: true))
+        let b = RepoBootstrap(provider: capturing, run: unusedRunner(), gate: .passing)
+        _ = await collect(b.publish(siteID: "site", source: source, repoName: "My Cool Site!", isPrivate: true))
         #expect(await capturing.capturedName == "my-cool-site")
     }
 
@@ -198,8 +198,8 @@ import Foundation
         try "SECRET=1".write(to: source.appendingPathComponent(".env"), atomically: true, encoding: .utf8)
         try "page".write(to: source.appendingPathComponent("page.astro"), atomically: true, encoding: .utf8)
         let capturing = CapturingProvider(result: .success(repo()))
-        let b = RepoBootstrap(provider: capturing, run: unusedRunner())
-        let events = await collect(b.publish(source: source, repoName: "site", isPrivate: true))
+        let b = RepoBootstrap(provider: capturing, run: unusedRunner(), gate: .passing)
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
         if case .failed(let reason) = events.last {
             #expect(reason.contains(".env"))
         } else {
@@ -221,8 +221,8 @@ import Foundation
             at: source.appendingPathComponent("config"), withIntermediateDirectories: true)
         try "SECRET=1".write(to: source.appendingPathComponent("config/.env.local"), atomically: true, encoding: .utf8)
         let b = RepoBootstrap(
-            provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner())
-        let events = await collect(b.publish(source: source, repoName: "site", isPrivate: true))
+            provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner(), gate: .passing)
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
         if case .failed(let reason) = events.last {
             #expect(reason.contains(".env.local"))
         } else {
@@ -239,8 +239,8 @@ import Foundation
             at: source.appendingPathComponent("src/pages"), withIntermediateDirectories: true)
         try "hello".write(to: source.appendingPathComponent("src/pages/about.md"), atomically: true, encoding: .utf8)
         let b = RepoBootstrap(
-            provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner())
-        let events = await collect(b.publish(source: source, repoName: "site", isPrivate: true))
+            provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner(), gate: .passing)
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
         #expect(events.last == .published(repo()))
 
         let git = URL(fileURLWithPath: "/usr/bin/git")
@@ -256,8 +256,8 @@ import Foundation
         let source = try await makeSourceDir(initialized: true, commit: true)   // seeds README.md
         try FileManager.default.removeItem(at: source.appendingPathComponent("README.md"))
         let b = RepoBootstrap(
-            provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner())
-        let events = await collect(b.publish(source: source, repoName: "site", isPrivate: true))
+            provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner(), gate: .passing)
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
         #expect(events.last == .published(repo()))
 
         let git = URL(fileURLWithPath: "/usr/bin/git")
@@ -275,12 +275,61 @@ import Foundation
         // on PR #663; matches the old subprocess `git commit`'s "nothing to commit" refusal).
         let source = try await makeSourceDir(initialized: true)   // configured identity, no files, no commit
         let b = RepoBootstrap(
-            provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner())
-        let events = await collect(b.publish(source: source, repoName: "site", isPrivate: true))
+            provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner(), gate: .passing)
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
         if case .failed(let reason) = events.last {
             #expect(reason.contains("Nothing to commit"))
         } else {
             Issue.record("expected .failed, got \(String(describing: events.last))")
         }
+    }
+
+    // MARK: #1959 — the source push gate
+
+    @Test func publishIsRefusedWhenTheSourceScanBlocksAndNeverCreatesTheRepo() async throws {
+        let source = try await makeSourceDir(initialized: true, commit: true)
+        // The gate here is canned, so the file's content is irrelevant — it just has to be a change.
+        try "a post that would leak".write(to: source.appendingPathComponent("leak.md"), atomically: true, encoding: .utf8)
+        let failure = PreDeployCheck.ScanFailure(category: .exposedToken, message: "Possible AWS key exposed", file: "leak.md")
+        let capturing = CapturingProvider(result: .success(repo()))
+        let b = RepoBootstrap(provider: capturing, run: unusedRunner(), gate: .canned(.blocked(failures: [failure], warnings: [])))
+
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
+
+        #expect(events.last == .blocked(failures: [failure], warnings: []))
+        #expect(events.contains(.progress(step: .scanning, message: "Checking your site before it leaves this Mac…")))
+        #expect(await capturing.capturedName == nil, "a refused publish must never create the remote repository")
+        // The commit was made (the scan runs on it) but nothing left the Mac.
+        let git = URL(fileURLWithPath: "/usr/bin/git")
+        let status = try await ProcessSupervisor.shared.run(
+            executable: git, arguments: ["status", "--porcelain"], currentDirectoryURL: source)
+        #expect(status.stdout.isEmpty)
+    }
+
+    @Test func publishFailsClosedWhenTheGateCannotRun() async throws {
+        let source = try await makeSourceDir(initialized: true, commit: true)
+        try "hello".write(to: source.appendingPathComponent("index.md"), atomically: true, encoding: .utf8)
+        let capturing = CapturingProvider(result: .success(repo()))
+        let b = RepoBootstrap(provider: capturing, run: unusedRunner(), gate: .canned(.error(reason: "no tsx")))
+
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
+
+        if case .failed(let reason) = events.last {
+            #expect(reason.contains("couldn't run its safety check"))
+        } else {
+            Issue.record("expected .failed, got \(String(describing: events.last))")
+        }
+        #expect(await capturing.capturedName == nil)
+    }
+
+    @Test func publishGatesTheAlreadyCommittedTreeToo() async throws {
+        // A clean, committed tree still goes through the gate before its first push.
+        let source = try await makeSourceDir(initialized: true, commit: true)
+        let failure = PreDeployCheck.ScanFailure(category: .restrictedContentInSource, message: "restricted")
+        let b = RepoBootstrap(
+            provider: StubProvider(authed: true, result: .success(repo())), run: unusedRunner(),
+            gate: .canned(.blocked(failures: [failure], warnings: [])))
+        let events = await collect(b.publish(siteID: "site", source: source, repoName: "site", isPrivate: true))
+        #expect(events.last == .blocked(failures: [failure], warnings: []))
     }
 }

@@ -18,7 +18,13 @@ import {
   checkNoRestrictedContentInDist,
   runningExperimentControlDistPath,
   runningExperimentVariantDistPath,
+  checkSecrets,
+  isDotenvFile,
+  scanSourceTree,
 } from "./pre-deploy-check";
+import { mkdtemp, mkdir, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { MTA_STS_MARKER, SECURITY_TXT_MARKER } from "./edge-artifacts";
 import { GOAL_BEACON_SCRIPT_PATH } from "./experiments-paths";
 
@@ -1044,4 +1050,59 @@ test("runningExperimentControlDistPath: a well-formed running experiment resolve
 test("runningExperimentControlDistPath: no running experiment returns null", () => {
   const active = [{ ...VALID_ACTIVE[0], status: "draft" }];
   assert.equal(runningExperimentControlDistPath(JSON.stringify({ version: 1, experiments: { active } })), null);
+});
+
+// --- #1959: the `--source` push-gate subset --------------------------------------------------
+
+// Assembled at runtime so the fixture matches `SECRET_PATTERNS`' AWS shape without tripping
+// GitHub push protection on this file itself.
+const FAKE_AWS_KEY = ["AKIA", "ABCDEFGHIJKLMNOP"].join("");
+
+test("checkSecrets flags an AWS key, a private key, and an api_key assignment", () => {
+  const aws = checkSecrets(`token ${FAKE_AWS_KEY} here`, "src/content/x.md");
+  assert.equal(aws.length, 1);
+  assert.equal(aws[0].category, "exposed-token");
+  assert.equal(aws[0].file, "src/content/x.md");
+  assert.match(aws[0].message, /AWS key/);
+  assert.equal(checkSecrets("-----BEGIN RSA PRIVATE KEY-----", "k.pem").length, 1);
+  assert.equal(checkSecrets('api_key = "abcdefghijklmnopqrstuvwxyz1234"', "wrangler.toml").length, 1);
+  assert.equal(checkSecrets("nothing secret here", "x.md").length, 0);
+});
+
+test("isDotenvFile matches .env and .env.<anything> only", () => {
+  assert.equal(isDotenvFile(".env"), true);
+  assert.equal(isDotenvFile(".env.local"), true);
+  assert.equal(isDotenvFile(".environment"), false);
+  assert.equal(isDotenvFile("env"), false);
+});
+
+test("scanSourceTree flags dotenv files and secrets in content, and skips dependencies, build output, app-owned scripts, and test fixtures", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pdc-source-"));
+  try {
+    await mkdir(join(root, "src", "content", "posts"), { recursive: true });
+    await mkdir(join(root, "config"), { recursive: true });
+    await mkdir(join(root, "node_modules", "dep"), { recursive: true });
+    await mkdir(join(root, "dist"), { recursive: true });
+    await mkdir(join(root, "scripts"), { recursive: true });
+    await writeFile(join(root, "src", "content", "posts", "hello.md"), `# hi\n\n${FAKE_AWS_KEY}\n`);
+    await writeFile(join(root, "src", "content", "posts", "clean.md"), "# clean\n");
+    await writeFile(join(root, "config", ".env.local"), "SECRET=1\n");
+    await writeFile(join(root, "node_modules", "dep", "index.js"), FAKE_AWS_KEY);
+    await writeFile(join(root, "dist", "index.html"), FAKE_AWS_KEY);
+    await writeFile(join(root, "scripts", "fixture.test.ts"), FAKE_AWS_KEY);
+    await writeFile(join(root, "vitest.config.ts"), "-----BEGIN PRIVATE KEY-----");
+    await writeFile(join(root, "vitest.astro.config.ts"), "-----BEGIN PRIVATE KEY-----");
+    await writeFile(join(root, "src", "widget.test.mjs"), FAKE_AWS_KEY);
+    await writeFile(join(root, "logo.png"), FAKE_AWS_KEY);
+
+    const issues = await scanSourceTree(root);
+    const files = issues.map((i) => i.file).sort();
+    assert.deepEqual(files, ["config/.env.local", "src/content/posts/hello.md"]);
+    assert.ok(issues.every((i) => i.severity === "error" && i.category === "exposed-token"));
+    const dotenv = issues.find((i) => i.file === "config/.env.local");
+    assert.match(dotenv?.message ?? "", /would be published/);
+    assert.match(dotenv?.remediation ?? "", /\.gitignore/);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
 });

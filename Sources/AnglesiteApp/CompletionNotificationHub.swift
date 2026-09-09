@@ -104,6 +104,14 @@ enum CompletionNotificationHub {
                 postNotice(siteID: siteID) { name in
                     CompletionNoticeBuilder.backup(siteName: name, siteID: siteID, outcome: .failed(reason: reason))
                 }
+            case .blocked(let failures, _):
+                // #1959: phrased as the consequence to the owner; the findings themselves are in
+                // the blocked sheet the window shows.
+                let count = failures.count
+                let reason = "Anglesite's safety check found \(count) \(count == 1 ? "issue" : "issues") to fix before this site can leave your Mac."
+                postNotice(siteID: siteID) { name in
+                    CompletionNoticeBuilder.backup(siteName: name, siteID: siteID, outcome: .failed(reason: reason))
+                }
             }
         }
 

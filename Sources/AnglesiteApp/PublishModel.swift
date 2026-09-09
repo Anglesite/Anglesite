@@ -13,6 +13,9 @@ final class PublishModel {
         case needsAuth
         case published(RemoteRepo)
         case failed(reason: String)
+        /// The source push gate refused the publish (#1959). Rendered by the same
+        /// `BlockedDeploySheetView` the deploy uses, with no override.
+        case blocked(failures: [PreDeployCheck.ScanFailure], warnings: [PreDeployCheck.ScanWarning])
     }
 
     /// Progress of verifying a pasted GitHub token, consumed by `GitHubTokenPromptView`'s status
@@ -32,6 +35,9 @@ final class PublishModel {
 
     /// Bound to the progress/result sheet in `SiteWindow`.
     var sheetPresented: Bool = false
+    /// Bound to the blocked sheet in `SiteWindow` for the `.blocked` phase (#1959) — dismiss-only,
+    /// like `DeployModel.blockedPresented`.
+    var blockedPresented: Bool = false
     /// Bound to `GitHubTokenPromptView` when the provider needs a GitHub token.
     var tokenPromptPresented: Bool = false
     private(set) var tokenVerification: TokenVerification = .idle
@@ -45,7 +51,7 @@ final class PublishModel {
     private var refreshTask: Task<Void, Never>?
     /// Site parked while the token prompt is open; retried once a token verifies. `nil` outside
     /// that flow.
-    private var pendingPublish: (source: URL, repoName: String)?
+    private var pendingPublish: (siteID: String, source: URL, repoName: String)?
 
     init(
         bootstrap: RepoBootstrap = .live(),
@@ -64,9 +70,10 @@ final class PublishModel {
         refreshTask = Task { self.existingRemote = await bootstrap.remote(of: source) }
     }
 
-    /// Toolbar action. No-op if a publish is already running.
-    func publish(source: URL, repoName: String) {
-        start(source: source, repoName: repoName)
+    /// Toolbar action. No-op if a publish is already running. `siteID` keys the source push
+    /// gate's runtime lookup (#1959).
+    func publish(siteID: String, source: URL, repoName: String) {
+        start(siteID: siteID, source: source, repoName: repoName)
     }
 
     /// Called by the token-prompt sheet's "Connect and Publish" button. Verifies the token against
@@ -102,7 +109,7 @@ final class PublishModel {
             pendingPublish = nil
             tokenPromptPresented = false
             tokenVerification = .idle
-            start(source: pending.source, repoName: pending.repoName)
+            start(siteID: pending.siteID, source: pending.source, repoName: pending.repoName)
         case .stay(let message):
             tokenVerification = .failed(message: message)
         case .abort:
@@ -123,29 +130,34 @@ final class PublishModel {
 
     func dismiss() { sheetPresented = false }
 
+    /// The blocked sheet's only action (#1959).
+    func dismissBlocked() { blockedPresented = false }
+
     /// Single entry point for kicking off a publish. The `guard` is the only concurrency gate —
     /// it prevents both a second toolbar tap and `verifyAndSaveToken` from opening a second
     /// `consume` loop over the same window.
-    private func start(source: URL, repoName: String) {
+    private func start(siteID: String, source: URL, repoName: String) {
         guard !isRunning else { return }
         phase = .running(milestone: "Starting…")
         sheetPresented = true
+        blockedPresented = false
         inFlight = Task {
             await self.consume(
-                bootstrap.publish(source: source, repoName: repoName, isPrivate: true),
+                bootstrap.publish(siteID: siteID, source: source, repoName: repoName, isPrivate: true),
+                siteID: siteID,
                 source: source,
                 repoName: repoName
             )
         }
     }
 
-    private func consume(_ stream: AsyncStream<RepoBootstrap.Event>, source: URL, repoName: String) async {
+    private func consume(_ stream: AsyncStream<RepoBootstrap.Event>, siteID: String, source: URL, repoName: String) async {
         for await event in stream {
             switch event {
             case .progress(_, let message): phase = .running(milestone: message)
             case .needsAuth:
                 phase = .needsAuth
-                pendingPublish = (source, repoName)
+                pendingPublish = (siteID, source, repoName)
                 tokenVerification = .idle
                 tokenPromptPresented = true
                 sheetPresented = false
@@ -154,6 +166,12 @@ final class PublishModel {
                 existingRemote = repo
             case .failed(let reason):
                 phase = .failed(reason: reason)
+            case .blocked(let failures, let warnings):
+                // The modal blocked sheet carries the actionable findings; the progress sheet
+                // would just be noise behind it (mirrors `DeployModel`'s `.blocked` handling).
+                phase = .blocked(failures: failures, warnings: warnings)
+                sheetPresented = false
+                blockedPresented = true
             }
         }
         // If the task was cancelled without a terminal event, the stream finishes while phase is

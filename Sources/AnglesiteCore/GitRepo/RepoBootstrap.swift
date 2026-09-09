@@ -24,6 +24,9 @@ public actor RepoBootstrap {
         case initializing
         /// Staging the working tree and creating the initial commit.
         case committing
+        /// Running the source push gate (#1959) — app-owned script integrity, then the source
+        /// scan — against the commit that is about to be pushed.
+        case scanning
         /// Creating the repository on GitHub via the `RepoProvider`.
         case creatingRepo
         /// Wiring `origin` and pushing the local history up.
@@ -31,7 +34,8 @@ public actor RepoBootstrap {
     }
 
     /// One update from the `publish` stream. Terminal events are ``published(_:)``,
-    /// ``needsAuth``, and ``failed(reason:)`` — the stream finishes right after emitting one.
+    /// ``needsAuth``, ``blocked(failures:warnings:)``, and ``failed(reason:)`` — the stream
+    /// finishes right after emitting one.
     public enum Event: Sendable, Equatable {
         /// A stage started (or completed, for `.pushing`); `message` is user-facing progress text.
         case progress(step: Step, message: String)
@@ -43,18 +47,27 @@ public actor RepoBootstrap {
         /// The pipeline stopped; `reason` is the user-facing explanation (a `RepoBootstrapError`'s
         /// reason when the failure was anticipated, a raw error description otherwise).
         case failed(reason: String)
+        /// The source push gate (`SourcePublishGate`, #1959) refused the push — the site's safety
+        /// check had been changed, or the source scan found something that must not leave the
+        /// Mac. Terminal; the local commit stays. Carries the deploy sheet's structures so the UI
+        /// shares one presentation, with no override.
+        case blocked(failures: [PreDeployCheck.ScanFailure], warnings: [PreDeployCheck.ScanWarning])
     }
 
     private let provider: RepoProvider
     private let run: RepoCommandRunner
+    private let gate: SourcePublishGate
     private let env = URL(fileURLWithPath: "/usr/bin/env")
 
     /// Injection seam for tests: pass a fake ``RepoProvider`` and ``RepoCommandRunner`` to drive
     /// the pipeline without touching GitHub or spawning processes. Production wiring comes from
-    /// ``live(supervisor:logCenter:)``.
-    public init(provider: RepoProvider, run: @escaping RepoCommandRunner) {
+    /// ``live(supervisor:logCenter:)``. `gate` runs before the first push (#1959); its default,
+    /// `SourcePublishGate.live`, scans in the site's registered runtime and refuses the push when
+    /// there is none — there is no "no gate" value.
+    public init(provider: RepoProvider, run: @escaping RepoCommandRunner, gate: SourcePublishGate = .live) {
         self.provider = provider
         self.run = run
+        self.gate = gate
     }
 
     #if canImport(Darwin)
@@ -235,10 +248,12 @@ public actor RepoBootstrap {
         #endif
     }
 
-    /// Detect → (auth) → ensure committable → create + push. Streams progress; settles to
-    /// `.published` / `.needsAuth` / `.failed`. Idempotent: an already-published site yields
-    /// `.published(existing)` with no side effects.
-    public nonisolated func publish(source: URL, repoName: String, isPrivate: Bool) -> AsyncStream<Event> {
+    /// Detect → (auth) → ensure committable → gate → create + push. Streams progress; settles to
+    /// `.published` / `.needsAuth` / `.blocked` / `.failed`. Idempotent: an already-published site
+    /// yields `.published(existing)` with no side effects. `siteID` keys the gate's runtime lookup
+    /// (#1959) — the scan runs in the site's container, on the commit `ensureCommittable` just
+    /// made, so what's scanned is exactly what would be pushed.
+    public nonisolated func publish(siteID: String, source: URL, repoName: String, isPrivate: Bool) -> AsyncStream<Event> {
         AsyncStream { continuation in
             let task = Task {
                 let emit: @Sendable (Event) -> Void = { continuation.yield($0) }
@@ -254,6 +269,17 @@ public actor RepoBootstrap {
 
                 do {
                     try await self.ensureCommittable(source: source, emit: emit)
+                    emit(.progress(step: .scanning, message: "Checking your site before it leaves this Mac…"))
+                    switch await self.gate.check(
+                        siteID: siteID, sourceDirectory: source, configDirectory: nil, source: "publish:\(siteID)"
+                    ) {
+                    case .passed:
+                        break
+                    case .blocked(let failures, let warnings):
+                        emit(.blocked(failures: failures, warnings: warnings)); continuation.finish(); return
+                    case .error(let reason):
+                        emit(.failed(reason: reason)); continuation.finish(); return
+                    }
                     emit(.progress(step: .creatingRepo, message: "Creating private repository on GitHub…"))
                     // Sanitize the display name: callers pass human names ("My Cool Site!"); GitHub
                     // repo names must be URL-safe slugs, so derive one via SiteSlug.
