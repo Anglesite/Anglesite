@@ -82,10 +82,33 @@ private struct FailureCard: View {
                         .accessibilityValue(file)
                 }
             }
-            Text(failure.detail ?? failure.message).font(.callout)
-            if let remediation = failure.remediation {
-                Text(remediation)
-                    .font(.caption).foregroundStyle(.secondary)
+            if failure.category == .appOwnedScriptRestored {
+                // #1958: the primary line is the consequence to the owner ("your safety check had
+                // been changed; it's been restored"); the file paths are technical detail and stay
+                // behind a Details disclosure rather than on the primary surface (owner decision
+                // D1 — raw paths never lead).
+                Text(failure.message).font(.callout)
+                if let remediation = failure.remediation {
+                    Text(remediation)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let detail = failure.detail, !detail.isEmpty {
+                    DisclosureGroup("Details") {
+                        Text(verbatim: detail)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 4)
+                    }
+                    .font(.caption)
+                }
+            } else {
+                Text(failure.detail ?? failure.message).font(.callout)
+                if let remediation = failure.remediation {
+                    Text(remediation)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .padding(12)
@@ -106,6 +129,7 @@ private struct FailureCard: View {
         case .wellKnownCollision: return "exclamationmark.lock"
         case .anglesiteConfigInvalid: return "doc.badge.gearshape"
         case .restrictedContentInSource, .restrictedContentInDist: return "lock.trianglebadge.exclamationmark"
+        case .appOwnedScriptRestored: return "checkmark.shield"
         case .other: return "exclamationmark.triangle"
         }
     }
@@ -124,6 +148,7 @@ private struct FailureCard: View {
         case .anglesiteConfigInvalid: return "anglesite.json invalid"
         case .restrictedContentInSource: return "Restricted content in Source/"
         case .restrictedContentInDist: return "Restricted content in dist/"
+        case .appOwnedScriptRestored: return "Safety check restored"
         case .other: return "Other"
         }
     }
