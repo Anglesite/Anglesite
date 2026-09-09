@@ -3,7 +3,7 @@ import AnglesiteSiteModel
 import AnglesiteQuickLookSupport
 
 /// The Quick Look preview's content: a `.anglesite` package's identity and layout facts from
-/// ``PackagePreviewSummary``, rendered by `PreviewViewController`'s hosting controller. A
+/// `PackagePreviewSummary`, rendered by `PreviewViewController`'s hosting controller. A
 /// `nil` summary covers every "not a readable Anglesite site" case (missing/corrupt marker) —
 /// Quick Look has no good error-surfacing UI of its own, so this in-view fallback is preferable
 /// to throwing.
