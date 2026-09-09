@@ -32,7 +32,8 @@ struct SiteOperationsTests {
                     }
                 },
                 streamer: { _, _, _ in (0, "") },
-                clock: { Date(timeIntervalSince1970: 1_780_000_000) }
+                clock: { Date(timeIntervalSince1970: 1_780_000_000) },
+                gate: .passing
             )
         }
     }
@@ -684,7 +685,7 @@ private struct FlakyKVFactory: CommandFactory {
     let recorder: FlakyKVRecorder
 
     func deploy() -> DeployCommand { DeployCommand() }
-    func backup() -> BackupCommand { BackupCommand(runner: { _, _ in .init(stdout: "", stderr: "", exitCode: 1) }, streamer: { _, _, _ in (1, "") }) }
+    func backup() -> BackupCommand { BackupCommand(runner: { _, _ in .init(stdout: "", stderr: "", exitCode: 1) }, streamer: { _, _, _ in (1, "") }, gate: .passing) }
     func audit() -> AuditCommand {
         AuditCommand(
             executor: HostAuditExecutor(resolveCommand: { _ in { _ in .unavailable(reason: "noop") } }),
@@ -711,7 +712,7 @@ private struct SocialWorkerFactory: CommandFactory {
     let recorder: SocialWorkerRecorder
 
     func deploy() -> DeployCommand { DeployCommand() }
-    func backup() -> BackupCommand { BackupCommand(runner: { _, _ in .init(stdout: "", stderr: "", exitCode: 1) }, streamer: { _, _, _ in (1, "") }) }
+    func backup() -> BackupCommand { BackupCommand(runner: { _, _ in .init(stdout: "", stderr: "", exitCode: 1) }, streamer: { _, _, _ in (1, "") }, gate: .passing) }
     func audit() -> AuditCommand {
         AuditCommand(
             executor: HostAuditExecutor(resolveCommand: { _ in { _ in .unavailable(reason: "noop") } }),

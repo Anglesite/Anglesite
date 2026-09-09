@@ -19,9 +19,10 @@ struct BackupCommandTests {
 
     private func makeCommand(
         runner: @escaping BackupCommand.GitRunner,
-        streamer: @escaping BackupCommand.GitStreamer = { _, _, _ in (0, "") }
+        streamer: @escaping BackupCommand.GitStreamer = { _, _, _ in (0, "") },
+        gate: SourcePublishGate = .passing
     ) -> BackupCommand {
-        BackupCommand(runner: runner, streamer: streamer, clock: fixedClock)
+        BackupCommand(runner: runner, streamer: streamer, clock: fixedClock, gate: gate)
     }
 
     /// Fake runner that dispatches on the first git argument so each test can script multiple
@@ -352,6 +353,81 @@ struct BackupCommandTests {
         #expect(seen.allSatisfy { $0 == "backup:mysite" }, "every streamed step must carry the site-specific source tag, got \(seen)")
         #expect(seen.count == 3, "expected add + commit + push, got \(seen.count): \(seen)")
     }
+
+    // MARK: #1959 — the source push gate
+
+    private final class Pushed: @unchecked Sendable {
+        private let lock = NSLock()
+        private var pushed = false
+        func mark() { lock.lock(); pushed = true; lock.unlock() }
+        var didPush: Bool { lock.lock(); defer { lock.unlock() }; return pushed }
+    }
+
+    @Test("A blocked source scan refuses the push after the commit, with the scan's findings")
+    func blockedGateRefusesPush() async {
+        let failure = PreDeployCheck.ScanFailure(category: .exposedToken, message: "Possible AWS key exposed", file: "src/content/x.md")
+        let pushed = Pushed()
+        let cmd = makeCommand(
+            runner: runner([
+                "rev-parse": ("draft\n", 0),
+                "remote": ("git@example.com:me/site.git\n", 0),
+                "status": (" M index.md\n", 0),
+            ]),
+            streamer: { _, args, _ in
+                if args.first == "push" { pushed.mark() }
+                return (0, "")
+            },
+            gate: .canned(.blocked(failures: [failure], warnings: []))
+        )
+        // `rev-parse HEAD` shares the "rev-parse" entry above; its stdout is treated as a SHA.
+        let result = await cmd.backup(siteID: "site", siteDirectory: tmpDir)
+        #expect(result == .blocked(failures: [failure], warnings: []))
+        #expect(!pushed.didPush, "a refused backup must never push")
+    }
+
+    @Test("A gate that cannot run fails the backup closed before the push")
+    func gateErrorFailsClosed() async {
+        let pushed = Pushed()
+        let cmd = makeCommand(
+            runner: runner([
+                "rev-parse": ("draft\n", 0),
+                "remote": ("git@example.com:me/site.git\n", 0),
+                "status": (" M index.md\n", 0),
+            ]),
+            streamer: { _, args, _ in
+                if args.first == "push" { pushed.mark() }
+                return (0, "")
+            },
+            gate: .canned(.error(reason: "no runtime"))
+        )
+        let result = await cmd.backup(siteID: "site", siteDirectory: tmpDir)
+        guard case .failed(let reason, _) = result else { Issue.record("expected .failed, got \(result)"); return }
+        #expect(reason.contains("couldn't run its safety check"))
+        #expect(!pushed.didPush)
+    }
+
+    @Test("The ahead-of-origin recovery push is gated too")
+    func aheadOfOriginRecoveryIsGated() async {
+        let failure = PreDeployCheck.ScanFailure(category: .exposedToken, message: "leak")
+        let pushed = Pushed()
+        let cmd = makeCommand(
+            runner: runner([
+                "rev-parse": ("draft\n", 0),
+                "remote": ("git@example.com:me/site.git\n", 0),
+                "status": ("", 0),
+                "rev-list": ("1\n", 0),
+            ]),
+            streamer: { _, args, _ in
+                if args.first == "push" { pushed.mark() }
+                return (0, "")
+            },
+            gate: .canned(.blocked(failures: [failure], warnings: []))
+        )
+        let result = await cmd.backup(siteID: "site", siteDirectory: tmpDir)
+        #expect(result == .blocked(failures: [failure], warnings: []))
+        #expect(!pushed.didPush)
+    }
+
 }
 
 // MARK: - Sendable capture helpers

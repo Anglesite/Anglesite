@@ -666,6 +666,16 @@ final class PreviewModel {
         try? await capability.syncFromHost()
     }
 
+    /// `syncContentFromHost()` for a caller that must know the sync landed — the source push
+    /// gate (#1959) scans the guest's clone, so a failed fast-forward has to refuse the push
+    /// rather than scan stale content. Throws when there is no container to sync.
+    func syncContentFromHostOrThrow() async throws {
+        guard let capability = runtime.containerCapability else {
+            throw SiteRuntimePersistenceError.runtimeNotRunning
+        }
+        try await capability.syncFromHost()
+    }
+
     /// Forwards a Workers-tab toggle (#710) to the running runtime so a live local wrangler-dev
     /// session restarts with the new active set. No-op for non-container runtimes — the local
     /// workers dev server is a local-container-only capability (#708).

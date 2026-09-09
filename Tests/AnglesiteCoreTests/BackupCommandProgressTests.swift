@@ -18,7 +18,7 @@ struct BackupCommandProgressTests {
             }
         }
         let streamer: BackupCommand.GitStreamer = { _, _, _ in (0, "") }
-        let cmd = BackupCommand(runner: runner, streamer: streamer)
+        let cmd = BackupCommand(runner: runner, streamer: streamer, gate: .passing)
         _ = await cmd.backup(siteID: "s", siteDirectory: URL(fileURLWithPath: "/tmp/s"),
                             onProgress: { recorder.record($0) })
         #expect(recorder.phases() == ["staging", "committing", "pushing"])

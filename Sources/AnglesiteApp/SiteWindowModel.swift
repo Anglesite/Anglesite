@@ -1050,6 +1050,9 @@ final class SiteWindowModel {
             PreviewAnnotationProviderRegistry.shared.unregister(siteID: provider.siteID)
             annotationProvider = nil
         }
+        // #1959: this window's runtime is going away with it — a later push of this site (a Siri
+        // backup, say) must refuse rather than scan through a closed runtime.
+        if let site { SourcePublishGateRegistry.shared.unregister(siteID: site.id) }
         chat = nil
         styleGuide = nil
         copyEditModel = nil
@@ -2716,6 +2719,17 @@ final class SiteWindowModel {
         // silently discarded by the runtime's fresh scan (#313).
         await styleGuide?.seedFromDisk()
         preview.open(site: currentSite)
+        // #1959: publish this window's runtime as where the source push gate verifies and scans
+        // this site — `BackupModel`/`PublishModel` (and a Siri backup of an open site) route
+        // through `SourcePublishGate.live`, which looks the site up here. Resolved at check time,
+        // not now: the container is still booting at this point, and a check before it's ready
+        // must refuse rather than skip.
+        SourcePublishGateRegistry.shared.register({ [preview] in
+            guard let cc = await preview.activeContainerControl() else { return nil }
+            return SourcePublishGate.containerRuntime(
+                control: cc.control, siteID: cc.siteID,
+                syncFromHost: { try await preview.syncContentFromHostOrThrow() })
+        }, for: resolved.id)
         startInvisiblePublishing(for: currentSite)
         // Warm the content graph now rather than waiting for the first create/delete (#660), so
         // `SearchContentTool`'s `isPopulated` check is already reliable by the time the chat
