@@ -196,20 +196,24 @@ public struct SiteOperations: Sendable {
         // Read-modify-write against the store's current contents (#1960): the deploy target
         // wrote `workerProvisioned`/`workerDeployed` into the same plist during this deploy, and
         // saving the deploy-start `settings` snapshot would silently drop them.
-        try? await configStore.update { updated in
-            updated.provisionedWorkerResources = provisionResult.resources
-            if case .succeeded(let deployedURL, _, _) = provisionResult {
-                updated.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
-                if isHostedCommunity && activitypubProvisioned {
-                    // Same derivation `DeployModel.runDeploy` and `ModerationModel.ownActorURL` use —
-                    // prefer the confirmed site URL (which may already carry a custom domain) over the
-                    // workers.dev URL this particular deploy printed, falling back to it only before
-                    // any URL has ever been recorded.
-                    let communityActorSiteURL =
-                        DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory).flatMap { URL(string: $0) } ?? deployedURL
-                    updated.communityActorURL = ActivityPubActor.actorURL(siteURL: communityActorSiteURL)
+        do {
+            try await configStore.update { updated in
+                updated.provisionedWorkerResources = provisionResult.resources
+                if case .succeeded(let deployedURL, _, _) = provisionResult {
+                    updated.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
+                    if isHostedCommunity && activitypubProvisioned {
+                        // Same derivation `DeployModel.runDeploy` and `ModerationModel.ownActorURL` use —
+                        // prefer the confirmed site URL (which may already carry a custom domain) over the
+                        // workers.dev URL this particular deploy printed, falling back to it only before
+                        // any URL has ever been recorded.
+                        let communityActorSiteURL =
+                            DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory).flatMap { URL(string: $0) } ?? deployedURL
+                        updated.communityActorURL = ActivityPubActor.actorURL(siteURL: communityActorSiteURL)
+                    }
                 }
             }
+        } catch {
+            // Best-effort persistence; the provisioning result is still returned below.
         }
 
         return provisionResult.asDeployCommandResult

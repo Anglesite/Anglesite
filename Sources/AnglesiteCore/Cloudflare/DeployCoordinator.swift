@@ -472,15 +472,19 @@ public enum DeployCoordinator {
         // `workerProvisioned` and `deployedSourceBundleCommit` into the same plist while the
         // deploy runs, and saving a stale snapshot would silently drop them — which is why this
         // takes no `SiteSettings` parameter at all.
-        try? await configStore.update { current in
-            current.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
-            current.provisionedWorkerResources = resources
-            if let apUsername {
-                current.lastDeployedAPUsername = apUsername
+        do {
+            try await configStore.update { current in
+                current.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
+                current.provisionedWorkerResources = resources
+                if let apUsername {
+                    current.lastDeployedAPUsername = apUsername
+                }
+                if let communityActorURL {
+                    current.communityActorURL = communityActorURL
+                }
             }
-            if let communityActorURL {
-                current.communityActorURL = communityActorURL
-            }
+        } catch {
+            // Best-effort, per the doc comment: never turn a successful deploy into a failed one.
         }
     }
 

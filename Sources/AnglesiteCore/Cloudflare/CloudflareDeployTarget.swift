@@ -286,7 +286,12 @@ public struct CloudflareDeployTarget: DeployTarget {
     /// read-modify-write through `SiteConfigStore.update` so it never clobbers a field another
     /// writer set during this same deploy.
     static func persistWorkerDeployed(configDirectory: URL) async {
-        try? await SiteConfigStore(configDirectory: configDirectory).update { $0.workerDeployed = true }
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        do {
+            try await store.update { $0.workerDeployed = true }
+        } catch {
+            // Best-effort: a marker write must never fail an already-successful deploy.
+        }
     }
 
     /// Whether this site has already completed at least one successful deploy — the same
@@ -295,7 +300,14 @@ public struct CloudflareDeployTarget: DeployTarget {
     /// need to know, *before* a deploy runs, whether this one would be the site's first. Public
     /// (unlike its siblings) because `DeployModel` lives in a different module.
     public static func hasDeployedBefore(configDirectory: URL) async -> Bool {
-        ((try? await SiteConfigStore(configDirectory: configDirectory).load())?.workerDeployed) == true
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        let settings: SiteSettings
+        do {
+            settings = try await store.load()
+        } catch {
+            return false
+        }
+        return settings.workerDeployed == true
     }
 
     /// Marks this site's candidate Worker name as confirmed-ours, via
@@ -313,7 +325,12 @@ public struct CloudflareDeployTarget: DeployTarget {
     /// foreign collision is still caught before this site's own provisioning ever runs. Written
     /// unconditionally like `persistWorkerDeployed`; best-effort, matching `persistSiteURL`.
     static func persistWorkerProvisioned(configDirectory: URL) async {
-        try? await SiteConfigStore(configDirectory: configDirectory).update { $0.workerProvisioned = true }
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        do {
+            try await store.update { $0.workerProvisioned = true }
+        } catch {
+            // Best-effort, matching `persistWorkerDeployed`.
+        }
     }
 
     /// Uploads `Source/`'s snapshot to R2 (`DeployStep.bundleUpload`) when
@@ -332,7 +349,13 @@ public struct CloudflareDeployTarget: DeployTarget {
         siteID: String
     ) async {
         let store = SiteConfigStore(configDirectory: configDirectory)
-        guard let bucket = (try? await store.load())?.sourceBundleBucket?.trimmingCharacters(in: .whitespacesAndNewlines),
+        let settings: SiteSettings
+        do {
+            settings = try await store.load()
+        } catch {
+            return
+        }
+        guard let bucket = settings.sourceBundleBucket?.trimmingCharacters(in: .whitespacesAndNewlines),
               !bucket.isEmpty
         else { return }
 
@@ -349,7 +372,11 @@ public struct CloudflareDeployTarget: DeployTarget {
         let commitSHA = headResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !commitSHA.isEmpty else { return }
 
-        try? await store.update { $0.deployedSourceBundleCommit = commitSHA }
+        do {
+            try await store.update { $0.deployedSourceBundleCommit = commitSHA }
+        } catch {
+            // Best-effort: the bundle is uploaded; a lost commit marker only means a stale-bundle nudge.
+        }
     }
 
     // MARK: Pre-build checks
@@ -370,7 +397,13 @@ public struct CloudflareDeployTarget: DeployTarget {
     ) async -> DeployCommand.Result? {
         let configURL = siteDirectory.appendingPathComponent(WebsiteAnalyticsAsset.configRelativePath)
         let config = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-        let settings = (try? await SiteConfigStore(configDirectory: configDirectory).load()) ?? SiteSettings()
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        var settings = SiteSettings()
+        do {
+            settings = try await store.load()
+        } catch {
+            // Unreadable settings: treat as never deployed, exactly as a missing file is.
+        }
         guard settings.workerDeployed != true,
               settings.workerProvisioned != true,
               let candidateName = SiteConfigFile.value(forKey: "CF_PROJECT_NAME", in: config)

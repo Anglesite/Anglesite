@@ -1290,7 +1290,11 @@ final class DeployModel {
             // Read-modify-write (#1960): `SocialWorkerProvisionTarget.authorize` wrote
             // `workerProvisioned` into this same plist during the attempt — saving the
             // deploy-start `settings` snapshot would drop it.
-            try? await configStore.update { $0.provisionedWorkerResources = provisionResult.resources }
+            do {
+                try await configStore.update { $0.provisionedWorkerResources = provisionResult.resources }
+            } catch {
+                // Best-effort: resource ids are also recoverable from `Config/wrangler.toml`.
+            }
         }
 
         if case .webmentionPaidPlanConfirmationNeeded = provisionResult {
