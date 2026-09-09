@@ -363,7 +363,7 @@ public struct ContainerDeployExecutor: DeployExecutor {
     // MARK: wrangler.toml staging (#1084, #1960)
 
     /// Which steps invoke `wrangler` in a way that reads `wrangler.toml` — the ones
-    /// `WranglerInvocation.configStagingArgv(hostSiteDirectory:)` runs ahead of. `.bundleUpload`
+    /// `WranglerInvocation.configStagingArgv(configDirectory:)` runs ahead of. `.bundleUpload`
     /// (`wrangler r2 object put`) and `.githubPagesPublish` never read it.
     static func stepReadsWranglerConfig(_ step: DeployStep) -> Bool {
         switch step {

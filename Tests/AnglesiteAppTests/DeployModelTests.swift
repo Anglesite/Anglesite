@@ -771,7 +771,7 @@ struct DeployModelTests {
         #expect(await providerCalls.count == 2)
     }
 
-    @Test("wasFirstDeploy is true only when CF_WORKER_DEPLOYED was absent before this deploy")
+    @Test("wasFirstDeploy is true only when workerDeployed was unset before this deploy")
     func wasFirstDeployReflectsPriorDeployHistory() async {
         let executor = GatedDeployExecutor()
         let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)

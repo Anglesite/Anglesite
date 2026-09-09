@@ -449,9 +449,6 @@ public enum DeployCoordinator {
     /// failed one, so this never throws.
     public static func persistProvisionedResources(
         configStore: SiteConfigStore,
-        /// The caller's deploy-start snapshot. Kept for source compatibility and as
-        /// documentation of intent; the write itself re-reads the store (see the body).
-        settings: SiteSettings,
         effectiveActiveIDs: Set<String>,
         resources: WorkerComposition.ProvisionedResources,
         /// This deploy's resolved ActivityPub handle
@@ -470,11 +467,11 @@ public enum DeployCoordinator {
         /// every other site, leaving the field untouched (it's already `nil` there).
         communityActorURL: URL? = nil
     ) async {
-        // Read-modify-write against the file's *current* contents, not the `settings` snapshot
-        // the caller loaded at deploy start (#1960): the deploy target writes `workerDeployed`/
+        // Read-modify-write against the file's *current* contents, never a snapshot the caller
+        // loaded at deploy start (#1960): the deploy target writes `workerDeployed`/
         // `workerProvisioned` and `deployedSourceBundleCommit` into the same plist while the
-        // deploy runs, and saving the stale snapshot would silently drop them. `settings` is
-        // only the fallback when the file can't be read at all.
+        // deploy runs, and saving a stale snapshot would silently drop them — which is why this
+        // takes no `SiteSettings` parameter at all.
         try? await configStore.update { current in
             current.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
             current.provisionedWorkerResources = resources

@@ -1330,7 +1330,7 @@ final class DeployModel {
             let communityActorSiteURL =
                 DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory).flatMap { URL(string: $0) } ?? deployedURL
             await DeployCoordinator.persistProvisionedResources(
-                configStore: configStore, settings: settings,
+                configStore: configStore,
                 effectiveActiveIDs: effectiveActiveIDs, resources: resources,
                 apUsername: activitypubProvisioned ? resolvedApUsername : nil,
                 communityActorURL: (isHostedCommunity && activitypubProvisioned)
