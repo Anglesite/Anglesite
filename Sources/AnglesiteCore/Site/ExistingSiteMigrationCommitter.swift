@@ -32,9 +32,18 @@ public enum ExistingSiteMigrationCommitter {
     ) async -> Bool {
         var paths: [String] = []
         for path in Set(touchedPaths).sorted() {
-            if FileManager.default.fileExists(atPath: sourceDirectory.appendingPathComponent(path).path) {
+            // Deliberately plain statements rather than `else if await …` in the condition: the
+            // Swift 6.3.3 toolchain on CI's macOS 26 runners tripped the concurrency runtime's
+            // task-allocator LIFO check ("freed pointer was not the last allocation") on this
+            // loop when the await sat inside the `if` chain; 6.4 compiles either form cleanly.
+            let existsOnDisk = FileManager.default.fileExists(
+                atPath: sourceDirectory.appendingPathComponent(path).path)
+            if existsOnDisk {
                 paths.append(path)
-            } else if await isTracked(sourceDirectory, path) {
+                continue
+            }
+            let tracked = await isTracked(sourceDirectory, path)
+            if tracked {
                 paths.append(path)
             }
         }
