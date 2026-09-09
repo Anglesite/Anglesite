@@ -92,11 +92,11 @@ final class DomainConfigAuditModel {
         do {
             declared = try DomainConfigStore(sourceDirectory: site.sourceDirectory).load()
         } catch {
-            phase = .failed(reason: "anglesite.json couldn't be read: \(error.localizedDescription)")
+            phase = .failed(reason: "This site's domain settings couldn't be read: \(error.localizedDescription)")
             return
         }
         guard let domain = declared.domain?.hostname, !domain.isEmpty else {
-            phase = .failed(reason: "No domain is declared in anglesite.json yet. Attach a domain first.")
+            phase = .failed(reason: "No domain is set up for this site yet. Attach a domain first.")
             return
         }
 

@@ -33,6 +33,16 @@
 # interpolation into a positional format specifier (%@, %lld, ...) chosen from the interpolated
 # expression's type - this script can't type-check, so it matches any interpolation against a
 # permissive `%<spec>` wildcard at that position instead of a specific specifier.
+#
+# Third, it lints the catalog's keys for owner-surface vocabulary the product direction forbids
+# (#1963, decision D1 in docs/specs/2026-09-08-product-direction-review-decisions.md): git,
+# commit, push, branch, SHA, packfile, bundle, npm, semver, package.json, wrangler, MCP,
+# "dev server", Astro, `.git`/`.json`/`.toml` file names, `Source/`/`Config/` layout, and exit
+# codes (see OWNER_VOCABULARY below). Keys whose only call sites are the Debug pane
+# (Sources/AnglesiteApp/DebugPaneView*.swift) are exempt - that surface is for developers by
+# definition - and reviewed exceptions live one per line in scripts/lib/owner-vocabulary-allowlist.txt
+# (exact catalog key; `#` comments and blank lines ignored). An allowlist entry that no longer
+# matches any catalog key is reported as a warning so the list can be pruned, not as a failure.
 set -euo pipefail
 
 repo_root="$(git rev-parse --show-toplevel)"
@@ -41,18 +51,20 @@ cd "$repo_root"
 sources_root="Sources/AnglesiteApp"
 catalog="$sources_root/Localizable.xcstrings"
 
+allowlist="scripts/lib/owner-vocabulary-allowlist.txt"
+
 if [[ ! -f "$catalog" ]]; then
   echo "error: $catalog not found." >&2
   exit 1
 fi
 
-python3 - "$sources_root" "$catalog" <<'PY'
+python3 - "$sources_root" "$catalog" "$allowlist" <<'PY'
 import json
 import re
 import sys
 from pathlib import Path
 
-sources_root, catalog_path = Path(sys.argv[1]), Path(sys.argv[2])
+sources_root, catalog_path, allowlist_path = Path(sys.argv[1]), Path(sys.argv[2]), Path(sys.argv[3])
 
 with open(catalog_path, encoding="utf-8") as f:
     catalog_keys = set(json.load(f)["strings"].keys())
@@ -88,6 +100,20 @@ BARE_ERROR_ASSIGN_PATTERN = re.compile(r'\b(?:' + "|".join(ERROR_PROPERTY_NAMES)
 # Any interpolation could extract to %@, %lld, %ld, %d, %f, %u, or a positional variant
 # (%1$@ etc.) depending on the interpolated expression's type - match permissively.
 FORMAT_SPEC = r"%(?:[0-9]+\$)?[a-zA-Z@]+"
+
+# Owner-surface vocabulary the primary UI must not use (#1963, D1). Word-bounded and
+# case-insensitive; the file-name/layout entries deliberately match the extension or trailing
+# slash so "anglesite.json" and "Source/" are caught but "JSON feed" or "source code" are not.
+OWNER_VOCABULARY = re.compile(
+    r"\bgit\b|\bcommit(?:s|ted|ting)?\b|\bpush(?:es|ed|ing)?\b|\bpull(?:s|ed|ing)?\b"
+    r"|\bbranch(?:es)?\b|\bSHA\b|packfile|\bbundles?\b|\bnpm\b|\bsemver\b|package\.json"
+    r"|\bwrangler\b|\bMCP\b|\bdev[ -]server\b|\bAstro\b|\.git\b|\.json\b|\.toml\b"
+    r"|\bSource/|\bConfig/|\bexit code\b|\(exit ",
+    re.IGNORECASE,
+)
+# The Debug pane is a developer surface - every key whose call sites are all in these files
+# is exempt (matched against the pane's own string literals, interpolations and all).
+DEBUG_PANE_GLOB = "DebugPaneView*.swift"
 
 ESCAPES = {"n": "\n", "t": "\t", "r": "\r", '"': '"', "\\": "\\", "'": "'", "0": "\0"}
 
@@ -202,6 +228,59 @@ for path in sorted(sources_root.rglob("*.swift")):
         line = text.count("\n", 0, m.start()) + 1
         bare_assignments.append((str(path), line, render(tokens)))
 
+# --- Owner vocabulary lint (#1963) ---------------------------------------------------------
+# Every string literal in the Debug pane, as a (has_interpolation, key-or-pattern) pair, so a
+# catalog key can be tested for "is this one of the Debug pane's own strings".
+debug_literals = []
+for path in sorted(sources_root.rglob(DEBUG_PANE_GLOB)):
+    text = path.read_text(encoding="utf-8")
+    pos = 0
+    while True:
+        start = text.find('"', pos)
+        if start == -1:
+            break
+        tokens, end = scan_literal(text, start + 1)
+        pos = end + 1
+        if not tokens or all(kind == "text" and not val for kind, val in tokens):
+            continue
+        if any(kind == "interp" for kind, _ in tokens):
+            parts = []
+            for kind, val in tokens:
+                parts.append(re.escape(val.replace("%", "%%")) if kind == "text" else FORMAT_SPEC)
+            debug_literals.append(re.compile("^" + "".join(parts) + "$"))
+        else:
+            debug_literals.append("".join(val for _, val in tokens))
+
+
+def is_debug_pane_key(key):
+    for lit in debug_literals:
+        if isinstance(lit, str):
+            if lit == key:
+                return True
+        elif lit.match(key):
+            return True
+    return False
+
+
+allowlisted = set()
+if allowlist_path.exists():
+    for raw in allowlist_path.read_text(encoding="utf-8").splitlines():
+        line = raw.rstrip("\n")
+        if not line.strip() or line.lstrip().startswith("#"):
+            continue
+        allowlisted.add(line)
+
+vocabulary_hits = []
+for key in sorted(catalog_keys):
+    m = OWNER_VOCABULARY.search(key)
+    if not m:
+        continue
+    if key in allowlisted or is_debug_pane_key(key):
+        continue
+    vocabulary_hits.append((key, m.group(0)))
+
+stale_allowlist = sorted(entry for entry in allowlisted if entry not in catalog_keys)
+
 had_error = False
 
 if missing:
@@ -237,8 +316,36 @@ if bare_assignments:
         file=sys.stderr,
     )
 
+if vocabulary_hits:
+    had_error = True
+    print(
+        f"error: {len(vocabulary_hits)} {catalog_path} key(s) use git/npm/wrangler/MCP/file-layout "
+        "vocabulary on the owner-facing surface (#1963, decision D1):",
+        file=sys.stderr,
+    )
+    for key, word in vocabulary_hits:
+        print(f"  {word!r} in {json.dumps(key)}", file=sys.stderr)
+    print(
+        "\nRewrite the string in owner terms (what happened to the site, never git/npm/file "
+        "layout) and keep the technical detail under a Details disclosure or in the Debug pane. "
+        f"A reviewed exception goes in {allowlist_path}, one exact key per line.",
+        file=sys.stderr,
+    )
+
+if stale_allowlist:
+    print(
+        f"warning: {len(stale_allowlist)} {allowlist_path} entr{'y' if len(stale_allowlist) == 1 else 'ies'} "
+        "no longer match any catalog key - prune:",
+        file=sys.stderr,
+    )
+    for entry in stale_allowlist:
+        print(f"  {json.dumps(entry)}", file=sys.stderr)
+
 if had_error:
     sys.exit(1)
 
-print(f"✓ every scanned localizable literal in {sources_root} has a matching {catalog_path} key.")
+print(
+    f"✓ every scanned localizable literal in {sources_root} has a matching {catalog_path} key, "
+    f"and no key uses owner-surface vocabulary outside {allowlist_path} or the Debug pane."
+)
 PY

@@ -110,7 +110,7 @@ final class WebsiteInspectorModel {
         saveError = nil
         defer { isSavingTitle = false }
         guard let infoPlistURL = SiteFileTree.layout(for: packageURL).infoPlist else {
-            saveError = String(localized: "This site's Info.plist couldn't be found.")
+            saveError = String(localized: "This site's package is damaged — its identity file is missing.")
             return false
         }
         let newTitle = title

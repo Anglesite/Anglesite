@@ -143,7 +143,7 @@ struct WebsiteCommands: Commands {
 
             Divider()
 
-            Menu("Dev Server") {
+            Menu("Live Preview") {
                 // Dev-server lifecycle (#515). Start covers the stopped and failed states;
                 // Restart is for a wedged Astro process. Enablement rules are
                 // `DevServerControls` in AnglesiteCore.

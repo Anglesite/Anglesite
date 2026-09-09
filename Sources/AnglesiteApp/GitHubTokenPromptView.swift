@@ -50,7 +50,7 @@ struct GitHubTokenPromptView: View {
                     }
                 }
                 step(2) {
-                    Text("Select **All repositories**, then grant **Contents: Read and write**, **Administration: Read and write** (Administration is what lets a new repo be created), **Repository security advisories: Read**, and **Dependabot alerts: Read** (both let Anglesite show open reports for this repo) — then copy the token and paste it below.")
+                    Text("Select **All repositories**, then grant **Contents: Read and write**, **Administration: Read and write** (Administration lets Anglesite create a new project on GitHub), **Repository security advisories: Read**, and **Dependabot alerts: Read** (both let Anglesite show this site's open security reports) — then copy the token and paste it below.")
                 }
             }
             .font(.callout)

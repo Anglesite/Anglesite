@@ -577,7 +577,7 @@ struct SiteWindow: View {
             }
             .disabled(!model.canRunBackup)
             .help(site.isValid
-                  ? "Commit and push working-tree changes to your current branch"
+                  ? "Save this site's latest changes to its online backup"
                   : "Site is missing required files")
             .accessibilityIdentifier(AXID.toolbar(.backup))
 
@@ -643,7 +643,7 @@ struct SiteWindow: View {
             }
             .disabled(!model.canRunDomainConfigAudit)
             .help(site.isValid
-                  ? "Compare anglesite.json's declared domain/DNS/edge config against live Cloudflare state"
+                  ? "Check that this site's domain settings match what's live on Cloudflare"
                   : "Site is missing required files")
             .accessibilityIdentifier(AXID.toolbar(.domainConfigAudit))
 
@@ -740,7 +740,7 @@ struct SiteWindow: View {
                     Label("Publish to GitHub", systemImage: "square.and.arrow.up.on.square")
                 }
                 .disabled(!model.canPublishToGitHub)
-                .help(site.isValid ? "Create a private GitHub repo and push this site" : "Site is missing required files")
+                .help(site.isValid ? "Publish a private copy of this site to your GitHub account" : "Site is missing required files")
                 .accessibilityIdentifier(AXID.toolbar(.github))
             }
 
@@ -2170,7 +2170,7 @@ struct SiteWindow: View {
                 StartupProgressView(
                     title: model.preview.isUpdatingDependencies
                         ? "Updating dependencies — this may take a minute…"
-                        : "Starting dev server for \(site.name)…",
+                        : "Starting the preview for \(site.name)…",
                     model: model.startup,
                     // Deliberately ungated (unlike the ⌥⌘D menu item): the point of #560 is
                     // letting non-developers look under the hood while they wait.
@@ -2201,7 +2201,7 @@ struct SiteWindow: View {
                     Button("Show Logs") { openWindow(id: "debug") }
                         .buttonStyle(.link)
                         .font(.callout)
-                        .accessibilityHint("Opens the log of the failed dev server launch.")
+                        .accessibilityHint("Opens the log of the failed preview launch.")
                 }
             }
         case .idle:
@@ -2212,11 +2212,11 @@ struct SiteWindow: View {
                     VStack(spacing: 12) {
                         Image(systemName: "stop.circle")
                             .font(.largeTitle).foregroundStyle(.secondary)
-                        Text("Dev server stopped").font(.headline)
-                        Text("The preview is paused for \(site.name). Start the dev server to resume.")
+                        Text("Preview stopped").font(.headline)
+                        Text("The preview is paused for \(site.name). Start it again to resume.")
                             .font(.callout).foregroundStyle(.secondary)
                             .multilineTextAlignment(.center).frame(maxWidth: 420)
-                        Button("Start Dev Server") {
+                        Button("Start Preview") {
                             model.startDevServer()
                         }
                     }

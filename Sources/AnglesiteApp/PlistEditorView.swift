@@ -1128,7 +1128,7 @@ struct PlistEditorView: View {
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
-                    Text("Optional — also sends each submission to this address by email. Leave blank to keep captures git-only.")
+                    Text("Optional — also sends each submission to this address by email. Leave blank to keep submissions only in your site's inbox.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)

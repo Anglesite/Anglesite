@@ -85,11 +85,11 @@ struct AuditSheetView: View {
         }
     }
 
-    /// Compose `reason` and `exitCode` for display. Kept as the single formatter so
-    /// the header subtitle and the body render the same string — when the exit was
-    /// also encoded into `reason`, both layers appended it and produced "(exit N) (exit N)".
+    /// The owner-facing line for a failed run. Kept as the single formatter so the header
+    /// subtitle and the body render the same string; the exit code and the raw reason live in
+    /// ``OwnerFacingCopy/Failure/detail`` (rendered under "Details" in the body), never here.
     static func formatFailure(reason: String, exitCode: Int32?) -> String {
-        exitCode.map { "\(reason) (exit \($0))" } ?? reason
+        OwnerFacingCopy.operation(reason: reason, exitCode: exitCode).summary
     }
 
     // MARK: Body
@@ -104,6 +104,9 @@ struct AuditSheetView: View {
                 Text(Self.formatFailure(reason: reason, exitCode: exit))
                     .font(.callout).foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .leading)
+                if let detail = OwnerFacingCopy.operation(reason: reason, exitCode: exit).detail {
+                    FailureDetailsView(detail: detail)
+                }
                 failureLog(tail)
             }
             .padding(16)

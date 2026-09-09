@@ -364,7 +364,11 @@ do this — edit `project.yml` and regenerate). Run
 
 **What it runs:** `scripts/check-localization-catalog.sh` (a static
 heuristic scan for `Text`/`Button`/`Label`/`String(localized:)` call sites
-with no matching catalog key) and `scripts/check-xcstrings-newline.sh`.
+with no matching catalog key, plus — since
+[#1963](https://github.com/Anglesite/Anglesite/issues/1963) — an
+owner-vocabulary lint over the catalog's keys), its fixture tests in
+`scripts/check-localization-catalog.test.sh`, and
+`scripts/check-xcstrings-newline.sh`.
 
 **Why a static heuristic, and not the real Xcode merge:**
 `SWIFT_EMIT_LOC_STRINGS`'s String Catalog merge only happens inside the
@@ -383,6 +387,21 @@ catches this — see [#970](https://github.com/Anglesite/Anglesite/issues/970)
 for a past bypass). This heuristic doesn't type-check call sites, so it can
 still miss some extraction vectors Xcode itself would catch — a clean run
 here is necessary, not sufficient.
+
+**"key(s) use git/npm/wrangler/MCP/file-layout vocabulary":** a catalog key
+names git, commits, pushes, branches, SHAs, packfiles/bundles, npm, semver,
+`package.json`, wrangler, MCP, "dev server", Astro, a `.git`/`.json`/`.toml`
+file, `Source/`/`Config/`, or an exit code — vocabulary decision D1
+([`docs/specs/2026-09-08-product-direction-review-decisions.md`](specs/2026-09-08-product-direction-review-decisions.md))
+keeps off the owner-facing surface. Rewrite the string in terms of what
+happened to the owner's *site* and keep the technical reason under a
+"Details" disclosure (`FailureDetailsView`) or route it to the Debug pane
+via `LogCenter`. Keys whose only call sites are `DebugPaneView*.swift` are
+exempt automatically; a genuinely developer-only string elsewhere (the
+Advanced settings' MCP ports, say) goes in
+`scripts/lib/owner-vocabulary-allowlist.txt` with a comment saying why. A
+`warning:` about stale allowlist entries never fails the lane — prune them
+when you see it.
 
 ## `test-userdefaults-suite-lint` — no direct `UserDefaults(suiteName:)` literals (ubuntu-latest)
 
