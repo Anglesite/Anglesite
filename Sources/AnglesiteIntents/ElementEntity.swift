@@ -6,7 +6,7 @@ import Foundation
 /// mapping rules (B.2 / #146) where a visible DOM element doesn't correspond to any indexed
 /// Page/Post/Image. Lets Siri say "edit this" against arbitrary headings, buttons, links, etc.
 ///
-/// **Not `IndexedEntity`** — these are tied to the live overlay state and would churn Spotlight
+/// **Not `IndexedEntity`** — these are tied to the live page-bridge report and would churn Spotlight
 /// constantly. Only `PreviewAnnotationProvider` can resolve them, and only while the WKWebView
 /// is showing the page that produced them. Once that page navigates, the entity is gone.
 ///

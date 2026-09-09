@@ -4,7 +4,7 @@ import Observation
 import AnglesiteCore
 
 /// Drives the click-to-select flow for an A/B experiment's "visible" goal (#1270 slice 5):
-/// enters the overlay's goal-pick mode, waits for a click, and builds a CSS selector from it via
+/// enters the page bridge's goal-pick mode, waits for a click, and builds a CSS selector from it via
 /// `GoalSelectorBuilder`. Simpler than `EffectPlacementController` — no page-model fetch or
 /// applied edit, just a synchronous pure computation on the reported `ElementInfo`. One instance
 /// per `ExperimentStatsModel` (Task 12).

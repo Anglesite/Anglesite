@@ -8,6 +8,7 @@ import { NativeHostTransport } from "./native-host-transport.js";
 import { DragReorderController, computeDropTarget } from "../drag-drop.js";
 import { renderHoverOutline } from "./hover-outline.js";
 import { wireImageDrop } from "./image-drop.js";
+import { bootPageBridge } from "./page-bridge.js";
 import { computeHandleRect, findBlockElement } from "../selection.js";
 import { BLOCK_ID_ATTR } from "../hit-test.js";
 import { ROOT_PARENT_ID } from "../types.js";
@@ -288,6 +289,11 @@ function disposeMounted(): void {
   window.__anglesiteWysiwygAccessibility = undefined;
   window.__anglesiteWysiwygEngine = undefined;
 }
+
+// The always-on page reporters — Siri's visible-elements feed, the Effects/experiment pick
+// modes, or the Component Editor's harness canvas — install at injection time, independent of
+// the block engine below (#1957; formerly the edit-overlay bundle's own entry point).
+bootPageBridge();
 
 // Injected as a WKUserScript (Task 6); the engine can't self-construct at injection time because
 // WysiwygEngine needs an initialModel, which is only known once the native host has fetched one —

@@ -98,7 +98,7 @@ final class ChatModel {
     private let assistant: any ConversationalAssistant
     private let history: ChatHistoryStore
     /// Sticky-note source. Wired to the per-site `SiteRuntime.mcpClient` in production so
-    /// `loadAnnotations()` shows the same annotations the edit overlay added; tests inject a
+    /// `loadAnnotations()` shows the annotations the sidecar recorded; tests inject a
     /// fixture closure. `nil` disables the feed (returns no annotations, no error).
     private let annotationFeed: AnnotationFeed?
     /// Resolves an annotation via the plugin's `resolve_annotation` MCP tool. Injected so tests
@@ -108,25 +108,25 @@ final class ChatModel {
     /// Optional. Wired to the per-site `MCPClient` in production; nil in tests where the
     /// chat has no MCP backing yet.
     private let undoCommand: UndoCommand?
-    /// Bridges applied edits into the window's `UndoManager` so Edit ▸ Undo (⌘Z) reverses them
-    /// (#527). `recordEdit` registers each applied edit; ⌘Z delegates back to ``undoEdit`` —
-    /// the same inverse-application + conflict-detection path as the per-row Undo button.
-    /// `SiteWindowModel` attaches the window's undo manager (from `@Environment(\.undoManager)`).
-    ///
-    /// The row is resolved by **commit SHA**, not the message UUID the record was created
-    /// under: `loadHistory()` re-creates every row with a fresh UUID whenever the chat panel
-    /// remounts, so a UUID captured at apply time can go stale while the edit (and its commit)
-    /// remains perfectly undoable.
-    @ObservationIgnored
-    private(set) lazy var editUndoCoordinator = EditUndoCoordinator { [weak self] record in
-        guard let self,
-              let row = self.messages.first(where: { $0.editMetadata?.commit == record.commit })
-        else { return .stale }
-        return await self.undoEdit(messageID: row.id)
+    /// What ``undoEdit(messageID:force:)`` reports back. Assistant-applied edits are undone from
+    /// their chat row (or the conflict sheet's "Undo anyway") — the window's ⌘Z stack belongs to
+    /// the block editor's own ops (`WYSIWYGUndoCoordinator`) and structural content operations
+    /// (`ContentUndoCoordinator`) since #1957 retired the git-revert `EditUndoCoordinator` with
+    /// the click-to-edit overlay it served.
+    enum EditUndoOutcome: Sendable, Equatable {
+        /// The edit was reverted.
+        case undone
+        /// The revert didn't happen but could later (MCP error, conflict sheet pending, MCP not
+        /// running, or another revert already in flight for this commit).
+        case retryable
+        /// The row no longer maps to an undoable edit (gone, or already undone).
+        case stale
     }
+
     /// Commits with an `undo_edit` round trip in flight. Checked synchronously at the top of
-    /// ``undoEdit`` so the per-row Undo button and ⌘Z can't double-submit the same revert —
-    /// both entry points run on the main actor, and the guard closes before the first `await`.
+    /// ``undoEdit`` so the per-row Undo button and the conflict sheet can't double-submit the
+    /// same revert — both entry points run on the main actor, and the guard closes before the
+    /// first `await`.
     private var undoCommitsInFlight: Set<String> = []
     private var streamTask: Task<Void, Never>?
     /// IDs of annotations already surfaced in chat, so repeated calls to `loadAnnotations()`
@@ -274,7 +274,6 @@ final class ChatModel {
             editMetadata: metadata
         )
         transcript.append(message)
-        editUndoCoordinator.registerApplied(.init(file: file, commit: commit))
         let entry = ChatHistoryStore.Entry(
             timestamp: message.timestamp,
             role: .edit,
@@ -292,13 +291,10 @@ final class ChatModel {
     /// row's `undone` flag and persist a sidecar. On working-tree drift, set `conflictPrompt`
     /// so the view shows a sheet. On failure, append an `.error` system message.
     ///
-    /// The returned outcome drives ``editUndoCoordinator``'s re-arm decision when the call
-    /// came from ⌘Z (the row-button path discards it): `.undone` spends the record,
-    /// `.retryable` keeps the edit reachable via ⌘Z (failure, conflict sheet pending, MCP
-    /// down, or another revert already in flight for this commit), `.stale` drops it (the
-    /// record no longer maps to an undoable row).
+    /// The returned ``EditUndoOutcome`` is informational for the row-button and conflict-sheet
+    /// callers (both discard it) and lets tests assert which branch ran.
     @discardableResult
-    func undoEdit(messageID: UUID, force: Bool = false) async -> EditUndoCoordinator.UndoOutcome {
+    func undoEdit(messageID: UUID, force: Bool = false) async -> EditUndoOutcome {
         guard let target = messages.first(where: { $0.id == messageID }),
               target.role == .edit,
               let metadata = target.editMetadata,
@@ -308,10 +304,11 @@ final class ChatModel {
             lastError = String(localized: "Undo unavailable: MCP not running.")
             return .retryable
         }
-        // Double-submit guard: the row button and ⌘Z are independent entry points into this
-        // function, and `metadata.undone` only flips after the `await` below — so without
-        // this, a click + reflexive ⌘Z would send two concurrent reverts for the same commit.
-        // Checked and inserted synchronously (no suspension) on the main actor.
+        // Double-submit guard: the row button and the conflict sheet's "Undo anyway" are
+        // independent entry points into this function, and `metadata.undone` only flips after
+        // the `await` below — so without this, two quick clicks would send two concurrent
+        // reverts for the same commit. Checked and inserted synchronously (no suspension) on
+        // the main actor.
         guard !undoCommitsInFlight.contains(metadata.commit) else { return .retryable }
         undoCommitsInFlight.insert(metadata.commit)
         defer { undoCommitsInFlight.remove(metadata.commit) }
@@ -319,10 +316,6 @@ final class ChatModel {
         switch result {
         case .success(let newCommit):
             transcript.update(id: messageID) { $0.editMetadata?.undone = true }
-            // Drop any still-pending ⌘Z record for this edit (the per-row Undo button path,
-            // or a record re-armed after an earlier failed/conflicted ⌘Z). No-op when the
-            // undo *came from* ⌘Z — the coordinator consumed its record first.
-            editUndoCoordinator.invalidate(commit: metadata.commit)
             Task { [history] in
                 try? await history.appendUndone(messageID: messageID, newCommit: newCommit)
             }
@@ -365,10 +358,6 @@ final class ChatModel {
         cancel()
         streamTask = nil
         transcript.reset()
-        // The rows backing the window's ⌘Z records are gone (and the truncated history can't
-        // resurrect them) — drop the records too, or ⌘Z would silently consume entries whose
-        // reverts can no longer be located.
-        editUndoCoordinator.invalidateAll()
         await assistant.resetSession()
         do { try await history.clear() } catch { lastError = String(localized: "couldn't clear history: \(error.localizedDescription)") }
     }

@@ -1,10 +1,12 @@
-// UndoManager is a Darwin-only Foundation type — see EditUndoCoordinator.swift's header for the
-// shared rationale; this bridge compiles out on non-Darwin for the identical reason.
+// UndoManager is a Darwin-only Foundation type, so this bridge — used only by the app target's
+// undo coordinators — compiles out elsewhere. No non-Darwin consumer exists yet (see the
+// cross-platform port design doc §5); a portable in-memory undo stack can slot in behind the
+// same API if/when a Linux/Windows GUI shell needs one.
 #if canImport(Darwin)
 import Foundation
 
-/// The shared machinery behind ``ContentUndoCoordinator``, ``EditUndoCoordinator`` and
-/// ``WYSIWYGUndoCoordinator`` (#1824): registering one `Op` on a window `UndoManager`, replaying
+/// The shared machinery behind ``ContentUndoCoordinator`` and ``WYSIWYGUndoCoordinator``
+/// (#1824): registering one `Op` on a window `UndoManager`, replaying
 /// it on undo/redo, and re-arming or correcting the entry from an async outcome. Each coordinator
 /// reduces to its own `Op` type, an `Outcome`-mapping `perform` closure, and a couple of policy
 /// closures/parameters; everything about *how* an entry survives a round trip through
@@ -37,16 +39,16 @@ import Foundation
 ///      exposes no way to push onto the redo stack outside an undo pass, so a failed *redo* can
 ///      only be dropped, not migrated onto the undo stack as a lie about what's on disk/state.
 ///
-/// `redoOp == nil` opts a coordinator out of redo entirely (``EditUndoCoordinator``): nothing is
-/// ever optimistically registered, and `.retry` becomes an unconditional re-arm since every fire
-/// is, by construction, an undo.
+/// `redoOp == nil` opts a coordinator out of redo entirely (as the retired git-revert
+/// `EditUndoCoordinator` did, #1957): nothing is ever optimistically registered, and `.retry`
+/// becomes an unconditional re-arm since every fire is, by construction, an undo.
 ///
 /// `onRegister` and `onFire`, when supplied, run synchronously — the instant a new token is
 /// created, and the instant any entry fires (including recursively re-registered ones) before the
 /// async `perform` call — and are threaded through every recursive registration this bridge makes
 /// on an entry's behalf (the optimistic opposite-direction step, a `.retry` re-arm). Coordinators
-/// use these for their own bookkeeping this bridge has no reason to know about: id-keyed token
-/// maps for ``ContentUndoCoordinator``/``EditUndoCoordinator``'s `invalidate`/`invalidateAll` —
+/// use these for their own bookkeeping this bridge has no reason to know about: the id-keyed token
+/// map for ``ContentUndoCoordinator``'s `invalidate`/`invalidateAll` —
 /// which must reach *every* live token, not just the ones created by an explicit external
 /// `register` call — and typing-coalescing state for ``WYSIWYGUndoCoordinator``.
 ///

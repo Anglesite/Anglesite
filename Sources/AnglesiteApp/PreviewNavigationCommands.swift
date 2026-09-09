@@ -85,8 +85,7 @@ struct PreviewNavigationCommands: Commands {
         }
     }
 
-    /// Drives `PreviewModel.enterEditMode(path:undoManager:)`/`.exitEditMode()` from the Toggle
-    /// above. `path` comes from `focusedSiteWindowModel.activePageSourcePath` — the resolved
+    /// Drives `PreviewModel.setEditMode(enabled:path:undoManager:)` from the Toggle above. `path` comes from `focusedSiteWindowModel.activePageSourcePath` — the resolved
     /// project-relative `.astro` source for the preview's current route (#1222), computed the
     /// same way `SiteWindowModel.effectPlacementController` resolves its own target path. Falls
     /// back to `PageSourcePath.resolve(route:pages:)` with an empty scanned-pages list on the

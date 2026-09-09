@@ -3,11 +3,12 @@ import WebKit
 import AVFoundation
 import AnglesiteCore
 import AnglesiteBridge
+import AnglesiteBridgeCore
 import AnglesiteIOS
 import AnglesiteIntents
 
-/// The full-screen "Edit Site" session cover (#1431, iOS v2.0 design §3): live preview plus
-/// edit overlay over the P2P session, with session states rendered in the owner's vocabulary.
+/// The full-screen "Edit Site" session cover (#1431, iOS v2.0 design §3): live preview over
+/// the P2P session, with session states rendered in the owner's vocabulary.
 /// Done suspends the UI while the session stays warm (the shell owns the model); the explicit
 /// Stop action ends the session. First entry with no paired Mac walks into pairing onboarding.
 struct EditSiteScreen: View {
@@ -115,22 +116,22 @@ struct EditSiteScreen: View {
 }
 
 /// The `WKWebView` leg over the P2P session: the same shared-bridge composition the remote
-/// sandbox preview used (`AnglesiteScriptHandler` + edit-overlay user script + the Siri
-/// annotation hookup), minus its session-token cookie injection — pinned-key DTLS replaces
-/// bearer auth end to end (design §3), so there is nothing to inject before the first load.
+/// sandbox preview used (`WYSIWYGScriptHandler` + the injected engine bundle's page bridge for
+/// the Siri annotation hookup), minus its session-token cookie injection — pinned-key DTLS
+/// replaces bearer auth end to end (design §3), so there is nothing to inject before the first
+/// load. No block engine is mounted here yet: the Mac host's `WYSIWYGCanvasController` is the
+/// only host, so this preview is view-only since #1957 retired the click-to-edit overlay —
+/// hosting the block editor on iOS is the cross-platform port's job (#571).
 private struct P2PSessionPreview: View {
     let url: URL
     let model: EditSessionModel
     let annotationProvider: PreviewAnnotationProvider?
 
     var body: some View {
-        let onVisibleElements: AnglesiteScriptHandler.VisibleElementsHandler? = annotationProvider.map { provider in
+        let onVisibleElements: WYSIWYGOpsDispatcher.VisibleElementsHandler? = annotationProvider.map { provider in
             { @Sendable elements in await provider.update(elements) }
         }
-        let handler = AnglesiteScriptHandler(
-            router: MCPApplyEditRouter(mcpClient: { [weak model] in await MainActor.run { model?.mcpClient } }),
-            onVisibleElements: onVisibleElements
-        )
+        let handler = WYSIWYGScriptHandler(transport: nil, handlers: .init(onVisibleElements: onVisibleElements))
         RemotePreviewWebView(
             url: url,
             makeConfiguration: {

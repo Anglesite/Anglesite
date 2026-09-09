@@ -6,11 +6,6 @@ updates:
       interval: "weekly"
 
   - package-ecosystem: "npm"
-    directory: "/JS/edit-overlay"
-    schedule:
-      interval: "weekly"
-
-  - package-ecosystem: "npm"
     directory: "/Resources/Template"
     schedule:
       interval: "weekly"

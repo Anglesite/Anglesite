@@ -1,7 +1,7 @@
 import Foundation
 
-/// JS → native messages from the component-harness canvas overlay module.
-/// Wire shapes are defined in JS/edit-overlay/src/component-canvas.ts.
+/// JS → native messages from the component-harness canvas module.
+/// Wire shapes are defined in JS/wysiwyg-engine/src/host/component-canvas.ts.
 public enum ComponentCanvasDecodeError: Error, Equatable {
     /// The body's `type` field named a different message — "not mine", so the dispatcher can
     /// keep routing, as opposed to ``malformed``, which means the right message arrived broken.
@@ -11,13 +11,13 @@ public enum ComponentCanvasDecodeError: Error, Equatable {
     case malformed
 }
 
-/// The canvas overlay reporting a click on a rendered element, carrying the element's
+/// The canvas module reporting a click on a rendered element, carrying the element's
 /// `data-astro-source-loc` annotation so the outline can highlight the matching node (via
 /// ``ComponentOutline/node(atLine:column:in:)`` — see its doc for why line matches exactly but
 /// column doesn't). All fields optional: a click can land on chrome with no source annotation,
 /// and that's still a selection worth reporting (it clears the outline highlight).
 public struct CanvasSelectionMessage: Sendable, Equatable {
-    /// The wire `type` discriminator `AnglesiteMessageDispatcher` routes on.
+    /// The wire `type` discriminator `WYSIWYGOpsDispatcher` routes on.
     public static let messageType = "anglesite:canvas-selection"
 
     /// The clicked element's source file as Astro stamps it (vite-rooted, e.g.
@@ -53,15 +53,15 @@ public struct CanvasSelectionMessage: Sendable, Equatable {
     }
 }
 
-/// The canvas overlay reporting the selected element's resolved CSS — what the browser actually
+/// The canvas module reporting the selected element's resolved CSS — what the browser actually
 /// computed, so the style inspector can show effective values (inherited, cascaded, defaulted)
 /// rather than only the declarations present in the component's own `<style>` block.
 public struct ComputedStylesReport: Sendable, Equatable {
-    /// The wire `type` discriminator `AnglesiteMessageDispatcher` routes on.
+    /// The wire `type` discriminator `WYSIWYGOpsDispatcher` routes on.
     public static let messageType = "anglesite:computed-styles"
 
-    /// Computed property → value pairs, exactly as the overlay read them from
-    /// `getComputedStyle` (the overlay chooses which properties to report).
+    /// Computed property → value pairs, exactly as the canvas module read them from
+    /// `getComputedStyle` (the module chooses which properties to report).
     public let styles: [String: String]
 
     /// Memberwise initializer — public for tests; production instances come from

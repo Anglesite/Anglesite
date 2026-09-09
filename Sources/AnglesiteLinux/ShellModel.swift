@@ -4,7 +4,7 @@ import AnglesiteCore
 /// Owns the site lifecycle behind the Linux shell: open a `.anglesite` package, compose the
 /// Linux runtime stack (`LocalContainerSiteRuntime` over `PodmanContainerControl`, per the
 /// cross-platform port design §7 and #647), and hand the UI everything it needs to render the
-/// preview and route overlay edits. One site at a time, matching the one-window MVP — opening
+/// preview. One site at a time, matching the one-window MVP — opening
 /// a second package stops the first site's container.
 ///
 /// An `actor`, not `@MainActor`: `current`/`inFlightStop` are mutated from GTK callbacks *and*
@@ -83,21 +83,22 @@ actor ShellModel {
         await site.runtime.stop()
     }
 
-    /// The edit-overlay JS to inject into the preview. On macOS this rides the app bundle
-    /// (`AnglesiteOverlayBundle`); on Linux resolution tries, in order: `ANGLESITE_OVERLAY_JS`
-    /// env override (dev loop); `/app/share/anglesite/edit-overlay/overlay.js`, the path the
-    /// Flatpak manifest installs it to (`packaging/flatpak/io.dwk.anglesite.linux.yml` — see
+    /// The engine JS (block editor + page bridge, `JS/wysiwyg-engine`) to inject into the
+    /// preview. On macOS this rides the app bundle (`AnglesiteWysiwygEngineBundle`); on Linux
+    /// resolution tries, in order: `ANGLESITE_WYSIWYG_ENGINE_JS` env override (dev loop);
+    /// `/app/share/anglesite/wysiwyg-engine/engine.js`, the path the Flatpak manifest installs
+    /// it to (`packaging/flatpak/io.dwk.anglesite.linux.yml` — see
     /// docs/superpowers/specs/2026-08-06-flatpak-packaging-investigation.md §7), tried only when
     /// `FLATPAK_ID` indicates a Flatpak sandbox — same detection
     /// `PodmanContainerControl.flatpakHostSpawn` uses, so a stray `/app` directory on a
     /// non-Flatpak Linux box can't silently shadow the dev-relative fallback below it; then the
-    /// repo-relative `scripts/build-overlay.sh` output beside the binary's cwd, for an unpackaged
-    /// dev build run from the repo root. Missing overlay is non-fatal — the preview loads without
-    /// edit affordances, matching `WebViewBridge`'s behavior when the bundle wasn't produced. The
-    /// ordering/gating itself lives in `overlayCandidates(environment:)`, a pure function kept
+    /// repo-relative `scripts/build-wysiwyg-engine.sh` output beside the binary's cwd, for an
+    /// unpackaged dev build run from the repo root. A missing bundle is non-fatal — the preview
+    /// loads without it, matching `WebViewBridge`'s behavior when the bundle wasn't produced. The
+    /// ordering/gating itself lives in `engineCandidates(environment:)`, a pure function kept
     /// separate from this one's file I/O so `Tests/AnglesiteLinuxTests` can exercise it directly.
-    static func overlaySource(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
-        for path in overlayCandidates(environment: environment) {
+    static func engineSource(environment: [String: String] = ProcessInfo.processInfo.environment) -> String? {
+        for path in engineCandidates(environment: environment) {
             if let source = try? String(contentsOf: URL(fileURLWithPath: path), encoding: .utf8) {
                 return source
             }
@@ -105,15 +106,15 @@ actor ShellModel {
         return nil
     }
 
-    /// The ordered, filtered candidate paths `overlaySource` tries — see its doc comment for what
+    /// The ordered, filtered candidate paths `engineSource` tries — see its doc comment for what
     /// each one is and why it's ordered that way. Split out as its own pure function (no file
     /// I/O) specifically so the ordering/gating logic is unit-testable without needing real files
     /// on disk at absolute paths like `/app/share/...`.
-    static func overlayCandidates(environment: [String: String]) -> [String] {
+    static func engineCandidates(environment: [String: String]) -> [String] {
         [
-            environment["ANGLESITE_OVERLAY_JS"],
-            environment["FLATPAK_ID"] != nil ? "/app/share/anglesite/edit-overlay/overlay.js" : nil,
-            "Resources/edit-overlay/overlay.js",
+            environment["ANGLESITE_WYSIWYG_ENGINE_JS"],
+            environment["FLATPAK_ID"] != nil ? "/app/share/anglesite/wysiwyg-engine/engine.js" : nil,
+            "Resources/wysiwyg-engine/engine.js",
         ].compactMap { $0 }
     }
 }

@@ -68,7 +68,7 @@ struct MainPaneEditorView: View {
         }
         // Load off-main when the file changes; re-fires for a new file id.
         .task(id: model.file.id) { await model.load() }
-        // Re-check the file when the window regains focus — chat/overlay/CLI may have written it.
+        // Re-check the file when the window regains focus — chat/canvas/CLI may have written it.
         .onChange(of: controlActiveState) { _, new in
             if new == .key { Task { await model.checkExternalChange() } }
         }

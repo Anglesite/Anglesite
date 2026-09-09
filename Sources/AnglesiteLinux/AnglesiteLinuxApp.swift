@@ -7,8 +7,9 @@ import CWebKitGTK
 /// The Linux shell (cross-platform port phase 2, #567): a GTK4/libadwaita window that opens a
 /// `.anglesite` package, boots its site in a rootless-podman container
 /// (`LocalContainerSiteRuntime` over `PodmanContainerControl`, #647), and live-previews the
-/// containerized Astro dev server in an embedded WebKitGTK webview with the edit overlay
-/// injected. Deliberately thin (port design §6 risk containment): everything below the window
+/// containerized Astro dev server in an embedded WebKitGTK webview with the engine bundle's
+/// page bridge injected (view-only until the block editor gains a GTK host, #571 / #1957).
+/// Deliberately thin (port design §6 risk containment): everything below the window
 /// chrome is `AnglesiteCore`/`AnglesiteBridgeCore` — the same portable stack the macOS shell
 /// composes.
 ///
@@ -27,7 +28,7 @@ struct AnglesiteLinuxApp: App {
     var app = AdwaitaApp(id: "io.dwk.anglesite.linux")
 
     let model = ShellModel()
-    let overlaySource = ShellModel.overlaySource()
+    let engineSource = ShellModel.engineSource()
     @State private var status: PreviewStatus = .noSite
     @State private var router: MCPApplyEditRouter?
     @State private var openDialog: Signal = .init()
@@ -111,8 +112,7 @@ struct AnglesiteLinuxApp: App {
         case .ready(_, let url):
             PreviewWebView(
                 url: url,
-                router: router ?? MCPApplyEditRouter(mcpClient: { nil }),
-                overlaySource: overlaySource
+                engineSource: engineSource
             )
             .vexpand()
             .hexpand()

@@ -26,11 +26,11 @@ for the design rationale and §9 for the verification record. A CI lane (`linux-
    flatpak remote-add --if-not-exists --user flathub https://flathub.org/repo/flathub.flatpakrepo
    flatpak install --user flathub org.gnome.Platform//50 org.gnome.Sdk//50 org.freedesktop.Sdk.Extension.swift6//25.08
    ```
-2. Build the edit overlay first (the manifest installs its output, but doesn't build it —
+2. Build the JS engine bundle first (the manifest installs its output, but doesn't build it —
    building it needs npm, which a real Flathub-submittable build can't reach; see the manifest's
    own comment on this):
    ```sh
-   scripts/build-overlay.sh
+   scripts/build-wysiwyg-engine.sh
    ```
 3. From the repo root (the manifest's `build-args: [--share=network]` lets this build resolve
    SwiftPM's git-pinned dependencies — see the manifest's own comment; this makes local
@@ -58,7 +58,7 @@ for the design rationale and §9 for the verification record. A CI lane (`linux-
   in `AnglesiteTestSupport`, itself not purity-swept), tracked in
   [#1284](https://github.com/Anglesite/Anglesite/issues/1284).
 - Not Flathub-submittable as-is: both the SwiftPM build step (`--share=network` in `build-options`,
-  needed to fetch git-pinned dependencies) and the overlay JS's npm dependencies (built outside
+  needed to fetch git-pinned dependencies) and the engine JS's npm dependencies (built outside
   the sandboxed build step entirely, per step 2 above) need their dependencies vendored ahead of
   time for a real hermetic Flathub build — tracked in #1293.
 - No path exists yet for an end user to obtain the `localhost/anglesite-dev:latest` image this

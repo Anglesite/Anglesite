@@ -9,7 +9,7 @@ investigate at Linux MVP)"
 interaction and resource bundling. **Live-verified end-to-end for #1293** on a real Ubuntu
 26.04/aarch64 GTK box — the manifest builds, boots a real podman container through
 `flatpak-spawn --host`, resolves the document-portal bind-mount correctly, serves the Astro
-preview with the overlay JS installed, and survives a long-lived interactive `podman exec -i`
+preview with the engine JS installed, and survives a long-lived interactive `podman exec -i`
 session — see §9's updated verification record. A CI lane (`linux-flatpak-build`) now builds the
 manifest and runs `AnglesiteLinuxTests` on every PR — currently `continue-on-error: true`, since
 `adwaita-swift`'s x86_64 build breaks on GitHub's runner for reasons unrelated to this repo (its
@@ -217,16 +217,16 @@ interactive-exec stdio hiccup are "boot is slow" / "the ACP shell path is flaky"
 
 ## 7. Implemented: resource bundling + the manifest scaffold
 
-`ShellModel.overlaySource` used to resolve the edit-overlay JS from a `cwd`-relative
-`"Resources/edit-overlay/overlay.js"` — meaningless once the binary runs from `/app/bin/` inside a
-Flatpak install. It now tries, in order: `ANGLESITE_OVERLAY_JS` env override (dev loop unchanged);
-`/app/share/anglesite/edit-overlay/overlay.js` (the Flatpak-installed location, below); then the
+`ShellModel.engineSource` (named `overlaySource` until #1957 retired the edit-overlay bundle in favour of the `JS/wysiwyg-engine` bundle it now resolves) used to resolve the injected JS from a `cwd`-relative
+`"Resources/wysiwyg-engine/engine.js"` — meaningless once the binary runs from `/app/bin/` inside a
+Flatpak install. It now tries, in order: `ANGLESITE_WYSIWYG_ENGINE_JS` env override (dev loop unchanged);
+`/app/share/anglesite/wysiwyg-engine/engine.js` (the Flatpak-installed location, below); then the
 original cwd-relative path (unpackaged dev builds run from the repo root). The ordering/gating
-logic is split out into a pure `overlayCandidates(environment:)` function (no file I/O), covered
-by a new `Tests/AnglesiteLinuxTests` target (`ShellModelOverlaySourceTests`) added alongside it —
+logic is split out into a pure `engineCandidates(environment:)` function (no file I/O), covered
+by a new `Tests/AnglesiteLinuxTests` target (`ShellModelEngineSourceTests`) added alongside it —
 unlike `PodmanContainerControlTests` (§4), this target *does* actually run: it depends on
 `AnglesiteLinux`, so it's gated the same `ANGLESITE_LINUX_SHELL=1` way the shell itself is, but
-none of its test code touches GTK/Adwaita, only the environment-driven candidate list. A missing overlay stays
+none of its test code touches GTK/Adwaita, only the environment-driven candidate list. A missing bundle stays
 non-fatal in every case, matching the existing behavior.
 
 `packaging/flatpak/` (new) holds:
@@ -247,8 +247,8 @@ non-fatal in every case, matching the existing behavior.
   `--share=network` gives the sandboxed WebKitGTK/HTTP-client process unrestricted outbound
   network access generally, not just reachability to `127.0.0.1:4321`/`4399`. Accepted for the
   same reason as `--talk-name` — no narrower Flatpak primitive exists for this — and worth the
-  same Flathub-review scrutiny that permission gets (§9); installs `overlay.js` to
-  `/app/share/anglesite/edit-overlay/overlay.js` (§ above); and builds the `anglesite-linux`
+  same Flathub-review scrutiny that permission gets (§9); installs `engine.js` to
+  `/app/share/anglesite/wysiwyg-engine/engine.js` (§ above); and builds the `anglesite-linux`
   product instead of a generic template binary.
 - `io.dwk.anglesite.linux.desktop` — reuses the app ID already chosen in code
   (`AdwaitaApp(id: "io.dwk.anglesite.linux")`, `AnglesiteLinuxApp.swift`), so no new identifier is

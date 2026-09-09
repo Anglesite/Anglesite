@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 #
 # Builds the Safari Web Extension's content script, background worker, and popup script from
-# JS/safari-extension/ into Resources/SafariExtension/. Unlike Resources/edit-overlay/ (entirely
+# JS/safari-extension/ into Resources/SafariExtension/. Unlike Resources/wysiwyg-engine/ (entirely
 # generated), Resources/SafariExtension/ mixes tracked static files (manifest.json, popup.html,
 # popup.css, images/) with these three generated .js files — only the generated files are
 # gitignored (see .gitignore), so this script never needs to `mkdir -p` a destination that

@@ -4,25 +4,25 @@ import WebKit
 @testable import AnglesiteBridge
 import AnglesiteCore
 
-/// `@MainActor` because `WebViewBridge.makeOverlayUserScript` builds a `WKUserScript`, and WebKit
+/// `@MainActor` because `WebViewBridge.makeEngineUserScript` builds a `WKUserScript`, and WebKit
 /// types must be created on the main thread. XCTest ran these on the main thread implicitly; Swift
 /// Testing otherwise runs them on an arbitrary task.
 @MainActor
 struct WebViewBridgeTests {
-    @Test("Make overlay user script returns nil for missing file") func makeOverlayUserScriptReturnsNilForMissingFile() {
-        let missing = URL(fileURLWithPath: "/tmp/anglesite-overlay-missing-\(UUID().uuidString).js")
-        #expect(WebViewBridge.makeOverlayUserScript(from: missing) == nil)
+    @Test("Make engine user script returns nil for missing file") func makeEngineUserScriptReturnsNilForMissingFile() {
+        let missing = URL(fileURLWithPath: "/tmp/anglesite-engine-missing-\(UUID().uuidString).js")
+        #expect(WebViewBridge.makeEngineUserScript(from: missing) == nil)
     }
 
-    @Test("Make overlay user script wraps file contents at document end") func makeOverlayUserScriptWrapsFileContentsAtDocumentEnd() throws {
+    @Test("Make engine user script wraps file contents at document end") func makeEngineUserScriptWrapsFileContentsAtDocumentEnd() throws {
         let tmp = URL(fileURLWithPath: NSTemporaryDirectory())
-            .appendingPathComponent("anglesite-overlay-\(UUID().uuidString).js")
+            .appendingPathComponent("anglesite-engine-\(UUID().uuidString).js")
         defer { try? FileManager.default.removeItem(at: tmp) }
-        let source = "/* anglesite overlay test fixture */\nwindow.__overlayMarker = 1;"
+        let source = "/* anglesite engine test fixture */\nwindow.__engineMarker = 1;"
         try source.write(to: tmp, atomically: true, encoding: .utf8)
 
         let script = try #require(
-            WebViewBridge.makeOverlayUserScript(from: tmp),
+            WebViewBridge.makeEngineUserScript(from: tmp),
             "expected a user script when the file exists"
         )
         #expect(script.source == source)
@@ -30,10 +30,21 @@ struct WebViewBridgeTests {
         #expect(!script.isForMainFrameOnly)
     }
 
-    @Test("Make overlay user script in bundle returns nil for bundle without overlay") func makeOverlayUserScriptInBundleReturnsNilForBundleWithoutOverlay() {
-        // The test runner's own bundle does not contain `edit-overlay/overlay.js`; it must report
+    @Test("Make engine user script in bundle returns nil for bundle without the engine") func makeEngineUserScriptInBundleReturnsNilForBundleWithoutEngine() {
+        // The test runner's own bundle does not contain `wysiwyg-engine/engine.js`; it must report
         // that absence with `nil` rather than crashing.
-        #expect(WebViewBridge.makeOverlayUserScript(in: Bundle(for: BundleAnchor.self)) == nil)
+        #expect(WebViewBridge.makeEngineUserScript(in: Bundle(for: BundleAnchor.self)) == nil)
+    }
+
+    @Test("localDevConfiguration registers the handler under the single wysiwyg namespace (#1957)")
+    func localDevConfigurationRegistersWysiwygNamespace() {
+        let handler = WYSIWYGScriptHandler(transport: nil)
+        let config = WebViewBridge.localDevConfiguration(handler: handler)
+        #expect(WebViewBridge.scriptMessageNamespace == "wysiwyg")
+        // Registering a second handler under the same name throws an ObjC exception in WebKit,
+        // so a successful re-add after removal is the observable proof the name was taken.
+        config.userContentController.removeScriptMessageHandler(forName: WebViewBridge.scriptMessageNamespace)
+        config.userContentController.add(handler, name: WebViewBridge.scriptMessageNamespace)
     }
 
     @available(macOS 15.0, *)

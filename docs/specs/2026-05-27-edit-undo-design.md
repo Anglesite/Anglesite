@@ -1,6 +1,7 @@
 # Per-edit undo — HEAD-only revert via the hidden `anglesite/edits` branch
 
 **Status:** approved — ready for implementation
+**Note (2026-09-08, #1957):** the chat row's Undo button and the `undo_edit` revert described here remain; the ⌘Z bridge (`EditUndoCoordinator`, #527) was removed with the click-to-edit overlay — the window's Edit ▸ Undo now belongs to the block editor's own inverse ops and structural content operations.
 **Tracks:** [Anglesite-app#33](https://github.com/Anglesite/Anglesite-app/issues/33) — Phase 9 step 4 of [build-plan.md](../build-plan.md#phase-9--v1-multi-site--drag-drop-images)
 **Cross-repo:** paired PR against [Anglesite/anglesite](https://github.com/Anglesite/anglesite) for the new `undo_edit` MCP tool
 **Date:** 2026-05-27

@@ -5,17 +5,17 @@ import {
   installVisibleElementsReporter,
   type VisibleElement,
   type VisibleElementReport,
-} from "../src/visible-elements.js";
+} from "../../src/host/visible-elements.js";
 
 interface WebKit {
-  messageHandlers: { anglesite: { postMessage: (body: unknown) => void } };
+  messageHandlers: { wysiwyg: { postMessage: (body: unknown) => void } };
 }
 
 let sent: unknown[] = [];
 
 function stubWebKit(): void {
   (window as unknown as { webkit: WebKit }).webkit = {
-    messageHandlers: { anglesite: { postMessage: (body) => { sent.push(body); } } },
+    messageHandlers: { wysiwyg: { postMessage: (body) => { sent.push(body); } } },
   };
 }
 
@@ -60,7 +60,7 @@ describe("collectVisibleElements (pure shape)", () => {
     expect(r.rect).toEqual({ x: 10, y: 20, width: 200, height: 40 });
     expect(r.pagePath).toBe("/about/");
     expect(typeof r.id).toBe("string");
-    // selector is structured ElementInfo (matches edit-message pattern; see selector.ts).
+    // selector is structured ElementInfo (see element-info.ts).
     expect(r.selector.tag).toBe("H1");
   });
 

@@ -4,7 +4,7 @@
 #
 # macOS — full app development: Xcode 27+, XcodeGen (Anglesite.xcodeproj is gitignored
 # and generated from project.yml), the auto-regen git hooks, and optionally Node for
-# the JS edit overlay.
+# the JS block editor (JS/wysiwyg-engine).
 #
 # Linux — cross-platform port work (2026-07-08 design, Linux first): a Swift 6.3+
 # toolchain for the portable SwiftPM targets. No Xcode, XcodeGen, or Node required.
@@ -65,12 +65,12 @@ setup_macos() {
 
     setup_git_hooks
 
-    # Node is only needed to rebuild the JS edit overlay (scripts/build-overlay.sh);
+    # Node is only needed to rebuild the JS block editor (scripts/build-wysiwyg-engine.sh);
     # the app itself embeds no host Node (#70). Warn-only.
     if command -v node >/dev/null 2>&1; then
-        ok "Node $(node --version) (used by scripts/build-overlay.sh for the edit overlay)"
+        ok "Node $(node --version) (used by scripts/build-wysiwyg-engine.sh for the block editor)"
     else
-        note "Node not found — only needed if you work on JS/edit-overlay (see scripts/node-version.txt)"
+        note "Node not found — only needed if you work on JS/wysiwyg-engine (see scripts/node-version.txt)"
     fi
 
     if [[ -d "$REPO_ROOT/../anglesite" ]]; then
