@@ -386,6 +386,12 @@ jobs:
       - name: Test pin-cloudflare-canonical-image.sh digest rewrite
         run: scripts/pin-cloudflare-canonical-image.test.sh
 
+      # Stubs `curl` and `git` on PATH and runs against throwaway lock/Swift fixtures, then
+      # runs `--check` on the real tree — so a scripts/worker-catalog.lock.json edit that
+      # forgot to regenerate WorkerCatalogPin.swift (or vice versa) fails here (#1961).
+      - name: Test bump-worker-catalog.sh pin/lock/generated-Swift agreement
+        run: scripts/bump-worker-catalog.test.sh
+
       # Pure git grep/awk against the real tree — regression test for #1903 (sleep-lint
       # baseline drain, batch 2 of 2), no fixture or external dependency needed.
       - name: Test sleep-lint baseline batch 2 is drained

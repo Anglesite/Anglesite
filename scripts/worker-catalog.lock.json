@@ -1,0 +1,10 @@
+{
+  "_comment": "Pinned davidwkeith/workers commit and SHA-256 digests of the manifests the app fetches at run time (#1961, decision D7). Written only by scripts/bump-worker-catalog.sh, which also regenerates Sources/AnglesiteCore/Cloudflare/WorkerCatalogPin.swift from it; scripts/bump-worker-catalog.sh --check fails when the two disagree. Committed (not gitignored) — this is metadata, not a vendored artifact.",
+  "repository": "davidwkeith/workers",
+  "commit": "bd0ad3facc5b745ff0bf153f91e70026ace3dfb1",
+  "catalog_path": "catalog.json",
+  "catalog_sha256": "84fcd9821391bbc47d991cec67d3ef762b780317d19f191dde2ecb80335fc38f",
+  "conformance_status_path": "conformance/status.json",
+  "conformance_status_sha256": "6e1fec25ddc32182130a3640eb9c666a12fc461041df4f3bb82813c71863ad28",
+  "pinned_at": "2026-09-09"
+}
