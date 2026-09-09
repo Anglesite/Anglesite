@@ -178,7 +178,7 @@ These issues target macOS 27 APIs available with Xcode 27 / Swift 6.4 (all lande
 
 **Added 2026-09-08** — epics active since the snapshot above, none of which the phase model contains:
 
-- **Modern WYSIWYG page editor (#1221)** — block editor on the true render, slices 1–6 (`docs/superpowers/specs/2026-08-03-modern-wysiwyg-editor-design.md`). Per decision D4 it is the only editing surface; `JS/edit-overlay` is removed before 1.0 (#1957). Gates v1.0 (D8).
+- **Modern WYSIWYG page editor (#1221)** — block editor on the true render, slices 1–6 (`docs/superpowers/specs/2026-08-03-modern-wysiwyg-editor-design.md`). Per decision D4 it is the only editing surface; `JS/edit-overlay` is removed before 1.0 (#1957). Gates v1.0 (D8: #617 + #1256 + #1221 + #1957 + #1958).
 - **Site-window AppKit shell (#1699)** — replaces `NavigationSplitView`/`.inspector()` chrome after the macOS 27 split-storm crash; stages 0–3, slices 1–2 landed.
 - **Anywhere runtime (#1208)** — WebRTC P2P access to the Mac-hosted runtime via the embedded `AnglesiteRemote` login item; P0–P2.
 - **Software factory (#1256)** — automated intake → repro → fix pipeline, Phases A–E (`docs/specs/2026-08-04-software-factory-design.md`). Gates v1.0 (D8).
