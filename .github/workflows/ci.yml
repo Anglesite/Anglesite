@@ -676,21 +676,7 @@ jobs:
         run: |
           set -o pipefail
           source scripts/lib/timing-sensitive-tests.sh
-          # DIAGNOSTIC (#1960, revert before merge): the real full run first, then each G4 suite alone
-          # (G4 was the only crashing group in the previous bisect) so one run both tests the fix and,
-          # if it still crashes, names the exact suite.
-          diag_status=0
-          echo '=== DIAG FULL: complete suite ==='
-          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG FULL: FAILED ==='; diag_status=1; }
-          echo '=== DIAG DeployStateRelocation: running DeployStateRelocation alone ==='
-          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" --skip 'WranglerConfigFile|AnglesitePackageTests|ExistingSiteMigration|ContainerCommandRunner|ContainerDeployExecutor|DeployExecutorSelection|LocalContainerSiteRuntimeControlExposure|DeployCommand|DeployCoordinator|DeployTargetSelection|GitHubPagesDeployTarget|SocialWorkerProvision|SourceBundleStatus|SiteOperations|SiteConfigStore|SiteScaffolder|SiteStore|UntitledSitePropagation|WorkerNameRename' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG DeployStateRelocation: FAILED ==='; diag_status=1; }
-          echo '=== DIAG WranglerConfigFile: running WranglerConfigFile alone ==='
-          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" --skip 'DeployStateRelocation|AnglesitePackageTests|ExistingSiteMigration|ContainerCommandRunner|ContainerDeployExecutor|DeployExecutorSelection|LocalContainerSiteRuntimeControlExposure|DeployCommand|DeployCoordinator|DeployTargetSelection|GitHubPagesDeployTarget|SocialWorkerProvision|SourceBundleStatus|SiteOperations|SiteConfigStore|SiteScaffolder|SiteStore|UntitledSitePropagation|WorkerNameRename' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG WranglerConfigFile: FAILED ==='; diag_status=1; }
-          echo '=== DIAG AnglesitePackageTests: running AnglesitePackageTests alone ==='
-          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" --skip 'DeployStateRelocation|WranglerConfigFile|ExistingSiteMigration|ContainerCommandRunner|ContainerDeployExecutor|DeployExecutorSelection|LocalContainerSiteRuntimeControlExposure|DeployCommand|DeployCoordinator|DeployTargetSelection|GitHubPagesDeployTarget|SocialWorkerProvision|SourceBundleStatus|SiteOperations|SiteConfigStore|SiteScaffolder|SiteStore|UntitledSitePropagation|WorkerNameRename' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG AnglesitePackageTests: FAILED ==='; diag_status=1; }
-          echo '=== DIAG ExistingSiteMigration: running ExistingSiteMigration alone ==='
-          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" --skip 'DeployStateRelocation|WranglerConfigFile|AnglesitePackageTests|ContainerCommandRunner|ContainerDeployExecutor|DeployExecutorSelection|LocalContainerSiteRuntimeControlExposure|DeployCommand|DeployCoordinator|DeployTargetSelection|GitHubPagesDeployTarget|SocialWorkerProvision|SourceBundleStatus|SiteOperations|SiteConfigStore|SiteScaffolder|SiteStore|UntitledSitePropagation|WorkerNameRename' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG ExistingSiteMigration: FAILED ==='; diag_status=1; }
-          exit $diag_status
+          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" 2>&1 | tee "$RUNNER_TEMP/swift-test.log"
 
       - name: Surface Swift errors (annotations + job summary)
         if: failure() && steps.swift-test.outcome == 'failure'
