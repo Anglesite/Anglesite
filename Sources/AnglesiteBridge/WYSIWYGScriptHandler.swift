@@ -17,13 +17,19 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
     /// edit mode) — `WYSIWYGOpsDispatcher.dispatch` already falls back to `.unavailable` on its own
     /// when `writingHelp` is nil, so this handler doesn't need its own fallback branch.
     private let onWritingHelpRequested: (@Sendable (_ text: String, _ instruction: String) async -> WritingHelpOutcome)?
+    /// Applies a `replace-image` request (#1957 — a file dropped onto an `<img>` on the live page)
+    /// as a `replace-image-src` `EditMessage`. `nil` when the app layer has no `EditRouter` for
+    /// this web view — `WYSIWYGOpsDispatcher.dispatch` then replies `.failed` on its own, so the
+    /// page reverts its optimistic swap and tells the owner.
+    private let onImageReplaceRequested: WYSIWYGOpsDispatcher.ImageReplacer?
 
     public init(
         transport: any WYSIWYGHostTransport, logCenter: LogCenter = .shared,
         onContextMenu: (@Sendable (BlockId, CGPoint) -> Void)? = nil,
         onSelectionChanged: (@Sendable (BlockId?) -> Void)? = nil,
         onFocusInspectorRequested: (@Sendable (WYSIWYGOpsDispatcher.FocusDirection, BlockId) -> Void)? = nil,
-        onWritingHelpRequested: (@Sendable (_ text: String, _ instruction: String) async -> WritingHelpOutcome)? = nil
+        onWritingHelpRequested: (@Sendable (_ text: String, _ instruction: String) async -> WritingHelpOutcome)? = nil,
+        onImageReplaceRequested: WYSIWYGOpsDispatcher.ImageReplacer? = nil
     ) {
         self.transport = transport
         self.logCenter = logCenter
@@ -31,6 +37,7 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
         self.onSelectionChanged = onSelectionChanged
         self.onFocusInspectorRequested = onFocusInspectorRequested
         self.onWritingHelpRequested = onWritingHelpRequested
+        self.onImageReplaceRequested = onImageReplaceRequested
         super.init()
     }
 
@@ -44,8 +51,11 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
         let onSelectionChanged = self.onSelectionChanged
         let onFocusInspectorRequested = self.onFocusInspectorRequested
         let onWritingHelpRequested = self.onWritingHelpRequested
+        let onImageReplaceRequested = self.onImageReplaceRequested
         Task {
-            switch await WYSIWYGOpsDispatcher.dispatch(body: body, via: transport, writingHelp: onWritingHelpRequested) {
+            switch await WYSIWYGOpsDispatcher.dispatch(
+                body: body, via: transport, writingHelp: onWritingHelpRequested, imageReplace: onImageReplaceRequested
+            ) {
             case .contextMenu(let blockId, let point):
                 onContextMenu?(blockId, CGPoint(x: point.x, y: point.y))
             case .selectionChanged(let blockId):
@@ -89,6 +99,21 @@ public final class WYSIWYGScriptHandler: NSObject, WKScriptMessageHandler {
                     return
                 }
                 let script = "window.__anglesiteWysiwygHost?._handleWritingHelpReply?.(\(requestIdJSON), \(json))"
+                await MainActor.run { webView.evaluateJavaScript(script) }
+            case .imageReplaceReply(let requestId, let reply):
+                guard let webView else {
+                    await logCenter.append(source: "wysiwyg-bridge", stream: .stderr, text: "webView deallocated before replace-image reply for id=\(requestId)")
+                    return
+                }
+                guard let data = try? JSONEncoder().encode(reply),
+                      let json = String(data: data, encoding: .utf8),
+                      let requestIdData = try? JSONEncoder().encode(requestId),
+                      let requestIdJSON = String(data: requestIdData, encoding: .utf8)
+                else {
+                    await logCenter.append(source: "wysiwyg-bridge", stream: .stderr, text: "failed to encode EditReply for replace-image id=\(requestId)")
+                    return
+                }
+                let script = "window.__anglesiteWysiwygHost?._handleImageReplaceReply?.(\(requestIdJSON), \(json))"
                 await MainActor.run { webView.evaluateJavaScript(script) }
             case .rejected(let reason):
                 await logCenter.append(source: "wysiwyg-bridge", stream: .stderr, text: "rejected message: \(reason)")

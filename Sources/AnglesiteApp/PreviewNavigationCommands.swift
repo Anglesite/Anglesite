@@ -100,19 +100,21 @@ struct PreviewNavigationCommands: Commands {
     /// `SiteWindowModel`'s one-time `didSet` fan-out) also covers toggling edit mode off and back
     /// on: `exitEditMode()` drops `wysiwygCanvas` entirely, so a later `enterEditMode` call builds
     /// a brand-new canvas that needs the manager threaded through again, not just once.
+    ///
+    /// Routes through `PreviewModel.setEditMode(enabled:path:undoManager:)` rather than calling
+    /// `enterEditMode`/`exitEditMode` directly so the owner's choice is *remembered*
+    /// (`isEditModeDesired`, #1957): the canvas is the window's default state and re-mounts on
+    /// every navigation, so turning it off has to stick until it's turned back on, not just tear
+    /// down the current page's canvas.
     private var editModeBinding: Binding<Bool> {
         Binding(
             get: { focusedPreview?.isEditModeEnabled ?? false },
             set: { isOn in
                 guard let focusedPreview else { return }
-                if isOn {
-                    let path = focusedSiteWindowModel?.activePageSourcePath
-                        ?? PageSourcePath.resolve(route: focusedPreview.activeRoute, pages: [])
-                    let undoManager = focusedSiteWindowModel?.windowUndoManager
-                    Task { await focusedPreview.enterEditMode(path: path, undoManager: undoManager) }
-                } else {
-                    focusedPreview.exitEditMode()
-                }
+                let path = focusedSiteWindowModel?.activePageSourcePath
+                    ?? PageSourcePath.resolve(route: focusedPreview.activeRoute, pages: [])
+                let undoManager = focusedSiteWindowModel?.windowUndoManager
+                Task { await focusedPreview.setEditMode(enabled: isOn, path: path, undoManager: undoManager) }
             }
         )
     }

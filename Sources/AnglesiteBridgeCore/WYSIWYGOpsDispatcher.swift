@@ -22,8 +22,11 @@ public struct WYSIWYGPoint: Sendable, Equatable {
 /// expected); `selection-changed`, the engine's own selection state changing (no reply expected);
 /// `focus-inspector`, `KeyboardNavigation`'s Tab/Shift-Tab request to move real AppKit focus
 /// into the native inspector's first/last prop field (#1616 — no reply expected, same as
-/// `context-menu`/`selection-changed`); and `writing-help-request`, text + an instruction for
-/// the on-device rewrite assistant (#1227 PR 2 — the reply is the outcome keyed by `requestId`).
+/// `context-menu`/`selection-changed`); `writing-help-request`, text + an instruction for
+/// the on-device rewrite assistant (#1227 PR 2 — the reply is the outcome keyed by `requestId`);
+/// and `replace-image`, a file dropped onto an existing `<img>` on the live page (#1957 parity
+/// with the retired overlay's image drop — the reply is the sidecar's `EditReply` for the
+/// `replace-image-src` `apply_edit` op, keyed by `requestId`).
 public enum WYSIWYGOpsDispatcher {
     public static let scriptMessageNamespace = "wysiwyg"
 
@@ -61,6 +64,10 @@ public enum WYSIWYGOpsDispatcher {
         /// assistant (#1227 PR 2) — the adapter should reply with `outcome` keyed by `requestId`,
         /// same reply shape as `opResult` above.
         case writingHelpReply(requestId: String, outcome: WritingHelpOutcome)
+        /// `replace-image` carried a dropped file plus the `<img>`'s `ElementInfo` (#1957) — the
+        /// adapter should reply with `reply` keyed by `requestId`, same reply shape as `opResult`.
+        /// The page swaps to `reply.result`'s `src`/`srcset` on `.applied` and reverts otherwise.
+        case imageReplaceReply(requestId: String, reply: EditReply)
         case rejected(RejectionReason)
 
         public enum RejectionReason: Sendable, Equatable {
@@ -72,9 +79,16 @@ public enum WYSIWYGOpsDispatcher {
         }
     }
 
+    /// Applies a `replace-image` request as a `replace-image-src` `EditMessage` — in production
+    /// `EditRouter.apply(_:)` on the preview's registered router (`PreviewView`), so the drop
+    /// lands through the same sidecar path (optimize, strip metadata, one commit) the overlay's
+    /// `anglesite:apply-edit` used to.
+    public typealias ImageReplacer = @Sendable (EditMessage) async -> EditReply
+
     public static func dispatch(
         body: Any, via transport: any WYSIWYGHostTransport,
-        writingHelp: (@Sendable (_ text: String, _ instruction: String) async -> WritingHelpOutcome)? = nil
+        writingHelp: (@Sendable (_ text: String, _ instruction: String) async -> WritingHelpOutcome)? = nil,
+        imageReplace: ImageReplacer? = nil
     ) async -> DispatchResult {
         guard let dict = body as? [String: Any] else { return .rejected(.notAnObject) }
         guard let rawType = dict["type"] else { return .rejected(.missingType) }
@@ -119,6 +133,36 @@ public enum WYSIWYGOpsDispatcher {
             let outcome = await writingHelp?(text, instruction)
                 ?? .unavailable(ContentHelpDialogs.assistantUnavailable(feature: "Writing help"))
             return .writingHelpReply(requestId: requestId, outcome: outcome)
+        case "replace-image":
+            guard let requestId = dict["requestId"] as? String,
+                  let request = dict["request"] as? [String: Any],
+                  let path = request["path"] as? String,
+                  let selector = request["selector"] as? [String: Any],
+                  let filename = request["filename"] as? String,
+                  let mimeType = request["mimeType"] as? String,
+                  let dataURL = request["dataURL"] as? String
+            else {
+                return .rejected(.envelopeDecode("could not decode replace-image fields"))
+            }
+            // Re-shaped into the `apply-edit` wire body `EditMessage.decode` already validates
+            // (selector must be an object, etc.) rather than a second hand-rolled decoder.
+            let editBody: [String: Any] = [
+                "id": requestId,
+                "type": EditMessage.MessageType.applyEdit.rawValue,
+                "path": path,
+                "selector": selector,
+                "op": EditMessage.Op.replaceImageSrc,
+                "value": ["filename": filename, "mimeType": mimeType, "dataURL": dataURL],
+            ]
+            guard case .success(let message) = EditMessage.decode(from: editBody) else {
+                return .rejected(.envelopeDecode("could not decode replace-image request as an EditMessage"))
+            }
+            guard let imageReplace else {
+                return .imageReplaceReply(
+                    requestId: requestId,
+                    reply: EditReply(id: requestId, status: .failed, message: "Image replacement isn't available in this preview"))
+            }
+            return .imageReplaceReply(requestId: requestId, reply: await imageReplace(message))
         default:
             return .rejected(.unknownType(typeStr))
         }

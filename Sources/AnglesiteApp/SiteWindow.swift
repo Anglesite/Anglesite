@@ -1974,8 +1974,12 @@ struct SiteWindow: View {
                 // rather than silently re-arm: the page may be a different page entirely now, and
                 // an armed HUD over a listener that no longer exists waits forever (#768 final
                 // review, Finding 8). `cancel()` is a no-op unless a pick is actually in flight.
-                onPreviewNavigated: {
+                // It's also the moment the block canvas follows the owner to the page they now
+                // see (#1957 — the canvas is the window's default state, see
+                // `SiteWindowModel.syncEditMode(afterNavigationTo:)`).
+                onPreviewNavigated: { url in
                     model.effectPlacementController.cancel()
+                    model.syncEditMode(afterNavigationTo: url)
                 },
                 onWebView: { [preview = model.preview] webView in
                     preview.webView = webView

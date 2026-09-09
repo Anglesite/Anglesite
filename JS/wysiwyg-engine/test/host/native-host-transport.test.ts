@@ -71,3 +71,51 @@ describe("NativeHostTransport", () => {
     await expect(pending).resolves.toEqual({ status: "unavailable", message: "not available" });
   });
 });
+
+describe("NativeHostTransport image replacement (#1957)", () => {
+  let postedMessages: unknown[];
+
+  beforeEach(() => {
+    postedMessages = [];
+    (window as any).webkit = {
+      messageHandlers: {
+        wysiwyg: { postMessage: (body: unknown) => postedMessages.push(body) },
+      },
+    };
+    delete (window as any).__anglesiteWysiwygHost;
+  });
+
+  const request = {
+    path: "/about/",
+    selector: { tag: "IMG", classes: [], nthChild: 1 },
+    filename: "vacation.jpg",
+    mimeType: "image/jpeg",
+    dataURL: "data:image/jpeg;base64,AAAA",
+  };
+
+  it("posts a replace-image message and resolves when the native side replies", async () => {
+    const transport = new NativeHostTransport();
+    const pending = transport.requestImageReplace(request);
+    expect(postedMessages).toHaveLength(1);
+    const posted = postedMessages[0] as { type: string; requestId: string; request: unknown };
+    expect(posted.type).toBe("replace-image");
+    expect(posted.request).toEqual(request);
+    expect(typeof posted.requestId).toBe("string");
+    const reply = { status: "applied", result: { src: "/images/vacation.webp" } };
+    (window as any).__anglesiteWysiwygHost._handleImageReplaceReply(posted.requestId, reply);
+    await expect(pending).resolves.toEqual(reply);
+  });
+
+  it("resolves as a failed reply, without posting, when the bridge is absent", async () => {
+    delete (window as any).webkit;
+    const transport = new NativeHostTransport();
+    await expect(transport.requestImageReplace(request)).resolves.toMatchObject({ status: "failed" });
+    expect(postedMessages).toHaveLength(0);
+  });
+
+  it("ignores a reply for an unknown request id", () => {
+    const transport = new NativeHostTransport();
+    void transport;
+    expect(() => (window as any).__anglesiteWysiwygHost._handleImageReplaceReply("nope", { status: "applied" })).not.toThrow();
+  });
+});

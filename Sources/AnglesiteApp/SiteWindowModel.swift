@@ -207,6 +207,10 @@ final class SiteWindowModel {
             chat?.editUndoCoordinator.undoManager = windowUndoManager
             contentUndoCoordinator.undoManager = windowUndoManager
             preview.wysiwygCanvas?.undoCoordinator.undoManager = windowUndoManager
+            // Also stashed on the preview model itself (#1957): the canvas is mounted from a
+            // navigation callback by default now, not only from the Edit Page toggle, and that
+            // path has no menu action in the loop to hand the manager over.
+            preview.windowUndoManager = windowUndoManager
         }
     }
     /// Bridges structural content operations — New / Duplicate / Delete / Rename — into the
@@ -1943,6 +1947,20 @@ final class SiteWindowModel {
     /// needs (#1222) without duplicating the resolution logic or the scanned-pages cache.
     var activePageSourcePath: String {
         PageSourcePath.resolve(route: preview.activeRoute, pages: scannedPages)
+    }
+
+    /// Keeps the block canvas on the page the preview just navigated to (#1957 — the canvas is
+    /// the site window's default state, so it follows every finished navigation rather than
+    /// waiting for Site ▸ Edit Page). `url` is where the web view landed (`WKWebView.url` in
+    /// `PreviewView.Coordinator.webView(_:didFinish:)`); its path is the route, resolved through
+    /// the same `PageSourcePath.resolve(route:pages:)` as `activePageSourcePath` — but from the
+    /// *navigated* URL, not `preview.activeRoute`, because a link the owner clicked inside the
+    /// preview changes the former and not the latter. A `nil` URL (a navigation that finished
+    /// with no URL — never seen in practice) falls back to the active route.
+    func syncEditMode(afterNavigationTo url: URL?) {
+        let route = url?.path ?? preview.activeRoute
+        let path = PageSourcePath.resolve(route: route, pages: scannedPages)
+        Task { await preview.syncEditMode(toPath: path) }
     }
 
     /// The click-to-place controller for the Effects gallery sheet (Website ▸ Effects…, #768).

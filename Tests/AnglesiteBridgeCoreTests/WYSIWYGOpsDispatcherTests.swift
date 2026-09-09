@@ -191,3 +191,92 @@ struct WYSIWYGOpsDispatcherTests {
         }
     }
 }
+
+/// `replace-image` (#1957): a file dropped onto an existing `<img>` on the live page, the block
+/// editor's replacement for the retired overlay's `anglesite:apply-edit` / `replace-image-src`
+/// round trip. The dispatcher re-shapes the request into that same `EditMessage` so the sidecar
+/// path (optimize, strip metadata, one commit) is unchanged.
+@Suite("WYSIWYGOpsDispatcher replace-image (#1957)")
+struct WYSIWYGOpsDispatcherImageReplaceTests {
+    private static let transport = WYSIWYGOpsDispatcherTests.RecordingTransport(
+        reply: .applied(model: BlockModel(path: "p", version: "v", rootIds: [], blocks: [:])))
+
+    private static func validBody(requestId: String = "img-1") -> [String: Any] {
+        [
+            "type": "replace-image",
+            "requestId": requestId,
+            "request": [
+                "path": "/about/",
+                "selector": ["tag": "IMG", "classes": ["hero"], "nthChild": 2, "id": "hero"],
+                "filename": "vacation.jpg",
+                "mimeType": "image/jpeg",
+                "dataURL": "data:image/jpeg;base64,AAAA",
+            ],
+        ]
+    }
+
+    @Test("routes replace-image to the replacer as a replace-image-src EditMessage and returns its reply")
+    func routesToReplacer() async {
+        let result = await WYSIWYGOpsDispatcher.dispatch(
+            body: Self.validBody(), via: Self.transport,
+            imageReplace: { message in
+                #expect(message.id == "img-1")
+                #expect(message.path == "/about/")
+                #expect(message.op == EditMessage.Op.replaceImageSrc)
+                #expect(message.selector == .object(["tag": .string("IMG"), "classes": .array([.string("hero")]), "nthChild": .int(2), "id": .string("hero")]))
+                #expect(message.value == .object([
+                    "filename": .string("vacation.jpg"), "mimeType": .string("image/jpeg"), "dataURL": .string("data:image/jpeg;base64,AAAA"),
+                ]))
+                return EditReply(
+                    id: message.id, status: .applied, message: nil, file: "src/pages/about.astro", commit: "abc",
+                    result: .init(src: "/images/vacation.webp", srcset: nil))
+            })
+        guard case .imageReplaceReply(let requestId, let reply) = result else {
+            Issue.record("expected .imageReplaceReply, got \(result)")
+            return
+        }
+        #expect(requestId == "img-1")
+        #expect(reply.status == .applied)
+        #expect(reply.result?.src == "/images/vacation.webp")
+    }
+
+    @Test("replies .failed, keyed by the request id, when no replacer is wired")
+    func failsWithoutReplacer() async {
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: Self.validBody(requestId: "img-2"), via: Self.transport)
+        guard case .imageReplaceReply(let requestId, let reply) = result else {
+            Issue.record("expected .imageReplaceReply, got \(result)")
+            return
+        }
+        #expect(requestId == "img-2")
+        #expect(reply.id == "img-2")
+        #expect(reply.status == .failed)
+        #expect(reply.message?.isEmpty == false)
+    }
+
+    @Test("rejects a replace-image body missing request fields", arguments: ["path", "selector", "filename", "mimeType", "dataURL"])
+    func rejectsMissingField(field: String) async {
+        var body = Self.validBody()
+        var request = body["request"] as! [String: Any]
+        request.removeValue(forKey: field)
+        body["request"] = request
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: body, via: Self.transport, imageReplace: { _ in
+            Issue.record("replacer must not run for a malformed request")
+            return EditReply(id: "x", status: .failed, message: "unreachable")
+        })
+        guard case .rejected(.envelopeDecode) = result else {
+            Issue.record("expected .rejected(.envelopeDecode), got \(result)")
+            return
+        }
+    }
+
+    @Test("rejects a replace-image body with no requestId")
+    func rejectsMissingRequestId() async {
+        var body = Self.validBody()
+        body.removeValue(forKey: "requestId")
+        let result = await WYSIWYGOpsDispatcher.dispatch(body: body, via: Self.transport)
+        guard case .rejected(.envelopeDecode) = result else {
+            Issue.record("expected .rejected(.envelopeDecode), got \(result)")
+            return
+        }
+    }
+}
