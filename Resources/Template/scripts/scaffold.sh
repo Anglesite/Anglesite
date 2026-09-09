@@ -35,7 +35,11 @@ fi
 
 mkdir -p "$TARGET"
 
-# Copy the template tree, excluding scaffold infrastructure and dev-only files.
+# Copy the template tree, excluding scaffold infrastructure, dev-only files, and
+# gitignored build output (dist/, .astro/, .wrangler/, reports/ — see ../.gitignore).
+# A new site must never inherit the template's stale build artifacts, and in
+# `swift test` the render-smoke suites build into and `rm -rf` Resources/Template/dist/
+# concurrently — rsync walking into a directory being deleted fails with exit 23 (#1955).
 rsync -a \
     --exclude='scripts/scaffold.sh' \
     --exclude='scripts/themes.ts' \
@@ -46,6 +50,10 @@ rsync -a \
     --exclude='scripts/*.test.ts' \
     --exclude='integrations/' \
     --exclude='node_modules/' \
+    --exclude='dist/' \
+    --exclude='.astro/' \
+    --exclude='.wrangler/' \
+    --exclude='reports/' \
     --exclude='.DS_Store' \
     "$TEMPLATE_ROOT/" "$TARGET/"
 
