@@ -100,7 +100,7 @@ private struct StubTokenVerifying: TokenVerifying {
 @MainActor
 struct DeployModelTests {
     @Test("sudden termination stays disabled until a deploy finishes")
-    func suddenTerminationLeaseBracketsDeploy() async {
+    func suddenTerminationLeaseBracketsDeploy() async throws {
         let executor = GatedDeployExecutor()
         let controller = SuddenTerminationController(disable: {}, enable: {})
         let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
@@ -130,9 +130,7 @@ struct DeployModelTests {
         #expect(controller.activeLeaseCount == 1)
 
         await executor.resumeBuild()
-        while model.isRunning {
-            await Task.yield()
-        }
+        try await waitUntil("the sudden-termination deploy to finish") { !model.isRunning }
 
         #expect(controller.activeLeaseCount == 0)
         guard case .succeeded = model.phase else {
