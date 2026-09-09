@@ -1492,7 +1492,7 @@ struct SiteWindow: View {
                 .navigationTitle("security.txt")
             }
             .frame(minWidth: 420, minHeight: 220)
-            // Mirrors the scripts-sync sheet immediately above: `loadAndStart()` suspends on a
+            // The one site-open sheet that still suspends `loadAndStart()` (#1962): it awaits a
             // `CheckedContinuation` that only Adopt/Preserve resume. Block outside-tap/swipe
             // dismissal so those two buttons are structurally the only way out.
             .interactiveDismissDisabled()
