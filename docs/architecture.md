@@ -85,7 +85,7 @@ flowchart TB
 |---|---|---|
 | **Apple device (host)** | The Swift app: front-doors (GUI / Siri / chat), the `FoundationModelAssistant` orchestrator, deterministic Swift (Bucket 1 hot-paths + Bucket 3 wizards), the native `pre-deploy-check` gate, `MCPClient`, and the `WKWebView` preview. | User input; in-process Apple Intelligence API; `MCPClient` to the container. |
 | **Apple Intelligence (on-device)** | The ~3B on-device Foundation Models + vision, with the registered FM `Tool`s (`ApplyEditTool`, `SearchContentTool`, Spotlight). | Called in-process by the FM brain; never leaves the device. |
-| **Private Cloud Compute** | Heavy generation that exceeds the on-device ceiling (Bucket 5: copy-edit, design-interview, social, repurpose). Apple-operated; **no external LLM APIs ever**. | The FM brain escalates to the PCC tier over Apple's attested, encrypted channel. |
+| **Private Cloud Compute** | Heavy generation that exceeds the on-device ceiling (Bucket 5: copy-edit, design-interview, social, repurpose). Apple-operated. **Not wired yet:** the `.privateCloudCompute` tier is backed by the on-device session until the PCC entitlement lands (see `2026-07-10-pcc-escalation-spike-notes.md`). External LLMs are **not** part of this boundary: per the revised LLM policy (2026-07-08) they exist only as an explicit Settings opt-in (`ExternalLLMBackend`, ACP agents) for the chat panel. | The FM brain escalates to the PCC tier over Apple's attested, encrypted channel. |
 | **Site container (per-site)** | **All JavaScript**: the Node MCP server and everything it drives in-guest — `apply_edit`/`undo_edit` (HTML/Astro patcher), the Astro dev server + build, Sharp, Satori, Pagefind, Keystatic. Apple Containerization is the macOS runtime direction; Cloudflare Sandbox is the remote/iOS runtime. | The host reaches it only over the in-container **MCP HTTP/WS transport** (#64) — not by host-spawning Node. |
 | **Site `Source/` (git repo)** | The filesystem source of truth — the clonable, externally-editable unit. | Mounted into the container; written by the in-guest JS and by Swift Bucket-1 hot-paths; read by `WKWebView` via the dev server. |
 | **Cloudflare (deploy target)** | The published site (Workers). | Deploy runs only after the native `pre-deploy-check` gate passes. |
@@ -95,7 +95,10 @@ flowchart TB
 - **One capability, one implementation, many front-doors.** A GUI button, "Hey Siri…", and a
   chat request all call the same Swift function or in-container tool — never a second copy.
 - **The security gate is unbypassable.** `pre-deploy-check` is native deterministic Swift,
-  not an LLM hook, so it cannot be prompt-injected or talked out of running.
+  not an LLM hook, so it cannot be prompt-injected or talked out of running. The *script* it
+  executes lives in the site's `Source/`, so the app also pins its hash and restores it on
+  mismatch (decision D5, `specs/2026-09-08-product-direction-review-decisions.md`).
+- **Amended 2026-09-08:** the PCC tier in the diagram is the intended escalation path, not a live one; see the boundary table.
 - **This is the current state, not a future one.** The container runtimes landed (#66/#69/#70):
   the diagram reflects how Anglesite runs today — all JavaScript executes in-guest via the
   per-site container's MCP HTTP/WS transport, and the host-spawned Node sidecar plus the

@@ -2,6 +2,7 @@
 
 **Date:** 2026-08-03
 **Status:** Approved vision design, pre-plan
+**Amended 2026-09-08:** the block editor is the only editing surface; `JS/edit-overlay` click-to-edit is deprecated and removed before 1.0 (owner decision D4, `docs/specs/2026-09-08-product-direction-review-decisions.md`).
 **Related:** Component Editor (`2026-07-05-component-editor-design.md`, epic #496 — shipped), edit overlay (`JS/edit-overlay/`), #459 (deterministic-path direction), #571 (cross-platform port), #72 (git is the source of truth), `docs/mac-assed-app-spec.md` (platform UX standard for the first host)
 
 ## 1. Summary
