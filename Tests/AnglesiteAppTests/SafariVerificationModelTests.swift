@@ -19,6 +19,22 @@ private actor StubPass: SafariVerifying {
     }
 }
 
+/// A `SafariVerifying` whose `run` suspends until the test explicitly resolves it — used to
+/// exercise a pass still in flight when the sheet is dismissed out from under it, mirroring
+/// `DomainModelTests.ControllableATProtoDIDTransport`/`HardenModelTests.ControllableReader`.
+private actor ControllablePass: SafariVerifying {
+    private var continuation: CheckedContinuation<SafariVerificationReport, Error>?
+
+    func run(previewURL: URL, port: Int, connectTimeout: TimeInterval) async throws -> SafariVerificationReport {
+        try await withCheckedThrowingContinuation { continuation = $0 }
+    }
+
+    func resolve(with report: SafariVerificationReport) {
+        continuation?.resume(returning: report)
+        continuation = nil
+    }
+}
+
 private let sampleReport = SafariVerificationReport(
     console: .available(.init(entries: [.init(level: "error", text: "boom")], truncated: false)),
     network: .available(.init(entries: [], truncated: false)),
@@ -114,5 +130,31 @@ struct SafariVerificationModelTests {
         model.openSheet()
         model.dismissSheet()
         #expect(model.sheetPresented == false)
+    }
+
+    @MainActor
+    @Test("dismissSheet() while a pass is running resets phase to idle, so the feature isn't permanently disabled")
+    func dismissSheetDuringRunResetsPhase() async throws {
+        let pass = ControllablePass()
+        let model = SafariVerificationModel(pass: pass, portProvider: { 9222 })
+        let url = try #require(URL(string: "http://localhost:4321/"))
+
+        model.run(previewURL: url)
+        #expect(model.isRunning == true)
+
+        model.dismissSheet()
+
+        #expect(model.sheetPresented == false)
+        #expect(model.phase == .idle)
+        #expect(model.isRunning == false)
+
+        // The stale in-flight task's eventual resolution must not clobber the reset phase.
+        await pass.resolve(with: sampleReport)
+        await Task.yield()
+        #expect(model.phase == .idle)
+
+        // Confirms the reset actually un-bricks the feature: openSheet()/run() work again.
+        model.openSheet()
+        #expect(model.sheetPresented == true)
     }
 }

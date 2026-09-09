@@ -55,14 +55,15 @@ final class SafariVerificationModel {
         sheetPresented = true
     }
 
+    /// Cancels any in-flight pass and resets `phase` back to `.idle` — without the reset, closing
+    /// the sheet mid-run would leave `phase` stuck at `.running` forever, since `performRun`'s
+    /// cancellation guards mean a cancelled task never writes another phase transition. That in
+    /// turn would permanently disable `isRunning`-gated call sites (`canRunSafariVerification`,
+    /// `openSheet()`) for the rest of the window's session (review finding on #1989).
     func dismissSheet() {
         inFlight?.cancel()
         inFlight = nil
         sheetPresented = false
-    }
-
-    func retryFromFailed() {
-        guard !isRunning else { return }
         phase = .idle
     }
 

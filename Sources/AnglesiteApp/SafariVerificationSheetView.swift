@@ -217,15 +217,7 @@ struct SafariVerificationSheetView: View {
             case .unavailable(let reason):
                 unavailableRow(reason)
             case .available(let data):
-                if let image = NSImage(data: data) {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxHeight: 320)
-                        .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
-                } else {
-                    unavailableRow("captured image data couldn't be decoded")
-                }
+                ScreenshotPreview(data: data)
             }
         }
     }
@@ -241,9 +233,7 @@ struct SafariVerificationSheetView: View {
     }
 
     private func unavailableRow(_ reason: String) -> some View {
-        Text("Unavailable — \(reason)")
-            .font(.caption).foregroundStyle(.secondary)
-            .frame(maxWidth: .infinity, alignment: .leading)
+        unavailableText(reason)
     }
 
     private func truncatedNote() -> some View {
@@ -274,5 +264,47 @@ struct SafariVerificationSheetView: View {
         }
         .padding(.horizontal, 16)
         .padding(.vertical, 12)
+    }
+}
+
+/// Shared "Unavailable — reason" row, factored out of `SafariVerificationSheetView` so
+/// `ScreenshotPreview` below (a separate `View` type, not a method on the sheet) can render the
+/// same decode-failure message without duplicating the string.
+private func unavailableText(_ reason: String) -> some View {
+    Text("Unavailable — \(reason)")
+        .font(.caption).foregroundStyle(.secondary)
+        .frame(maxWidth: .infinity, alignment: .leading)
+}
+
+/// Decodes a captured screenshot's `Data` into an `NSImage` exactly once via `@State` +
+/// `.task(id:)`, rather than on every SwiftUI re-render of the sheet — `screenshotSection` used to
+/// call `NSImage(data:)` inline in its body, re-decoding the (up to 8 MiB) payload on every
+/// sibling state change or window resize while the report was showing (review finding on #1989).
+private struct ScreenshotPreview: View {
+    let data: Data
+    @State private var image: NSImage?
+    @State private var decodeFailed = false
+
+    var body: some View {
+        Group {
+            if let image {
+                Image(nsImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(maxHeight: 320)
+                    .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+            } else if decodeFailed {
+                unavailableText("captured image data couldn't be decoded")
+            } else {
+                ProgressView().controlSize(.small)
+            }
+        }
+        .task(id: data) {
+            if let decoded = NSImage(data: data) {
+                image = decoded
+            } else {
+                decodeFailed = true
+            }
+        }
     }
 }
