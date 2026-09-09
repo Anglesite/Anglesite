@@ -2,6 +2,7 @@ import Foundation
 import Glibc
 import Adwaita
 import AnglesiteCore
+import AnglesiteLinuxCore
 import CWebKitGTK
 
 /// The Linux shell (cross-platform port phase 2, #567): a GTK4/libadwaita window that opens a

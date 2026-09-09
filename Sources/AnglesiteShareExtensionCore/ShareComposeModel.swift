@@ -6,18 +6,31 @@ import AnglesiteCore
 /// counterpart to the app's `QuickCaptureModel`, thin per repo convention: logic stays in
 /// `AnglesiteCore` (`ShareExtensionSiteAccess`, `LinkPostCreation`, `LinkMetadataFetcher`); this
 /// type just holds UI state and wires them together.
+///
+/// Lives in `AnglesiteShareExtensionCore` rather than the extension target (#1968) so
+/// `Tests/AnglesiteShareExtensionCoreTests` can drive it through its injected seams under
+/// `swift test`; the extension's `ShareComposeView`/`ShareViewController` only render it.
 @MainActor
 @Observable
-final class ShareComposeModel {
-    let urlString: String
-    var title: String
-    var commentary = ""
-    var isFetchingMetadata = false
-    var metadataImageURL: String?
-    var sites: [SharedSite] = []
-    var selectedSiteID: String?
-    var isBusy = false
-    var errorMessage: String?
+public final class ShareComposeModel {
+    /// The page URL Safari shared — fixed for the sheet's lifetime.
+    public let urlString: String
+    /// The post title: Safari's page title if it supplied one, else filled from the metadata fetch.
+    public var title: String
+    /// The owner's commentary on the link.
+    public var commentary = ""
+    /// Whether the best-effort metadata fetch is in flight (drives the title field's spinner).
+    public private(set) var isFetchingMetadata = false
+    /// The page's `og:image`, if the metadata fetch found one — becomes the link card image.
+    public private(set) var metadataImageURL: String?
+    /// The sites the owner has opened at least once in the app (published via the App Group).
+    public private(set) var sites: [SharedSite] = []
+    /// The site the post goes to; defaults to the first shared site.
+    public var selectedSiteID: String?
+    /// Whether a save is in flight (disables the action buttons).
+    public private(set) var isBusy = false
+    /// The owner-facing failure to show under the form, or `nil`.
+    public private(set) var errorMessage: String?
 
     private let onFinish: () -> Void
     private let onCancel: () -> Void
@@ -25,7 +38,18 @@ final class ShareComposeModel {
     private let listSites: () -> [SharedSite]
     private let createLinkPost: (String, String, String, String, String?, Bool) async throws -> ContentCreateResult
 
-    init(
+    /// Creates the model.
+    ///
+    /// - Parameters:
+    ///   - urlString: The shared page URL.
+    ///   - initialTitle: Safari's page title, or `""` to fill from metadata.
+    ///   - onFinish: Called after a successful save; the controller completes the request.
+    ///   - onCancel: Called from ``cancel()``; the controller cancels the request.
+    ///   - fetchMetadata: Best-effort page metadata; defaults to `LinkMetadataFetcher`.
+    ///   - listSites: The shared-site list; defaults to `ShareExtensionSiteAccess.listSites()`.
+    ///   - createLinkPost: Creates the post for `(siteID, title, urlString, commentary,
+    ///     imageURL, draft)`; defaults to `LinkPostCreation` under the site's scoped access.
+    public init(
         urlString: String,
         initialTitle: String,
         onFinish: @escaping () -> Void,
@@ -56,7 +80,7 @@ final class ShareComposeModel {
     /// already supplied a title; only the *title* field is guarded against being overwritten
     /// when one is already populated. A fetch failure just leaves the title/image blank, never
     /// blocks the sheet.
-    func onAppear() async {
+    public func onAppear() async {
         sites = listSites()
         selectedSiteID = sites.first?.id
         guard let url = URL(string: urlString) else { return }
@@ -68,9 +92,14 @@ final class ShareComposeModel {
         }
     }
 
-    func cancel() { onCancel() }
+    /// Dismisses the sheet without posting.
+    public func cancel() { onCancel() }
 
-    func save(draft: Bool) async {
+    /// Creates the link post on the selected site, then calls `onFinish`; every failure lands
+    /// in ``errorMessage`` in the owner's vocabulary instead.
+    ///
+    /// - Parameter draft: `true` to save as a draft, `false` to publish.
+    public func save(draft: Bool) async {
         guard let selectedSiteID else {
             errorMessage = "Choose a site for this link post."
             return

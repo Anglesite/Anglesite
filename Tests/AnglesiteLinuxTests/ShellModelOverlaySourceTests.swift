@@ -1,10 +1,9 @@
 // Unit tests for ShellModel.overlayCandidates — the pure, no-I/O half of overlaySource's
-// resolution logic (Flatpak packaging investigation, #567). Split into its own testTarget
-// because AnglesiteLinux is only in the package graph under ANGLESITE_LINUX_SHELL=1 (see
-// Package.swift's gating comment) — this file needs none of the GTK/Adwaita toolchain that
-// gate exists for, but @testable import AnglesiteLinux still pulls in the whole target.
+// resolution logic (Flatpak packaging investigation, #567). `ShellModel` lives in
+// AnglesiteLinuxCore (not the ANGLESITE_LINUX_SHELL=1-gated GTK executable) precisely so this
+// target runs on the plain Linux CI leg — see Package.swift's comment on that target (#1968).
 import Testing
-@testable import AnglesiteLinux
+@testable import AnglesiteLinuxCore
 
 @Suite("ShellModel.overlayCandidates")
 struct ShellModelOverlaySourceTests {

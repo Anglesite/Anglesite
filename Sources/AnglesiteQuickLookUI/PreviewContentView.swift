@@ -1,11 +1,19 @@
 import SwiftUI
+import AnglesiteSiteModel
 import AnglesiteQuickLookSupport
 
-/// Rendered inside `PreviewViewController`'s hosting controller. `summary == nil` covers every
-/// "not a readable Anglesite site" case (missing/corrupt marker) — Quick Look has no good
-/// error-surfacing UI of its own, so this in-view fallback is preferable to throwing.
-struct PreviewContentView: View {
-    let summary: PackagePreviewSummary?
+/// The Quick Look preview's content: a `.anglesite` package's identity and layout facts from
+/// ``PackagePreviewSummary``, rendered by `PreviewViewController`'s hosting controller. A
+/// `nil` summary covers every "not a readable Anglesite site" case (missing/corrupt marker) —
+/// Quick Look has no good error-surfacing UI of its own, so this in-view fallback is preferable
+/// to throwing.
+///
+/// Lives in `AnglesiteQuickLookUI` rather than the extension target (#1968) so the same view the
+/// extension hosts can be rendered headlessly under `swift test` (via `ImageRenderer`) against a
+/// fixture package — the extension itself only wraps it in `QLPreviewingController`.
+public struct PreviewContentView: View {
+    /// The package facts to show, or `nil` for the "not a readable site" fallback.
+    public let summary: PackagePreviewSummary?
 
     private static let dateFormatter: DateFormatter = {
         let formatter = DateFormatter()
@@ -14,7 +22,24 @@ struct PreviewContentView: View {
         return formatter
     }()
 
-    var body: some View {
+    /// Creates the view for an already-computed summary.
+    ///
+    /// - Parameter summary: The package facts, or `nil` for the fallback.
+    public init(summary: PackagePreviewSummary?) {
+        self.summary = summary
+    }
+
+    /// Creates the view for the package at `packageURL`, summarizing it synchronously — the
+    /// extension's `preparePreviewOfFile(at:)` path. Any marker failure lands on the fallback.
+    ///
+    /// - Parameters:
+    ///   - packageURL: The `.anglesite` package Quick Look was asked to preview.
+    ///   - fileManager: The file manager used to read the package (injectable for tests).
+    public init(packageURL: URL, fileManager: FileManager = .default) {
+        self.init(summary: try? PackagePreviewSummary.summarize(AnglesitePackage(url: packageURL), fileManager: fileManager))
+    }
+
+    public var body: some View {
         if let summary {
             VStack(alignment: .leading, spacing: 12) {
                 header(for: summary)
