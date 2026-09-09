@@ -6,7 +6,23 @@ import AnglesiteTestSupport
 struct DeployCommandTests {
     /// A real, existing directory — the host executor `cd`s into the site dir before spawning, so a
     /// nonexistent path would fail `process.run()` before our fixture script even runs.
+    ///
+    /// Deliberately the process-wide `NSTemporaryDirectory()`, not a per-test UUID subdirectory:
+    /// most tests here only ever hand it to a `FakeExecutor`, which never touches disk. Do NOT
+    /// derive `configDirectory` from it with `TestSiteLayout.configDirectory(for:)` — every test
+    /// sharing this same `tmpDir` would resolve to the identical `Config/` path, and a successful
+    /// deploy really does write there (`DeployedRoutesSnapshot`, `SiteConfigStore`'s
+    /// `workerDeployed`/`workerProvisioned` markers, #1960), so concurrently-run tests would race
+    /// on the same files on disk. Use ``freshConfigDirectory()`` instead.
     private let tmpDir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
+
+    /// A fresh, unique `Config/`-equivalent directory for one deploy call — the counterpart to
+    /// `tmpDir` that's actually safe to write into. See `tmpDir`'s doc comment for why deriving
+    /// this from the shared `tmpDir` via `TestSiteLayout` would be unsafe here.
+    private func freshConfigDirectory() -> URL {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("DeployCommandTests-Config-\(UUID().uuidString)", isDirectory: true)
+    }
 
     // MARK: Fake executor
 
@@ -113,7 +129,7 @@ struct DeployCommandTests {
             .set(.preflight, exitCode: 0, output: scanJSON(ok: true))
             .set(.wrangler, exitCode: 0, output: "Published angle-app (1.23 sec)\n  https://angle-app.example.workers.dev")
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
-        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .succeeded(let url, let duration) = result else {
             Issue.record("expected .succeeded, got \(result)"); return
         }
@@ -129,7 +145,7 @@ struct DeployCommandTests {
             .set(.preflight, exitCode: 0, output: scanJSON(ok: true))
             .set(.wrangler, exitCode: 0, output: "Published x (0.1 sec)\n  https://x.workers.dev")
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "secret-tok" }), executor: exec)
-        _ = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        _ = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         #expect(exec.environment(for: .build)?["CLOUDFLARE_API_TOKEN"] == nil)
         #expect(exec.environment(for: .preflight)?["CLOUDFLARE_API_TOKEN"] == nil)
         #expect(exec.environment(for: .wrangler)?["CLOUDFLARE_API_TOKEN"] == "secret-tok")
@@ -150,7 +166,7 @@ struct DeployCommandTests {
             }),
             executor: exec
         )
-        _ = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        _ = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         #expect(exec.environment(for: .wrangler)?["CLOUDFLARE_ACCOUNT_ID"] == "acct-123")
     }
 
@@ -163,7 +179,7 @@ struct DeployCommandTests {
         // The default `accountIDSource` (unset here) always returns nil — mirrors a token that
         // authenticates but can't list accounts (#1853's reported scenario).
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "secret-tok" }), executor: exec)
-        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         #expect(exec.environment(for: .wrangler)?["CLOUDFLARE_ACCOUNT_ID"] == nil)
         guard case .succeeded = result else {
             Issue.record("expected .succeeded (deploy proceeds; wrangler's own auto-discovery is unaffected by this seam), got \(result)")
@@ -500,7 +516,7 @@ struct DeployCommandTests {
     func refusesBeforeStepsWhenTokenNil() async {
         let exec = FakeExecutor().onRun(.build, { Issue.record("build must not run when token is missing") })
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { nil }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .failed(let reason, let exit) = result else {
             Issue.record("expected .failed, got \(result)"); return
         }
@@ -513,7 +529,7 @@ struct DeployCommandTests {
     func refusesBeforeStepsWhenTokenEmpty() async {
         let exec = FakeExecutor()
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "" }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .failed(let reason, _) = result else {
             Issue.record("expected .failed, got \(result)"); return
         }
@@ -527,7 +543,7 @@ struct DeployCommandTests {
     func failsWhenBuildExitsNonZero() async {
         let exec = FakeExecutor().set(.build, exitCode: 2, output: "astro: type error")
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .failed(let reason, let exit) = result else {
             Issue.record("expected .failed, got \(result)"); return
         }
@@ -540,7 +556,7 @@ struct DeployCommandTests {
     func failsWhenBuildUnavailable() async {
         let exec = FakeExecutor().set(.build, exitCode: nil, output: "vendored npm not found — rebuild the app")
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .failed(let reason, _) = result else {
             Issue.record("expected .failed, got \(result)"); return
         }
@@ -556,7 +572,7 @@ struct DeployCommandTests {
             .set(.preflight, exitCode: 0, output: scanJSON(ok: false))
             .onRun(.wrangler, { Issue.record("wrangler must not run when preflight blocks") })
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .blocked(let failures, _) = result else {
             Issue.record("expected .blocked, got \(result)"); return
         }
@@ -573,7 +589,7 @@ struct DeployCommandTests {
             .set(.preflight, exitCode: 1, output: "Error: tsx not installed")
             .onRun(.wrangler, { Issue.record("wrangler must not run when preflight errored") })
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .failed(let reason, _) = result else {
             Issue.record("expected .failed, got \(result)"); return
         }
@@ -589,7 +605,7 @@ struct DeployCommandTests {
             .set(.wrangler, exitCode: 0, output: "Published x (0.1 sec)\n  https://x.workers.dev")
         let observed = Mutex<PreDeployCheck.Outcome?>(nil)
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
-        _ = await cmd.deploy(siteID: "t", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir), onPreflight: { observed.set($0) })
+        _ = await cmd.deploy(siteID: "t", siteDirectory: tmpDir, configDirectory: freshConfigDirectory(), onPreflight: { observed.set($0) })
         guard case .passed(let warnings) = observed.get() else {
             Issue.record("expected .passed outcome observed"); return
         }
@@ -605,7 +621,7 @@ struct DeployCommandTests {
             .set(.preflight, exitCode: 0, output: scanJSON(ok: true))
             .set(.wrangler, exitCode: 10, output: "Error: authentication failed")
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .failed(let reason, let exit) = result else {
             Issue.record("expected .failed, got \(result)"); return
         }
@@ -620,7 +636,7 @@ struct DeployCommandTests {
             .set(.preflight, exitCode: 0, output: scanJSON(ok: true))
             .set(.wrangler, exitCode: 0, output: "Did some thing.\nNo anchor here.")
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .failed(let reason, let exit) = result else {
             Issue.record("expected .failed, got \(result)"); return
         }
@@ -635,7 +651,7 @@ struct DeployCommandTests {
             .set(.preflight, exitCode: 0, output: scanJSON(ok: true))
             .set(.wrangler, exitCode: 0, output: "See https://developers.cloudflare.com/workers for help.\nPublished angle-app (1.23 sec)\n  https://angle-app.example.workers.dev")
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .succeeded(let url, _) = result else {
             Issue.record("expected .succeeded, got \(result)"); return
         }
@@ -962,7 +978,7 @@ struct DeployCommandTests {
                 Current Version ID: abc-123
                 """)
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .succeeded(let url, _) = result else {
             Issue.record("expected .succeeded, got \(result)"); return
         }
@@ -1045,7 +1061,7 @@ struct DeployCommandTests {
             }
         )
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "fake-token" }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .succeeded(let url, _) = result else {
             Issue.record("expected .succeeded, got \(result)"); return
         }
@@ -1081,7 +1097,7 @@ struct DeployCommandTests {
             }
         )
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "secret-token-abc" }), executor: exec)
-        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
+        let result = await cmd.deploy(siteID: "mysite", siteDirectory: tmpDir, configDirectory: freshConfigDirectory())
         guard case .succeeded = result else { Issue.record("expected .succeeded, got \(result)"); return }
         let lines = await center.snapshot()
         #expect(lines.first(where: { $0.text.contains("TOKEN=") })?.text == "TOKEN=secret-token-abc")
@@ -1138,7 +1154,7 @@ struct DeployCommandTests {
         )
         let cmd = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec)
         let dir = URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
-        let task = Task { await cmd.deploy(siteID: "site", siteDirectory: dir, configDirectory: TestSiteLayout.configDirectory(for: dir)) }
+        let task = Task { await cmd.deploy(siteID: "site", siteDirectory: dir, configDirectory: freshConfigDirectory()) }
         #expect(await waitForMarker("__STARTED__", in: center, timeout: Self.startObservationTimeout), "wrangler never started")
         task.cancel()
         let result = await task.value
