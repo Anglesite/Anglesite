@@ -32,16 +32,19 @@ enum DocumentPortalResolution {
     /// `flatpak-spawn --host` escape hatch already granted for podman) sidesteps the filter and
     /// succeeds unconditionally for any doc ID whose string this process knows — an app-agnostic
     /// call, unlike `podmanInvocation`'s, so it takes `flatpakSpawnExecutable` directly rather
-    /// than going through `PodmanContainerControl`.
+    /// than going through `PodmanContainerControl`. The `gdbus` reply (a doc-ID → path mapping,
+    /// nothing secret) streams into `logCenter` under `document-portal`.
     static func resolveHostPath(
         for url: URL,
         flatpakHostSpawn: Bool,
         supervisor: ProcessSupervisor,
         flatpakSpawnExecutable: URL = URL(fileURLWithPath: "/usr/bin/flatpak-spawn"),
-        gdbusExecutable: URL = URL(fileURLWithPath: "/usr/bin/gdbus")
+        gdbusExecutable: URL = URL(fileURLWithPath: "/usr/bin/gdbus"),
+        logCenter: LogCenter = .shared
     ) async throws -> URL {
         guard flatpakHostSpawn, let parsed = parseDocumentPortalPath(url.path) else { return url }
         let result = try await supervisor.run(
+            source: "document-portal",
             executable: flatpakSpawnExecutable,
             arguments: [
                 "--host", gdbusExecutable.path,
@@ -50,7 +53,8 @@ enum DocumentPortalResolution {
                 "--object-path", "/org/freedesktop/portal/documents",
                 "--method", "org.freedesktop.portal.Documents.Info",
                 parsed.docID,
-            ])
+            ],
+            logCenter: logCenter)
         guard result.exitCode == 0, let realTopLevelPath = parseInfoReply(result.stdout) else {
             throw LocalContainerError.bootFailed(
                 "couldn't resolve document-portal path for \(url.path) (doc id \(parsed.docID)): "

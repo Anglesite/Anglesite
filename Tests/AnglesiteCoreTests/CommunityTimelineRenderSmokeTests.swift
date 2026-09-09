@@ -80,6 +80,7 @@ struct CommunityTimelineRenderSmokeTests {
             try Self.fixturePageMarkup.write(to: fixturePage, atomically: true, encoding: .utf8)
 
             let result = try await ProcessSupervisor.shared.run(
+                source: "test",
                 executable: node,
                 arguments: [E2EPrerequisites.astroCLIRelativePath, "build"],
                 currentDirectoryURL: templateDir)
@@ -121,6 +122,7 @@ struct CommunityTimelineRenderSmokeTests {
             try Self.fixturePageMarkup.write(to: fixturePage, atomically: true, encoding: .utf8)
 
             let result = try await ProcessSupervisor.shared.run(
+                source: "test",
                 executable: node,
                 arguments: [E2EPrerequisites.astroCLIRelativePath, "build"],
                 currentDirectoryURL: templateDir)

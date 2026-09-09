@@ -150,6 +150,7 @@ private struct EditSyncFixture {
     @discardableResult
     private static func git(_ arguments: [String], in directory: URL) async throws -> String {
         let result = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/usr/bin/git"), arguments: arguments, currentDirectoryURL: directory)
         return result.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
     }

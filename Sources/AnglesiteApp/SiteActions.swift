@@ -220,7 +220,7 @@ enum SiteActions {
         let scaffolder = SiteScaffolder(
             sitesRoot: sitesRoot, templateURL: templateURL, catalog: catalog,
             run: { exe, args, cwd in
-                try await ProcessSupervisor.shared.run(executable: exe, arguments: args, currentDirectoryURL: cwd)
+                try await ProcessSupervisor.shared.run(source: "scaffold", executable: exe, arguments: args, currentDirectoryURL: cwd)
             },
             gitInit: { sourceDir in try GitInitRunner.run(in: sourceDir) },
             gitCommit: { sourceDir in try await RepoBootstrap.live().commitAll(source: sourceDir) },

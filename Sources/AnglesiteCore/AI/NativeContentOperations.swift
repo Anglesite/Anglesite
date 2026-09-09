@@ -767,7 +767,7 @@ public struct NativeContentOperations: ContentOperationsService {
         _ args: [String], git: URL, currentDirectoryURL: URL
     ) async -> ProcessSupervisor.RunResult? {
         let result = try? await ProcessSupervisor.shared.run(
-            executable: git, arguments: args, currentDirectoryURL: currentDirectoryURL)
+            source: "git:content", executable: git, arguments: args, currentDirectoryURL: currentDirectoryURL)
         guard let result, result.exitCode == 0 else { return nil }
         return result
     }
@@ -881,6 +881,7 @@ public struct NativeContentOperations: ContentOperationsService {
     @Sendable public static func hasCommit(_ projectRoot: URL, _ message: String) async -> Bool {
         let git = URL(fileURLWithPath: "/usr/bin/git")
         guard let result = try? await ProcessSupervisor.shared.run(
+            source: "git:content",
             executable: git,
             arguments: ["log", "--format=%s", "--fixed-strings", "--grep=\(message)"],
             currentDirectoryURL: projectRoot), result.exitCode == 0 else { return false }

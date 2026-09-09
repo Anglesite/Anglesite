@@ -37,4 +37,19 @@
 # sleep-then-assert wall-clock race, which migrating to `waitUntil` eliminates outright — see
 # the suite's own doc comment. Unlike the suites above, it has no remaining real-I/O or
 # shared-resource contention to isolate, so it no longer belongs in this lane.
-export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests|ProcessSupervisorShutdownTests|HMRRelayTests'
+#
+# ProcessSupervisorRunLoggingTests + ProcessSupervisorRunLoggingPortableTests (#1966, PR #1979):
+# both suites' `runDetaching` daemon cases spawn a real `/bin/sh` that backgrounds a 5s
+# grandchild and assert `ContinuousClock.now - start < .seconds(...)` to prove `runDetaching`
+# returned without waiting for it. build-test's `build-test` job (run 34316239022, Xcode
+# 26.6/Swift 6.3.3) failed both — `5.957118040999999 seconds` and `6.28011725 seconds`,
+# both just over the grandchild's 5s sleep — under the full-`--parallel` run; the same
+# posix_spawn/waitpid path (spawnAndWait in InProcessBackend.swift), driven directly and
+# under 40-way concurrent load, returned in ~6ms every time on an unloaded machine, and the
+# suites pass consistently on Xcode 27/Swift 6.4 locally. Same class of flake as
+# ProcessSupervisorShutdownTests above: the detached task doing the blocking `waitpid`
+# queues behind other blocking work on build-test's oversubscribed thread pool rather than
+# `runDetaching` itself blocking on the daemon — moving here is the same established
+# mitigation, paired with tightening the bound (still >2x an isolated run's overhead, well
+# under the 5s failure signature) now that cross-suite contention is removed.
+export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests|ProcessSupervisorShutdownTests|HMRRelayTests|ProcessSupervisorRunLoggingTests|ProcessSupervisorRunLoggingPortableTests'
