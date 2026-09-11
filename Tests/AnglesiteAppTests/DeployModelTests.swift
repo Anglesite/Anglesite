@@ -100,7 +100,7 @@ private struct StubTokenVerifying: TokenVerifying {
 @MainActor
 struct DeployModelTests {
     @Test("sudden termination stays disabled until a deploy finishes")
-    func suddenTerminationLeaseBracketsDeploy() async {
+    func suddenTerminationLeaseBracketsDeploy() async throws {
         let executor = GatedDeployExecutor()
         let controller = SuddenTerminationController(disable: {}, enable: {})
         let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
@@ -130,9 +130,7 @@ struct DeployModelTests {
         #expect(controller.activeLeaseCount == 1)
 
         await executor.resumeBuild()
-        while model.isRunning {
-            await Task.yield()
-        }
+        try await waitUntil("the sudden-termination deploy to finish") { !model.isRunning }
 
         #expect(controller.activeLeaseCount == 0)
         guard case .succeeded = model.phase else {
@@ -142,7 +140,7 @@ struct DeployModelTests {
     }
 
     @Test("A worker-name conflict parks the deploy and presents the conflict sheet")
-    func workerNameConflictParksAndPresents() async {
+    func workerNameConflictParksAndPresents() async throws {
         let executor = GatedDeployExecutor()
         // Never reached — the conflict short-circuits before the build step — but present so a
         // regression that skips the gate doesn't hang the test on the gated continuation.
@@ -163,7 +161,7 @@ struct DeployModelTests {
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to reach the conflict sheet") { !model.isRunning }
 
         guard case .workerNameConflict(let name) = model.phase else {
             Issue.record("expected .workerNameConflict, got \(model.phase)"); return
@@ -174,7 +172,7 @@ struct DeployModelTests {
     }
 
     @Test("Domain config drift blocks the deploy and presents the drift sheet (#1173)")
-    func domainConfigDriftBlocksAndPresents() async {
+    func domainConfigDriftBlocksAndPresents() async throws {
         let executor = GatedDeployExecutor()
         // Never reached — drift short-circuits before the build step — but present so a
         // regression that skips the gate doesn't hang the test on the gated continuation.
@@ -199,7 +197,7 @@ struct DeployModelTests {
         try! DomainConfigStore(sourceDirectory: siteDir).save(config)
 
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to reach the drift sheet") { !model.isRunning }
 
         guard case .domainConfigDrift(let findings) = model.phase else {
             Issue.record("expected .domainConfigDrift, got \(model.phase)"); return
@@ -214,7 +212,7 @@ struct DeployModelTests {
     }
 
     @Test("Renaming and retrying rewrites wrangler.toml/.site-config and re-deploys under the new name")
-    func renameAndRetrySucceedsUnderNewName() async {
+    func renameAndRetrySucceedsUnderNewName() async throws {
         let executor = GatedDeployExecutor()
         // Never reached — the conflict short-circuits before the build step — but present so a
         // regression that skips the gate doesn't hang the test on the gated continuation.
@@ -237,7 +235,7 @@ struct DeployModelTests {
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the initial deploy to reach the conflict sheet") { !model.isRunning }
         guard case .workerNameConflict = model.phase else {
             Issue.record("expected .workerNameConflict before renaming, got \(model.phase)"); return
         }
@@ -248,7 +246,7 @@ struct DeployModelTests {
         await model.renameWorkerAndRetry("my-site-2")
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the renamed retry to finish") { !model.isRunning }
 
         guard case .succeeded = model.phase else {
             Issue.record("expected .succeeded after rename-and-retry, got \(model.phase)"); return
@@ -260,7 +258,7 @@ struct DeployModelTests {
     }
 
     @Test("Renaming to a name that's also taken loops back to the conflict sheet under the new name")
-    func renameToAlsoTakenNameLoopsBackToConflict() async {
+    func renameToAlsoTakenNameLoopsBackToConflict() async throws {
         let executor = GatedDeployExecutor()
         // Never reached — both the initial and retried collision checks short-circuit before the
         // build step — but present so a regression that skips the gate doesn't hang the test on
@@ -284,7 +282,7 @@ struct DeployModelTests {
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the initial deploy to reach the conflict sheet") { !model.isRunning }
         guard case .workerNameConflict(let firstName) = model.phase else {
             Issue.record("expected .workerNameConflict before renaming, got \(model.phase)"); return
         }
@@ -295,7 +293,7 @@ struct DeployModelTests {
         // synchronization is needed for this retry (unlike `renameAndRetrySucceedsUnderNewName`,
         // where the retry's name is free and genuinely reaches the build step).
         await model.renameWorkerAndRetry("my-site-2")
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the renamed retry to reach the conflict sheet again") { !model.isRunning }
 
         guard case .workerNameConflict(let secondName) = model.phase else {
             Issue.record("expected .workerNameConflict again after renaming to a taken name, got \(model.phase)"); return
@@ -306,7 +304,7 @@ struct DeployModelTests {
     }
 
     @Test("A confirmed domain attach swaps the succeeded phase's URL to the custom domain")
-    func confirmedDomainAttachSwapsDisplayedURL() async {
+    func confirmedDomainAttachSwapsDisplayedURL() async throws {
         let executor = GatedDeployExecutor()
         let writer = FakeDomainAttachWriter(outcome: .attached)
         let command = DeployCommand(
@@ -329,7 +327,7 @@ struct DeployModelTests {
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         guard case .succeeded(let url, _) = model.phase else {
             Issue.record("expected .succeeded, got \(model.phase)"); return
@@ -342,7 +340,7 @@ struct DeployModelTests {
     }
 
     @Test("A second deploy after a successful attach still shows the custom domain, with no network call (#1077)")
-    func secondDeployAfterAttachStillShowsCustomDomain() async {
+    func secondDeployAfterAttachStillShowsCustomDomain() async throws {
         let executor = GatedDeployExecutor()
         // Would fail the test if attachWorkersCustomDomain were called — a deploy whose
         // `.site-config` already records CF_DOMAIN_ATTACHED matching the current DOMAIN must
@@ -369,7 +367,7 @@ struct DeployModelTests {
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         guard case .succeeded(let url, _) = model.phase else {
             Issue.record("expected .succeeded, got \(model.phase)"); return
@@ -381,7 +379,7 @@ struct DeployModelTests {
     }
 
     @Test("A not-connected domain attach leaves the workers.dev URL in place")
-    func notConnectedDomainAttachLeavesWorkersDevURL() async {
+    func notConnectedDomainAttachLeavesWorkersDevURL() async throws {
         let executor = GatedDeployExecutor()
         let writer = FakeDomainAttachWriter(outcome: .zoneNotFound)
         let command = DeployCommand(
@@ -403,7 +401,7 @@ struct DeployModelTests {
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         guard case .succeeded(let url, _) = model.phase else {
             Issue.record("expected .succeeded, got \(model.phase)"); return
@@ -416,7 +414,7 @@ struct DeployModelTests {
     }
 
     @Test("A domain-attach conflict presents the conflict sheet without blocking the succeeded deploy")
-    func domainConflictPresentsSheet() async {
+    func domainConflictPresentsSheet() async throws {
         let executor = GatedDeployExecutor()
         let writer = FakeDomainAttachWriter(outcome: .conflict(ownedBy: "other-site"))
         let command = DeployCommand(
@@ -438,7 +436,7 @@ struct DeployModelTests {
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         guard case .succeeded = model.phase else {
             Issue.record("expected .succeeded even on a domain conflict, got \(model.phase)"); return
@@ -454,7 +452,7 @@ struct DeployModelTests {
     }
 
     @Test("No transfer domain configured reports .skipped and leaves the workers.dev URL")
-    func noTransferDomainSkips() async {
+    func noTransferDomainSkips() async throws {
         let executor = GatedDeployExecutor()
         let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -468,7 +466,7 @@ struct DeployModelTests {
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         guard case .succeeded(let url, _) = model.phase else {
             Issue.record("expected .succeeded, got \(model.phase)"); return
@@ -479,7 +477,7 @@ struct DeployModelTests {
     }
 
     @Test("An automatic background deploy defers instead of clobbering a foreground worker-name-conflict sheet (#1076)")
-    func backgroundDeployDefersWhileConflictSheetIsPresented() async {
+    func backgroundDeployDefersWhileConflictSheetIsPresented() async throws {
         let executor = GatedDeployExecutor()
         await executor.resumeBuild()
         let command = DeployCommand(
@@ -500,7 +498,7 @@ struct DeployModelTests {
         // A manual (foreground) deploy parks on the conflict sheet, same as
         // `workerNameConflictParksAndPresents`.
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the foreground deploy to reach the conflict sheet") { !model.isRunning }
         guard case .workerNameConflict = model.phase else {
             Issue.record("expected .workerNameConflict, got \(model.phase)"); return
         }
@@ -528,7 +526,7 @@ struct DeployModelTests {
     }
 
     @Test("An invalid rename target surfaces a plain-language error instead of the raw error enum")
-    func renameWithInvalidNameSurfacesPlainLanguageError() async {
+    func renameWithInvalidNameSurfacesPlainLanguageError() async throws {
         let executor = GatedDeployExecutor()
         await executor.resumeBuild()
         let command = DeployCommand(
@@ -548,7 +546,7 @@ struct DeployModelTests {
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to reach the conflict sheet") { !model.isRunning }
         guard case .workerNameConflict = model.phase else {
             Issue.record("expected .workerNameConflict before renaming, got \(model.phase)"); return
         }
@@ -564,7 +562,7 @@ struct DeployModelTests {
     }
 
     @Test("Cancelling the conflict prompt clears the parked deploy and dismisses the sheet")
-    func cancelClearsPendingDeploy() async {
+    func cancelClearsPendingDeploy() async throws {
         let executor = GatedDeployExecutor()
         await executor.resumeBuild()
         let command = DeployCommand(
@@ -583,7 +581,7 @@ struct DeployModelTests {
         try! "CF_PROJECT_NAME=my-site\n".write(to: siteDir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
 
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to reach the conflict sheet") { !model.isRunning }
 
         model.cancelWorkerNameConflictPrompt()
 
@@ -621,7 +619,7 @@ struct DeployModelTests {
         model.deploy(siteID: "test-site", siteDirectory: dir, configDirectory: dir, currentRoutes: [])
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         guard case .succeeded = model.phase else {
             Issue.record("Expected deploy to succeed, got \(model.phase)")
@@ -656,7 +654,7 @@ struct DeployModelTests {
         try await configStore.save(SiteSettings(activeWorkerIDs: ["indieauth"]))
 
         model.deploy(siteID: "test-site", siteDirectory: dir, configDirectory: configDir, currentRoutes: [])
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the provisioning-without-container deploy to finish") { !model.isRunning }
 
         // provision() has no working runner outside a container (Task 5's ContainerCommandRunner
         // requires a real LocalContainerControl) — without containerControl this deploy is
@@ -693,7 +691,7 @@ struct DeployModelTests {
         model.deploy(siteID: "test-site", siteDirectory: dir, configDirectory: configDir, currentRoutes: [])
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         guard case .succeeded = model.phase else {
             Issue.record("Expected deploy to succeed, got \(model.phase)")
@@ -715,7 +713,7 @@ struct DeployModelTests {
         model.deploy(
             siteID: "s", siteDirectory: dir, configDirectory: dir, currentRoutes: [],
             containerControlProvider: { (siteID: "s", control: fake) })
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         let calls = await fake.execCalls
         #expect(!calls.isEmpty, "expected the deploy to route at least one step through the resolved container control")
@@ -727,7 +725,7 @@ struct DeployModelTests {
     /// worker-name-conflict-then-rename flow as `renameAndRetrySucceedsUnderNewName`, this asserts
     /// the provider closure itself is invoked again on the retry rather than replayed from a cache.
     @Test("containerControlProvider is re-invoked on a rename-and-retry, not replayed from the original resolution")
-    func containerControlProviderIsReinvokedOnRetry() async {
+    func containerControlProviderIsReinvokedOnRetry() async throws {
         let executor = GatedDeployExecutor()
         await executor.resumeBuild()
         let command = DeployCommand(
@@ -754,7 +752,7 @@ struct DeployModelTests {
                 await providerCalls.increment()
                 return nil
             })
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the initial deploy to reach the conflict sheet") { !model.isRunning }
         guard case .workerNameConflict = model.phase else {
             Issue.record("expected .workerNameConflict before renaming, got \(model.phase)"); return
         }
@@ -763,7 +761,7 @@ struct DeployModelTests {
         await model.renameWorkerAndRetry("my-site-2")
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the renamed retry to finish") { !model.isRunning }
 
         guard case .succeeded = model.phase else {
             Issue.record("expected .succeeded after rename-and-retry, got \(model.phase)"); return
@@ -772,7 +770,7 @@ struct DeployModelTests {
     }
 
     @Test("wasFirstDeploy is true only when CF_WORKER_DEPLOYED was absent before this deploy")
-    func wasFirstDeployReflectsPriorDeployHistory() async {
+    func wasFirstDeployReflectsPriorDeployHistory() async throws {
         let executor = GatedDeployExecutor()
         let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let model = DeployModel(command: command, logCenter: LogCenter(), tokenAvailabilityOverride: { true })
@@ -785,7 +783,7 @@ struct DeployModelTests {
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the first deploy to finish") { !model.isRunning }
         guard case .succeeded = model.phase else {
             Issue.record("expected .succeeded on first deploy, got \(model.phase)"); return
         }
@@ -795,7 +793,7 @@ struct DeployModelTests {
         model.deploy(siteID: "s", siteDirectory: siteDir, configDirectory: siteDir, currentRoutes: [])
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the second deploy to finish") { !model.isRunning }
         guard case .succeeded = model.phase else {
             Issue.record("expected .succeeded on second deploy, got \(model.phase)"); return
         }
@@ -804,7 +802,7 @@ struct DeployModelTests {
     }
 
     @Test("an OAuth credential in the keychain lets a deploy proceed without the sign-in sheet")
-    func oauthCredentialSatisfiesHasUsableToken() async {
+    func oauthCredentialSatisfiesHasUsableToken() async throws {
         let cfToken = await CloudflareAPITokenTestEnvironment.shared.claimClear()
         defer { cfToken.release() }
         let executor = GatedDeployExecutor()
@@ -826,7 +824,7 @@ struct DeployModelTests {
         // applies below in `signInSuccessPersistsAndDispatches`.
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the deploy to finish") { !model.isRunning }
 
         // Bind before asserting — see the comment on `tokenPromptPresented` in
         // `signInFailureStaysOnSheet` for why a bare `#expect(model.tokenPromptPresented)` risks
@@ -912,7 +910,7 @@ struct DeployModelTests {
         await model.signInWithCloudflare()
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the dispatched deploy to finish after sign-in") { !model.isRunning }
 
         let tokenPromptPresentedAfterSignIn = model.tokenPromptPresented
         #expect(!tokenPromptPresentedAfterSignIn)
@@ -1296,7 +1294,7 @@ struct DeployModelTests {
         await model.confirmLicenseChoice(ccBY)
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the parked deploy to finish after confirming the license") { !model.isRunning }
 
         let licenseGatePresentedAfterConfirm = model.licenseGatePresented
         #expect(!licenseGatePresentedAfterConfirm)
@@ -1324,7 +1322,7 @@ struct DeployModelTests {
         await model.confirmLicenseChoice(nil)
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the parked deploy to finish after confirming the license") { !model.isRunning }
 
         let policy = try LicensingStore(sourceDirectory: directory).load()
         #expect(policy.licenseChosen)
@@ -1388,7 +1386,7 @@ struct DeployModelTests {
         await model.confirmLicenseChoice(nil)
         await executor.waitUntilBuildIsParked()
         await executor.resumeBuild()
-        while model.isRunning { await Task.yield() }
+        try await waitUntil("the parked deploy to finish after a valid license choice") { !model.isRunning }
         guard case .succeeded = model.phase else {
             Issue.record("expected the still-parked deploy to run after a valid choice, got \(model.phase)")
             return
