@@ -85,15 +85,15 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
         self.accountIDSource = accountIDSource
     }
 
-    /// Delegates to `CloudflareDeployTarget.authorize(siteDirectory:)` for the full pre-build gate
+    /// Delegates to `CloudflareDeployTarget.authorize(siteDirectory:configDirectory:)` for the full pre-build gate
     /// (token resolution, worker-name-conflict, domain-config-drift), then — only once that gate
-    /// returns `.ready` — persists `.site-config`'s `CF_WORKER_PROVISIONED` marker (#1075) so a
-    /// later `checkWorkerNameConflict` on a retried/resumed provisioning attempt recognizes this
-    /// site's own candidate name rather than misreporting it as a foreign collision.
-    public func authorize(siteDirectory: URL) async -> DeployTargetAuthorization {
-        let authorization = await cloudflareTarget.authorize(siteDirectory: siteDirectory)
+    /// returns `.ready` — persists the `SiteSettings.workerProvisioned` marker (#1075, in `Config/`
+    /// since #1960) so a later `checkWorkerNameConflict` on a retried/resumed provisioning attempt
+    /// recognizes this site's own candidate name rather than misreporting it as a foreign collision.
+    public func authorize(siteDirectory: URL, configDirectory: URL) async -> DeployTargetAuthorization {
+        let authorization = await cloudflareTarget.authorize(siteDirectory: siteDirectory, configDirectory: configDirectory)
         if case .ready = authorization {
-            CloudflareDeployTarget.persistWorkerProvisioned(siteDirectory: siteDirectory)
+            await CloudflareDeployTarget.persistWorkerProvisioned(configDirectory: configDirectory)
         }
         return authorization
     }
@@ -105,7 +105,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
     /// is persisted after every successful step so a failure partway through never loses ids
     /// already created.
     ///
-    /// Only reached after `authorize(siteDirectory:)` returned `.ready` and the shared
+    /// Only reached after `authorize(siteDirectory:configDirectory:)` returned `.ready` and the shared
     /// build+`PreDeployCheck` spine passed — the worker-name-conflict check that used to run at
     /// the top of `SocialWorkerProvisionCommand.provision` is superseded by `authorize` above, so
     /// it isn't repeated here.
@@ -131,7 +131,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
                     return .failed(reason: "wrangler created D1 database \(name) but no database id was found", exitCode: 0)
                 }
                 resources.d1DatabaseID = id
-                if let failure = persistConfig(siteDirectory: context.siteDirectory) {
+                if let failure = persistConfig(context: context) {
                     return failure
                 }
             }
@@ -153,7 +153,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
                     return .failed(reason: "wrangler created KV namespace \(name) but no namespace id was found", exitCode: 0)
                 }
                 resources.kvNamespaceID = id
-                if let failure = persistConfig(siteDirectory: context.siteDirectory) {
+                if let failure = persistConfig(context: context) {
                     return failure
                 }
             }
@@ -168,7 +168,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
                     return failure
                 }
                 resources.r2BucketName = name
-                if let failure = persistConfig(siteDirectory: context.siteDirectory) {
+                if let failure = persistConfig(context: context) {
                     return failure
                 }
             }
@@ -186,7 +186,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
                     return failure
                 }
                 resources.podBlobsR2BucketName = name
-                if let failure = persistConfig(siteDirectory: context.siteDirectory) {
+                if let failure = persistConfig(context: context) {
                     return failure
                 }
             }
@@ -220,7 +220,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
             if resources.inboxAccountID == nil {
                 resources.inboxAccountID = await accountIDSource(context.credential)
             }
-            if let failure = persistConfig(siteDirectory: context.siteDirectory) {
+            if let failure = persistConfig(context: context) {
                 return failure
             }
         }
@@ -233,7 +233,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
             // `wrangler secret put` (below) resolves the Worker's project name from
             // wrangler.toml in the working directory — persist it here first so that lookup
             // succeeds even on an ActivityPub-only first deploy.
-            if let failure = persistConfig(siteDirectory: context.siteDirectory) {
+            if let failure = persistConfig(context: context) {
                 return failure
             }
             let keys: ActivityPubKeyProvisioning.Secrets
@@ -318,7 +318,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
             case .failure(let failure):
                 return failure
             }
-            if let failure = persistConfig(siteDirectory: context.siteDirectory) {
+            if let failure = persistConfig(context: context) {
                 return failure
             }
         }
@@ -333,7 +333,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
             case .failure(let failure):
                 return failure
             }
-            if let failure = persistConfig(siteDirectory: context.siteDirectory) {
+            if let failure = persistConfig(context: context) {
                 return failure
             }
         }
@@ -348,12 +348,12 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
             case .failure(let failure):
                 return failure
             }
-            if let failure = persistConfig(siteDirectory: context.siteDirectory) {
+            if let failure = persistConfig(context: context) {
                 return failure
             }
         }
 
-        if let failure = persistConfig(siteDirectory: context.siteDirectory) {
+        if let failure = persistConfig(context: context) {
             return failure
         }
 
@@ -417,12 +417,14 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
 
     // MARK: - Config persistence
 
-    /// Regenerates `wrangler.toml` from `resources`/`workers`/`routeClaims`/etc. and reconciles
-    /// `.site-config`'s derived `*_ENABLED` flags to the current true state. Copied from
-    /// `SocialWorkerProvisionCommand.persistConfig` (#1821 Task 13) — moved rather than shared
-    /// because it's provisioning-specific logic and reads `resources` (this actor's own current
-    /// truth) directly instead of taking it as a parameter.
-    private func persistConfig(siteDirectory: URL) -> DeployCommand.Result? {
+    /// Regenerates `Config/wrangler.toml` (#1960) from `resources`/`workers`/`routeClaims`/etc.
+    /// and reconciles `.site-config`'s derived `*_ENABLED` flags to the current true state. Copied
+    /// from `SocialWorkerProvisionCommand.persistConfig` (#1821 Task 13) — moved rather than
+    /// shared because it's provisioning-specific logic and reads `resources` (this actor's own
+    /// current truth) directly instead of taking it as a parameter.
+    private func persistConfig(context: DeployTargetContext) -> DeployCommand.Result? {
+        let siteDirectory = context.siteDirectory
+        let configDirectory = context.configDirectory
         do {
             let configuration = try WorkerComposition.generateWranglerToml(
                 siteName: siteName,
@@ -439,11 +441,7 @@ public actor SocialWorkerProvisionTarget: DeployTarget {
                 apUsername: apUsername, apIcon: apIcon,
                 experiments: experiments, mcpEnabled: mcpEnabled
             )
-            try configuration.toml.write(
-                to: siteDirectory.appendingPathComponent("wrangler.toml"),
-                atomically: true,
-                encoding: .utf8
-            )
+            try WranglerConfigFile.write(configuration.toml, configDirectory: configDirectory)
             // Reflects "the receiver is actually live" (webmention worker active AND its Queue
             // exists), not just "webmention worker is in the active set" — and is written
             // unconditionally on every call (not gated behind `if hasWebmentionReceive`), so a

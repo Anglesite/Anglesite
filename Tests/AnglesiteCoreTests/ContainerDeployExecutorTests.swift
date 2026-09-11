@@ -8,13 +8,18 @@ struct ContainerDeployExecutorTests {
 
     // MARK: Helpers
 
+    /// `configDirectory` defaults to a location with no `Config/wrangler.toml`, so the #1084/#1960
+    /// staging exec never runs unless a test opts in by pointing at a directory that has one.
     private func makeExecutor(
         fake: FakeLocalContainerControl,
         siteID: String = "site-abc",
+        configDirectory: URL = URL(fileURLWithPath: "/host/no-config-\(UUID().uuidString)", isDirectory: true),
         logCenter: LogCenter = LogCenter()
     ) -> ContainerDeployExecutor {
-        ContainerDeployExecutor(control: fake, siteID: siteID, logCenter: logCenter)
+        ContainerDeployExecutor(control: fake, siteID: siteID, configDirectory: configDirectory, logCenter: logCenter)
     }
+
+    private static let noConfigDirectory = URL(fileURLWithPath: "/host/no-config", isDirectory: true)
 
     private func fakePassing(lines: [String] = []) -> FakeLocalContainerControl {
         FakeLocalContainerControl(
@@ -75,7 +80,7 @@ struct ContainerDeployExecutorTests {
     func wranglerSubcommandArgvAndEnv() {
         let argv = ContainerDeployExecutorTestHook.guestArgv(
             for: .wranglerSubcommand(args: ["d1", "create", "site-social"]),
-            siteDirectory: URL(fileURLWithPath: "/tmp/site"))
+            siteDirectory: URL(fileURLWithPath: "/tmp/site"), configDirectory: Self.noConfigDirectory)
         #expect(argv == ["npx", "wrangler", "d1", "create", "site-social"])
     }
 
@@ -129,9 +134,9 @@ struct ContainerDeployExecutorTests {
     func wranglerStepStaysStdoutOnlyEvenWithEmptyStdout() async {
         // The safety-critical half of the property: a fallback that leaked into `.wrangler`
         // would risk corrupting `CloudflareDeployTarget.extractDeployedURL`'s input on the real
-        // deploy path, since that parser only ever expects stdout. Use a host directory with no
-        // wrangler.toml so the #1084 sync step is skipped (see
-        // `wranglerStepSkipsSyncWhenHostFileMissing` above) and the fake's `execResult` is what
+        // deploy path, since that parser only ever expects stdout. Use a Config/ with no
+        // wrangler.toml so the #1084/#1960 staging step is skipped (see
+        // `wranglerStepSkipsStagingWhenHostFileMissing`) and the fake's `execResult` is what
         // the main `wrangler deploy` exec call returns.
         let fake = FakeLocalContainerControl(
             startResult: .failure(.virtualizationUnavailable),
@@ -169,7 +174,7 @@ struct ContainerDeployExecutorTests {
         let siteDir = try makeSiteDirectory(githubPagesOwner: "acme", repo: "my-site-pages")
         defer { try? FileManager.default.removeItem(at: siteDir) }
 
-        let argv = ContainerDeployExecutorTestHook.guestArgv(for: .githubPagesPublish, siteDirectory: siteDir)
+        let argv = ContainerDeployExecutorTestHook.guestArgv(for: .githubPagesPublish, siteDirectory: siteDir, configDirectory: Self.noConfigDirectory)
         // Owner and repo must be separate positional argv elements (passed as `$1`/`$2` to `sh
         // -c`), not interpolated into the script text — that's what makes it injection-safe (see
         // the adjoining injection test).
@@ -189,7 +194,7 @@ struct ContainerDeployExecutorTests {
         try FileManager.default.createDirectory(at: siteDir, withIntermediateDirectories: true)
         defer { try? FileManager.default.removeItem(at: siteDir) }
 
-        let argv = ContainerDeployExecutorTestHook.guestArgv(for: .githubPagesPublish, siteDirectory: siteDir)
+        let argv = ContainerDeployExecutorTestHook.guestArgv(for: .githubPagesPublish, siteDirectory: siteDir, configDirectory: Self.noConfigDirectory)
         #expect(argv.contains { $0.contains("exit 1") })
     }
 
@@ -216,7 +221,7 @@ struct ContainerDeployExecutorTests {
         try FileManager.default.createDirectory(
             at: siteDir.appendingPathComponent("dist"), withIntermediateDirectories: true)
 
-        let argv = ContainerDeployExecutorTestHook.guestArgv(for: .githubPagesPublish, siteDirectory: siteDir)
+        let argv = ContainerDeployExecutorTestHook.guestArgv(for: .githubPagesPublish, siteDirectory: siteDir, configDirectory: Self.noConfigDirectory)
         #expect(argv.contains(payload))
 
         // Stub `git` on PATH so the script doesn't need a real repo or network — the point is
@@ -411,6 +416,7 @@ struct ContainerDeployExecutorTests {
         let executor = ContainerDeployExecutor(
             control: fake,
             siteID: "site-abc",
+            configDirectory: Self.noConfigDirectory,
             logCenter: LogCenter()
         )
         let result = await executor.run(
@@ -432,7 +438,7 @@ struct ContainerDeployExecutorTests {
         // task must resolve promptly with a nil exitCode + empty output (the "terminated" signal),
         // NOT hang and NOT bury cancellation under a "couldn't exec" string.
         let fake = CancelParkingFakeContainerControl()
-        let executor = ContainerDeployExecutor(control: fake, siteID: "s", logCenter: LogCenter())
+        let executor = ContainerDeployExecutor(control: fake, siteID: "s", configDirectory: Self.noConfigDirectory, logCenter: LogCenter())
 
         let task = Task {
             await executor.run(
@@ -459,6 +465,7 @@ struct ContainerDeployExecutorTests {
         let executor = ContainerDeployExecutor(
             control: fake,
             siteID: "my-special-site",
+            configDirectory: Self.noConfigDirectory,
             logCenter: LogCenter()
         )
         _ = await executor.run(
@@ -471,29 +478,30 @@ struct ContainerDeployExecutorTests {
         #expect(calls[0].siteID == "my-special-site")
     }
 
-    // MARK: - #1084: wrangler.toml re-sync before `wrangler deploy`
+    // MARK: - #1084/#1960: Config/wrangler.toml staging before wrangler reads its config
 
-    /// A real host directory with a `wrangler.toml` on disk, modelling the site's `Source/`
-    /// working tree after `SocialWorkerProvisionCommand.persistConfig` has written a
-    /// features-enabled config there.
-    private func makeHostSiteDirectory(wranglerToml: String) throws -> URL {
+    /// A real host `Config/` directory with a `wrangler.toml` on disk, modelling the site
+    /// package's `Config/` after `SocialWorkerProvisionTarget.persistConfig` has written a
+    /// features-enabled config there (#1960 — the file never lives in `Source/` any more).
+    private func makeHostConfigDirectory(wranglerToml: String) throws -> URL {
         let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
-        try FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
-        try wranglerToml.write(to: dir.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
+        try WranglerConfigFile.write(wranglerToml, configDirectory: dir)
         return dir
     }
 
-    @Test("wrangler step re-syncs the host's current wrangler.toml into the guest before deploying")
-    func wranglerStepResyncsTomlBeforeDeploy() async throws {
-        // Models the exact #1084 scenario: the guest's /workspace/site clone is stale (it was
-        // cloned before the site turned on a social feature), but the HOST wrangler.toml — just
-        // written by SocialWorkerProvisionCommand.persistConfig — already has `main` and the
-        // worker's bindings. Without a re-sync, `wrangler deploy` would run against the guest's
-        // stale, assets-only copy and publish a Worker with no script attached at all.
+    private let hostSiteDirectory = URL(fileURLWithPath: "/host/site-\(UUID().uuidString)", isDirectory: true)
+
+    @Test("wrangler step stages the host's current Config/wrangler.toml into the guest before deploying")
+    func wranglerStepStagesTomlBeforeDeploy() async throws {
+        // The guest's /workspace/site is a clone of Source/, which carries no wrangler.toml at all
+        // since #1960 — the HOST Config/wrangler.toml, just written by
+        // SocialWorkerProvisionTarget.persistConfig, is the only copy with `main` and the worker's
+        // bindings. Without staging it, `wrangler deploy` would have no configuration to publish
+        // from (and, pre-#1960, would have published a Worker with no script attached at all).
         let freshToml = "name = \"my-site\"\nmain = \"worker/worker.ts\"\n\n[assets]\ndirectory = \"dist\"\n"
-        let hostSiteDirectory = try makeHostSiteDirectory(wranglerToml: freshToml)
+        let configDirectory = try makeHostConfigDirectory(wranglerToml: freshToml)
         let fake = fakePassing()
-        let executor = makeExecutor(fake: fake)
+        let executor = makeExecutor(fake: fake, configDirectory: configDirectory)
 
         let result = await executor.run(
             step: .wrangler,
@@ -503,9 +511,9 @@ struct ContainerDeployExecutorTests {
         )
 
         let calls = await fake.execCalls
-        #expect(calls.count == 2, "expected a sync exec followed by the deploy exec")
+        #expect(calls.count == 2, "expected a staging exec followed by the deploy exec")
 
-        // First call: writes the fresh host content into the guest's wrangler.toml, never
+        // First call: writes the host content into the guest's wrangler.toml, never
         // interpolating the content directly into the shell string.
         #expect(calls[0].argv[0] == "sh")
         #expect(calls[0].argv[1] == "-c")
@@ -513,7 +521,7 @@ struct ContainerDeployExecutorTests {
         #expect(!calls[0].argv[2].contains("main = "), "content must travel base64-encoded, never spliced in literally")
         #expect(calls[0].cwd == "/workspace/site")
 
-        // Decode what was actually sent and confirm it's the fresh host content.
+        // Decode what was actually sent and confirm it's the host content.
         let script = calls[0].argv[2]
         let base64Part = script
             .replacingOccurrences(of: "echo ", with: "")
@@ -526,29 +534,48 @@ struct ContainerDeployExecutorTests {
         #expect(result.exitCode == 0)
     }
 
-    @Test("build and preflight steps do not re-sync wrangler.toml (neither reads it)")
-    func nonWranglerStepsSkipResync() async throws {
-        let hostSiteDirectory = try makeHostSiteDirectory(wranglerToml: "name = \"my-site\"\n")
+    @Test("wranglerSubcommand steps stage Config/wrangler.toml too — `d1 migrations apply` resolves its binding from it")
+    func wranglerSubcommandStagesToml() async throws {
+        let configDirectory = try makeHostConfigDirectory(wranglerToml: "name = \"my-site\"\n")
         let fake = fakePassing()
-        let executor = makeExecutor(fake: fake)
+        let executor = makeExecutor(fake: fake, configDirectory: configDirectory)
+
+        _ = await executor.run(
+            step: .wranglerSubcommand(args: ["d1", "migrations", "apply", "AUTH_DB", "--remote"]),
+            siteDirectory: hostSiteDirectory,
+            environment: ["CLOUDFLARE_API_TOKEN": "tok"],
+            source: "deploy:site-abc"
+        )
+
+        let calls = await fake.execCalls
+        #expect(calls.count == 2)
+        #expect(calls[0].argv[2].contains("base64 -d > wrangler.toml"))
+        #expect(calls[1].argv == ["npx", "wrangler", "d1", "migrations", "apply", "AUTH_DB", "--remote"])
+    }
+
+    @Test("build and preflight steps do not stage wrangler.toml (neither reads it)")
+    func nonWranglerStepsSkipStaging() async throws {
+        let configDirectory = try makeHostConfigDirectory(wranglerToml: "name = \"my-site\"\n")
+        let fake = fakePassing()
+        let executor = makeExecutor(fake: fake, configDirectory: configDirectory)
 
         _ = await executor.run(step: .build, siteDirectory: hostSiteDirectory, environment: [:], source: "src")
         _ = await executor.run(step: .preflight, siteDirectory: hostSiteDirectory, environment: [:], source: "src")
 
         let calls = await fake.execCalls
-        #expect(calls.count == 2, "no sync call for either step")
+        #expect(calls.count == 2, "no staging call for either step")
         #expect(calls[0].argv == ["npm", "run", "build"])
         #expect(calls[1].argv == ["npx", "tsx", "scripts/pre-deploy-check.ts", "--json"])
     }
 
-    @Test("wrangler step skips the sync when the host has no wrangler.toml yet")
-    func wranglerStepSkipsSyncWhenHostFileMissing() async {
+    @Test("wrangler step skips the staging when the host has no Config/wrangler.toml yet")
+    func wranglerStepSkipsStagingWhenHostFileMissing() async {
         let fake = fakePassing()
         let executor = makeExecutor(fake: fake)
 
         _ = await executor.run(
             step: .wrangler,
-            siteDirectory: URL(fileURLWithPath: "/host/does-not-exist-\(UUID().uuidString)"),
+            siteDirectory: hostSiteDirectory,
             environment: ["CLOUDFLARE_API_TOKEN": "tok"],
             source: "deploy:site-abc"
         )
@@ -558,14 +585,14 @@ struct ContainerDeployExecutorTests {
         #expect(calls[0].argv == ["npx", "wrangler", "deploy"])
     }
 
-    @Test("a failed wrangler.toml sync fails the step without ever attempting `wrangler deploy`")
-    func failedSyncPreventsDeploy() async throws {
-        let hostSiteDirectory = try makeHostSiteDirectory(wranglerToml: "name = \"my-site\"\n")
+    @Test("a failed wrangler.toml staging fails the step without ever attempting `wrangler deploy`")
+    func failedStagingPreventsDeploy() async throws {
+        let configDirectory = try makeHostConfigDirectory(wranglerToml: "name = \"my-site\"\n")
         let fake = FakeLocalContainerControl(
             startResult: .failure(.virtualizationUnavailable),
             execResult: ContainerExecResult(exitCode: 1, stdout: "", stderr: "disk full")
         )
-        let executor = makeExecutor(fake: fake)
+        let executor = makeExecutor(fake: fake, configDirectory: configDirectory)
 
         let result = await executor.run(
             step: .wrangler,
@@ -575,7 +602,7 @@ struct ContainerDeployExecutorTests {
         )
 
         let calls = await fake.execCalls
-        #expect(calls.count == 1, "must not fall through to `wrangler deploy` after a failed sync")
+        #expect(calls.count == 1, "must not fall through to `wrangler deploy` after a failed staging")
         #expect(result.exitCode == nil)
         #expect(result.output.contains("sync"))
     }
@@ -779,7 +806,7 @@ struct ContainerDeployExecutorTests {
     @Test("a cancelled build seam resolves as .cancelled, not a hang")
     func seamCancellationResolves() async {
         let fake = CancelParkingFakeContainerControl()
-        let executor = ContainerDeployExecutor(control: fake, siteID: "s", logCenter: LogCenter())
+        let executor = ContainerDeployExecutor(control: fake, siteID: "s", configDirectory: Self.noConfigDirectory, logCenter: LogCenter())
 
         let task = Task {
             await executor.runBuildWithClaimManifest(

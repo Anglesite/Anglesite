@@ -1,7 +1,7 @@
 import Foundation
 
 /// Runs every existing-site migration step (script-file sync's legacy-unclassified case,
-/// `SecurityTxtMigrationChecker`/`Applier`) with every decision defaulted to Preserve, for a
+/// `SecurityTxtMigrationChecker`/`Applier`, `DeployStateRelocation`) with every decision defaulted to Preserve, for a
 /// caller with no UI to ask through — `SiteOperations`'s headless App Intents/Shortcuts/Siri path
 /// (design doc "Noninteractive flows"). The windowed `SiteWindowModel.loadAndStart()` path does
 /// **not** use this type — it composes the same checkers/appliers directly so it can show a sheet
@@ -32,6 +32,11 @@ public enum ExistingSiteMigration {
 
         var touched: [String] = []
         var unresolved: [String] = []
+
+        // #1960: app-owned deploy state (`wrangler.toml`, the `CF_WORKER_*`/`CF_SOURCE_BUCKET`
+        // markers) leaves `Source/` for `Config/`. Never a decision — the app knows where its own
+        // state belongs — so it runs identically here and in the windowed path.
+        touched += DeployStateRelocation.apply(sourceDirectory: sourceDirectory, configDirectory: configDirectory)
 
         if let templateDirectory {
             let plan = TemplateScriptsSyncChecker.check(

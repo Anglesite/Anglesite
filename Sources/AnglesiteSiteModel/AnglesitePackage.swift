@@ -34,6 +34,15 @@ public struct AnglesitePackage: Sendable, Equatable {
     /// App-owned per-site state (settings, chat history, caches) — never part of the git repo.
     public var configURL: URL { url.appendingPathComponent("Config", isDirectory: true) }
 
+    /// Filename of the generated Cloudflare Worker configuration inside `Config/` (#1960, decision
+    /// D6). It carries live infrastructure identifiers (D1 database ids, KV namespace ids, R2
+    /// bucket and queue names), so it is app-owned state and lives beside `settings.plist`, never
+    /// in the clonable `Source/` repo; the deploy path stages a copy into the guest at deploy time.
+    public static let wranglerConfigFilename = "wrangler.toml"
+
+    /// The generated `wrangler.toml` — `Config/wrangler.toml` (see ``wranglerConfigFilename``).
+    public var wranglerConfigURL: URL { configURL.appendingPathComponent(Self.wranglerConfigFilename, isDirectory: false) }
+
     /// App-owned sync state, inside `Config/` (never in the `Source/` git repo).
     public var syncDirectoryURL: URL { configURL.appendingPathComponent("sync", isDirectory: true) }
 

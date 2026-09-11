@@ -449,7 +449,6 @@ public enum DeployCoordinator {
     /// failed one, so this never throws.
     public static func persistProvisionedResources(
         configStore: SiteConfigStore,
-        settings: SiteSettings,
         effectiveActiveIDs: Set<String>,
         resources: WorkerComposition.ProvisionedResources,
         /// This deploy's resolved ActivityPub handle
@@ -468,16 +467,25 @@ public enum DeployCoordinator {
         /// every other site, leaving the field untouched (it's already `nil` there).
         communityActorURL: URL? = nil
     ) async {
-        var updated = settings
-        updated.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
-        updated.provisionedWorkerResources = resources
-        if let apUsername {
-            updated.lastDeployedAPUsername = apUsername
+        // Read-modify-write against the file's *current* contents, never a snapshot the caller
+        // loaded at deploy start (#1960): the deploy target writes `workerDeployed`/
+        // `workerProvisioned` and `deployedSourceBundleCommit` into the same plist while the
+        // deploy runs, and saving a stale snapshot would silently drop them — which is why this
+        // takes no `SiteSettings` parameter at all.
+        do {
+            try await configStore.update { current in
+                current.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
+                current.provisionedWorkerResources = resources
+                if let apUsername {
+                    current.lastDeployedAPUsername = apUsername
+                }
+                if let communityActorURL {
+                    current.communityActorURL = communityActorURL
+                }
+            }
+        } catch {
+            // Best-effort, per the doc comment: never turn a successful deploy into a failed one.
         }
-        if let communityActorURL {
-            updated.communityActorURL = communityActorURL
-        }
-        try? await configStore.save(updated)
     }
 
     /// Runs the eight post-deploy passes — webmention-send, Standard.site record publish,

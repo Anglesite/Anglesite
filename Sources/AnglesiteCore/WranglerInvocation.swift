@@ -22,6 +22,20 @@ public enum WranglerInvocation {
         ["npx", "wrangler"] + subcommand
     }
 
+    /// The guest shell argv that overwrites `wrangler.toml` in the guest's current working
+    /// directory with the host package's current `Config/wrangler.toml` (#1084, #1960) — `nil`
+    /// when the host has no file yet (a site that has never been scaffolded for deploy), meaning
+    /// there's nothing to stage. Base64-encodes the content so it embeds directly in the `sh -c`
+    /// string with no shell-quoting/escaping surface, mirroring
+    /// `ContainerizationControl.writeGuestFile`. Callers run this before every wrangler
+    /// invocation that reads configuration — `deploy`, `secret put`, `d1 migrations apply` —
+    /// because the guest's clone of `Source/` carries no `wrangler.toml` at all.
+    public static func configStagingArgv(configDirectory: URL) -> [String]? {
+        guard let contents = WranglerConfigFile.read(configDirectory: configDirectory) else { return nil }
+        let encoded = Data(contents.utf8).base64EncodedString()
+        return ["sh", "-c", "echo \(encoded) | base64 -d > \(WranglerConfigFile.filename)"]
+    }
+
     /// Filters `environment` down to the keys `scope` allows across the host→guest boundary.
     public static func guestEnvironment(from environment: [String: String], scope: EnvScope) -> [String: String] {
         let allowlist: Set<String> = {

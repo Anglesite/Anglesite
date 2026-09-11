@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 /// Shared no-op stub seams for tests that don't exercise the ActivityPub/Solid-OIDC/WebDAV
@@ -31,14 +32,14 @@ struct SocialWorkerProvisionTargetAuthorizeTests {
             keyPairSource: stubKeyPairSource, solidOidcSigningKeySource: stubSolidOidcSigningKeySource,
             webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
             accountIDSource: stubAccountIDSource)
-        let result = await target.authorize(siteDirectory: tmpDir)
+        let result = await target.authorize(siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         guard case .blocked(.domainConfigDrift) = result else {
             Issue.record("expected .blocked(.domainConfigDrift), got \(result)")
             return
         }
     }
 
-    @Test("persists CF_WORKER_PROVISIONED on a successful authorize")
+    @Test("persists workerProvisioned into Config/settings.plist on a successful authorize (#1075, #1960)")
     func persistsWorkerProvisionedOnSuccess() async throws {
         let tmpDir = try temporaryDirectory()
         let inner = CloudflareDeployTarget(tokenSource: { "tok" })
@@ -47,13 +48,15 @@ struct SocialWorkerProvisionTargetAuthorizeTests {
             keyPairSource: stubKeyPairSource, solidOidcSigningKeySource: stubSolidOidcSigningKeySource,
             webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
             accountIDSource: stubAccountIDSource)
-        let result = await target.authorize(siteDirectory: tmpDir)
+        let result = await target.authorize(siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         guard case .ready = result else {
             Issue.record("expected .ready, got \(result)")
             return
         }
-        let config = try String(contentsOf: tmpDir.appendingPathComponent(".site-config"), encoding: .utf8)
-        #expect(SiteConfigFile.value(forKey: "CF_WORKER_PROVISIONED", in: config) == "true")
+        let settings = try await SiteConfigStore(configDirectory: TestSiteLayout.configDirectory(for: tmpDir)).load()
+        #expect(settings.workerProvisioned == true)
+        #expect(!FileManager.default.fileExists(atPath: tmpDir.appendingPathComponent(".site-config").path),
+                "the marker is app-owned state and must not be written into Source/")
     }
 
     private func temporaryDirectory() throws -> URL {
@@ -142,7 +145,7 @@ struct SocialWorkerProvisionTargetPublishTests {
             webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
             accountIDSource: stubAccountIDSource)
         let cmd = DeployCommand(target: target, executor: executor)
-        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         guard case .succeeded(let url, _) = result else { Issue.record("expected .succeeded, got \(result)"); return }
         #expect(url.absoluteString == "https://site.workers.dev")
         let resources = await target.resources
@@ -169,7 +172,7 @@ struct SocialWorkerProvisionTargetPublishTests {
             webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
             accountIDSource: stubAccountIDSource)
         let cmd = DeployCommand(target: target, executor: executor)
-        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         guard case .domainConfigDrift = result else { Issue.record("expected .domainConfigDrift, got \(result)"); return }
         #expect(!executor.ran(.wranglerSubcommand(args: ["d1", "create", "site-social"])))
     }
@@ -188,7 +191,7 @@ struct SocialWorkerProvisionTargetPublishTests {
             webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
             accountIDSource: stubAccountIDSource)
         let cmd = DeployCommand(target: target, executor: executor)
-        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         #expect(result == .webmentionPaidPlanConfirmationNeeded)
         let resources = await target.resources
         #expect(resources.queueName == nil)
@@ -216,7 +219,7 @@ struct SocialWorkerProvisionTargetPublishTests {
             webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
             accountIDSource: stubAccountIDSource)
         let cmd = DeployCommand(target: target, executor: executor)
-        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         guard case .failed = result else {
             Issue.record("expected .failed, got \(result)")
             return
@@ -243,7 +246,7 @@ struct SocialWorkerProvisionTargetPublishTests {
             webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
             accountIDSource: stubAccountIDSource)
         let cmd = DeployCommand(target: target, executor: executor)
-        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         guard case .succeeded = result else {
             Issue.record("expected .succeeded, got \(result)")
             return
@@ -267,7 +270,7 @@ struct SocialWorkerProvisionTargetPublishTests {
             webdavPepperSource: stubWebdavPepperSource, secretRunner: stubSecretRunner,
             accountIDSource: stubAccountIDSource)
         let cmd = DeployCommand(target: target, executor: executor)
-        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: tmpDir, configDirectory: TestSiteLayout.configDirectory(for: tmpDir))
         guard case .succeeded = result else {
             Issue.record("expected .succeeded, got \(result)")
             return

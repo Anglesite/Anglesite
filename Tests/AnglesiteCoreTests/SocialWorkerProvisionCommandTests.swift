@@ -1,5 +1,6 @@
 import Foundation
 import Testing
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 private func worker(_ id: String, d1: Bool, kv: Bool, r2: Bool) -> WorkerDescriptor {
@@ -135,7 +136,7 @@ struct SocialWorkerProvisionCommandTests {
         // contains a well-formed, non-empty name in the correct position, so any future refactor
         // that drops or empties it fails this test immediately.
         let site = try temporaryDirectory()
-        #expect(!FileManager.default.fileExists(atPath: site.appendingPathComponent("wrangler.toml").path))
+        #expect(!FileManager.default.fileExists(atPath: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)).path))
         let executor = successExecutor(url: "https://example.com")
             .set(.wranglerSubcommand(args: ["d1", "create", "my-site-social"]), exitCode: 0, output: #"{"result":{"uuid":"d1-id"}}"#)
             .set(.wranglerSubcommand(args: ["d1", "migrations", "apply", "AUTH_DB", "--remote"]), exitCode: 0, output: "Migrations applied")
@@ -143,7 +144,7 @@ struct SocialWorkerProvisionCommandTests {
         let indieauth = worker(WorkerComposition.indieauthWorkerID, d1: true, kv: false, r2: false)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [indieauth], knownResources: .init()
         )
 
@@ -189,7 +190,7 @@ struct SocialWorkerProvisionCommandTests {
         enabled = true
         head_sampling_rate = 1
         """
-        try existingTOML.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
+        try WranglerConfigFile.write(existingTOML, configDirectory: TestSiteLayout.configDirectory(for: site))
 
         // No `.set(.wranglerSubcommand(args: ["d1", "create", ...]))` script at all: if `provision()`
         // ever attempted that call, `FakeExecutor.run` would still return a default success (so
@@ -202,7 +203,7 @@ struct SocialWorkerProvisionCommandTests {
         let indieauth = worker(WorkerComposition.indieauthWorkerID, d1: true, kv: false, r2: false)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [indieauth], knownResources: .init()
         )
 
@@ -215,7 +216,36 @@ struct SocialWorkerProvisionCommandTests {
         #expect(resources.d1DatabaseID == "already-provisioned-d1-id")
     }
 
-    @Test("provisions V-2 D1 and KV, writes wrangler.toml, then deploys through DeployCommand seam")
+    @Test("readPersistedResources falls back to the pre-#1960 Source/wrangler.toml when Config/ has none")
+    func recoversResourcesFromLegacySourceWranglerToml() throws {
+        // A site that somehow reaches provisioning before `DeployStateRelocation` moved its file
+        // (both migration entry points run it on open, so this is belt-and-braces) must still be
+        // recognised as provisioned rather than re-creating its D1 database.
+        let site = try temporaryDirectory()
+        let configDirectory = TestSiteLayout.configDirectory(for: site)
+        try """
+        name = "my-site"
+
+        [[d1_databases]]
+        binding = "AUTH_DB"
+        database_name = "my-site-social"
+        database_id = "legacy-d1-id"
+        """.write(to: site.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
+
+        let recovered = SocialWorkerProvisionCommand.readPersistedResources(
+            configDirectory: configDirectory, sourceDirectory: site)
+        #expect(recovered.d1DatabaseID == "legacy-d1-id")
+
+        // Once Config/ has a copy it wins outright — the legacy file is never consulted again.
+        try WranglerConfigFile.write(
+            "name = \"my-site\"\n\n[[d1_databases]]\nbinding = \"AUTH_DB\"\ndatabase_id = \"config-d1-id\"\n",
+            configDirectory: configDirectory)
+        let preferred = SocialWorkerProvisionCommand.readPersistedResources(
+            configDirectory: configDirectory, sourceDirectory: site)
+        #expect(preferred.d1DatabaseID == "config-d1-id")
+    }
+
+    @Test("provisions V-2 D1 and KV, writes Config/wrangler.toml, then deploys through DeployCommand seam")
     func provisionsV2Worker() async throws {
         let site = try temporaryDirectory()
         let executor = successExecutor()
@@ -226,7 +256,7 @@ struct SocialWorkerProvisionCommandTests {
         let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, executor: executor)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: v2Workers,
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: v2Workers,
             acknowledgesPaidPlan: true
         )
 
@@ -249,7 +279,7 @@ struct SocialWorkerProvisionCommandTests {
         #expect(executor.ran(.wrangler))
         #expect(executor.environment(for: .wrangler)?["CLOUDFLARE_API_TOKEN"] == "token")
 
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("main = \"worker/worker.ts\""))
         #expect(toml.contains("database_id = \"d1-id\""))
         #expect(toml.contains("id = \"kv-id\""))
@@ -270,7 +300,7 @@ struct SocialWorkerProvisionCommandTests {
         )
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [], experiments: [experiment]
         )
 
@@ -283,7 +313,7 @@ struct SocialWorkerProvisionCommandTests {
             ["d1", "create", "my-site-social"],
             ["d1", "migrations", "apply", "EXPERIMENTS_DB", "--remote"],
         ])
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("binding = \"EXPERIMENTS_DB\""))
         #expect(toml.contains("database_id = \"d1-id\""))
         #expect(toml.contains(#"run_worker_first = ["/", "/contact/thanks/"]"#))
@@ -296,7 +326,7 @@ struct SocialWorkerProvisionCommandTests {
         let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, executor: executor)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: []
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: []
         )
 
         guard case .succeeded = result else {
@@ -314,7 +344,7 @@ struct SocialWorkerProvisionCommandTests {
         let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, executor: executor)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [],
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [],
             mcpEnabled: true
         )
 
@@ -323,7 +353,7 @@ struct SocialWorkerProvisionCommandTests {
             return
         }
         #expect(resources.kvNamespaceID == "kv-id")
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("main = \"worker/worker.ts\""))
         #expect(toml.contains("binding = \"SOCIAL_KV\""))
         #expect(toml.contains("run_worker_first = [\"/mcp\"]"))
@@ -335,7 +365,7 @@ struct SocialWorkerProvisionCommandTests {
         let executor = successExecutor()
         let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, executor: executor)
 
-        let result = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [])
+        let result = await command.provision(siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [])
 
         guard case .succeeded = result else {
             Issue.record("expected success, got \(result)")
@@ -362,7 +392,7 @@ struct SocialWorkerProvisionCommandTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [activitypub],
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [activitypub],
             activityPubActorType: "Group", moderators: ["https://mod.example/actor"]
         )
 
@@ -370,7 +400,7 @@ struct SocialWorkerProvisionCommandTests {
             Issue.record("expected success, got \(result)")
             return
         }
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("AP_ACTOR_TYPE = \"Group\""))
         #expect(toml.contains("AP_MODERATORS = \"https://mod.example/actor\""))
     }
@@ -381,13 +411,13 @@ struct SocialWorkerProvisionCommandTests {
         let executor = successExecutor()
         let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, executor: executor)
 
-        let result = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [])
+        let result = await command.provision(siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [])
 
         guard case .succeeded = result else {
             Issue.record("expected success, got \(result)")
             return
         }
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(!toml.contains("AP_ACTOR_TYPE"))
         #expect(!toml.contains("AP_MODERATORS"))
     }
@@ -414,7 +444,7 @@ struct SocialWorkerProvisionCommandTests {
         )
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: v2Workers,
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: v2Workers,
             acknowledgesPaidPlan: true, wellKnownDynamicClaims: [claim]
         )
 
@@ -441,6 +471,7 @@ struct SocialWorkerProvisionCommandTests {
         let result = await command.provision(
             siteID: "site-1",
             siteDirectory: site,
+            configDirectory: TestSiteLayout.configDirectory(for: site),
             siteName: "my-site",
             workers: v3Workers,
             acknowledgesPaidPlan: true
@@ -452,7 +483,7 @@ struct SocialWorkerProvisionCommandTests {
         }
         #expect(resources.r2BucketName == "my-site-media")
 
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("[[r2_buckets]]"))
         #expect(toml.contains("bucket_name = \"my-site-media\""))
     }
@@ -469,7 +500,7 @@ struct SocialWorkerProvisionCommandTests {
         )
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [],
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [],
             inboxCaptureEnabled: true
         )
 
@@ -483,7 +514,7 @@ struct SocialWorkerProvisionCommandTests {
             ["kv", "namespace", "create", "my-site-inbox"],
         ])
 
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("main = \"worker/worker.ts\""))
         #expect(toml.contains("id = \"inbox-kv-id\""))
     }
@@ -500,7 +531,7 @@ struct SocialWorkerProvisionCommandTests {
         )
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [],
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [],
             inboxCaptureEnabled: true, inboxForwardEmail: "owner@example.com"
         )
 
@@ -508,7 +539,7 @@ struct SocialWorkerProvisionCommandTests {
             Issue.record("expected success, got \(result)")
             return
         }
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("[[send_email]]"))
         #expect(toml.contains("destination_address = \"owner@example.com\""))
         #expect(toml.contains("INBOX_FORWARD_EMAIL = \"owner@example.com\""))
@@ -533,7 +564,7 @@ struct SocialWorkerProvisionCommandTests {
             }
         )
 
-        let result = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [])
+        let result = await command.provision(siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [])
 
         guard case .succeeded(_, let resources, _) = result else {
             Issue.record("expected success, got \(result)")
@@ -567,7 +598,7 @@ struct SocialWorkerProvisionCommandTests {
         )
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [],
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [],
             knownResources: .init(inboxKVNamespaceID: "existing-ns", inboxAccountID: "existing-acct"),
             inboxCaptureEnabled: false
         )
@@ -584,7 +615,7 @@ struct SocialWorkerProvisionCommandTests {
         #expect(executor.wranglerSubcommandArguments.isEmpty, "must not call wrangler kv namespace create/delete when toggling off")
         #expect(accountIDSourceCallCount == 1, "must not additionally resolve an account id for disabled inbox capture")
 
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(!toml.contains("INBOX_KV"), "the [[kv_namespaces]] binding must drop once inbox capture is off")
         #expect(!toml.contains("/inbox"), "the /inbox route claim must drop once inbox capture is off")
     }
@@ -607,7 +638,7 @@ struct SocialWorkerProvisionCommandTests {
         )
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [],
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [],
             knownResources: .init(inboxKVNamespaceID: "existing-ns", inboxAccountID: "existing-acct"),
             inboxCaptureEnabled: true
         )
@@ -637,7 +668,7 @@ struct SocialWorkerProvisionCommandTests {
         )
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [],
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [],
             knownResources: .init(inboxKVNamespaceID: "existing-ns", inboxAccountID: nil),
             inboxCaptureEnabled: true
         )
@@ -663,7 +694,7 @@ struct SocialWorkerProvisionCommandTests {
         )
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [],
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [],
             inboxCaptureEnabled: true
         )
 
@@ -689,7 +720,7 @@ struct SocialWorkerProvisionCommandTests {
         let micropub = worker(WorkerComposition.micropubWorkerID, d1: true, kv: false, r2: true)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [indieauth, micropub], acknowledgesPaidPlan: true
         )
 
@@ -700,7 +731,7 @@ struct SocialWorkerProvisionCommandTests {
         #expect(resources.d1DatabaseID == "d1-id")
         #expect(resources.r2BucketName == "my-site-media")
 
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("binding = \"MICROPUB_DB\""))
         #expect(toml.contains("binding = \"AUTH_DB\""))
         #expect(toml.contains("[[r2_buckets]]"))
@@ -728,7 +759,7 @@ struct SocialWorkerProvisionCommandTests {
         )
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
 
-        let result = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [activitypub])
+        let result = await command.provision(siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [activitypub])
 
         guard case .succeeded = result else {
             Issue.record("expected success, got \(result)")
@@ -738,7 +769,7 @@ struct SocialWorkerProvisionCommandTests {
         #expect(pushedSecrets.contains { $0.name == "AP_PUBLIC_KEY" && $0.value == "PUBLIC-PEM" })
         #expect(pushedSecrets.contains { $0.name == "AP_PUBLISH_TOKEN" && $0.value == "TOKEN-VALUE" })
 
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("[[durable_objects.bindings]]"))
     }
 
@@ -769,7 +800,8 @@ struct SocialWorkerProvisionCommandTests {
                 secretRunnerCallCount += 1
                 if secretRunnerCallCount == 1 {
                     tomlContentsAtFirstSecretCall = try? String(
-                        contentsOf: siteDirectory.appendingPathComponent("wrangler.toml"), encoding: .utf8
+                        contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: siteDirectory)),
+                        encoding: .utf8
                     )
                 }
                 return .init(stdout: "Success!", stderr: "", exitCode: 0)
@@ -777,7 +809,7 @@ struct SocialWorkerProvisionCommandTests {
         )
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
 
-        let result = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [activitypub])
+        let result = await command.provision(siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [activitypub])
 
         guard case .succeeded = result else {
             Issue.record("expected success, got \(result)")
@@ -807,7 +839,7 @@ struct SocialWorkerProvisionCommandTests {
             }
         )
 
-        _ = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [])
+        _ = await command.provision(siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [])
 
         #expect(!keyPairSourceCalled)
         #expect(!secretRunnerCalled)
@@ -830,7 +862,7 @@ struct SocialWorkerProvisionCommandTests {
         )
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
 
-        let result = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [activitypub])
+        let result = await command.provision(siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [activitypub])
 
         guard case .failed = result else {
             Issue.record("expected failure, got \(result)")
@@ -867,7 +899,7 @@ struct SocialWorkerProvisionCommandTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: false, kv: false, r2: false)
 
         let firstResult = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [activitypub]
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [activitypub]
         )
         guard case .failed = firstResult else {
             Issue.record("expected the first attempt to fail for the unrelated reason, got \(firstResult)")
@@ -876,7 +908,7 @@ struct SocialWorkerProvisionCommandTests {
 
         executor.set(.wrangler, exitCode: 0, output: "Published site (0.1 sec)\n  https://my-site.example.workers.dev")
         let secondResult = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [activitypub]
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [activitypub]
         )
         guard case .succeeded = secondResult else {
             Issue.record("expected the retry to succeed instead of reporting a false worker-name conflict, got \(secondResult)")
@@ -905,7 +937,7 @@ struct SocialWorkerProvisionCommandTests {
         let activitypub = worker(WorkerComposition.activitypubWorkerID, d1: true, kv: false, r2: false)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [activitypub]
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [activitypub]
         )
 
         guard case .workerNameConflict(let name, _) = result else {
@@ -923,7 +955,7 @@ struct SocialWorkerProvisionCommandTests {
         let executor = FakeExecutor()
         let command = SocialWorkerProvisionCommand(tokenSource: { nil }, executor: executor)
 
-        let result = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [])
+        let result = await command.provision(siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [])
 
         guard case .failed(let reason, nil, let resources) = result else {
             Issue.record("expected token failure, got \(result)")
@@ -944,6 +976,7 @@ struct SocialWorkerProvisionCommandTests {
         let result = await command.provision(
             siteID: "site-1",
             siteDirectory: site,
+            configDirectory: TestSiteLayout.configDirectory(for: site),
             siteName: "my-site",
             workers: v3Workers,
             // Every resource v3Workers could need is already known (as it would be from
@@ -978,7 +1011,7 @@ struct SocialWorkerProvisionCommandTests {
             .set(.wranglerSubcommand(args: ["kv", "namespace", "create", "my-site-social"]), exitCode: 1, output: "KV failed")
         let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, executor: executor)
 
-        let result = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: v2Workers)
+        let result = await command.provision(siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: v2Workers)
 
         guard case .failed(let reason, let exitCode, let resources) = result else {
             Issue.record("expected failure, got \(result)")
@@ -990,7 +1023,7 @@ struct SocialWorkerProvisionCommandTests {
         #expect(resources.kvNamespaceID == nil)
         #expect(!executor.ran(.wrangler))
 
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("database_id = \"d1-id\""))
     }
 
@@ -1008,7 +1041,7 @@ struct SocialWorkerProvisionCommandTests {
         let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, executor: executor)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: v2Workers,
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: v2Workers,
             acknowledgesPaidPlan: true
         )
 
@@ -1020,7 +1053,7 @@ struct SocialWorkerProvisionCommandTests {
         #expect(resources.d1DatabaseID == "d1-id")
         #expect(resources.kvNamespaceID == "kv-id")
 
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("database_id = \"d1-id\""))
         #expect(toml.contains("id = \"kv-id\""))
     }
@@ -1044,7 +1077,7 @@ struct SocialWorkerProvisionCommandTests {
         )
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: v2Workers,
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: v2Workers,
             acknowledgesPaidPlan: true
         )
 
@@ -1067,7 +1100,7 @@ struct SocialWorkerProvisionCommandTests {
         let command = SocialWorkerProvisionCommand(tokenSource: { "token" }, executor: executor)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: v2Workers,
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: v2Workers,
             acknowledgesPaidPlan: true
         )
 
@@ -1144,7 +1177,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [webmention], acknowledgesPaidPlan: false)
 
         guard case .webmentionPaidPlanConfirmationNeeded = result else {
@@ -1166,7 +1199,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [webmention], acknowledgesPaidPlan: true)
 
         guard case .succeeded(_, let resources, _) = result else {
@@ -1187,7 +1220,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [webmention], knownResources: .init(queueName: "my-site-webmention"),
             acknowledgesPaidPlan: true)
 
@@ -1209,7 +1242,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         _ = await command.provision(
-            siteID: "site-1", siteDirectory: siteDirectory, siteName: "my-site",
+            siteID: "site-1", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory), siteName: "my-site",
             workers: [webmention], acknowledgesPaidPlan: true)
 
         let config = try String(contentsOf: siteDirectory.appendingPathComponent(".site-config"), encoding: .utf8)
@@ -1227,14 +1260,14 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         _ = await command.provision(
-            siteID: "site-1", siteDirectory: siteDirectory, siteName: "my-site",
+            siteID: "site-1", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory), siteName: "my-site",
             workers: [webmention], acknowledgesPaidPlan: true)
 
         let enabledConfig = try String(contentsOf: siteDirectory.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "WEBMENTION_RECEIVE_ENABLED", in: enabledConfig) == "true")
 
         _ = await command.provision(
-            siteID: "site-1", siteDirectory: siteDirectory, siteName: "my-site",
+            siteID: "site-1", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory), siteName: "my-site",
             workers: [], acknowledgesPaidPlan: true)
 
         let disabledConfig = try String(contentsOf: siteDirectory.appendingPathComponent(".site-config"), encoding: .utf8)
@@ -1255,7 +1288,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: true, needsKV: false, needsR2: false))
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: siteDirectory, siteName: "my-site",
+            siteID: "site-1", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory), siteName: "my-site",
             workers: [webmention], acknowledgesPaidPlan: false)
 
         guard case .webmentionPaidPlanConfirmationNeeded = result else {
@@ -1279,7 +1312,7 @@ struct SocialWorkerProvisionCommandTests {
         let micropub = worker(WorkerComposition.micropubWorkerID, d1: true, kv: false, r2: true)
 
         _ = await command.provision(
-            siteID: "site-1", siteDirectory: siteDirectory, siteName: "my-site",
+            siteID: "site-1", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory), siteName: "my-site",
             workers: [indieauth, micropub], acknowledgesPaidPlan: true)
 
         let config = try String(contentsOf: siteDirectory.appendingPathComponent(".site-config"), encoding: .utf8)
@@ -1298,14 +1331,14 @@ struct SocialWorkerProvisionCommandTests {
         let micropub = worker(WorkerComposition.micropubWorkerID, d1: true, kv: false, r2: true)
 
         _ = await command.provision(
-            siteID: "site-1", siteDirectory: siteDirectory, siteName: "my-site",
+            siteID: "site-1", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory), siteName: "my-site",
             workers: [indieauth, micropub], acknowledgesPaidPlan: true)
 
         let enabledConfig = try String(contentsOf: siteDirectory.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "MICROPUB_ENABLED", in: enabledConfig) == "true")
 
         _ = await command.provision(
-            siteID: "site-1", siteDirectory: siteDirectory, siteName: "my-site",
+            siteID: "site-1", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory), siteName: "my-site",
             workers: [indieauth], acknowledgesPaidPlan: true)
 
         let disabledConfig = try String(contentsOf: siteDirectory.appendingPathComponent(".site-config"), encoding: .utf8)
@@ -1322,7 +1355,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [websub], acknowledgesPaidPlan: false)
 
         guard case .webmentionPaidPlanConfirmationNeeded = result else {
@@ -1343,7 +1376,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [websub], acknowledgesPaidPlan: true)
 
         guard case .succeeded(_, let resources, _) = result else {
@@ -1366,7 +1399,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [websub], knownResources: .init(websubQueueName: "my-site-websub"),
             acknowledgesPaidPlan: true)
 
@@ -1392,7 +1425,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [webmention, websub], acknowledgesPaidPlan: true)
 
         guard case .succeeded(_, let resources, _) = result else {
@@ -1414,14 +1447,14 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         _ = await command.provision(
-            siteID: "site-1", siteDirectory: siteDirectory, siteName: "my-site",
+            siteID: "site-1", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory), siteName: "my-site",
             workers: [websub], acknowledgesPaidPlan: true)
 
         let enabledConfig = try String(contentsOf: siteDirectory.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "WEBSUB_ENABLED", in: enabledConfig) == "true")
 
         _ = await command.provision(
-            siteID: "site-1", siteDirectory: siteDirectory, siteName: "my-site",
+            siteID: "site-1", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory), siteName: "my-site",
             workers: [], acknowledgesPaidPlan: true)
 
         let disabledConfig = try String(contentsOf: siteDirectory.appendingPathComponent(".site-config"), encoding: .utf8)
@@ -1438,7 +1471,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [microsub], acknowledgesPaidPlan: false)
 
         guard case .webmentionPaidPlanConfirmationNeeded = result else {
@@ -1459,7 +1492,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [microsub], acknowledgesPaidPlan: true)
 
         guard case .succeeded(_, let resources, _) = result else {
@@ -1480,7 +1513,7 @@ struct SocialWorkerProvisionCommandTests {
             binding: .settingsActivated, resources: .init(needsD1: false, needsKV: false, needsR2: false))
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [microsub], knownResources: .init(microsubQueueName: "my-site-microsub"),
             acknowledgesPaidPlan: true)
 
@@ -1506,7 +1539,7 @@ struct SocialWorkerProvisionCommandTests {
         let webmentionWorker = worker(WorkerComposition.webmentionWorkerID, d1: true, kv: false, r2: false)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [indieauthWorker, webmentionWorker, micropubWorker, solidPodWorker],
             acknowledgesPaidPlan: true
         )
@@ -1520,7 +1553,7 @@ struct SocialWorkerProvisionCommandTests {
         #expect(executor.wranglerSubcommandArguments.contains(["r2", "bucket", "create", "my-site-media"]))
         #expect(executor.wranglerSubcommandArguments.contains(["r2", "bucket", "create", "my-site-pod-blobs"]))
 
-        let toml = try String(contentsOf: site.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try String(contentsOf: WranglerConfigFile.url(configDirectory: TestSiteLayout.configDirectory(for: site)), encoding: .utf8)
         #expect(toml.contains("binding = \"MEDIA\""))
         #expect(toml.contains("binding = \"BLOBS\""))
     }
@@ -1549,7 +1582,7 @@ struct SocialWorkerProvisionCommandTests {
         let indieauthWorker = worker(WorkerComposition.indieauthWorkerID, d1: true, kv: false, r2: false)
 
         let result = await command.provision(
-            siteID: "site-1", siteDirectory: site, siteName: "my-site",
+            siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site",
             workers: [indieauthWorker, solidOidcWorker, solidPodWorker, webdavWorker]
         )
 
@@ -1580,7 +1613,7 @@ struct SocialWorkerProvisionCommandTests {
             }
         )
 
-        _ = await command.provision(siteID: "site-1", siteDirectory: site, siteName: "my-site", workers: [])
+        _ = await command.provision(siteID: "site-1", siteDirectory: site, configDirectory: TestSiteLayout.configDirectory(for: site), siteName: "my-site", workers: [])
 
         #expect(!solidOidcSourceCalled)
         #expect(!webdavSourceCalled)

@@ -12,8 +12,8 @@ public enum DeployStep: Sendable {
     case wrangler
     /// Tars `Source/` and uploads it to the site's configured R2 bucket via `wrangler r2 object
     /// put` — the code side of a future Worker-triggered bake (#799, spec §C.4). Only reached
-    /// when `.site-config`'s `CF_SOURCE_BUCKET` is set; `DeployCommand.deploy` skips this step
-    /// entirely otherwise (today, for every site — no provisioning flow writes that key yet).
+    /// when `SiteSettings.sourceBundleBucket` is set (#1960); `CloudflareDeployTarget` skips this
+    /// step entirely otherwise (today, for every site — no provisioning flow writes it yet).
     case bundleUpload
     /// Force-pushes the built `dist/` to the site's dedicated GitHub Pages repo (#1015 slice 2a),
     /// declared in `Source/anglesite.json`'s `githubPages` section. Only meaningful for
@@ -125,17 +125,23 @@ public extension DeployExecutor {
 public struct ContainerDeployExecutor: DeployExecutor {
     private let control: any LocalContainerControl
     private let siteID: String
+    private let configDirectory: URL
     private let logCenter: LogCenter
 
     /// Creates an executor that runs steps in `siteID`'s container through `control`.
-    /// `logCenter` is injectable for tests; production uses the shared instance.
+    /// `configDirectory` is the site package's `Config/` — the host home of the generated
+    /// `wrangler.toml` this executor stages into the guest before every wrangler call that reads
+    /// it, and of `SiteSettings.sourceBundleBucket` (#1960). `logCenter` is injectable for tests;
+    /// production uses the shared instance.
     public init(
         control: any LocalContainerControl,
         siteID: String,
+        configDirectory: URL,
         logCenter: LogCenter = .shared
     ) {
         self.control = control
         self.siteID = siteID
+        self.configDirectory = configDirectory
         self.logCenter = logCenter
     }
 
@@ -144,9 +150,10 @@ public struct ContainerDeployExecutor: DeployExecutor {
     /// Runs `step` in the guest at `/workspace/site`, streaming output live to `LogCenter`.
     ///
     /// `siteDirectory` is the HOST path — the guest always executes in its own boot-time clone.
-    /// The host path is consulted only where the clone can be stale or incomplete: the #1084
-    /// `wrangler.toml` re-sync before `.wrangler`, and `.site-config`'s `CF_SOURCE_BUCKET` for
-    /// `.bundleUpload` (see the inline rationale for both).
+    /// The host path is consulted only where the clone can be stale or incomplete: the
+    /// `Config/wrangler.toml` staging before every wrangler call that reads configuration (#1084,
+    /// #1960), and `SiteSettings.sourceBundleBucket` for `.bundleUpload` (see the inline
+    /// rationale for both).
     public func run(
         step: DeployStep,
         siteDirectory: URL,
@@ -155,45 +162,49 @@ public struct ContainerDeployExecutor: DeployExecutor {
     ) async -> DeployStepResult {
         // `siteDirectory` is the HOST path — the guest always uses /workspace/site.
         //
-        // #1084: `/workspace/site` is a one-time `git clone` taken when the container booted
-        // (`ContainerizationControl.start`) — it only reflects whatever was committed at that
-        // moment. `SocialWorkerProvisionCommand.persistConfig`/`WorkerNameRename.apply` write the
-        // site's concrete `wrangler.toml` (worker bindings, `main`, resource ids) straight to this
-        // HOST directory as an uncommitted change, so a container that booted before that write
-        // (the common case — the preview container is already running when the owner turns on a
-        // social feature and deploys) still has the ORIGINAL static-only `wrangler.toml` in its
-        // clone. Without re-syncing here, `wrangler deploy` publishes an assets-only Worker with no
-        // `main` script attached at all, even though the host's `wrangler.toml` is correct — every
-        // dynamic route 404s and `wrangler tail` refuses to attach. Only `.wrangler` needs this:
-        // `astro build` and the preflight scan never read `wrangler.toml` (confirmed against
-        // `Resources/Template`), so re-syncing before them would be pure overhead.
-        if case .wrangler = step, let syncArgv = Self.wranglerTomlSyncArgv(hostSiteDirectory: siteDirectory) {
-            do {
-                let syncResult = try await control.exec(
-                    siteID: siteID,
-                    argv: syncArgv,
-                    environment: [:],
-                    workingDirectory: "/workspace/site",
-                    onOutput: { _, _ in }
-                )
-                guard syncResult.exitCode == 0 else {
-                    return DeployStepResult(
-                        exitCode: nil,
-                        output: "couldn't sync wrangler.toml into the container (exit \(syncResult.exitCode))"
+        // #1084/#1960: `/workspace/site` is a `git clone` of the site's `Source/` repo, and since
+        // #1960 that repo carries no `wrangler.toml` at all — the site's concrete config (worker
+        // bindings, `main`, resource ids) lives in the package's `Config/`, which the guest never
+        // sees. Every wrangler invocation that reads configuration therefore gets the host's
+        // current `Config/wrangler.toml` staged into the guest's working directory first:
+        // `wrangler deploy` (without it, an assets-only Worker with no `main` script would be
+        // published — every dynamic route 404s and `wrangler tail` refuses to attach), and the
+        // `.wranglerSubcommand` steps (`d1 migrations apply <BINDING>` resolves the binding from
+        // the config; `d1/kv/r2/queues create` merely warn without one). `astro build` and the
+        // preflight scan never read `wrangler.toml` (confirmed against `Resources/Template`), so
+        // staging before them would be pure overhead. The staged copy is gitignored in the guest
+        // (the template's `.gitignore` lists it), so it can never travel back into the repo.
+        if Self.stepReadsWranglerConfig(step) {
+            if let syncArgv = WranglerInvocation.configStagingArgv(configDirectory: configDirectory) {
+                do {
+                    let syncResult = try await control.exec(
+                        siteID: siteID,
+                        argv: syncArgv,
+                        environment: [:],
+                        workingDirectory: "/workspace/site",
+                        onOutput: { _, _ in }
                     )
+                    guard syncResult.exitCode == 0 else {
+                        return DeployStepResult(
+                            exitCode: nil,
+                            output: "couldn't sync wrangler.toml into the container (exit \(syncResult.exitCode))"
+                        )
+                    }
+                } catch is CancellationError {
+                    return DeployStepResult(exitCode: nil, output: "")
+                } catch {
+                    return DeployStepResult(exitCode: nil, output: "couldn't sync wrangler.toml into the container: \(error)")
                 }
-            } catch is CancellationError {
-                return DeployStepResult(exitCode: nil, output: "")
-            } catch {
-                return DeployStepResult(exitCode: nil, output: "couldn't sync wrangler.toml into the container: \(error)")
             }
+            // No host file (a site never scaffolded for deploy): nothing to stage; wrangler
+            // reports the missing configuration itself, exactly as before #1960.
         }
         // Stream guest output to LogCenter LIVE (matching the host path) and drain fully on every
         // exit path (success or thrown error) — `WranglerInvocation.exec` (#1821) owns that
         // AsyncStream/detached-task mechanics now, so there's no local `continuation`/`drain` to
         // finish here; a `catch` below must NOT attempt to drain again. Never log the environment
         // dict — CLOUDFLARE_API_TOKEN stays off disk and out of logs.
-        let argv = Self.guestArgv(for: step, siteDirectory: siteDirectory)
+        let argv = Self.guestArgv(for: step, siteDirectory: siteDirectory, configDirectory: configDirectory)
         let result: ContainerExecResult
         do {
             result = try await WranglerInvocation.exec(
@@ -349,24 +360,21 @@ public struct ContainerDeployExecutor: DeployExecutor {
         }
     }
 
-    // MARK: wrangler.toml sync (#1084)
+    // MARK: wrangler.toml staging (#1084, #1960)
 
-    /// Returns the guest shell argv that overwrites `wrangler.toml` (in the guest's current working
-    /// directory) with `hostSiteDirectory`'s current `wrangler.toml` content — `nil` when the host
-    /// file can't be read, meaning there's nothing to sync (the boot-time clone's copy is the best
-    /// we have). Base64-encodes the content so it embeds directly in the `sh -c` string with no
-    /// shell-quoting/escaping surface, mirroring `ContainerizationControl.writeGuestFile`.
-    static func wranglerTomlSyncArgv(hostSiteDirectory: URL) -> [String]? {
-        guard let contents = try? String(
-            contentsOf: hostSiteDirectory.appendingPathComponent("wrangler.toml"), encoding: .utf8
-        ) else { return nil }
-        let encoded = Data(contents.utf8).base64EncodedString()
-        return ["sh", "-c", "echo \(encoded) | base64 -d > wrangler.toml"]
+    /// Which steps invoke `wrangler` in a way that reads `wrangler.toml` — the ones
+    /// `WranglerInvocation.configStagingArgv(configDirectory:)` runs ahead of. `.bundleUpload`
+    /// (`wrangler r2 object put`) and `.githubPagesPublish` never read it.
+    static func stepReadsWranglerConfig(_ step: DeployStep) -> Bool {
+        switch step {
+        case .wrangler, .wranglerSubcommand: return true
+        case .build, .preflight, .bundleUpload, .githubPagesPublish: return false
+        }
     }
 
     // MARK: argv mapping
 
-    static func guestArgv(for step: DeployStep, siteDirectory: URL) -> [String] {
+    static func guestArgv(for step: DeployStep, siteDirectory: URL, configDirectory: URL) -> [String] {
         switch step {
         case .build:
             return ["npm", "run", "build"]
@@ -375,8 +383,8 @@ public struct ContainerDeployExecutor: DeployExecutor {
         case .wrangler:
             return ["npx", "wrangler", "deploy"]
         case .bundleUpload:
-            let bucket = bundleUploadBucket(siteDirectory: siteDirectory) ?? ""
-            // `bucket` comes from `.site-config` — attacker/owner-controlled content that must
+            let bucket = bundleUploadBucket(configDirectory: configDirectory) ?? ""
+            // `bucket` is owner-influenceable config (`Config/settings.plist`) that must
             // never be spliced into shell script text. Instead of interpolating it, the script
             // references it only via `$1`, a POSITIONAL shell parameter: `sh -c 'script' sh
             // "$bucket"` sets `$1` to `bucket`'s value as a single opaque word. The shell
@@ -403,7 +411,7 @@ public struct ContainerDeployExecutor: DeployExecutor {
             // anglesite.json — attacker/owner-controlled content that must never be spliced into
             // shell script text. Instead of interpolating them, the script references them only
             // via `$1`/`$2`, POSITIONAL shell parameters, the same injection-safety pattern
-            // `.bundleUpload` uses for CF_SOURCE_BUCKET above. The token crosses the host→guest
+            // `.bundleUpload` uses for the source bundle bucket above. The token crosses the host→guest
             // boundary only via `$GITHUB_PAGES_TOKEN` (an environment variable, never a shell
             // argument, never logged) — see `guestEnvironment`. `touch .nojekyll` before staging:
             // GitHub Pages' branch-source publish path runs the site through Jekyll by default,
@@ -424,13 +432,11 @@ public struct ContainerDeployExecutor: DeployExecutor {
         }
     }
 
-    /// Reads `.site-config`'s `CF_SOURCE_BUCKET` from the HOST `siteDirectory` (the guest's copy is
-    /// a clone of the same repo, so the value is identical) — `nil` when unset, which
-    /// `DeployCommand.deploy` treats as "skip this step" before it ever reaches the executor.
-    private static func bundleUploadBucket(siteDirectory: URL) -> String? {
-        let configURL = siteDirectory.appendingPathComponent(".site-config")
-        guard let config = try? String(contentsOf: configURL, encoding: .utf8) else { return nil }
-        return SiteConfigFile.value(forKey: "CF_SOURCE_BUCKET", in: config)
+    /// Reads `SiteSettings.sourceBundleBucket` from the HOST package's `Config/settings.plist`
+    /// (#1960 — formerly `.site-config`'s `CF_SOURCE_BUCKET`) — `nil` when unset, which
+    /// `CloudflareDeployTarget` treats as "skip this step" before it ever reaches the executor.
+    private static func bundleUploadBucket(configDirectory: URL) -> String? {
+        (try? SiteConfigStore.read(from: configDirectory))?.sourceBundleBucket
     }
 
     /// Reads `Source/anglesite.json`'s `githubPages.owner`/`.repo` from the HOST `siteDirectory`
@@ -454,8 +460,8 @@ public struct ContainerDeployExecutor: DeployExecutor {
 /// wrapper exists only so tests don't depend on `ContainerDeployExecutor`'s internal method name
 /// staying `guestArgv` specifically. Kept minimal since it's exercised by exactly one test.
 enum ContainerDeployExecutorTestHook {
-    static func guestArgv(for step: DeployStep, siteDirectory: URL) -> [String] {
-        ContainerDeployExecutor.guestArgv(for: step, siteDirectory: siteDirectory)
+    static func guestArgv(for step: DeployStep, siteDirectory: URL, configDirectory: URL) -> [String] {
+        ContainerDeployExecutor.guestArgv(for: step, siteDirectory: siteDirectory, configDirectory: configDirectory)
     }
 }
 

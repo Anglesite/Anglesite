@@ -4,7 +4,7 @@ import Foundation
 /// `DeployCommand` that used to be Cloudflare-specific now lives here: credential resolution, the
 /// worker-name-conflict and domain-config-drift pre-checks, the wrangler upload itself, and every
 /// post-publish effect (custom-domain attach, Markdown for Agents, `.site-config` persistence, the
-/// R2 source-bundle upload). `DeployCommand` calls `authorize(siteDirectory:)` before the shared
+/// R2 source-bundle upload). `DeployCommand` calls `authorize(siteDirectory:configDirectory:)` before the shared
 /// build/`PreDeployCheck` spine runs, then `publish(context:)` only after that spine has passed.
 public struct CloudflareDeployTarget: DeployTarget {
     public static let id = "cloudflare"
@@ -91,7 +91,7 @@ public struct CloudflareDeployTarget: DeployTarget {
     /// domain-config-drift (#1173) checks, in that order — matches `DeployCommand.deploy`'s
     /// original pre-spawn sequence exactly, so a deploy that can't succeed still fails before any
     /// build time is spent.
-    public func authorize(siteDirectory: URL) async -> DeployTargetAuthorization {
+    public func authorize(siteDirectory: URL, configDirectory: URL) async -> DeployTargetAuthorization {
         let token: String?
         do {
             token = try await tokenSource()
@@ -104,7 +104,8 @@ public struct CloudflareDeployTarget: DeployTarget {
                 exitCode: nil))
         }
         if let conflict = await Self.checkWorkerNameConflict(
-            siteDirectory: siteDirectory, apiToken: token, workerScriptNamesSource: workerScriptNamesSource
+            siteDirectory: siteDirectory, configDirectory: configDirectory,
+            apiToken: token, workerScriptNamesSource: workerScriptNamesSource
         ) {
             return .blocked(conflict)
         }
@@ -166,9 +167,8 @@ public struct CloudflareDeployTarget: DeployTarget {
             )
         }
 
-        if let configDirectory = context.configDirectory {
-            try? DeployedRoutesSnapshot.save(context.currentRoutes, to: configDirectory)
-        }
+        let configDirectory = context.configDirectory
+        try? DeployedRoutesSnapshot.save(context.currentRoutes, to: configDirectory)
         // Runs before `persistSiteURL` (#1077/#1124): a fresh confirmation from *this* deploy
         // persists `CF_DOMAIN_ATTACHED` as a side effect, which `persistSiteURL` checks to decide
         // whether to leave `SITE_URL` alone.
@@ -184,13 +184,11 @@ public struct CloudflareDeployTarget: DeployTarget {
             context.onMarkdownForAgents?(markdownOutcome)
         }
         Self.persistSiteURL(url, siteDirectory: context.siteDirectory)
-        Self.persistWorkerDeployed(siteDirectory: context.siteDirectory)
-        if let configDirectory = context.configDirectory {
-            await Self.uploadSourceBundleIfConfigured(
-                siteDirectory: context.siteDirectory, configDirectory: configDirectory,
-                environment: wranglerEnvironment, executor: context.executor, siteID: context.siteID
-            )
-        }
+        await Self.persistWorkerDeployed(configDirectory: configDirectory)
+        await Self.uploadSourceBundleIfConfigured(
+            siteDirectory: context.siteDirectory, configDirectory: configDirectory,
+            environment: wranglerEnvironment, executor: context.executor, siteID: context.siteID
+        )
         return .succeeded(url: url, duration: duration)
     }
 
@@ -279,34 +277,43 @@ public struct CloudflareDeployTarget: DeployTarget {
         try? updated.write(to: configURL, atomically: true, encoding: .utf8)
     }
 
-    /// Marks this site as having successfully deployed at least once, via `.site-config`'s
-    /// `CF_WORKER_DEPLOYED` — the signal `checkWorkerNameConflict` uses to skip the collision
+    /// Marks this site as having successfully deployed at least once, via
+    /// `SiteSettings.workerDeployed` (`Config/settings.plist`, #1960 — formerly `.site-config`'s
+    /// `CF_WORKER_DEPLOYED`) — the signal `checkWorkerNameConflict` uses to skip the collision
     /// check on every deploy after the first (#740). Written unconditionally, unlike
     /// `persistSiteURL` (which skips when a custom domain is already configured) — deploy
-    /// history isn't confounded by domain choice. Best-effort, matching `persistSiteURL`.
-    static func persistWorkerDeployed(siteDirectory: URL) {
-        let configURL = siteDirectory.appendingPathComponent(WebsiteAnalyticsAsset.configRelativePath)
-        let config = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-        guard SiteConfigFile.value(forKey: "CF_WORKER_DEPLOYED", in: config) == nil else { return }
-        let updated = SiteConfigFile.upsert([("CF_WORKER_DEPLOYED", "true")], into: config)
-        try? updated.write(to: configURL, atomically: true, encoding: .utf8)
+    /// history isn't confounded by domain choice. Best-effort, matching `persistSiteURL`; a
+    /// read-modify-write through `SiteConfigStore.update` so it never clobbers a field another
+    /// writer set during this same deploy.
+    static func persistWorkerDeployed(configDirectory: URL) async {
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        do {
+            try await store.update { $0.workerDeployed = true }
+        } catch {
+            // Best-effort: a marker write must never fail an already-successful deploy.
+        }
     }
 
     /// Whether this site has already completed at least one successful deploy — the same
-    /// `.site-config` `CF_WORKER_DEPLOYED` signal `persistWorkerDeployed` writes and
+    /// `SiteSettings.workerDeployed` signal `persistWorkerDeployed` writes and
     /// `checkWorkerNameConflict` reads. A read-only counterpart for callers (`DeployModel`) that
-    /// need to know, *before* a deploy runs, whether this one would be the site's first — without
-    /// duplicating the file read `checkWorkerNameConflict` already does inline. Public (unlike its
-    /// siblings) because `DeployModel` lives in a different module.
-    public static func hasDeployedBefore(siteDirectory: URL) -> Bool {
-        let configURL = siteDirectory.appendingPathComponent(WebsiteAnalyticsAsset.configRelativePath)
-        let config = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-        return SiteConfigFile.value(forKey: "CF_WORKER_DEPLOYED", in: config) != nil
+    /// need to know, *before* a deploy runs, whether this one would be the site's first. Public
+    /// (unlike its siblings) because `DeployModel` lives in a different module.
+    public static func hasDeployedBefore(configDirectory: URL) async -> Bool {
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        let settings: SiteSettings
+        do {
+            settings = try await store.load()
+        } catch {
+            return false
+        }
+        return settings.workerDeployed == true
     }
 
-    /// Marks this site's candidate Worker name as confirmed-ours, via `.site-config`'s
-    /// `CF_WORKER_PROVISIONED` — a second, earlier-firing signal `checkWorkerNameConflict` treats
-    /// the same as `CF_WORKER_DEPLOYED` (#1075). `CF_WORKER_DEPLOYED` alone only covers a *fully
+    /// Marks this site's candidate Worker name as confirmed-ours, via
+    /// `SiteSettings.workerProvisioned` (#1960 — formerly `.site-config`'s `CF_WORKER_PROVISIONED`)
+    /// — a second, earlier-firing signal `checkWorkerNameConflict` treats the same as
+    /// `workerDeployed` (#1075). `workerDeployed` alone only covers a *fully
     /// succeeded* deploy, but `SocialWorkerProvisionCommand.provision()` can already have pushed
     /// live Cloudflare state under this candidate name (`wrangler secret put` for ActivityPub, run
     /// before the final `wrangler deploy`, auto-vivifies an empty Worker script under the target
@@ -317,18 +324,20 @@ public struct CloudflareDeployTarget: DeployTarget {
     /// start of provisioning — before any wrangler call that could touch the name — so a *genuine*
     /// foreign collision is still caught before this site's own provisioning ever runs. Written
     /// unconditionally like `persistWorkerDeployed`; best-effort, matching `persistSiteURL`.
-    static func persistWorkerProvisioned(siteDirectory: URL) {
-        let configURL = siteDirectory.appendingPathComponent(WebsiteAnalyticsAsset.configRelativePath)
-        let config = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-        guard SiteConfigFile.value(forKey: "CF_WORKER_PROVISIONED", in: config) == nil else { return }
-        let updated = SiteConfigFile.upsert([("CF_WORKER_PROVISIONED", "true")], into: config)
-        try? updated.write(to: configURL, atomically: true, encoding: .utf8)
+    static func persistWorkerProvisioned(configDirectory: URL) async {
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        do {
+            try await store.update { $0.workerProvisioned = true }
+        } catch {
+            // Best-effort, matching `persistWorkerDeployed`.
+        }
     }
 
-    /// Uploads `Source/`'s snapshot to R2 (`DeployStep.bundleUpload`) when `.site-config`'s
-    /// `CF_SOURCE_BUCKET` is set, then persists the uploaded commit SHA into `Config/settings.plist`
+    /// Uploads `Source/`'s snapshot to R2 (`DeployStep.bundleUpload`) when
+    /// `SiteSettings.sourceBundleBucket` is set (#1960 — formerly `.site-config`'s
+    /// `CF_SOURCE_BUCKET`), then persists the uploaded commit SHA into `Config/settings.plist`
     /// (#799, spec §C.4 — the code side of a future Worker-triggered bake). A no-op today for every
-    /// real site — no provisioning flow writes `CF_SOURCE_BUCKET` yet — and the executor call is
+    /// real site — no provisioning flow writes the bucket yet — and the executor call is
     /// skipped entirely rather than run-and-ignore-the-result, so a redeploy on an unprovisioned
     /// site pays no extra subprocess cost. Best-effort like `persistSiteURL`/`persistWorkerDeployed`:
     /// a failure here must never turn a successful deploy into a failed one.
@@ -339,9 +348,16 @@ public struct CloudflareDeployTarget: DeployTarget {
         executor: any DeployExecutor,
         siteID: String
     ) async {
-        let configURL = siteDirectory.appendingPathComponent(WebsiteAnalyticsAsset.configRelativePath)
-        let config = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-        guard SiteConfigFile.value(forKey: "CF_SOURCE_BUCKET", in: config) != nil else { return }
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        let settings: SiteSettings
+        do {
+            settings = try await store.load()
+        } catch {
+            return
+        }
+        guard let bucket = settings.sourceBundleBucket?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !bucket.isEmpty
+        else { return }
 
         let uploadResult = await executor.run(
             step: .bundleUpload,
@@ -356,30 +372,40 @@ public struct CloudflareDeployTarget: DeployTarget {
         let commitSHA = headResult.stdout.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !commitSHA.isEmpty else { return }
 
-        let store = SiteConfigStore(configDirectory: configDirectory)
-        guard var settings = try? await store.load() else { return }
-        settings.deployedSourceBundleCommit = commitSHA
-        try? await store.save(settings)
+        do {
+            try await store.update { $0.deployedSourceBundleCommit = commitSHA }
+        } catch {
+            // Best-effort: the bundle is uploaded; a lost commit marker only means a stale-bundle nudge.
+        }
     }
 
     // MARK: Pre-build checks
 
     /// Checks whether `.site-config`'s `CF_PROJECT_NAME` collides with an existing Worker on the
-    /// connected Cloudflare account, but only when neither `CF_WORKER_DEPLOYED` (a full deploy has
-    /// already succeeded under this name) nor `CF_WORKER_PROVISIONED` (this site's own earlier
-    /// provisioning already confirmed the name as ours, #1075) is set yet. Returns
+    /// connected Cloudflare account, but only when neither `SiteSettings.workerDeployed` (a full
+    /// deploy has already succeeded under this name) nor `.workerProvisioned` (this site's own
+    /// earlier provisioning already confirmed the name as ours, #1075) is set yet in
+    /// `Config/settings.plist` (#1960). Returns
     /// `.workerNameConflict` on a confirmed collision, or `nil` when the check doesn't apply
     /// (redeploy, already-provisioned, no candidate name) or can't be confirmed — a Cloudflare API
     /// failure here must never block a deploy that would otherwise succeed (fail open).
     static func checkWorkerNameConflict(
         siteDirectory: URL,
+        configDirectory: URL,
         apiToken: String,
         workerScriptNamesSource: WorkerScriptNamesSource
     ) async -> DeployCommand.Result? {
         let configURL = siteDirectory.appendingPathComponent(WebsiteAnalyticsAsset.configRelativePath)
         let config = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-        guard SiteConfigFile.value(forKey: "CF_WORKER_DEPLOYED", in: config) == nil,
-              SiteConfigFile.value(forKey: "CF_WORKER_PROVISIONED", in: config) == nil,
+        let store = SiteConfigStore(configDirectory: configDirectory)
+        var settings = SiteSettings()
+        do {
+            settings = try await store.load()
+        } catch {
+            // Unreadable settings: treat as never deployed, exactly as a missing file is.
+        }
+        guard settings.workerDeployed != true,
+              settings.workerProvisioned != true,
               let candidateName = SiteConfigFile.value(forKey: "CF_PROJECT_NAME", in: config)
         else { return nil }
         guard let names = try? await workerScriptNamesSource(apiToken) else { return nil }

@@ -125,6 +125,27 @@ public struct SiteSettings: Sendable, Codable, Equatable {
     /// via the sync-state map, but this flag avoids re-scanning every file on every sign-in).
     public var contentImportCompleted: Bool?
 
+    /// Whether this site has completed at least one successful deploy (#740; formerly
+    /// `.site-config`'s `CF_WORKER_DEPLOYED`, relocated here by #1960/decision D6 — deploy history
+    /// is app-owned state, not site content). `CloudflareDeployTarget.persistWorkerDeployed` sets
+    /// it after `wrangler deploy` succeeds; `checkWorkerNameConflict` skips the collision check
+    /// once it is set, and `UntitledSitePropagation` stops propagating renames.
+    public var workerDeployed: Bool?
+
+    /// Whether this site's own provisioning has already confirmed its candidate Worker name as
+    /// ours (#1075; formerly `CF_WORKER_PROVISIONED`). Set by `SocialWorkerProvisionTarget
+    /// .authorize` once the collision check passes and before any wrangler call that could
+    /// auto-vivify the Worker, so a retried attempt never misreports its own script as a foreign
+    /// conflict. Same relocation rationale as ``workerDeployed``.
+    public var workerProvisioned: Bool?
+
+    /// The R2 bucket the deployed-source bundle uploads to (#799, spec §C.4; formerly
+    /// `CF_SOURCE_BUCKET`). `nil` — every site today, since no provisioning flow writes it yet —
+    /// means the feature is inactive: `DeployCommand` skips the `.bundleUpload` step and
+    /// `SourceBundleStatus` reports `.notConfigured`. An R2 bucket name is provisioned
+    /// infrastructure, hence `Config/` (#1960).
+    public var sourceBundleBucket: String?
+
     /// Memberwise creation. Every parameter defaults to `nil`, matching the type-level
     /// forward-compat rule that all fields stay optional — `SiteSettings()` is the canonical
     /// "no settings yet" value ``SiteConfigStore/load()`` falls back to.
@@ -147,7 +168,10 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         lastDeployedAPUsername: String? = nil,
         activityPubHandleRenameAcknowledged: String? = nil,
         markdownForAgentsDisabled: Bool? = nil,
-        contentImportCompleted: Bool? = nil
+        contentImportCompleted: Bool? = nil,
+        workerDeployed: Bool? = nil,
+        workerProvisioned: Bool? = nil,
+        sourceBundleBucket: String? = nil
     ) {
         self.displayName = displayName
         self.mastodonBaseURL = mastodonBaseURL
@@ -168,6 +192,9 @@ public struct SiteSettings: Sendable, Codable, Equatable {
         self.activityPubHandleRenameAcknowledged = activityPubHandleRenameAcknowledged
         self.markdownForAgentsDisabled = markdownForAgentsDisabled
         self.contentImportCompleted = contentImportCompleted
+        self.workerDeployed = workerDeployed
+        self.workerProvisioned = workerProvisioned
+        self.sourceBundleBucket = sourceBundleBucket
     }
 }
 
@@ -211,6 +238,17 @@ public actor SiteConfigStore {
         fileManager: FileManager = .default
     ) throws -> SiteSettings {
         try Self.loadSettings(using: makeStore(configDirectory: configDirectory, fileManager: fileManager))
+    }
+
+    /// Synchronous, actor-independent write of a package's `settings.plist` — the counterpart to
+    /// ``read(from:fileManager:)`` for synchronous call sites (`DeployStateRelocation`, which runs
+    /// inside the synchronous existing-site migration pass). Same blocking-I/O caveat as `read`.
+    public nonisolated static func write(
+        _ settings: SiteSettings,
+        to configDirectory: URL,
+        fileManager: FileManager = .default
+    ) throws {
+        try makeStore(configDirectory: configDirectory, fileManager: fileManager).save(settings)
     }
 
     private static func makeStore(configDirectory: URL, fileManager: FileManager) -> CodableFileStore<SiteSettings> {
@@ -259,5 +297,19 @@ public actor SiteConfigStore {
     /// Persist settings to `settings.plist` (XML plist, atomic), creating `Config/` if needed.
     public func save(_ settings: SiteSettings) throws {
         try store.save(settings)
+    }
+
+    /// Load, mutate, save — the read-modify-write every marker write should use (#1960). Several
+    /// independent writers touch `settings.plist` during one deploy (the deploy target's
+    /// `workerDeployed`/`workerProvisioned` markers and `deployedSourceBundleCommit`, then
+    /// `DeployCoordinator.persistProvisionedResources`); each must start from the file's current
+    /// contents rather than a snapshot loaded at deploy start, or the last writer silently drops
+    /// the earlier ones' fields. Returns the settings as saved.
+    @discardableResult
+    public func update(_ body: (inout SiteSettings) throws -> Void) throws -> SiteSettings {
+        var settings = try load()
+        try body(&settings)
+        try save(settings)
+        return settings
     }
 }

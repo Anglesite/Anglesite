@@ -202,7 +202,7 @@ struct SiteOperationsTests {
         #expect(arguments.contains(["kv", "namespace", "create", "blue-bottle-cafe-social"]))
         #expect(!arguments.contains(["d1", "migrations", "apply", "AUTH_DB", "--remote"]))
         let toml = try String(
-            contentsOf: package.appendingPathComponent("Source/wrangler.toml"), encoding: .utf8)
+            contentsOf: package.appendingPathComponent("Config/wrangler.toml"), encoding: .utf8)
         #expect(!toml.contains("[[r2_buckets]]"))
     }
 
@@ -365,7 +365,7 @@ struct SiteOperationsTests {
             return
         }
         let wranglerToml = try String(
-            contentsOf: site.sourceDirectory.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+            contentsOf: site.configDirectory.appendingPathComponent("wrangler.toml"), encoding: .utf8)
         #expect(wranglerToml.contains(#"AP_ACTOR_TYPE = "Group""#))
         #expect(wranglerToml.contains(#"AP_MODERATORS = "https://mastodon.social/users/mod""#))
 

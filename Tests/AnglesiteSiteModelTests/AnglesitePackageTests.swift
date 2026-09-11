@@ -30,6 +30,14 @@ struct AnglesitePackageTests {
         #expect(AnglesitePackage.packageRoot(fromSourceURL: pkg.sourceURL) == root)
     }
 
+    @Test("wranglerConfigURL is Config/wrangler.toml — app-owned provisioning state, never inside Source/ (#1960)")
+    func wranglerConfigURLResolvesUnderConfig() {
+        let pkg = AnglesitePackage(url: URL(fileURLWithPath: "/tmp/Site.anglesite"))
+        #expect(pkg.wranglerConfigURL == pkg.configURL.appendingPathComponent("wrangler.toml"))
+        #expect(!pkg.wranglerConfigURL.path.hasPrefix(pkg.sourceURL.path))
+        #expect(AnglesitePackage.wranglerConfigFilename == "wrangler.toml")
+    }
+
     @Test("quickLookThumbnailURL resolves under Config/")
     func quickLookThumbnailURLResolves() throws {
         let pkgURL = URL(fileURLWithPath: "/tmp/Acme.anglesite", isDirectory: true)

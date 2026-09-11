@@ -2672,6 +2672,13 @@ final class SiteWindowModel {
             return false
         }()
 
+        // #1960: app-owned deploy state (`wrangler.toml`, the `CF_WORKER_*`/`CF_SOURCE_BUCKET`
+        // markers) leaves `Source/` for `Config/`. Never a decision — the app knows where its own
+        // state belongs — so no sheet; mirrors `ExistingSiteMigration.runNoninteractively`.
+        migrationTouchedPaths += DeployStateRelocation.apply(
+            sourceDirectory: resolved.sourceDirectory, configDirectory: resolved.configDirectory
+        )
+
         if let templateURL = TemplateRuntime.resolve().url {
             let plan = TemplateScriptsSyncChecker.check(
                 sourceDirectory: resolved.sourceDirectory,

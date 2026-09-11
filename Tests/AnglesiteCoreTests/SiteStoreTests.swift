@@ -359,13 +359,12 @@ final class SiteStoreTests {
         #expect(await store.find(id: site.id)?.name == "Alpha Production")
     }
 
-    @Test("setDisplayName propagates SITE_NAME/CF_PROJECT_NAME into an untitled site's .site-config and wrangler.toml")
+    @Test("setDisplayName propagates SITE_NAME/CF_PROJECT_NAME into an untitled site's .site-config and Config/wrangler.toml")
     func setDisplayNamePropagatesUntitledSiteConfig() async throws {
         let pkg = try makeValidPackage(named: "alpha")
         try "SITE_NAME=Untitled\nCF_PROJECT_NAME=untitled\n".write(
             to: pkg.sourceURL.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
-        try #"name = "untitled""#.write(
-            to: pkg.sourceURL.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
+        try WranglerConfigFile.write(#"name = "untitled""#, configDirectory: pkg.configURL)
         let store = SiteStore(persistenceURL: persistenceURL)
         let site = try await store.record(pkg)
 
@@ -374,15 +373,16 @@ final class SiteStoreTests {
         let config = try String(contentsOf: pkg.sourceURL.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "SITE_NAME", in: config) == "Acme Bakery")
         #expect(SiteConfigFile.value(forKey: "CF_PROJECT_NAME", in: config) == "acme-bakery")
-        let toml = try String(contentsOf: pkg.sourceURL.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try #require(WranglerConfigFile.read(configDirectory: pkg.configURL))
         #expect(toml.contains(#"name = "acme-bakery""#))
     }
 
     @Test("setDisplayName does not propagate into .site-config once the site has deployed")
     func setDisplayNameSkipsPropagationAfterDeploy() async throws {
         let pkg = try makeValidPackage(named: "alpha")
-        try "SITE_NAME=Untitled\nCF_PROJECT_NAME=untitled\nCF_WORKER_DEPLOYED=true\n".write(
+        try "SITE_NAME=Untitled\nCF_PROJECT_NAME=untitled\n".write(
             to: pkg.sourceURL.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
+        try SiteConfigStore.write(SiteSettings(workerDeployed: true), to: pkg.configURL)
         let store = SiteStore(persistenceURL: persistenceURL)
         let site = try await store.record(pkg)
 

@@ -344,7 +344,7 @@ public actor SiteStore {
 
     /// Set (or clear, with a nil/blank `name`) the owner-facing display-name override for the site
     /// with `id`. For a non-clearing rename, first best-effort propagates the new name into
-    /// `Source/`'s `.site-config`/`wrangler.toml` via `UntitledSitePropagation` (only takes effect
+    /// `Source/.site-config` and `Config/wrangler.toml` via `UntitledSitePropagation` (only takes effect
     /// pre-publish; #1182). Then writes `Config/settings.plist`, re-resolves the in-memory +
     /// persisted name via `Site.make` (so a clear falls back to the marker name), and broadcasts
     /// the change so an open window's title and the launcher list refresh live (#266). Returns the
@@ -364,6 +364,7 @@ public actor SiteStore {
             UntitledSitePropagation.propagateIfUntitled(
                 newDisplayName: override,
                 siteDirectory: package.sourceURL,
+                configDirectory: package.configURL,
                 fileManager: fileManager
             )
         }
