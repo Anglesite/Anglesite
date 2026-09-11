@@ -1,11 +1,15 @@
 import Foundation
 import AnglesiteCore
 
-/// Thin, `Identifiable` model driving the dependency-update-offer sheet
-/// (spec §5, #1108). Holds the already-computed offers (bumps and new-package
-/// additions) and forwards the user's decision — no comparison/diff logic
-/// lives here, that's all in `AnglesiteCore`
+/// Thin, `Identifiable` model driving the single-package dependency fix sheet — the Security
+/// Reports tab's "Update available" action (#975). Holds the already-computed offers and forwards
+/// the owner's decision — no comparison/diff logic lives here, that's all in `AnglesiteCore`
 /// (`DependencySyncChecker`/`DependencySyncApplier`).
+///
+/// Since #1962 the site-open dependency check no longer presents this sheet: it applies the
+/// template's offers directly and reports through `SiteOpenUpdateNotice` (owner decision D1 —
+/// the owner never adjudicates semver ranges). This sheet remains only for the owner-initiated
+/// Security Reports path, where the owner has already chosen to act on one specific report.
 @MainActor
 final class DependencyUpdateModel: Identifiable {
     nonisolated let id = UUID()
@@ -29,21 +33,9 @@ final class DependencyUpdateModel: Identifiable {
 }
 
 extension DependencyUpdateModel {
-    /// Sheet copy for one held-back bump (#1440). Framed around consequences to the site —
-    /// same guiding principle as `ScriptSyncModel.rowCopy` — never around semver ranges or
-    /// package.json mechanics: the owner came here to publish a website, not to adjudicate
-    /// a dependency graph.
+    /// Sheet copy for one held-back bump (#1440) — shared with the site-open notice via
+    /// `DependencySyncCopy` so the two surfaces can't drift.
     static func heldCopy(for held: DependencyHeldUpdate) -> String {
-        let names = held.blockers.map(\.dependentName)
-        let list: String
-        switch names.count {
-        case 1: list = names[0]
-        case 2: list = "\(names[0]) and \(names[1])"
-        default: list = names.dropLast().joined(separator: ", ") + ", and \(names.last ?? "")"
-        }
-        let verb = names.count == 1 ? "isn't" : "aren't"
-        return "This site also uses \(list), which \(verb) ready for the newer \(held.offer.name) yet. "
-            + "Updating \(held.offer.name) now would stop parts of this site from working, so "
-            + "Anglesite is keeping it as it is."
+        DependencySyncCopy.heldCopy(for: held)
     }
 }

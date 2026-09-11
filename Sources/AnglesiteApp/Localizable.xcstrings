@@ -1658,9 +1658,6 @@
         }
       }
     },
-    "Couldn't update this file — see the debug log for details." : {
-
-    },
     "Create" : {
 
     },
@@ -1776,6 +1773,9 @@
 
     },
     "Destination path (e.g. /new-page)" : {
+
+    },
+    "Details" : {
 
     },
     "Details & Summary" : {
@@ -2264,6 +2264,9 @@
     "Hide this banner — the site stays fully editable; reopen it from the sync status icon" : {
 
     },
+    "Hide this notice" : {
+
+    },
     "High" : {
 
     },
@@ -2410,9 +2413,6 @@
 
     },
     "Keep My Changes" : {
-
-    },
-    "Keep My Version" : {
 
     },
     "Keep it at your current registrar — you'll add it to Cloudflare and point its nameservers there. We'll connect it automatically on your next Publish once that's done." : {
@@ -4066,9 +4066,6 @@
     "Site License" : {
 
     },
-    "Site Scripts Customized" : {
-
-    },
     "Site Unreachable" : {
 
     },
@@ -4361,9 +4358,6 @@
     "This file format doesn't support an embedded license." : {
 
     },
-    "This file has been customized. An update is available with changes it doesn't include yet." : {
-
-    },
     "This image isn't stored in the site, so its license can't be read or changed here." : {
 
     },
@@ -4573,9 +4567,6 @@
 
     },
     "Update Available" : {
-
-    },
-    "Update This File" : {
 
     },
     "Updating %@ zone settings in Cloudflare…" : {

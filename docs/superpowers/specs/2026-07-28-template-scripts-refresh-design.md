@@ -151,6 +151,15 @@ and its own baseline file.
 
 ## Divergence UX
 
+> **Amendment (#1962, owner decision D1, 2026-09-08 —
+> [`docs/specs/2026-09-08-product-direction-review-decisions.md`](../../specs/2026-09-08-product-direction-review-decisions.md)):**
+> the sheet described below is retired. A divergent app-owned file is **restored** to the app's
+> copy without asking (`TemplateScriptsSyncApplier.restore`), committed, and reported to the
+> owner through the non-blocking site-open notice (`SiteOpenUpdateNotice`). "Keep my version" no
+> longer exists — `acknowledgedTemplateHash` is neither written nor honored — and D5 (#1958)
+> additionally verifies the whole app-owned set at deploy time. The original design follows for
+> the record.
+
 A single sheet, shown only when the queue from detection step 5 is non-empty — most site opens
 produce an empty queue and no UI appears at all. One row per divergent file, framed in
 consequences rather than git/diff terms, e.g. for `pre-deploy-check.ts`:

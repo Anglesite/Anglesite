@@ -7,8 +7,9 @@ import OSLog
 #endif
 
 /// Detects which app-owned files (`scripts/`, `src/lib/`) a site needs refreshed, and which have
-/// been customized in a way the app can't silently resolve (design doc, #1053). Unlike
-/// `DependencySyncChecker`, this type performs its own `Config/`-only baseline bookkeeping
+/// been customized since their last baseline (design doc, #1053). Both are applied by the app
+/// without asking (owner decision D1, #1962) — the split only changes how the owner is told.
+/// Unlike `DependencySyncChecker`, this type performs its own `Config/`-only baseline bookkeeping
 /// (backfilling a missing entry, initializing a first-encounter baseline) as it goes — see the
 /// design doc's "Note on checker purity." It never writes anything under `Source/`; only
 /// `TemplateScriptsSyncApplier` does that.
@@ -27,8 +28,9 @@ public enum TemplateScriptsSyncChecker {
     }
 
     /// Compares every app-owned template file against the site's copy and the
-    /// recorded baseline, classifying each as silently appliable (missing, or unmodified-but-
-    /// stale) vs. a divergence needing the owner (customized *and* the template moved on).
+    /// recorded baseline, classifying each as a plain create/refresh (missing, or unmodified-but-
+    /// stale) vs. a divergence (customized, or never baselined, *and* the template moved on) —
+    /// the latter is restored rather than refreshed, and reported as such.
     /// Side effects are `Config/`-only: matching or first-encounter files get their baseline
     /// entries recorded/backfilled here (design doc's legacy-site trade-off — a first
     /// encounter's current content is assumed untouched). An unreadable site file is skipped
@@ -77,27 +79,22 @@ public enum TemplateScriptsSyncChecker {
             let hadNoBaseline = baseline.files[relativePath] == nil
             if hadNoBaseline {
                 // First encounter for this site (#745 changed this branch): its current content
-                // is recorded as a *provisional* baseline so `resolve()` has an entry to update,
-                // but — unlike #1053's original behavior — it is never treated as reconciled on
-                // this same pass. The app can't tell "stale but untouched" from "the owner
-                // customized this" without a prior baseline, so it must fall through to the
-                // divergence queue below rather than being silently refreshed.
+                // is recorded as a *provisional* baseline so `restore()` has an entry to update,
+                // but it is never treated as reconciled on this same pass. The app can't tell
+                // "stale but untouched" from "this copy was changed" without a prior baseline,
+                // so it falls through to the divergence list below — restored, and reported as
+                // restored rather than merely refreshed.
                 baseline.files[relativePath] = TemplateScriptsBaseline.Entry(baselineHash: siteHash)
                 baselineChanged = true
             }
             let entry = baseline.files[relativePath]!
 
-            // Checked *before* the "unmodified since last sync" refresh branch below (fixed
-            // during Task 8 review): for the #745 legacy/provisional-baseline path, `baselineHash`
-            // is seeded to the owner's own diverged content (not a genuinely-reconciled template
-            // hash, unlike the original #1053 invariant), so `baselineHash == siteHash` stays
-            // permanently true for a file the owner declined to update and never edits again. If
-            // that refresh branch were checked first, an acknowledged divergence would be
-            // silently reclassified as "safe to refresh" and overwritten on the very next check —
-            // exactly the outcome `acknowledgedTemplateHash` exists to prevent.
-            if !hadNoBaseline && entry.acknowledgedTemplateHash == templateHash {
-                continue
-            } else if !hadNoBaseline && entry.baselineHash == siteHash {
+            // A pre-#1962 baseline may still carry an `acknowledgedTemplateHash` from a "keep my
+            // version" the owner once chose. It is deliberately not consulted: owner decision D1
+            // (2026-09-08) reaffirmed that app-owned files are the app's to keep current, and D5
+            // forbids a keep-mine for the gate outright — so a formerly-declined divergence is
+            // restored like any other on the next pass.
+            if !hadNoBaseline && entry.baselineHash == siteHash {
                 toApply.append(.refresh(relativePath: relativePath))
             } else {
                 divergences.append(TemplateScriptsDivergence(relativePath: relativePath, templateHash: templateHash))

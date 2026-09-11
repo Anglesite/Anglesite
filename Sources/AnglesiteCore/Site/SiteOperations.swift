@@ -63,12 +63,16 @@ public struct SiteOperations: Sendable {
                 // #745: this headless path (App Intents/Shortcuts/Siri) skipped both
                 // DependencySync and TemplateScriptsSync entirely before this — a site only ever
                 // operated on via Shortcuts never got migrated. Runs ahead of the deploy build
-                // with every decision defaulted to Preserve (design doc "Noninteractive flows");
-                // never blocks the deploy itself.
+                // through the same `ExistingSiteMigration.run` the windowed site open uses
+                // (#1962): app-owned files are created/refreshed/restored identically; only the
+                // one owner-facing question (`security.txt`) defaults, to Preserve. Resolves the
+                // template the same way the windowed path does (`TemplateRuntime.resolve()`, so a
+                // template author's Settings override is honored on both), and never blocks the
+                // deploy itself.
                 await ExistingSiteMigration.runNoninteractively(
                     sourceDirectory: url,
                     configDirectory: site.configDirectory,
-                    templateDirectory: TemplateRuntime.bundledURL(),
+                    templateDirectory: TemplateRuntime.resolve().url,
                     source: "deploy:\(site.id)"
                 )
                 return await self.deployWithWorkerComposition(site: site, siteDirectory: url, onProgress: onProgress)
