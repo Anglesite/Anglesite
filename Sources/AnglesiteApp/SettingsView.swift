@@ -352,6 +352,7 @@ enum AdvancedSettingsCopy {
 private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.sitesRootOverride) private var sitesRootOverride: String = ""
     @AppStorage(AppSettings.Key.debugPaneEnabled) private var debugPaneEnabled: Bool = false
+    @AppStorage(AppSettings.Key.developerToolsEnabled) private var developerToolsEnabled: Bool = false
     @AppStorage(AppSettings.Key.botPreferenceSyncUIEnabled) private var botPreferenceSyncUIEnabled: Bool = false
     @AppStorage(AppSettings.Key.lanRuntimeHost) private var lanRuntimeHost: String = ""
     @AppStorage(AppSettings.Key.lanRuntimePreviewPort) private var lanRuntimePreviewPort: String = ""
@@ -368,6 +369,13 @@ private struct AdvancedSettingsView: View {
         #else
         return debugPaneEnabled
         #endif
+    }
+
+    /// The one gate every code editor and the Safari bridge section read (#1964, D1) — see
+    /// `DeveloperToolsVisibility` for why, unlike `showsLANRuntimeSection`, Debug builds don't
+    /// auto-reveal it.
+    private var developerTools: DeveloperToolsVisibility {
+        DeveloperToolsVisibility(settingEnabled: developerToolsEnabled)
     }
 
     /// The effective port for the Safari MCP Bridge section below — falls back to
@@ -429,16 +437,29 @@ private struct AdvancedSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Safari MCP Bridge") {
-                LabeledContent("Bridge port") {
-                    TextField("", text: $safariMCPBridgePortText,
-                              prompt: Text(verbatim: AdvancedSettingsCopy.portPlaceholder(SafariMCPBridgeDetector.defaultPort)))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 100)
-                        .accessibilityLabel("Safari MCP bridge port")
-                        .accessibilityIdentifier(AXID.settingsSafariMCPBridgePort)
+            Section("Developer Tools") {
+                Toggle("Show developer tools", isOn: $developerToolsEnabled)
+                    .accessibilityIdentifier(AXID.settingsDeveloperToolsToggle)
+                Text("Adds a Source tab and code-level Style and Metadata inspectors to the Component Editor, opens your site's other files as plain text, and shows the Safari bridge setup below. Off by default: Anglesite takes care of these files for you, and everything you publish works without them.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            // The bridge's setup guidance is a Terminal command (#1910) — a developer tool by
+            // definition (decision D1), so the whole section rides the toggle above rather than
+            // the Debug-pane rule the LAN section uses.
+            if developerTools.showsSafariBridgeSetup {
+                Section("Safari MCP Bridge") {
+                    LabeledContent("Bridge port") {
+                        TextField("", text: $safariMCPBridgePortText,
+                                  prompt: Text(verbatim: AdvancedSettingsCopy.portPlaceholder(SafariMCPBridgeDetector.defaultPort)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                            .accessibilityLabel("Safari MCP bridge port")
+                            .accessibilityIdentifier(AXID.settingsSafariMCPBridgePort)
+                    }
+                    SafariMCPBridgeStatusRow(port: safariMCPBridgePort)
                 }
-                SafariMCPBridgeStatusRow(port: safariMCPBridgePort)
             }
 
             if showsLANRuntimeSection {

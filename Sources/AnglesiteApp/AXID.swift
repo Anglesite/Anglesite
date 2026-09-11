@@ -88,6 +88,12 @@ enum AXID {
     static func debugWorkerCopy(_ siteID: String) -> String { "debug.worker.\(siteID).copy" }
     static func debugWorkerFailure(_ siteID: String) -> String { "debug.worker.\(siteID).failure" }
 
+    // MARK: Developer tools (#1964)
+
+    /// Settings ▸ Advanced ▸ "Show developer tools" — the one toggle behind which every code
+    /// editor and the Safari bridge setup live (`DeveloperToolsVisibility`).
+    static let settingsDeveloperToolsToggle = "settings.developerTools.toggle"
+
     // MARK: Safari MCP Bridge (#1910)
 
     /// The Safari MCP Bridge section's "Bridge port" text field.
@@ -109,6 +115,7 @@ enum AXID {
         debugPauseToggle, debugAutoScrollToggle,
         debugClearButton, debugCopyButton, debugSaveButton,
         debugServerHeader, debugLocalWorkersHeader,
+        settingsDeveloperToolsToggle,
         settingsSafariMCPBridgePort, settingsSafariMCPBridgeStatus,
     ]
 }

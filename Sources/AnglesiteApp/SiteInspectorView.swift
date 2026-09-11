@@ -25,6 +25,14 @@ struct SiteInspectorView: View {
     /// `NSHostingController`, so the shell-hosted inspector must receive the persisted tab
     /// from the scene-owning window instead of reading scene storage itself.
     @Binding var tab: SiteInspectorTab
+    /// The component panes edit raw CSS, HTML attributes and TypeScript props — developer
+    /// tools behind Settings ▸ Advanced (#1964, D1). `@AppStorage` rather than `@SceneStorage`
+    /// so it resolves inside the `NSHostingController` this view is shell-hosted by.
+    @AppStorage(AppSettings.Key.developerToolsEnabled) private var developerToolsEnabled: Bool = false
+
+    private var developerTools: DeveloperToolsVisibility {
+        DeveloperToolsVisibility(settingEnabled: developerToolsEnabled)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -45,9 +53,17 @@ struct SiteInspectorView: View {
         case (.page(let context), .metadata):
             PageInspectorView(context: context)
         case (.component(let model), .metadata):
-            ComponentMetadataInspectorPane(model: model)
+            if developerTools.showsCodeEditors {
+                ComponentMetadataInspectorPane(model: model)
+            } else {
+                developerToolsPlaceholder
+            }
         case (.component(let model), .style):
-            ComponentStyleInspectorPane(model: model, webView: canvasWebView)
+            if developerTools.showsCodeEditors {
+                ComponentStyleInspectorPane(model: model, webView: canvasWebView)
+            } else {
+                developerToolsPlaceholder
+            }
         case (.wysiwygBlock(let model), .metadata):
             WYSIWYGInspectorView(model: model)
         case (.collection(let inspection), .metadata):
@@ -58,6 +74,19 @@ struct SiteInspectorView: View {
             // (spec §4) — same reasoning that already applies to .page/.collection here.
             ContentUnavailableView(
                 "Select something on the page", systemImage: "cursorarrow.rays")
+        }
+    }
+
+    /// What an owner sees in the component panes with developer tools off: what this surface
+    /// is, and the one place to turn it on. Phrased about the component, never about CSS or
+    /// file layout — the technical detail lives in the Settings caption itself.
+    private var developerToolsPlaceholder: some View {
+        ContentUnavailableView {
+            Label("Managed by Anglesite", systemImage: "wrench.and.screwdriver")
+        } description: {
+            Text("Editing this component's underlying code is a developer tool. Turn on Show Developer Tools in Settings ▸ Advanced to use it.")
+        } actions: {
+            SettingsLink { Text("Open Settings…") }
         }
     }
 }

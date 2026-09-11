@@ -22,8 +22,14 @@ struct ComponentEditorView: View {
     private var file: FileRef { model.file }
     private var context: ComponentEditorContext { model.context }
 
-    /// Design (outline + canvas) vs Source (existing text editor) — the escape hatch.
+    /// Design (outline + canvas) vs Source (existing text editor) — the escape hatch. Source is a
+    /// developer tool (#1964, D1): the mode picker only renders while `developerTools
+    /// .showsCodeEditors`, and turning the setting off snaps an open Source tab back to Design.
     @State private var mode: Mode = .design
+    @AppStorage(AppSettings.Key.developerToolsEnabled) private var developerToolsEnabled: Bool = false
+    /// Whether the parse-failure "Details" disclosure is open — collapsed by default so the
+    /// compiler diagnostic never leads for an owner who didn't ask for it.
+    @State private var isParseDetailsExpanded = false
     /// The harness canvas's live `WKWebView`, bubbled up from `ComponentEditorCanvasPane` — used
     /// here to re-highlight the canvas selection, and forwarded to the host window (via
     /// `onWebView`) for the unified inspector's Style pane `ColorPicker` scrub preview. This is
@@ -48,15 +54,21 @@ struct ComponentEditorView: View {
 
     enum Mode: String, CaseIterable { case design = "Design", source = "Source" }
 
+    private var developerTools: DeveloperToolsVisibility {
+        DeveloperToolsVisibility(settingEnabled: developerToolsEnabled)
+    }
+
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Mode", selection: $mode) {
-                ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+            if developerTools.showsCodeEditors {
+                Picker("Mode", selection: $mode) {
+                    ForEach(Mode.allCases, id: \.self) { Text($0.rawValue).tag($0) }
+                }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .padding(8)
+                Divider()
             }
-            .pickerStyle(.segmented)
-            .labelsHidden()
-            .padding(8)
-            Divider()
             switch mode {
             case .design: designPane
             case .source: sourcePane
@@ -65,12 +77,15 @@ struct ComponentEditorView: View {
         .onChange(of: model.selectedNodeID) { _, newValue in
             highlightInCanvas(nodeID: newValue)
         }
-        .onChange(of: model.loadErrorReason) { _, newValue in
-            // Design spec §5: an unparseable component degrades to the Source tab with the
-            // compiler diagnostic in a banner, rather than a dead-end full-pane error — fixing
-            // the syntax error in source is the only way out, so land the user where they can.
-            if newValue == .unparseable { mode = .source }
+        // Once the picker is gone, `mode` can no longer change by hand; make sure it isn't
+        // stranded on Source (the developer may have been mid-edit when they flipped the toggle).
+        .onChange(of: developerToolsEnabled, initial: true) { _, _ in
+            if !developerTools.showsCodeEditors { mode = .design }
         }
+        // No auto-switch to Source on a parse failure any more (#1964, D1): the design spec §5
+        // escape hatch assumed a developer at the keyboard. The Design pane now explains the
+        // failure in the owner's terms (`parseFailureView`), with the diagnostic under Details
+        // and — only with developer tools on — a "Show Source" action.
         .sheet(item: $extractTarget) { target in
             ExtractComponentSheet { name in
                 // Pass the bare name straight through — the plugin derives the full
@@ -139,9 +154,44 @@ struct ComponentEditorView: View {
         .background(.red.opacity(0.12))
     }
 
+    /// The Design pane's parse-failure state. Owner-phrased: it says what Anglesite can't do,
+    /// what's safe, and what might have caused it — the compiler diagnostic stays behind a
+    /// collapsed Details disclosure, and the Source escape hatch appears only for developers.
+    private func parseFailureView(diagnostic: String) -> some View {
+        ScrollView {
+            VStack(spacing: 12) {
+                Image(systemName: "exclamationmark.triangle")
+                    .font(.largeTitle)
+                    .foregroundStyle(.secondary)
+                    .accessibilityHidden(true)
+                Text("This Component Can't Be Shown Yet")
+                    .font(.title3.bold())
+                Text("Anglesite couldn't read this component's layout, so it can't be edited visually. It may use code Anglesite doesn't understand yet, or an edit made outside Anglesite may have left it incomplete. Your other pages and components aren't affected.")
+                    .multilineTextAlignment(.center)
+                    .foregroundStyle(.secondary)
+                if developerTools.showsCodeEditors {
+                    Button("Show Source") { mode = .source }
+                }
+                DisclosureGroup("Details", isExpanded: $isParseDetailsExpanded) {
+                    Text(diagnostic)
+                        .font(.system(.caption, design: .monospaced))
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .padding(.top, 4)
+                }
+                .padding(.top, 8)
+            }
+            .frame(maxWidth: 480)
+            .padding(24)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
     @ViewBuilder private var designPane: some View {
         if let error = model.loadError {
-            if case .notConnected = model.loadErrorReason {
+            if case .unparseable = model.loadErrorReason {
+                parseFailureView(diagnostic: error)
+            } else if case .notConnected = model.loadErrorReason {
                 // Dev server isn't up yet — not a hard failure. `SiteWindowModel
                 // .ensureComponentEditorLoaded()`'s `.task` re-fires once
                 // `context.baseURL` transitions to non-nil, which retries the load;

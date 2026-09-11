@@ -120,6 +120,50 @@ import SwiftGit2
         #expect(files.first?.path == "file0.txt")
         #expect(files.first?.oursText == "b-version")
         #expect(files.first?.theirsText == "a-version")
+        // Both tips are real commits, so the sheet's "edited <when>" labels have something to show.
+        #expect(files.first?.oursDate != nil)
+        #expect(files.first?.theirsDate != nil)
+    }
+
+    // MARK: - Default choice (#1964, D1: the sheet opens with an answer picked)
+
+    @Test("the newer edit is the default")
+    func defaultChoicePrefersNewer() {
+        let earlier = Date(timeIntervalSince1970: 1_000)
+        let later = Date(timeIntervalSince1970: 2_000)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: earlier, theirsDate: later) == .keepTheirs)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: later, theirsDate: earlier) == .keepMine)
+    }
+
+    @Test("an unorderable pair keeps this Mac's version")
+    func defaultChoiceFallsBackToMine() {
+        let when = Date(timeIntervalSince1970: 1_000)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: when, theirsDate: when) == .keepMine)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: nil, theirsDate: when) == .keepMine)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: when, theirsDate: nil) == .keepMine)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: nil, theirsDate: nil) == .keepMine)
+    }
+
+    @Test("displayName drops the directory and extension")
+    func displayNameIsOwnerFacing() {
+        func file(_ path: String) -> SyncConflictResolver.ConflictedFile {
+            .init(path: path, oursText: nil, theirsText: nil, oursDate: nil, theirsDate: nil)
+        }
+        #expect(file("src/pages/about.astro").displayName == "about")
+        #expect(file("file0.txt").displayName == "file0")
+        #expect(file("src/styles/global.css").displayName == "global")
+    }
+
+    @Test("defaultChoices covers every file, keyed by path, in resolve()'s shape")
+    func defaultChoicesCoverEveryFile() {
+        let earlier = Date(timeIntervalSince1970: 1_000)
+        let later = Date(timeIntervalSince1970: 2_000)
+        let files = [
+            SyncConflictResolver.ConflictedFile(path: "a.txt", oursText: "a", theirsText: "b", oursDate: earlier, theirsDate: later),
+            SyncConflictResolver.ConflictedFile(path: "b.txt", oursText: "a", theirsText: "b", oursDate: later, theirsDate: earlier),
+        ]
+        let choices = SyncConflictResolver.defaultChoices(for: files)
+        #expect(choices == ["a.txt": .keepTheirs, "b.txt": .keepMine])
     }
 
     @Test("resolve() with keepMine commits this Mac's content and clears the conflict")

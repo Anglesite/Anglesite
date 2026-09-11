@@ -1,16 +1,18 @@
 import SwiftUI
 import AnglesiteCore
 
-/// Per-file sync conflict resolution sheet (#881, design doc §3): keep this Mac's / keep the
-/// other's / open both, for every path `SyncModel.conflictedFiles` lists, plus the quarantined
-/// `Config/conflicts/` working-tree copies in the same sheet. "Apply" is disabled until every
-/// conflicted path has a choice — a partial resolution can't produce a valid merge commit
-/// (`SyncConflictResolver.resolve` itself refuses one).
+/// Sync conflict resolution sheet (#881, design doc §3), re-phrased around the owner's content
+/// (#1964, decision D1): "this was edited on two Macs — Anglesite will keep the newer version;
+/// change any you'd rather keep the other way." Every conflicted file arrives with a default
+/// already picked (`SyncConflictResolver.defaultChoice`: newer edit wins, this Mac on a tie), so
+/// Apply is enabled the moment the list loads and the owner is never handed a per-file question
+/// they have to answer from scratch. Quarantined `Config/conflicts/` copies list in the same sheet.
 ///
 /// Mac-assed-app-spec compliance: standard sheet chrome (Cancel/Apply in the standard toolbar
 /// placements — Esc and ⌘. both dismiss via Cancel, ⌘Return activates Apply), VoiceOver labels on
 /// every control, and no state is silently discarded — Cancel leaves the conflict exactly as it
-/// was; nothing here writes to the repo until Apply succeeds.
+/// was; nothing here writes to the repo until Apply succeeds. The path and the git mechanics stay
+/// out of the copy: the path is a tooltip, and "Compare Both…" opens plain files in Finder.
 struct SyncConflictResolutionSheetView: View {
     @Bindable var model: SyncModel
     let siteName: String
@@ -21,19 +23,26 @@ struct SyncConflictResolutionSheetView: View {
         NavigationStack {
             List {
                 if !model.conflictedFiles.isEmpty {
-                    Section("Files edited on both Macs") {
+                    Section {
                         ForEach(model.conflictedFiles) { file in
                             conflictedFileRow(file)
                         }
+                    } header: {
+                        Text("Changed on both Macs")
+                    } footer: {
+                        Text("Anglesite keeps the newer version of each. Choose the other version for anything you'd rather keep from this Mac or the other one, then click Apply.")
                     }
                 }
                 if !model.quarantinedFiles.isEmpty {
-                    Section("Quarantined copies") {
+                    Section {
                         ForEach(model.quarantinedFiles, id: \.self) { url in
                             quarantinedFileRow(url)
                         }
+                    } header: {
+                        Text("Extra copies iCloud saved")
+                    } footer: {
+                        Text("iCloud set these aside while the two Macs were syncing. Anglesite already has their content, so discarding them doesn't lose anything.")
                     }
-                    .accessibilityLabel("Files iCloud saved as separate conflict copies. Their content already exists in this site's history; you can discard them.")
                 }
                 if let error = model.resolutionError {
                     Section {
@@ -43,7 +52,7 @@ struct SyncConflictResolutionSheetView: View {
                     }
                 }
             }
-            .navigationTitle("Resolve Sync Conflict")
+            .navigationTitle("Edited on Two Macs")
             .navigationSubtitle(siteName)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -66,6 +75,13 @@ struct SyncConflictResolutionSheetView: View {
             }
         }
         .frame(minWidth: 520, minHeight: 360)
+        // Seed the default for every file as the list arrives (it loads asynchronously after the
+        // sheet opens), without clobbering a choice the owner already changed by hand.
+        .onChange(of: model.conflictedFiles, initial: true) { _, files in
+            for file in files where choices[file.path] == nil {
+                choices[file.path] = file.defaultChoice
+            }
+        }
         // Esc's default sheet-dismiss behavior is exactly Cancel here — resolving nothing is
         // always safe (the site stays editable, per the design doc; only pushing this branch
         // stays paused), so no `.interactiveDismissDisabled()` is needed.
@@ -78,31 +94,47 @@ struct SyncConflictResolutionSheetView: View {
     @ViewBuilder
     private func conflictedFileRow(_ file: SyncConflictResolver.ConflictedFile) -> some View {
         VStack(alignment: .leading, spacing: 6) {
-            Text(file.path)
-                .font(.callout.monospaced())
+            Text(file.displayName)
+                .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.middle)
+                .help(file.path)
 
             Picker("Keep which version", selection: Binding<SyncConflictResolver.Choice?>(
                 get: { choices[file.path] },
                 set: { choices[file.path] = $0 }
             )) {
-                Text("This Mac").tag(Optional(SyncConflictResolver.Choice.keepMine))
-                Text("Other Mac").tag(Optional(SyncConflictResolver.Choice.keepTheirs))
+                Text(sideLabel(String(localized: "This Mac"), date: file.oursDate, isNewer: file.defaultChoice == .keepMine))
+                    .tag(Optional(SyncConflictResolver.Choice.keepMine))
+                Text(sideLabel(String(localized: "Other Mac"), date: file.theirsDate, isNewer: file.defaultChoice == .keepTheirs))
+                    .tag(Optional(SyncConflictResolver.Choice.keepTheirs))
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .accessibilityLabel("Keep which version of \(file.path)")
+            .accessibilityLabel("Keep which version of \(file.displayName)")
 
-            Button("Open Both…") {
+            Button("Compare Both…") {
                 model.openBothVersions(for: file)
             }
             .buttonStyle(.link)
             .font(.caption)
             .disabled(file.oursText == nil && file.theirsText == nil)
-            .accessibilityHint("Opens both versions of \(file.path) in Finder to compare before choosing")
+            .accessibilityHint("Opens both versions of \(file.displayName) in Finder so you can compare them before choosing")
         }
         .padding(.vertical, 4)
+    }
+
+    /// Segment title for one side: the Mac, when it was edited, and which one Anglesite picked.
+    /// Built as one string so VoiceOver reads the whole comparison off the segment itself.
+    private func sideLabel(_ mac: String, date: Date?, isNewer: Bool) -> String {
+        var label = mac
+        if let date {
+            label += " · \(date.formatted(date: .abbreviated, time: .shortened))"
+        }
+        if isNewer {
+            label += " " + String(localized: "(newer)")
+        }
+        return label
     }
 
     @ViewBuilder
@@ -112,7 +144,7 @@ struct SyncConflictResolutionSheetView: View {
                 .foregroundStyle(.secondary)
                 .accessibilityHidden(true)
             Text(url.lastPathComponent)
-                .font(.callout.monospaced())
+                .font(.callout)
                 .lineLimit(1)
                 .truncationMode(.middle)
             Spacer()
@@ -124,7 +156,7 @@ struct SyncConflictResolutionSheetView: View {
                 .buttonStyle(.link)
                 .font(.caption)
                 .accessibilityLabel("Discard \(url.lastPathComponent)")
-                .accessibilityHint("This copy's content already exists in this site's git history")
+                .accessibilityHint("Anglesite already has this content saved, so discarding the copy doesn't lose anything")
         }
     }
 }
