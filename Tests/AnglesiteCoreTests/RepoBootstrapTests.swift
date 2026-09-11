@@ -66,7 +66,7 @@ import Foundation
 
         let git = URL(fileURLWithPath: "/usr/bin/git")
         func run(_ args: [String]) async throws {
-            _ = try await ProcessSupervisor.shared.run(executable: git, arguments: args, currentDirectoryURL: dir)
+            _ = try await ProcessSupervisor.shared.run(source: "test", executable: git, arguments: args, currentDirectoryURL: dir)
         }
         try await run(["init"])
         try await run(["config", "user.email", "t@t.io"])
@@ -149,6 +149,7 @@ import Foundation
         try await bootstrap.commitAll(source: source)
 
         let result = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/usr/bin/git"),
             arguments: ["log", "-1", "--format=%an <%ae>"],
             currentDirectoryURL: source
@@ -210,6 +211,7 @@ import Foundation
         // Nothing was staged — the .env file is still untracked, not sitting in the index.
         let git = URL(fileURLWithPath: "/usr/bin/git")
         let status = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: git, arguments: ["status", "--porcelain"], currentDirectoryURL: source)
         #expect(status.stdout.contains("?? .env"))
     }
@@ -245,6 +247,7 @@ import Foundation
 
         let git = URL(fileURLWithPath: "/usr/bin/git")
         let show = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: git, arguments: ["show", "--stat", "HEAD"], currentDirectoryURL: source)
         #expect(show.stdout.contains("src/pages/about.md"))
     }
@@ -262,9 +265,11 @@ import Foundation
 
         let git = URL(fileURLWithPath: "/usr/bin/git")
         let status = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: git, arguments: ["status", "--porcelain"], currentDirectoryURL: source)
         #expect(status.stdout.isEmpty)   // deletion was committed, not left dangling
         let show = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: git, arguments: ["show", "--stat", "HEAD"], currentDirectoryURL: source)
         #expect(show.stdout.contains("README.md"))
     }

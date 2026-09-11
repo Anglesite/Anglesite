@@ -22,6 +22,7 @@ struct SiteIdentityRenderSmokeTests {
         func build() async throws {
             try? FileManager.default.removeItem(at: dist)
             let result = try await ProcessSupervisor.shared.run(
+                source: "test",
                 executable: node,
                 arguments: [E2EPrerequisites.astroCLIRelativePath, "build"],
                 currentDirectoryURL: Self.templateDir)

@@ -168,7 +168,7 @@ public enum InboxSubmissionCommitter {
         let git = URL(fileURLWithPath: "/usr/bin/git")
         func run(_ args: [String]) async -> ProcessSupervisor.RunResult? {
             let result = try? await ProcessSupervisor.shared.run(
-                executable: git, arguments: args, currentDirectoryURL: projectRoot)
+                source: "git:inbox", executable: git, arguments: args, currentDirectoryURL: projectRoot)
             guard let result, result.exitCode == 0 else { return nil }
             return result
         }

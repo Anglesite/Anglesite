@@ -16,6 +16,7 @@ import AnglesiteTestSupport
     @discardableResult
     private func git(_ arguments: [String], in dir: URL) async throws -> String {
         let result = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: ["git"] + arguments,
             currentDirectoryURL: dir
@@ -55,6 +56,7 @@ import AnglesiteTestSupport
 
         let cloneDest = try makeTempDir(prefix: "bundleartifact-interop-clone").appendingPathComponent("clone")
         let clone = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: ["git", "clone", bundleURL.path, cloneDest.path],
             currentDirectoryURL: bundleURL.deletingLastPathComponent()

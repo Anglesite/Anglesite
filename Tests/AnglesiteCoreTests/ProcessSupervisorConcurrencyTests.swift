@@ -21,6 +21,7 @@ struct ProcessSupervisorConcurrencyTests {
                     for _ in 0..<iterationsPerTask {
                         let supervisor = ProcessSupervisor()
                         let result = try await supervisor.run(
+                            source: "test",
                             executable: URL(fileURLWithPath: "/usr/bin/true")
                         )
                         results.append(result.exitCode)
@@ -48,6 +49,7 @@ struct ProcessSupervisorConcurrencyTests {
                 group.addTask {
                     let supervisor = ProcessSupervisor()
                     let result = try await supervisor.run(
+                        source: "test",
                         executable: URL(fileURLWithPath: "/bin/sh"),
                         arguments: ["-c", "printf 'token-%d' \"$IDX\""],
                         environment: ["IDX": String(i)]

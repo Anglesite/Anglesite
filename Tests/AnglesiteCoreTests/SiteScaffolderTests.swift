@@ -547,6 +547,7 @@ struct SiteScaffolderTests {
         let sourceDir = pkgURL.appendingPathComponent("Source")
         let git = URL(fileURLWithPath: "/usr/bin/git")
         let log = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: git, arguments: ["log", "--oneline"], currentDirectoryURL: sourceDir)
         #expect(log.exitCode == 0, "git log failed — no initial commit was created: \(log.stderr)")
         #expect(!log.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,

@@ -99,7 +99,9 @@ public actor ProcessSupervisor {
 
     // MARK: One-shot run
 
-    /// Captured outcome of a one-shot ``run(executable:arguments:environment:currentDirectoryURL:)``.
+    /// Captured outcome of a one-shot
+    /// ``run(source:executable:arguments:environment:currentDirectoryURL:logging:logCenter:)`` or
+    /// ``runDetaching(source:executable:arguments:environment:currentDirectoryURL:logging:logCenter:)``.
     ///
     /// A nonzero exit is *not* thrown — short-lived tools routinely use exit codes as answers
     /// (e.g. `git diff --quiet`), so callers inspect ``exitCode`` themselves.
@@ -131,36 +133,185 @@ public actor ProcessSupervisor {
         case unknownHandle
     }
 
+    /// How a one-shot ``run(source:executable:arguments:environment:currentDirectoryURL:logging:logCenter:)``
+    /// reports the child's output to the debug pane (#1966).
+    ///
+    /// "Logs are sacred" (CLAUDE.md): every spawned subprocess streams stdout+stderr into the
+    /// debug pane. `launch` always did; `run` used to hand the captured output back and leave
+    /// forwarding to each call site, and an audit found eight that never did. The default is
+    /// now to stream, and the two ways out are explicit cases with a mandatory payload — so a
+    /// future secret-bearing call can't disable logging by simply omitting a parameter, and a
+    /// `grep` for `.redacted(` / `.relayed(` lists every exception with its stated reason.
+    ///
+    /// Whatever the mode, the supervisor still records a `[supervisor] …` marker line under the
+    /// run's `source` when the executable can't be spawned (executable path and OS error only,
+    /// never argv) and when it exits non-zero, so a failed run is always traceable in the pane.
+    public enum RunLogging: Sendable, Equatable {
+        /// Stream every stdout/stderr line into the `LogCenter` under the run's `source` as it
+        /// arrives — same live path `launch` uses. The default.
+        case streamed
+        /// The output itself carries a secret (a token echoed by a CLI, credentials in a URL git
+        /// prints back) and must not reach the debug pane. Only a one-line marker naming
+        /// `reason` and the exit code is logged, so the pane still shows that the process ran.
+        /// Argv is never logged in any mode — this case is for *output* that leaks, not
+        /// arguments.
+        case redacted(reason: String)
+        /// The caller forwards the captured output to the `LogCenter` itself through a
+        /// protocol-mandated path (e.g. `LocalContainerControl.exec`'s `onOutput` callback, whose
+        /// macOS implementation receives guest output that never was a host subprocess), so
+        /// streaming here would duplicate every line under a second source. `via` names that
+        /// path for the reader. Nothing is logged on a clean exit; a non-zero exit still gets
+        /// the marker line.
+        case relayed(via: String)
+    }
+
     /// Spawns `executable`, waits for it to exit, returns captured stdout/stderr/exitCode.
     ///
-    /// Both pipes are drained concurrently so output larger than the pipe buffer (~64KB) does not deadlock.
-    /// For long-running processes whose output must be streamed, use `launch(...)`.
+    /// Both pipes are drained concurrently so output larger than the pipe buffer (~64KB) does not
+    /// deadlock. Every line is streamed into `logCenter` under `source` *while* the child runs
+    /// (see ``RunLogging``), and the last line has landed by the time this returns — a caller can
+    /// `snapshot()` immediately afterwards. For long-running processes use `launch(...)`; for a
+    /// command that forks a daemon which outlives it, use
+    /// ``runDetaching(source:executable:arguments:environment:currentDirectoryURL:logging:logCenter:)``.
+    ///
+    /// - Parameters:
+    ///   - source: The `LogCenter` tag for this run's output (the Debug pane's Source-picker
+    ///     key), e.g. `"scaffold"` or `"podman"`. Required, like `launch`'s, so no call site can
+    ///     forget to name its output.
+    ///   - executable: Absolute path to the binary; never `PATH`-resolved here.
+    ///   - arguments: Passed verbatim (no shell), so no quoting concerns.
+    ///   - environment: The child's whole environment, or `nil` to use the supervisor's default
+    ///     (which itself defaults to inheriting the app's).
+    ///   - currentDirectoryURL: The child's working directory, or `nil` to inherit.
+    ///   - logging: See ``RunLogging``. Defaults to streaming.
+    ///   - logCenter: Where the output (and the supervisor's marker lines) go. Defaults to the
+    ///     app-wide `LogCenter.shared`; tests pass their own.
+    /// - Returns: The captured output and exit code. A non-zero exit is not an error.
+    /// - Throws: ``SupervisorError/spawnFailed(underlying:)`` when the process can't be started.
     public func run(
+        source: String,
         executable: URL,
         arguments: [String] = [],
         environment: [String: String]? = nil,
-        currentDirectoryURL: URL? = nil
+        currentDirectoryURL: URL? = nil,
+        logging: RunLogging = .streamed,
+        logCenter: LogCenter = .shared
     ) async throws -> RunResult {
-        let suddenTerminationLease = suddenTerminationController.acquire()
-        defer { suddenTerminationLease.release() }
         let spec = SpawnSpec(
             executable: executable,
             arguments: arguments,
             environment: environment ?? defaultEnvironment(),
             workingDirectory: currentDirectoryURL,
-            logSource: "run"
+            logSource: source
         )
+        let backend = self.backend
+        return try await oneShot(spec, logging: logging, logCenter: logCenter) { spec, streamTarget in
+            try await backend.runOneShot(spec, logCenter: streamTarget)
+        }
+    }
+
+    /// Like ``run(source:executable:arguments:environment:currentDirectoryURL:logging:logCenter:)``,
+    /// for a command that forks a daemon which outlives it — `podman run -d` leaves `conmon`
+    /// behind, and `Foundation.Process`'s exit detection then hangs indefinitely on Linux (see
+    /// `PodmanContainerControl.start`). The backend spawns with `posix_spawn`/`waitpid` and
+    /// captures stdout/stderr through files instead of pipes (a pipe wouldn't see EOF until the
+    /// daemon grandchild let go of it — the same hang in different clothes), so the output can
+    /// only be replayed into `logCenter` after exit rather than streamed live. Everything else —
+    /// the sudden-termination lease, the ``RunLogging`` contract, the marker lines, the error
+    /// translation — matches `run`. This exists so that the one spawn that can't go through
+    /// `Process` still goes through the supervisor rather than through raw C at a call site.
+    ///
+    /// - Parameters: Identical to `run`'s. `environment: nil` resolves to the supervisor's
+    ///   default, else the app's own environment — the child never starts with an empty one.
+    /// - Returns: The captured output and exit code; a death by signal is reported as
+    ///   `128 + signal`, the shell convention.
+    /// - Throws: ``SupervisorError/spawnFailed(underlying:)`` when the process can't be started,
+    ///   including when the backend has no `posix_spawn` (iOS).
+    public func runDetaching(
+        source: String,
+        executable: URL,
+        arguments: [String] = [],
+        environment: [String: String]? = nil,
+        currentDirectoryURL: URL? = nil,
+        logging: RunLogging = .streamed,
+        logCenter: LogCenter = .shared
+    ) async throws -> RunResult {
+        let spec = SpawnSpec(
+            executable: executable,
+            arguments: arguments,
+            environment: environment ?? defaultEnvironment(),
+            workingDirectory: currentDirectoryURL,
+            logSource: source
+        )
+        let backend = self.backend
+        return try await oneShot(spec, logging: logging, logCenter: logCenter) { spec, streamTarget in
+            let result = try await backend.runDetaching(spec)
+            if let streamTarget {
+                await Self.replay(result, source: spec.logSource, into: streamTarget)
+            }
+            return result
+        }
+    }
+
+    /// Shared body of `run`/`runDetaching`: holds the sudden-termination lease across the spawn,
+    /// resolves ``RunLogging`` into the backend's optional stream target, and writes the
+    /// `[supervisor]` marker lines. `spawn` does the actual work and receives the `LogCenter` to
+    /// stream into (`nil` when the mode withholds output).
+    private func oneShot(
+        _ spec: SpawnSpec,
+        logging: RunLogging,
+        logCenter: LogCenter,
+        spawn: (SpawnSpec, LogCenter?) async throws -> ProcessResult
+    ) async throws -> RunResult {
+        let suddenTerminationLease = suddenTerminationController.acquire()
+        defer { suddenTerminationLease.release() }
+        let name = spec.executable.lastPathComponent
+        let streamTarget: LogCenter? = logging == .streamed ? logCenter : nil
         let result: ProcessResult
         do {
-            result = try await backend.runOneShot(spec)
+            result = try await spawn(spec, streamTarget)
         } catch let error as SupervisorBackendError {
+            // Executable path + OS error only — argv may carry a secret in any mode.
+            await logCenter.append(
+                source: spec.logSource, stream: .stderr,
+                text: "[supervisor] \(name) could not be spawned: \(Self.message(for: error))"
+            )
             throw Self.translate(error)
+        }
+        switch logging {
+        case .redacted(let reason):
+            await logCenter.append(
+                source: spec.logSource, stream: .stderr,
+                text: "[supervisor] \(name) exited \(result.exitCode); output redacted (\(reason))"
+            )
+        case .streamed, .relayed:
+            if result.exitCode != 0 {
+                await logCenter.append(
+                    source: spec.logSource, stream: .stderr,
+                    text: "[supervisor] \(name) exited \(result.exitCode)"
+                )
+            }
         }
         return RunResult(
             stdout: String(data: result.stdout, encoding: .utf8) ?? "",
             stderr: String(data: result.stderr, encoding: .utf8) ?? "",
             exitCode: result.exitCode
         )
+    }
+
+    /// Post-hoc equivalent of the backend's live line reader, for output that was captured to a
+    /// file (`runDetaching`): splits each stream on newlines and appends the lines in order. A
+    /// newline-terminated blob yields a trailing empty piece the live reader would never emit,
+    /// so it's dropped; interior blank lines are kept, as the live reader keeps them.
+    private static func replay(_ result: ProcessResult, source: String, into logCenter: LogCenter) async {
+        for (stream, data) in [(LogCenter.Stream.stdout, result.stdout), (.stderr, result.stderr)] {
+            guard let text = String(data: data, encoding: .utf8) else { continue }
+            var lines = text.split(separator: "\n", omittingEmptySubsequences: false)
+            if lines.last?.isEmpty == true { lines.removeLast() }
+            for line in lines {
+                await logCenter.append(source: source, stream: stream, text: String(line))
+            }
+        }
     }
 
     // MARK: Long-running launch
@@ -333,20 +484,31 @@ public actor ProcessSupervisor {
 
     private static func translate(_ error: SupervisorBackendError) -> SupervisorError {
         switch error {
-        case .spawnFailed(let message):
+        case .spawnFailed:
             return .spawnFailed(underlying: NSError(
                 domain: "AnglesiteCore.SupervisorBackend",
                 code: 1,
-                userInfo: [NSLocalizedDescriptionKey: message]
+                userInfo: [NSLocalizedDescriptionKey: message(for: error)]
             ))
         case .unknownHandle:
             return .unknownHandle
-        case .bookmarkResolutionFailed(let message), .backendUnavailable(let message):
+        case .bookmarkResolutionFailed, .backendUnavailable:
             return .spawnFailed(underlying: NSError(
                 domain: "AnglesiteCore.SupervisorBackend",
                 code: 2,
-                userInfo: [NSLocalizedDescriptionKey: message]
+                userInfo: [NSLocalizedDescriptionKey: message(for: error)]
             ))
+        }
+    }
+
+    /// The backend's human-readable failure text — what `translate(_:)` wraps into the
+    /// `NSError`, and what the one-shot `[supervisor] … could not be spawned` marker line shows.
+    private static func message(for error: SupervisorBackendError) -> String {
+        switch error {
+        case .spawnFailed(let message), .bookmarkResolutionFailed(let message), .backendUnavailable(let message):
+            return message
+        case .unknownHandle:
+            return "unknown process handle"
         }
     }
 }
