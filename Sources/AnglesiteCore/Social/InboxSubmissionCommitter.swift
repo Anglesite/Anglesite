@@ -185,7 +185,8 @@ public enum InboxSubmissionCommitter {
     @Sendable public static func isTracked(_ projectRoot: URL, _ relPath: String) async -> Bool {
         let git = URL(fileURLWithPath: "/usr/bin/git")
         let result = try? await ProcessSupervisor.shared.run(
-            executable: git, arguments: ["ls-files", "--error-unmatch", "--", relPath], currentDirectoryURL: projectRoot)
+            source: "git:inbox", executable: git, arguments: ["ls-files", "--error-unmatch", "--", relPath],
+            currentDirectoryURL: projectRoot)
         return result?.exitCode == 0
     }
     #endif
