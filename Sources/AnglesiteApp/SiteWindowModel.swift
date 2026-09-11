@@ -259,6 +259,9 @@ final class SiteWindowModel {
     /// Cloudflare Agent Readiness score for the deployed site (#1248).
     var agentReadiness = AgentReadinessModel()
     var onionRouting = OnionRoutingModel()
+    /// One on-demand Safari-backed verification pass against the live preview, over the
+    /// already-connected Safari MCP bridge from #1910 (#1911).
+    var safariVerification = SafariVerificationModel()
     var domain = DomainModel()
     var connectDomain = ConnectDomainModel()
     var buyDomain = BuyDomainModel()
@@ -1117,6 +1120,11 @@ final class SiteWindowModel {
     var canRunDomainConfigAudit: Bool { site?.isValid == true && !domainConfigAudit.isRunning }
     var canRunAgentReadiness: Bool { site?.isValid == true && !agentReadiness.isRunning }
     var canRunOnionRouting: Bool { site?.isValid == true && !onionRouting.isRunning }
+    /// Always enabled while a valid site is open and no pass is already running — mirrors
+    /// `canRunAgentReadiness`'s shape. Whether a live preview URL actually exists is checked
+    /// inside `runSafariVerification()`/`SafariVerificationModel.run(previewURL:)`, which
+    /// surfaces a clear failure in the sheet rather than disabling the menu item outright.
+    var canRunSafariVerification: Bool { site?.isValid == true && !safariVerification.isRunning }
     var canRecheckHealth: Bool { site != nil }
     var canOpenDomain: Bool { site != nil && !domain.isRunning }
     var canOpenIntegrationWizard: Bool { site != nil }
@@ -1152,6 +1160,15 @@ final class SiteWindowModel {
         audit.audit(
             siteID: site.id, siteDirectory: site.sourceDirectory,
             containerControlProvider: { [preview] in await preview.activeContainerControl() })
+    }
+
+    /// Resolves the current live preview URL (including any active page route and ESI preview
+    /// mode) and starts one `SafariVerificationModel` pass. `preview.displayURL` is `nil` until
+    /// the dev server reaches `.ready` — `SafariVerificationModel.run(previewURL:)` reports that
+    /// as a clear failure rather than this method silently no-op'ing.
+    func runSafariVerification() {
+        guard canRunSafariVerification else { return }
+        safariVerification.run(previewURL: preview.displayURL)
     }
 
     func recheckHealth() {

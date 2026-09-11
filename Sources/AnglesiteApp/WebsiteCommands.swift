@@ -87,6 +87,9 @@ struct WebsiteCommands: Commands {
             Button("Onion Routing…") { model?.onionRouting.openSheet() }
                 .disabled(model?.canRunOnionRouting != true)
 
+            Button("Safari Verification…") { model?.safariVerification.openSheet() }
+                .disabled(model?.canRunSafariVerification != true)
+
             Button("Siri AI Readiness…") { model?.openSiriReadiness() }
                 .disabled(model?.canOpenSiriReadiness != true)
 
