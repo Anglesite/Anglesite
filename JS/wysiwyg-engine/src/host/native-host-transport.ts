@@ -1,5 +1,6 @@
 import type { HostTransport, OpEnvelope, OpResult, BlockModel, WritingHelpReply } from "../types.js";
 import type { Finding, QualityGateTransport } from "../quality-gates.js";
+import type { ImageReplaceReply, ImageReplaceRequest, ImageReplaceTransport } from "./image-drop.js";
 
 declare global {
   interface Window {
@@ -9,6 +10,7 @@ declare global {
       _handleModelUpdate?: (model: BlockModel) => void;
       _handleQualityFindings?: (findings: Finding[]) => void;
       _handleWritingHelpReply?: (requestId: string, reply: WritingHelpReply) => void;
+      _handleImageReplaceReply?: (requestId: string, reply: ImageReplaceReply) => void;
     };
   }
 }
@@ -19,17 +21,18 @@ declare global {
  * `window.webkit.messageHandlers.wysiwyg` and resolves pending promises when the native side calls
  * back into `window.__anglesiteWysiwygHost`.
  *
- * Also implements `QualityGateTransport` (design doc §3) — one object owns the whole
- * `window.__anglesiteWysiwygHost` bridge rather than splitting it across two classes, even though
- * the two interfaces stay conceptually separate (quality-gate findings are not part of the ops
- * protocol `HostTransport` itself covers).
+ * Also implements `QualityGateTransport` (design doc §3) and `ImageReplaceTransport` (#1957) —
+ * one object owns the whole `window.__anglesiteWysiwygHost` bridge rather than splitting it
+ * across several classes, even though the interfaces stay conceptually separate (quality-gate
+ * findings and image replacement are not part of the ops protocol `HostTransport` itself covers).
  */
-export class NativeHostTransport implements HostTransport, QualityGateTransport {
+export class NativeHostTransport implements HostTransport, QualityGateTransport, ImageReplaceTransport {
   #pending = new Map<string, (result: OpResult) => void>();
   #modelListeners = new Set<(model: BlockModel) => void>();
   #findingsListeners = new Set<(findings: Finding[]) => void>();
   // Separate namespace from #pending so a writing-help requestId never collides with an op requestId.
   #pendingWritingHelp = new Map<string, (reply: WritingHelpReply) => void>();
+  #pendingImageReplace = new Map<string, (reply: ImageReplaceReply) => void>();
 
   constructor() {
     window.__anglesiteWysiwygHost = {
@@ -49,6 +52,12 @@ export class NativeHostTransport implements HostTransport, QualityGateTransport 
         const resolve = this.#pendingWritingHelp.get(requestId);
         if (!resolve) return;
         this.#pendingWritingHelp.delete(requestId);
+        resolve(reply);
+      },
+      _handleImageReplaceReply: (requestId, reply) => {
+        const resolve = this.#pendingImageReplace.get(requestId);
+        if (!resolve) return;
+        this.#pendingImageReplace.delete(requestId);
         resolve(reply);
       },
     };
@@ -72,6 +81,24 @@ export class NativeHostTransport implements HostTransport, QualityGateTransport 
     return new Promise((resolve) => {
       this.#pendingWritingHelp.set(requestId, resolve);
       window.webkit?.messageHandlers?.wysiwyg?.postMessage({ type: "writing-help-request", requestId, text, instruction });
+    });
+  }
+
+  /**
+   * Asks native to replace an existing `<img>`'s asset with a dropped file (#1957 parity item 2)
+   * via `WYSIWYGScriptHandler`'s `replace-image` message, which routes it through the sidecar's
+   * `replace-image-src` `apply_edit` op. Resolves as a failed reply (never rejects) when the
+   * bridge isn't present — e.g. the engine running in a plain browser tab.
+   */
+  requestImageReplace(request: ImageReplaceRequest): Promise<ImageReplaceReply> {
+    const handler = window.webkit?.messageHandlers?.wysiwyg;
+    if (!handler) {
+      return Promise.resolve({ status: "failed", message: "Not running inside the Anglesite app" });
+    }
+    const requestId = crypto.randomUUID();
+    return new Promise((resolve) => {
+      this.#pendingImageReplace.set(requestId, resolve);
+      handler.postMessage({ type: "replace-image", requestId, request });
     });
   }
 

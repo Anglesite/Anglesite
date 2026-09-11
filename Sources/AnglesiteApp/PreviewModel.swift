@@ -96,6 +96,37 @@ final class PreviewModel {
     /// exposed separately so callers don't have to spell out the nil check.
     var isEditModeEnabled: Bool { wysiwygCanvas != nil }
 
+    /// Whether the owner wants the block canvas on the page — `true` by default, because the
+    /// block editor is the site window's default state (#1957, decision D4): a site window opens
+    /// ready to edit, not merely to look. Only Site ▸ Edit Page turning the canvas *off* flips
+    /// this, and it stays off across navigations until the toggle turns it back on. Distinct
+    /// from ``isEditModeEnabled``, which reports whether a canvas is actually mounted right now —
+    /// `false` while a page model is still being fetched, or on a route that doesn't resolve to
+    /// an editable `.astro` page.
+    private(set) var isEditModeDesired = true
+
+    /// The project-relative page path the current canvas was built for — what
+    /// ``syncEditMode(toPath:)`` compares against, so a finished navigation to the same page (an
+    /// HMR reload, ⌘R) keeps the existing canvas instead of rebuilding it, while a navigation to
+    /// a different page replaces it. Kept here rather than read back from `wysiwygCanvas?.model
+    /// .path` so the comparison is against what was *asked for*, independent of how the sidecar
+    /// spells the path in its reply. `nil` while no canvas is mounted.
+    private(set) var editModePath: String?
+
+    /// The window's `UndoManager`, forwarded from `SiteWindowModel.windowUndoManager` so a
+    /// canvas built by ``syncEditMode(toPath:)`` — which fires from a navigation callback, with
+    /// no menu action in the loop to pass one — still lands its edits on the undo stack. Weak +
+    /// `@ObservationIgnored` for the same reason as its source: the window owns it and it isn't
+    /// render state.
+    @ObservationIgnored
+    weak var windowUndoManager: UndoManager?
+
+    /// Monotonic generation for ``enterEditMode(path:undoManager:)``'s async fetch: two
+    /// navigations landing before the first page model arrives would otherwise let the *stale*
+    /// fetch overwrite the newer canvas, so each entry bumps this and a result is dropped when
+    /// a later entry has superseded it.
+    private var editModeGeneration = 0
+
     /// True while the preview `WKWebView` holds real AppKit keyboard focus, for ANY reason —
     /// the full `wysiwygCanvas` block editor, or the lighter-weight inline `contentEditable` quick
     /// edit the overlay JS (`JS/edit-overlay/src/overlay.ts`) opens on a plain click, e.g. a
@@ -163,6 +194,8 @@ final class PreviewModel {
     ///
     /// `path` is the project-relative `.astro` page path (e.g. `src/pages/index.astro`).
     func enterEditMode(path: String, undoManager: UndoManager?) async {
+        editModeGeneration += 1
+        let generation = editModeGeneration
         // Mirrors `open(site:)`'s own `pageModelClient` construction: a fresh lookup per call
         // rather than a value pinned at construction, so it keeps working across a dev-server
         // restart that swaps out `runtime`'s underlying MCP connection.
@@ -176,6 +209,9 @@ final class PreviewModel {
                 text: "enterEditMode: get_page_model failed for \(path): \(error)")
             return // canvas stays nil — the Edit Page toggle simply doesn't turn on (see plan's design decision 4)
         }
+        // A newer entry (another navigation, or the toggle) won the race while this fetch was
+        // in flight — its canvas is the one the owner is looking at; don't replace it.
+        guard generation == editModeGeneration else { return }
         let seedModel = PageModelBlockAdapter.adapt(pageModel)
         // `pageModel.tree.id` is the model's real root-fragment id (e.g. "n0") — the transport
         // needs it up front to substitute for the app-side `rootParentID` sentinel on any
@@ -193,7 +229,12 @@ final class PreviewModel {
                 GateContext.build(fromSourceDirectory: openSiteDirectory)
             }.value
         }
+        // Replacing a canvas for another page (a route change with the canvas on): the JS engine
+        // for the old page is already gone with that page's navigation, and `PreviewView
+        // .updateNSView` swaps the script-message handler when it sees the new controller, so
+        // nothing else needs tearing down here.
         wysiwygCanvas = canvas
+        editModePath = path
         if let webView {
             canvas.webView = webView
             canvas.mountEngine()
@@ -206,10 +247,49 @@ final class PreviewModel {
 
     /// Site ▸ Edit Page toggle-off: unmounts the JS engine (best-effort — a no-op if the web view
     /// has already gone away) and tears down the mounted canvas controller so `PreviewView` stops
-    /// registering the WYSIWYG ops handler on the next render.
+    /// registering the WYSIWYG ops handler on the next render. Doesn't touch
+    /// ``isEditModeDesired`` — that's the toggle's own job (``setEditMode(enabled:path:)``); this
+    /// is also what a runtime teardown calls, and a dev-server restart shouldn't flip the
+    /// owner's preference.
     func exitEditMode() {
+        editModeGeneration += 1 // drops any in-flight `enterEditMode` fetch on the floor
         wysiwygCanvas?.unmountEngine()
         wysiwygCanvas = nil
+        editModePath = nil
+    }
+
+    /// Site ▸ Edit Page toggle (#1957): records the owner's preference in ``isEditModeDesired``
+    /// and mounts or tears down the canvas for `path` accordingly. `undoManager` (the window's,
+    /// read fresh by the caller) also becomes ``windowUndoManager`` so later navigation-driven
+    /// mounts inherit it.
+    func setEditMode(enabled: Bool, path: String, undoManager: UndoManager?) async {
+        isEditModeDesired = enabled
+        if let undoManager { windowUndoManager = undoManager }
+        if enabled {
+            await enterEditMode(path: path, undoManager: undoManager ?? windowUndoManager)
+        } else {
+            exitEditMode()
+        }
+    }
+
+    /// Keeps the block canvas on the page the preview actually shows (#1957: the canvas is the
+    /// window's default state, so it has to follow the owner around rather than wait for a menu
+    /// toggle). Called by `SiteWindowModel.syncEditMode(afterNavigationTo:)` from `PreviewView`'s
+    /// finished-navigation callback with the route's resolved `.astro` path:
+    ///
+    /// - canvas off by preference (``isEditModeDesired`` false) → nothing;
+    /// - a canvas already mounted for `path` → nothing (an HMR reload or ⌘R of the same page —
+    ///   `PreviewView.Coordinator.webView(_:didFinish:)` remounts the JS engine on its own);
+    /// - otherwise → ``enterEditMode(path:undoManager:)`` with ``windowUndoManager``, which
+    ///   replaces any canvas for a *different* page or builds the first one.
+    ///
+    /// A route that doesn't resolve to a fetchable page (the sidecar rejects `get_page_model`)
+    /// leaves the canvas off for that page — logged by `enterEditMode`, not surfaced — and the
+    /// next navigation tries again.
+    func syncEditMode(toPath path: String) async {
+        guard isEditModeDesired else { return }
+        guard editModePath != path || wysiwygCanvas == nil else { return }
+        await enterEditMode(path: path, undoManager: windowUndoManager)
     }
 
     /// `contentGraph` is the app-lifetime `SiteContentGraph` (held by `AppDelegate`); it's threaded

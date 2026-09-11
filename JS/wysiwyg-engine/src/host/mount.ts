@@ -6,6 +6,8 @@ import { AccessibilityAnnotator } from "../accessibility.js";
 import { SelectionToolbar } from "./selection-toolbar.js";
 import { NativeHostTransport } from "./native-host-transport.js";
 import { DragReorderController, computeDropTarget } from "../drag-drop.js";
+import { renderHoverOutline } from "./hover-outline.js";
+import { wireImageDrop } from "./image-drop.js";
 import { computeHandleRect, findBlockElement } from "../selection.js";
 import { BLOCK_ID_ATTR } from "../hit-test.js";
 import { ROOT_PARENT_ID } from "../types.js";
@@ -242,6 +244,8 @@ export const __testables = { wireSelection, wireScrollIntoView, renderSelectionH
 let disposeSelection: (() => void) | null = null;
 let disposeScroll: (() => void) | null = null;
 let disposeHandle: (() => void) | null = null;
+let disposeHover: (() => void) | null = null;
+let disposeImageDrop: (() => void) | null = null;
 let dropIndicator: { update: (target: DropTarget | null) => void; dispose: () => void } | null = null;
 let dragReorder: DragReorderController | null = null;
 
@@ -256,6 +260,10 @@ function disposeMounted(): void {
   disposeScroll = null;
   disposeHandle?.();
   disposeHandle = null;
+  disposeHover?.();
+  disposeHover = null;
+  disposeImageDrop?.();
+  disposeImageDrop = null;
   // Tears down `dragReorder`'s own `pointermove`/`pointerup` document listeners (drag-drop.ts).
   // Without this, a drag in progress when the host unmounts/remounts (e.g. Edit Page toggled off
   // mid-drag) leaves those listeners attached and closing over the engine being disposed below —
@@ -328,6 +336,14 @@ window.__anglesiteWysiwygMount = {
     // every `pointermove` and hands it to `onIndicator` precisely so a host can draw it.
     dragReorder = new DragReorderController(engine, (target) => dropIndicator?.update(target), document);
     disposeHandle = renderSelectionHandle(engine, dragReorder);
+    // Hover outline on the live page (#1957 parity item 1 — the retired click-to-edit overlay's
+    // `attachHover`, at block granularity).
+    disposeHover = renderHoverOutline(engine);
+    // Finder file dropped onto an existing `<img>` replaces it (#1957 parity item 2 — the retired
+    // overlay's `attachImageDrop`). Same `transport` instance again: `NativeHostTransport` also
+    // implements `ImageReplaceTransport`. A drop anywhere else stays with the native drop target
+    // (`SiteWindow.previewPane`'s `.onDrop`), which inserts a new image block.
+    disposeImageDrop = wireImageDrop(transport);
     // Restores native's own selection (`WYSIWYGCanvasController.selectedBlockId`) into this *new*
     // engine's fresh `SelectionState`, now that every selection-reacting listener above is already
     // wired — a real navigation (an HMR reload, ⌘R, a route change) discards the previous engine

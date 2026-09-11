@@ -52,12 +52,15 @@ struct PreviewView: NSViewRepresentable {
     /// that type's doc comment. Defaults to a no-op for callers (e.g. tests) that don't need it.
     var onGoalElementPick: AnglesiteScriptHandler.GoalElementPickHandler = { _ in }
 
-    /// Called every time a navigation finishes in the preview — an HMR reload, a route change, ⌘R.
-    /// The overlay's placement-pick mode is closure-local JS state that a real navigation wipes
-    /// (the `WKUserScript` re-runs and comes back inactive), so anything holding "we're waiting for
-    /// a placement click" on the native side has to hear about it or it waits forever on a
-    /// listener that no longer exists (#768 final review, Finding 8).
-    var onPreviewNavigated: () -> Void = {}
+    /// Called every time a navigation finishes in the preview — an HMR reload, a route change, ⌘R
+    /// — with the URL the web view landed on. The overlay's placement-pick mode is closure-local
+    /// JS state that a real navigation wipes (the `WKUserScript` re-runs and comes back inactive),
+    /// so anything holding "we're waiting for a placement click" on the native side has to hear
+    /// about it or it waits forever on a listener that no longer exists (#768 final review,
+    /// Finding 8). The URL is what lets `SiteWindowModel.syncEditMode(afterNavigationTo:)` keep
+    /// the block canvas on the page actually being shown (#1957) — including a link the owner
+    /// clicked *inside* the preview, which `PreviewModel.activeRoute` never learns about.
+    var onPreviewNavigated: (URL?) -> Void = { _ in }
 
     /// Called with the `WKWebView` once it's created, so the owning `PreviewModel` can hold a weak
     /// reference and drive the View-menu preview commands (reload/history/zoom).
@@ -185,7 +188,11 @@ struct PreviewView: NSViewRepresentable {
                         text: text, instruction: instruction, preamble: preamble,
                         siteID: context.siteID, siteDirectory: context.siteDirectory)
                 }
-            }
+            },
+            // #1957 parity: a file dropped onto an `<img>` on the live page replaces it through the
+            // same registered router (and so the same sidecar `replace-image-src` path, alt-text
+            // post-processing, and chat edit row) the overlay's `anglesite:apply-edit` used.
+            onImageReplaceRequested: { [router] message in await router.apply(message) }
         )
     }
 
@@ -282,13 +289,14 @@ struct PreviewView: NSViewRepresentable {
         /// repeat calls idempotent rather than stacking two live engine instances on one page.
         func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
             wysiwygController?.mountEngine()
-            onNavigated?()
+            onNavigated?(webView.url)
         }
 
         /// Set from `makeNSView`/`updateNSView` (the represented view's `onPreviewNavigated`), so
         /// a finished navigation can tell the native side that all page-injected JS state — the
-        /// overlay's placement-pick mode included — has just been discarded.
-        var onNavigated: (() -> Void)?
+        /// overlay's placement-pick mode included — has just been discarded, and which URL the
+        /// web view now shows.
+        var onNavigated: ((URL?) -> Void)?
     }
 }
 
