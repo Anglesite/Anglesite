@@ -228,10 +228,12 @@ excluded.
 
 **What it runs:** builds `packaging/flatpak/io.dwk.anglesite.linux.yml` for
 real inside a GNOME-SDK Flatpak sandbox and runs `AnglesiteLinuxTests`
-(`ShellModel`'s pure overlay-candidate logic — the only Linux-portable target
-today; `AnglesiteCoreTests` is out of scope, tracked in
-[#1284](https://github.com/Anglesite/Anglesite/issues/1284)) inside the build
-shell via `flatpak-builder --build-shell`.
+inside the build shell via `flatpak-builder --build-shell`. Since #1968 that
+suite (the `ShellModel` lifecycle + overlay-candidate tests) lives on the
+GTK-free `AnglesiteLinuxCore` library and *also* runs in `linux-build-test`
+on every Swift PR; what only this lane covers is that the GTK/WebKitGTK
+executable still builds. `AnglesiteCoreTests` is out of scope, tracked in
+[#1284](https://github.com/Anglesite/Anglesite/issues/1284).
 
 **Why this lane is `continue-on-error: true`:** `adwaita-swift` is pinned to
 a revision in `Package.swift`, but *its own* dependencies (Meta and friends)
@@ -294,10 +296,20 @@ the sync check only verifies source-file membership in the generated
 project (explicitly not a full `xcodebuild`), and every other
 `xcodebuild`-based lane builds only the macOS `Anglesite`/`AnglesiteIntents`
 schemes. This closes that gap: an iOS-incompatible change to
-`AnglesiteCore`/`AnglesiteBridge`/`AnglesiteIOS` (the modules this target
-links) now fails CI instead of surfacing only on a contributor's local
-build. See [#864](https://github.com/Anglesite/Anglesite/issues/864) and
+`AnglesiteCore`/`AnglesiteBridge`/`AnglesiteIOS`/`AnglesiteMobileCore` (the
+modules this target links) now fails CI instead of surfacing only on a
+contributor's local build. See [#864](https://github.com/Anglesite/Anglesite/issues/864) and
 [#886](https://github.com/Anglesite/Anglesite/pull/886).
+
+**Where the iOS app's tests run:** not here. `AnglesiteMobileCoreTests`
+(#1968 — the shell's `SiteShellModel`, `ComposerLoader`, and the composer's
+presentation helpers, all UIKit-free) is a plain SwiftPM test target, so
+`build-test`'s `swift test` runs it on the macOS host on every Swift PR.
+An on-simulator `xcodebuild test` is not possible on the hosted `macos-26`
+image: the target's deployment target is iOS 27 and the image ships no
+iOS 27 simulator runtime, so the bundle can't be installed. This lane's
+contribution to that coverage is compiling `AnglesiteMobileCore` for the
+iOS SDK. Revisit once a runner image carries an iOS 27 runtime.
 
 **What a red usually means:** almost always a genuine iOS-incompatible
 change in a module `AnglesiteMobile` links — check the build log for the
@@ -464,8 +476,13 @@ install/lint/typecheck/test cycle just to reach it.
 `linux-build-test` (portable SwiftPM targets, `swift:6.3.3-noble`
 container) is the Linux counterpart to `build-test`, but only compiles and
 tests the subset of targets that are Darwin-independent so far
-(`AnglesiteSiteModel`, `AnglesiteCore` as of this writing — the portable set
-expands as more of the cross-platform port lands). A red here is either a
+(`AnglesiteSiteModel`, `AnglesiteQuickLookSupport`, `AnglesiteCore`,
+`AnglesiteBridgeCore`, and the Linux shell's GTK-free `AnglesiteLinuxCore`
+as of this writing — the portable set expands as more of the cross-platform
+port lands). Its `swift test` is what runs `AnglesiteLinuxTests`
+(`ShellModel`'s site-lifecycle suite, #1968) on every Swift PR; the
+GTK/WebKitGTK adapter code in the `AnglesiteLinux` executable itself is still
+only built by the non-required Flatpak lane. A red here is either a
 genuine cross-platform-purity regression, or a change that needs the
 target's Linux compatibility explicitly extended in `Package.swift`.
 

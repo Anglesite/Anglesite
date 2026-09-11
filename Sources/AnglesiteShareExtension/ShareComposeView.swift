@@ -1,5 +1,6 @@
 import SwiftUI
 import AnglesiteCore
+import AnglesiteShareExtensionCore
 
 struct ShareComposeView: View {
     @Bindable var model: ShareComposeModel

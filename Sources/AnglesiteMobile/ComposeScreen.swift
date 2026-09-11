@@ -2,14 +2,15 @@
 import SwiftUI
 import UIKit
 import PhotosUI
-import Network
-import UniformTypeIdentifiers
 import AnglesiteIOS
 import AnglesiteCore
+import AnglesiteMobileCore
 
 /// The composer (#869): a registry-driven typed form over one post, with the Markdown body
 /// surface and the Save Draft / Publish actions. All state lives in `PostComposerModel`
-/// (`AnglesiteIOS`); this screen renders its phase and forwards intents.
+/// (`AnglesiteIOS`); this screen renders its phase and forwards intents. The phase predicates,
+/// field layout, upload-failure classification, and network wait it leans on are
+/// `AnglesiteMobileCore` (tested under `swift test`, #1968) — only rendering and copy live here.
 struct ComposeScreen: View {
     @Bindable var model: PostComposerModel
     /// Called after a successful send so the enclosing list refreshes.
@@ -23,10 +24,10 @@ struct ComposeScreen: View {
             .toolbar {
                 ToolbarItemGroup(placement: .primaryAction) {
                     Button("Save Draft") { Task { await model.saveDraft(); notifyIfSent() } }
-                        .disabled(isSending)
+                        .disabled(model.phase.isSending)
                     Button("Publish") { Task { await model.publish(); notifyIfSent() } }
                         .buttonStyle(.borderedProminent)
-                        .disabled(isSending)
+                        .disabled(model.phase.isSending)
                 }
             }
             .safeAreaInset(edge: .bottom) { phaseBanner }
@@ -45,43 +46,30 @@ struct ComposeScreen: View {
                 // §3's restore contract: an interrupted session keeps its in-progress draft.
                 if phase == .background { model.persistDraft() }
             }
-            .task(id: isWaitingForNetwork) {
-                guard isWaitingForNetwork else { return }
-                await Self.waitForNetwork()
+            .task(id: model.phase.isWaitingForNetwork) {
+                // The waiting-for-network state's automatic retry trigger while the app is
+                // running; `NetworkWait` honors the cancellation SwiftUI issues when the
+                // composer goes away, and the re-check below keeps a cancel-resume from retrying.
+                guard model.phase.isWaitingForNetwork else { return }
+                await NetworkWait.untilSatisfied()
                 guard !Task.isCancelled else { return }
                 await model.retry()
                 notifyIfSent()
             }
     }
 
-    private var isSending: Bool {
-        if case .sending = model.phase { return true }
-        return false
-    }
-
-    private var isWaitingForNetwork: Bool {
-        if case .waitingForNetwork = model.phase { return true }
-        return false
-    }
-
     private var conflictPresented: Binding<Bool> {
         Binding(
-            get: {
-                if case .conflict = model.phase { return true }
-                return false
-            },
+            get: { model.phase.isConflict },
             set: { presented in
                 // Dismissing without choosing keeps editing; the conflict re-arms on next send.
-                if !presented, case .conflict = model.phase { model.resumeEditing() }
+                if !presented, model.phase.isConflict { model.resumeEditing() }
             }
         )
     }
 
     private func notifyIfSent() {
-        switch model.phase {
-        case .savedDraft, .publishedRebuilding: onSent()
-        default: break
-        }
+        if model.phase.didSend { onSent() }
     }
 
     /// The phase strip under the form: sending progress, the explicit waiting-for-network state,
@@ -145,66 +133,6 @@ struct ComposeScreen: View {
             .background(.bar)
             .overlay(alignment: .top) { Divider() }
     }
-
-    /// Resolves when the network path is satisfied — the waiting-for-network state's automatic
-    /// retry trigger while the app is running. (OS-scheduled background retry after the app
-    /// exits is the design's noted follow-up; the queued draft persists either way.)
-    ///
-    /// Honors task cancellation: SwiftUI cancels the enclosing `.task` when the composer goes
-    /// away, and a bare `withCheckedContinuation` would leave the monitor and a suspended
-    /// continuation alive until the device's network actually returned (#1370 review). The
-    /// caller re-checks `Task.isCancelled` after this returns, so an early cancel-resume never
-    /// triggers a retry.
-    private static func waitForNetwork() async {
-        let monitor = NWPathMonitor()
-        defer { monitor.cancel() }
-        let gate = ContinuationGate()
-        await withTaskCancellationHandler {
-            await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
-                gate.arm(continuation)
-                monitor.pathUpdateHandler = { path in
-                    if path.status == .satisfied { gate.resume() }
-                }
-                monitor.start(queue: DispatchQueue(label: "io.dwk.anglesite.network-wait"))
-            }
-        } onCancel: {
-            gate.resume()
-        }
-    }
-}
-
-/// Resumes a `Void` continuation exactly once, from whichever of the path-satisfied callback or
-/// the cancellation handler fires first — both race on background queues, and a double resume
-/// is a crash while a dropped one is a leak.
-private final class ContinuationGate: @unchecked Sendable {
-    private let lock = NSLock()
-    private var continuation: CheckedContinuation<Void, Never>?
-    /// Set when `resume()` ran before `arm(_:)` — cancellation can fire before the
-    /// continuation exists; arming after that resumes immediately.
-    private var resumedEarly = false
-
-    func arm(_ continuation: CheckedContinuation<Void, Never>) {
-        lock.lock()
-        if resumedEarly {
-            lock.unlock()
-            continuation.resume()
-            return
-        }
-        self.continuation = continuation
-        lock.unlock()
-    }
-
-    func resume() {
-        lock.lock()
-        guard let continuation else {
-            resumedEarly = true
-            lock.unlock()
-            return
-        }
-        self.continuation = nil
-        lock.unlock()
-        continuation.resume()
-    }
 }
 
 /// The schema-driven form body — one control per field `Kind`, ordered by the descriptor,
@@ -229,10 +157,10 @@ struct MicropubEntryForm: View {
                         .foregroundStyle(.secondary)
                 }
             }
-            ForEach(scalarFields, id: \.name) { field in
+            ForEach(ComposerFieldLayout.scalarFields(of: model.descriptor), id: \.name) { field in
                 control(for: field)
             }
-            if let body = bodyField {
+            if let body = ComposerFieldLayout.bodyField(of: model.descriptor) {
                 Section("Body") {
                     MarkdownTextView(
                         text: model.textBinding(body.name),
@@ -244,16 +172,6 @@ struct MicropubEntryForm: View {
                 }
             }
         }
-    }
-
-    /// `draft` is omitted: its wire form is `post-status`, which the Save Draft / Publish
-    /// actions stamp — a checkbox alongside those buttons would fight them.
-    private var scalarFields: [ContentTypeField] {
-        model.descriptor.fields.filter { $0.kind != .markdown && $0.name != "draft" }
-    }
-
-    private var bodyField: ContentTypeField? {
-        model.descriptor.fields.first { $0.kind == .markdown }
     }
 
     @ViewBuilder
@@ -375,7 +293,8 @@ private struct ImageFieldControl: View {
             return
         }
         await upload(
-            data: data, filename: url.lastPathComponent, mimeType: Self.mimeType(for: url))
+            data: data, filename: url.lastPathComponent,
+            mimeType: MediaUploadPresentation.mimeType(forFileExtension: url.pathExtension))
     }
 
     private func upload(data: Data, filename: String, mimeType: String) async {
@@ -393,24 +312,19 @@ private struct ImageFieldControl: View {
         }
     }
 
-    private static func mimeType(for url: URL) -> String {
-        UTType(filenameExtension: url.pathExtension)?.preferredMIMEType
-            ?? "application/octet-stream"
-    }
-
+    /// Owner-facing copy per `MediaUploadPresentation.classify` case — the classification is
+    /// tested in `AnglesiteMobileCore`; the literals stay here for String Catalog extraction.
     private static func describe(_ error: PostComposerModel.MediaUploadError) -> String {
-        switch error {
-        case .rejected(.tooLarge(let bytes)):
-            let size = ByteCountFormatter.string(
-                fromByteCount: Int64(bytes), countStyle: .file)
+        switch MediaUploadPresentation.classify(error) {
+        case .tooLarge(let size):
             return String(localized: "That image is \(size) — the limit is 25 MB.")
-        case .rejected(.unsupportedFormat(let mimeType)):
+        case .unsupportedFormat(let mimeType):
             return String(localized: "\(mimeType) images can't be shown on the web.")
-        case .rejected(.empty):
+        case .empty:
             return String(localized: "That file is empty.")
-        case .transport(let micropubError) where micropubError.requiresReauthorization:
+        case .reauthorizationRequired:
             return String(localized: "Your site needs you to sign in again.")
-        case .transport:
+        case .transportFailed:
             return String(localized: "The upload didn't go through — try again.")
         }
     }
@@ -569,9 +483,7 @@ private struct ObjectArrayEditor: View {
     }
 
     private func emptyRecord() -> [String: TypedContentEditor.FieldValue] {
-        Dictionary(uniqueKeysWithValues: memberFields.map {
-            ($0.name, TypedContentEditor.defaultValue(for: $0.kind))
-        })
+        ObjectRecordFields.emptyRecord(memberFields: memberFields)
     }
 
     private func syncRowsFromRecords() {
@@ -607,14 +519,14 @@ private struct ObjectArrayEditor: View {
         }
     }
 
+    // The value rules behind these bindings are `ObjectRecordFields` (AnglesiteMobileCore);
+    // only the SwiftUI `Binding` wrapping lives here.
+
     private func textBinding(
         _ name: String, in values: Binding<[String: TypedContentEditor.FieldValue]>
     ) -> Binding<String> {
         Binding(
-            get: {
-                if case .text(let s)? = values.wrappedValue[name] { return s }
-                return ""
-            },
+            get: { ObjectRecordFields.text(name, in: values.wrappedValue) },
             set: { values.wrappedValue[name] = .text($0) }
         )
     }
@@ -623,10 +535,7 @@ private struct ObjectArrayEditor: View {
         _ name: String, in values: Binding<[String: TypedContentEditor.FieldValue]>
     ) -> Binding<Bool> {
         Binding(
-            get: {
-                if case .flag(let b)? = values.wrappedValue[name] { return b }
-                return false
-            },
+            get: { ObjectRecordFields.flag(name, in: values.wrappedValue) },
             set: { values.wrappedValue[name] = .flag($0) }
         )
     }
@@ -635,10 +544,7 @@ private struct ObjectArrayEditor: View {
         _ name: String, in values: Binding<[String: TypedContentEditor.FieldValue]>
     ) -> Binding<Date> {
         Binding(
-            get: {
-                if case .date(let d?)? = values.wrappedValue[name] { return d }
-                return Date()
-            },
+            get: { ObjectRecordFields.date(name, in: values.wrappedValue) ?? Date() },
             set: { values.wrappedValue[name] = .date($0) }
         )
     }
@@ -649,19 +555,12 @@ private struct ObjectArrayEditor: View {
     ) -> Binding<String> {
         Binding(
             get: {
-                if let draft = numberDrafts[rowID]?[name] { return draft }
-                if case .number(let n?)? = values.wrappedValue[name] {
-                    return ComposerNumberFormat.display(n)
-                }
-                return ""
+                ObjectRecordFields.numberText(name, in: values.wrappedValue, draft: numberDrafts[rowID]?[name])
             },
             set: { raw in
                 numberDrafts[rowID, default: [:]][name] = raw
-                let trimmed = raw.trimmingCharacters(in: .whitespaces)
-                if trimmed.isEmpty {
-                    values.wrappedValue[name] = .number(nil)
-                } else if let parsed = Double(trimmed) {
-                    values.wrappedValue[name] = .number(parsed)
+                if let value = ObjectRecordFields.parsedNumber(from: raw) {
+                    values.wrappedValue[name] = value
                 }
             }
         )

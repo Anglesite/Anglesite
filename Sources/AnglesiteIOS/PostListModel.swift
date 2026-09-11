@@ -22,6 +22,16 @@ public final class PostListModel {
         public let collection: String?
         /// Whether the post is a draft (the Post Status extension's `post-status`).
         public let isDraft: Bool
+
+        /// Memberwise creation, public so the iOS shell's tests (`AnglesiteMobileCoreTests`,
+        /// #1968) can build rows without a Micropub round-trip; production rows come from
+        /// ``PostListModel/refresh()``.
+        public init(id: URL, title: String, collection: String?, isDraft: Bool) {
+            self.id = id
+            self.title = title
+            self.collection = collection
+            self.isDraft = isDraft
+        }
     }
 
     /// The list's loading state.
