@@ -669,6 +669,20 @@ jobs:
       # times as a toolchain crash that way. `set -o pipefail` because the default
       # `bash -e {0}` step shell does NOT set it — without it tee's exit 0 would
       # swallow the test failure entirely.
+      # DIAGNOSTIC (#1990, temporary): this branch (PR #1976) has crashed this exact step with
+      # "freed pointer was not the last allocation" (signal 6, Swift concurrency-runtime
+      # task-allocator abort) on 9+ of 9 CI runs, at a different random point in the merged
+      # ~5,000-test AnglesitePackageTests.xctest bundle each time, never locally (Xcode 27 /
+      # Swift 6.4). Two review passes found no code bug beyond one already-fixed unrelated race
+      # (#1960's `DeployCommandTests` shared-temp-dir fix). #1990's working theory: this
+      # branch's added tests tip `--parallel`'s scheduling load past a marginal Swift 6.3.3
+      # (Xcode 26.6, this job's toolchain) concurrency-runtime race — plausible given #1979/#1966
+      # independently found the same runner's cooperative executor gets oversubscribed under
+      # this suite's full parallel load. `swift test --help` confirms `--num-workers` throttles
+      # worker count while keeping the `--parallel` execution path (unlike `--no-parallel`,
+      # which is a different, non-parallel code path). This line caps it at 2 workers to test
+      # that theory directly, temporarily and on this branch only. Remove this flag and this
+      # comment together once #1990 records the outcome (see PR #1976's Test plan).
       - name: Test
         id: swift-test
         env:
@@ -676,7 +690,7 @@ jobs:
         run: |
           set -o pipefail
           source scripts/lib/timing-sensitive-tests.sh
-          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" 2>&1 | tee "$RUNNER_TEMP/swift-test.log"
+          swift test -c debug --parallel --num-workers 2 --skip "$TIMING_SENSITIVE_TEST_FILTER" 2>&1 | tee "$RUNNER_TEMP/swift-test.log"
 
       - name: Surface Swift errors (annotations + job summary)
         if: failure() && steps.swift-test.outcome == 'failure'
