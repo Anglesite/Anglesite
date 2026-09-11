@@ -364,7 +364,8 @@ final class PlistEditorModel {
             } catch {
                 redirectEntries = []
                 savedRedirectEntries = []
-                redirectsError = String(localized: "Couldn't load existing redirects.json — it may be corrupted or hand-edited with invalid entries. Fix it externally or your next save will discard it. (\(error.localizedDescription))")
+                redirectsError = String(localized: "Couldn't read this site's saved redirects — they may be damaged. Saving now would replace them.")
+                logLoadFailure(file: "redirects.json", error: error)
                 redirectsLoadFailed = true
             }
             do {
@@ -376,7 +377,8 @@ final class PlistEditorModel {
             } catch {
                 utmCampaigns = []
                 savedUTMCampaigns = []
-                utmCodesError = String(localized: "Couldn't load existing utm-codes.json — it may be corrupted or hand-edited with invalid entries. Fix it externally or your next save will discard it. (\(error.localizedDescription))")
+                utmCodesError = String(localized: "Couldn't read this site's saved UTM campaigns — they may be damaged. Saving now would replace them.")
+                logLoadFailure(file: "utm-codes.json", error: error)
                 utmCodesLoadFailed = true
             }
             do {
@@ -393,7 +395,8 @@ final class PlistEditorModel {
             } catch {
                 licensingPolicy = LicensingPolicy()
                 savedLicensingPolicy = LicensingPolicy()
-                licensingError = String(localized: "Couldn't load existing licensing.json — it may be corrupted or hand-edited. Fix it externally or your next save will discard it. (\(error.localizedDescription))")
+                licensingError = String(localized: "Couldn't read this site's saved licensing rules — they may be damaged. Saving now would replace them.")
+                logLoadFailure(file: "licensing.json", error: error)
                 licensingLoadFailed = true
             }
             if let configDirectory {
@@ -556,12 +559,22 @@ final class PlistEditorModel {
         }
     }
 
+    /// The owner sees an owner-phrased sentence (#1963, D1); the file name and the decoding
+    /// error it needs for a support conversation go to the Debug pane instead.
+    private func logLoadFailure(file: String, error: any Error) {
+        Task {
+            await LogCenter.shared.append(
+                source: "settings", stream: .stderr,
+                text: "\(file) failed to load: \(error)")
+        }
+    }
+
     @discardableResult
     func saveRedirects() async -> Bool {
         guard isRedirectsDirty else { return true }
         guard !isSavingRedirects else { return false }
         guard !redirectsLoadFailed else {
-            redirectsError = String(localized: "Refusing to save: the existing redirects.json failed to load and may contain valid entries this save would discard. Fix or back up the file, then reload this site's settings.")
+            redirectsError = String(localized: "Can't save redirects: the ones already saved for this site couldn't be read, and saving would replace them. Reopen this site's settings to try again.")
             return false
         }
         isSavingRedirects = true
@@ -590,7 +603,7 @@ final class PlistEditorModel {
         }
         guard !isSavingUTMCodes else { return false }
         guard !utmCodesLoadFailed else {
-            utmCodesError = String(localized: "Refusing to save: the existing utm-codes.json failed to load and may contain campaigns this save would discard. Fix or back up the file, then reload this site's settings.")
+            utmCodesError = String(localized: "Can't save UTM campaigns: the ones already saved for this site couldn't be read, and saving would replace them. Reopen this site's settings to try again.")
             return false
         }
         isSavingUTMCodes = true
@@ -616,7 +629,7 @@ final class PlistEditorModel {
         guard isLicensingDirty else { return true }
         guard !isSavingLicensing else { return false }
         guard !licensingLoadFailed else {
-            licensingError = String(localized: "Refusing to save: the existing licensing.json failed to load and may contain rules this save would discard. Fix or back up the file, then reload this site's settings.")
+            licensingError = String(localized: "Can't save licensing rules: the ones already saved for this site couldn't be read, and saving would replace them. Reopen this site's settings to try again.")
             return false
         }
         isSavingLicensing = true

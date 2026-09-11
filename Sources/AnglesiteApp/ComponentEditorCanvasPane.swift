@@ -97,7 +97,7 @@ struct ComponentEditorCanvasPane: View {
                 content
             }
         } else {
-            ContentUnavailableView("Dev Server Starting…", systemImage: "hourglass")
+            ContentUnavailableView("Preview Starting…", systemImage: "hourglass")
         }
     }
 

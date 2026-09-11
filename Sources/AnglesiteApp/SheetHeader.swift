@@ -61,10 +61,10 @@ struct SheetHeader<Icon: View, Trailing: View>: View {
                 .font(.title3)
         }
         Divider()
-        SheetHeader(title: "Backing up my-site…", subtitle: "Committing 4 files", verticalPadding: 10) {
+        SheetHeader(title: "Backing up my-site…", subtitle: "Saving 4 files", verticalPadding: 10) {
             ProgressView().controlSize(.small)
         } trailing: {
-            Button("Copy SHA") {}
+            Button("Copy Details") {}
         }
     }
 }

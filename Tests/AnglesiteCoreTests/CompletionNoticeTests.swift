@@ -62,27 +62,29 @@ struct CompletionNoticeTests {
 
     // MARK: Backup
 
-    @Test("Backup success names the short commit and remote/branch")
+    @Test("Backup success names the destination the owner knows, not commit/branch/remote")
     func backupSucceeded() {
         let notice = CompletionNoticeBuilder.backup(
             siteName: "Site",
             siteID: "site-1",
-            outcome: .succeeded(commitSHA: "a1b2c3d4e5f6a7b8", branch: "main", remote: "origin")
+            outcome: .succeeded(commitSHA: "a1b2c3d4e5f6a7b8", branch: "main", remote: "https://github.com/me/site.git")
         )
         #expect(notice.title == "Backup Complete")
         #expect(notice.subtitle == "Site")
-        #expect(notice.body == "Pushed commit a1b2c3d to origin/main.")
+        #expect(notice.body == "Backed up to GitHub.")
         #expect(!notice.isFailure)
     }
 
-    @Test("Backup with a short SHA does not over-trim")
-    func backupShortSHA() {
+    @Test("Backup success to an unrecognized host falls back to the host name")
+    func backupSucceededUnknownHost() {
         let notice = CompletionNoticeBuilder.backup(
             siteName: "Site",
             siteID: "site-1",
-            outcome: .succeeded(commitSHA: "abc", branch: "main", remote: "origin")
+            outcome: .succeeded(commitSHA: "abc", branch: "main", remote: "https://git.example.net/me/site.git")
         )
-        #expect(notice.body == "Pushed commit abc to origin/main.")
+        #expect(notice.body == "Backed up to git.example.net.")
+        #expect(!notice.body.contains("abc"), "commit SHAs never reach the notification (#1963)")
+        #expect(!notice.body.contains("main"), "branch names never reach the notification (#1963)")
     }
 
     @Test("Backup no-changes is a completion, not a failure")

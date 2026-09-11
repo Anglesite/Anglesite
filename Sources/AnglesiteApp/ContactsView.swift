@@ -172,7 +172,7 @@ struct ContactsView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("Couldn't read your contacts").font(.title2)
             Text(
-                "The contacts file may be damaged. Back it up, then remove Config/contacts.json to start fresh."
+                "The contacts file may be damaged and couldn't be read. The rest of your site is unaffected."
             )
             .foregroundStyle(.secondary)
         }

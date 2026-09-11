@@ -51,7 +51,7 @@ private struct GeneralSettingsView: View {
 
             Section("Sound") {
                 Toggle("Play dial-up sound while loading", isOn: $playsDialupSoundEffect)
-                Text("Plays a nostalgic dial-up modem sound while the dev server starts up or a publish is running. Purely decorative — off by default.")
+                Text("Plays a nostalgic dial-up modem sound while the preview starts up or a publish is running. Purely decorative — off by default.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -424,7 +424,7 @@ private struct AdvancedSettingsView: View {
                         AppSettings.shared.gitHubAccount.map { .init(label: $0.login, detail: $0.name, avatarURL: $0.avatarURL) }
                     }
                 )
-                Text("Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write, Administration: Read and write access (Administration is needed to create a new repo when publishing), Pages: Read and write access (needed to publish a site via the GitHub Pages deploy target), Repository security advisories: Read, and Dependabot alerts: Read (both are used to show a site's open security reports) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs.")
+                Text("Lets Anglesite back up your sites and publish them to your GitHub account. Create a fine-grained token at github.com/settings/tokens for All repositories with these permissions: Contents (read and write), Administration (read and write — lets Anglesite create a new project on GitHub when publishing), Pages (read and write — for publishing with GitHub Pages), Repository security advisories (read), and Dependabot alerts (read — both show a site's open security reports). Stored in the macOS Keychain and never written to logs.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -466,7 +466,7 @@ private struct AdvancedSettingsView: View {
 
                     lanDiscoveryControls
 
-                    Text("Dev/test only: when this Mac can't boot the local container runtime (e.g. inside a VM without nested virtualization), Anglesite connects preview and editing to a dev server already running on the named host over the trusted local network. Leave the host blank to disable. Takes effect the next time a site window opens.")
+                    Text("Dev/test only: when this Mac can't boot the local container runtime (e.g. inside a VM without nested virtualization), Anglesite connects preview and editing to a site preview already running on the named host over the trusted local network. Leave the host blank to disable. Takes effect the next time a site window opens.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

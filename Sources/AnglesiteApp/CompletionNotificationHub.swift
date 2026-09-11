@@ -42,12 +42,13 @@ enum CompletionNotificationHub {
                         outcome: .succeeded(url: url.absoluteString, duration: duration)
                     )
                 }
-            case .failed(let reason, _):
-                // Command-produced reasons already carry the exit code where it matters
-                // ("npm run build failed (exit 1)"), so don't append it again here.
+            case .failed(let reason, let exit):
+                // The notification carries the owner-phrased summary (#1963, D1); the raw
+                // command reason and exit code stay in the deploy drawer's Details disclosure.
                 DockProgressController.shared.clear(token: dockToken)
+                let summary = OwnerFacingCopy.operation(reason: reason, exitCode: exit).summary
                 postNotice(siteID: siteID) { name in
-                    CompletionNoticeBuilder.deploy(siteName: name, siteID: siteID, outcome: .failed(reason: reason))
+                    CompletionNoticeBuilder.deploy(siteName: name, siteID: siteID, outcome: .failed(reason: summary))
                 }
             case .blocked(let failures, _):
                 DockProgressController.shared.clear(token: dockToken)
@@ -100,9 +101,10 @@ enum CompletionNotificationHub {
                 postNotice(siteID: siteID) { name in
                     CompletionNoticeBuilder.backup(siteName: name, siteID: siteID, outcome: .noChanges)
                 }
-            case .failed(let reason, _):
+            case .failed(let reason, let exit):
+                let summary = OwnerFacingCopy.backup(reason: reason, exitCode: exit).summary
                 postNotice(siteID: siteID) { name in
-                    CompletionNoticeBuilder.backup(siteName: name, siteID: siteID, outcome: .failed(reason: reason))
+                    CompletionNoticeBuilder.backup(siteName: name, siteID: siteID, outcome: .failed(reason: summary))
                 }
             }
         }
@@ -123,9 +125,10 @@ enum CompletionNotificationHub {
                         )
                     )
                 }
-            case .failed(let reason, _, _):
+            case .failed(let reason, let exit, _):
+                let summary = OwnerFacingCopy.operation(reason: reason, exitCode: exit).summary
                 postNotice(siteID: siteID) { name in
-                    CompletionNoticeBuilder.audit(siteName: name, siteID: siteID, outcome: .failed(reason: reason))
+                    CompletionNoticeBuilder.audit(siteName: name, siteID: siteID, outcome: .failed(reason: summary))
                 }
             }
         }

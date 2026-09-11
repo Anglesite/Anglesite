@@ -122,11 +122,13 @@ public enum CompletionNoticeBuilder {
     public static func backup(siteName: String, siteID: String, outcome: BackupOutcome) -> CompletionNotice {
         let identifier = "backup.\(siteID)"
         switch outcome {
-        case .succeeded(let sha, let branch, let remote):
+        case .succeeded(_, _, let remote):
+            // Destination as the owner knows it ("GitHub"), never the commit/branch/remote
+            // triple — that stays behind the backup drawer's Copy Details (#1963, D1).
             return CompletionNotice(
                 title: "Backup Complete",
                 subtitle: siteName,
-                body: "Pushed commit \(String(sha.prefix(7))) to \(remote)/\(branch).",
+                body: "Backed up to \(OwnerPhrasing.backupDestinationLabel(remote: remote)).",
                 siteID: siteID, identifier: identifier, isFailure: false
             )
         case .noChanges:

@@ -15,7 +15,7 @@ struct WebmentionPaidPlanConfirmationSheetView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text("Inbound Webmention and WebSub require the Workers Paid plan")
                     .font(.headline)
-                Text("Receiving webmentions and pushing feed updates to subscribers both work asynchronously using Cloudflare Queues, which aren't available on the Workers Free plan. Continuing will create the Queues these features need on your connected Cloudflare account.")
+                Text("Receiving webmentions and sending feed updates to subscribers both work asynchronously using Cloudflare Queues, which aren't available on the Workers Free plan. Continuing will create the Queues these features need on your connected Cloudflare account.")
                     .font(.callout)
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)

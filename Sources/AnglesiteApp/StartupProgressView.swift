@@ -30,7 +30,7 @@ struct StartupProgressView: View {
                 Button("Show Logs", action: onShowLogs)
                     .buttonStyle(.link)
                     .font(.callout)
-                    .accessibilityHint("Opens the live log of the running dev server and dependency installation.")
+                    .accessibilityHint("Opens the live log of the preview starting up.")
             }
         }
         .frame(maxWidth: 360)

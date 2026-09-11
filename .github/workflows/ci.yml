@@ -1077,7 +1077,15 @@ jobs:
     # substitute: it needs only python3, so it runs on ubuntu-latest with no Xcode/xcodegen.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Since #1963 the script also lints catalog keys for owner-surface vocabulary (git, npm,
+      # wrangler, MCP, file layout — decision D1) outside the Debug pane and the reviewed
+      # allowlist in scripts/lib/owner-vocabulary-allowlist.txt.
       - run: scripts/check-localization-catalog.sh
+      # Self-contained fixture tests for the script above (throwaway git repos, no repo state
+      # touched). Lives here rather than in linux-build-test because it needs python3, which
+      # this ubuntu-latest lane has and the swift:6.3.3-noble image doesn't ship.
+      - name: Test check-localization-catalog.sh (owner-vocabulary lint)
+        run: scripts/check-localization-catalog.test.sh
       # scripts/git-hooks/pre-commit restores the trailing newline Xcode strips, but it's a
       # local hook — absent in any clone that skipped setup-dev-env.sh, and already bypassed
       # more than once (#970). Enforce it here so the last byte stops flip-flopping.
