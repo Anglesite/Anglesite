@@ -303,7 +303,7 @@ final class PlistEditorModel {
         // Resolved here rather than as a default argument: a closure creating and awaiting an
         // actor can't be a default value in this @MainActor initializer under strict concurrency.
         self.workerCatalogProvider = workerCatalogProvider ?? {
-            await WorkerCatalogFetcher(catalogURL: WorkerCatalogFetcher.productionCatalogURL).catalog()
+            await WorkerCatalogFetcher.production().catalog()
         }
         self.graphSnapshotProvider = graphSnapshotProvider
         self.onActiveWorkersChanged = onActiveWorkersChanged
