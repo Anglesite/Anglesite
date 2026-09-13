@@ -766,9 +766,6 @@
     "Association" : {
 
     },
-    "Astro Website…" : {
-
-    },
     "Atmosphere" : {
 
     },
@@ -1221,9 +1218,6 @@
     "Code" : {
 
     },
-    "Code changes not yet published to the CMS bundle." : {
-
-    },
     "Collection" : {
 
     },
@@ -1245,9 +1239,6 @@
     "Commentary" : {
 
     },
-    "Commit and push working-tree changes to your current branch" : {
-
-    },
     "Communities" : {
 
     },
@@ -1261,12 +1252,6 @@
 
     },
     "Compare Both…" : {
-
-    },
-    "Compare anglesite.json's declared domain/DNS/edge config against live Cloudflare state" : {
-
-    },
-    "Compares this site's declared anglesite.json (domain, managed DNS records, edge hardening) against what's actually live on Cloudflare." : {
 
     },
     "Compares this site's saved domain settings (domain, managed DNS records, edge hardening) against what's actually live on Cloudflare." : {
@@ -1419,9 +1404,6 @@
     "Copy Rewrite" : {
 
     },
-    "Copy SHA" : {
-
-    },
     "Copy Snippet" : {
 
     },
@@ -1507,9 +1489,6 @@
     "Couldn't find this site's publishing settings — try publishing again." : {
 
     },
-    "Couldn't find this site's wrangler.toml — try publishing again." : {
-
-    },
     "Couldn't finish setup" : {
 
     },
@@ -1567,15 +1546,6 @@
       }
     },
     "Couldn't load channels: %@" : {
-
-    },
-    "Couldn't load existing licensing.json — it may be corrupted or hand-edited. Fix it externally or your next save will discard it. (%@)" : {
-
-    },
-    "Couldn't load existing redirects.json — it may be corrupted or hand-edited with invalid entries. Fix it externally or your next save will discard it. (%@)" : {
-
-    },
-    "Couldn't load existing utm-codes.json — it may be corrupted or hand-edited with invalid entries. Fix it externally or your next save will discard it. (%@)" : {
 
     },
     "Couldn't load more followers" : {
@@ -1766,9 +1736,6 @@
     "Create" : {
 
     },
-    "Create a private GitHub repo and push this site" : {
-
-    },
     "Create a website" : {
 
     },
@@ -1884,18 +1851,6 @@
 
     },
     "Details & Summary" : {
-
-    },
-    "Dev Server" : {
-
-    },
-    "Dev Server Starting…" : {
-
-    },
-    "Dev server stopped" : {
-
-    },
-    "Dev/test only: when this Mac can't boot the local container runtime (e.g. inside a VM without nested virtualization), Anglesite connects preview and editing to a dev server already running on the named host over the trusted local network. Leave the host blank to disable. Takes effect the next time a site window opens." : {
 
     },
     "Dev/test only: when this Mac can't boot the local container runtime (e.g. inside a VM without nested virtualization), Anglesite connects preview and editing to a site preview already running on the named host over the trusted local network. Leave the host blank to disable. Takes effect the next time a site window opens." : {
@@ -2469,9 +2424,6 @@
 
     },
     "Inbox Capture" : {
-
-    },
-    "Include Git history (.git)" : {
 
     },
     "Include this site's change history" : {
@@ -3209,12 +3161,6 @@
     "Opens the live log of the preview starting up." : {
 
     },
-    "Opens the live log of the running dev server and dependency installation." : {
-
-    },
-    "Opens the log of the failed dev server launch." : {
-
-    },
     "Opens the log of the failed preview launch." : {
 
     },
@@ -3222,9 +3168,6 @@
 
     },
     "Optional" : {
-
-    },
-    "Optional — also sends each submission to this address by email. Leave blank to keep captures git-only." : {
 
     },
     "Optional — also sends each submission to this address by email. Leave blank to keep submissions only in your site's inbox." : {
@@ -3342,9 +3285,6 @@
 
     },
     "Play dial-up sound while loading" : {
-
-    },
-    "Plays a nostalgic dial-up modem sound while the dev server starts up or a publish is running. Purely decorative — off by default." : {
 
     },
     "Plays a nostalgic dial-up modem sound while the preview starts up or a publish is running. Purely decorative — off by default." : {
@@ -3545,13 +3485,7 @@
     "Reading %@ zone settings from Cloudflare…" : {
 
     },
-    "Reading anglesite.json and the live Cloudflare zone…" : {
-
-    },
     "Reading this site's domain settings and the live Cloudflare zone…" : {
-
-    },
-    "Receiving webmentions and pushing feed updates to subscribers both work asynchronously using Cloudflare Queues, which aren't available on the Workers Free plan. Continuing will create the Queues these features need on your connected Cloudflare account." : {
 
     },
     "Receiving webmentions and sending feed updates to subscribers both work asynchronously using Cloudflare Queues, which aren't available on the Workers Free plan. Continuing will create the Queues these features need on your connected Cloudflare account." : {
@@ -3600,15 +3534,6 @@
 
     },
     "Refuse AI crawlers in robots.txt" : {
-
-    },
-    "Refusing to save: the existing licensing.json failed to load and may contain rules this save would discard. Fix or back up the file, then reload this site's settings." : {
-
-    },
-    "Refusing to save: the existing redirects.json failed to load and may contain valid entries this save would discard. Fix or back up the file, then reload this site's settings." : {
-
-    },
-    "Refusing to save: the existing utm-codes.json failed to load and may contain campaigns this save would discard. Fix or back up the file, then reload this site's settings." : {
 
     },
     "Regenerate" : {
@@ -3783,9 +3708,6 @@
     "Restart" : {
 
     },
-    "Restart Dev Server" : {
-
-    },
     "Restart Networking & Retry" : {
 
     },
@@ -3793,9 +3715,6 @@
 
     },
     "Restricted posts are stored on your site's server, not alongside your public content. Contact-only access turns on once your site's read gate ships." : {
-
-    },
-    "Restricted posts are stored on your site's server, not in git. Contact-only access turns on once your site's read gate ships." : {
 
     },
     "Restricted to Contacts" : {
@@ -4336,9 +4255,6 @@
     "Start" : {
 
     },
-    "Start Dev Server" : {
-
-    },
     "Start Preview" : {
 
     },
@@ -4383,12 +4299,6 @@
 
     },
     "Stop" : {
-
-    },
-    "Stop Dev Server" : {
-
-    },
-    "Stored in the macOS Keychain under `io.dwk.anglesite`. The token is passed to `wrangler deploy` as `CLOUDFLARE_API_TOKEN` and never written to logs. An exported `CLOUDFLARE_API_TOKEN` in the shell that launched Anglesite takes precedence over this entry." : {
 
     },
     "Stream" : {
@@ -4490,9 +4400,6 @@
     "The contacts file may be damaged and couldn't be read. The rest of your site is unaffected." : {
 
     },
-    "The contacts file may be damaged. Back it up, then remove Config/contacts.json to start fresh." : {
-
-    },
     "The copy of this site's history in iCloud couldn't be read." : {
 
     },
@@ -4508,9 +4415,6 @@
     "The license offered for your content. Anglesite never picks one for you — until you choose, your site says all rights reserved." : {
 
     },
-    "The live Cloudflare zone matches everything declared in anglesite.json." : {
-
-    },
     "The live Cloudflare zone matches everything in this site's domain settings." : {
 
     },
@@ -4521,9 +4425,6 @@
 
     },
     "The preview is paused for %@. Start it again to resume." : {
-
-    },
-    "The preview is paused for %@. Start the dev server to resume." : {
 
     },
     "The traffic split looks off from what you'd expect — check your test setup before trusting these numbers." : {
@@ -4685,9 +4586,6 @@
     "This site's saved domain settings don't match what's live on Cloudflare. Review and reconcile before publishing again." : {
 
     },
-    "This site's wrangler.toml is missing its Worker name — try publishing again." : {
-
-    },
     "This will remove the file from your site. You can bring it back with Edit ▸ Undo." : {
 
     },
@@ -4776,9 +4674,6 @@
     "Undo this edit" : {
 
     },
-    "Undo unavailable: MCP not running." : {
-
-    },
     "Undone" : {
 
     },
@@ -4855,15 +4750,6 @@
 
     },
     "Use “%@” from Contacts for %@?" : {
-
-    },
-    "Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write and Administration: Read and write access (Administration is needed to create a new repo when publishing) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs." : {
-
-    },
-    "Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write, Administration: Read and write access (Administration is needed to create a new repo when publishing), Pages: Read and write access (needed to publish a site via the GitHub Pages deploy target), Repository security advisories: Read, and Dependabot alerts: Read (both are used to show a site's open security reports) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs." : {
-
-    },
-    "Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write, Administration: Read and write access (Administration is needed to create a new repo when publishing), Repository security advisories: Read, and Dependabot alerts: Read (both are used to show a site's open security reports) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs." : {
 
     },
     "Uses Apple Intelligence on your device. No content leaves your Mac without your say-so." : {
@@ -5068,9 +4954,6 @@
 
     },
     "Your community was created, but something above needs attention before it can preview. You can open it anyway and fix it from the community window." : {
-
-    },
-    "Your declared domain configuration (anglesite.json) doesn't match what's live on Cloudflare. Review and reconcile before publishing again." : {
 
     },
     "Your own terms" : {
