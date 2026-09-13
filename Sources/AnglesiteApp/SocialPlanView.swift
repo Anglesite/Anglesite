@@ -12,6 +12,10 @@ struct SocialPlanView: View {
                 Spacer()
                 Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
             }
+            // `SocialMediaPlanner` requests the PCC tier (#1965): badge the sheet while it's served on-device.
+            // Not when Apple Intelligence is unavailable (compile-time or runtime) — that state
+            // has its own explanation (`showsModelTierBadge`).
+            if model.showsModelTierBadge { ModelTierNoticeView(tier: .privateCloudCompute) }
             if model.unavailable {
                 ContentUnavailableView(
                     "Apple Intelligence Required", systemImage: "sparkles",
