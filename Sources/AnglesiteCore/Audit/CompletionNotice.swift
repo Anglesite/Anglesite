@@ -110,7 +110,7 @@ public enum CompletionNoticeBuilder {
     public enum BackupOutcome: Equatable, Sendable {
         /// A commit was pushed. The notice body names only the backup destination the owner
         /// signed in to ("Backed up to GitHub") — `commitSHA`/`branch` are accepted for parity
-        /// with the caller's own result shape, but ``CompletionNoticeBuilder/backup`` discards
+        /// with the caller's own result shape, but ``CompletionNoticeBuilder/backup(siteName:siteID:outcome:)`` discards
         /// them and never puts a SHA or branch name in the notification body (#1963, D1): that's
         /// git vocabulary the owner didn't ask for, not something that helps them find their
         /// site's history from a host's UI.
