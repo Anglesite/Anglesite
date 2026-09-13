@@ -285,7 +285,7 @@ enum SiteActions {
         let save = NSSavePanel()
         save.message = String(localized: "Export this site's source files to a folder.")
         save.nameFieldStringValue = site.name
-        let gitToggle = NSButton(checkboxWithTitle: String(localized: "Include Git history (.git)"), target: nil, action: nil)
+        let gitToggle = NSButton(checkboxWithTitle: String(localized: "Include this site's change history"), target: nil, action: nil)
         gitToggle.state = .off
         let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 28))
         gitToggle.frame = NSRect(x: 12, y: 4, width: 256, height: 20)

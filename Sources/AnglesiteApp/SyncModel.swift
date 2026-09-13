@@ -76,8 +76,16 @@ final class SyncModel {
         case .needsAttention(let conflict):
             let count = conflict.conflictedPaths.count + quarantinedFiles.count
             return "\(count) file\(count == 1 ? "" : "s") need attention"
-        case .failed(let reason): return "Sync problem: \(reason)"
+        case .failed(let reason): return OwnerFacingCopy.sync(reason: reason).summary
         }
+    }
+
+    /// The raw engine reason behind a `.failed` status — git/bundle vocabulary the badge never
+    /// shows (#1963, D1). `SyncStatusView` keeps it under a "Details" disclosure; `apply` also
+    /// routes it to the Debug pane.
+    var failureDetail: String? {
+        guard case .failed(let reason) = status else { return nil }
+        return OwnerFacingCopy.sync(reason: reason).detail
     }
 
     // MARK: - Lifecycle
@@ -240,6 +248,11 @@ final class SyncModel {
         // after a subsequent `stop()`.
         guard self.package?.url == package.url else { return }
         status = newStatus
+        if case .failed(let reason) = newStatus {
+            Task {
+                await LogCenter.shared.append(source: "sync", stream: .stderr, text: reason)
+            }
+        }
         if case .needsAttention = newStatus {
             refreshQuarantinedFiles()
         } else {

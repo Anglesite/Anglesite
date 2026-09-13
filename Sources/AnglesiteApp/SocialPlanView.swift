@@ -42,7 +42,7 @@ struct SocialPlanView: View {
                             .disabled(model.saved)
                     }
                 } else if !model.running {
-                    Text("Generates recommended platforms, bios, content pillars, and a weekly calendar — saved into your site repo, never posted for you.")
+                    Text("Generates recommended platforms, bios, content pillars, and a weekly calendar — saved with your site, never posted for you.")
                         .foregroundStyle(.secondary)
                 }
             }
