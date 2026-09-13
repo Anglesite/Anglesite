@@ -33,8 +33,8 @@ flowchart TB
         ondevice["On-device Foundation Models<br/>~3B + vision<br/>ApplyEditTool · SearchContentTool · Spotlight"]
     end
 
-    subgraph pcc["Private Cloud Compute — Apple cloud, no external APIs"]
-        pccgen["Bucket 5 heavy generation<br/>copy-edit · design-interview · social · repurpose"]
+    subgraph pcc["Private Cloud Compute — Apple cloud, no external APIs<br/>(not wired: tier is an alias for on-device)"]
+        pccgen["Bucket 5 heavy generation<br/>copy-edit · design-interview · social · repurpose<br/>labeled “runs on the on-device model”"]
     end
 
     subgraph container["Site container — per-site runtime<br/>(Apple Containerization on macOS · Cloudflare remote/iOS)"]
@@ -56,7 +56,7 @@ flowchart TB
     siri --> fmbrain
     chat --> fmbrain
     fmbrain -->|on-device tier| ondevice
-    fmbrain -->|escalate: PCC tier| pccgen
+    fmbrain -.->|PCC tier — served on-device today| pccgen
     fmbrain -->|tool calls| swift
     fmbrain -->|tool calls| mcpclient
     b1 --> repo
@@ -85,7 +85,7 @@ flowchart TB
 |---|---|---|
 | **Apple device (host)** | The Swift app: front-doors (GUI / Siri / chat), the `FoundationModelAssistant` orchestrator, deterministic Swift (Bucket 1 hot-paths + Bucket 3 wizards), the native `pre-deploy-check` gate, `MCPClient`, and the `WKWebView` preview. | User input; in-process Apple Intelligence API; `MCPClient` to the container. |
 | **Apple Intelligence (on-device)** | The ~3B on-device Foundation Models + vision, with the registered FM `Tool`s (`ApplyEditTool`, `SearchContentTool`, Spotlight). | Called in-process by the FM brain; never leaves the device. |
-| **Private Cloud Compute** | Heavy generation that exceeds the on-device ceiling (Bucket 5: copy-edit, design-interview, social, repurpose). Apple-operated. **Not wired yet:** the `.privateCloudCompute` tier is backed by the on-device session until the PCC entitlement lands (see `2026-07-10-pcc-escalation-spike-notes.md`). External LLMs are **not** part of this boundary: per the revised LLM policy (2026-07-08) they exist only as an explicit Settings opt-in (`ExternalLLMBackend`, ACP agents) for the chat panel. | The FM brain escalates to the PCC tier over Apple's attested, encrypted channel. |
+| **Private Cloud Compute** | Heavy generation that exceeds the on-device ceiling (Bucket 5: copy-edit, design-interview, social, repurpose). Apple-operated. **Not wired yet:** the `.privateCloudCompute` tier is an *alias* for on-device until the PCC entitlement lands (see `2026-07-10-pcc-escalation-spike-notes.md`) — `FoundationModelTier.servingTier` resolves it to `.onDevice`, the advertised capabilities say "On-Device"/4K, and every feature designed for the tier shows a "Runs on the on-device model; results may be shorter" badge (#1965). External LLMs are **not** part of this boundary: per the revised LLM policy (2026-07-08) they exist only as an explicit Settings opt-in (`ExternalLLMBackend`, ACP agents) for the chat panel, and that opt-in discloses what leaves the Mac (page text + recent chat per request). | Intended: the FM brain escalates to the PCC tier over Apple's attested, encrypted channel. Today: nothing leaves the device on this path. |
 | **Site container (per-site)** | **All JavaScript**: the Node MCP server and everything it drives in-guest — `apply_edit`/`undo_edit` (HTML/Astro patcher), the Astro dev server + build, Sharp, Satori, Pagefind, Keystatic. Apple Containerization is the macOS runtime direction; Cloudflare Sandbox is the remote/iOS runtime. | The host reaches it only over the in-container **MCP HTTP/WS transport** (#64) — not by host-spawning Node. |
 | **Site `Source/` (git repo)** | The filesystem source of truth — the clonable, externally-editable unit. | Mounted into the container; written by the in-guest JS and by Swift Bucket-1 hot-paths; read by `WKWebView` via the dev server. |
 | **Cloudflare (deploy target)** | The published site (Workers). | Deploy runs only after the native `pre-deploy-check` gate passes. |
@@ -98,7 +98,7 @@ flowchart TB
   not an LLM hook, so it cannot be prompt-injected or talked out of running. The *script* it
   executes lives in the site's `Source/`, so the app also pins its hash and restores it on
   mismatch (decision D5, `specs/2026-09-08-product-direction-review-decisions.md`).
-- **Amended 2026-09-08:** the PCC tier in the diagram is the intended escalation path, not a live one; see the boundary table.
+- **Amended 2026-09-08:** the PCC tier in the diagram is the intended escalation path, not a live one; see the boundary table. Until it lands, the tier is a labeled alias for on-device (#1965) — flip `FoundationModelTier.servingTier` when the entitlement arrives and the badges disappear on their own.
 - **This is the current state, not a future one.** The container runtimes landed (#66/#69/#70):
   the diagram reflects how Anglesite runs today — all JavaScript executes in-guest via the
   per-site container's MCP HTTP/WS transport, and the host-spawned Node sidecar plus the

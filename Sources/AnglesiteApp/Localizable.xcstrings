@@ -4388,6 +4388,9 @@
     "This Mac" : {
 
     },
+    "This agent runs alongside your site and can read and change its files while it works. Only add agents you trust with your site's content." : {
+
+    },
     "This bans the reported member or removes the reported post, whichever was flagged. The report itself stays open until you dismiss it." : {
 
     },
@@ -4821,6 +4824,9 @@
     "Which platform?" : {
 
     },
+    "While Custom Endpoint is the active model, your chat messages, the recent conversation, and the text of the page you're editing are sent to this server with every request — they leave this Mac unless the server is one you run here. Choose a provider you trust with your site's content." : {
+
+    },
     "Who does this site speak to?" : {
 
     },
@@ -4867,6 +4873,9 @@
 
     },
     "Your Cloudflare token can't manage KV namespaces — recreate it from Settings → Tokens." : {
+
+    },
+    "Your chat messages are sent to this address over the network while the agent is the active model. Only add agents you trust with your site's content." : {
 
     },
     "Your community was created with warnings. You can open it anyway and fix it from the community window." : {

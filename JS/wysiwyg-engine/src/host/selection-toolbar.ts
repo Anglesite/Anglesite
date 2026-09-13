@@ -143,7 +143,7 @@ export class SelectionToolbar {
       this.#renderError(reply.message);
       return;
     }
-    this.#renderPreview(reply.text, range);
+    this.#renderPreview(reply.text, range, reply.notice);
   }
 
   #renderLoading(): void {
@@ -164,13 +164,24 @@ export class SelectionToolbar {
     this.#el.appendChild(label);
   }
 
-  #renderPreview(rewritten: string, range: Range): void {
+  #renderPreview(rewritten: string, range: Range, notice?: string): void {
     if (!this.#el) return;
     this.#el.innerHTML = "";
     const preview = this.#doc.createElement("div");
     preview.style.cssText = "font-size:12px;color:#e5e7eb;max-width:280px;";
     preview.textContent = rewritten;
     this.#el.appendChild(preview);
+
+    // Model-tier badge (#1965): the host says when the rewrite came from a smaller model than
+    // writing help was designed for. Rendered as a separate, dimmer line so it can't be mistaken
+    // for part of the suggested text (and never lands in the block on Accept).
+    if (notice) {
+      const badge = this.#doc.createElement("div");
+      badge.setAttribute("data-model-tier-notice", "");
+      badge.style.cssText = "font-size:11px;color:#9ca3af;max-width:280px;";
+      badge.textContent = notice;
+      this.#el.appendChild(badge);
+    }
 
     const accept = this.#doc.createElement("button");
     accept.textContent = "Accept";
