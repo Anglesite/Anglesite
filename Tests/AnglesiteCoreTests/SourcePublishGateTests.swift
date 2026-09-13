@@ -107,7 +107,7 @@ extension SourcePublishGate {
         let restores = Counter()
         let runtimeCopy = AppOwnedScriptsGate.RuntimeCopy(
             digests: { _ in .digests(["scripts/pre-deploy-check.ts": PortableSHA256.hexDigest(of: Data("disabled".utf8))]) },
-            restore: { _ in restores.hit(); return true })
+            restore: { pins in restores.hit(); return pins.map(\.relativePath) })
         let gate = SourcePublishGate(
             templateDirectory: { template },
             runtime: { _ in .init(scriptsCopy: runtimeCopy, scan: { _ in scans.hit(); return .passed(warnings: []) }) },
@@ -124,7 +124,7 @@ extension SourcePublishGate {
     @Test func aRuntimeCopyThatCannotBeReadIsAnErrorNotAPass() async throws {
         let (source, template) = try intactFixture()
         let runtimeCopy = AppOwnedScriptsGate.RuntimeCopy(
-            digests: { _ in .failed(reason: "exec failed") }, restore: { _ in true })
+            digests: { _ in .failed(reason: "exec failed") }, restore: { _ in [] })
         let gate = SourcePublishGate(
             templateDirectory: { template },
             runtime: { _ in .init(scriptsCopy: runtimeCopy, scan: { _ in .passed(warnings: []) }) },
