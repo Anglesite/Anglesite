@@ -2,9 +2,11 @@
 # scripts/build-wysiwyg-engine.sh
 #
 # Builds JS/wysiwyg-engine/'s host mount entry point into
-# Resources/wysiwyg-engine/engine.js, mirroring scripts/build-overlay.sh exactly. Best-effort:
-# if Node isn't available or the install fails, warn and exit 0 so the Xcode build keeps going —
-# WYSIWYGCanvasController logs the absence at runtime and edit mode just stays unavailable.
+# Resources/wysiwyg-engine/engine.js — the one script the app injects into every preview and
+# Component Editor canvas (the block editor plus the always-on page bridge; the edit-overlay
+# bundle it used to sit beside was removed in #1957). Best-effort: if Node isn't available or
+# the install fails, warn and exit 0 so the Xcode build keeps going — WYSIWYGCanvasController
+# logs the absence at runtime and edit mode just stays unavailable.
 
 set -euo pipefail
 

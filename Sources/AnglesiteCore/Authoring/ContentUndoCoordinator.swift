@@ -1,5 +1,5 @@
 // UndoManager is a Darwin-only Foundation type, so this bridge — used only by the app target's
-// SiteWindowModel/SiteNavigatorModel — compiles out elsewhere, exactly like `EditUndoCoordinator`.
+// SiteWindowModel/SiteNavigatorModel — compiles out elsewhere, exactly like `UndoBridge`.
 // See the cross-platform port design doc §5: a portable in-memory undo stack can slot in behind the
 // same public API if/when a Linux/Windows GUI shell needs one.
 #if canImport(Darwin)
@@ -9,11 +9,13 @@ import Foundation
 /// Delete, Rename — into a window's `UndoManager` so Edit ▸ Undo (⌘Z) and Edit ▸ Redo (⇧⌘Z)
 /// reverse and replay them (#675).
 ///
-/// Sibling of ``EditUndoCoordinator`` (#527), which covers assistant-applied *content* edits. The
-/// two register into the same window `UndoManager` and interleave LIFO, as `UndoManager` does for
-/// any set of clients. Both — and ``WYSIWYGUndoCoordinator`` — are thin `Op`-specific policies
-/// over the shared `UndoBridge` (#1824); see that type for the token lifecycle, re-arm-on-outcome
-/// rule, and undo/redo stack routing this coordinator relies on.
+/// Sibling of ``WYSIWYGUndoCoordinator``, which covers block-canvas ops. The two register into the
+/// same window `UndoManager` and interleave LIFO, as `UndoManager` does for any set of clients.
+/// Both are thin `Op`-specific policies over the shared `UndoBridge` (#1824); see that type for
+/// the token lifecycle, re-arm-on-outcome rule, and undo/redo stack routing this coordinator
+/// relies on. (Assistant-applied content edits used to have a third sibling, the git-revert
+/// `EditUndoCoordinator` #527; it went with the click-to-edit overlay in #1957 — those edits are
+/// undone from their chat row.)
 ///
 /// ## One record type for every operation
 ///
@@ -34,14 +36,12 @@ import Foundation
 ///
 /// ## Policy notes
 ///
-/// - **Redo works here** (unlike #527, whose reverse-apply is a sidecar git revert with no
-///   re-apply primitive): every ``register(_:)`` also registers ``Mutation/reversed`` as the
+/// - **Redo works here**: every ``register(_:)`` also registers ``Mutation/reversed`` as the
 ///   bridge's optimistic opposite-direction step.
 /// - **Failure re-arms ⌘Z, retry only.** ``ApplyOutcome/failed`` maps to `UndoBridge/Outcome/retry`:
 ///   the bridge drops the optimistically-registered inverse and, for a failed *undo*, re-registers
-///   the original record so ⌘Z can retry — matching ``EditUndoCoordinator``'s retryable policy. A
-///   failed *redo* can only be dropped (the bridge has no way to push onto the redo stack outside
-///   an undo pass); see `UndoBridge` for why.
+///   the original record so ⌘Z can retry. A failed *redo* can only be dropped (the bridge has no
+///   way to push onto the redo stack outside an undo pass); see `UndoBridge` for why.
 /// - **Groups only open outside undo/redo processing** — `shouldOpenGroup` at construction. Inside
 ///   a pass `UndoManager` has already opened the group for the opposite stack; nesting one within
 ///   it would attach `setActionName` to the *nested* group and leave Edit ▸ Redo reading a bare
@@ -155,8 +155,8 @@ public final class ContentUndoCoordinator {
     // MARK: - Action names
 
     /// Menu action name for creating `displayName`: "New Page" → the menu reads "Undo New Page".
-    /// Plain (unlocalized) strings, matching ``EditUndoCoordinator/actionName(for:)`` — and kept
-    /// here rather than in the app target so they stay out of `check-localization-catalog.sh`'s
+    /// Plain (unlocalized) strings, kept here rather than in the app target so they stay out of
+    /// `check-localization-catalog.sh`'s
     /// `Sources/AnglesiteApp` scan, which has no way to see through `setActionName`'s `String`.
     public static func createActionName(_ displayName: String) -> String { "New \(displayName)" }
 

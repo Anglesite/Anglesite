@@ -1,8 +1,11 @@
 /**
  * Component-harness canvas module. Active only on /_anglesite/component/*
  * pages (the Component Editor's isolated canvas). Reports clicks as
- * structured selections + computed styles to native, and exposes highlight
- * and interactive structure/style-edit hooks so the native view can drive the canvas.
+ * structured selections + computed styles to native over the `wysiwyg` bridge, and exposes
+ * highlight and interactive structure/style-edit hooks so the native view can drive the canvas.
+ * Installed by `page-bridge.ts` at injection time instead of the page-level engine. Moved here
+ * verbatim from the retired `JS/edit-overlay/src/component-canvas.ts` (#1957); only the bridge
+ * namespace changed.
  */
 
 const HARNESS_PREFIX = "/_anglesite/component/";
@@ -198,9 +201,9 @@ function clearRing(): void {
 }
 
 interface WebKitHost {
-  webkit?: { messageHandlers?: { anglesite?: { postMessage(msg: unknown): void } } };
+  webkit?: { messageHandlers?: { wysiwyg?: { postMessage(msg: unknown): void } } };
 }
 
 function post(msg: unknown): void {
-  (window as WebKitHost).webkit?.messageHandlers?.anglesite?.postMessage(msg);
+  (window as WebKitHost).webkit?.messageHandlers?.wysiwyg?.postMessage(msg);
 }

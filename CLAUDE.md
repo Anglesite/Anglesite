@@ -15,7 +15,7 @@ Before handing work off, re-check the changed files against `CONTRIBUTING.md`, r
 | Repo | Role |
 |---|---|
 | `Anglesite/anglesite-skills` | MCP sidecar server (`server/`) — the app's edit/content backend inside the container |
-| `Anglesite/Anglesite` *(this repo)* | macOS app: SwiftUI shell, website template, WKWebView preview, edit overlay |
+| `Anglesite/Anglesite` *(this repo)* | macOS app: SwiftUI shell, website template, WKWebView preview, block editor |
 
 The **website template** (Astro project skeleton, themes, scaffold script, pre-deploy check) lives in this repo at `Resources/Template/`. It is a committed, first-class app resource. `TemplateRuntime` resolves it from the app bundle (with a Settings override for development).
 
@@ -30,7 +30,7 @@ Paired PRs are only needed for MCP schema changes — template changes are app-o
 
 > **Direction note:** the Claude Code dependency is retired app-side (epic #459, slice 7 #466). New feature journeys land as deterministic Swift/TypeScript or Apple Intelligence paths — there is no `claude --print` / markdown-skill path to extend.
 >
-> **Product direction (owner decisions, 2026-09-08 — [`docs/specs/2026-09-08-product-direction-review-decisions.md`](docs/specs/2026-09-08-product-direction-review-decisions.md)):** the audience is individuals and small businesses owning their social web, and Anglesite manages the technical details (Worker configuration, provisioning, deployment) for them — the owner never adjudicates git, npm, file layout, or infrastructure. The block editor (`JS/wysiwyg-engine`, #1221) is the only editing surface; `JS/edit-overlay` is deprecated and goes before 1.0. Windows/Linux is a shared-code port (#571). The app pins the hash of its own `scripts/` (incl. the pre-deploy gate) and restores on mismatch. `wrangler.toml` and deploy markers belong in `Config/`, not `Source/`. Anglesite operates everything under `anglesite.dwk.io` (OAuth callback, catalog) as an accepted first-party dependency.
+> **Product direction (owner decisions, 2026-09-08 — [`docs/specs/2026-09-08-product-direction-review-decisions.md`](docs/specs/2026-09-08-product-direction-review-decisions.md)):** the audience is individuals and small businesses owning their social web, and Anglesite manages the technical details (Worker configuration, provisioning, deployment) for them — the owner never adjudicates git, npm, file layout, or infrastructure. The block editor (`JS/wysiwyg-engine`, #1221) is the only editing surface; the click-to-edit overlay (`JS/edit-overlay`) was removed in #1957. Windows/Linux is a shared-code port (#571). The app pins the hash of its own `scripts/` (incl. the pre-deploy gate) and restores on mismatch. `wrangler.toml` and deploy markers belong in `Config/`, not `Source/`. Anglesite operates everything under `anglesite.dwk.io` (OAuth callback, catalog) as an accepted first-party dependency.
 
 ## Stack
 

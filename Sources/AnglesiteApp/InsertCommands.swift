@@ -18,9 +18,10 @@ struct InsertCommands: Commands {
     private var wysiwygCanvas: WYSIWYGCanvasController? { preview?.wysiwygCanvas }
 
     /// `Insert ▸ Image…`'s action: pick a file, write it through the same `insert-image` op the
-    /// overlay's empty-page drop branch uses, via the focused window's real `MCPApplyEditRouter`
-    /// (`preview.editRouter` — shared with the overlay and the Component Editor, per
-    /// `SiteWindowModel.makeComponentEditorContext`'s doc comment).
+    /// preview pane's native `.onDrop` (drop away from any picture, #1588) uses, via the focused
+    /// window's real `MCPApplyEditRouter` (`preview.editRouter` — shared with the block editor's
+    /// image drop and the Component Editor, per `SiteWindowModel.makeComponentEditorContext`'s
+    /// doc comment).
     @MainActor
     private static func insertImage(into preview: PreviewModel) async {
         let route = preview.activeRoute ?? "/"

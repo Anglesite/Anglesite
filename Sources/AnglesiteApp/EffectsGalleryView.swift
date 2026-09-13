@@ -87,7 +87,7 @@ struct EffectsGalleryView: View {
         // Any dismissal that isn't a placement hand-off cancels an in-progress pick (#768 final
         // review, Finding 2). `.onExitCommand` alone covered Esc but not Done — or a click on the
         // dimmed parent, or a programmatic dismiss — each of which used to leave the controller
-        // `.picking` and the overlay's click-capture listener live, so the owner's next unrelated
+        // `.picking` and the page bridge's click-capture listener live, so the owner's next unrelated
         // click on the preview was silently swallowed and applied as an insert. `cancel()` is a
         // no-op when nothing is in progress, so the non-placement case costs nothing.
         .onDisappear {

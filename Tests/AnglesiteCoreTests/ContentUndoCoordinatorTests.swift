@@ -32,7 +32,7 @@ struct ContentUndoCoordinatorTests {
     /// opens at the first registration and never closes (tests don't spin the run loop), so a
     /// single `undo()` would pop every registration at once. Disabling it makes the coordinator's
     /// explicit per-record group the top-level group — the same shape production gets from one
-    /// operation per main-run-loop turn. Matches `EditUndoCoordinatorTests`.
+    /// operation per main-run-loop turn.
     private func makeUndoManager() -> UndoManager {
         let undoManager = UndoManager()
         undoManager.groupsByEvent = false
@@ -130,7 +130,7 @@ struct ContentUndoCoordinatorTests {
         undoManager.undo()
         await coordinator.pendingApply?.value
 
-        // Unlike EditUndoCoordinator (whose reverse-apply is a sidecar git revert with no
+        // Unlike a git-revert coordinator (whose reverse-apply is a sidecar revert with no
         // re-apply primitive), both directions here are ordinary local writes — so redo exists.
         #expect(undoManager.canRedo)
         #expect(undoManager.redoActionName == "Delete \u{201C}About\u{201D}")

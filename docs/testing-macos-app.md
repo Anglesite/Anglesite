@@ -22,7 +22,7 @@ loaded via nvm in one shell but not another — not absent tooling.
 | `xcodebuild -version` | `Xcode 27.0` or newer | An older Xcode may be selected while a newer one sits in `/Applications`. Check `ls -d /Applications/Xcode*.app` and point `DEVELOPER_DIR` at a 27+ install. |
 | `xcodegen --version` | any version | `brew install xcodegen` |
 | `ls Anglesite.xcodeproj` | exists | Expected to be missing in a fresh worktree — run `xcodegen generate`. Not an error. |
-| `node --version` | v22+ | Only needed for JS/edit-overlay and template checks. Node is often nvm-managed: absent from a bare hook/login shell but present in your interactive tool shell. Probe in the same shell you'll build in before concluding it's missing. |
+| `node --version` | v22+ | Only needed for JS/wysiwyg-engine and template checks. Node is often nvm-managed: absent from a bare hook/login shell but present in your interactive tool shell. Probe in the same shell you'll build in before concluding it's missing. |
 
 When the selected Xcode is wrong or missing, prefix commands rather than
 mutating machine state:

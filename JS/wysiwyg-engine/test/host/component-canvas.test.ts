@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
-import { installComponentCanvas, isHarnessPage, sourceLoc } from "../src/component-canvas.js";
+import { installComponentCanvas, isHarnessPage, sourceLoc } from "../../src/host/component-canvas.js";
 
 function setPath(path: string) {
   window.history.replaceState({}, "", path);
@@ -9,7 +9,7 @@ function setPath(path: string) {
 function capturePosts(): unknown[] {
   const posts: unknown[] = [];
   (window as any).webkit = {
-    messageHandlers: { anglesite: { postMessage: (m: unknown) => posts.push(m) } },
+    messageHandlers: { wysiwyg: { postMessage: (m: unknown) => posts.push(m) } },
   };
   return posts;
 }
