@@ -24,6 +24,13 @@ final class CopyEditReportModel: Identifiable {
 
     var unavailable: Bool { auditor == nil }
 
+    /// Whether `ModelTierNoticeView` should show (#1965 review fix). `unavailable` alone only
+    /// covers the pre-6.4-toolchain case — Apple Intelligence going unavailable *at runtime*
+    /// (a 6.4+ build, but the on-device model off) surfaces separately via
+    /// `report?.unavailableMessage`, which already renders its own "Apple Intelligence Required"
+    /// explanation in `content`. Badging the sheet in that state contradicted that explanation.
+    var showsModelTierBadge: Bool { !unavailable && report?.unavailableMessage == nil }
+
     init(siteID: String, sourceDirectory: URL, conventionsStore: ProjectConventionsStore,
          auditor: (any CopyEditAuditing)? = CopyEditAuditorFactory.makeDefault()) {
         self.siteID = siteID

@@ -19,8 +19,9 @@ struct CopyEditReportView: View {
                     Button("Done") { dismiss() }.keyboardShortcut(.cancelAction)
                 }
                 // `CopyEditAuditor` requests the PCC tier (#1965): badge the sheet while it's served on-device.
-                // Not when Apple Intelligence is unavailable — that state has its own explanation.
-                if !model.unavailable { ModelTierNoticeView(tier: .privateCloudCompute) }
+                // Not when Apple Intelligence is unavailable (compile-time or runtime) — that
+                // state has its own explanation (`showsModelTierBadge`).
+                if model.showsModelTierBadge { ModelTierNoticeView(tier: .privateCloudCompute) }
             }
             .padding()
             Divider()

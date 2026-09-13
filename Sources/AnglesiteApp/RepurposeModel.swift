@@ -26,6 +26,17 @@ final class RepurposeModel: Identifiable {
     var domainWarning: String?
     var unavailable: Bool { repurposer == nil }
 
+    /// Whether `ModelTierNoticeView` should show (#1965 review fix). `unavailable` alone only
+    /// covers the pre-6.4-toolchain case — when Apple Intelligence is off at runtime,
+    /// `PostRepurposer.variants()` returns every platform with the same "needs Apple
+    /// Intelligence" `failure` rather than flipping `unavailable`. Hidden whenever `variants` is
+    /// non-empty and none of them actually generated text — nothing ran on-device, so there's
+    /// nothing to badge. Shown while `variants` is still empty (nothing has run yet, or
+    /// generation is in flight) so the badge doesn't flicker off and back on around a normal run.
+    var showsModelTierBadge: Bool {
+        !unavailable && (variants.isEmpty || variants.contains { $0.text != nil })
+    }
+
     init(siteID: String, sourceDirectory: URL, slug: String, conventionsStore: ProjectConventionsStore,
          repurposer: (any PostRepurposing)? = PostRepurposerFactory.makeDefault()) {
         self.siteID = siteID
