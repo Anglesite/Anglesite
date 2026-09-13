@@ -1212,16 +1212,25 @@ final class SiteWindowModel {
     /// single-offer sheet (#975), so both apply through the identical path. Uses the injected
     /// `runningAppVersion` (not a direct `AppVersion.current()` call) so tests can supply a
     /// non-nil version — a plain SwiftPM test host has no `CFBundleShortVersionString`.
-    private func applyDependencySyncOffers(_ offers: DependencySyncOffers, sourceDirectory: URL, configDirectory: URL) {
-        guard let runningVersion = runningAppVersion() else { return }
+    ///
+    /// - Returns: `true` only when the write actually landed. Callers that report the outcome to
+    ///   the owner (`loadAndStart()`'s `siteUpdateNotice`) must gate on this rather than assume
+    ///   success — `DependencySyncApplier.apply` can throw (e.g. `package.json` unreadable at
+    ///   that moment) and this swallows the error so a boot/action never fails on a
+    ///   stale-dependency write, but the caller still needs to know nothing was written.
+    @discardableResult
+    private func applyDependencySyncOffers(_ offers: DependencySyncOffers, sourceDirectory: URL, configDirectory: URL) -> Bool {
+        guard let runningVersion = runningAppVersion() else { return false }
         do {
             try DependencySyncApplier.apply(
                 offers, sourceDirectory: sourceDirectory, configDirectory: configDirectory,
                 runningAppVersion: runningVersion)
             preview.isUpdatingDependencies = true
+            return true
         } catch {
             // package.json rewrite failed — nothing was written, so the site keeps its
             // unchanged files; this boot/action is not treated as a post-update one.
+            return false
         }
     }
 
@@ -2682,9 +2691,17 @@ final class SiteWindowModel {
             )
             dependencySyncOffers = offers
             if !offers.isEmpty {
-                applyDependencySyncOffers(
+                let applied = applyDependencySyncOffers(
                     offers, sourceDirectory: resolved.sourceDirectory, configDirectory: resolved.configDirectory)
-                appliedDependencyOffers = offers
+                // #1975 review: only report the offers as applied when the write actually
+                // landed — `applyDependencySyncOffers` swallows a `package.json` write failure,
+                // and `SiteOpenUpdateNotice.build` would otherwise tell the owner an update
+                // happened when it didn't. `DependencySyncChecker` re-derives the same offers
+                // from the (unchanged) `package.json` on the next open, so leaving this `nil`
+                // here is enough for the offer to be retried honestly.
+                if applied {
+                    appliedDependencyOffers = offers
+                }
             }
         }
 

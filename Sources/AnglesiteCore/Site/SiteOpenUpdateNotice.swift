@@ -89,6 +89,17 @@ public struct SiteOpenUpdateNotice: Sendable, Equatable {
             }
         }
 
+        // A silent security.txt backfill/adopt (or a `.gitignore`/`.site-config` touch that
+        // rides along with it) only ever lands in `otherTouchedPaths` — never `refreshedPaths` or
+        // `restoredPaths` — so without this it can be the *only* thing a pass did and still leave
+        // `details` empty (#1975 review): the banner would say something was updated with nothing
+        // to show behind Details. `securityTxtPreserved` already covers the one case that's
+        // named specifically (the owner's file was left alone); everything else in
+        // `otherTouchedPaths` rolls up generically, same as any other app-owned file.
+        if !migration.otherTouchedPaths.isEmpty && !migration.securityTxtPreserved {
+            details.append("Updated: "
+                + AppOwnedFileDescription.summary(for: migration.otherTouchedPaths).joined(separator: ", ") + ".")
+        }
         if migration.securityTxtPreserved {
             details.append("Your hand-written security contact file was left as yours to maintain.")
         }
@@ -105,6 +116,11 @@ public struct SiteOpenUpdateNotice: Sendable, Equatable {
             message = dependenciesApplied > 0
                 ? "Anglesite updated the parts of this site it maintains. Your site will rebuild."
                 : "Anglesite updated the parts of this site it maintains."
+        } else if !migration.failedPaths.isEmpty {
+            // #1975 review: check this before `heldOnly` — a real write failure with nothing
+            // successfully written must never be reported as the more benign "kept as it is"
+            // just because a held-back dependency bump also happened to be present.
+            message = "Anglesite couldn't update part of this site; it will try again next time."
         } else if heldOnly {
             message = "Anglesite kept part of this site as it is — see Details."
         } else {
