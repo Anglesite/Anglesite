@@ -1106,3 +1106,48 @@ test("scanSourceTree flags dotenv files and secrets in content, and skips depend
     await rm(root, { recursive: true, force: true });
   }
 });
+
+// PR #1981 review: `scan()`'s `--source` mode used to walk `src/content/` once for
+// `checkNoRestrictedContentInSource` and then walk the whole tree again via `scanSourceTree`,
+// re-reading every `src/content/*.md|mdx|json` file a second time. `scanSourceTree`'s
+// `contentDir` option folds both checks into the single walk instead.
+test("scanSourceTree(root, { contentDir }) also flags restricted (visibility: contacts) content under contentDir, in the same pass as the secret sweep", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pdc-source-content-"));
+  try {
+    const contentDir = join(root, "src", "content");
+    await mkdir(join(contentDir, "posts"), { recursive: true });
+    await writeFile(
+      join(contentDir, "posts", "leaked.md"),
+      "---\nvisibility: contacts\n---\n# secret post\n",
+    );
+    await writeFile(join(contentDir, "posts", "clean.md"), `# clean\n\n${FAKE_AWS_KEY}\n`);
+    await writeFile(join(root, "README.md"), "# not under contentDir, not scanned for restricted content");
+
+    const issues = await scanSourceTree(root, { contentDir });
+
+    const restricted = issues.filter((i) => i.category === "restricted-content-in-source");
+    assert.deepEqual(restricted.map((i) => i.file), ["src/content/posts/leaked.md"]);
+
+    const secrets = issues.filter((i) => i.category === "exposed-token");
+    assert.deepEqual(secrets.map((i) => i.file), ["src/content/posts/clean.md"]);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});
+
+test("scanSourceTree without a contentDir option never flags restricted content (pre-#1981-review behavior preserved)", async () => {
+  const root = await mkdtemp(join(tmpdir(), "pdc-source-nocontentdir-"));
+  try {
+    await mkdir(join(root, "src", "content", "posts"), { recursive: true });
+    await writeFile(
+      join(root, "src", "content", "posts", "leaked.md"),
+      "---\nvisibility: contacts\n---\n# secret post\n",
+    );
+
+    const issues = await scanSourceTree(root);
+
+    assert.equal(issues.filter((i) => i.category === "restricted-content-in-source").length, 0);
+  } finally {
+    await rm(root, { recursive: true, force: true });
+  }
+});

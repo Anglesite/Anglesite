@@ -149,7 +149,7 @@ extension SourcePublishGate {
         let (source, template) = try intactFixture()
         let registry = SourcePublishGateRegistry()
         let scans = Counter()
-        registry.register({
+        let generation = registry.register({
             SourcePublishGate.Runtime(scriptsCopy: nil, scan: { _ in scans.hit(); return .passed(warnings: []) })
         }, for: "opened")
         let gate = SourcePublishGate(
@@ -159,10 +159,34 @@ extension SourcePublishGate {
         #expect(await gate.check(siteID: "opened", sourceDirectory: source, configDirectory: nil, source: "test") == .passed(warnings: []))
         #expect(scans.calls == 1)
 
-        registry.unregister(siteID: "opened")
+        registry.unregister(siteID: "opened", generation: generation)
         guard case .error = await gate.check(siteID: "opened", sourceDirectory: source, configDirectory: nil, source: "test") else {
             Issue.record("an unregistered site must be refused again"); return
         }
+    }
+
+    @Test func aDeferredUnregisterDoesNotClobberAFreshRegistrationForTheSameSiteID() async throws {
+        let (source, template) = try intactFixture()
+        let registry = SourcePublishGateRegistry()
+        let staleGeneration = registry.register({
+            SourcePublishGate.Runtime(scriptsCopy: nil, scan: { _ in .passed(warnings: []) })
+        }, for: "reopened")
+
+        // The site closed and reopened before the closing window's deferred unregister (e.g.
+        // waiting on an in-flight Backup, PR #1981 review) actually ran.
+        let scans = Counter()
+        registry.register({
+            SourcePublishGate.Runtime(scriptsCopy: nil, scan: { _ in scans.hit(); return .passed(warnings: []) })
+        }, for: "reopened")
+
+        // The stale unregister must not remove the fresh registration.
+        registry.unregister(siteID: "reopened", generation: staleGeneration)
+
+        let gate = SourcePublishGate(
+            templateDirectory: { template }, runtime: SourcePublishGate.registryProvider(registry),
+            logCenter: LogCenter(), gitCommitBatch: { _, _, _ in "sha" })
+        #expect(await gate.check(siteID: "reopened", sourceDirectory: source, configDirectory: nil, source: "test") == .passed(warnings: []))
+        #expect(scans.calls == 1)
     }
 
     @Test func aRegisteredProviderWithNoRuntimeYetIsRefusedAsStillBooting() async throws {

@@ -128,6 +128,15 @@ final class PublishModel {
         tokenVerification = .idle
     }
 
+    /// Awaits this model's current publish, if one is running — used by `SiteWindowModel.close()`
+    /// to defer unregistering this site's source-publish-gate provider until an in-flight publish
+    /// (started before the window closed) reaches its own gate check and push (#1959, PR #1981
+    /// review) instead of being stranded with a misleading refusal. Returns immediately when
+    /// nothing is running.
+    func awaitCompletion() async {
+        await inFlight?.value
+    }
+
     func dismiss() { sheetPresented = false }
 
     /// The blocked sheet's only action (#1959).

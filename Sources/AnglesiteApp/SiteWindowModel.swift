@@ -123,6 +123,10 @@ final class SiteWindowModel {
     var publish = PublishModel()
     var backup = BackupModel()
     var audit = AuditModel()
+    /// The token from this window's `SourcePublishGateRegistry.shared.register(...)` call
+    /// (#1959) — threaded to `close()` so its deferred `unregister` can't clobber a fresher
+    /// registration for the same site id from a since-reopened window (PR #1981 review).
+    private var sourcePublishGateGeneration: SourcePublishGateRegistry.Generation?
     /// Drives this site's iCloud git sync (#881): status surface, `NSMetadataQuery` bundle-change
     /// observation, and the conflict banner/resolution sheet. No-ops entirely for a package that
     /// doesn't live in iCloud Drive — see `SyncModel.start(package:)`.
@@ -1051,8 +1055,23 @@ final class SiteWindowModel {
             annotationProvider = nil
         }
         // #1959: this window's runtime is going away with it — a later push of this site (a Siri
-        // backup, say) must refuse rather than scan through a closed runtime.
-        if let site { SourcePublishGateRegistry.shared.unregister(siteID: site.id) }
+        // backup, say) must refuse rather than scan through a closed runtime. But per the
+        // invariant documented just above for Deploy/Backup/Audit generally, an in-flight
+        // Backup/Publish that was already running when this window closed must still reach its
+        // own gate check through this (about-to-suspend) runtime rather than being stranded with
+        // a misleading refusal — so the unregister waits for both to reach a terminal phase
+        // first. `generation` (captured at registration) keeps this deferred unregister from
+        // clobbering a fresher registration if the site is reopened before it fires (PR #1981
+        // review).
+        if let site, let generation = sourcePublishGateGeneration {
+            let siteID = site.id
+            Task { [backup, publish] in
+                await backup.awaitCompletion()
+                await publish.awaitCompletion()
+                SourcePublishGateRegistry.shared.unregister(siteID: siteID, generation: generation)
+            }
+        }
+        sourcePublishGateGeneration = nil
         chat = nil
         styleGuide = nil
         copyEditModel = nil
@@ -2723,13 +2742,11 @@ final class SiteWindowModel {
         // this site — `BackupModel`/`PublishModel` (and a Siri backup of an open site) route
         // through `SourcePublishGate.live`, which looks the site up here. Resolved at check time,
         // not now: the container is still booting at this point, and a check before it's ready
-        // must refuse rather than skip.
-        SourcePublishGateRegistry.shared.register({ [preview] in
-            guard let cc = await preview.activeContainerControl() else { return nil }
-            return SourcePublishGate.containerRuntime(
-                control: cc.control, siteID: cc.siteID,
-                syncFromHost: { try await preview.syncContentFromHostOrThrow() })
-        }, for: resolved.id)
+        // must refuse rather than skip. See `PreviewModel.sourcePublishGateProvider(for:)` for why
+        // a runtime with no container capability at all still registers a provider here instead
+        // of being left unregistered (PR #1981 review).
+        sourcePublishGateGeneration = SourcePublishGateRegistry.shared.register(
+            PreviewModel.sourcePublishGateProvider(for: preview), for: resolved.id)
         startInvisiblePublishing(for: currentSite)
         // Warm the content graph now rather than waiting for the first create/delete (#660), so
         // `SearchContentTool`'s `isPopulated` check is already reliable by the time the chat

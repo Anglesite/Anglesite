@@ -165,32 +165,53 @@ public final class SourcePublishGateRegistry: @unchecked Sendable {
     /// Resolves a site's runtime at check time — `nil` while its container is still booting.
     public typealias Provider = @Sendable () async -> SourcePublishGate.Runtime?
 
+    /// Identifies one `register` call for a site id, returned by `register(_:for:)` so a caller
+    /// that must defer its `unregister` (a closing window waiting for an in-flight Backup/Publish
+    /// to reach its own gate check first, #1959) can pass it back to
+    /// `unregister(siteID:generation:)`. That guards against a since-reopened window's fresh
+    /// registration for the same site id being clobbered by the stale, deferred unregister
+    /// (PR #1981 review).
+    public struct Generation: Sendable, Equatable {
+        fileprivate let value: UInt64
+    }
+
     /// The process-wide registry every live gate consults.
     public static let shared = SourcePublishGateRegistry()
 
     private let lock = NSLock()
-    private var providers: [String: Provider] = [:]
+    private var providers: [String: (generation: Generation, provider: Provider)] = [:]
+    private var nextGenerationValue: UInt64 = 0
 
     /// Creates an empty registry — tests use their own instance; production uses ``shared``.
     public init() {}
 
-    /// Publishes `provider` as the way to reach `siteID`'s runtime, replacing any prior one.
-    public func register(_ provider: @escaping Provider, for siteID: String) {
+    /// Publishes `provider` as the way to reach `siteID`'s runtime, replacing any prior one, and
+    /// returns a token identifying this registration for a later, possibly-deferred
+    /// `unregister(siteID:generation:)`.
+    @discardableResult
+    public func register(_ provider: @escaping Provider, for siteID: String) -> Generation {
         lock.lock(); defer { lock.unlock() }
-        providers[siteID] = provider
+        nextGenerationValue += 1
+        let generation = Generation(value: nextGenerationValue)
+        providers[siteID] = (generation, provider)
+        return generation
     }
 
-    /// Removes `siteID`'s provider; a later gate check for that site refuses the push.
-    public func unregister(siteID: String) {
+    /// Removes `siteID`'s provider — but only when it is still the one `generation` names; a
+    /// later registration for the same site id (the site reopened before this fired) is left
+    /// alone. A later gate check for a site with nothing registered refuses the push.
+    public func unregister(siteID: String, generation: Generation) {
         lock.lock(); defer { lock.unlock() }
-        providers[siteID] = nil
+        if providers[siteID]?.generation == generation {
+            providers[siteID] = nil
+        }
     }
 
     /// `siteID`'s runtime right now, or `nil` when none is registered or its provider has no
     /// runtime yet.
     public func runtime(for siteID: String) async -> SourcePublishGate.Runtime? {
         let provider: Provider?
-        lock.lock(); provider = providers[siteID]; lock.unlock()
+        lock.lock(); provider = providers[siteID]?.provider; lock.unlock()
         guard let provider else { return nil }
         return await provider()
     }

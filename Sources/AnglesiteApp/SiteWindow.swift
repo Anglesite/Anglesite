@@ -1390,7 +1390,7 @@ struct SiteWindow: View {
         }
         .sheet(isPresented: $bindableModel.backup.blockedPresented) {
             if case .blocked(let failures, let warnings) = model.backup.phase {
-                BlockedDeploySheetView(failures: failures, warnings: warnings) {
+                BlockedDeploySheetView(context: .backup, failures: failures, warnings: warnings) {
                     model.backup.dismissBlocked()
                 }
             }

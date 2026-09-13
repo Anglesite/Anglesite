@@ -179,8 +179,14 @@ export const SOURCE_SCAN_TEST_FILES = /(^|\/)(vitest(\.[\w-]+)?\.config\.[cm]?[j
  * The `--source` sweep (#1959): walks the site source tree under `root` and reports every dotenv
  * file (it would be pushed verbatim — `.gitignore` is the fix) and every text file carrying a
  * secret-shaped string. Paths are reported relative to `root`, POSIX-style.
+ *
+ * `contentDir`, when given, folds `checkNoRestrictedContentInSource` into this same walk for
+ * `.md`/`.mdx`/`.json` files under it, reusing the content this walk already read instead of a
+ * second, separate `walk(SOURCE_CONTENT_DIR)` pass re-reading the same files (PR #1981 review —
+ * every push-gate check used to read every `src/content/*.md|mdx|json` file twice, once in
+ * `scan()`'s own loop and again here).
  */
-export async function scanSourceTree(root: string): Promise<Issue[]> {
+export async function scanSourceTree(root: string, options: { contentDir?: string } = {}): Promise<Issue[]> {
   const issues: Issue[] = [];
   async function* walkSource(dir: string): AsyncGenerator<string> {
     const entries = await readdir(dir, { withFileTypes: true });
@@ -207,9 +213,16 @@ export async function scanSourceTree(root: string): Promise<Issue[]> {
       continue;
     }
     if (SOURCE_SCAN_APP_OWNED.test(rel) || SOURCE_SCAN_TEST_FILES.test(rel)) continue;
-    if (!SOURCE_SCAN_TEXT_FILES.test(name)) continue;
+
+    const isUnderContentDir =
+      options.contentDir !== undefined && !relative(options.contentDir, file).startsWith("..");
+    const isContentFile = isUnderContentDir && /\.(md|mdx|json)$/i.test(name);
+    const isTextFile = SOURCE_SCAN_TEXT_FILES.test(name);
+    if (!isContentFile && !isTextFile) continue;
+
     const content = await readFile(file, "utf-8");
-    issues.push(...checkSecrets(content, rel));
+    if (isContentFile) issues.push(...checkNoRestrictedContentInSource(rel, content));
+    if (isTextFile) issues.push(...checkSecrets(content, rel));
   }
   return issues;
 }
@@ -1367,6 +1380,15 @@ async function scan(): Promise<Issue[]> {
   issues.push(...checkAnglesiteConfig(anglesiteConfigContent));
   issues.push(...checkExperimentalSection(anglesiteConfigContent));
 
+  if (SOURCE_MODE) {
+    // The push-gate subset (#1959): `scanSourceTree` covers both restricted-content-in-
+    // src/content (folded in via `contentDir`) and the whole-tree dotenv/secret sweep in one
+    // walk — no separate `walk(SOURCE_CONTENT_DIR)` pass re-reading the same files a second time
+    // (PR #1981 review). Nothing here needs a build.
+    issues.push(...(await scanSourceTree(process.cwd(), { contentDir: SOURCE_CONTENT_DIR })));
+    return issues;
+  }
+
   try {
     for await (const file of walk(SOURCE_CONTENT_DIR)) {
       if (!/\.(md|mdx|json)$/i.test(file)) continue;
@@ -1375,13 +1397,6 @@ async function scan(): Promise<Issue[]> {
     }
   } catch (e) {
     if ((e as NodeJS.ErrnoException).code !== "ENOENT") throw e;
-  }
-
-  if (SOURCE_MODE) {
-    // The push-gate subset (#1959): everything above plus the source-tree secret sweep, and
-    // nothing that needs a build.
-    issues.push(...(await scanSourceTree(process.cwd())));
-    return issues;
   }
 
   try {
