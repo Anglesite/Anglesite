@@ -55,9 +55,9 @@ struct DomainConfigAuditSheetView: View {
         case .idle:
             return "Domain Config Audit"
         case .auditing(let domain):
-            return "Comparing anglesite.json to \(domain)…"
+            return "Comparing this site's domain settings to \(domain)…"
         case .results(let findings, _, let domain, _):
-            if findings.isEmpty { return "\(domain) matches anglesite.json" }
+            if findings.isEmpty { return "\(domain) matches this site's domain settings" }
             return "\(findings.count) drift finding\(findings.count == 1 ? "" : "s") for \(domain)"
         case .reconciling(let domain):
             return "Reconciling \(domain)…"
@@ -97,7 +97,7 @@ struct DomainConfigAuditSheetView: View {
         case .auditing:
             VStack(spacing: 8) {
                 ProgressView()
-                Text("Reading anglesite.json and the live Cloudflare zone…")
+                Text("Reading this site's domain settings and the live Cloudflare zone…")
                     .font(.callout).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -133,7 +133,7 @@ struct DomainConfigAuditSheetView: View {
                 .foregroundStyle(.secondary)
             Text("Check for domain config drift")
                 .font(.headline)
-            Text("Compares this site's declared anglesite.json (domain, managed DNS records, edge hardening) against what's actually live on Cloudflare.")
+            Text("Compares this site's saved domain settings (domain, managed DNS records, edge hardening) against what's actually live on Cloudflare.")
                 .font(.callout).foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 420)
@@ -149,7 +149,7 @@ struct DomainConfigAuditSheetView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(.green).font(.largeTitle)
                 Text("No drift found.").font(.headline)
-                Text("The live Cloudflare zone matches everything declared in anglesite.json.")
+                Text("The live Cloudflare zone matches everything in this site's domain settings.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, maxHeight: .infinity)

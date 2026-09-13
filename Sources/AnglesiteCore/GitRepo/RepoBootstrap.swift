@@ -274,17 +274,14 @@ public actor RepoBootstrap {
 
     /// Production wiring. On Darwin, repo creation + push run in-process via `HTTPRepoProvider`
     /// (#654) — `runner` still exists for the off-Darwin `RepoProvider`/preflight fallback, so it's
-    /// always built. Off-Darwin, `git`/`gh` run through `ProcessSupervisor.shared.run`; the one-shot
-    /// `run` path captures rather than streams, so the runner forwards captured stdout/stderr to
-    /// `LogCenter` itself — per CLAUDE.md "logs are sacred", every spawned subprocess must reach
-    /// the debug pane.
+    /// always built. Off-Darwin, `git`/`gh` run through `ProcessSupervisor.shared.run`, which
+    /// streams their output into `logCenter` under `repo-bootstrap` itself (#1966) — per
+    /// CLAUDE.md "logs are sacred", every spawned subprocess must reach the debug pane.
     public static func live(supervisor: ProcessSupervisor = .shared, logCenter: LogCenter = .shared) -> RepoBootstrap {
         let runner: RepoCommandRunner = { executable, args, cwd in
-            let result = try await supervisor.run(executable: executable, arguments: args, currentDirectoryURL: cwd)
-            let source = "repo-bootstrap"
-            if !result.stdout.isEmpty { await logCenter.append(source: source, stream: .stdout, text: result.stdout) }
-            if !result.stderr.isEmpty { await logCenter.append(source: source, stream: .stderr, text: result.stderr) }
-            return result
+            try await supervisor.run(
+                source: "repo-bootstrap", executable: executable, arguments: args,
+                currentDirectoryURL: cwd, logCenter: logCenter)
         }
         #if canImport(Darwin)
         return RepoBootstrap(provider: HTTPRepoProvider(), run: runner)

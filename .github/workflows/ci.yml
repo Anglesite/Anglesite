@@ -279,10 +279,18 @@ jobs:
     timeout-minutes: 10
     # Cross-platform port, phase 1 "purity" (2026-07-08 design §9/§10): the compiler is the
     # purity lint. Off-Darwin, Package.swift exposes only the targets that compile there —
-    # AnglesiteSiteModel and AnglesiteCore today; each seam PR that purifies more of the
-    # portable set expands that list until `swift build && swift test` covers the whole
-    # portable core. The official Swift image pins the toolchain (and ships the right
-    # libxml2), so this lane is immune to runner-image drift.
+    # AnglesiteSiteModel, AnglesiteQuickLookSupport, AnglesiteCore, AnglesiteBridgeCore, and
+    # the Linux shell's GTK-free core AnglesiteLinuxCore (#1968) with their test targets; each
+    # seam PR that purifies more of the portable set expands that list until `swift build &&
+    # swift test` covers the whole portable core. The official Swift image pins the toolchain
+    # (and ships the right libxml2), so this lane is immune to runner-image drift.
+    #
+    # The `Test` step below is what runs AnglesiteLinuxTests — `ShellModel`'s open/switch/stop
+    # lifecycle against a fake SiteRuntime, plus its engine-candidate logic — on every Swift
+    # PR (#1968, D2). Before the ShellModel split, that suite hung off the
+    # ANGLESITE_LINUX_SHELL=1-gated GTK executable and only the non-required Flatpak lane
+    # could build it; no step here names it because a plain `swift test` picks up every test
+    # target in the off-Darwin manifest.
     container:
       image: swift:6.3.3-noble
     steps:
@@ -359,6 +367,12 @@ jobs:
       # without touching this repo's real files.
       - name: Test pin-cloudflare-canonical-image.sh digest rewrite
         run: scripts/pin-cloudflare-canonical-image.test.sh
+
+      # Stubs `curl` and `git` on PATH and runs against throwaway lock/Swift fixtures, then
+      # runs `--check` on the real tree — so a scripts/worker-catalog.lock.json edit that
+      # forgot to regenerate WorkerCatalogPin.swift (or vice versa) fails here (#1961).
+      - name: Test bump-worker-catalog.sh pin/lock/generated-Swift agreement
+        run: scripts/bump-worker-catalog.test.sh
 
       # Pure git grep/awk against the real tree — regression test for #1903 (sleep-lint
       # baseline drain, batch 2 of 2), no fixture or external dependency needed.
@@ -862,8 +876,16 @@ jobs:
     #      xcodebuild-based lane builds only the macOS `Anglesite`/`AnglesiteIntents` schemes.
     #      Building AnglesiteMobile (Package.swift's `.iOS("27.0")` platform entry + the
     #      project.yml target, PR #886) for the iOS Simulator SDK makes an iOS-incompatible
-    #      change to AnglesiteCore/AnglesiteBridge/AnglesiteIOS fail CI instead of surfacing
-    #      only on a contributor's local build.
+    #      change to AnglesiteCore/AnglesiteBridge/AnglesiteIOS — and, since #1968, the shell's
+    #      own AnglesiteMobileCore library — fail CI instead of surfacing only on a
+    #      contributor's local build. The iOS app's *tests* (AnglesiteMobileCoreTests, D2) do
+    #      not run in this lane: the target's deployment target is iOS 27 and the hosted
+    #      macos-26 image ships no iOS 27 simulator runtime, so an on-simulator `xcodebuild
+    #      test` can't install the bundle there. They're a plain SwiftPM test target instead,
+    #      so `build-test`'s `swift test` runs them on the macOS host on every Swift PR; this
+    #      lane's contribution is compiling the same library for the iOS SDK. Revisit (move to
+    #      `xcodebuild test -destination 'platform=iOS Simulator,…'` here) once a runner image
+    #      carries an iOS 27 runtime.
     #   3. AppIntents schema conformance (was `appintents-schema`): see that step.
     #
     # macos-26, matching build-test's rationale: the newest available Xcode carries the most
@@ -1051,7 +1073,15 @@ jobs:
     # substitute: it needs only python3, so it runs on ubuntu-latest with no Xcode/xcodegen.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      # Since #1963 the script also lints catalog keys for owner-surface vocabulary (git, npm,
+      # wrangler, MCP, file layout — decision D1) outside the Debug pane and the reviewed
+      # allowlist in scripts/lib/owner-vocabulary-allowlist.txt.
       - run: scripts/check-localization-catalog.sh
+      # Self-contained fixture tests for the script above (throwaway git repos, no repo state
+      # touched). Lives here rather than in linux-build-test because it needs python3, which
+      # this ubuntu-latest lane has and the swift:6.3.3-noble image doesn't ship.
+      - name: Test check-localization-catalog.sh (owner-vocabulary lint)
+        run: scripts/check-localization-catalog.test.sh
       # scripts/git-hooks/pre-commit restores the trailing newline Xcode strips, but it's a
       # local hook — absent in any clone that skipped setup-dev-env.sh, and already bypassed
       # more than once (#970). Enforce it here so the last byte stops flip-flopping.

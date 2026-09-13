@@ -108,8 +108,12 @@ public enum CompletionNoticeBuilder {
     /// backup that just has nothing to push, and wording it as such avoids the owner reading
     /// "no changes" as a failure.
     public enum BackupOutcome: Equatable, Sendable {
-        /// A commit was pushed; the notice shows the short SHA and `remote/branch` so the owner
-        /// can find it from any git host's UI.
+        /// A commit was pushed. The notice body names only the backup destination the owner
+        /// signed in to ("Backed up to GitHub") — `commitSHA`/`branch` are accepted for parity
+        /// with the caller's own result shape, but ``CompletionNoticeBuilder/backup(siteName:siteID:outcome:)`` discards
+        /// them and never puts a SHA or branch name in the notification body (#1963, D1): that's
+        /// git vocabulary the owner didn't ask for, not something that helps them find their
+        /// site's history from a host's UI.
         case succeeded(commitSHA: String, branch: String, remote: String)
         /// The working tree was already clean — success, with nothing to push.
         case noChanges
@@ -122,11 +126,13 @@ public enum CompletionNoticeBuilder {
     public static func backup(siteName: String, siteID: String, outcome: BackupOutcome) -> CompletionNotice {
         let identifier = "backup.\(siteID)"
         switch outcome {
-        case .succeeded(let sha, let branch, let remote):
+        case .succeeded(_, _, let remote):
+            // Destination as the owner knows it ("GitHub"), never the commit/branch/remote
+            // triple — that stays behind the backup drawer's Copy Details (#1963, D1).
             return CompletionNotice(
                 title: "Backup Complete",
                 subtitle: siteName,
-                body: "Pushed commit \(String(sha.prefix(7))) to \(remote)/\(branch).",
+                body: "Backed up to \(OwnerPhrasing.backupDestinationLabel(remote: remote)).",
                 siteID: siteID, identifier: identifier, isFailure: false
             )
         case .noChanges:

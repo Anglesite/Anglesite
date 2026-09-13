@@ -2,9 +2,11 @@
 import SwiftUI
 import AnglesiteIOS
 import AnglesiteCore
+import AnglesiteMobileCore
 
 /// The middle column (#869): a site's posts — drafts included — from the Micropub `q=source`
-/// list, optionally filtered to one content type. Selection drives the composer column.
+/// list, optionally filtered to one content type. Selection drives the composer column
+/// (`PostListItemSelection`, in `AnglesiteMobileCore`).
 struct PostListScreen: View {
     let model: PostListModel
     /// The collection to filter by (`nil` = every post).
@@ -78,26 +80,6 @@ struct PostListScreen: View {
                     Text("Posts you create appear here, drafts included.")
                 }
             }
-        }
-    }
-}
-
-/// What the composer column shows: a fresh composition of a type, or an existing post.
-enum PostListItemSelection: Hashable {
-    case new(typeID: String)
-    case existing(PostListModel.Item)
-}
-
-extension PersistedSelection {
-    /// The portable form worth persisting (#1436): an existing post's URL rather than its whole
-    /// `PostListModel.Item`, since only the URL survives a relaunch — the item itself is
-    /// re-resolved once the post list reloads.
-    init(_ selection: PostListItemSelection) {
-        switch selection {
-        case .new(let typeID):
-            self = .new(typeID: typeID)
-        case .existing(let item):
-            self = .existing(postURL: item.id)
         }
     }
 }

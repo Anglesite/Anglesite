@@ -67,6 +67,7 @@ struct InteractionsRenderSmokeTests {
             }
 
             let result = try await ProcessSupervisor.shared.run(
+                source: "test",
                 executable: node,
                 arguments: [E2EPrerequisites.astroCLIRelativePath, "build"],
                 currentDirectoryURL: templateDir)

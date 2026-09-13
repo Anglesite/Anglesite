@@ -90,6 +90,24 @@ flowchart TB
 | **Site `Source/` (git repo)** | The filesystem source of truth — the clonable, externally-editable unit. | Mounted into the container; written by the in-guest JS and by Swift Bucket-1 hot-paths; read by `WKWebView` via the dev server. |
 | **Cloudflare (deploy target)** | The published site (Workers). | Deploy runs only after the native `pre-deploy-check` gate passes. |
 
+## First-party infrastructure
+
+Decision D7 (`specs/2026-09-08-product-direction-review-decisions.md`): the app is not a pure
+desktop client. It depends on a small set of services Anglesite operates — everything under and
+including `anglesite.dwk.io`, plus the `@dwk/workers` catalog — and these are accepted, documented
+first-party dependencies rather than incidental ones. They do not appear in the diagram above
+because none of them sits on the content path: the site's `Source/` repo and the deploy to
+Cloudflare work without them, and every one degrades rather than blocks when unreachable.
+
+| Dependency | What the app uses it for | Trust posture |
+|---|---|---|
+| **`auth.anglesite.dwk.io`** | The Cloudflare OAuth callback (`CloudflareOAuthClient.redirectURI` → `/oauth-callback`) and the AT Protocol OAuth client metadata (`ATProtoOAuthClient.clientID` → `/atproto/client-metadata.json`). It relays authorization codes back to the app; it never holds a long-lived token. | Anglesite-operated. A sign-in that can't reach it fails with a retry, never a silent fallback. |
+| **`anglesite.dwk.io`** | Product site and the in-app **Help ▸ Send Feedback** link. | Anglesite-operated; informational only. |
+| **Worker catalog** (`davidwkeith/workers` — `catalog.json`, `conformance/status.json`, read via `raw.githubusercontent.com`) | `catalog.json` supplies the worker descriptors and dynamic-route claims that `WorkerComposition` turns into `wrangler.toml` at deploy time; `conformance/status.json` is advisory text in the deploy log. | **Pinned, not floating.** `WorkerCatalogFetcher` and `WorkersConformanceFetcher` fetch at the commit recorded in `scripts/worker-catalog.lock.json` (surfaced to Swift as the generated `WorkerCatalogPin`) and verify the SHA-256 of the body before parsing or caching it. A digest mismatch is logged and the last *verified* cached copy is served; with no cache, the catalog is empty (static-only deploy) — unverified bytes never reach the deploy pipeline. The pin moves only through `scripts/bump-worker-catalog.sh`, which prints the manifest diff for review; `--check` runs in CI so the lock and the generated constants can't drift. |
+
+Nothing here is owner-facing: a catalog that fails verification is a log line in the debug pane,
+not a sheet — the owner's surface carries no infrastructure vocabulary (decision D1).
+
 ## Notes
 
 - **One capability, one implementation, many front-doors.** A GUI button, "Hey Siri…", and a

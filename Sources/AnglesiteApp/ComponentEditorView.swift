@@ -146,8 +146,8 @@ struct ComponentEditorView: View {
                 // .ensureComponentEditorLoaded()`'s `.task` re-fires once
                 // `context.baseURL` transitions to non-nil, which retries the load;
                 // this is the interim state, matching the canvas's own
-                // "Dev Server Starting…" placeholder rather than an error page.
-                ContentUnavailableView("Dev Server Starting…", systemImage: "hourglass")
+                // "Preview Starting…" placeholder rather than an error page.
+                ContentUnavailableView("Preview Starting…", systemImage: "hourglass")
             } else {
                 ContentUnavailableView("Can't Open Component", systemImage: "exclamationmark.triangle", description: Text(error))
             }

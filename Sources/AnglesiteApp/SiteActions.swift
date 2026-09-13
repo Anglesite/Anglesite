@@ -220,7 +220,7 @@ enum SiteActions {
         let scaffolder = SiteScaffolder(
             sitesRoot: sitesRoot, templateURL: templateURL, catalog: catalog,
             run: { exe, args, cwd in
-                try await ProcessSupervisor.shared.run(executable: exe, arguments: args, currentDirectoryURL: cwd)
+                try await ProcessSupervisor.shared.run(source: "scaffold", executable: exe, arguments: args, currentDirectoryURL: cwd)
             },
             gitInit: { sourceDir in try GitInitRunner.run(in: sourceDir) },
             gitCommit: { sourceDir in try await RepoBootstrap.live().commitAll(source: sourceDir) },
@@ -285,7 +285,7 @@ enum SiteActions {
         let save = NSSavePanel()
         save.message = String(localized: "Export this site's source files to a folder.")
         save.nameFieldStringValue = site.name
-        let gitToggle = NSButton(checkboxWithTitle: String(localized: "Include Git history (.git)"), target: nil, action: nil)
+        let gitToggle = NSButton(checkboxWithTitle: String(localized: "Include this site's change history"), target: nil, action: nil)
         gitToggle.state = .off
         let accessory = NSView(frame: NSRect(x: 0, y: 0, width: 280, height: 28))
         gitToggle.frame = NSRect(x: 12, y: 4, width: 256, height: 20)

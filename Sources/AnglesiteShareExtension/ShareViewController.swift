@@ -1,6 +1,7 @@
 import Cocoa
 import SwiftUI
 import AnglesiteCore
+import AnglesiteShareExtensionCore
 
 // NSViewController already conforms to NSExtensionRequestHandling (see
 // NSExtensionRequestHandling.h) on the macOS 27 SDK, so restating the conformance here is a
