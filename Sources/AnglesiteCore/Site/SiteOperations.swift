@@ -270,7 +270,22 @@ public struct SiteOperations: Sendable {
     public func provisionSocialWorker(site: SiteStore.Site) async -> SocialWorkerProvisionCommand.Result {
         do {
             return try await socialWorkerAccess(site, store) { url in
-                await factory.socialWorkerProvision().provision(
+                // #745/#1960: mirrors `deploy(site:)` above -- this headless path (the "turn on
+                // social basics" App Intent/Shortcut) is the other caller that can reach a site
+                // no window has ever opened. Without this, a pre-#1960 site provisioned only
+                // through this Shortcut keeps a stale, git-tracked `Source/wrangler.toml`
+                // indefinitely: `provision()`'s default `knownResources: .init()` falls back to
+                // reading it for legacy resource ids, but the regenerated config is then
+                // persisted only to `Config/wrangler.toml`, leaving the `Source/` copy in place.
+                // Runs ahead of provisioning with every decision defaulted to Preserve; never
+                // blocks provisioning itself.
+                await ExistingSiteMigration.runNoninteractively(
+                    sourceDirectory: url,
+                    configDirectory: site.configDirectory,
+                    templateDirectory: TemplateRuntime.bundledURL(),
+                    source: "provision:\(site.id)"
+                )
+                return await factory.socialWorkerProvision().provision(
                     siteID: site.id,
                     siteDirectory: url,
                     configDirectory: site.configDirectory,

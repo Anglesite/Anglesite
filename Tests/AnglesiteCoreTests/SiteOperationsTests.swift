@@ -206,6 +206,32 @@ struct SiteOperationsTests {
         #expect(!toml.contains("[[r2_buckets]]"))
     }
 
+    @Test("provisionSocialWorker migrates a legacy Source/wrangler.toml out of the repo before provisioning (#1960)")
+    func provisionSocialWorkerMigratesLegacyWranglerConfig() async throws {
+        // Regression for the review finding on #1976: `provisionSocialWorker` (the headless "turn
+        // on social basics" App Intent/Shortcut) never ran `ExistingSiteMigration.runNoninteractively`
+        // before provisioning, unlike `deploy(site:)`. A pre-#1960 site touched only through this
+        // Shortcut — never opened in a window, never deployed via `deploy(site:)` — kept its stale,
+        // git-tracked `Source/wrangler.toml` indefinitely: `provision()`'s legacy-recovery fallback
+        // reads it for ids, but the regenerated config is persisted only to `Config/wrangler.toml`,
+        // leaving the `Source/` copy right where #1960 says it must not be.
+        let package = try temporaryPackage()
+        defer { try? FileManager.default.removeItem(at: package) }
+        let site = makeSite(name: "Blue Bottle Cafe", packageURL: package)
+        let legacyURL = WranglerConfigFile.legacyURL(sourceDirectory: site.sourceDirectory)
+        try "name = \"blue-bottle-cafe-social\"\nd1_databases = []\n".write(
+            to: legacyURL, atomically: true, encoding: .utf8)
+        let recorder = SocialWorkerRecorder()
+        let ops = SiteOperations(factory: SocialWorkerFactory(recorder: recorder), store: throwawayStore())
+
+        _ = await ops.provisionSocialWorker(site: site)
+
+        #expect(
+            !FileManager.default.fileExists(atPath: legacyURL.path),
+            "the legacy Source/wrangler.toml must be migrated away before provisioning, mirroring deploy(site:)"
+        )
+    }
+
     @Test("social worker provisioning maps missing folder grants to failed results")
     func socialWorkerProvisionNoGrant() async {
         let site = makeSite()
