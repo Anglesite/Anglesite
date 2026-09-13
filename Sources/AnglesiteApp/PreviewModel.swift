@@ -128,6 +128,16 @@ final class PreviewModel {
     /// a later entry has superseded it.
     private var editModeGeneration = 0
 
+    /// The in-flight `GateContext.build` detached task from ``enterEditMode(path:undoManager:)``'s
+    /// most recent call, exposed for testability without a real `Source/` tree large enough to
+    /// make the race window observable by wall-clock timing alone. Setting this happens
+    /// synchronously, immediately before the `await` of its `.value` — so a test polling for this
+    /// to become non-`nil` is guaranteed to observe it exactly when `enterEditMode` has passed its
+    /// first generation check and is about to suspend, which is the precise window the second
+    /// generation check (see the fix below) has to defend.
+    @ObservationIgnored
+    private(set) var qualityGateBuildTaskForTesting: Task<GateContext, Never>?
+
     /// True while the preview `WKWebView` holds real AppKit keyboard focus, for ANY reason —
     /// the `wysiwygCanvas` block editor's text editing, or plain focus on a link or video (#1715).
     /// Kept separate from `wysiwygCanvas?.hasKeyboardFocus` because the canvas comes and goes
@@ -224,10 +234,24 @@ final class PreviewModel {
             // `GateContext.build` walks the whole `src/pages/**` tree and reads `global.css`
             // synchronously — real I/O this main-actor-isolated model shouldn't block on. Off-actor
             // in a detached Task, same reasoning as `WYSIWYGCanvasController.runQualityGates`.
-            canvas.qualityGateContext = await Task.detached(priority: .utility) {
+            //
+            // `qualityGateBuildTaskForTesting` is recorded *before* the `await` below, not after —
+            // a test can poll for it to detect the exact instant this call suspends, which is the
+            // window the second generation guard immediately below exists to close.
+            let buildTask = Task.detached(priority: .utility) {
                 GateContext.build(fromSourceDirectory: openSiteDirectory)
-            }.value
+            }
+            qualityGateBuildTaskForTesting = buildTask
+            canvas.qualityGateContext = await buildTask.value
         }
+        // A newer entry (another navigation, or the toggle turning edit mode off) could have
+        // superseded this one while `GateContext.build` ran off-actor above — the check at the top
+        // of this method only guards the *first* await (the `get_page_model` fetch), not this
+        // second one. Without re-checking here, a stale `enterEditMode` call would silently
+        // overwrite a newer canvas (or re-enable edit mode after the owner just turned it off) the
+        // instant its own `GateContext.build` happened to finish. Every real, opened site takes
+        // this path — only the fetch-failure and no-site-directory tests skip it.
+        guard generation == editModeGeneration else { return }
         // Replacing a canvas for another page (a route change with the canvas on): the JS engine
         // for the old page is already gone with that page's navigation, and `PreviewView
         // .updateNSView` swaps the script-message handler when it sees the new controller, so
