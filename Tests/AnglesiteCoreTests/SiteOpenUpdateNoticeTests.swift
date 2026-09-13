@@ -80,6 +80,31 @@ import Foundation
         #expect(notice.details.contains("Your hand-written security contact file was left as yours to maintain."))
     }
 
+    /// #1975 review: a silent security.txt backfill/adopt (or a `.gitignore`/`.site-config`
+    /// touch riding along with it) only ever lands in `otherTouchedPaths` — never
+    /// `refreshedPaths`/`restoredPaths` — so it must still produce a Details line on its own,
+    /// or the banner claims something was updated with nothing behind Details to show for it.
+    @Test func silentOtherTouchedPathsStillProduceADetailsLine() {
+        var report = ExistingSiteMigration.Report()
+        report.otherTouchedPaths = [".gitignore"]
+        let notice = try! #require(SiteOpenUpdateNotice.build(migration: report, dependencyOffers: nil))
+
+        #expect(notice.message == "Anglesite updated the parts of this site it maintains.")
+        #expect(!notice.details.isEmpty)
+    }
+
+    /// #1975 review: a genuine write failure (`failedPaths` non-empty, nothing else written)
+    /// must not be masked by the more benign "kept as it is" wording just because a held-back
+    /// dependency bump also happens to be present in the same open.
+    @Test func aRealFailureIsNotMaskedByACoincidentalHeldBackBump() {
+        var report = ExistingSiteMigration.Report()
+        report.failedPaths = ["scripts/redirects.ts"]
+        let offers = DependencySyncOffers(heldUpdates: [heldAstro()])
+        let notice = try! #require(SiteOpenUpdateNotice.build(migration: report, dependencyOffers: offers))
+
+        #expect(notice.message == "Anglesite couldn't update part of this site; it will try again next time.")
+    }
+
     @Test func appOwnedFileSummaryNamesKnownFilesAndRollsUpTheRest() {
         let lines = AppOwnedFileDescription.summary(for: [
             "src/lib/rsl.ts", "scripts/edge-artifacts.ts", "scripts/embeds/adapters.ts", "scripts/pre-deploy-check.ts",
