@@ -124,14 +124,31 @@ Rules:
   fits the whole document (§7).
 - **One read pass.** All rect reads happen before any DOM write; the stage is
   built afterwards. No interleaved reads/writes, so the build is one layout.
-- **Skipped:** `head`, `script`, `style`, `template`, `noscript`; elements with
-  a zero-area rect (covers `display: none` without a `getComputedStyle` call);
-  the app's own chrome (any element whose `id` starts with `__anglesite-`,
+- **Skipped:** `head`, `script`, `style`, `template`, `noscript`; elements
+  for which `Element.checkVisibility()` is `false` (`display: none`,
+  `content-visibility: hidden`, and their descendants — without a
+  `getComputedStyle` call); the app's own chrome (any element whose `id` starts with `__anglesite-`,
   which is what the engine's drag handle and toolbar already use, plus the
   exploder's own stage); and Astro's `<astro-dev-toolbar>` custom element,
   which is live in `astro dev` previews (the template does not disable it).
-- **Node cap** (default 1,500). Breadth-first order means the cap always
-  keeps the shallow structure and drops the deepest leaves first. Each dropped
+- **Zero-size elements are kept, not skipped.** A displayed element whose rect
+  has zero area is very often the culprit this tool exists to find — an
+  `overflow: hidden` wrapper collapsed by its own content, a zero-height
+  accordion panel, a float container that never cleared. They stay in the
+  model with their real (empty) rect and the renderer gives them a visible
+  marker (§6). `checkVisibility()` is what makes this affordable: it
+  answers the `display: none` question without a style read per node, so the
+  rect no longer has to double as a visibility proxy. (jsdom implements
+  neither it nor real geometry; the unit tests stub both, and the Playwright
+  suite covers the real thing.)
+- **Node cap** — 300 by default for the CSS-transform renderer, because
+  WebKit promotes every 3D-transformed box to its own compositing layer and
+  a few hundred layers is the realistic ceiling for a smooth rotate; 1,500
+  is the cap the `<canvas>` renderer would carry if §9's measurement puts it
+  on the table. 300 is plenty for the question this tool answers (the wrapper
+  structure around one region), and re-rooting (§7) reaches anything deeper.
+  Breadth-first order means the cap always keeps the shallow structure and
+  drops the deepest leaves first. Each dropped
   subtree is counted onto its nearest kept ancestor's `collapsed`, which the
   renderer shows as a "+N" badge; double-clicking a collapsed box re-roots
   the exploder at that element (§7), which lifts the cap for that subtree.
@@ -168,6 +185,10 @@ never sees the exploder's own writes):
   0.8 alpha 1px border. Hover raises fill to 0.4 and draws the label. The
   selected block (when the engine is mounted) gets the same accent as the
   editor's selection handle so the two views agree.
+- **Zero-size nodes** (§5) render as an 8×8 hollow diamond at the rect's
+  origin, in the depth tint, so a collapsed wrapper is a visible thing on the
+  stage rather than an invisible 0×0 box; its label says `0×0` and the HUD's
+  clipping/stacking flags apply to it like any other node.
 - **Spacing** (Z per depth level) defaults to 24px; `0` is "flatten", which
   is the plan view — the boxes collapse onto the dimmed page and become an
   ordinary outline overlay. That degenerate mode is a feature, not a
@@ -201,7 +222,7 @@ the pointer, per the Mac spec's keyboard requirement):
 | `F` | Toggle flatten (spacing 0 ↔ last value) |
 | `0` | Reset rotation, zoom and pan (fit whole document) |
 | `D` / ⌫ | Re-root at focused / pop to previous root |
-| ⌘C | Copy a CSS path for the focused element (`main > section:nth-child(2) > div.card`) |
+| ⌘C | Copy the focused element's path (`main > section:nth-child(2) > div.card`) — `formatElementPath()` from `layer-model.ts`, the one formatter the HUD breadcrumb, the clipboard copy and the pick log (§8) all share |
 | Esc | Close |
 
 HUD (top-right, in-page, mirrors `selection-toolbar.ts`'s hard-coded host
@@ -239,14 +260,24 @@ exploder until the next rebuild.
   an `isDomExploderOpen` mirror, reset to `false` on every navigation
   (`didFinish`), because a reload discards the injected stage anyway.
 - **JS → native.** A dedicated `WKScriptMessageHandler` namespace,
-  `domExploder`, registered unconditionally in
-  `WebViewBridge.localDevConfiguration` (unlike `wysiwyg`, which is only
-  registered while edit mode is on). Two messages:
+  `domExploder`, added to `WebViewBridge.localDevConfiguration` as a third
+  optional `domExploderHandler:` parameter (defaulting to `nil`, like the
+  existing two). `PreviewView` passes it **unconditionally** — not tied to
+  edit mode the way `wysiwygHandler` is — so the exploder is available
+  whenever the main preview is. The other two call sites,
+  `ComponentEditorCanvasPane.swift` and `AnglesiteMobile/EditSiteScreen.swift`,
+  keep passing only `handler:` and are deliberately out of v1: they get the
+  inert JS global from the shared bundle but nothing native ever calls
+  `toggle()` there, so no stage can appear. Extending the component editor
+  is a one-line follow-up once the main preview has proven the view. Two
+  messages:
   - `{ type: "state", open: boolean }` — keeps the menu title honest.
   - `{ type: "pick", summary: ElementSummary }` on ⏎/click — appended to the
-    Debug Pane log as one line (`exploder: main > section.hero > div.card
-    (depth 4, 312×88, overflow:hidden)`), so a debugging session leaves a
-    trail an agent can read back. Logs are sacred; this is the cheap way to
+    Debug Pane log as one line (`exploder: main > section:nth-child(2) >
+    div.card (depth 4, 312×88, overflow:hidden)`), so a debugging session
+    leaves a trail an agent can read back. The path is the same
+    `formatElementPath()` string ⌘C copies (§7), computed in JS and sent
+    as-is, so the two can't drift. Logs are sacred; this is the cheap way to
     make the exploder's findings durable.
   The handler is a ~40-line `DomExploderScriptHandler` in `AnglesiteBridge`
   with a decode test in `AnglesiteBridgeTests`, mirroring
@@ -262,12 +293,15 @@ exploder until the next rebuild.
   by element identity (`WeakMap<Element, HTMLElement>`), updating rect/depth
   in place and creating/removing only the delta, so HMR churn does not
   re-create 1,500 boxes. Rebuilding pauses while `document.hidden`.
-- **Budget:** build ≤ 50ms and a rotate frame ≤ 16ms at the 1,500-node cap on
-  the e2e fixture (§11). The known risk is WebKit giving every
-  3D-transformed box its own compositing layer; if the budget is missed in
-  measurement, `stage.ts` switches to a single `<canvas>` with a manual
-  projection while `layer-model.ts` and `tree-walk.ts` stay untouched. That
-  decision is made from the e2e numbers, not up front.
+- **Budget:** build ≤ 50ms and a rotate frame ≤ 16ms at the 300-node default
+  cap on the e2e fixture (§11) — that is the *common* case the CSS-transform
+  renderer must meet, not a fallback trigger. The same fixture is also run at
+  600 and 1,500 nodes to map where WebKit's one-compositing-layer-per-3D-box
+  behavior falls over; those numbers decide whether the CSS cap can be raised
+  and whether a single-`<canvas>` renderer with a manual projection is worth
+  building to reach 1,500. If it is, it replaces `stage.ts`'s box DOM while
+  `layer-model.ts` and `tree-walk.ts` stay untouched. Either way the decision
+  is made from measurements, not up front.
 - The exploder is inert until opened: nothing is observed, allocated or
   walked while it is closed, so the always-injected bundle costs the preview
   nothing.
@@ -307,9 +341,12 @@ served by the existing `static-server.mjs`):
 - Click on the box over block `b2` makes `window.__engine.selection.current`
   `"b2"`; Esc removes the stage and restores `body` untouched.
 - Inserting a node after open produces a new box within the debounce.
-- A generated 2,000-node fixture: cap holds at 1,500, `truncated` is `true`,
-  the deepest kept ancestor carries the `+N` badge, and the build/frame
-  timings in §9 are asserted (with headroom for CI runners).
+- A generated 2,000-node fixture: the cap holds at 300, `truncated` is
+  `true`, the deepest kept ancestor carries the `+N` badge, and the
+  build/frame timings in §9 are asserted at 300 (with headroom for CI
+  runners) and recorded, not asserted, at 600 and 1,500.
+- A zero-size `overflow: hidden` wrapper in `fixture.html` gets a box marker,
+  and a `display: none` subtree gets none.
 
 Swift:
 
