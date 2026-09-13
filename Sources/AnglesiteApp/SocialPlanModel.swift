@@ -18,6 +18,17 @@ final class SocialPlanModel: Identifiable {
     var saved = false
     var errorMessage: String?
     var unavailable: Bool { planner == nil }
+    /// Set when `generate()` discovers Apple Intelligence is unavailable *at runtime* (a 6.4+
+    /// build, but `planner.plan` came back `nil` — either the backend itself is unreachable or
+    /// its pillar generation failed outright). Reset at the top of every `generate()` call, but
+    /// left untouched by `save()`, so a later save failure never masks a plan that did generate.
+    var runtimeUnavailable = false
+
+    /// Whether `ModelTierNoticeView` should show (#1965 review fix). `unavailable` alone only
+    /// covers the pre-6.4-toolchain case; `runtimeUnavailable` covers Apple Intelligence going
+    /// unavailable at runtime, which previously left the on-device badge showing directly above
+    /// the "needs Apple Intelligence" error message.
+    var showsModelTierBadge: Bool { !unavailable && !runtimeUnavailable }
 
     init(siteID: String, sourceDirectory: URL, conventionsStore: ProjectConventionsStore,
          planner: (any SocialMediaPlanning)? = SocialMediaPlannerFactory.makeDefault()) {
@@ -29,6 +40,7 @@ final class SocialPlanModel: Identifiable {
 
     func generate() async {
         errorMessage = nil
+        runtimeUnavailable = false
         weeks = min(max(weeks, 1), 8)
         guard let planner, !running else { return }
         running = true
@@ -42,6 +54,7 @@ final class SocialPlanModel: Identifiable {
             siteName: siteName, businessType: businessType, preamble: preamble,
             weeks: weeks, startDate: Date(), siteID: siteID, siteDirectory: sourceDirectory) else {
             errorMessage = ContentHelpDialogs.assistantUnavailable(feature: "Social planning")
+            runtimeUnavailable = true
             return
         }
         markdown = SocialCalendarMarkdown.render(plan: plan, siteName: siteName)

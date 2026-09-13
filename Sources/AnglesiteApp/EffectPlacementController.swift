@@ -3,7 +3,7 @@ import Foundation
 import Observation
 import AnglesiteCore
 
-/// Drives the click-to-place flow for one effect: enters overlay placement-pick mode, waits for
+/// Drives the click-to-place flow for one effect: enters the page bridge's placement-pick mode, waits for
 /// a click, resolves it against a freshly-fetched `PageModel` via `PlacementMatcher`, and applies
 /// the resulting `insertBlock` edit. One instance per site window (constructed alongside
 /// `PageModelClient`/`editRouter` in `SiteWindowModel`, Task 12); `startPlacement`/`cancel` are

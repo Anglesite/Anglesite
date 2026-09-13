@@ -1,6 +1,7 @@
 # Siri AI Integration — Full Refactor Spec
 
 **Status:** Design — draft
+**Note (2026-09-08, #1957):** the visible-elements reporter in §B.1 shipped in the edit overlay and moved to `JS/wysiwyg-engine/src/host/visible-elements.ts` when the click-to-edit overlay was removed; it now posts over the `wysiwyg` bridge (`WYSIWYGOpsDispatcher`) and is installed whether or not a block canvas is mounted.
 **Date:** 2026-06-11
 **Issues:** #101 (system-wide MCP), #103 (View Annotations), #105 (Foundation Models native chat)
 **Depends on:** Phase B — App Intents (#88/#89/#90) — shipped

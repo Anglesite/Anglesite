@@ -195,26 +195,28 @@ final class SiteWindowModel {
     /// `SetupThemeTool`.
     var themeApplyWizardModel: ThemeApplyWizardModel?
     /// The window's `UndoManager`, published down from `SiteWindow`'s
-    /// `@Environment(\.undoManager)` so applied edits register for Edit ▸ Undo (#527). Weak +
-    /// `@ObservationIgnored`: the window owns it and it isn't render state. Forwarded on set
-    /// (environment arrives/changes) and again in `loadAndStart` (chat is created after the
-    /// first set on cold open). Also forwarded to `preview.wysiwygCanvas`'s
-    /// `WYSIWYGUndoCoordinator` (#1225, Task 9) when a canvas is mounted — `nil` while edit mode
-    /// is off, same as the `chat` case above.
+    /// `@Environment(\.undoManager)` so structural content operations (#675) and block-canvas
+    /// ops (#1225, Task 9) register for Edit ▸ Undo. Weak + `@ObservationIgnored`: the window
+    /// owns it and it isn't render state. Forwarded on set (environment arrives/changes) to
+    /// `contentUndoCoordinator`, to `preview.wysiwygCanvas`'s `WYSIWYGUndoCoordinator` when a
+    /// canvas is mounted, and to `preview` itself for the canvases it mounts later.
     @ObservationIgnored
     weak var windowUndoManager: UndoManager? {
         didSet {
-            chat?.editUndoCoordinator.undoManager = windowUndoManager
             contentUndoCoordinator.undoManager = windowUndoManager
             preview.wysiwygCanvas?.undoCoordinator.undoManager = windowUndoManager
+            // Also stashed on the preview model itself (#1957): the canvas is mounted from a
+            // navigation callback by default now, not only from the Edit Page toggle, and that
+            // path has no menu action in the loop to hand the manager over.
+            preview.windowUndoManager = windowUndoManager
         }
     }
     /// Bridges structural content operations — New / Duplicate / Delete / Rename — into the
-    /// window's `UndoManager` so ⌘Z and ⇧⌘Z reverse and replay them (#675). Sibling of
-    /// `chat.editUndoCoordinator` (#527, assistant edits); both register into the same manager and
-    /// interleave LIFO. `lazy` only because the applier captures `self`; unlike the chat
-    /// coordinator it has no per-site construction to wait for, so the `didSet` above can attach
-    /// the manager to it on a cold open, before `loadAndStart()` has resolved a site.
+    /// window's `UndoManager` so ⌘Z and ⇧⌘Z reverse and replay them (#675). Sibling of the
+    /// block canvas's `WYSIWYGUndoCoordinator`; both register into the same manager and
+    /// interleave LIFO. `lazy` only because the applier captures `self`; it has no per-site
+    /// construction to wait for, so the `didSet` above can attach the manager to it on a cold
+    /// open, before `loadAndStart()` has resolved a site.
     @ObservationIgnored
     private(set) lazy var contentUndoCoordinator = ContentUndoCoordinator { [weak self] mutation in
         guard let self else { return .failed }
@@ -501,7 +503,7 @@ final class SiteWindowModel {
         self.contentGraph = contentGraph
         self.deploy = DeployModel(
             contentGraph: contentGraph,
-            workerCatalog: { await WorkerCatalogFetcher(catalogURL: WorkerCatalogFetcher.productionCatalogURL).catalog() }
+            workerCatalog: { await WorkerCatalogFetcher.production().catalog() }
         )
         self.knowledgeIndex = knowledgeIndex
         self.semanticRanker = semanticRanker
@@ -1359,7 +1361,7 @@ final class SiteWindowModel {
             // `NativeContentOperations` does for create/duplicate/delete — but unlike those, it
             // never routed through `refreshAfterContentMutation()`, so a running container's guest
             // clone fell behind. `InProcessEditPersistence.importBundle` is fast-forward-only, so
-            // the next in-preview overlay edit's exported commit no longer had HEAD as its parent
+            // the next in-preview block-canvas edit's exported commit no longer had HEAD as its parent
             // and was silently refused — the preview still showed the change, but nothing landed
             // in Source/ (#1851). Catching the guest up here closes that gap the same way the
             // content-mutation paths already do.
@@ -1414,7 +1416,7 @@ final class SiteWindowModel {
     /// This is the everyday auto-save-on-leave path (fires on nearly every Navigator selection
     /// change), so it needs the same post-commit guest sync as `saveAllEdits()` — see that
     /// method's comment (#1851) for why a dirty inspector save left unsynced silently breaks the
-    /// next in-preview overlay edit.
+    /// next in-preview block-canvas edit.
     func leaveCurrentInspector() async -> Bool {
         guard let model = inspectorContext?.model else { return true }
         let wasDirty = model.isDirty
@@ -1943,6 +1945,20 @@ final class SiteWindowModel {
     /// needs (#1222) without duplicating the resolution logic or the scanned-pages cache.
     var activePageSourcePath: String {
         PageSourcePath.resolve(route: preview.activeRoute, pages: scannedPages)
+    }
+
+    /// Keeps the block canvas on the page the preview just navigated to (#1957 — the canvas is
+    /// the site window's default state, so it follows every finished navigation rather than
+    /// waiting for Site ▸ Edit Page). `url` is where the web view landed (`WKWebView.url` in
+    /// `PreviewView.Coordinator.webView(_:didFinish:)`); its path is the route, resolved through
+    /// the same `PageSourcePath.resolve(route:pages:)` as `activePageSourcePath` — but from the
+    /// *navigated* URL, not `preview.activeRoute`, because a link the owner clicked inside the
+    /// preview changes the former and not the latter. A `nil` URL (a navigation that finished
+    /// with no URL — never seen in practice) falls back to the active route.
+    func syncEditMode(afterNavigationTo url: URL?) {
+        let route = url?.path ?? preview.activeRoute
+        let path = PageSourcePath.resolve(route: route, pages: scannedPages)
+        Task { await preview.syncEditMode(toPath: path) }
     }
 
     /// The click-to-place controller for the Effects gallery sheet (Website ▸ Effects…, #768).
@@ -2894,9 +2910,6 @@ final class SiteWindowModel {
             }
         )
         chat = assistantSession.chat
-        // The environment undo manager usually lands before the chat exists (cold open) —
-        // attach it now so edits applied with the chat panel closed still register for ⌘Z.
-        assistantSession.chat.editUndoCoordinator.undoManager = windowUndoManager
         preview.setEditObserver(
             assistantSession.editObserver,
             postProcess: assistantSession.editPostProcessor

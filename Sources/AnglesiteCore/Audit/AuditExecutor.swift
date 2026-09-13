@@ -8,6 +8,8 @@ public enum AuditStep: Sendable {
     case build
     /// `npx tsx scripts/a11y-audit.ts --json` — the accessibility runner's script.
     case a11y
+    /// `npx tsx scripts/broken-links.ts --json` — `BrokenLinkAuditRunner`'s script (#1996).
+    case brokenLinks
 }
 
 /// The result of running a single audit step.
@@ -123,6 +125,8 @@ public struct ContainerAuditExecutor: AuditExecutor {
             return ["npm", "run", "build"]
         case .a11y:
             return ["npx", "tsx", "scripts/a11y-audit.ts", "--json"]
+        case .brokenLinks:
+            return ["npx", "tsx", "scripts/broken-links.ts", "--json"]
         }
     }
 }
@@ -223,6 +227,8 @@ public struct HostAuditExecutor: AuditExecutor {
             return AuditCommand.resolveBuildCommand
         case .a11y:
             return AuditCommand.resolveA11yCommand
+        case .brokenLinks:
+            return AuditCommand.resolveBrokenLinksCommand
         }
     }
 }

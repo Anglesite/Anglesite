@@ -62,7 +62,7 @@ public enum InProcessEditPersistence {
         }
         let guestCommit = try result(canonical.commit(exportedCommit))
         guard guestCommit.parents.count == 1, guestCommit.parents[0].oid == head.oid else {
-            throw SiteRuntimePersistenceError.syncFailed("overlay edit conflicts with newer Source changes")
+            throw SiteRuntimePersistenceError.syncFailed("edit conflicts with newer Source changes")
         }
 
         let sourceTree = try result(canonical.object(from: guestCommit.tree)).asTree()

@@ -33,11 +33,11 @@ Anglesite's business logic is already substantially portable: `AnglesiteSiteMode
 |---|---|---|
 | `AnglesiteSiteModel` | 2 files / 285 lines | Pure Foundation — ports as-is |
 | `AnglesiteCore` | 194 files / ~24k lines | 25 files import Apple-only frameworks (see seams) |
-| `AnglesiteBridge` | 3 files / 474 lines | WKWebView-specific; split portable message/overlay logic out |
+| `AnglesiteBridge` | 3 files / 474 lines | WKWebView-specific; split portable message/script-injection logic out |
 | `AnglesiteApp` | 74 files / ~14k lines | SwiftUI/AppKit — per-platform by design |
 | `AnglesiteIntents` | 31 files / ~3.4k lines | AppIntents — Apple-only, not ported |
 | `AnglesiteContainer` | 3 files / ~1k lines | Apple Containerization — macOS substrate, not ported |
-| `JS/edit-overlay` | TypeScript | Portable by construction (plain DOM/TS) |
+| `JS/edit-overlay` (since #1957: `JS/wysiwyg-engine`, the block editor + page bridge) | TypeScript | Portable by construction (plain DOM/TS) |
 
 Foundation, `Observation`, Swift Testing, `Process`, and `URLSession` (FoundationNetworking) all ship in the cross-platform Swift toolchain. The risk off-macOS is *behavioral* (Process semantics on Windows, path handling), not availability — mitigated by running the existing test suite on the new platforms from day one.
 
@@ -50,7 +50,7 @@ Sources/
 ├── AnglesiteSiteModel/      unchanged
 ├── AnglesiteCore/           purified; Apple imports isolated under Platform/
 │   └── Platform/            protocol seams + Darwin implementations
-├── AnglesiteBridgeCore/     NEW: webview-agnostic overlay + message schema
+├── AnglesiteBridgeCore/     NEW: webview-agnostic script-injection + message schema
 ├── AnglesiteBridge/         WKWebView adapter (Darwin-only target)
 ├── AnglesiteApp/            SwiftUI shell (macOS; owned by xcodeproj, unchanged)
 ├── AnglesiteLinux/          NEW: Adwaita shell + WebKitGTK adapter + PodmanSiteRuntime
@@ -108,7 +108,7 @@ A platform shell may adapt navigation, commands, windowing, file access, setting
 
 ### AnglesiteBridgeCore split
 
-The edit-overlay TypeScript is already portable. The Swift-side message schema, serialization, and overlay-injection orchestration move from `AnglesiteBridge` into a new webview-agnostic `AnglesiteBridgeCore`; each platform contributes a thin adapter (WKWebView / WebKitGTK / WebView2) that injects the compiled overlay bundle and shuttles JSON messages. Existing `AnglesiteBridgeTests` move to the core target and run on all platforms.
+The injected TypeScript (the edit overlay then; since #1957 the `JS/wysiwyg-engine` block editor + page bridge) is already portable. The Swift-side message schema, serialization, and script-injection orchestration move from `AnglesiteBridge` into a new webview-agnostic `AnglesiteBridgeCore`; each platform contributes a thin adapter (WKWebView / WebKitGTK / WebView2) that injects the compiled engine bundle and shuttles JSON messages on the single `wysiwyg` namespace (`WYSIWYGOpsDispatcher`). Hosting the block editor itself (the native `WYSIWYGCanvasController` half) on Linux/Windows is port work still ahead — the GTK shell's preview is view-only until then. Existing `AnglesiteBridgeTests` move to the core target and run on all platforms.
 
 ## 7. Site runtime substrate
 

@@ -73,7 +73,11 @@ public enum SyncArtifactError: Error, Equatable, Sendable, LocalizedError {
         case .libgit2(let reason):
             return "git operation failed: \(reason)"
         case .io(let reason):
-            return "couldn't read or write the sync artifact: \(reason)"
+            // The reason already says "couldn't read..." or "couldn't write..." - the throw
+            // sites in BundleArtifact bake that in so callers (and OwnerPhrasing's keyword
+            // classification) can tell a read failure from a write failure, which a single
+            // generic "read or write" phrasing here previously made impossible (#1963 review).
+            return reason
         }
     }
 }

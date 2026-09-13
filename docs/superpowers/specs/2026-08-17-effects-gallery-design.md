@@ -2,6 +2,7 @@
 
 **Date:** 2026-08-17
 **Status:** Approved (brainstorm 2026-08-17)
+**Note (2026-09-08, #1957):** the placement-pick mode described under "Overlay placement-pick mode" shipped in `JS/edit-overlay` and was ported verbatim to `JS/wysiwyg-engine/src/host/pick-modes.ts` when the click-to-edit overlay was removed; the `window.anglesite._enterPlacementMode()` entry points are unchanged and the `anglesite:pick-placement` message now rides the `wysiwyg` bridge.
 **Repos:** `Anglesite/Anglesite-app` only — no sidecar (`Anglesite/anglesite-skills`) changes required
 
 ## Context

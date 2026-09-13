@@ -162,7 +162,7 @@ struct ExportSiteCommands: Commands {
         // Export lives after the standard Save items. Enabled only when a site window is focused.
         CommandGroup(after: .importExport) {
             Menu("Export To") {
-                Button("Astro Website…") {
+                Button("Website Folder…") {
                     // Capture now — focus may shift between press and Task execution.
                     guard let id = focusedSiteID else { return }
                     Task { @MainActor in

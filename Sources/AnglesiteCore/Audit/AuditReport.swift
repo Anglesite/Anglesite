@@ -22,7 +22,8 @@ public struct AuditReport: Sendable, Equatable {
             /// Reserved: no shipped runner yet (#86 follow-up); declared now so the UI's
             /// category handling doesn't churn when one lands.
             case performance
-            /// Reserved: no shipped runner yet (#86 follow-up), same as `performance`.
+            /// Produced by `BrokenLinkAuditRunner` (#1996) today; the metadata/share-card
+            /// checks (#1995) land here too.
             case seo
         }
 

@@ -13,6 +13,12 @@ struct BackupDrawerView: View {
     var body: some View {
         VStack(spacing: 0) {
             header
+            if case .failed(let reason, let exit) = model.phase,
+               let detail = OwnerFacingCopy.backup(reason: reason, exitCode: exit).detail {
+                FailureDetailsView(detail: detail)
+                    .padding(.horizontal, 16)
+                    .padding(.bottom, 6)
+            }
             Divider()
             logScroller
             Divider()
@@ -29,10 +35,12 @@ struct BackupDrawerView: View {
         SheetHeader(title: headerTitle, subtitle: headerSubtitle, verticalPadding: 10) {
             statusIcon
         } trailing: {
-            if case .succeeded(let sha, _, _, _) = model.phase {
-                Button("Copy SHA") {
+            if case .succeeded(let sha, let branch, let remote, _) = model.phase {
+                // The git identifiers stay one click away for a support conversation, but
+                // never on the drawer face (#1963, D1).
+                Button("Copy Details") {
                     NSPasteboard.general.clearContents()
-                    NSPasteboard.general.setString(sha, forType: .string)
+                    NSPasteboard.general.setString("\(sha) · \(branch) · \(remote)", forType: .string)
                 }
             }
         }
@@ -60,7 +68,8 @@ struct BackupDrawerView: View {
     private var headerTitle: String {
         switch model.phase {
         case .running: return "Backing up \(siteName)…"
-        case .succeeded(_, let branch, _, _): return "Backed up to \(branch)"
+        case .succeeded(_, _, let remote, _):
+            return "Backed up to \(OwnerFacingCopy.backupDestination(remote: remote))"
         case .noChanges: return "Already backed up"
         case .failed: return "Backup failed"
         case .idle: return siteName
@@ -69,12 +78,12 @@ struct BackupDrawerView: View {
 
     private var headerSubtitle: String? {
         switch model.phase {
-        case .succeeded(let sha, _, let remote, let duration):
-            return "\(String(sha.prefix(7))) · \(remote) · \(String(format: "%.1f s", duration))"
+        case .succeeded(_, _, _, let duration):
+            return String(localized: "Saved in \(String(format: "%.1f s", duration))")
         case .noChanges:
             return "No new changes to save."
         case .failed(let reason, let exit):
-            return exit.map { "\(reason) (exit \($0))" } ?? reason
+            return OwnerFacingCopy.backup(reason: reason, exitCode: exit).summary
         default:
             return nil
         }

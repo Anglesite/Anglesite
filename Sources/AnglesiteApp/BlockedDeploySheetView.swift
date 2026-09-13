@@ -121,9 +121,9 @@ private struct FailureCard: View {
         case .cspMisconfigured: return "CSP misconfigured"
         case .embedMediaHotlink: return "Hotlinked embed media"
         case .wellKnownCollision: return "/.well-known/ collision"
-        case .anglesiteConfigInvalid: return "anglesite.json invalid"
-        case .restrictedContentInSource: return "Restricted content in Source/"
-        case .restrictedContentInDist: return "Restricted content in dist/"
+        case .anglesiteConfigInvalid: return "Site settings file invalid"
+        case .restrictedContentInSource: return "Restricted content in the site's files"
+        case .restrictedContentInDist: return "Restricted content in the published output"
         case .other: return "Other"
         }
     }

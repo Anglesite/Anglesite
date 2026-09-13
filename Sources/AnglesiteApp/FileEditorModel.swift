@@ -106,7 +106,7 @@ final class FileEditorModel {
         return await save()
     }
 
-    /// Re-check the file when the window regains focus — chat/overlay/CLI may have written it.
+    /// Re-check the file when the window regains focus — chat/canvas/CLI may have written it.
     func checkExternalChange() async {
         guard loadError == nil else { return }
         let dirty = isDirty

@@ -33,8 +33,8 @@ flowchart TB
         ondevice["On-device Foundation Models<br/>~3B + vision<br/>ApplyEditTool · SearchContentTool · Spotlight"]
     end
 
-    subgraph pcc["Private Cloud Compute — Apple cloud, no external APIs"]
-        pccgen["Bucket 5 heavy generation<br/>copy-edit · design-interview · social · repurpose"]
+    subgraph pcc["Private Cloud Compute — Apple cloud, no external APIs<br/>(not wired: tier is an alias for on-device)"]
+        pccgen["Bucket 5 heavy generation<br/>copy-edit · design-interview · social · repurpose<br/>labeled “runs on the on-device model”"]
     end
 
     subgraph container["Site container — per-site runtime<br/>(Apple Containerization on macOS · Cloudflare remote/iOS)"]
@@ -56,7 +56,7 @@ flowchart TB
     siri --> fmbrain
     chat --> fmbrain
     fmbrain -->|on-device tier| ondevice
-    fmbrain -->|escalate: PCC tier| pccgen
+    fmbrain -.->|PCC tier — served on-device today| pccgen
     fmbrain -->|tool calls| swift
     fmbrain -->|tool calls| mcpclient
     b1 --> repo
@@ -83,12 +83,30 @@ flowchart TB
 
 | Boundary | What's inside | How it's crossed |
 |---|---|---|
-| **Apple device (host)** | The Swift app: front-doors (GUI / Siri / chat), the `FoundationModelAssistant` orchestrator, deterministic Swift (Bucket 1 hot-paths + Bucket 3 wizards), the native `pre-deploy-check` gate, `MCPClient`, and the `WKWebView` preview. | User input; in-process Apple Intelligence API; `MCPClient` to the container. |
+| **Apple device (host)** | The Swift app: front-doors (GUI / Siri / chat), the `FoundationModelAssistant` orchestrator, deterministic Swift (Bucket 1 hot-paths + Bucket 3 wizards), the native `pre-deploy-check` gate, `MCPClient`, and the `WKWebView` preview hosting the block editor (`JS/wysiwyg-engine` — the one injected script and the only editing surface since #1957; its ops and page-bridge reports cross the single `wysiwyg` script-message namespace to `WYSIWYGCanvasController`). | User input; in-process Apple Intelligence API; `MCPClient` to the container. |
 | **Apple Intelligence (on-device)** | The ~3B on-device Foundation Models + vision, with the registered FM `Tool`s (`ApplyEditTool`, `SearchContentTool`, Spotlight). | Called in-process by the FM brain; never leaves the device. |
-| **Private Cloud Compute** | Heavy generation that exceeds the on-device ceiling (Bucket 5: copy-edit, design-interview, social, repurpose). Apple-operated. **Not wired yet:** the `.privateCloudCompute` tier is backed by the on-device session until the PCC entitlement lands (see `2026-07-10-pcc-escalation-spike-notes.md`). External LLMs are **not** part of this boundary: per the revised LLM policy (2026-07-08) they exist only as an explicit Settings opt-in (`ExternalLLMBackend`, ACP agents) for the chat panel. | The FM brain escalates to the PCC tier over Apple's attested, encrypted channel. |
+| **Private Cloud Compute** | Heavy generation that exceeds the on-device ceiling (Bucket 5: copy-edit, design-interview, social, repurpose). Apple-operated. **Not wired yet:** the `.privateCloudCompute` tier is an *alias* for on-device until the PCC entitlement lands (see `2026-07-10-pcc-escalation-spike-notes.md`) — `FoundationModelTier.servingTier` resolves it to `.onDevice`, the advertised capabilities say "On-Device"/4K, and every feature designed for the tier shows a "Runs on the on-device model; results may be shorter" badge (#1965). External LLMs are **not** part of this boundary: per the revised LLM policy (2026-07-08) they exist only as an explicit Settings opt-in (`ExternalLLMBackend`, ACP agents) for the chat panel, and that opt-in discloses what leaves the Mac (page text + recent chat per request). | Intended: the FM brain escalates to the PCC tier over Apple's attested, encrypted channel. Today: nothing leaves the device on this path. |
 | **Site container (per-site)** | **All JavaScript**: the Node MCP server and everything it drives in-guest — `apply_edit`/`undo_edit` (HTML/Astro patcher), the Astro dev server + build, Sharp, Satori, Pagefind, Keystatic. Apple Containerization is the macOS runtime direction; Cloudflare Sandbox is the remote/iOS runtime. | The host reaches it only over the in-container **MCP HTTP/WS transport** (#64) — not by host-spawning Node. |
 | **Site `Source/` (git repo)** | The filesystem source of truth — the clonable, externally-editable unit. | Mounted into the container; written by the in-guest JS and by Swift Bucket-1 hot-paths; read by `WKWebView` via the dev server. |
 | **Cloudflare (deploy target)** | The published site (Workers). | Deploy runs only after the native `pre-deploy-check` gate passes. |
+
+## First-party infrastructure
+
+Decision D7 (`specs/2026-09-08-product-direction-review-decisions.md`): the app is not a pure
+desktop client. It depends on a small set of services Anglesite operates — everything under and
+including `anglesite.dwk.io`, plus the `@dwk/workers` catalog — and these are accepted, documented
+first-party dependencies rather than incidental ones. They do not appear in the diagram above
+because none of them sits on the content path: the site's `Source/` repo and the deploy to
+Cloudflare work without them, and every one degrades rather than blocks when unreachable.
+
+| Dependency | What the app uses it for | Trust posture |
+|---|---|---|
+| **`auth.anglesite.dwk.io`** | The Cloudflare OAuth callback (`CloudflareOAuthClient.redirectURI` → `/oauth-callback`) and the AT Protocol OAuth client metadata (`ATProtoOAuthClient.clientID` → `/atproto/client-metadata.json`). It relays authorization codes back to the app; it never holds a long-lived token. | Anglesite-operated. A sign-in that can't reach it fails with a retry, never a silent fallback. |
+| **`anglesite.dwk.io`** | Product site and the in-app **Help ▸ Send Feedback** link. | Anglesite-operated; informational only. |
+| **Worker catalog** (`davidwkeith/workers` — `catalog.json`, `conformance/status.json`, read via `raw.githubusercontent.com`) | `catalog.json` supplies the worker descriptors and dynamic-route claims that `WorkerComposition` turns into `wrangler.toml` at deploy time; `conformance/status.json` is advisory text in the deploy log. | **Pinned, not floating.** `WorkerCatalogFetcher` and `WorkersConformanceFetcher` fetch at the commit recorded in `scripts/worker-catalog.lock.json` (surfaced to Swift as the generated `WorkerCatalogPin`) and verify the SHA-256 of the body before parsing or caching it. A digest mismatch is logged and the last *verified* cached copy is served; with no cache, the catalog is empty (static-only deploy) — unverified bytes never reach the deploy pipeline. The pin moves only through `scripts/bump-worker-catalog.sh`, which prints the manifest diff for review; `--check` runs in CI so the lock and the generated constants can't drift. |
+
+Nothing here is owner-facing: a catalog that fails verification is a log line in the debug pane,
+not a sheet — the owner's surface carries no infrastructure vocabulary (decision D1).
 
 ## Notes
 
@@ -98,7 +116,7 @@ flowchart TB
   not an LLM hook, so it cannot be prompt-injected or talked out of running. The *script* it
   executes lives in the site's `Source/`, so the app also pins its hash and restores it on
   mismatch (decision D5, `specs/2026-09-08-product-direction-review-decisions.md`).
-- **Amended 2026-09-08:** the PCC tier in the diagram is the intended escalation path, not a live one; see the boundary table.
+- **Amended 2026-09-08:** the PCC tier in the diagram is the intended escalation path, not a live one; see the boundary table. Until it lands, the tier is a labeled alias for on-device (#1965) — flip `FoundationModelTier.servingTier` when the entitlement arrives and the badges disappear on their own.
 - **`Source/` holds content; `Config/` holds infrastructure (D6, #1960).** The generated
   `wrangler.toml` and the deploy markers (`workerDeployed` / `workerProvisioned` /
   `sourceBundleBucket` in `settings.plist`) live in the package's `Config/`, never in the git

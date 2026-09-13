@@ -1,6 +1,7 @@
 # iOS/iPadOS v2.0 — the phone and iPad as a complete publishing companion
 
 **Status:** Approved design (owner-reviewed 2026-08-12) — closes epic #342's design mandate
+**Note (2026-09-08, #1957):** `AnglesiteScriptHandler` and the shared edit-overlay user script were removed with the click-to-edit overlay; the P2P preview now injects the `JS/wysiwyg-engine` bundle through `WYSIWYGScriptHandler` (no transport) and is view-only until the block editor gets a non-Mac host (#571).
 **Relates to:** #342 (this epic), #1208 (Anywhere runtime — the editing transport; its spec
 `2026-08-03-anywhere-runtime-webrtc-design.md` remains the transport's implementation
 authority), #71 (iOS thin client, closed — shipped the `AnglesiteMobile` scaffold), #800/#869

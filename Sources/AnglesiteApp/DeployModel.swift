@@ -185,7 +185,7 @@ final class DeployModel {
     /// Returns the current `@dwk/workers` catalog. Defaults to `{ [] }` (no network, no active
     /// settings-activated workers ever computed) so existing tests that don't inject one keep
     /// deploying exactly as before — production wiring (`SiteWindowModel`) passes a real
-    /// `WorkerCatalogFetcher(catalogURL: WorkerCatalogFetcher.productionCatalogURL).catalog`.
+    /// `WorkerCatalogFetcher.production().catalog` (pinned + digest-verified, #1961).
     private let workerCatalog: @Sendable () async -> [WorkerDescriptor]
     /// Bumped at the start of every `runDeploy`. The async failure-summarization captures the
     /// value at dispatch and only writes its result back if it still matches — so a summary from
@@ -722,9 +722,9 @@ final class DeployModel {
             case .invalidName:
                 workerNameConflictError = String(localized: "Worker names can only contain lowercase letters, numbers, hyphens, and underscores.")
             case .wranglerConfigMissing:
-                workerNameConflictError = String(localized: "Couldn't find this site's wrangler.toml — try publishing again.")
+                workerNameConflictError = String(localized: "Couldn't find this site's publishing settings — try publishing again.")
             case .nameLineNotFound:
-                workerNameConflictError = String(localized: "This site's wrangler.toml is missing its Worker name — try publishing again.")
+                workerNameConflictError = String(localized: "This site's publishing settings are missing its Worker name — try publishing again.")
             }
             return
         } catch {
