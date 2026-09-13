@@ -277,6 +277,34 @@ describe("image drop onto an <img> (#1957)", () => {
     }
   });
 
+  it("ignores a second drop on the same image while the first replacement is still pending (#1971)", async () => {
+    const img = makeImg("/images/hero.jpg", "original-srcset");
+    dragEvent("drop", img, imageFile());
+    await flushFileReader(transport);
+    expect(img.src.startsWith("blob:")).toBe(true);
+
+    // A second drop on the same target before the first settles must not start a second
+    // request or re-capture `savedSrc` from the first drop's blob URL — see the doc comment
+    // on `wireImageDrop` for the broken-image scenario that would otherwise produce.
+    const secondDrop = dragEvent("drop", img, imageFile());
+
+    expect(secondDrop.defaultPrevented).toBe(true);
+    expect(transport.requests).toHaveLength(1);
+    expect(document.querySelector(`.${TOAST_CLASS}`)?.textContent).toMatch(/already replacing/i);
+
+    // The first request finally fails; it must restore the *true* original, not whatever the
+    // rejected second drop might have captured.
+    transport.settle(0, { status: "failed", reason: "image-optimize-failed", detail: "sharp error" });
+    await vi.waitFor(() => { if (!img.src.endsWith("/images/hero.jpg")) throw new Error("not reverted yet"); });
+    expect(img.getAttribute("srcset")).toBe("original-srcset");
+
+    // Now that the first has settled, a fresh drop on the same target is accepted again.
+    const thirdDrop = dragEvent("drop", img, imageFile());
+    expect(thirdDrop.defaultPrevented).toBe(true);
+    await flushFileReader(transport);
+    expect(transport.requests).toHaveLength(2);
+  });
+
   it("dispose removes the listeners, any lingering highlight, and the stylesheet", () => {
     const img = makeImg("/images/hero.jpg");
     dragEvent("dragenter", document.body, imageFile());

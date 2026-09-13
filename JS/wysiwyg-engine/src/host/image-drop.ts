@@ -51,6 +51,13 @@ export interface ImageReplaceTransport {
  * replacement for the overlay's insert-first-image branch. The hint text tells the owner both
  * options exist.
  *
+ * A target with a replacement already in flight (up to `REPLY_TIMEOUT_MS`) rejects a second drop
+ * rather than starting an overlapping one (#1971 review): `replaceImage` captures `savedSrc`
+ * from `target.src` at call time, so a second drop landing before the first settles would read
+ * back the first drop's *blob* URL as "original" — and if the first drop's own revert later
+ * revokes that blob, the second drop's eventual revert would set `target.src` to an
+ * already-revoked URL, leaving a broken image.
+ *
  * Returns a disposer that removes the listeners, any lingering highlight, and the stylesheet.
  */
 export function wireImageDrop(transport: ImageReplaceTransport, doc: Document = document): () => void {
@@ -58,6 +65,7 @@ export function wireImageDrop(transport: ImageReplaceTransport, doc: Document = 
   let dragIsFile = false;
   let dragDepth = 0;
   let activeTarget: HTMLImageElement | null = null;
+  const pendingReplacements = new Set<HTMLImageElement>();
 
   const imageTargets = (): HTMLImageElement[] => Array.from(doc.querySelectorAll("img"));
 
@@ -139,6 +147,12 @@ export function wireImageDrop(transport: ImageReplaceTransport, doc: Document = 
     clearTargets();
     if (!target) return; // not ours — native's drop target inserts a new block
     event.preventDefault();
+    if (pendingReplacements.has(target)) {
+      // A replacement for this exact image is already in flight — see the function doc comment
+      // for why accepting a second one here could corrupt the first's revert.
+      showToast("Already replacing this image — wait for it to finish");
+      return;
+    }
     if (!file) {
       // dragover recognized a file drag via the always-available types/items, but `files` can
       // still come back empty at drop time for some promise-backed drag sources.
@@ -153,6 +167,7 @@ export function wireImageDrop(transport: ImageReplaceTransport, doc: Document = 
   };
 
   const replaceImage = (target: HTMLImageElement, file: File): void => {
+    pendingReplacements.add(target);
     const savedSrc = target.src;
     const savedSrcset = target.getAttribute("srcset");
     const selector = elementInfoFor(target);
@@ -160,6 +175,12 @@ export function wireImageDrop(transport: ImageReplaceTransport, doc: Document = 
     target.src = blobURL;
     target.removeAttribute("srcset");
     let settled = false;
+
+    // Every settlement path (success, failure, timeout, unreadable file) runs through here so a
+    // later drop on this same target is accepted again once this one is truly done.
+    const clearPending = (): void => {
+      pendingReplacements.delete(target);
+    };
 
     const restoreOriginal = (): void => {
       target.src = savedSrc;
@@ -173,6 +194,7 @@ export function wireImageDrop(transport: ImageReplaceTransport, doc: Document = 
       settled = true;
       clearTimeout(timeoutHandle);
       restoreOriginal();
+      clearPending();
       showToast(text);
     };
 
@@ -196,9 +218,11 @@ export function wireImageDrop(transport: ImageReplaceTransport, doc: Document = 
             if (reply.result.srcset !== undefined) target.setAttribute("srcset", reply.result.srcset);
             else target.removeAttribute("srcset");
             URL.revokeObjectURL(blobURL);
+            clearPending();
             return;
           }
           restoreOriginal();
+          clearPending();
           showToast(reply.detail ?? reply.message ?? reply.reason ?? "Image edit failed");
         });
     };
@@ -221,6 +245,7 @@ export function wireImageDrop(transport: ImageReplaceTransport, doc: Document = 
     doc.removeEventListener("drop", onDrop);
     doc.removeEventListener("dragend", clearTargets);
     clearTargets();
+    pendingReplacements.clear();
     doc.getElementById(STYLE_ID)?.remove();
   };
 }
