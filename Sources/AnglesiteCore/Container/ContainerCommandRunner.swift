@@ -53,9 +53,14 @@ public struct ContainerCommandRunner: Sendable {
         // before `wrangler deploy`. A site with no config yet has nothing to stage; wrangler then
         // reports the missing name itself.
         if let stagingArgv = WranglerInvocation.configStagingArgv(configDirectory: configDirectory) {
-            let staged = try await control.exec(
-                siteID: siteID, argv: stagingArgv, environment: [:],
-                workingDirectory: "/workspace/site", onOutput: { _, _ in })
+            // Routed through `WranglerInvocation.exec` (not a raw `control.exec` with a no-op
+            // `onOutput`) so a staging failure's actual stderr -- a guest disk-full or permission
+            // error, say -- reaches `logCenter` the same way every other wrangler call site's
+            // output does, rather than only the generic exit-code message below being visible
+            // (logs are sacred; this initializer's own doc comment above promises exactly that).
+            let staged = try await WranglerInvocation.exec(
+                control: control, siteID: siteID, argv: stagingArgv, environment: [:],
+                logCenter: logCenter, source: source)
             guard staged.exitCode == 0 else {
                 return ProcessSupervisor.RunResult(
                     stdout: "", stderr: "couldn't sync wrangler.toml into the container (exit \(staged.exitCode))",
