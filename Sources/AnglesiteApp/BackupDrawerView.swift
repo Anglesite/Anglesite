@@ -60,6 +60,9 @@ struct BackupDrawerView: View {
         case .failed:
             Image(systemName: "exclamationmark.octagon.fill")
                 .foregroundStyle(.red).font(.title3)
+        case .blocked:
+            Image(systemName: "shield.lefthalf.filled")
+                .foregroundStyle(.orange).font(.title3)
         case .idle:
             Image(systemName: "externaldrive").font(.title3)
         }
@@ -72,6 +75,7 @@ struct BackupDrawerView: View {
             return "Backed up to \(OwnerFacingCopy.backupDestination(remote: remote))"
         case .noChanges: return "Already backed up"
         case .failed: return "Backup failed"
+        case .blocked: return "Backup stopped by Anglesite's safety check"
         case .idle: return siteName
         }
     }
