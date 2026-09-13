@@ -109,8 +109,8 @@ final class ProjectCleanupModel {
             let stillOnDisk = FileManager.default.fileExists(
                 atPath: sourceDirectory.appendingPathComponent(candidate.path).path)
             deleteError = stillOnDisk
-                ? "Couldn't delete \(candidate.path). Check for uncommitted changes and try again."
-                : "\(candidate.path) may have been removed from disk without a commit recording it. Check git status in this site's Source folder before continuing."
+                ? String(localized: "Couldn't remove \(candidate.path). Make sure this site isn't being edited elsewhere, then try again.")
+                : String(localized: "\(candidate.path) was removed, but the change isn't recorded in this site's history yet. Run Backup to record it.")
             return false
         }
         candidates.removeAll { $0.id == candidate.id }

@@ -504,7 +504,7 @@ final class SiteWindowModel {
         self.contentGraph = contentGraph
         self.deploy = DeployModel(
             contentGraph: contentGraph,
-            workerCatalog: { await WorkerCatalogFetcher(catalogURL: WorkerCatalogFetcher.productionCatalogURL).catalog() }
+            workerCatalog: { await WorkerCatalogFetcher.production().catalog() }
         )
         self.knowledgeIndex = knowledgeIndex
         self.semanticRanker = semanticRanker

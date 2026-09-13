@@ -74,7 +74,7 @@ public actor LocalContainerSiteRuntime: SiteRuntime, SiteRuntimeContainerCapabil
         suddenTerminationController: SuddenTerminationController = .shared,
         beginActivity: @escaping @Sendable (String) -> ActivityAssertion.Lease = ActivityAssertion.begin,
         workerCatalog: @escaping @Sendable () async -> [WorkerDescriptor] = {
-            await WorkerCatalogFetcher(catalogURL: WorkerCatalogFetcher.productionCatalogURL).catalog()
+            await WorkerCatalogFetcher.production().catalog()
         },
         statusCenter: WorkersDevStatusCenter = .shared
     ) {

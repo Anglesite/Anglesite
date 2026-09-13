@@ -198,6 +198,66 @@ var packageTargets: [Target] = [
         dependencies: ["AnglesiteIOS", "AnglesiteSiteModel", "AnglesiteCore", "AnglesiteTestSupport"],
         path: "Tests/AnglesiteIOSTests",
         swiftSettings: strictConcurrency
+    ),
+    // #1968 (D2 of the 2026-09-08 product-direction decisions): the non-Mac app and extension
+    // targets are real product code and need real test coverage, but every one of them is an
+    // Xcode-only app/extension target whose hosted tests never run on CI (see CONTRIBUTING.md
+    // ▸ Testing). So, following the AnglesiteCore/`TokenOnboarding` pattern, each target's
+    // testable logic lives in a thin SwiftPM library the target links, with a plain `swift
+    // test` target beside it that `build-test` runs on every PR. The Xcode targets keep only
+    // their views/controllers/providers (project.yml links these products). Three of them:
+    //
+    //   - AnglesiteMobileCore: the iOS shell's orchestration (`SiteShellModel`), the composer
+    //     loader, and the composer's presentation helpers. Foundation/Observation/Network only —
+    //     no SwiftUI/UIKit — so the same tests run on the macOS host, and `ios-build`'s
+    //     AnglesiteMobile simulator build compiles it for iOS (the deployment target is iOS 27,
+    //     and the hosted macos-26 image has no iOS 27 simulator runtime, so an on-simulator
+    //     `xcodebuild test` can't run there yet).
+    //   - AnglesiteQuickLookUI: the Quick Look preview view and the thumbnail rendering, so the
+    //     extensions can be smoke-rendered against a fixture package (the extensions themselves
+    //     only wrap these in QLPreviewingController/QLThumbnailProvider entry points).
+    //   - AnglesiteShareExtensionCore: the share sheet's compose model and Safari input
+    //     extraction, both reachable without the extension host.
+    .target(
+        name: "AnglesiteMobileCore",
+        dependencies: ["AnglesiteIOS", "AnglesiteCore"],
+        path: "Sources/AnglesiteMobileCore",
+        swiftSettings: strictConcurrency
+    ),
+    .testTarget(
+        name: "AnglesiteMobileCoreTests",
+        dependencies: ["AnglesiteMobileCore", "AnglesiteIOS", "AnglesiteCore", "AnglesiteTestSupport"],
+        path: "Tests/AnglesiteMobileCoreTests",
+        swiftSettings: strictConcurrency
+    ),
+    .target(
+        name: "AnglesiteQuickLookUI",
+        dependencies: ["AnglesiteQuickLookSupport", "AnglesiteSiteModel"],
+        path: "Sources/AnglesiteQuickLookUI",
+        swiftSettings: strictConcurrency
+    ),
+    .testTarget(
+        name: "AnglesiteQuickLookUITests",
+        dependencies: ["AnglesiteQuickLookUI", "AnglesiteQuickLookSupport", "AnglesiteSiteModel"],
+        path: "Tests/AnglesiteQuickLookUITests",
+        // Tests/AnglesiteQuickLookUITests/Fixtures/Fixture.anglesite is a committed `.anglesite`
+        // package (marker + a small Source/ tree) the preview and thumbnail smoke tests render —
+        // `.copy` keeps its directory layout intact in the test bundle, like the other Fixtures
+        // resources in this file.
+        resources: [.copy("Fixtures")],
+        swiftSettings: strictConcurrency
+    ),
+    .target(
+        name: "AnglesiteShareExtensionCore",
+        dependencies: ["AnglesiteCore"],
+        path: "Sources/AnglesiteShareExtensionCore",
+        swiftSettings: strictConcurrency
+    ),
+    .testTarget(
+        name: "AnglesiteShareExtensionCoreTests",
+        dependencies: ["AnglesiteShareExtensionCore", "AnglesiteCore"],
+        path: "Tests/AnglesiteShareExtensionCoreTests",
+        swiftSettings: strictConcurrency
     )
 ]
 
@@ -395,6 +455,11 @@ var packageProducts: [Product] = [
     .library(name: "AnglesiteBridge", targets: ["AnglesiteBridge"]),
     .library(name: "AnglesiteIOS", targets: ["AnglesiteIOS"]),
     .library(name: "AnglesiteIntents", targets: ["AnglesiteIntents"]),
+    // Linked by the AnglesiteMobile / Quick Look / Share Extension targets in project.yml — see
+    // the matching targets above (#1968).
+    .library(name: "AnglesiteMobileCore", targets: ["AnglesiteMobileCore"]),
+    .library(name: "AnglesiteQuickLookUI", targets: ["AnglesiteQuickLookUI"]),
+    .library(name: "AnglesiteShareExtensionCore", targets: ["AnglesiteShareExtensionCore"]),
     .executable(name: "anglesite-lan-host", targets: ["AnglesiteLANHost"])
 ]
 
@@ -547,6 +612,33 @@ packageTargets.removeAll { !portableTargets.contains($0.name) }
 // Darwin-only and already excluded via includeContainer.)
 packageProducts.removeAll { !portableTargets.contains($0.name) }
 
+// Linux shell core (#1968, D2 of the 2026-09-08 product-direction decisions): `ShellModel` —
+// the site lifecycle behind the GTK shell — is plain Foundation + AnglesiteCore, so it lives in
+// its own library that needs none of the GTK/libadwaita/WebKitGTK toolchain the executable
+// below is gated on. Linux-only (it composes `PodmanContainerControl`, which compiles out
+// without Glibc), hence defined here rather than in the shared list above. Its test target used
+// to hang off the gated executable, which meant `linux-build-test`'s swift:*-noble image (no
+// GTK) never ran it and only the non-required Flatpak lane did; now every `swift test` on this
+// leg runs AnglesiteLinuxTests, and the Flatpak lane's `--filter AnglesiteLinuxTests` keeps
+// working unchanged.
+packageTargets.append(
+    .target(
+        name: "AnglesiteLinuxCore",
+        dependencies: ["AnglesiteCore"],
+        path: "Sources/AnglesiteLinuxCore",
+        swiftSettings: strictConcurrency
+    )
+)
+packageTargets.append(
+    .testTarget(
+        name: "AnglesiteLinuxTests",
+        dependencies: ["AnglesiteLinuxCore", "AnglesiteCore", "AnglesiteSiteModel"],
+        path: "Tests/AnglesiteLinuxTests",
+        swiftSettings: strictConcurrency
+    )
+)
+packageProducts.append(.library(name: "AnglesiteLinuxCore", targets: ["AnglesiteLinuxCore"]))
+
 // Cross-platform port phase 2 (#567): the Linux shell — GTK4/libadwaita via Adwaita for Swift,
 // with a WebKitGTK preview (design §6). Opt-in via ANGLESITE_LINUX_SHELL=1 rather than
 // default-on: building it needs GTK system headers (libadwaita ≥ 1.7 for adwaita-swift main's
@@ -589,6 +681,7 @@ if ProcessInfo.processInfo.environment["ANGLESITE_LINUX_SHELL"] == "1" {
             dependencies: [
                 "AnglesiteCore",
                 "AnglesiteBridgeCore",
+                "AnglesiteLinuxCore",
                 "CWebKitGTK",
                 .product(name: "Adwaita", package: "adwaita-swift")
             ],
@@ -597,20 +690,9 @@ if ProcessInfo.processInfo.environment["ANGLESITE_LINUX_SHELL"] == "1" {
         )
     )
     packageProducts.append(.executable(name: "anglesite-linux", targets: ["AnglesiteLinux"]))
-    // Depends on the AnglesiteLinux target itself (for @testable import), so it inherits the
-    // same GTK-toolchain requirement and only enters the graph under this same
-    // ANGLESITE_LINUX_SHELL=1 gate — but the tests it holds today (ShellModel.overlayCandidates,
-    // a pure function with no GTK/Adwaita touch points) need none of that to actually run; the
-    // gating is a build-graph consequence of testing the target, not a requirement of the tests
-    // themselves.
-    packageTargets.append(
-        .testTarget(
-            name: "AnglesiteLinuxTests",
-            dependencies: ["AnglesiteLinux"],
-            path: "Tests/AnglesiteLinuxTests",
-            swiftSettings: strictConcurrency
-        )
-    )
+    // No test target of its own: everything testable in the shell (`ShellModel`) lives in
+    // AnglesiteLinuxCore above, whose AnglesiteLinuxTests runs ungated. What remains here is the
+    // GTK/WebKitGTK adapter code, which only a live GTK box exercises.
 }
 #endif
 

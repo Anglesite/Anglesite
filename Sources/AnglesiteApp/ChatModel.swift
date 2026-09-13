@@ -305,7 +305,7 @@ final class ChatModel {
               !metadata.undone
         else { return .stale }
         guard let undoCommand else {
-            lastError = String(localized: "Undo unavailable: MCP not running.")
+            lastError = String(localized: "Undo isn't available until this site's editor finishes starting.")
             return .retryable
         }
         // Double-submit guard: the row button and ⌘Z are independent entry points into this

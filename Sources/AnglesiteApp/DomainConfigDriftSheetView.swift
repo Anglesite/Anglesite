@@ -45,7 +45,7 @@ struct DomainConfigDriftSheetView: View {
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
                 Text("Can't publish yet — domain setup doesn't match").font(.title3).fontWeight(.semibold)
-                Text("Your declared domain configuration (anglesite.json) doesn't match what's live on Cloudflare. Review and reconcile before publishing again.")
+                Text("This site's saved domain settings don't match what's live on Cloudflare. Review and reconcile before publishing again.")
                     .font(.callout).foregroundStyle(.secondary)
             }
             Spacer()

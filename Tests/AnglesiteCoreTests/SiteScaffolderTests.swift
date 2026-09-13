@@ -322,7 +322,7 @@ struct SiteScaffolderTests {
         let configDir = pkgURL.appendingPathComponent("Config")
         let baseline = DependencyBaseline.load(from: configDir)
         #expect(baseline != nil)
-        #expect(baseline?["astro"] == "^7.2.9")  // matches Resources/Template/package.json today
+        #expect(baseline?["astro"] == "^7.3.2")  // matches Resources/Template/package.json today
 
         let siteConfig = try String(
             contentsOf: pkgURL.appendingPathComponent("Source/.site-config"), encoding: .utf8)
@@ -546,6 +546,7 @@ struct SiteScaffolderTests {
         let sourceDir = pkgURL.appendingPathComponent("Source")
         let git = URL(fileURLWithPath: "/usr/bin/git")
         let log = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: git, arguments: ["log", "--oneline"], currentDirectoryURL: sourceDir)
         #expect(log.exitCode == 0, "git log failed — no initial commit was created: \(log.stderr)")
         #expect(!log.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,

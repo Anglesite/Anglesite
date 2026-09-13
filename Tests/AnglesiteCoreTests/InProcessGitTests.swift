@@ -21,6 +21,7 @@ import AnglesiteTestSupport
     @discardableResult
     private func git(_ arguments: [String], in dir: URL) async throws -> String {
         let result = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: ["git"] + arguments,
             currentDirectoryURL: dir

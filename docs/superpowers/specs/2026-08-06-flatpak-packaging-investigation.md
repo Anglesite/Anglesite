@@ -107,7 +107,8 @@ mechanical follow-up if it turns out to matter, not a redesign.
   `(flatpakSpawnExecutable, ["--host", podmanExecutable.path] + arguments)`.
 
 Every call site that used to pass `podmanExecutable` straight to `ProcessSupervisor.run`/`.launch`
-(the boot-time `spawnDetachedPodmanRun`, `exec`/`execInteractive`, `execOneShot`, `resolvedHostPort`,
+(the boot-time `podman run -d` — then a local `spawnDetachedPodmanRun`, since #1966
+`ProcessSupervisor.runDetaching` — `exec`/`execInteractive`, `execOneShot`, `resolvedHostPort`,
 `stopContainer`) now resolves through `podmanInvocation` first. No call site needed its own
 sandbox-awareness — the rewrite is centralized. Two unit tests
 (`PodmanContainerControlTests.podmanInvocationPassesThroughOutsideFlatpak` /
@@ -152,7 +153,8 @@ empirically" only after testing against a real process tree, and this PR can't d
 investigation was written in (§9). **Needs a live check on a real Flatpak-packaged build before
 this is trusted.** If it doesn't hold, the fix is mechanical: apply the same raw
 `posix_spawn`+`waitpid` bypass to `flatpak-spawn` instead of `podman` directly — the code path
-already isolates this to `spawnDetachedPodmanRun`'s one caller.
+already isolates this to the one `ProcessSupervisor.runDetaching` call in `start()` (the bypass
+itself lives in the supervisor since #1966).
 
 ## 5b. Unverified risk: does interactive `exec` stdio survive `flatpak-spawn --host`?
 
