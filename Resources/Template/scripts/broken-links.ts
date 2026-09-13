@@ -176,9 +176,15 @@ function safeDecode(path: string): string {
 const TAG_PATTERN = /<([a-zA-Z][a-zA-Z0-9-]*)\b([^>]*)>/g;
 /** One attribute: name, then an optional quoted or bare value. */
 const ATTRIBUTE_PATTERN = /([^\s=/"'<>]+)(\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s"'>]+)))?/g;
-/** `<script …>…</script>` blocks and `<!-- … -->` comments — removed before tag scanning. */
-const STRIPPED_BLOCKS_PATTERN = /<script\b[^>]*>[\s\S]*?<\/script\s*>|<!--[\s\S]*?-->/gi;
-const STYLE_BLOCK_PATTERN = /<style\b[^>]*>([\s\S]*?)<\/style\s*>/gi;
+/**
+ * `<script …>…</script>` blocks and `<!-- … -->` comments — removed before tag scanning. The end
+ * tag is `</script` followed by anything up to `>`: per the HTML tokenizer, whitespace, a
+ * newline, or stray attributes after the name (`</script\t\n bar>`) still close the block, and
+ * a pattern that only accepts `</script\s*>` would leave everything after such a tag inside the
+ * "script" and let a payload smuggle references past the strip (CodeQL js/bad-tag-filter).
+ */
+const STRIPPED_BLOCKS_PATTERN = /<script\b[^>]*>[\s\S]*?<\/script\b[^>]*>|<!--[\s\S]*?-->/gi;
+const STYLE_BLOCK_PATTERN = /<style\b[^>]*>([\s\S]*?)<\/style\b[^>]*>/gi;
 /** CSS `url(...)` — bare, single- or double-quoted. */
 const CSS_URL_PATTERN = /url\(\s*(?:"([^"]*)"|'([^']*)'|([^\s"')]+))\s*\)/gi;
 const SCHEME_PATTERN = /^[a-zA-Z][a-zA-Z0-9+.-]*:/;

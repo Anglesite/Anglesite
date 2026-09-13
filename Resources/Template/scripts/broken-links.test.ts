@@ -140,6 +140,25 @@ test("references inside <script> blocks and HTML comments are not scanned", () =
   assert.equal(report.referencesChecked, 0);
 });
 
+test("script and style end tags with whitespace or attributes after the name still close the block", () => {
+  // `</script\t\n bar>` is a valid end tag per the HTML tokenizer; a strip that only accepted
+  // `</script\s*>` would treat the rest of the page as script and drop its real references —
+  // or, the other way round, let a script payload's fake tags leak out (CodeQL js/bad-tag-filter).
+  const report = scanFiles({
+    "index.html": [
+      "<script>const t = '<a href=\"/phantom/\">';</script\t\n bar>",
+      '<a href="/real-missing/">r</a>',
+      "<style>.x { background: url(/from-style.png) }</style \n>",
+      "<SCRIPT TYPE=module>x</SCRIPT >",
+      '<a href="/also-real/">r</a>',
+    ].join("\n"),
+  });
+  assert.deepEqual(
+    report.problems.map((p) => p.resolvedPath),
+    ["/also-real/", "/from-style.png", "/real-missing/"],
+  );
+});
+
 test("a reference covered by a redirect source is not a missing target", () => {
   const report = scanFiles(
     { "index.html": '<a href="/old-page/">o</a> <a href="/old-page">o2</a> <a href="/legacy/deep/thing">s</a> <a href="/really-gone/">g</a>' },
