@@ -50,13 +50,13 @@ struct DeployCommandGateTests {
                 return .digests(out)
             }
         }
-        func restoreAppOwnedScripts(_ pins: [AppOwnedScriptsGate.Pin], source: String) async -> Bool {
+        func restoreAppOwnedScripts(_ pins: [AppOwnedScriptsGate.Pin], source: String) async -> [String] {
             lock.withLock {
                 for pin in pins {
                     restored.append(pin.relativePath)
                     digests[pin.relativePath] = pin.sha256
                 }
-                return true
+                return pins.map(\.relativePath)
             }
         }
     }
@@ -219,8 +219,8 @@ struct DeployCommandGateTests {
             func digestAppOwnedScripts(relativePaths: [String], source: String) async -> AppOwnedScriptsGate.RuntimeCopy.Digests {
                 .failed(reason: "no container")
             }
-            func restoreAppOwnedScripts(_ pins: [AppOwnedScriptsGate.Pin], source: String) async -> Bool {
-                Issue.record("must not restore a copy it couldn't read"); return false
+            func restoreAppOwnedScripts(_ pins: [AppOwnedScriptsGate.Pin], source: String) async -> [String] {
+                Issue.record("must not restore a copy it couldn't read"); return []
             }
         }
         let (site, template, root) = try await makeFixture()

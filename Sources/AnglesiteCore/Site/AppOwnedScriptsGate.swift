@@ -53,9 +53,16 @@ public enum AppOwnedScriptsGate {
         }
     }
 
-    /// Every app-owned file in `templateDirectory` (per `TemplateScriptsManifest`), pinned.
-    /// Empty when the manifest finds nothing there — which ``enforce`` treats as unverifiable,
-    /// never as "nothing to protect".
+    /// Every app-owned file in `templateDirectory` (per `TemplateScriptsManifest`) that the app
+    /// could read, pinned. Empty when the manifest finds nothing there — which ``enforce`` treats
+    /// as unverifiable, never as "nothing to protect". A manifest-listed file this call can't read
+    /// (permissions, a resource-copy gap in a code-signed bundle, a Settings-override checkout
+    /// that predates a newly-added manifest entry) is silently absent from the result rather than
+    /// throwing — the file the app can't check is exactly the one that must not slip through as
+    /// "not part of the verified set" instead of "unverifiable". ``enforce`` is the caller that
+    /// enforces that: it compares this result's count against
+    /// `TemplateScriptsManifest.appOwnedRelativePaths(templateRoot:)`'s and fails the whole gate
+    /// closed on any shortfall, rather than quietly verifying only the files it could read.
     public static func pins(templateDirectory: URL) -> [Pin] {
         TemplateScriptsManifest.appOwnedRelativePaths(templateRoot: templateDirectory).compactMap { relativePath in
             guard let content = try? Data(contentsOf: templateDirectory.appendingPathComponent(relativePath)) else {
@@ -138,13 +145,18 @@ public enum AppOwnedScriptsGate {
 
         /// Reports the runtime copy's digests for `pins`.
         public let digests: @Sendable ([Pin]) async -> Digests
-        /// Writes the app's bytes for `pins` into the runtime copy; `false` when it couldn't.
-        public let restore: @Sendable ([Pin]) async -> Bool
+        /// Writes the app's bytes for `pins` into the runtime copy, one file at a time (a
+        /// container `exec` per file — see `ContainerDeployExecutor.restoreAppOwnedScripts`), and
+        /// returns exactly the relative paths that landed. A restore that fails partway through
+        /// (one file's write errors, the rest still succeed) is not reported as a total failure:
+        /// the caller diffs this result against what it asked for, so a file that was actually
+        /// fixed on disk is never mislabeled `unrestorable` alongside the one that wasn't.
+        public let restore: @Sendable ([Pin]) async -> [String]
 
         /// Memberwise, for tests and for the executor-backed initializer.
         public init(
             digests: @escaping @Sendable ([Pin]) async -> Digests,
-            restore: @escaping @Sendable ([Pin]) async -> Bool
+            restore: @escaping @Sendable ([Pin]) async -> [String]
         ) {
             self.digests = digests
             self.restore = restore
@@ -198,10 +210,21 @@ public enum AppOwnedScriptsGate {
                 "Anglesite couldn't find its own copy of the site scripts to verify against",
                 source: source, logCenter: logCenter)
         }
+        let manifestPaths = TemplateScriptsManifest.appOwnedRelativePaths(templateRoot: templateDirectory)
         let pins = pins(templateDirectory: templateDirectory)
         guard !pins.isEmpty else {
             return await unverifiable(
                 "Anglesite's template at \(templateDirectory.path) has no app-owned scripts to verify against",
+                source: source, logCenter: logCenter)
+        }
+        // A manifest-listed file `pins` couldn't read is silently absent from it — verifying the
+        // remaining subset as `.intact` would let exactly the one file the app can't check go
+        // unchecked. Fail the whole gate closed instead: the deploy proceeds unverified (like any
+        // other `.unverifiable`), but loudly, rather than quietly passing a partial scan.
+        guard pins.count == manifestPaths.count else {
+            let unreadable = Set(manifestPaths).subtracting(pins.map(\.relativePath)).sorted()
+            return await unverifiable(
+                "Anglesite couldn't read its own copy of \(unreadable.joined(separator: ", ")) to verify against",
                 source: source, logCenter: logCenter)
         }
 
@@ -247,6 +270,7 @@ public enum AppOwnedScriptsGate {
         //    restored (the runtime must pick that restore up now, not on some later attempt).
         var runtimeRestored: [String] = []
         var runtimeUnrestorable: [String] = []
+        var runtimeVerificationFailure: String?
         if let runtimeCopy {
             switch await runtimeCopy.digests(pins) {
             case .sameAsHost:
@@ -255,17 +279,27 @@ public enum AppOwnedScriptsGate {
                 await logCenter.append(
                     source: source, stream: .stderr,
                     text: "couldn't verify the site's scripts in its runtime — deploy not attempted: \(reason)")
-                return .runtimeUnverifiable(reason: reason)
+                guard !host.isIntact else {
+                    // Nothing happened on the host, so there is nothing to disclose beyond the
+                    // runtime failure itself — a failure to retry, not a refusal to remediate.
+                    return .runtimeUnverifiable(reason: reason)
+                }
+                // The host was just found tampered, restored, and (attempted to be) committed
+                // above. Returning `.runtimeUnverifiable` here would discard that outcome behind
+                // a generic "try again" message and lose the disclosure for good — retrying later
+                // would silently succeed once the runtime answers, with the owner never having
+                // learned their safety check had been changed. Fall through to the normal
+                // `.blocked` reporting below instead: the deploy is still refused, the host
+                // restore is still reported, and the runtime gets re-checked on the next attempt.
+                runtimeVerificationFailure = reason
             case .digests(let digests):
                 let runtime = verify(digests: digests, pins: pins)
                 if !runtime.isIntact {
                     let mismatched = runtime.mismatchedPaths
                     let toRestore = pins.filter { mismatched.contains($0.relativePath) }
-                    if await runtimeCopy.restore(toRestore) {
-                        runtimeRestored = mismatched
-                    } else {
-                        runtimeUnrestorable = mismatched
-                    }
+                    let restoredNow = await runtimeCopy.restore(toRestore)
+                    runtimeRestored = mismatched.filter { restoredNow.contains($0) }
+                    runtimeUnrestorable = mismatched.filter { !restoredNow.contains($0) }
                 }
             }
         }
@@ -286,6 +320,9 @@ public enum AppOwnedScriptsGate {
         }
         if !runtimeUnrestorable.isEmpty {
             detail += " In the site's runtime, couldn't restore: \(runtimeUnrestorable.joined(separator: ", "))."
+        }
+        if let runtimeVerificationFailure {
+            detail += " The site's runtime copy couldn't be checked this attempt (\(runtimeVerificationFailure)) — it will be re-checked on the next attempt."
         }
         await logCenter.append(source: source, stream: .stderr, text: detail)
 

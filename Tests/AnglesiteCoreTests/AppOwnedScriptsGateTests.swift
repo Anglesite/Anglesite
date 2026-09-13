@@ -49,7 +49,12 @@ import Foundation
         private let lock = NSLock()
         private(set) var digestCalls = 0
         private(set) var restoredPaths: [String] = []
+        /// Every path succeeds when `true`; none do when `false`. Overridden by `restoreResult`
+        /// when set, to simulate a partial restore (some paths land, some don't).
         var restoreSucceeds = true
+        /// When set, exactly these paths are reported as landed, regardless of `restoreSucceeds` —
+        /// for simulating a restore that fails partway through.
+        var restoreResult: [String]?
         let answer: AppOwnedScriptsGate.RuntimeCopy.Digests
         init(answer: AppOwnedScriptsGate.RuntimeCopy.Digests) { self.answer = answer }
 
@@ -62,7 +67,8 @@ import Foundation
                 restore: { pins in
                     self.lock.withLock {
                         self.restoredPaths = pins.map(\.relativePath)
-                        return self.restoreSucceeds
+                        if let restoreResult = self.restoreResult { return restoreResult }
+                        return self.restoreSucceeds ? pins.map(\.relativePath) : []
                     }
                 })
         }
@@ -125,7 +131,42 @@ import Foundation
         #expect(tampered.missingPaths == ["src/lib/rsl.ts"])
     }
 
+    @Test func aManifestFileTheAppCannotReadIsSilentlyAbsentFromPins() throws {
+        // `pins()` itself stays permissive — it's `enforce` that must notice the shortfall (next
+        // test) rather than `pins()` throwing or filling in a placeholder.
+        let (_, _, template) = try makeIntactFixture()
+        let unreadable = template.appendingPathComponent("src/lib/rsl.ts")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: unreadable.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: unreadable.path) }
+
+        let pins = AppOwnedScriptsGate.pins(templateDirectory: template)
+        #expect(pins.map(\.relativePath) == ["scripts/pre-deploy-check.ts"])
+    }
+
     // MARK: enforce — host copy
+
+    @Test func aManifestFileTheAppCannotReadFailsTheGateClosedRatherThanVerifyingASubset() async throws {
+        // #1958 review finding: `pins()` silently drops a manifest-listed file it can't read, so
+        // without this check `enforce` would verify only the remaining subset as `.intact` — the
+        // one file the app can't check is exactly the one that would go unverified. `enforce` must
+        // notice the shortfall (pins.count vs. the manifest's own count) and fail closed instead.
+        let (source, config, template) = try makeIntactFixture()
+        let unreadable = template.appendingPathComponent("src/lib/rsl.ts")
+        try FileManager.default.setAttributes([.posixPermissions: 0o000], ofItemAtPath: unreadable.path)
+        defer { try? FileManager.default.setAttributes([.posixPermissions: 0o644], ofItemAtPath: unreadable.path) }
+        let logCenter = LogCenter()
+
+        let outcome = await AppOwnedScriptsGate.enforce(
+            sourceDirectory: source, configDirectory: config, templateDirectory: template,
+            source: "test", logCenter: logCenter, gitCommitBatch: { _, _, _ in "x" })
+
+        guard case .unverifiable(let reason) = outcome else {
+            Issue.record("expected .unverifiable (fail closed), got \(outcome)"); return
+        }
+        #expect(reason.contains("src/lib/rsl.ts"))
+        let lines = await logCenter.snapshot()
+        #expect(lines.contains { $0.stream == .stderr && $0.text.contains("src/lib/rsl.ts") })
+    }
 
     @Test func intactScriptsPassWithoutWritingOrCommitting() async throws {
         let (source, config, template) = try makeIntactFixture()
@@ -298,6 +339,49 @@ import Foundation
             runtimeCopy: runtime.copy, source: "test", logCenter: LogCenter(), gitCommitBatch: { _, _, _ in "x" })
         #expect(outcome == .blocked(restored: [], unrestorable: ["scripts/pre-deploy-check.ts", "src/lib/rsl.ts"], committed: true))
     }
+
+    @Test func aPartialRuntimeRestoreReportsOnlyTheFileThatActuallyFailed() async throws {
+        // #1958 review finding: the container executor writes pins one exec at a time, so one
+        // file can land while another fails in the same call. `restore` reports exactly the paths
+        // that landed; `enforce` must diff that against what it asked for rather than treating any
+        // single failure as if nothing was restored.
+        let (source, config, template) = try makeIntactFixture()
+        let runtime = RuntimeRecorder(answer: .digests(["scripts/pre-deploy-check.ts": nil, "src/lib/rsl.ts": nil]))
+        runtime.restoreResult = ["scripts/pre-deploy-check.ts"]
+        let outcome = await AppOwnedScriptsGate.enforce(
+            sourceDirectory: source, configDirectory: config, templateDirectory: template,
+            runtimeCopy: runtime.copy, source: "test", logCenter: LogCenter(), gitCommitBatch: { _, _, _ in "x" })
+        #expect(outcome == .blocked(restored: ["scripts/pre-deploy-check.ts"], unrestorable: ["src/lib/rsl.ts"], committed: true))
+    }
+
+    @Test func aHostRestoreIsDisclosedEvenWhenTheRuntimeCannotBeVerifiedRightAfter() async throws {
+        // #1958 review finding: if the host was just found tampered, restored, and committed, and
+        // the runtime digest check then fails (container exec transiently unreachable), the owner
+        // must still learn the host was restored — not just a generic "try again" that discards
+        // it. The deploy stays refused either way.
+        let (source, config, template) = try makeIntactFixture()
+        try writeFile("tampered", to: source.appendingPathComponent("scripts/pre-deploy-check.ts"))
+        let runtime = RuntimeRecorder(answer: .failed(reason: "container exec transiently unreachable"))
+        let recorder = CommitRecorder()
+        let logCenter = LogCenter()
+
+        let outcome = await AppOwnedScriptsGate.enforce(
+            sourceDirectory: source, configDirectory: config, templateDirectory: template,
+            runtimeCopy: runtime.copy, source: "test", logCenter: logCenter,
+            gitCommitBatch: { _, p, m in recorder.record(p, m) })
+
+        #expect(outcome == .blocked(restored: ["scripts/pre-deploy-check.ts"], unrestorable: [], committed: true))
+        let failure = try #require(AppOwnedScriptsGate.scanFailure(for: outcome))
+        #expect(failure.message == "Anglesite's safety check on this site had been changed. It has been restored.")
+        #expect(recorder.batches.count == 1, "the host restore was still committed")
+        #expect(runtime.restoredPaths.isEmpty, "a runtime copy that couldn't be read must not be written to")
+        let lines = await logCenter.snapshot()
+        #expect(lines.contains {
+            $0.stream == .stderr && $0.text.contains("had been changed")
+                && $0.text.contains("container exec transiently unreachable")
+        })
+    }
+
 
     @Test func aRuntimeCopyThatCannotBeReadRefusesTheDeployWithoutRestoringAnything() async throws {
         let (source, config, template) = try makeIntactFixture()

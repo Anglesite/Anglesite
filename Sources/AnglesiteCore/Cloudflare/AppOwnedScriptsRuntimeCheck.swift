@@ -17,9 +17,11 @@ public protocol AppOwnedScriptsRuntimeVerifying: Sendable {
     /// read — never an empty dictionary standing in for "couldn't look".
     func digestAppOwnedScripts(relativePaths: [String], source: String) async -> AppOwnedScriptsGate.RuntimeCopy.Digests
 
-    /// Writes the app's bytes for `pins` into this executor's copy of the site. `true` only when
-    /// every file landed.
-    func restoreAppOwnedScripts(_ pins: [AppOwnedScriptsGate.Pin], source: String) async -> Bool
+    /// Writes the app's bytes for `pins` into this executor's copy of the site. Returns exactly
+    /// the relative paths that landed — a conformer that writes one file at a time must keep
+    /// trying (and keep reporting) the rest after one file's write fails, rather than abandoning
+    /// the remainder and letting a partial restore be mistaken for a total one.
+    func restoreAppOwnedScripts(_ pins: [AppOwnedScriptsGate.Pin], source: String) async -> [String]
 }
 
 public extension AppOwnedScriptsGate.RuntimeCopy {
@@ -71,8 +73,13 @@ extension ContainerDeployExecutor: AppOwnedScriptsRuntimeVerifying {
     /// `exec` per file: the bytes travel as a base64 positional parameter (`$1`), and Linux caps
     /// a single argv string at 128 KiB — one file per call keeps the largest app-owned script
     /// (≈64 KiB raw, ≈86 KiB encoded) comfortably under it, where a whole set would not be.
-    public func restoreAppOwnedScripts(_ pins: [AppOwnedScriptsGate.Pin], source: String) async -> Bool {
-        guard !pins.isEmpty else { return true }
+    ///
+    /// One file's `exec` failing (permission hiccup, a transient container issue) does not stop
+    /// the rest — each pin is attempted independently and the ones that land are returned, so a
+    /// caller comparing this result against what it asked for never mislabels an already-fixed
+    /// file as still broken.
+    public func restoreAppOwnedScripts(_ pins: [AppOwnedScriptsGate.Pin], source: String) async -> [String] {
+        guard !pins.isEmpty else { return [] }
         do {
             _ = try await WranglerInvocation.exec(
                 control: control, siteID: siteID,
@@ -82,6 +89,7 @@ extension ContainerDeployExecutor: AppOwnedScriptsRuntimeVerifying {
             // Best effort: a clone that can't fast-forward (diverged, mid-edit) is still restored
             // file by file below.
         }
+        var restored: [String] = []
         for pin in pins {
             do {
                 let result = try await WranglerInvocation.exec(
@@ -92,16 +100,16 @@ extension ContainerDeployExecutor: AppOwnedScriptsRuntimeVerifying {
                     await logCenter.append(
                         source: source, stream: .stderr,
                         text: "couldn't restore \(pin.relativePath) in the site's runtime (exit \(result.exitCode))")
-                    return false
+                    continue
                 }
+                restored.append(pin.relativePath)
             } catch {
                 await logCenter.append(
                     source: source, stream: .stderr,
                     text: "couldn't restore \(pin.relativePath) in the site's runtime: \(error)")
-                return false
             }
         }
-        return true
+        return restored
     }
 
     // MARK: argv
