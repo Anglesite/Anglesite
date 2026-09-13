@@ -118,6 +118,46 @@ struct PreviewModelWYSIWYGTests {
         #expect(model.wysiwygCanvas?.lastQualityGateResult?.findings.contains { $0.category == .contrast } == true)
     }
 
+    /// PR #1971 review finding: `enterEditMode` re-checks `generation == editModeGeneration` right
+    /// after the `get_page_model` fetch, but used to hit a *second* await — `GateContext.build`,
+    /// off-actor in a detached task — with no re-check before unconditionally installing the
+    /// canvas. `qualityGateBuildTaskForTesting` (set synchronously, immediately before that await)
+    /// lets this test land `exitEditMode()` in the exact window the fix has to defend, without
+    /// relying on wall-clock timing: the moment the test observes it non-nil, `enterEditMode`'s
+    /// task is guaranteed to be suspended awaiting the build's result, so `exitEditMode()` runs
+    /// before that task can resume and (pre-fix) clobber the state it just cleared.
+    @Test("enterEditMode re-checks the generation after GateContext.build, so a superseded call can't clobber a newer state")
+    func editModeGenerationGuardsAgainstGateContextRace() async throws {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString)
+        let stylesDir = root.appendingPathComponent("src/styles")
+        try FileManager.default.createDirectory(at: stylesDir, withIntermediateDirectories: true)
+        defer { try? FileManager.default.removeItem(at: root) }
+        try ":root { --color-text: #111111; }".write(to: stylesDir.appendingPathComponent("global.css"), atomically: true, encoding: .utf8)
+
+        let model = try await makeModel()
+        model.open(site: CurrentSite(id: "site-1", packageURL: root, sourceDirectory: root))
+
+        let enter = Task { await model.enterEditMode(path: "src/pages/index.astro", undoManager: nil) }
+
+        while model.qualityGateBuildTaskForTesting == nil {
+            await Task.yield()
+        }
+
+        // The owner turns Site ▸ Edit Page off (or navigates again) while the still-in-flight
+        // call's `GateContext.build` hasn't resolved yet — bumps `editModeGeneration` and clears
+        // the canvas.
+        model.exitEditMode()
+
+        await enter.value
+
+        // Without the fix, the superseded call would silently overwrite this once its
+        // `GateContext.build` resolved — clobbering the state the owner's `exitEditMode()` just
+        // installed.
+        #expect(model.wysiwygCanvas == nil)
+        #expect(model.editModePath == nil)
+        #expect(model.isEditModeEnabled == false)
+    }
+
     @Test("enterEditMode leaves wysiwygCanvas nil and logs when the get_page_model fetch fails")
     func editModeFetchFailureLeavesCanvasNil() async {
         // `UnavailableSiteRuntime`'s default `mcpClient` is never started — `PageModelClient
