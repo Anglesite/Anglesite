@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach } from "vitest";
-import { elementInfoFor } from "../src/selector.js";
+import { elementInfoFor } from "../../src/host/element-info.js";
 
 function $append<K extends keyof HTMLElementTagNameMap>(
   parent: Element,

@@ -89,7 +89,7 @@ var packageTargets: [Target] = [
         path: "Sources/AnglesiteCore",
         swiftSettings: strictConcurrency
     ),
-    // Webview-agnostic message schema + overlay-bundle lookup (cross-platform port design §6
+    // Webview-agnostic message schema + engine-bundle lookup (cross-platform port design §6
     // "AnglesiteBridgeCore split") — no WebKit import, so it's portable off-Darwin. Each
     // platform's webview adapter (AnglesiteBridge/WKWebView today; WebKitGTK/WebView2 later)
     // wraps this in its own script-injection/message-handler API.

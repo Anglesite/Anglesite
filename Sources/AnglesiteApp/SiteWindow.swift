@@ -99,8 +99,8 @@ struct SiteWindow: View {
     @Environment(\.dismissWindow) private var dismissWindow
     /// Reduce Motion → fade the chat panel and deploy drawer in/out instead of sliding them.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The window's undo manager, published into the model so app-applied edits register with
-    /// Edit ▸ Undo (⌘Z) — see `ChatModel.editUndoCoordinator` (#527).
+    /// The window's undo manager, published into the model so structural content operations and
+    /// block-canvas edits register with Edit ▸ Undo (⌘Z) — see `SiteWindowModel.windowUndoManager`.
     @Environment(\.undoManager) private var undoManager
 
     init(
@@ -1962,8 +1962,12 @@ struct SiteWindow: View {
                 // rather than silently re-arm: the page may be a different page entirely now, and
                 // an armed HUD over a listener that no longer exists waits forever (#768 final
                 // review, Finding 8). `cancel()` is a no-op unless a pick is actually in flight.
-                onPreviewNavigated: {
+                // It's also the moment the block canvas follows the owner to the page they now
+                // see (#1957 — the canvas is the window's default state, see
+                // `SiteWindowModel.syncEditMode(afterNavigationTo:)`).
+                onPreviewNavigated: { url in
                     model.effectPlacementController.cancel()
+                    model.syncEditMode(afterNavigationTo: url)
                 },
                 onWebView: { [preview = model.preview] webView in
                     preview.webView = webView

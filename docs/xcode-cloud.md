@@ -42,7 +42,7 @@ Everything else the app build needs is already handled without Xcode Cloud-speci
   `container` CLI's availability there is unconfirmed — or set
   `ANGLESITE_ALLOW_UNPROVISIONED_CONTAINER=1` as a workflow environment variable and accept that
   the resulting build's local-container preview won't work.)
-- **JS edit-overlay build** (`scripts/build-overlay.sh`) and **Help index build**
+- **JS engine build** (`scripts/build-wysiwyg-engine.sh`) and **Help index build**
   (`scripts/build-help-index.sh`) are both best-effort: they warn and exit `0` when `npm`/`hiutil`
   isn't available, rather than failing the build.
 

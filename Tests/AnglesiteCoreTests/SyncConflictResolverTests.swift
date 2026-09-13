@@ -120,6 +120,119 @@ import SwiftGit2
         #expect(files.first?.path == "file0.txt")
         #expect(files.first?.oursText == "b-version")
         #expect(files.first?.theirsText == "a-version")
+        // Both tips are real commits, so the sheet's "edited <when>" labels have something to show.
+        #expect(files.first?.oursDate != nil)
+        #expect(files.first?.theirsDate != nil)
+    }
+
+    // MARK: - Default choice (#1964, D1: the sheet opens with an answer picked)
+
+    @Test("the newer edit is the default")
+    func defaultChoicePrefersNewer() {
+        let earlier = Date(timeIntervalSince1970: 1_000)
+        let later = Date(timeIntervalSince1970: 2_000)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: earlier, theirsDate: later) == .keepTheirs)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: later, theirsDate: earlier) == .keepMine)
+    }
+
+    @Test("an unorderable pair keeps this Mac's version")
+    func defaultChoiceFallsBackToMine() {
+        let when = Date(timeIntervalSince1970: 1_000)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: when, theirsDate: when) == .keepMine)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: nil, theirsDate: when) == .keepMine)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: when, theirsDate: nil) == .keepMine)
+        #expect(SyncConflictResolver.defaultChoice(oursDate: nil, theirsDate: nil) == .keepMine)
+    }
+
+    // MARK: - newerSide (distinct from defaultChoice's tie-break — PR #1977 review)
+
+    @Test("newerSide reports the actual ordering when the two dates differ")
+    func newerSideOrdersRealDates() {
+        let earlier = Date(timeIntervalSince1970: 1_000)
+        let later = Date(timeIntervalSince1970: 2_000)
+        #expect(SyncConflictResolver.newerSide(oursDate: earlier, theirsDate: later) == .keepTheirs)
+        #expect(SyncConflictResolver.newerSide(oursDate: later, theirsDate: earlier) == .keepMine)
+    }
+
+    @Test("newerSide is nil for a tie or an unreadable timestamp, unlike defaultChoice")
+    func newerSideIsNilWhenUnorderable() {
+        let when = Date(timeIntervalSince1970: 1_000)
+        // Same instant: a tie isn't "newer," it's unknown — even though defaultChoice must still
+        // pick .keepMine as its tie-break fallback.
+        #expect(SyncConflictResolver.newerSide(oursDate: when, theirsDate: when) == nil)
+        #expect(SyncConflictResolver.newerSide(oursDate: nil, theirsDate: when) == nil)
+        #expect(SyncConflictResolver.newerSide(oursDate: when, theirsDate: nil) == nil)
+        #expect(SyncConflictResolver.newerSide(oursDate: nil, theirsDate: nil) == nil)
+    }
+
+    @Test("displayName drops the directory and extension")
+    func displayNameIsOwnerFacing() {
+        func file(_ path: String) -> SyncConflictResolver.ConflictedFile {
+            .init(path: path, oursText: nil, theirsText: nil, oursDate: nil, theirsDate: nil)
+        }
+        #expect(file("src/pages/about.astro").displayName == "about")
+        #expect(file("file0.txt").displayName == "file0")
+        #expect(file("src/styles/global.css").displayName == "global")
+    }
+
+    // MARK: - displayNames(for:) disambiguation (PR #1977 review)
+
+    @Test("displayNames leaves non-colliding names untouched")
+    func displayNamesLeavesUniqueNamesAlone() {
+        func file(_ path: String) -> SyncConflictResolver.ConflictedFile {
+            .init(path: path, oursText: nil, theirsText: nil, oursDate: nil, theirsDate: nil)
+        }
+        let files = [file("src/pages/about.astro"), file("src/pages/contact.astro")]
+        let names = SyncConflictResolver.displayNames(for: files)
+        #expect(names == ["src/pages/about.astro": "about", "src/pages/contact.astro": "contact"])
+    }
+
+    @Test("displayNames disambiguates same-named files in different directories")
+    func displayNamesDisambiguatesDirectoryCollisions() {
+        func file(_ path: String) -> SyncConflictResolver.ConflictedFile {
+            .init(path: path, oursText: nil, theirsText: nil, oursDate: nil, theirsDate: nil)
+        }
+        let files = [file("src/pages/en/about.md"), file("src/pages/fr/about.md")]
+        let names = SyncConflictResolver.displayNames(for: files)
+        #expect(names["src/pages/en/about.md"] == "about — en")
+        #expect(names["src/pages/fr/about.md"] == "about — fr")
+    }
+
+    @Test("displayNames disambiguates same-named files that only differ by extension")
+    func displayNamesDisambiguatesExtensionCollisions() {
+        func file(_ path: String) -> SyncConflictResolver.ConflictedFile {
+            .init(path: path, oursText: nil, theirsText: nil, oursDate: nil, theirsDate: nil)
+        }
+        let files = [file("src/components/about.astro"), file("src/pages/about.astro")]
+        let names = SyncConflictResolver.displayNames(for: files)
+        #expect(names["src/components/about.astro"] == "about — components")
+        #expect(names["src/pages/about.astro"] == "about — pages")
+    }
+
+    @Test("displayNames falls back to the bare name when a collision has no parent directory")
+    func displayNamesFallsBackAtTopLevel() {
+        func file(_ path: String) -> SyncConflictResolver.ConflictedFile {
+            .init(path: path, oursText: nil, theirsText: nil, oursDate: nil, theirsDate: nil)
+        }
+        // Two top-level files whose extensions differ but both reduce to "about" — no parent
+        // directory exists to disambiguate with, so the (still-colliding) bare name is the best
+        // available fallback.
+        let files = [file("about.md"), file("about.astro")]
+        let names = SyncConflictResolver.displayNames(for: files)
+        #expect(names["about.md"] == "about")
+        #expect(names["about.astro"] == "about")
+    }
+
+    @Test("defaultChoices covers every file, keyed by path, in resolve()'s shape")
+    func defaultChoicesCoverEveryFile() {
+        let earlier = Date(timeIntervalSince1970: 1_000)
+        let later = Date(timeIntervalSince1970: 2_000)
+        let files = [
+            SyncConflictResolver.ConflictedFile(path: "a.txt", oursText: "a", theirsText: "b", oursDate: earlier, theirsDate: later),
+            SyncConflictResolver.ConflictedFile(path: "b.txt", oursText: "a", theirsText: "b", oursDate: later, theirsDate: earlier),
+        ]
+        let choices = SyncConflictResolver.defaultChoices(for: files)
+        #expect(choices == ["a.txt": .keepTheirs, "b.txt": .keepMine])
     }
 
     @Test("resolve() with keepMine commits this Mac's content and clears the conflict")

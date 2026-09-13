@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { describe, it, expect, beforeEach, vi } from "vitest";
-import { showToast, TOAST_CLASS } from "../src/toast.js";
+import { showToast, TOAST_CLASS } from "../../src/host/toast.js";
 
 describe("showToast", () => {
   beforeEach(() => {

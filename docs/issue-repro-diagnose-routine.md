@@ -71,12 +71,12 @@ Your job this run:
    > software factory's Phase B (epic #1256). Read the issue with `gh issue view <N> --repo
    > Anglesite/Anglesite --json title,body,comments`. Determine which test suite/tier it
    > belongs to per `docs/specs/2026-08-04-software-factory-design.md` §4.4 (Tier 1: portable
-   > SwiftPM targets in `Package.swift`'s `portableTargets` set, the JS edit overlay,
+   > SwiftPM targets in `Package.swift`'s `portableTargets` set, the JS block editor,
    > `Resources/Template/`, docs; Tier 2: any other `swift test` package/target). Write a
    > failing test that demonstrates the reported bug, in the appropriate existing test target
    > — do not create a new test target. Run it (`swift test --package-path . --filter
-   > <TestName>` for Swift, or the relevant `npm`/`vitest` command under `JS/edit-overlay` for
-   > JS-overlay work) and confirm it actually fails, capturing the failure output. Do NOT fix
+   > <TestName>` for Swift, or the relevant `npm`/`vitest` command under `JS/wysiwyg-engine` for
+   > JS work) and confirm it actually fails, capturing the failure output. Do NOT fix
    > the bug — only write and run the test.
    >
    > If you determine mid-repro that this issue actually needs a hosted running app, UI

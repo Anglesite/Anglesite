@@ -1,10 +1,10 @@
-// Element-metadata collection for the JS → native edit bridge.
+// Element-metadata collection for JS → native messages that address a page element.
 //
-// The overlay does NOT build a final selector — it collects a structured payload that the
+// The page script does NOT build a final selector — it collects a structured payload that the
 // plugin's `server/selector.mjs` resolves on the native side. Keeps one source of truth for the
 // selector strategy (data-anglesite-id > data-testid > #id > role/aria > stable classes >
 // tag:nth-child) and avoids shipping a duplicated/fork-prone copy of that logic into JS.
-// Decided in #18.
+// Decided in #18. Ported verbatim from the retired `JS/edit-overlay/src/selector.ts` (#1957).
 
 export interface AncestorInfo {
   tag: string;

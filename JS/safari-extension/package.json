@@ -15,10 +15,10 @@
     "test:watch": "vitest"
   },
   "devDependencies": {
-    "@types/node": "^26.4.1",
+    "@types/node": "^26.5.1",
     "esbuild": "^0.28.1",
     "jsdom": "^30.0.1",
-    "oxlint": "^1.81.0",
+    "oxlint": "^1.82.0",
     "typescript": "^7.0.2",
     "vitest": "^5.0.0"
   },

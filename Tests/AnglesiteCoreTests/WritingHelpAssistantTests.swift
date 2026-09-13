@@ -45,6 +45,21 @@ struct WritingHelpOutcomeCodableTests {
         #expect(decoded == outcome)
     }
 
+    @Test("a notice rides along as an optional `notice` key and decodes back (#1965)")
+    func rewrittenNoticeRoundTrips() throws {
+        let outcome = WritingHelpOutcome.rewritten("x", notice: "On-device.")
+        let data = try JSONEncoder().encode(outcome)
+        let json = try #require(JSONSerialization.jsonObject(with: data) as? [String: String])
+        #expect(json["notice"] == "On-device.")
+
+        let decoded = try JSONDecoder().decode(WritingHelpOutcome.self, from: data)
+        #expect(decoded == outcome)
+        // A reply without the key (older host, or a fake) decodes as `notice: nil`, matching
+        // the JS side's `notice?: string`.
+        let bare = try JSONDecoder().decode(WritingHelpOutcome.self, from: Data(#"{"status":"rewritten","text":"x"}"#.utf8))
+        #expect(bare == .rewritten("x", notice: nil))
+    }
+
     @Test("encodes .unavailable as {status: unavailable, message: ...} and decodes it back")
     func unavailableRoundTrips() throws {
         let outcome = WritingHelpOutcome.unavailable("not available")
@@ -109,7 +124,20 @@ struct FoundationModelWritingHelpAssistantTests {
         let outcome = await assistant.rewrite(
             text: "A much longer original sentence.", instruction: "Tighten this.",
             preamble: nil, siteID: "site-1", siteDirectory: URL(fileURLWithPath: "/tmp/site"))
-        #expect(outcome == .rewritten("Shorter version."))
+        // Designed for PCC, served on-device today: the badge rides along for the toolbar (#1965).
+        #expect(outcome == .rewritten("Shorter version.", notice: FoundationModelTier.privateCloudCompute.degradationNotice))
+        #expect(FoundationModelTier.privateCloudCompute.degradationNotice != nil)
+    }
+
+    @Test("a feature designed for the on-device tier carries no badge")
+    func noNoticeWhenServedAsDesigned() async {
+        let assistant = FoundationModelWritingHelpAssistant(
+            designedTier: .onDevice,
+            assistantFactory: { FakeAssistant(structuredResult: .success(GeneratedRewrite(rewrittenText: "x"))) })
+        let outcome = await assistant.rewrite(
+            text: "y", instruction: "z", preamble: nil, siteID: "site-1",
+            siteDirectory: URL(fileURLWithPath: "/tmp/site"))
+        #expect(outcome == .rewritten("x", notice: nil))
     }
 
     @Test("returns .unavailable with a clear message when the assistant factory yields nil")
