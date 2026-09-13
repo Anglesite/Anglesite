@@ -46,6 +46,16 @@ struct ContainerAuditExecutorTests {
         #expect(calls[0].argv == ["npx", "tsx", "scripts/a11y-audit.ts", "--json"])
     }
 
+    @Test("broken-links step sends correct argv")
+    func brokenLinksArgv() async {
+        let fake = fakePassing()
+        let executor = makeExecutor(fake: fake)
+        _ = await executor.run(step: .brokenLinks, siteDirectory: URL(fileURLWithPath: "/host"), source: "audit:site-abc:seo")
+        let calls = await fake.execCalls
+        #expect(calls.count == 1)
+        #expect(calls[0].argv == ["npx", "tsx", "scripts/broken-links.ts", "--json"])
+    }
+
     // MARK: - cwd is always /workspace/site
 
     @Test("exec always uses /workspace/site as working directory")
@@ -165,6 +175,7 @@ struct ContainerAuditExecutorTests {
     func guestArgvTestHook() {
         #expect(ContainerAuditExecutorTestHook.guestArgv(for: .build) == ["npm", "run", "build"])
         #expect(ContainerAuditExecutorTestHook.guestArgv(for: .a11y) == ["npx", "tsx", "scripts/a11y-audit.ts", "--json"])
+        #expect(ContainerAuditExecutorTestHook.guestArgv(for: .brokenLinks) == ["npx", "tsx", "scripts/broken-links.ts", "--json"])
     }
 }
 
