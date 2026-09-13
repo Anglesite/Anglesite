@@ -99,8 +99,8 @@ struct SiteWindow: View {
     @Environment(\.dismissWindow) private var dismissWindow
     /// Reduce Motion → fade the chat panel and deploy drawer in/out instead of sliding them.
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    /// The window's undo manager, published into the model so app-applied edits register with
-    /// Edit ▸ Undo (⌘Z) — see `ChatModel.editUndoCoordinator` (#527).
+    /// The window's undo manager, published into the model so structural content operations and
+    /// block-canvas edits register with Edit ▸ Undo (⌘Z) — see `SiteWindowModel.windowUndoManager`.
     @Environment(\.undoManager) private var undoManager
 
     init(

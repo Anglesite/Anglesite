@@ -26,7 +26,7 @@ import os.log
 /// `/workspace/site` clone is never told about. A second edit in the same session commits in
 /// the guest on top of the guest's own (now-superseded) prior commit, so its export's parent no
 /// longer matches the host's new HEAD — `InProcessEditPersistence`'s fast-forward-only
-/// precondition then refuses it with `"overlay edit conflicts with newer Source changes"`, and
+/// precondition then refuses it with `"edit conflicts with newer Source changes"`, and
 /// this handler synthesizes that into a JSON-RPC error even though the edit is live in the
 /// guest. Confirmed empirically: `swift test --filter HelperContainerE2ETests` with a second
 /// `apply_edit` appended to `secondProcessPersistsAnApplyEditToHostSource` reproduced exactly

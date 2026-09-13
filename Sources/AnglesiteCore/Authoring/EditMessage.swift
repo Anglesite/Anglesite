@@ -8,7 +8,7 @@ import Foundation
 /// untrusted input, so the contract is closed-set by design.
 public struct EditMessage: Sendable, Equatable {
     /// The closed set of accepted `type` tags. Raw values carry the `anglesite:` prefix so
-    /// overlay messages can't collide with any other script-message traffic in the page.
+    /// edit messages can't collide with any other script-message traffic in the page.
     public enum MessageType: String, Sendable, Equatable {
         /// Apply an edit to the underlying source — Phase 5 lands the server-side patcher and the
         /// exact `op` taxonomy. Until then this is the only accepted message type.
@@ -23,11 +23,11 @@ public struct EditMessage: Sendable, Equatable {
     /// New ops on the plugin side need a paired entry here so call sites get a compile-time
     /// reference rather than a runtime mismatch via typo.
     public enum Op {
-        /// `"replace-text"` — overlay click-to-edit, structured text replacement.
+        /// `"replace-text"` — structured text replacement (assistant/intents; the retired overlay's click-to-edit used it too).
         public static let replaceText = "replace-text"
-        /// `"replace-image-src"` — overlay image-drop replacement.
+        /// `"replace-image-src"` — image-drop replacement (the block editor's `replace-image` bridge message).
         public static let replaceImageSrc = "replace-image-src"
-        /// `"insert-image"` — overlay drop-to-insert / Insert ▸ Image: writes a brand-new
+        /// `"insert-image"` — Insert ▸ Image: writes a brand-new
         /// optimized asset and inserts a new `<img>` into the page, no existing image required.
         /// No `selector` — always targets the page's content root (server-resolved).
         public static let insertImage = "insert-image"
@@ -94,7 +94,7 @@ public struct EditMessage: Sendable, Equatable {
         public static let setScriptZone = "set-script-zone"
     }
 
-    /// Overlay-generated correlation ID so the JS side can match replies to the original message.
+    /// Caller-generated correlation ID so a JS requester can match replies to the original message.
     public let id: String
     /// Boundary tag — always ``MessageType/applyEdit`` today; kept as a field (not hardcoded)
     /// so future message types extend the struct instead of forking it.
@@ -119,7 +119,7 @@ public struct EditMessage: Sendable, Equatable {
     public let dryRun: Bool
 
     /// Memberwise initializer for app-originated edits (intents, chat tools) — messages from
-    /// the overlay come through ``decode(from:)`` instead. Defaults mirror the wire format's
+    /// the page (the block editor's `replace-image`) come through ``decode(from:)`` instead. Defaults mirror the wire format's
     /// optionality: `dryRun` false so existing call sites are unaffected by its addition.
     public init(
         id: String,

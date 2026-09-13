@@ -3,6 +3,7 @@ import AppKit
 import WebKit
 import AppIntents
 import AnglesiteBridge
+import AnglesiteBridgeCore
 import AnglesiteCore
 import AnglesiteIntents
 
@@ -11,24 +12,32 @@ import AnglesiteIntents
 /// `url` is owned by the caller (a `PreviewModel` driven by a `SiteRuntime`). When it changes —
 /// e.g. a supervised dev-server restart rebinds a new port — the web view reloads from the new URL.
 ///
-/// `router` is the `EditRouter` the in-page overlay's `AnglesiteScriptHandler` forwards edits to.
-/// In production it's the `MCPApplyEditRouter` from `PreviewModel`, wrapping the session's
-/// `MCPClient`; tests can substitute any `EditRouter`.
+/// `router` is the `EditRouter` a file dropped onto an `<img>` on the live page is applied
+/// through (the block editor's `replace-image` bridge message, #1957). In production it's the
+/// `MCPApplyEditRouter` from `PreviewModel`, wrapping the session's `MCPClient`; tests can
+/// substitute any `EditRouter`.
 ///
 /// `annotationProvider` is the per-window `PreviewAnnotationProvider` (Siri AI Phase B). When
 /// supplied, the script handler routes `anglesite:visible-elements` messages into it, and the
 /// WKWebView gets an `appEntityUIElementProvider` so AppKit's hit-test resolves visible regions
-/// to live entities. Nil → those features are inert (overlay still works for hover/click/drop).
+/// to live entities. Nil → those features are inert.
+///
+/// One `WYSIWYGScriptHandler` is registered under the single `wysiwyg` namespace for the web
+/// view's whole life (#1957): the page bridge — Siri reports, Effects/experiment picks — posts
+/// there whether or not a block canvas is mounted, so the handler can't come and go with edit
+/// mode the way it used to. What *does* change with edit mode is the transport behind it: see
+/// `wysiwygTransport`.
 struct PreviewView: NSViewRepresentable {
     let url: URL
     let router: EditRouter
     let annotationProvider: PreviewAnnotationProvider?
 
-    /// The mounted WYSIWYG canvas controller (#1225), or `nil` when edit mode is off. When
-    /// non-nil, `makeNSView` registers a `WYSIWYGScriptHandler` wrapping it as a second
-    /// `WKScriptMessageHandler` alongside the overlay's — `WYSIWYGCanvasController` forwards to
-    /// its own transport, so no separate transport type is needed here. `PreviewModel.wysiwygCanvas`
-    /// is the source of truth; `SiteWindow.previewPane(for:)` passes it straight through.
+    /// The mounted WYSIWYG canvas controller (#1225), or `nil` when edit mode is off. The
+    /// registered `WYSIWYGScriptHandler` wraps it — `WYSIWYGCanvasController` forwards to its
+    /// own transport, so no separate transport type is needed here — and `updateNSView` swaps
+    /// the handler for one wrapping the new controller (or none) whenever this changes.
+    /// `PreviewModel.wysiwygCanvas` is the source of truth; `SiteWindow.previewPane(for:)`
+    /// passes it straight through.
     var wysiwygTransport: (any WYSIWYGHostTransport)?
 
     /// The open site's id, source directory, and a conventions provider — needed to build a
@@ -41,25 +50,27 @@ struct PreviewView: NSViewRepresentable {
     var writingHelpSiteContext: (siteID: String, siteDirectory: URL, conventions: @Sendable () async -> ProjectConventions?)?
 
     /// Called with a decoded `anglesite:pick-placement` message when the owner clicks an element
-    /// in the live preview while the Effects gallery's click-to-place overlay is armed (#768).
-    /// Forwarded straight into `AnglesiteScriptHandler`'s own `onPlacementPick` — see that type's
-    /// doc comment. Defaults to a no-op for callers (e.g. tests) that don't need it.
-    var onPlacementPick: AnglesiteScriptHandler.PlacementPickHandler = { _ in }
+    /// in the live preview while the Effects gallery's click-to-place mode is armed (#768).
+    /// Forwarded straight into the script handler's `onPlacementPick` — see
+    /// `WYSIWYGOpsDispatcher.Handlers`. Defaults to a no-op for callers (e.g. tests) that don't
+    /// need it.
+    var onPlacementPick: WYSIWYGOpsDispatcher.PlacementPickHandler = { _ in }
 
     /// Called with a decoded `anglesite:pick-goal-element` message when the owner clicks an
     /// element in the live preview while the experiment configure step's goal picker is armed
-    /// (#1518). Forwarded straight into `AnglesiteScriptHandler`'s own `onGoalElementPick` — see
-    /// that type's doc comment. Defaults to a no-op for callers (e.g. tests) that don't need it.
-    var onGoalElementPick: AnglesiteScriptHandler.GoalElementPickHandler = { _ in }
+    /// (#1518). Forwarded straight into the script handler's `onGoalElementPick` — see
+    /// `WYSIWYGOpsDispatcher.Handlers`. Defaults to a no-op for callers (e.g. tests) that don't
+    /// need it.
+    var onGoalElementPick: WYSIWYGOpsDispatcher.GoalElementPickHandler = { _ in }
 
     /// Called every time a navigation finishes in the preview — an HMR reload, a route change, ⌘R
-    /// — with the URL the web view landed on. The overlay's placement-pick mode is closure-local
-    /// JS state that a real navigation wipes (the `WKUserScript` re-runs and comes back inactive),
-    /// so anything holding "we're waiting for a placement click" on the native side has to hear
-    /// about it or it waits forever on a listener that no longer exists (#768 final review,
-    /// Finding 8). The URL is what lets `SiteWindowModel.syncEditMode(afterNavigationTo:)` keep
-    /// the block canvas on the page actually being shown (#1957) — including a link the owner
-    /// clicked *inside* the preview, which `PreviewModel.activeRoute` never learns about.
+    /// — with the URL the web view landed on. The page bridge's placement-pick mode is
+    /// closure-local JS state that a real navigation wipes (the `WKUserScript` re-runs and comes
+    /// back inactive), so anything holding "we're waiting for a placement click" on the native
+    /// side has to hear about it or it waits forever on a listener that no longer exists (#768
+    /// final review, Finding 8). The URL is what lets `SiteWindowModel.syncEditMode(afterNavigationTo:)`
+    /// keep the block canvas on the page actually being shown (#1957) — including a link the
+    /// owner clicked *inside* the preview, which `PreviewModel.activeRoute` never learns about.
     var onPreviewNavigated: (URL?) -> Void = { _ in }
 
     /// Called with the `WKWebView` once it's created, so the owning `PreviewModel` can hold a weak
@@ -83,17 +94,6 @@ struct PreviewView: NSViewRepresentable {
     }
 
     func makeNSView(context: Context) -> WKWebView {
-        let onVisibleElements: AnglesiteScriptHandler.VisibleElementsHandler? = annotationProvider.map { provider in
-            // `provider` is `@MainActor`, so the implicit hop happens at the `update(_:)` call.
-            // Captured strongly: the handler is owned by the WKWebView, which is owned by
-            // SwiftUI's NSViewRepresentable lifecycle; the provider is owned by SiteWindow's
-            // `@State`, which outlives the WKWebView. The closure becomes unreachable when the
-            // WKWebView is torn down, releasing the strong reference.
-            { @Sendable elements in await provider.update(elements) }
-        }
-        let handler = AnglesiteScriptHandler(
-            router: router, onVisibleElements: onVisibleElements,
-            onPlacementPick: onPlacementPick, onGoalElementPick: onGoalElementPick)
         // `wysiwygTransport` is always a `WYSIWYGCanvasController` in production
         // (`PreviewModel.wysiwygCanvas`'s concrete type); casting once here — rather than inside
         // the handler closure on every message — is what lets `updateNSView` below compare "is
@@ -104,8 +104,8 @@ struct PreviewView: NSViewRepresentable {
         // the web view is constructed from. Resolved the same way `onWebView`/`onWebViewDismantled`
         // resolve their own "needs the view, doesn't exist yet" problem below: a weak capture of
         // `context.coordinator`, whose `webView` is set immediately after construction.
-        let wysiwygHandler = wysiwygController.map { makeWYSIWYGHandler(for: $0, coordinator: context.coordinator) }
-        let configuration = WebViewBridge.localDevConfiguration(handler: handler, wysiwygHandler: wysiwygHandler)
+        let handler = makeWYSIWYGHandler(for: wysiwygController, coordinator: context.coordinator)
+        let configuration = WebViewBridge.localDevConfiguration(handler: handler)
         let webView = WKWebView(frame: .zero, configuration: configuration)
         context.coordinator.webView = webView
         context.coordinator.wysiwygController = wysiwygController
@@ -132,12 +132,49 @@ struct PreviewView: NSViewRepresentable {
         return webView
     }
 
-    /// Wraps `controller` as the WYSIWYG `WKScriptMessageHandler` — shared by `makeNSView` (initial
-    /// registration) and `updateNSView` (registration on an edit-mode-off → on transition, #1225
-    /// final-review fix wave, Finding 6) so the two don't drift.
-    private func makeWYSIWYGHandler(for controller: WYSIWYGCanvasController, coordinator: Coordinator) -> WYSIWYGScriptHandler {
-        WYSIWYGScriptHandler(
+    /// Builds the one `WKScriptMessageHandler` this web view registers — wrapping `controller`
+    /// (the mounted block engine's transport, or `nil` while edit mode is off) plus the page
+    /// bridge's consumers, which don't depend on a canvas at all. Shared by `makeNSView` (initial
+    /// registration) and `updateNSView` (re-registration on every edit-mode / page transition,
+    /// #1225 final-review fix wave, Finding 6) so the two don't drift.
+    private func makeWYSIWYGHandler(for controller: WYSIWYGCanvasController?, coordinator: Coordinator) -> WYSIWYGScriptHandler {
+        let onVisibleElements: WYSIWYGOpsDispatcher.VisibleElementsHandler? = annotationProvider.map { provider in
+            // `provider` is `@MainActor`, so the implicit hop happens at the `update(_:)` call.
+            // Captured strongly: the handler is owned by the WKWebView, which is owned by
+            // SwiftUI's NSViewRepresentable lifecycle; the provider is owned by SiteWindow's
+            // `@State`, which outlives the WKWebView. The closure becomes unreachable when the
+            // WKWebView is torn down, releasing the strong reference.
+            { @Sendable elements in await provider.update(elements) }
+        }
+        let handlers = WYSIWYGOpsDispatcher.Handlers(
+            writingHelp: writingHelpSiteContext.map { context in
+                { (text: String, instruction: String) async -> WritingHelpOutcome in
+                    guard let assistant = WritingHelpAssistantFactory.makeDefault() else {
+                        return .unavailable(ContentHelpDialogs.assistantUnavailable(feature: "Writing help"))
+                    }
+                    let businessType = SiteBusinessType.read(sourceDirectory: context.siteDirectory)
+                    let conventions = await context.conventions()
+                    let preamble = BrandVoiceGuidance.preamble(conventions: conventions, businessType: businessType)
+                    return await assistant.rewrite(
+                        text: text, instruction: instruction, preamble: preamble,
+                        siteID: context.siteID, siteDirectory: context.siteDirectory)
+                }
+            },
+            // #1957 parity: a file dropped onto an `<img>` on the live page replaces it through the
+            // same registered router (and so the same sidecar `replace-image-src` path, alt-text
+            // post-processing, and chat edit row) the overlay's `anglesite:apply-edit` used.
+            imageReplace: { [router] message in await router.apply(message) },
+            onVisibleElements: onVisibleElements,
+            onPlacementPick: onPlacementPick,
+            onGoalElementPick: onGoalElementPick
+        )
+        guard let controller else {
+            // No canvas: the page bridge's consumers above are the whole job.
+            return WYSIWYGScriptHandler(transport: nil, handlers: handlers)
+        }
+        return WYSIWYGScriptHandler(
             transport: controller,
+            handlers: handlers,
             onContextMenu: { [weak coordinator] blockId, point in
                 Task { @MainActor in
                     guard let webView = coordinator?.webView else { return }
@@ -175,24 +212,7 @@ struct PreviewView: NSViewRepresentable {
                     controller?.selectedBlockId = blockId
                     controller?.inspectorFocusRequest = direction
                 }
-            },
-            onWritingHelpRequested: writingHelpSiteContext.map { context in
-                { (text: String, instruction: String) async -> WritingHelpOutcome in
-                    guard let assistant = WritingHelpAssistantFactory.makeDefault() else {
-                        return .unavailable(ContentHelpDialogs.assistantUnavailable(feature: "Writing help"))
-                    }
-                    let businessType = SiteBusinessType.read(sourceDirectory: context.siteDirectory)
-                    let conventions = await context.conventions()
-                    let preamble = BrandVoiceGuidance.preamble(conventions: conventions, businessType: businessType)
-                    return await assistant.rewrite(
-                        text: text, instruction: instruction, preamble: preamble,
-                        siteID: context.siteID, siteDirectory: context.siteDirectory)
-                }
-            },
-            // #1957 parity: a file dropped onto an `<img>` on the live page replaces it through the
-            // same registered router (and so the same sidecar `replace-image-src` path, alt-text
-            // post-processing, and chat edit row) the overlay's `anglesite:apply-edit` used.
-            onImageReplaceRequested: { [router] message in await router.apply(message) }
+            }
         )
     }
 
@@ -200,27 +220,26 @@ struct PreviewView: NSViewRepresentable {
         context.coordinator.onDismantle = onWebViewDismantled
         context.coordinator.onNavigated = onPreviewNavigated
 
-        // `makeNSView` only ever registers the WYSIWYG handler / mounts the JS engine once, at
+        // `makeNSView` only ever registers the handler / mounts the JS engine once, at
         // construction — a `PreviewView` whose `wysiwygTransport` flips from nil to non-nil (Site ▸
-        // Edit Page toggled on against an already-built preview pane) or non-nil to nil (toggled
-        // off) re-renders through `updateNSView`, not `makeNSView`, since SwiftUI reuses the
-        // existing `WKWebView` rather than tearing it down. Without this block the handler/engine
-        // stayed permanently out of sync with `isEditModeEnabled` after the very first toggle
-        // (#1225 final-review fix wave, Finding 6 — the mirror-image gap to Finding 1's "never
-        // mounted at all"). Compared by reference identity via the coordinator's stashed
-        // controller, matching `Coordinator`'s other stored-state pattern (`loadedURL`).
+        // Edit Page toggled on against an already-built preview pane), non-nil to nil (toggled
+        // off), or one controller to another (the canvas following a navigation to a different
+        // page, #1957) re-renders through `updateNSView`, not `makeNSView`, since SwiftUI reuses
+        // the existing `WKWebView` rather than tearing it down. Without this block the
+        // handler/engine stayed permanently out of sync with `isEditModeEnabled` after the very
+        // first toggle (#1225 final-review fix wave, Finding 6 — the mirror-image gap to Finding
+        // 1's "never mounted at all"). Compared by reference identity via the coordinator's
+        // stashed controller, matching `Coordinator`'s other stored-state pattern (`loadedURL`).
+        // The handler is always replaced rather than removed: the page bridge keeps posting
+        // Siri reports and pick results on the same namespace with no canvas mounted.
         let newController = wysiwygTransport as? WYSIWYGCanvasController
         if newController !== context.coordinator.wysiwygController {
-            if let previous = context.coordinator.wysiwygController {
-                webView.configuration.userContentController.removeScriptMessageHandler(forName: WebViewBridge.wysiwygScriptMessageNamespace)
-                previous.unmountEngine()
-            }
+            context.coordinator.wysiwygController?.unmountEngine()
+            webView.configuration.userContentController.removeScriptMessageHandler(forName: WebViewBridge.scriptMessageNamespace)
             context.coordinator.wysiwygController = newController
-            if let newController {
-                let handler = makeWYSIWYGHandler(for: newController, coordinator: context.coordinator)
-                webView.configuration.userContentController.add(handler, name: WebViewBridge.wysiwygScriptMessageNamespace)
-                newController.mountEngine()
-            }
+            let handler = makeWYSIWYGHandler(for: newController, coordinator: context.coordinator)
+            webView.configuration.userContentController.add(handler, name: WebViewBridge.scriptMessageNamespace)
+            newController?.mountEngine()
         }
 
         guard context.coordinator.loadedURL != url else { return }
@@ -294,8 +313,8 @@ struct PreviewView: NSViewRepresentable {
 
         /// Set from `makeNSView`/`updateNSView` (the represented view's `onPreviewNavigated`), so
         /// a finished navigation can tell the native side that all page-injected JS state — the
-        /// overlay's placement-pick mode included — has just been discarded, and which URL the
-        /// web view now shows.
+        /// page bridge's placement-pick mode included — has just been discarded, and which URL
+        /// the web view now shows.
         var onNavigated: ((URL?) -> Void)?
     }
 }
@@ -376,14 +395,13 @@ func performWYSIWYGPaletteDrop(
 /// `FormatCommands`/`EditMenuSkeletonCommands` already read it, nothing wrote it until Task 11)
 /// all reflect reality.
 ///
-/// Mounted unconditionally (not just while `wysiwygCanvas` is non-nil): the same `WKWebView` also
-/// hosts the overlay JS's lighter-weight `contentEditable` quick-edit (`JS/edit-overlay/src/
-/// overlay.ts`) — a plain click-to-edit for e.g. a page/post title — which never touches
-/// `wysiwygCanvas` at all. Gating this sentinel on `wysiwygCanvas != nil` left `hasKeyboardFocus`
-/// stuck `false` for a quick-edit session with no canvas mounted, which is what let
-/// `SiteNavigatorView`'s ⌘⌫ delete the selected Navigator item instead of editing the title (#1715).
-/// `wysiwygCanvas` is still read fresh on each focus change (not captured) since edit mode can
-/// toggle on/off while this sentinel stays mounted for the pane's whole lifetime.
+/// Mounted unconditionally (not just while `wysiwygCanvas` is non-nil): edit mode can toggle
+/// on/off — and the canvas is replaced on every navigation to a different page (#1957) — while
+/// this sentinel stays mounted for the pane's whole lifetime, so `wysiwygCanvas` is read fresh on
+/// each focus change (not captured). Historically (#1715) the unconditional mount also covered
+/// the retired overlay's canvas-less `contentEditable` quick-edit, whose focus a canvas-gated
+/// sentinel missed — letting `SiteNavigatorView`'s ⌘⌫ delete the selected Navigator item out
+/// from under someone typing in a title.
 ///
 /// Scope note: like `SentinelView`'s existing contract, `focused` here means "the window's first
 /// responder's visible rect lies inside the preview pane's frame" — ANY responder focus landing

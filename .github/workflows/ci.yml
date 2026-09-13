@@ -43,7 +43,6 @@ jobs:
       pull-requests: read
     outputs:
       swift: ${{ steps.filter.outputs.swift }}
-      js: ${{ steps.filter.outputs.js }}
       wysiwyg: ${{ steps.filter.outputs.wysiwyg }}
       safariExt: ${{ steps.filter.outputs.safariExt }}
       template: ${{ steps.filter.outputs.template }}
@@ -106,9 +105,8 @@ jobs:
             return 1
           }
 
-          swift=false; js=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false; docsIndex=false
+          swift=false; wysiwyg=false; safariExt=false; template=false; helpBook=false; workers=false; docsIndex=false
           matches 'Package.swift' 'Package.resolved' 'project.yml' 'Sources/**' 'Tests/**' 'Resources/Template/**' 'Resources/Attributions/**' 'scripts/**' 'packaging/flatpak/**' '.github/workflows/ci.yml' && swift=true
-          matches 'JS/edit-overlay/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && js=true
           matches 'JS/wysiwyg-engine/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && wysiwyg=true
           matches 'JS/safari-extension/**' 'scripts/node-version.txt' '.github/workflows/ci.yml' && safariExt=true
           matches 'Resources/Template/**' 'scripts/node-version.txt' 'scripts/generate-npm-attributions.mjs' 'scripts/attributions-overrides.json' '.github/workflows/ci.yml' && template=true
@@ -117,36 +115,12 @@ jobs:
           matches 'docs/specs/**' 'docs/superpowers/**' 'scripts/generate-docs-index.py' 'scripts/test-generate-docs-index.py' '.github/workflows/ci.yml' && docsIndex=true
 
           echo "swift=$swift" >> "$GITHUB_OUTPUT"
-          echo "js=$js" >> "$GITHUB_OUTPUT"
           echo "wysiwyg=$wysiwyg" >> "$GITHUB_OUTPUT"
           echo "safariExt=$safariExt" >> "$GITHUB_OUTPUT"
           echo "template=$template" >> "$GITHUB_OUTPUT"
           echo "helpBook=$helpBook" >> "$GITHUB_OUTPUT"
           echo "workers=$workers" >> "$GITHUB_OUTPUT"
           echo "docsIndex=$docsIndex" >> "$GITHUB_OUTPUT"
-
-  edit-overlay:
-    name: JS edit-overlay (lint/typecheck/test)
-    needs: changes
-    if: needs.changes.outputs.js == 'true'
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
-    defaults:
-      run:
-        working-directory: JS/edit-overlay
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          # Track the vendored runtime (scripts/vendor-node.sh) so CI tests on the
-          # same Node major the app ships.
-          node-version-file: scripts/node-version.txt
-          cache: npm
-          cache-dependency-path: JS/edit-overlay/package-lock.json
-      - run: npm ci --no-audit --no-fund
-      - run: npm run lint
-      - run: npm run typecheck
-      - run: npm test
 
   safari-extension:
     name: JS safari-extension (lint/typecheck/test)
@@ -272,8 +246,8 @@ jobs:
     if: needs.changes.outputs.helpBook == 'true'
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # Split out of edit-overlay: a Help Book-only change shouldn't pay for a full npm
-    # install/lint/typecheck/test cycle just to reach this check. Plain bash+grep, no deps.
+    # Its own lane (not a step in a JS lane): a Help Book-only change shouldn't pay for a full
+    # npm install/lint/typecheck/test cycle just to reach this check. Plain bash+grep, no deps.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Check Help Book links
@@ -425,7 +399,7 @@ jobs:
     # Flatpak SDK (or an equivalent system install) carries. Live-verified end-to-end on a real
     # Ubuntu 26.04/aarch64 GTK box for #1293: the manifest builds, the app boots a real podman
     # container through `flatpak-spawn --host` (no conmon hang), the document-portal bind-mount
-    # resolves correctly, the overlay JS loads, and a long-lived `podman exec -i` interactive
+    # resolves correctly, the engine JS loads, and a long-lived `podman exec -i` interactive
     # session's stdio survives the same `flatpak-spawn --host` proxy — this job exercises the
     # first two of those (build + AnglesiteLinuxTests); the rest need a live GTK/podman
     # environment this headless runner doesn't have and stay manually verified.
@@ -434,15 +408,15 @@ jobs:
     # DocumentPortalResolutionTests don't execute here either) — that target isn't in
     # Package.swift's off-Darwin `portableTargets` set yet (confirmed live: it also pulls in
     # AnglesiteTestSupport, itself not purity-swept), tracked separately in #1284. Only
-    # AnglesiteLinuxTests (ShellModel's pure overlay-candidate logic) is Linux-portable today.
+    # AnglesiteLinuxTests (ShellModel's pure engine-candidate logic) is Linux-portable today.
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
         with:
           node-version-file: scripts/node-version.txt
-      - name: Build edit overlay
-        run: scripts/build-overlay.sh
+      - name: Build WYSIWYG engine
+        run: scripts/build-wysiwyg-engine.sh
 
       - name: Install flatpak + flatpak-builder
         run: |
@@ -519,7 +493,7 @@ jobs:
       # The end-to-end tests spawn the real plugin's MCP server, so CI needs the sibling repo
       # present and `npm ci`-installed. Without these, the Swift Testing suites gated with
       # `.enabled(if:)` traits skip cleanly (ANGLESITE_PLUGIN_PATH absent); with them, the full
-      # overlay → patcher → file-on-disk round-trip is exercised.
+      # bridge → patcher → file-on-disk round-trip is exercised.
       - name: Checkout sibling Anglesite plugin
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
         with:
@@ -1145,7 +1119,6 @@ jobs:
     if: always()
     needs:
       - changes
-      - edit-overlay
       - wysiwyg-engine
       - safari-extension
       - help-book-links

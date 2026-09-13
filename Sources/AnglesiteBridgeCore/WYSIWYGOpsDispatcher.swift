@@ -14,20 +14,39 @@ public struct WYSIWYGPoint: Sendable, Equatable {
     }
 }
 
-/// Webview-agnostic message schema + routing for the `wysiwyg` script-message namespace —
-/// deliberately separate from `AnglesiteMessageDispatcher` (the older edit-overlay protocol).
-/// Five message types: `submit-op`, an `OpEnvelope` the engine sends when the owner performs a
-/// gesture (the reply is the resulting `OpResult`); `context-menu`, the engine's hit-test result
-/// on a native `contextmenu` DOM event (spec §8.1 — the host builds a real `NSMenu`, no reply
-/// expected); `selection-changed`, the engine's own selection state changing (no reply expected);
-/// `focus-inspector`, `KeyboardNavigation`'s Tab/Shift-Tab request to move real AppKit focus
-/// into the native inspector's first/last prop field (#1616 — no reply expected, same as
-/// `context-menu`/`selection-changed`); `writing-help-request`, text + an instruction for
-/// the on-device rewrite assistant (#1227 PR 2 — the reply is the outcome keyed by `requestId`);
-/// and `replace-image`, a file dropped onto an existing `<img>` on the live page (#1957 parity
-/// with the retired overlay's image drop — the reply is the sidecar's `EditReply` for the
-/// `replace-image-src` `apply_edit` op, keyed by `requestId`).
+/// Webview-agnostic message schema + routing for the `wysiwyg` script-message namespace — the
+/// **single** JS → native channel every injected page script posts to since #1957 retired the
+/// click-to-edit overlay and its `anglesite` namespace (cross-platform port design §6
+/// "AnglesiteBridgeCore split"). Each platform's webview adapter (`WKWebView` today; WebKitGTK/
+/// WebView2 later) forwards the raw decoded message body here and gets back a `DispatchResult`
+/// describing what to do next — the adapter's only remaining job is shuttling bytes in and out of
+/// its native webview API.
+///
+/// Two families of message ride this bridge:
+///
+/// **Block-engine messages** (`JS/wysiwyg-engine/src/host/mount.ts`, present only while a canvas
+/// is mounted): `submit-op`, an `OpEnvelope` the engine sends when the owner performs a gesture
+/// (the reply is the resulting `OpResult`); `context-menu`, the engine's hit-test result on a
+/// native `contextmenu` DOM event (spec §8.1 — the host builds a real `NSMenu`, no reply);
+/// `selection-changed`, the engine's own selection state changing (no reply); `focus-inspector`,
+/// `KeyboardNavigation`'s Tab/Shift-Tab request to move real AppKit focus into the native
+/// inspector (#1616, no reply); `writing-help-request`, text + an instruction for the on-device
+/// rewrite assistant (#1227 PR 2 — the reply is the outcome keyed by `requestId`); and
+/// `replace-image`, a file dropped onto an existing `<img>` (#1957 — the reply is the sidecar's
+/// `EditReply` for the `replace-image-src` `apply_edit` op, keyed by `requestId`).
+///
+/// **Page-bridge messages** (`JS/wysiwyg-engine/src/host/page-bridge.ts`, posted on every page
+/// whether or not an engine is mounted, none expecting a reply): `anglesite:visible-elements`
+/// (a `VisibleElementReport`, #145 — Siri's onscreen awareness), `anglesite:canvas-selection` +
+/// `anglesite:computed-styles` (the Component Editor's harness canvas, `component-canvas.ts`),
+/// `anglesite:pick-placement` (the Effects gallery's click-to-place, #768) and
+/// `anglesite:pick-goal-element` (the experiment goal picker, #1518). Their `type` strings keep
+/// the `anglesite:` prefix as wire vocabulary — that's what `VisibleElementReport.decode` and
+/// friends match on — even though the *namespace* they arrive on is `wysiwyg`.
 public enum WYSIWYGOpsDispatcher {
+    /// The `WKUserContentController`/`WebKitUserContentManager`/WebView2 script-message name
+    /// every platform adapter registers its handler under — the page posts messages here
+    /// regardless of which native webview it's running in.
     public static let scriptMessageNamespace = "wysiwyg"
 
     /// Which end of the native inspector's prop fields a `focus-inspector` request should land
@@ -36,6 +55,57 @@ public enum WYSIWYGOpsDispatcher {
     public enum FocusDirection: String, Sendable {
         case forward
         case backward
+    }
+
+    /// Answers a `writing-help-request` with a rewrite outcome (#1227 PR 2).
+    public typealias WritingHelper = @Sendable (_ text: String, _ instruction: String) async -> WritingHelpOutcome
+    /// Applies a `replace-image` request as a `replace-image-src` `EditMessage` — in production
+    /// `EditRouter.apply(_:)` on the preview's registered router (`PreviewView`), so the drop
+    /// lands through the same sidecar path (optimize, strip metadata, one commit) the overlay's
+    /// `anglesite:apply-edit` used to.
+    public typealias ImageReplacer = @Sendable (EditMessage) async -> EditReply
+    /// Receives the decoded elements of an `anglesite:visible-elements` report. Async so
+    /// implementations can hop to their model's actor; no reply flows back.
+    public typealias VisibleElementsHandler = @Sendable ([VisibleElement]) async -> Void
+    /// Receives a decoded `anglesite:canvas-selection` message.
+    public typealias CanvasSelectionHandler = @Sendable (CanvasSelectionMessage) async -> Void
+    /// Receives a decoded `anglesite:computed-styles` report.
+    public typealias ComputedStylesHandler = @Sendable (ComputedStylesReport) async -> Void
+    /// Receives a decoded `anglesite:pick-placement` message.
+    public typealias PlacementPickHandler = @Sendable (PlacementPickMessage) async -> Void
+    /// Receives a decoded `anglesite:pick-goal-element` message.
+    public typealias GoalElementPickHandler = @Sendable (GoalElementPickMessage) async -> Void
+
+    /// The optional per-message consumers an adapter installs. Every field is `nil` by default:
+    /// a message whose consumer is absent is reported as *dropped* (page-bridge messages) or
+    /// answered with an "unavailable" reply (`writing-help-request`, `replace-image`) rather
+    /// than rejected — the wiring that's missing is the adapter's business to log.
+    public struct Handlers: Sendable {
+        public var writingHelp: WritingHelper?
+        public var imageReplace: ImageReplacer?
+        public var onVisibleElements: VisibleElementsHandler?
+        public var onCanvasSelection: CanvasSelectionHandler?
+        public var onComputedStyles: ComputedStylesHandler?
+        public var onPlacementPick: PlacementPickHandler?
+        public var onGoalElementPick: GoalElementPickHandler?
+
+        public init(
+            writingHelp: WritingHelper? = nil,
+            imageReplace: ImageReplacer? = nil,
+            onVisibleElements: VisibleElementsHandler? = nil,
+            onCanvasSelection: CanvasSelectionHandler? = nil,
+            onComputedStyles: ComputedStylesHandler? = nil,
+            onPlacementPick: PlacementPickHandler? = nil,
+            onGoalElementPick: GoalElementPickHandler? = nil
+        ) {
+            self.writingHelp = writingHelp
+            self.imageReplace = imageReplace
+            self.onVisibleElements = onVisibleElements
+            self.onCanvasSelection = onCanvasSelection
+            self.onComputedStyles = onComputedStyles
+            self.onPlacementPick = onPlacementPick
+            self.onGoalElementPick = onGoalElementPick
+        }
     }
 
     public enum DispatchResult: Sendable {
@@ -68,27 +138,63 @@ public enum WYSIWYGOpsDispatcher {
         /// adapter should reply with `reply` keyed by `requestId`, same reply shape as `opResult`.
         /// The page swaps to `reply.result`'s `src`/`srcset` on `.applied` and reverts otherwise.
         case imageReplaceReply(requestId: String, reply: EditReply)
+        /// `anglesite:visible-elements` was forwarded to `Handlers.onVisibleElements`.
+        case visibleElementsHandled
+        /// `anglesite:visible-elements` arrived but no `onVisibleElements` handler is installed.
+        case visibleElementsDropped
+        /// `anglesite:canvas-selection` was forwarded to `Handlers.onCanvasSelection`.
+        case canvasSelectionHandled
+        /// `anglesite:canvas-selection` arrived but no `onCanvasSelection` handler is installed.
+        case canvasSelectionDropped
+        /// `anglesite:computed-styles` was forwarded to `Handlers.onComputedStyles`.
+        case computedStylesHandled
+        /// `anglesite:computed-styles` arrived but no `onComputedStyles` handler is installed.
+        case computedStylesDropped
+        /// `anglesite:pick-placement` was forwarded to `Handlers.onPlacementPick`.
+        case placementPickHandled
+        /// `anglesite:pick-placement` arrived but no `onPlacementPick` handler is installed.
+        case placementPickDropped
+        /// `anglesite:pick-goal-element` was forwarded to `Handlers.onGoalElementPick`.
+        case goalElementPickHandled
+        /// `anglesite:pick-goal-element` arrived but no `onGoalElementPick` handler is installed.
+        case goalElementPickDropped
+        /// Body was undecodable, or named a message this adapter can't serve. Log and move on.
         case rejected(RejectionReason)
 
         public enum RejectionReason: Sendable, Equatable {
+            /// The body wasn't a dictionary at all.
             case notAnObject
+            /// The body has no `type` field.
             case missingType
+            /// The `type` field isn't a string.
             case wrongType
+            /// The `type` string doesn't name any known message; carries the unrecognized value.
             case unknownType(String)
+            /// A block-engine message's payload failed to decode; carries a description.
             case envelopeDecode(String)
+            /// `submit-op` arrived on a web view with no block engine transport — a page that
+            /// hosts only the page bridge (the Component Editor's harness canvas, the iOS/Linux
+            /// previews) — so there is nothing to apply the op against.
+            case noTransport
+            /// `anglesite:visible-elements` matched but the payload failed to decode.
+            case visibleElementsDecode(VisibleElementReport.DecodeError)
+            /// `anglesite:canvas-selection` matched but the payload failed to decode.
+            case canvasSelectionDecode(ComponentCanvasDecodeError)
+            /// `anglesite:computed-styles` matched but the payload failed to decode.
+            case computedStylesDecode(ComponentCanvasDecodeError)
+            /// `anglesite:pick-placement` matched but the payload failed to decode.
+            case placementPickDecode(ComponentCanvasDecodeError)
+            /// `anglesite:pick-goal-element` matched but the payload failed to decode.
+            case goalElementPickDecode(ComponentCanvasDecodeError)
         }
     }
 
-    /// Applies a `replace-image` request as a `replace-image-src` `EditMessage` — in production
-    /// `EditRouter.apply(_:)` on the preview's registered router (`PreviewView`), so the drop
-    /// lands through the same sidecar path (optimize, strip metadata, one commit) the overlay's
-    /// `anglesite:apply-edit` used to.
-    public typealias ImageReplacer = @Sendable (EditMessage) async -> EditReply
-
+    /// Peek at the `type` field, dispatch to the matching decoder, and route. Pure — no I/O
+    /// beyond the transport and handler calls. `transport` is `nil` on a web view that hosts
+    /// only the page bridge (no mounted block engine); a `submit-op` arriving there is
+    /// `.rejected(.noTransport)`.
     public static func dispatch(
-        body: Any, via transport: any WYSIWYGHostTransport,
-        writingHelp: (@Sendable (_ text: String, _ instruction: String) async -> WritingHelpOutcome)? = nil,
-        imageReplace: ImageReplacer? = nil
+        body: Any, via transport: (any WYSIWYGHostTransport)?, handlers: Handlers = Handlers()
     ) async -> DispatchResult {
         guard let dict = body as? [String: Any] else { return .rejected(.notAnObject) }
         guard let rawType = dict["type"] else { return .rejected(.missingType) }
@@ -103,6 +209,7 @@ public enum WYSIWYGOpsDispatcher {
             else {
                 return .rejected(.envelopeDecode("could not decode OpEnvelope from \"envelope\" field"))
             }
+            guard let transport else { return .rejected(.noTransport) }
             let result = await transport.sendOp(envelope)
             return .opResult(requestId: envelope.id, result: result)
         case "context-menu":
@@ -130,7 +237,7 @@ public enum WYSIWYGOpsDispatcher {
             else {
                 return .rejected(.envelopeDecode("could not decode writing-help-request fields"))
             }
-            let outcome = await writingHelp?(text, instruction)
+            let outcome = await handlers.writingHelp?(text, instruction)
                 ?? .unavailable(ContentHelpDialogs.assistantUnavailable(feature: "Writing help"))
             return .writingHelpReply(requestId: requestId, outcome: outcome)
         case "replace-image":
@@ -157,12 +264,58 @@ public enum WYSIWYGOpsDispatcher {
             guard case .success(let message) = EditMessage.decode(from: editBody) else {
                 return .rejected(.envelopeDecode("could not decode replace-image request as an EditMessage"))
             }
-            guard let imageReplace else {
+            guard let imageReplace = handlers.imageReplace else {
                 return .imageReplaceReply(
                     requestId: requestId,
                     reply: EditReply(id: requestId, status: .failed, message: "Image replacement isn't available in this preview"))
             }
             return .imageReplaceReply(requestId: requestId, reply: await imageReplace(message))
+
+        case VisibleElementReport.messageType:
+            switch VisibleElementReport.decode(from: body) {
+            case .success(let report):
+                guard let handler = handlers.onVisibleElements else { return .visibleElementsDropped }
+                await handler(report.elements)
+                return .visibleElementsHandled
+            case .failure(let error):
+                return .rejected(.visibleElementsDecode(error))
+            }
+        case CanvasSelectionMessage.messageType:
+            switch CanvasSelectionMessage.decode(from: body) {
+            case .success(let message):
+                guard let handler = handlers.onCanvasSelection else { return .canvasSelectionDropped }
+                await handler(message)
+                return .canvasSelectionHandled
+            case .failure(let error):
+                return .rejected(.canvasSelectionDecode(error))
+            }
+        case ComputedStylesReport.messageType:
+            switch ComputedStylesReport.decode(from: body) {
+            case .success(let report):
+                guard let handler = handlers.onComputedStyles else { return .computedStylesDropped }
+                await handler(report)
+                return .computedStylesHandled
+            case .failure(let error):
+                return .rejected(.computedStylesDecode(error))
+            }
+        case PlacementPickMessage.messageType:
+            switch PlacementPickMessage.decode(from: body) {
+            case .success(let message):
+                guard let handler = handlers.onPlacementPick else { return .placementPickDropped }
+                await handler(message)
+                return .placementPickHandled
+            case .failure(let error):
+                return .rejected(.placementPickDecode(error))
+            }
+        case GoalElementPickMessage.messageType:
+            switch GoalElementPickMessage.decode(from: body) {
+            case .success(let message):
+                guard let handler = handlers.onGoalElementPick else { return .goalElementPickDropped }
+                await handler(message)
+                return .goalElementPickHandled
+            case .failure(let error):
+                return .rejected(.goalElementPickDecode(error))
+            }
         default:
             return .rejected(.unknownType(typeStr))
         }
