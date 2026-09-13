@@ -438,7 +438,7 @@ final class PreviewModel {
         relaunchDevServer()
     }
 
-    /// Site ▸ Restart Dev Server: for a wedged Astro process that hasn't died. Same body as
+    /// Site ▸ Live Preview ▸ Restart: for a wedged Astro process that hasn't died. Same body as
     /// Start — `SiteRuntime.start` tears down any previous run first (protocol contract), so a
     /// restart is a plain re-start on every runtime; only the enablement differs (see
     /// `DevServerControls`). Both funnel into `relaunchDevServer()` so the two can't drift.
