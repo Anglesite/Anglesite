@@ -2,6 +2,7 @@
 import SwiftUI
 import AnglesiteIOS
 import AnglesiteCore
+import AnglesiteMobileCore
 
 /// The app's shell (#869, design §3): one `NavigationSplitView`, adaptive — three columns on
 /// iPad (sites/content-types sidebar, post list, composer), collapsing to a single
@@ -12,44 +13,23 @@ import AnglesiteCore
 /// onboarding flow (#868) stored plus a fresh endpoint discovery. A site with no stored
 /// credential shows `SiteSignInScreen` in the content pane; there is no unauthenticated browse
 /// path (design §6).
+///
+/// Every decision — what a site switch resets, how a session resolves, position persistence,
+/// the per-site Edit Site models, the App Intent hand-off — lives in `SiteShellModel`
+/// (`AnglesiteMobileCore`, tested under `swift test`, #1968). This view owns discovery
+/// (`SitePickerModel`), forwards the lifecycle triggers, and renders.
 struct SiteSplitScreen: View {
-    /// The session source; previews/tests can substitute ``NoMicropubSessions`` or a fake.
-    var sessions: any MicropubSessionProviding = StoredMicropubSessions()
-
     @State private var sitePicker = SitePickerModel()
-    @State private var siteSelection = SiteSelectionModel()
-    /// Persists/restores the content-type filter, post selection, and warm-session set across
-    /// relaunch (#1436, design §8.6).
-    @State private var restoration = NavigationRestorationModel()
-    /// The sidebar's content-type filter: a registry type id, or `nil` for "All Posts".
-    @State private var selectedTypeID: String?
-    @State private var selection: PostListItemSelection?
-    /// A restored `.existing(postURL:)` selection waiting for the post list to load so it can
-    /// resolve into a real `PostListModel.Item` — cleared once applied or found stale.
-    @State private var pendingRestoredPostURL: URL?
-    /// The selected site's session pane state — re-resolved whenever the site changes.
-    @State private var sessionState: SessionState = .none
-    private let registry = ContentTypeRegistry.default
+    @State private var shell: SiteShellModel
 
-    private enum SessionState: Equatable {
-        case none
-        case checking
-        case signedOut
-        case ready
+    /// - Parameter sessions: The session source; previews/tests can substitute
+    ///   ``NoMicropubSessions`` or a fake.
+    init(sessions: any MicropubSessionProviding = StoredMicropubSessions()) {
+        _shell = State(initialValue: SiteShellModel(sessions: sessions))
     }
 
-    /// The resolved session's models, rebuilt per site.
-    @State private var postList: PostListModel?
-    @State private var session: MicropubSession?
-
-    /// One "Edit Site" session model per site, kept for the shell's lifetime (#1431): the
-    /// full-screen cover only *renders* a session, so dismissing it leaves the model — and its
-    /// warm P2P session — untouched, and switching sites never tears another site's session down.
-    @State private var editSessions: [UUID: EditSessionModel] = [:]
-    /// The site whose session cover is presented, or `nil` when none is.
-    @State private var editingSite: SitePickerModel.DiscoveredSite?
-
     var body: some View {
+        @Bindable var shell = shell
         NavigationSplitView {
             sidebar
                 .navigationTitle(Text("Anglesite"))
@@ -60,71 +40,20 @@ struct SiteSplitScreen: View {
             detailPane
         }
         .task { await sitePicker.refresh() }
-        .task(id: siteSelection.selectedSite?.id) { await resolveSession() }
-        .onChange(of: sitePicker.state) { _, newState in
-            if case .sites(let sites) = newState {
-                let hadNoSelection = siteSelection.selectedSite == nil
-                siteSelection.restoreSelection(from: sites)
-                // Only the cold-launch restore (no prior selection) re-applies a saved position —
-                // an interactive site switch already resets the filter/selection itself.
-                if hadNoSelection, let site = siteSelection.selectedSite {
-                    restorePosition(forSite: site.id)
-                }
-            }
-        }
-        .onChange(of: selectedTypeID) { _, _ in persistPosition() }
-        .onChange(of: selection) { _, _ in persistPosition() }
-        .onChange(of: postList?.state) { _, newState in
-            guard let pendingRestoredPostURL, case .posts(let items) = newState else { return }
-            defer { self.pendingRestoredPostURL = nil }
-            // A deleted/moved post simply leaves the composer pane on its existing empty state —
-            // the same "already correct" fallback `SiteSelectionModel.restoreSelection` uses.
-            guard let item = items.first(where: { $0.id == pendingRestoredPostURL }) else { return }
-            selection = .existing(item)
-        }
-        .fullScreenCover(item: $editingSite) { site in
-            if let model = editSessions[site.id] {
+        .task(id: shell.selectedSite?.id) { await shell.resolveSession() }
+        .onChange(of: sitePicker.state) { _, newState in shell.discoverySettled(newState) }
+        .onChange(of: shell.selectedTypeID) { _, _ in shell.persistPosition() }
+        .onChange(of: shell.selection) { _, _ in shell.persistPosition() }
+        .onChange(of: shell.postList?.state) { _, newState in shell.postListStateChanged(newState) }
+        .fullScreenCover(item: $shell.editingSite) { site in
+            if let model = shell.editSession(for: site) {
                 EditSiteScreen(model: model)
             }
         }
-        .onChange(of: EditSessionRouter.shared.requestedSiteID) { _, requested in
-            // The Edit Site App Intent's hand-off (the iOS twin of WindowRouter): consume the
-            // request and walk into that site's session.
-            guard requested != nil, let siteID = EditSessionRouter.shared.consume() else { return }
-            guard case .sites(let sites) = sitePicker.state,
-                  let site = sites.first(where: { $0.id == siteID })
-            else { return }
-            selectSite(site)
-            presentEditSession(for: site)
-        }
+        // The Edit Site App Intent's hand-off (the iOS twin of WindowRouter): the shell
+        // consumes the request and walks into that site's session.
+        .onChange(of: shell.editSessionRouter.requestedSiteID) { _, _ in shell.handleEditSessionRequest() }
         .safeAreaInset(edge: .top) { continueEditingBanner }
-    }
-
-    // MARK: - Position restoration (#1436)
-
-    /// Persists the current site's content-type filter and post selection. Called on every
-    /// change — cheap, and the only way to avoid losing position to memory pressure rather than
-    /// an orderly background transition.
-    private func persistPosition() {
-        guard let siteID = siteSelection.selectedSite?.id else { return }
-        restoration.recordPosition(
-            siteID: siteID, typeID: selectedTypeID, selection: selection.map(PersistedSelection.init))
-    }
-
-    /// Applies a saved position for `siteID`: the type filter immediately, and a `.new` selection
-    /// immediately (the composer needs nothing else). An `.existing` selection instead waits for
-    /// `postList` to load — resolved by the `postList?.state` observer above.
-    private func restorePosition(forSite siteID: UUID) {
-        guard let saved = restoration.restorePosition(forSite: siteID) else { return }
-        selectedTypeID = saved.typeID
-        switch saved.selection {
-        case .new(let typeID):
-            selection = .new(typeID: typeID)
-        case .existing(let postURL):
-            pendingRestoredPostURL = postURL
-        case nil:
-            break
-        }
     }
 
     // MARK: - Sidebar (sites + content types)
@@ -162,32 +91,31 @@ struct SiteSplitScreen: View {
                         } icon: {
                             Image(systemName: "globe")
                         }
-                        .tag(SidebarSelection.site(site.id))
+                        .tag(SiteShellModel.SidebarSelection.site(site.id))
                         .contextMenu {
                             Button {
-                                selectSite(site)
-                                presentEditSession(for: site)
+                                shell.resumeEditing(site)
                             } label: {
                                 Label("Edit Site", systemImage: "paintbrush.pointed")
                             }
                         }
                     }
                 }
-                if siteSelection.selectedSite != nil {
+                if shell.selectedSite != nil {
                     Section("Content") {
                         Label {
                             Text("All Posts")
                         } icon: {
                             Image(systemName: "tray.full")
                         }
-                        .tag(SidebarSelection.allPosts)
-                        ForEach(postTypes) { descriptor in
+                        .tag(SiteShellModel.SidebarSelection.allPosts)
+                        ForEach(shell.postTypes) { descriptor in
                             Label {
                                 Text(verbatim: descriptor.displayName)
                             } icon: {
                                 Image(systemName: "square.and.pencil")
                             }
-                            .tag(SidebarSelection.type(descriptor.id))
+                            .tag(SiteShellModel.SidebarSelection.type(descriptor.id))
                         }
                     }
                 }
@@ -196,66 +124,28 @@ struct SiteSplitScreen: View {
         }
     }
 
-    /// The content types a phone can post: collection-stored (post-family) descriptors.
-    /// Pages and singletons (business profile, résumé) are site-editing, not posting — v2.0
-    /// scope (#66/#71).
-    private var postTypes: [ContentTypeDescriptor] {
-        registry.all.filter { $0.collection != nil }
-    }
-
-    /// The discovered site list, or empty when discovery hasn't produced one yet — feeds
-    /// `SiteSwitcherMenu`, which is hidden entirely below 2 sites.
-    private var switcherSites: [SitePickerModel.DiscoveredSite] {
-        guard case .sites(let sites) = sitePicker.state else { return [] }
-        return sites
-    }
-
     @ToolbarContentBuilder
     private func siteSwitcherToolbarItem(site: SitePickerModel.DiscoveredSite) -> some ToolbarContent {
-        if switcherSites.count >= 2 {
+        // Hidden entirely below 2 sites.
+        if shell.discoveredSites.count >= 2 {
             ToolbarItem(placement: .navigation) {
-                SiteSwitcherMenu(sites: switcherSites, selected: site, onSelect: selectSite)
+                SiteSwitcherMenu(sites: shell.discoveredSites, selected: site, onSelect: shell.selectSite)
             }
         }
     }
 
-    private enum SidebarSelection: Hashable {
-        case site(UUID)
-        case allPosts
-        case type(String)
-    }
-
-    /// One `List` selection over both sections: picking a site switches sites (resetting the
-    /// type filter); picking a content row narrows the post list.
-    private var sidebarSelection: Binding<SidebarSelection?> {
+    /// One `List` selection over both sections, routed through the shell.
+    private var sidebarSelection: Binding<SiteShellModel.SidebarSelection?> {
         Binding(
-            get: {
-                if let selectedTypeID { return .type(selectedTypeID) }
-                if siteSelection.selectedSite != nil { return .allPosts }
-                return nil
-            },
-            set: { newValue in
-                switch newValue {
-                case .site(let id):
-                    guard case .sites(let sites) = sitePicker.state,
-                          let site = sites.first(where: { $0.id == id })
-                    else { return }
-                    selectSite(site)
-                case .allPosts:
-                    selectedTypeID = nil
-                case .type(let id):
-                    selectedTypeID = id
-                case nil:
-                    break
-                }
-            }
+            get: { shell.sidebarSelection },
+            set: { shell.select(sidebar: $0) }
         )
     }
 
     // MARK: - Content (post list)
 
     private var contentTitle: Text {
-        if let selectedTypeID, let descriptor = registry.descriptor(id: selectedTypeID) {
+        if let descriptor = shell.contentTitleDescriptor {
             return Text(verbatim: descriptor.displayName)
         }
         return Text("All Posts")
@@ -263,9 +153,10 @@ struct SiteSplitScreen: View {
 
     @ViewBuilder
     private var contentPane: some View {
-        if let site = siteSelection.selectedSite {
+        @Bindable var shell = shell
+        if let site = shell.selectedSite {
             Group {
-                switch sessionState {
+                switch shell.sessionState {
                 case .none, .checking:
                     ProgressView()
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -273,14 +164,14 @@ struct SiteSplitScreen: View {
                     // #868's onboarding flow, embedded: when it lands signed-in, re-resolve so
                     // the freshly stored credential becomes this shell's session.
                     SiteSignInScreen(site: site) {
-                        Task { await resolveSession() }
+                        Task { await shell.resolveSession() }
                     }
                 case .ready:
-                    if let postList {
+                    if let postList = shell.postList {
                         PostListScreen(
                             model: postList,
-                            collection: selectedCollection,
-                            selection: $selection
+                            collection: shell.selectedCollection,
+                            selection: $shell.selection
                         )
                         .toolbar {
                             ToolbarItem(placement: .primaryAction) {
@@ -296,7 +187,7 @@ struct SiteSplitScreen: View {
                 // session's pairing, not the posting shell's IndieAuth credential (#1431).
                 ToolbarItem(placement: .secondaryAction) {
                     Button {
-                        presentEditSession(for: site)
+                        shell.presentEditSession(for: site)
                     } label: {
                         Label("Edit Site", systemImage: "paintbrush.pointed")
                     }
@@ -311,15 +202,11 @@ struct SiteSplitScreen: View {
         }
     }
 
-    private var selectedCollection: String? {
-        selectedTypeID.flatMap { registry.descriptor(id: $0)?.collection }
-    }
-
     /// Starts a new composition — of the sidebar-selected type, or `note` (the quickest
     /// capture) when browsing all posts.
     private var newPostButton: some View {
         Button {
-            selection = .new(typeID: selectedTypeID ?? "note")
+            shell.startNewPost()
         } label: {
             Label("New Post", systemImage: "square.and.pencil")
         }
@@ -329,14 +216,14 @@ struct SiteSplitScreen: View {
 
     @ViewBuilder
     private var detailPane: some View {
-        if let session, let site = siteSelection.selectedSite, let selection {
+        if let session = shell.session, let site = shell.selectedSite, let selection = shell.selection {
             ComposerPane(
                 selection: selection,
                 session: session,
                 siteID: site.id,
-                registry: registry,
-                postList: postList,
-                onSent: { Task { await postList?.refresh() } }
+                registry: shell.registry,
+                postList: shell.postList,
+                onSent: { Task { await shell.postList?.refresh() } }
             )
             // A fresh pane per selection: composer state must never leak across posts.
             .id(selection)
@@ -352,68 +239,12 @@ struct SiteSplitScreen: View {
         }
     }
 
-    private func resolveSession() async {
-        guard let site = siteSelection.selectedSite else {
-            sessionState = .none
-            session = nil
-            postList = nil
-            return
-        }
-        sessionState = .checking
-        let resolved = await sessions.session(for: site)
-        // The site may have changed while resolving; only publish for the current one.
-        guard site == siteSelection.selectedSite else { return }
-        if let resolved {
-            session = resolved
-            postList = PostListModel(client: resolved.makeClient(), registry: registry)
-            sessionState = .ready
-        } else {
-            session = nil
-            postList = nil
-            sessionState = .signedOut
-        }
-    }
-
-    /// Single path for every "Edit Site" trigger (toolbar, context menu, App Intent): ensures
-    /// the site's session model exists — created here, in an action, never during body
-    /// evaluation — then presents the cover. Reusing an existing model re-enters its warm
-    /// session (#1431, design §3).
-    private func presentEditSession(for site: SitePickerModel.DiscoveredSite) {
-        if editSessions[site.id] == nil {
-            editSessions[site.id] = EditSessionModel(
-                siteID: site.id,
-                siteDisplayName: site.displayName,
-                pairedMacs: { try PairedDeviceStore().load() },
-                // #1208 P4 swaps this factory for the real WebRTC-backed P2PSiteRuntime;
-                // nothing else in the session UI knows which runtime it drives.
-                makeRuntime: { PendingP2PSiteRuntime() },
-                // #1436: remember which sites have a live/starting session so a relaunch can
-                // re-offer it instead of silently dropping it.
-                onPhaseChange: { phase in
-                    switch phase {
-                    case .waking, .starting, .ready:
-                        restoration.markSessionWarm(siteID: site.id)
-                    case .idle, .failed, .pairingRequired:
-                        restoration.markSessionEnded(siteID: site.id)
-                    }
-                }
-            )
-        }
-        editingSite = site
-    }
-
-    /// The sites `restoration` remembers as warm, resolved against the currently-discovered
-    /// site list — a persisted ID for a site that's since vanished (deleted, not yet synced)
-    /// resolves to nothing, same as `SiteSelectionModel.restoreSelection`'s handling of that case.
-    private var warmSites: [SitePickerModel.DiscoveredSite] {
-        switcherSites.filter { restoration.warmSessionIDs.contains($0.id) }
-    }
-
     /// A dismissible, non-modal "Continue editing…" offer (#1436, design §8.6 / platform spec
     /// §4: re-offer a warm session after relaunch rather than silently dropping it — never a
     /// sheet or alert for this, per §4's "don't use an alert for routine information").
     @ViewBuilder
     private var continueEditingBanner: some View {
+        let warmSites = shell.warmSites
         if !warmSites.isEmpty {
             VStack(spacing: 8) {
                 ForEach(warmSites) { site in
@@ -425,12 +256,11 @@ struct SiteSplitScreen: View {
                         }
                         Spacer()
                         Button("Continue") {
-                            selectSite(site)
-                            presentEditSession(for: site)
+                            shell.resumeEditing(site)
                         }
                         .buttonStyle(.borderedProminent)
                         Button("Not Now") {
-                            restoration.markSessionEnded(siteID: site.id)
+                            shell.declineWarmSession(for: site)
                         }
                         .buttonStyle(.bordered)
                     }
@@ -440,23 +270,11 @@ struct SiteSplitScreen: View {
             .background(.thinMaterial)
         }
     }
-
-    /// Single path for every site-switch trigger (sidebar row, switcher menu) so the
-    /// reset-filter-and-selection side effect can't drift between call sites.
-    private func selectSite(_ site: SitePickerModel.DiscoveredSite) {
-        guard site.id != siteSelection.selectedSite?.id else { return }
-        siteSelection.select(site)
-        // Drop to the loading state synchronously — otherwise the previous site's session/post
-        // list keeps rendering under the new site's name until `.task(id:)` re-resolves a frame
-        // or two later.
-        sessionState = .checking
-        selectedTypeID = nil
-        selection = nil
-    }
 }
 
-/// Builds the right composer for a selection: a fresh model for a new post (restoring any
-/// interrupted draft of the same site + type), or an async `q=source` load for an existing one.
+/// Builds the right composer for a selection through `ComposerLoader` (`AnglesiteMobileCore`):
+/// a fresh model for a new post (restoring any interrupted draft of the same site + type), or an
+/// async `q=source` load for an existing one. Only the failure copy lives here.
 private struct ComposerPane: View {
     let selection: PostListItemSelection
     let session: MicropubSession
@@ -491,55 +309,25 @@ private struct ComposerPane: View {
 
     private func load() async {
         loadFailure = nil
-        switch selection {
-        case .new(let typeID):
-            guard let descriptor = registry.descriptor(id: typeID) else {
-                loadFailure = String(localized: "That content type isn't available.")
-                return
-            }
-            let store = ComposerDraftStore()
-            model = PostComposerModel(
-                descriptor: descriptor,
-                siteID: siteID,
-                client: session.makeClient(),
-                draftStore: store,
-                // Only a genuinely-new draft of this type restores here — a queued *update*
-                // to an existing post must never resume from the "New Post" entry point
-                // (#1370 review); it surfaces when that post itself is reopened, below.
-                restoringDraft: store.loadNewDraft(forSite: siteID, typeID: typeID)
-            )
-        case .existing(let item):
-            guard let descriptor = postList?.descriptor(for: item) else {
-                loadFailure = String(localized: "This post's type isn't one this app can edit.")
-                return
-            }
-            let store = ComposerDraftStore()
-            // A queued/pending edit for this very post takes precedence over the server copy:
-            // reopening the post is the natural recovery path after a failed send, so the
-            // pending edit (and its waiting-for-network state) must be discoverable here, not
-            // hidden behind a fresh fetch (#1370 review).
-            if let pending = store.loadDraft(forSite: siteID, postURL: item.id),
-               pending.typeID == descriptor.id {
-                model = PostComposerModel(
-                    descriptor: descriptor,
-                    siteID: siteID,
-                    client: session.makeClient(),
-                    draftStore: store,
-                    restoringDraft: pending
-                )
-                return
-            }
-            do {
-                model = try await PostComposerModel.openExisting(
-                    url: item.id,
-                    descriptor: descriptor,
-                    siteID: siteID,
-                    client: session.makeClient(),
-                    draftStore: store
-                )
-            } catch {
-                loadFailure = String(localized: "The post couldn't be loaded from your site.")
-            }
+        let loader = ComposerLoader(
+            siteID: siteID, registry: registry, draftStore: ComposerDraftStore(),
+            makeClient: { session.makeClient() })
+        switch await loader.load(ComposerLoadRequest(selection: selection, postList: postList)) {
+        case .success(let loaded):
+            model = loaded
+        case .failure(let failure):
+            loadFailure = Self.describe(failure)
+        }
+    }
+
+    private static func describe(_ failure: ComposerLoadFailure) -> String {
+        switch failure {
+        case .unavailableContentType:
+            return String(localized: "That content type isn't available.")
+        case .uneditablePostType:
+            return String(localized: "This post's type isn't one this app can edit.")
+        case .postFetchFailed:
+            return String(localized: "The post couldn't be loaded from your site.")
         }
     }
 }

@@ -55,7 +55,8 @@ CI lane went red? [`docs/ci-troubleshooting.md`](docs/ci-troubleshooting.md) is 
 Run the relevant suites before opening a PR:
 
 ```sh
-# Swift package tests (AnglesiteSiteModel, AnglesiteCore, AnglesiteBridge, AnglesiteIntents).
+# Swift package tests (AnglesiteSiteModel, AnglesiteCore, AnglesiteBridge, AnglesiteIntents,
+# plus the iOS-shell / Quick Look / Share-extension core libraries — see AGENTS.md ▸ Build).
 # The wrapper is `swift test` behind a machine-scoped lock — use it for local
 # full runs so two runs on one Mac don't collide (#1594, see below); args pass through.
 scripts/swift-test.sh

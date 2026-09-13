@@ -305,10 +305,18 @@ jobs:
     timeout-minutes: 10
     # Cross-platform port, phase 1 "purity" (2026-07-08 design §9/§10): the compiler is the
     # purity lint. Off-Darwin, Package.swift exposes only the targets that compile there —
-    # AnglesiteSiteModel and AnglesiteCore today; each seam PR that purifies more of the
-    # portable set expands that list until `swift build && swift test` covers the whole
-    # portable core. The official Swift image pins the toolchain (and ships the right
-    # libxml2), so this lane is immune to runner-image drift.
+    # AnglesiteSiteModel, AnglesiteQuickLookSupport, AnglesiteCore, AnglesiteBridgeCore, and
+    # the Linux shell's GTK-free core AnglesiteLinuxCore (#1968) with their test targets; each
+    # seam PR that purifies more of the portable set expands that list until `swift build &&
+    # swift test` covers the whole portable core. The official Swift image pins the toolchain
+    # (and ships the right libxml2), so this lane is immune to runner-image drift.
+    #
+    # The `Test` step below is what runs AnglesiteLinuxTests — `ShellModel`'s open/switch/stop
+    # lifecycle against a fake SiteRuntime, plus its overlay-candidate logic — on every Swift
+    # PR (#1968, D2). Before the ShellModel split, that suite hung off the
+    # ANGLESITE_LINUX_SHELL=1-gated GTK executable and only the non-required Flatpak lane
+    # could build it; no step here names it because a plain `swift test` picks up every test
+    # target in the off-Darwin manifest.
     container:
       image: swift:6.3.3-noble
     steps:
@@ -888,8 +896,16 @@ jobs:
     #      xcodebuild-based lane builds only the macOS `Anglesite`/`AnglesiteIntents` schemes.
     #      Building AnglesiteMobile (Package.swift's `.iOS("27.0")` platform entry + the
     #      project.yml target, PR #886) for the iOS Simulator SDK makes an iOS-incompatible
-    #      change to AnglesiteCore/AnglesiteBridge/AnglesiteIOS fail CI instead of surfacing
-    #      only on a contributor's local build.
+    #      change to AnglesiteCore/AnglesiteBridge/AnglesiteIOS — and, since #1968, the shell's
+    #      own AnglesiteMobileCore library — fail CI instead of surfacing only on a
+    #      contributor's local build. The iOS app's *tests* (AnglesiteMobileCoreTests, D2) do
+    #      not run in this lane: the target's deployment target is iOS 27 and the hosted
+    #      macos-26 image ships no iOS 27 simulator runtime, so an on-simulator `xcodebuild
+    #      test` can't install the bundle there. They're a plain SwiftPM test target instead,
+    #      so `build-test`'s `swift test` runs them on the macOS host on every Swift PR; this
+    #      lane's contribution is compiling the same library for the iOS SDK. Revisit (move to
+    #      `xcodebuild test -destination 'platform=iOS Simulator,…'` here) once a runner image
+    #      carries an iOS 27 runtime.
     #   3. AppIntents schema conformance (was `appintents-schema`): see that step.
     #
     # macos-26, matching build-test's rationale: the newest available Xcode carries the most
