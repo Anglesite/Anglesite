@@ -116,6 +116,12 @@ private struct AgentsSettingsView: View {
                 Text("Works with any OpenAI-compatible chat-completions endpoint — hosted providers or a self-hosted server on this machine or your network (e.g. Ollama, llama.cpp, vLLM). The base URL should not include \"/chat/completions\"; Anglesite appends it.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
+                // Off-device disclosure (#1965, LLM policy 2026-07-08 §8): the opt-in has to say
+                // what leaves the Mac. `ExternalLLMBackend` sends the page text (capped at
+                // `maxPageContentCharacters`) plus up to `maxHistoryMessages` of history per request.
+                Text("While Custom Endpoint is the active model, your chat messages, the recent conversation, and the text of the page you're editing are sent to this server with every request — they leave this Mac unless the server is one you run here. Choose a provider you trust with your site's content.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
             }
 
             Section("ACP Agents") {
@@ -301,6 +307,15 @@ private struct ACPAgentEditorSheet: View {
                 )
             }
 
+            // Same disclosure as the External LLM section (#1965): an agent is an opt-in that
+            // sees the owner's content. A `.stdio` agent execs inside the site's container with
+            // `Source/` as its working directory; a `.remote` one receives the chat over the network.
+            Text(kind == .local
+                 ? "This agent runs alongside your site and can read and change its files while it works. Only add agents you trust with your site's content."
+                 : "Your chat messages are sent to this address over the network while the agent is the active model. Only add agents you trust with your site's content.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             HStack {
                 Button("Cancel", action: onCancel)
                 Spacer()
@@ -352,6 +367,7 @@ enum AdvancedSettingsCopy {
 private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.sitesRootOverride) private var sitesRootOverride: String = ""
     @AppStorage(AppSettings.Key.debugPaneEnabled) private var debugPaneEnabled: Bool = false
+    @AppStorage(AppSettings.Key.developerToolsEnabled) private var developerToolsEnabled: Bool = false
     @AppStorage(AppSettings.Key.botPreferenceSyncUIEnabled) private var botPreferenceSyncUIEnabled: Bool = false
     @AppStorage(AppSettings.Key.lanRuntimeHost) private var lanRuntimeHost: String = ""
     @AppStorage(AppSettings.Key.lanRuntimePreviewPort) private var lanRuntimePreviewPort: String = ""
@@ -368,6 +384,13 @@ private struct AdvancedSettingsView: View {
         #else
         return debugPaneEnabled
         #endif
+    }
+
+    /// The one gate every code editor and the Safari bridge section read (#1964, D1) — see
+    /// `DeveloperToolsVisibility` for why, unlike `showsLANRuntimeSection`, Debug builds don't
+    /// auto-reveal it.
+    private var developerTools: DeveloperToolsVisibility {
+        DeveloperToolsVisibility(settingEnabled: developerToolsEnabled)
     }
 
     /// The effective port for the Safari MCP Bridge section below — falls back to
@@ -429,16 +452,29 @@ private struct AdvancedSettingsView: View {
                     .foregroundStyle(.secondary)
             }
 
-            Section("Safari MCP Bridge") {
-                LabeledContent("Bridge port") {
-                    TextField("", text: $safariMCPBridgePortText,
-                              prompt: Text(verbatim: AdvancedSettingsCopy.portPlaceholder(SafariMCPBridgeDetector.defaultPort)))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 100)
-                        .accessibilityLabel("Safari MCP bridge port")
-                        .accessibilityIdentifier(AXID.settingsSafariMCPBridgePort)
+            Section("Developer Tools") {
+                Toggle("Show developer tools", isOn: $developerToolsEnabled)
+                    .accessibilityIdentifier(AXID.settingsDeveloperToolsToggle)
+                Text("Adds a Source tab and code-level Style and Metadata inspectors to the Component Editor, opens your site's other files as plain text, and shows the Safari bridge setup below. Off by default: Anglesite takes care of these files for you, and everything you publish works without them.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            // The bridge's setup guidance is a Terminal command (#1910) — a developer tool by
+            // definition (decision D1), so the whole section rides the toggle above rather than
+            // the Debug-pane rule the LAN section uses.
+            if developerTools.showsSafariBridgeSetup {
+                Section("Safari MCP Bridge") {
+                    LabeledContent("Bridge port") {
+                        TextField("", text: $safariMCPBridgePortText,
+                                  prompt: Text(verbatim: AdvancedSettingsCopy.portPlaceholder(SafariMCPBridgeDetector.defaultPort)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                            .accessibilityLabel("Safari MCP bridge port")
+                            .accessibilityIdentifier(AXID.settingsSafariMCPBridgePort)
+                    }
+                    SafariMCPBridgeStatusRow(port: safariMCPBridgePort)
                 }
-                SafariMCPBridgeStatusRow(port: safariMCPBridgePort)
             }
 
             if showsLANRuntimeSection {

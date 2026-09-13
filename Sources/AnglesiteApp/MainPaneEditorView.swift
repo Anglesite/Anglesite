@@ -22,6 +22,14 @@ struct MainPaneEditorView: View {
     var onDone: () -> Void = {}
     @Environment(\.controlActiveState) private var controlActiveState
     @FocusState private var isPlainTextEditorFocused: Bool
+    /// The raw text editor is a developer tool (#1964, D1); with it off, a `.text` file shows
+    /// `managedFilePlaceholder` instead. The plist, markdown and component editors are owner
+    /// surfaces and never consult this.
+    @AppStorage(AppSettings.Key.developerToolsEnabled) private var developerToolsEnabled: Bool = false
+
+    private var developerTools: DeveloperToolsVisibility {
+        DeveloperToolsVisibility(settingEnabled: developerToolsEnabled)
+    }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -40,8 +48,14 @@ struct MainPaneEditorView: View {
                     ProgressView().controlSize(.small)
                 } else {
                     switch EditorKind.resolve(for: model.file) {
-                    case .text, .plist:
+                    case .plist:
                         plainTextEditor
+                    case .text:
+                        if developerTools.showsEditor(.text) {
+                            plainTextEditor
+                        } else {
+                            managedFilePlaceholder
+                        }
                     case .markdown:
                         MarkdownTextView(
                             text: $model.text,
@@ -53,13 +67,17 @@ struct MainPaneEditorView: View {
                             ComponentEditorView(
                                 model: componentEditor, fileEditor: model,
                                 onWebView: onCanvasWebView)
-                        } else {
+                        } else if developerTools.showsCodeEditors {
                             // Brief loading-state fallback before `componentEditor` finishes
                             // activating (#1285) — reuses the same wiring and `isFindPresented`
                             // flag as the `.text`/`.plist` case above rather than its own state,
                             // since it's the same file and the real Source pane takes over once
                             // loaded.
                             plainTextEditor
+                        } else {
+                            // Same brief state without developer tools: the raw source must not
+                            // flash past an owner who can't otherwise see it (#1964).
+                            ProgressView().controlSize(.small)
                         }
                     }
                 }
@@ -103,6 +121,19 @@ struct MainPaneEditorView: View {
                     EditorFocusRegistry.shared.resign(token: ObjectIdentifier(model))
                 }
             }
+    }
+
+    /// What an owner sees when a raw build/config file is opened with developer tools off: the
+    /// file is Anglesite's to manage, and hand-editing it is a developer tool with one place to
+    /// turn it on. The header above still names the file, so this copy doesn't repeat the path.
+    private var managedFilePlaceholder: some View {
+        ContentUnavailableView {
+            Label("Managed by Anglesite", systemImage: "wrench.and.screwdriver")
+        } description: {
+            Text("This file is part of how your site is built, and Anglesite takes care of it for you. Editing it by hand is a developer tool — turn on Show Developer Tools in Settings ▸ Advanced to open it.")
+        } actions: {
+            SettingsLink { Text("Open Settings…") }
+        }
     }
 
     private var header: some View {

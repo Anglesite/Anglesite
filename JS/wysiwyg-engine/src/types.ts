@@ -14,9 +14,12 @@ export interface RichTextRun {
   children?: RichTextRun[];
 }
 
-/** Reply to a writing-help request (#1227 PR 2) — mirrors Swift's `WritingHelpOutcome`. */
+/** Reply to a writing-help request (#1227 PR 2) — mirrors Swift's `WritingHelpOutcome`.
+ *  `notice` (#1965) is the host's model-tier badge ("runs on the on-device model…"), present
+ *  only when the feature ran on a smaller model than it was designed for; the toolbar shows it
+ *  under the preview so the degradation is labeled, never silent. */
 export type WritingHelpReply =
-  | { status: "rewritten"; text: string }
+  | { status: "rewritten"; text: string; notice?: string }
   | { status: "unavailable"; message: string };
 
 export type BlockKind =
