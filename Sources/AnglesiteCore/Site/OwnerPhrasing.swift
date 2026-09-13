@@ -63,12 +63,18 @@ public enum OwnerPhrasing {
             || r.contains("verification") || r.contains("unsupported") || r.contains("no refs") {
             return .cloudCopyUnreadable
         }
+        // "couldn't read the sync artifact"/"couldn't write the sync artifact" (from
+        // SyncArtifactError.io, BundleArtifact.swift) are disambiguated at the throw site, not
+        // by a shared "read or write" phrase this code would otherwise have to guess between -
+        // check the read phrasing first since "write the sync artifact" alone used to also match
+        // a *read* failure's wrapper text (a real read failure was misclassified as a write
+        // failure until this was reordered/disambiguated - see the #1963 review thread).
+        if r.contains("couldn't read the sync artifact") || r.contains("couldn't read") {
+            return .cloudReadFailed
+        }
         if r.contains("sync directory") || r.contains("write the sync artifact")
             || r.contains("capture this site's history") {
             return .cloudWriteFailed
-        }
-        if r.contains("read or write the sync artifact") || r.contains("couldn't read") {
-            return .cloudReadFailed
         }
         return .unknown
     }
@@ -116,8 +122,11 @@ public enum OwnerPhrasing {
         case buildFailed
         /// The build was killed before it finished.
         case buildInterrupted
-        /// Cloudflare didn't accept the publish (`wrangler` non-zero / no URL in its output).
+        /// Cloudflare didn't accept the publish (`wrangler` non-zero).
         case publishRejected
+        /// `wrangler` exited successfully, but Anglesite couldn't find the deployed URL in its
+        /// output to confirm it — the publish likely went through anyway.
+        case publishUnconfirmed
         /// The publish was killed before it finished.
         case publishInterrupted
         /// Anglesite's pre-publish safety check couldn't run at all.
@@ -137,7 +146,15 @@ public enum OwnerPhrasing {
         if r.contains("cloudflare api token") { return .cloudflareSignInUnreadable }
         if r.contains("pre-deploy scan") || r.contains("pre-deploy check") { return .safetyCheckUnavailable }
         if r.contains("wrangler") {
-            return r.contains("terminated") ? .publishInterrupted : .publishRejected
+            if r.contains("terminated") { return .publishInterrupted }
+            // "wrangler exited successfully (code 0), but no deployed URL could be found in its
+            // output — the deploy likely succeeded; check the deploy log for the URL"
+            // (CloudflareDeployTarget.swift) is a `.failed` outcome, but it isn't a rejection —
+            // wrangler's own exit code says the publish went through. Classifying it as
+            // `.publishRejected` told owners "Cloudflare didn't accept this publish" when the
+            // opposite was true (#1963 review).
+            if r.contains("likely succeeded") { return .publishUnconfirmed }
+            return .publishRejected
         }
         if r.contains("build was terminated") { return .buildInterrupted }
         if r.contains("npm run build") || r.contains("build failed") { return .buildFailed }

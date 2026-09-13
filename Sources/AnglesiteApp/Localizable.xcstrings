@@ -588,6 +588,9 @@
     "Anglesite couldn't build this site." : {
 
     },
+    "Anglesite couldn't confirm this publish went through — it may have already succeeded. Check again in a few minutes before trying once more." : {
+
+    },
     "Anglesite couldn't read this site's history from iCloud Drive." : {
 
     },

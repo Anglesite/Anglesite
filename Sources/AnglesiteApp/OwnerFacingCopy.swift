@@ -82,6 +82,10 @@ enum OwnerFacingCopy {
             return Failure(summary: String(localized: "Building this site was interrupted."), detail: detail)
         case .publishRejected:
             return Failure(summary: String(localized: "Cloudflare didn't accept this publish."), detail: detail)
+        case .publishUnconfirmed:
+            return Failure(
+                summary: String(localized: "Anglesite couldn't confirm this publish went through — it may have already succeeded. Check again in a few minutes before trying once more."),
+                detail: detail)
         case .publishInterrupted:
             return Failure(summary: String(localized: "Publishing was interrupted."), detail: detail)
         case .safetyCheckUnavailable:

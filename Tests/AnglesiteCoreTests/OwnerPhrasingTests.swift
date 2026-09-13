@@ -21,6 +21,11 @@ struct OwnerPhrasingTests {
         ("the freshly written sync artifact failed verification: truncated header", .cloudCopyUnreadable),
         ("couldn't create the sync directory: permission denied", .cloudWriteFailed),
         ("couldn't write the sync artifact into the package: disk full", .cloudWriteFailed),
+        // Regression (#1963 review): a genuine *read* failure (e.g. `refs(of:)` hitting a
+        // permission-denied error opening the local iCloud copy) must not be misread as a write
+        // failure just because both throw sites used to share one ambiguous "read or write the
+        // sync artifact" phrase.
+        ("couldn't read the synced history: couldn't read the sync artifact: permission denied", .cloudReadFailed),
         ("couldn't fetch the synced history: timeout", .cloudReadFailed),
         ("no synced history found yet at source.bundle.", .cloudReadFailed),
         ("something entirely new happened", .unknown),
@@ -57,7 +62,9 @@ struct OwnerPhrasingTests {
         ("build failed", .buildFailed),
         ("build was terminated", .buildInterrupted),
         ("wrangler exited with code 1", .publishRejected),
-        ("wrangler exited successfully (code 0), but no deployed URL could be found in its output", .publishRejected),
+        // Regression (#1963 review): wrangler's own exit code says the deploy went through -
+        // this must not be summarized as a rejection.
+        ("wrangler exited successfully (code 0), but no deployed URL could be found in its output — the deploy likely succeeded; check the deploy log for the URL", .publishUnconfirmed),
         ("wrangler was terminated", .publishInterrupted),
         ("pre-deploy scan could not run: node missing", .safetyCheckUnavailable),
         ("couldn't read Cloudflare API token: keychain locked", .cloudflareSignInUnreadable),

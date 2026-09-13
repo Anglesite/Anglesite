@@ -40,7 +40,10 @@
 # "dev server", Astro, `.git`/`.json`/`.toml` file names, `Source/`/`Config/` layout, and exit
 # codes (see OWNER_VOCABULARY below). Keys whose only call sites are the Debug pane
 # (Sources/AnglesiteApp/DebugPaneView*.swift) are exempt - that surface is for developers by
-# definition - and reviewed exceptions live one per line in scripts/lib/owner-vocabulary-allowlist.txt
+# definition - checked by cross-referencing each key's call sites (not just whether the Debug
+# pane happens to contain the same literal), so a key a primary-surface view shares with the
+# Debug pane still gets linted on its real, non-Debug-pane violation. Reviewed exceptions live
+# one per line in scripts/lib/owner-vocabulary-allowlist.txt
 # (exact catalog key; `#` comments and blank lines ignored). An allowlist entry that no longer
 # matches any catalog key is reported as a warning so the list can be pruned, not as a failure.
 set -euo pipefail
@@ -211,7 +214,14 @@ def literal_present(tokens):
 
 missing = []
 bare_assignments = []
+# Every localizable-call-site literal outside the Debug pane, as a (exact-key | compiled-pattern)
+# entry - the same shape as debug_literals below - so is_debug_pane_key can tell "the Debug pane
+# uses this key" from "the Debug pane is this key's *only* call site" (#1963 review): the
+# vocabulary lint's exemption must track call sites, not just catalog-key membership, or a key a
+# primary-surface view shares with the Debug pane silently skips the lint on its real violation.
+primary_call_literals = []
 for path in sorted(sources_root.rglob("*.swift")):
+    is_debug_pane_file = path.match(DEBUG_PANE_GLOB)
     text = path.read_text(encoding="utf-8")
     for pattern in (CALL_PATTERN, LOCALIZED_PATTERN, KEY_PATTERN):
         for m in pattern.finditer(text):
@@ -221,6 +231,14 @@ for path in sorted(sources_root.rglob("*.swift")):
             if not literal_present(tokens):
                 line = text.count("\n", 0, m.start()) + 1
                 missing.append((str(path), line, render(tokens)))
+            if not is_debug_pane_file:
+                if any(kind == "interp" for kind, _ in tokens):
+                    parts = []
+                    for kind, val in tokens:
+                        parts.append(re.escape(val.replace("%", "%%")) if kind == "text" else FORMAT_SPEC)
+                    primary_call_literals.append(re.compile("^" + "".join(parts) + "$"))
+                else:
+                    primary_call_literals.append("".join(val for _, val in tokens))
     for m in BARE_ERROR_ASSIGN_PATTERN.finditer(text):
         tokens, _end = scan_literal(text, m.end())
         if not tokens or all(kind == "text" and not val for kind, val in tokens):
@@ -252,14 +270,22 @@ for path in sorted(sources_root.rglob(DEBUG_PANE_GLOB)):
             debug_literals.append("".join(val for _, val in tokens))
 
 
-def is_debug_pane_key(key):
-    for lit in debug_literals:
+def _matches_key(literals, key):
+    for lit in literals:
         if isinstance(lit, str):
             if lit == key:
                 return True
         elif lit.match(key):
             return True
     return False
+
+
+def is_debug_pane_key(key):
+    # Exempt only when the Debug pane is a call site for this key AND no localizable call site
+    # outside the Debug pane also produces it - matching the "only call sites are the Debug pane"
+    # claim in the docstring/CI messaging above, rather than the weaker "the Debug pane happens to
+    # contain this literal somewhere" check this replaces.
+    return _matches_key(debug_literals, key) and not _matches_key(primary_call_literals, key)
 
 
 allowlisted = set()

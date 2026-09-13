@@ -108,8 +108,12 @@ public enum CompletionNoticeBuilder {
     /// backup that just has nothing to push, and wording it as such avoids the owner reading
     /// "no changes" as a failure.
     public enum BackupOutcome: Equatable, Sendable {
-        /// A commit was pushed; the notice shows the short SHA and `remote/branch` so the owner
-        /// can find it from any git host's UI.
+        /// A commit was pushed. The notice body names only the backup destination the owner
+        /// signed in to ("Backed up to GitHub") — `commitSHA`/`branch` are accepted for parity
+        /// with the caller's own result shape, but ``CompletionNoticeBuilder/backup`` discards
+        /// them and never puts a SHA or branch name in the notification body (#1963, D1): that's
+        /// git vocabulary the owner didn't ask for, not something that helps them find their
+        /// site's history from a host's UI.
         case succeeded(commitSHA: String, branch: String, remote: String)
         /// The working tree was already clean — success, with nothing to push.
         case noChanges

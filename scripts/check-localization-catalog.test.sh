@@ -179,7 +179,7 @@ else
   fail "Debug-pane-only keys should be exempt (status=$status)"
 fi
 
-echo "-- a key the Debug pane shares with another surface (documented limit) --"
+echo "-- a key the Debug pane shares with a primary surface still fails --"
 repo="$(make_repo debugpane-shared)"
 write_catalog "$repo" "git status"
 cat > "$repo/Sources/AnglesiteApp/DebugPaneView.swift" <<'EOF'
@@ -191,13 +191,13 @@ import SwiftUI
 struct HomeView: View { var body: some View { Text("git status") } }
 EOF
 run_check "$repo"
-# The lint keys off the catalog (it can't tell which view a key came from), so a key that the
-# Debug pane happens to share is exempt there too — document that limit rather than pretend
-# otherwise: the catalog key is exempt, and the check passes.
-if [[ $status -eq 0 ]]; then
-  pass "a Debug-pane literal exempts the catalog key wherever else it appears (documented limit)"
+# The exemption is keyed on call sites, not just catalog-key membership: HomeView (a primary
+# surface) is also a call site for "git status", so the Debug pane isn't its *only* call site
+# and the vocabulary lint must still catch it (#1963 review — this used to silently pass).
+if [[ $status -ne 0 ]] && grep -q "'git' in" <<<"$output"; then
+  pass "a key the Debug pane shares with a primary surface is still linted on that surface"
 else
-  fail "shared Debug-pane key is expected to pass under the documented limit (status=$status)"
+  fail "shared Debug-pane key should still fail on its primary-surface call site (status=$status)"
 fi
 
 echo "-- a stale allowlist entry warns but doesn't fail --"

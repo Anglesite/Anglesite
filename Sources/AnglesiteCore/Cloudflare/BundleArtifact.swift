@@ -180,7 +180,7 @@ public struct BundleArtifact: SyncArtifact {
         do {
             return try Data(contentsOf: artifactURL)
         } catch {
-            throw SyncArtifactError.io(error.localizedDescription)
+            throw SyncArtifactError.io("couldn't read the sync artifact: \(error.localizedDescription)")
         }
     }
 
@@ -193,7 +193,7 @@ public struct BundleArtifact: SyncArtifact {
         do {
             try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         } catch {
-            throw SyncArtifactError.io(error.localizedDescription)
+            throw SyncArtifactError.io("couldn't write the sync artifact: \(error.localizedDescription)")
         }
         let tmpURL = directory.appendingPathComponent(".\(artifactURL.lastPathComponent).tmp-\(UUID().uuidString)")
         var combined = header
@@ -202,13 +202,13 @@ public struct BundleArtifact: SyncArtifact {
             try combined.write(to: tmpURL, options: .atomic)
         } catch {
             try? FileManager.default.removeItem(at: tmpURL)
-            throw SyncArtifactError.io(error.localizedDescription)
+            throw SyncArtifactError.io("couldn't write the sync artifact: \(error.localizedDescription)")
         }
         do {
             _ = try FileManager.default.replaceItemAt(artifactURL, withItemAt: tmpURL)
         } catch {
             try? FileManager.default.removeItem(at: tmpURL)
-            throw SyncArtifactError.io(error.localizedDescription)
+            throw SyncArtifactError.io("couldn't write the sync artifact: \(error.localizedDescription)")
         }
     }
 
@@ -388,7 +388,7 @@ public struct BundleArtifact: SyncArtifact {
         do {
             try FileManager.default.createDirectory(at: packDirectory, withIntermediateDirectories: true)
         } catch {
-            throw SyncArtifactError.io(error.localizedDescription)
+            throw SyncArtifactError.io("couldn't write the sync artifact: \(error.localizedDescription)")
         }
 
         var options = git_indexer_options()
@@ -466,7 +466,7 @@ public struct BundleArtifact: SyncArtifact {
         do {
             try FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
         } catch {
-            throw SyncArtifactError.io(error.localizedDescription)
+            throw SyncArtifactError.io("couldn't write the sync artifact: \(error.localizedDescription)")
         }
         switch Repository.create(at: root) {
         case .success(let repo): return ScratchRepository(root: root, repo: repo)

@@ -73,6 +73,14 @@ struct OwnerFacingCopyTests {
         #expect(!Self.usesForbiddenVocabulary(wrangler.summary))
         #expect(wrangler.detail == "wrangler exited with code 1")
 
+        // Regression (#1963 review): a "the deploy likely succeeded" outcome must not read as a
+        // rejection on the primary surface.
+        let unconfirmedReason = "wrangler exited successfully (code 0), but no deployed URL could be found in its output — the deploy likely succeeded; check the deploy log for the URL"
+        let unconfirmed = OwnerFacingCopy.operation(reason: unconfirmedReason, exitCode: 0)
+        #expect(!Self.usesForbiddenVocabulary(unconfirmed.summary))
+        #expect(!unconfirmed.summary.localizedCaseInsensitiveContains("didn't accept"))
+        #expect(unconfirmed.detail == unconfirmedReason)
+
         let owner = "Worker name \"site\" is already in use on your Cloudflare account — rename it in the app and publish again."
         let passthrough = OwnerFacingCopy.operation(reason: owner, exitCode: nil)
         #expect(passthrough.summary == owner)
