@@ -87,6 +87,9 @@
     "%@ tool" : {
 
     },
+    "%@ was removed, but the change isn't recorded in this site's history yet. Run Backup to record it." : {
+
+    },
     "%@ — %@ — %@" : {
       "localizations" : {
         "en" : {
@@ -591,7 +594,31 @@
     "Anglesite already supports this — redeploy the site to pick it up." : {
 
     },
+    "Anglesite couldn't build this site." : {
+
+    },
+    "Anglesite couldn't confirm this publish went through — it may have already succeeded. Check again in a few minutes before trying once more." : {
+
+    },
     "Anglesite couldn't read this component's layout, so it can't be edited visually. It may use code Anglesite doesn't understand yet, or an edit made outside Anglesite may have left it incomplete. Your other pages and components aren't affected." : {
+
+    },
+    "Anglesite couldn't read this site's history from iCloud Drive." : {
+
+    },
+    "Anglesite couldn't read this site's history." : {
+
+    },
+    "Anglesite couldn't read your Cloudflare sign-in. Sign in again in Settings." : {
+
+    },
+    "Anglesite couldn't save this site's changes into its history." : {
+
+    },
+    "Anglesite couldn't save this site's history to iCloud Drive." : {
+
+    },
+    "Anglesite couldn't send this site's changes to its online backup. Check your connection and GitHub sign-in, then try again." : {
 
     },
     "Anglesite keeps the newer version of each. Choose the other version for anything you'd rather keep from this Mac or the other one, then click Apply." : {
@@ -607,6 +634,9 @@
 
     },
     "Anglesite plugin" : {
+
+    },
+    "Anglesite's safety check couldn't run, so nothing was published." : {
 
     },
     "Animation" : {
@@ -787,6 +817,12 @@
     "Backup" : {
 
     },
+    "Backup canceled." : {
+
+    },
+    "Backup didn't finish." : {
+
+    },
     "Ban" : {
 
     },
@@ -883,6 +919,9 @@
     "Build, scan, and publish this site to Cloudflare" : {
 
     },
+    "Building this site was interrupted." : {
+
+    },
     "Building your community…" : {
 
     },
@@ -959,10 +998,22 @@
     "Can't publish yet — domain setup doesn't match" : {
 
     },
+    "Can't save UTM campaigns: the ones already saved for this site couldn't be read, and saving would replace them. Reopen this site's settings to try again." : {
+
+    },
+    "Can't save licensing rules: the ones already saved for this site couldn't be read, and saving would replace them. Reopen this site's settings to try again." : {
+
+    },
+    "Can't save redirects: the ones already saved for this site couldn't be read, and saving would replace them. Reopen this site's settings to try again." : {
+
+    },
     "Cancel" : {
 
     },
     "Cancel response" : {
+
+    },
+    "Canceled." : {
 
     },
     "Canvas" : {
@@ -990,6 +1041,9 @@
 
     },
     "Changed on both Macs" : {
+
+    },
+    "Changes made on another Mac couldn't be combined with this one automatically." : {
 
     },
     "Changing your Fediverse handle" : {
@@ -1020,6 +1074,9 @@
 
     },
     "Check for domain config drift" : {
+
+    },
+    "Check that this site's domain settings match what's live on Cloudflare" : {
 
     },
     "Check whether Siri workflows are ready for this site" : {
@@ -1137,6 +1194,9 @@
     "Cloudflare (OAuth)" : {
 
     },
+    "Cloudflare didn't accept this publish." : {
+
+    },
     "Cloudflare periodically updates this zone's robots.txt with named-bot rules for the categories you choose there (Search, Agent, Training). Anglesite's own \"AI Answers\"/\"AI Training\" signals above still apply either way." : {
 
     },
@@ -1207,6 +1267,9 @@
 
     },
     "Compares this site's declared anglesite.json (domain, managed DNS records, edge hardening) against what's actually live on Cloudflare." : {
+
+    },
+    "Compares this site's saved domain settings (domain, managed DNS records, edge hardening) against what's actually live on Cloudflare." : {
 
     },
     "Complete Sign In" : {
@@ -1347,6 +1410,9 @@
     "Copy Animation" : {
 
     },
+    "Copy Details" : {
+
+    },
     "Copy Review" : {
 
     },
@@ -1436,6 +1502,9 @@
 
     },
     "Couldn't fetch the page's info — you can still add your own title." : {
+
+    },
+    "Couldn't find this site's publishing settings — try publishing again." : {
 
     },
     "Couldn't find this site's wrangler.toml — try publishing again." : {
@@ -1548,6 +1617,15 @@
     "Couldn't read the GitHub token from the Keychain: %@" : {
 
     },
+    "Couldn't read this site's saved UTM campaigns — they may be damaged. Saving now would replace them." : {
+
+    },
+    "Couldn't read this site's saved licensing rules — they may be damaged. Saving now would replace them." : {
+
+    },
+    "Couldn't read this site's saved redirects — they may be damaged. Saving now would replace them." : {
+
+    },
     "Couldn't read your Cloudflare API token: %@" : {
 
     },
@@ -1555,6 +1633,9 @@
 
     },
     "Couldn't record the syndication URLs: %@" : {
+
+    },
+    "Couldn't remove %@. Make sure this site isn't being edited elsewhere, then try again." : {
 
     },
     "Couldn't remove %@: %@" : {
@@ -1815,6 +1896,9 @@
 
     },
     "Dev/test only: when this Mac can't boot the local container runtime (e.g. inside a VM without nested virtualization), Anglesite connects preview and editing to a dev server already running on the named host over the trusted local network. Leave the host blank to disable. Takes effect the next time a site window opens." : {
+
+    },
+    "Dev/test only: when this Mac can't boot the local container runtime (e.g. inside a VM without nested virtualization), Anglesite connects preview and editing to a site preview already running on the named host over the trusted local network. Leave the host blank to disable. Takes effect the next time a site window opens." : {
 
     },
     "Developer Tools" : {
@@ -2201,6 +2285,9 @@
     "Generates recommended platforms, bios, content pillars, and a weekly calendar — saved into your site repo, never posted for you." : {
 
     },
+    "Generates recommended platforms, bios, content pillars, and a weekly calendar — saved with your site, never posted for you." : {
+
+    },
     "GitHub" : {
 
     },
@@ -2387,6 +2474,9 @@
     "Include Git history (.git)" : {
 
     },
+    "Include this site's change history" : {
+
+    },
     "Increase Indent Level" : {
 
     },
@@ -2543,6 +2633,9 @@
     "Let AI systems use this content to train models." : {
 
     },
+    "Lets Anglesite back up your sites and publish them to your GitHub account. Create a fine-grained token at github.com/settings/tokens for All repositories with these permissions: Contents (read and write), Administration (read and write — lets Anglesite create a new project on GitHub when publishing), Pages (read and write — for publishing with GitHub Pages), Repository security advisories (read), and Dependabot alerts (read — both show a site's open security reports). Stored in the macOS Keychain and never written to logs." : {
+
+    },
     "Lets Tor Browser users reach your site over the Tor network without exiting through a third-party relay. No changes to your site or URLs." : {
 
     },
@@ -2577,6 +2670,9 @@
 
     },
     "Live" : {
+
+    },
+    "Live Preview" : {
 
     },
     "Live counts from your site" : {
@@ -2975,6 +3071,9 @@
     "Nothing is waiting to publish — close this and click Publish Site again." : {
 
     },
+    "Nothing to sync yet — this site has no saved changes." : {
+
+    },
     "Nothing without asking" : {
 
     },
@@ -3107,10 +3206,16 @@
     "Opens both versions of %@ in Finder to compare before choosing" : {
 
     },
+    "Opens the live log of the preview starting up." : {
+
+    },
     "Opens the live log of the running dev server and dependency installation." : {
 
     },
     "Opens the log of the failed dev server launch." : {
+
+    },
+    "Opens the log of the failed preview launch." : {
 
     },
     "Opens the sync conflict resolution sheet" : {
@@ -3120,6 +3225,9 @@
 
     },
     "Optional — also sends each submission to this address by email. Leave blank to keep captures git-only." : {
+
+    },
+    "Optional — also sends each submission to this address by email. Leave blank to keep submissions only in your site's inbox." : {
 
     },
     "Optional: tls-reports@example.com" : {
@@ -3239,6 +3347,9 @@
     "Plays a nostalgic dial-up modem sound while the dev server starts up or a publish is running. Purely decorative — off by default." : {
 
     },
+    "Plays a nostalgic dial-up modem sound while the preview starts up or a publish is running. Purely decorative — off by default." : {
+
+    },
     "Point at a checkout of the plugin (e.g. `../anglesite`) to iterate without rebuilding the app." : {
 
     },
@@ -3275,6 +3386,9 @@
     "Preview Box" : {
 
     },
+    "Preview Starting…" : {
+
+    },
     "Preview and apply Cloudflare security hardening for this site" : {
 
     },
@@ -3282,6 +3396,9 @@
 
     },
     "Preview port" : {
+
+    },
+    "Preview stopped" : {
 
     },
     "Primary color" : {
@@ -3344,6 +3461,9 @@
     "Publish Site…" : {
 
     },
+    "Publish a private copy of this site to your GitHub account" : {
+
+    },
     "Publish it at least once, then followers will appear here." : {
 
     },
@@ -3395,6 +3515,9 @@
     "Publishing needs a one-time sign-in to your Cloudflare account." : {
 
     },
+    "Publishing was interrupted." : {
+
+    },
     "Purchasing…" : {
 
     },
@@ -3425,10 +3548,19 @@
     "Reading anglesite.json and the live Cloudflare zone…" : {
 
     },
+    "Reading this site's domain settings and the live Cloudflare zone…" : {
+
+    },
     "Receiving webmentions and pushing feed updates to subscribers both work asynchronously using Cloudflare Queues, which aren't available on the Workers Free plan. Continuing will create the Queues these features need on your connected Cloudflare account." : {
 
     },
+    "Receiving webmentions and sending feed updates to subscribers both work asynchronously using Cloudflare Queues, which aren't available on the Workers Free plan. Continuing will create the Queues these features need on your connected Cloudflare account." : {
+
+    },
     "Receiving webmentions verifies each one asynchronously using a Cloudflare Queue, which isn't available on the Workers Free plan. Continuing will create a Queue on your connected Cloudflare account." : {
+
+    },
+    "Recent changes aren't in the copy used by CMS Mode yet." : {
 
     },
     "Recheck" : {
@@ -3660,6 +3792,9 @@
     "Restarting (attempt %lld)" : {
 
     },
+    "Restricted posts are stored on your site's server, not alongside your public content. Contact-only access turns on once your site's read gate ships." : {
+
+    },
     "Restricted posts are stored on your site's server, not in git. Contact-only access turns on once your site's read gate ships." : {
 
     },
@@ -3793,6 +3928,9 @@
     "Save the imported site package." : {
 
     },
+    "Save this site's latest changes to its online backup" : {
+
+    },
     "Save to docs/social-calendar.md" : {
 
     },
@@ -3800,6 +3938,9 @@
 
     },
     "Saved" : {
+
+    },
+    "Saved in %@" : {
 
     },
     "Save…" : {
@@ -3878,6 +4019,9 @@
 
     },
     "Select **All repositories**, then grant **Contents: Read and write**, **Administration: Read and write** (Administration is what lets a new repo be created), **Repository security advisories: Read**, and **Dependabot alerts: Read** (both let Anglesite show open reports for this repo) — then copy the token and paste it below." : {
+
+    },
+    "Select **All repositories**, then grant **Contents: Read and write**, **Administration: Read and write** (Administration lets Anglesite create a new project on GitHub), **Repository security advisories: Read**, and **Dependabot alerts: Read** (both let Anglesite show this site's open security reports) — then copy the token and paste it below." : {
 
     },
     "Select Parent" : {
@@ -4195,6 +4339,9 @@
     "Start Dev Server" : {
 
     },
+    "Start Preview" : {
+
+    },
     "Start a design interview for ${site}" : {
 
     },
@@ -4286,6 +4433,9 @@
     "Switch to @%@" : {
 
     },
+    "Sync will resume once this site's latest edits are saved into its history." : {
+
+    },
     "Syndication recorded" : {
 
     },
@@ -4337,7 +4487,13 @@
     "The build produced no output." : {
 
     },
+    "The contacts file may be damaged and couldn't be read. The rest of your site is unaffected." : {
+
+    },
     "The contacts file may be damaged. Back it up, then remove Config/contacts.json to start fresh." : {
+
+    },
+    "The copy of this site's history in iCloud couldn't be read." : {
 
     },
     "The domain must be managed in Cloudflare. Your API token needs Zone DNS Edit, Zone Settings Edit, and WAF Edit permissions." : {
@@ -4355,10 +4511,16 @@
     "The live Cloudflare zone matches everything declared in anglesite.json." : {
 
     },
+    "The live Cloudflare zone matches everything in this site's domain settings." : {
+
+    },
     "The page text changed since the review — this excerpt no longer matches." : {
 
     },
     "The pre-deploy scan found issues that need fixing before this site can ship." : {
+
+    },
+    "The preview is paused for %@. Start it again to resume." : {
 
     },
     "The preview is paused for %@. Start the dev server to resume." : {
@@ -4490,6 +4652,9 @@
     "This site is no longer available." : {
 
     },
+    "This site isn't connected to an online backup yet. Use Publish to GitHub to set one up." : {
+
+    },
     "This site publishes a security.txt Anglesite didn't generate. Adopt it so Anglesite keeps it current going forward, or leave it as yours to maintain." : {
 
     },
@@ -4505,7 +4670,19 @@
     "This site's Worker doesn't include Micropub yet. Redeploy it with a current Anglesite build." : {
 
     },
+    "This site's history is in an unexpected state, so iCloud sync is paused." : {
+
+    },
     "This site's identity couldn't be read. Try reopening it and connecting again." : {
+
+    },
+    "This site's package is damaged — its identity file is missing." : {
+
+    },
+    "This site's publishing settings are missing its Worker name — try publishing again." : {
+
+    },
+    "This site's saved domain settings don't match what's live on Cloudflare. Review and reconcile before publishing again." : {
 
     },
     "This site's wrangler.toml is missing its Worker name — try publishing again." : {
@@ -4591,6 +4768,9 @@
 
     },
     "Undo anyway" : {
+
+    },
+    "Undo isn't available until this site's editor finishes starting." : {
 
     },
     "Undo this edit" : {
@@ -4737,6 +4917,9 @@
     "Vulnerability reports" : {
 
     },
+    "Waiting for iCloud to finish copying this site's history." : {
+
+    },
     "Waiting for output…" : {
 
     },
@@ -4759,6 +4942,9 @@
 
     },
     "Website (e.g. https://example.com)" : {
+
+    },
+    "Website Folder…" : {
 
     },
     "Website Inspector" : {
@@ -5019,6 +5205,9 @@
 
     },
     "iCloud set these aside while the two Macs were syncing. Anglesite already has their content, so discarding them doesn't lose anything." : {
+
+    },
+    "iCloud sync didn't finish." : {
 
     },
     "iCloud sync status" : {
