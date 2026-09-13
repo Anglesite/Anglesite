@@ -91,10 +91,18 @@ struct SyncConflictResolutionSheetView: View {
         !model.conflictedFiles.isEmpty && model.conflictedFiles.allSatisfy { choices[$0.path] != nil }
     }
 
+    /// ``SyncConflictResolver/displayNames(for:)`` for the current file list — computed once per
+    /// body evaluation so rows that share a bare name (e.g. same-named pages in different locale
+    /// directories) get disambiguated instead of rendering as identical, indistinguishable rows.
+    private var displayNames: [String: String] {
+        SyncConflictResolver.displayNames(for: model.conflictedFiles)
+    }
+
     @ViewBuilder
     private func conflictedFileRow(_ file: SyncConflictResolver.ConflictedFile) -> some View {
+        let label = displayNames[file.path] ?? file.displayName
         VStack(alignment: .leading, spacing: 6) {
-            Text(file.displayName)
+            Text(label)
                 .font(.headline)
                 .lineLimit(1)
                 .truncationMode(.middle)
@@ -104,14 +112,14 @@ struct SyncConflictResolutionSheetView: View {
                 get: { choices[file.path] },
                 set: { choices[file.path] = $0 }
             )) {
-                Text(sideLabel(String(localized: "This Mac"), date: file.oursDate, isNewer: file.defaultChoice == .keepMine))
+                Text(sideLabel(String(localized: "This Mac"), date: file.oursDate, isNewer: file.newerSide == .keepMine))
                     .tag(Optional(SyncConflictResolver.Choice.keepMine))
-                Text(sideLabel(String(localized: "Other Mac"), date: file.theirsDate, isNewer: file.defaultChoice == .keepTheirs))
+                Text(sideLabel(String(localized: "Other Mac"), date: file.theirsDate, isNewer: file.newerSide == .keepTheirs))
                     .tag(Optional(SyncConflictResolver.Choice.keepTheirs))
             }
             .pickerStyle(.segmented)
             .labelsHidden()
-            .accessibilityLabel("Keep which version of \(file.displayName)")
+            .accessibilityLabel("Keep which version of \(label)")
 
             Button("Compare Both…") {
                 model.openBothVersions(for: file)
@@ -119,7 +127,7 @@ struct SyncConflictResolutionSheetView: View {
             .buttonStyle(.link)
             .font(.caption)
             .disabled(file.oursText == nil && file.theirsText == nil)
-            .accessibilityHint("Opens both versions of \(file.displayName) in Finder so you can compare them before choosing")
+            .accessibilityHint("Opens both versions of \(label) in Finder so you can compare them before choosing")
         }
         .padding(.vertical, 4)
     }
