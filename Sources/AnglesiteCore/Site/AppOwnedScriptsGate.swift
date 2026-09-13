@@ -54,12 +54,12 @@ public enum AppOwnedScriptsGate {
     }
 
     /// Every app-owned file in `templateDirectory` (per `TemplateScriptsManifest`) that the app
-    /// could read, pinned. Empty when the manifest finds nothing there — which ``enforce`` treats
+    /// could read, pinned. Empty when the manifest finds nothing there — which ``enforce(sourceDirectory:configDirectory:templateDirectory:runtimeCopy:source:logCenter:gitCommitBatch:)`` treats
     /// as unverifiable, never as "nothing to protect". A manifest-listed file this call can't read
     /// (permissions, a resource-copy gap in a code-signed bundle, a Settings-override checkout
     /// that predates a newly-added manifest entry) is silently absent from the result rather than
     /// throwing — the file the app can't check is exactly the one that must not slip through as
-    /// "not part of the verified set" instead of "unverifiable". ``enforce`` is the caller that
+    /// "not part of the verified set" instead of "unverifiable". ``enforce(sourceDirectory:configDirectory:templateDirectory:runtimeCopy:source:logCenter:gitCommitBatch:)`` is the caller that
     /// enforces that: it compares this result's count against
     /// `TemplateScriptsManifest.appOwnedRelativePaths(templateRoot:)`'s and fails the whole gate
     /// closed on any shortfall, rather than quietly verifying only the files it could read.
@@ -195,6 +195,9 @@ public enum AppOwnedScriptsGate {
     ///     without those (#530's non-primary deploy paths).
     ///   - templateDirectory: The app's template root, or `nil` when it couldn't be resolved.
     ///   - runtimeCopy: The executor's copy of the site, when it has one of its own.
+    ///   - source: The `ProcessSupervisor`/log-line label this gate's own work is attributed to.
+    ///   - logCenter: Where restore/verification activity is logged. Defaults to the app-wide
+    ///     `LogCenter.shared`; tests pass their own.
     ///   - gitCommitBatch: The commit seam — production default, tests record.
     public static func enforce(
         sourceDirectory: URL,
