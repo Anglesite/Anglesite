@@ -151,6 +151,20 @@ and its own baseline file.
 
 ## Divergence UX
 
+> **Amendment (#1962, owner decision D1, 2026-09-08 —
+> [`docs/specs/2026-09-08-product-direction-review-decisions.md`](../../specs/2026-09-08-product-direction-review-decisions.md)):**
+> the sheet described below is retired. A divergent app-owned file is **restored** to the app's
+> copy without asking (`TemplateScriptsSyncApplier.restore`), committed, and reported to the
+> owner through the non-blocking site-open notice (`SiteOpenUpdateNotice`). "Keep my version" no
+> longer exists — `acknowledgedTemplateHash` is neither written nor honored — and D5 (#1958)
+> additionally verifies the whole app-owned set at deploy time: `AppOwnedScriptsGate` runs first
+> in `DeployCommand.deploy` (GUI and headless alike), compares every manifest file in the host
+> repo — and, through the executor's `AppOwnedScriptsRuntimeVerifying` seam, in the container
+> clone the scan actually executes from — against the app's template byte for byte, and on any
+> mismatch refuses the deploy, restores the app's copy, commits it, and tells the owner
+> "Anglesite's safety check on this site had been changed. It has been restored." There is no
+> keep-mine and no override. The original design follows for the record.
+
 A single sheet, shown only when the queue from detection step 5 is non-empty — most site opens
 produce an empty queue and no UI appears at all. One row per divergent file, framed in
 consequences rather than git/diff terms, e.g. for `pre-deploy-check.ts`:

@@ -1,12 +1,41 @@
 import SwiftUI
 import AnglesiteCore
 
-/// Modal sheet shown when the pre-deploy scan refuses a deploy.
+/// Modal sheet shown when the pre-deploy scan refuses a deploy, a "Publish to GitHub", or a
+/// backup (#1959 — the same no-override gate fronts all three off-device pushes of `Source/`).
 ///
 /// Per the CLAUDE.md durable rule "the app cannot bypass plugin security hooks", this sheet has
 /// no override button — the only action is "Got it", which dismisses. The user is expected to
-/// fix each failure in the source, then re-run the deploy.
+/// fix each failure in the source, then retry the action.
 struct BlockedDeploySheetView: View {
+    /// Which action the gate refused — the findings list below reads identically for every
+    /// context; only the header's consequence copy differs, so a blocked **Backup** doesn't tell
+    /// the owner their site "can't ship" / won't "publish" when they only asked to back it up
+    /// (PR #1981 review). Deploy and "Publish to GitHub" share `.shipping`'s wording — the
+    /// review didn't flag Publish's reuse of Deploy's copy, and a GitHub push genuinely is a step
+    /// toward shipping the site; only `.backup` needed its own.
+    enum Context: Equatable {
+        case shipping
+        case backup
+
+        var title: String {
+            switch self {
+            case .shipping: return "Can't publish yet"
+            case .backup: return "Can't back up yet"
+            }
+        }
+
+        var subtitle: String {
+            switch self {
+            case .shipping: return "The pre-deploy scan found issues that need fixing before this site can ship."
+            case .backup: return "Anglesite's safety check found issues that need fixing before this site can be backed up."
+            }
+        }
+    }
+
+    /// Defaults to `.shipping` so Deploy's own call site (predating this parameter) keeps
+    /// compiling unchanged.
+    var context: Context = .shipping
     let failures: [PreDeployCheck.ScanFailure]
     let warnings: [PreDeployCheck.ScanWarning]
     let onDismiss: () -> Void
@@ -51,8 +80,8 @@ struct BlockedDeploySheetView: View {
                 .foregroundStyle(.orange)
                 .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 2) {
-                Text("Can't publish yet").font(.title3).fontWeight(.semibold)
-                Text("The pre-deploy scan found issues that need fixing before this site can ship.")
+                Text(context.title).font(.title3).fontWeight(.semibold)
+                Text(context.subtitle)
                     .font(.callout).foregroundStyle(.secondary)
             }
             Spacer()
@@ -82,10 +111,33 @@ private struct FailureCard: View {
                         .accessibilityValue(file)
                 }
             }
-            Text(failure.detail ?? failure.message).font(.callout)
-            if let remediation = failure.remediation {
-                Text(remediation)
-                    .font(.caption).foregroundStyle(.secondary)
+            if failure.category == .appOwnedScriptRestored {
+                // #1958: the primary line is the consequence to the owner ("your safety check had
+                // been changed; it's been restored"); the file paths are technical detail and stay
+                // behind a Details disclosure rather than on the primary surface (owner decision
+                // D1 — raw paths never lead).
+                Text(failure.message).font(.callout)
+                if let remediation = failure.remediation {
+                    Text(remediation)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
+                if let detail = failure.detail, !detail.isEmpty {
+                    DisclosureGroup("Details") {
+                        Text(verbatim: detail)
+                            .font(.system(.caption, design: .monospaced))
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.top, 4)
+                    }
+                    .font(.caption)
+                }
+            } else {
+                Text(failure.detail ?? failure.message).font(.callout)
+                if let remediation = failure.remediation {
+                    Text(remediation)
+                        .font(.caption).foregroundStyle(.secondary)
+                }
             }
         }
         .padding(12)
@@ -106,6 +158,7 @@ private struct FailureCard: View {
         case .wellKnownCollision: return "exclamationmark.lock"
         case .anglesiteConfigInvalid: return "doc.badge.gearshape"
         case .restrictedContentInSource, .restrictedContentInDist: return "lock.trianglebadge.exclamationmark"
+        case .appOwnedScriptRestored: return "checkmark.shield"
         case .other: return "exclamationmark.triangle"
         }
     }
@@ -124,6 +177,7 @@ private struct FailureCard: View {
         case .anglesiteConfigInvalid: return "Site settings file invalid"
         case .restrictedContentInSource: return "Restricted content in the site's files"
         case .restrictedContentInDist: return "Restricted content in the published output"
+        case .appOwnedScriptRestored: return "Safety check restored"
         case .other: return "Other"
         }
     }

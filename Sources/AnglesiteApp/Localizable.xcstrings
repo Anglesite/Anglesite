@@ -639,6 +639,9 @@
     "Anglesite's safety check couldn't run, so nothing was published." : {
 
     },
+    "Anglesite's safety check stopped this publish" : {
+
+    },
     "Animation" : {
 
     },
@@ -2340,6 +2343,9 @@
 
     },
     "Hide this banner — the site stays fully editable; reopen it from the sync status icon" : {
+
+    },
+    "Hide this notice" : {
 
     },
     "High" : {
