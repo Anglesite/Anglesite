@@ -177,12 +177,19 @@ public struct ContainerDeployExecutor: DeployExecutor {
         if Self.stepReadsWranglerConfig(step) {
             if let syncArgv = WranglerInvocation.configStagingArgv(configDirectory: configDirectory) {
                 do {
-                    let syncResult = try await control.exec(
+                    // Routed through `WranglerInvocation.exec` (not a raw `control.exec` with a
+                    // no-op `onOutput`) so a staging failure's actual stderr -- a guest disk-full
+                    // or permission error, say -- reaches `logCenter` the same way every other
+                    // wrangler call site's output does, rather than only the generic exit-code
+                    // message below being visible (logs are sacred). Mirrors the same fix already
+                    // applied to `ContainerCommandRunner`'s staging exec.
+                    let syncResult = try await WranglerInvocation.exec(
+                        control: control,
                         siteID: siteID,
                         argv: syncArgv,
                         environment: [:],
-                        workingDirectory: "/workspace/site",
-                        onOutput: { _, _ in }
+                        logCenter: logCenter,
+                        source: source
                     )
                     guard syncResult.exitCode == 0 else {
                         return DeployStepResult(
