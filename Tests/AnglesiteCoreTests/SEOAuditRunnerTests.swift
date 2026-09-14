@@ -73,6 +73,24 @@ struct SEOAuditRunnerTests {
         #expect(findings[0].severity == .critical)
     }
 
+    @Test("a missing <title> is still flagged even when og:title is present")
+    func missingTitleWithOgTitlePresentStillProducesCriticalFinding() async throws {
+        // Regression: the title check must look at the literal <title> element, not
+        // LinkMetadataParser.parse(html:).title, which prefers og:title and would otherwise
+        // silently treat this page as "has a title".
+        let html = """
+        <html><head>
+          <meta property="og:title" content="About Acme">
+          <meta name="description" content="A short, useful description of this page.">
+          <link rel="canonical" href="https://example.com/">
+        </head><body></body></html>
+        """
+        let findings = try await Self.run(["index.html": html])
+        #expect(findings.count == 1)
+        #expect(findings[0].severity == .critical)
+        #expect(findings[0].title.lowercased().contains("title"))
+    }
+
     @Test("a page missing a meta description produces exactly one warning finding")
     func missingDescriptionProducesWarningFinding() async throws {
         let html = """

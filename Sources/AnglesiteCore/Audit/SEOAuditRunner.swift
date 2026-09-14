@@ -130,7 +130,7 @@ public struct SEOAuditRunner: AuditRunner {
 
         var findings: [AuditReport.Finding] = []
 
-        if LinkMetadataParser.parse(html: html).title == nil {
+        if !Self.hasTitle(in: html) {
             findings.append(AuditReport.Finding(
                 category: .seo,
                 severity: .critical,
@@ -177,8 +177,19 @@ public struct SEOAuditRunner: AuditRunner {
         return findings
     }
 
-    /// The trimmed `content` of `<meta name="description">`, or nil when the tag is absent, has
-    /// no `content`, or its content is empty after trimming.
+    /// Whether the document has a literal `<title>` element with non-empty text content. Checks
+    /// the `<title>` tag directly rather than `LinkMetadataParser.parse(html:).title` — that
+    /// parser's `title` field prefers `og:title` when present, which would silently treat a page
+    /// with a broken/missing `<title>` but a present `og:title` as "has a title".
+    static func hasTitle(in html: String) -> Bool {
+        guard let text = LinkMetadataParser.titleText(in: html) else { return false }
+        return !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    /// The trimmed `content` of the first `<meta name="description">` whose `content` is
+    /// non-empty after trimming, or nil when no such tag exists. Keeps scanning past a tag with
+    /// an empty/whitespace-only `content` rather than stopping there, so a bogus duplicate can't
+    /// shadow a real description elsewhere in the document.
     static func metaDescription(in html: String) -> String? {
         for attrs in HTMLLinkAttributeScanning.metaAttributeStrings(in: html) {
             guard let name = HTMLLinkAttributeScanning.attributeValue("name", in: attrs),
@@ -186,7 +197,7 @@ public struct SEOAuditRunner: AuditRunner {
                   let content = HTMLLinkAttributeScanning.attributeValue("content", in: attrs)
             else { continue }
             let trimmed = content.trimmingCharacters(in: .whitespacesAndNewlines)
-            return trimmed.isEmpty ? nil : trimmed
+            if !trimmed.isEmpty { return trimmed }
         }
         return nil
     }
