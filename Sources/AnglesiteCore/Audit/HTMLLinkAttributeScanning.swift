@@ -1,9 +1,10 @@
 import Foundation
 
-/// Shared HTML `<link>`/`<a>` tag and attribute scanning, factored out of
+/// Shared HTML `<link>`/`<a>`/`<meta>` tag and attribute scanning, factored out of
 /// `WebmentionEndpointDiscovery` (webmention.org endpoint discovery) so `FeedEndpointDiscovery`
-/// (#1483, RSS/Atom feed discovery for the blogroll's OPML export) can reuse the same
-/// subtle regex/attribute-parsing logic instead of duplicating it. Neither caller's `rel`/`type`
+/// (#1483, RSS/Atom feed discovery for the blogroll's OPML export) and `SEOAuditRunner` (#2004,
+/// reading `<meta name="description">`/`<link rel="canonical">`) can reuse the same subtle
+/// regex/attribute-parsing logic instead of duplicating it. Neither caller's `rel`/`type`/`name`
 /// matching predicate lives here — only the generic "find tags, read an attribute" machinery.
 enum HTMLLinkAttributeScanning {
     /// Matches `<link ...>` and `<a ...>` tags in document order.
@@ -23,10 +24,29 @@ enum HTMLLinkAttributeScanning {
         }
     }()
 
+    /// Matches `<meta ...>` tags in document order — added for `SEOAuditRunner` (#2004) to read
+    /// `<meta name="description">` without introducing a second regex-based tag scanner type.
+    private static let metaTagPattern: NSRegularExpression = {
+        do {
+            return try NSRegularExpression(pattern: #"<meta\b([^>]*)>"#, options: [.caseInsensitive])
+        } catch {
+            fatalError("Invalid HTML meta-tag scan regex: \(error)")
+        }
+    }()
+
     /// Returns each matched tag's raw attribute string, in document order.
     static func tagAttributeStrings(in html: String) -> [String] {
+        attributeStrings(in: html, matching: tagPattern)
+    }
+
+    /// Returns each matched `<meta>` tag's raw attribute string, in document order.
+    static func metaAttributeStrings(in html: String) -> [String] {
+        attributeStrings(in: html, matching: metaTagPattern)
+    }
+
+    private static func attributeStrings(in html: String, matching pattern: NSRegularExpression) -> [String] {
         let range = NSRange(html.startIndex..<html.endIndex, in: html)
-        return tagPattern.matches(in: html, range: range).compactMap { match in
+        return pattern.matches(in: html, range: range).compactMap { match in
             guard let attrsRange = Range(match.range(at: 1), in: html) else { return nil }
             return String(html[attrsRange])
         }
