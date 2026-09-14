@@ -632,7 +632,6 @@ struct DeployModelTests {
     @Test("a settings-activated worker without a container fails at provisioning rather than skipping composition")
     func activatingAWorkerWithoutContainerFailsAtProvisioning() async throws {
         let executor = GatedDeployExecutor()
-        await executor.resumeBuild()
         let command = DeployCommand(target: CloudflareDeployTarget(tokenSource: { "test-token" }), executor: executor)
         let contentGraph = SiteContentGraph()
         let catalog = [
@@ -656,6 +655,8 @@ struct DeployModelTests {
         try await configStore.save(SiteSettings(activeWorkerIDs: ["indieauth"]))
 
         model.deploy(siteID: "test-site", siteDirectory: dir, configDirectory: configDir, currentRoutes: [])
+        await executor.waitUntilBuildIsParked()
+        await executor.resumeBuild()
         while model.isRunning { await Task.yield() }
 
         // provision() has no working runner outside a container (Task 5's ContainerCommandRunner
