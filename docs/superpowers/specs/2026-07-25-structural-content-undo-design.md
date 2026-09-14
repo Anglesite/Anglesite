@@ -3,6 +3,8 @@
 Issue: [#675](https://github.com/Anglesite/Anglesite-app/issues/675). Part of the Mac-assed app
 polish audit — ⌘Z should cover everything destructive the app can do, not just AI edits.
 
+**Note (2026-09-08, #1957):** `EditUndoCoordinator` (#527) was removed with the click-to-edit overlay; assistant edits are undone from their chat row, and the window's ⌘Z stack now belongs to `ContentUndoCoordinator` (this design) plus `WYSIWYGUndoCoordinator`.
+
 ## 1. Problem
 
 [#527](https://github.com/Anglesite/Anglesite-app/issues/527) wired the window `UndoManager` into

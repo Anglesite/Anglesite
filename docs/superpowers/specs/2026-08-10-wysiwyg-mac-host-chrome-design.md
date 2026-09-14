@@ -6,6 +6,7 @@
 `docs/superpowers/specs/2026-08-03-modern-wysiwyg-editor-design.md` (§3, §8),
 slice 3 design `docs/superpowers/specs/2026-08-08-wysiwyg-canvas-chrome-design.md`,
 `JS/wysiwyg-engine/` (merged, slices 2–3)
+**Note (2026-09-08, #1957):** the edit-overlay protocol this design deliberately kept apart from (`AnglesiteMessageDispatcher`, `AnglesiteScriptHandler`, the git-revert `EditUndoCoordinator`) has since been removed with the click-to-edit overlay; `WYSIWYGOpsDispatcher` (`wysiwyg`) is now the only script-message namespace and also carries the page bridge (Siri visible-elements, pick modes, Component Editor canvas). References to those files below are historical.
 
 ## 1. Summary
 

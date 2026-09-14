@@ -25,7 +25,7 @@ extension PreviewAnnotationProvider {
     /// Shape annotations into `[AppEntityUIElement]` for `NSView`/`WKWebView`'s
     /// `appEntityUIElementProvider` (B.4 / #148). The system asks for either
     /// `.visible(rect:)` — return everything whose stored rect intersects `rect` — or
-    /// `.selected`. We don't track an in-page selection model (the overlay's hover/click
+    /// `.selected`. We don't track an in-page selection model (the page's hover/click
     /// states are transient), so `.selected` yields `[]`.
     public func uiElements(for context: AppEntityUIElementsContext) -> [AppEntityUIElement] {
         uiElements(forRequests: context.requests)

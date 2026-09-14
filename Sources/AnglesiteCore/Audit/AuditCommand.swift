@@ -58,8 +58,9 @@ public actor AuditCommand {
 
     /// How to run a subprocess for a site directory — or why it can't be run. Consumed by
     /// `HostAuditExecutor`'s injectable resolver; the default `resolveBuildCommand`/
-    /// `resolveA11yCommand` values below live here for the same reason `DeployCommand` keeps
-    /// `LaunchPlan`/`CommandResolver` even though only `HostDeployExecutor` uses them now.
+    /// `resolveA11yCommand`/`resolveBrokenLinksCommand` values below live here for the same
+    /// reason `DeployCommand` keeps `LaunchPlan`/`CommandResolver` even though only
+    /// `HostDeployExecutor` uses them now.
     public enum LaunchPlan: Sendable, Equatable {
         /// Spawn this executable (host-side, via `ProcessSupervisor`) for the step.
         case run(executable: URL, arguments: [String])
@@ -178,12 +179,19 @@ public actor AuditCommand {
         .unavailable(reason: HostNodeRetirement.reason("accessibility audit"))
     }
 
-    /// Default runner set: `A11yAuditRunner`, `SecurityTxtAuditRunner` (#843), and
-    /// `SEOAuditRunner` (#2004). Perf / link-check runners are mechanical follow-ups that slot
-    /// into this list without changing the actor or sheet UI (#86 follow-ups).
+    /// Same as `resolveA11yCommand`, for the `.brokenLinks` step (#1996).
+    public static let resolveBrokenLinksCommand: CommandResolver = { siteDirectory in
+        .unavailable(reason: HostNodeRetirement.reason("broken-link check"))
+    }
+
+    /// Default runner set: `A11yAuditRunner`, `SecurityTxtAuditRunner` (#843),
+    /// `BrokenLinkAuditRunner` (#1996), and `SEOAuditRunner` (#2004) — the `.seo` category's two
+    /// runners. Further perf runners are mechanical follow-ups that slot into this list without
+    /// changing the actor or sheet UI (#86 follow-ups).
     public static let defaultRunners: [any AuditRunner] = [
         A11yAuditRunner(),
         SecurityTxtAuditRunner(),
+        BrokenLinkAuditRunner(),
         SEOAuditRunner()
     ]
 }

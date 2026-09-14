@@ -3,6 +3,7 @@
 **Date:** 2026-07-05
 **Status:** Approved design, pre-implementation
 **Related:** #459 (deterministic-path direction), #242 (package model), edit pipeline (`EditMessage` → MCP `apply_edit`), `docs/architecture.md` two-zone execution model
+**Note (2026-09-08, #1957):** the click-to-edit overlay pages "kept" in the decision table was removed (decision D4); pages are edited by the block editor (`JS/wysiwyg-engine`), and the harness canvas module now lives at `JS/wysiwyg-engine/src/host/component-canvas.ts`, installed by the engine bundle's page bridge.
 
 ## 1. Summary
 

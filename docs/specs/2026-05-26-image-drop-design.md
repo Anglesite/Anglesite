@@ -1,6 +1,7 @@
 # Image drop pipeline — optimize-on-drop with src + srcset patch
 
 **Status:** approved — ready for implementation
+**Note (2026-09-08, #1957):** the JS front half described here (`JS/edit-overlay`'s `attachImageDrop`) was retired with the click-to-edit overlay; the block editor's `JS/wysiwyg-engine/src/host/image-drop.ts` now drives the same `replace-image-src` sidecar pipeline through the `wysiwyg` bridge's `replace-image` message. The sidecar side is unchanged.
 **Tracks:** [#32](https://github.com/Anglesite/Anglesite-app/issues/32) — Phase 9 step 3 of [build-plan.md](../build-plan.md#phase-9--v1-multi-site--drag-drop-images)
 **Cross-repo:** paired PR against [Anglesite/anglesite](https://github.com/Anglesite/anglesite)
 **Date:** 2026-05-26

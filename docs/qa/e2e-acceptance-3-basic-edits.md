@@ -1,7 +1,7 @@
 # E2E Acceptance — Part 3: Basic Edits
 
 **Sequence:** Part 3 of 4 — requires Part 2's exit state ("QA Bakery" open, preview ready).
-**Scope:** the everyday editing loop: navigator + inspector edits, in-preview click-to-edit and image drop, new page/post/component, rename/duplicate/delete, the Component Editor styles panel, save/undo/conflict semantics, and the git ledger.
+**Scope:** the everyday editing loop: navigator + inspector edits, in-preview block editing and image drop, new page/post/component, rename/duplicate/delete, the Component Editor styles panel, save/undo/conflict semantics, and the git ledger.
 
 A PASS here (with evidence) closes the owed manual verifications **#586** (navigator content commands), **#491** (Component Editor slice-1 smoke), and — run on this sandboxed target with the git evidence recorded — **#656** (SwiftGit2 content-ops MAS smoke).
 
@@ -23,7 +23,7 @@ Verify the app's editing surfaces write to `Source/`, the preview hot-reloads, u
 |---|---|---|---|
 | 1 | Window layout + selection semantics |  |  |
 | 2 | Edit page metadata via inspector (⌘S, commit) |  |  |
-| 3 | In-preview click-to-edit text (+ ⌘Z undo) |  |  |
+| 3 | In-preview block text editing (+ ⌘Z undo) |  |  |
 | 4 | Image drop with auto alt text |  |  |
 | 5 | Save conflict: Keep My Changes / Reload |  |  |
 | 6 | New Page / New Post / New Component |  |  |
@@ -52,21 +52,21 @@ Expected:
 - Navigate away with unsaved inspector edits → the buffer flushes to disk (autosave-on-leave), no data loss.
 - **File ▸ Revert to Saved** restores disk state after an unsaved change (with confirmation).
 
-### 3. In-preview click-to-edit text
+### 3. In-preview block text editing
 
-In the Preview pane, hover the homepage headline (blue outline), click, type a change, click elsewhere (blur).
+The block canvas is on by default (#1957): in the Preview pane, hover the homepage headline (blue block outline), click to select it, click again into the text, type a change, click elsewhere (blur).
 
 Expected:
 
-- The edit applies: the source file under `Source/` changes; preview keeps the new text after HMR.
-- The Chat panel records an `.edit` row with an inline **Undo**; **⌘Z** (Edit ▸ Undo) reverts the edit through the git `undo_edit` path — file and preview both revert. No redo is offered.
-- The edit is **not** committed on the working branch (see case 12) but is committed on the hidden `refs/heads/anglesite/edits` branch.
+- The edit applies as an `editText` op: the source file under `Source/` changes; preview keeps the new text after HMR.
+- **⌘Z** (Edit ▸ Undo) reverts the edit through the block editor's own inverse op — file and preview both revert; **⇧⌘Z** re-applies it.
+- **Site ▸ Edit Page** turns the canvas off (a plain preview, no outline, no editing) and stays off across navigations until turned back on.
 
 ### 4. Image drop with auto alt text
 
 Drag an image file from Finder onto an `<img>` in the preview.
 
-Expected: optimistic swap, then the server-returned asset (new `src`/`srcset`); the image file lands under `Source/`; with Apple Intelligence available and the General setting ON, alt text is generated. Failure/timeout (~30 s) reverts with a toast rather than leaving a broken image.
+Expected: every picture rings as a drop target with a hint at the top; dropping on one swaps it optimistically, then to the server-returned asset (new `src`/`srcset`); the image file lands under `Source/`; with Apple Intelligence available and the General setting ON, alt text is generated. Failure/timeout (~30 s) reverts with a toast rather than leaving a broken image. Dropping *away* from any picture inserts the image as a new block at the nearest insertion point instead.
 
 ### 5. Save conflict: Keep My Changes / Reload
 
@@ -111,7 +111,7 @@ Run `git -C …/Source log --oneline` and `git status --porcelain`, plus `git lo
 Expected:
 
 - Working-branch history shows the per-op commits from cases 2, 6–9 (`anglesite: add/edit/delete/duplicate/restore …`) on top of the initial commit.
-- Overlay/click-to-edit changes (case 3) and plain file-editor saves appear as **uncommitted working-tree changes** on the branch, and as commits on the hidden `anglesite/edits` branch.
+- Block-canvas changes (cases 3–4) and plain file-editor saves appear as **uncommitted working-tree changes** on the branch, and as commits on the hidden `anglesite/edits` branch.
 - Nothing under `Config/` is tracked.
 - (Out of the minimal loop: **Backup** requires an `origin` remote and refuses on `main`, so a fresh local-only site can't run it — do not treat that refusal as a failure. Remote backup under sandbox is #654/#655.)
 

@@ -6,7 +6,8 @@ import Testing
         let assistant = ContentAssistantFactory.make(tier: .privateCloudCompute)
         #if compiler(>=6.4) && canImport(FoundationModels)
         #expect(assistant != nil)
-        #expect(assistant?.capabilities.providerName == "Private Cloud Compute")
+        // Served on-device until the PCC entitlement lands, and advertised as such (#1965).
+        #expect(assistant?.capabilities.providerName == "On-Device")
         #else
         #expect(assistant == nil)
         #endif

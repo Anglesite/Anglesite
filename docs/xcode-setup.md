@@ -2,8 +2,9 @@
 
 The SwiftPM scaffold builds and tests via `swift build` / `swift test`. The
 generated Xcode project owns the runnable macOS app target, including
-`Info.plist`, entitlements, signing, and build phases for bundling the plugin,
-the container image, the edit overlay, and the Help Book.
+`Info.plist`, entitlements, signing, and build phases for bundling the
+container image, the WYSIWYG engine bundle (`Resources/wysiwyg-engine/`), and the
+Help Book.
 
 `Anglesite.xcodeproj` is generated from [`project.yml`](../project.yml) via
 [XcodeGen](https://github.com/yonaskolb/XcodeGen). It is gitignored; edit

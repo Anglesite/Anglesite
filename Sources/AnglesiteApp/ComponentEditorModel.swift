@@ -47,9 +47,11 @@ final class ComponentEditorModel {
     /// Distinguishes "dev server/MCP client isn't up yet" (retryable, not a
     /// real failure — `ComponentEditorView`'s `loadKey` re-triggers `load()`
     /// once `context.baseURL`/the client become available) from an
-    /// unparseable component (design spec §5: degrade to the Source tab with
-    /// the compiler diagnostic in a banner, never a dead end) from any other
-    /// genuine load failure worth showing as a full-pane error.
+    /// unparseable component (the Design pane shows an owner-phrased message
+    /// with the compiler diagnostic under Details, plus a Show Source action
+    /// when developer tools are on — #1964 retired design spec §5's automatic
+    /// switch to Source) from any other genuine load failure worth showing as
+    /// a full-pane error.
     enum LoadErrorReason: Equatable {
         case notConnected
         case unparseable
