@@ -117,7 +117,7 @@ struct PreviewWebView: AdwaitaWidget {
                         return
                     }
                     let script = "window.__anglesiteWysiwygHost?.\(callback)?.(\(idJSON), \(payloadJSON))"
-                    Idle {
+                    await Idle {
                         let webView = UnsafeMutableRawPointer(bitPattern: webViewBits)?
                             .assumingMemoryBound(to: WebKitWebView.self)
                         webkit_web_view_evaluate_javascript(webView, script, -1, nil, nil, nil, nil, nil)
