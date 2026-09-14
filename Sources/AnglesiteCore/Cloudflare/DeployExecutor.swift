@@ -123,9 +123,12 @@ public extension DeployExecutor {
 /// `CLOUDFLARE_API_TOKEN` is forwarded through the `environment` dict that the caller
 /// supplies — it is never added here and never written to logs.
 public struct ContainerDeployExecutor: DeployExecutor {
-    private let control: any LocalContainerControl
-    private let siteID: String
-    private let logCenter: LogCenter
+    // Module-internal (not `private`) so `AppOwnedScriptsRuntimeCheck.swift`'s extension — the
+    // #1958 runtime-copy verification — can exec through the same control this executor runs
+    // every other step through.
+    let control: any LocalContainerControl
+    let siteID: String
+    let logCenter: LogCenter
 
     /// Creates an executor that runs steps in `siteID`'s container through `control`.
     /// `logCenter` is injectable for tests; production uses the shared instance.

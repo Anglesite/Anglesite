@@ -209,6 +209,15 @@ correctly migrated, just uncommitted, which is recoverable (the same "`Source/` 
 recovery story #1053 already relies on). It stays on the pending-commit list and is surfaced as a
 finding (see below) rather than silently retried forever with no signal.
 
+> **Amendment (#1962, owner decision D1, 2026-09-08 —
+> [`docs/specs/2026-09-08-product-direction-review-decisions.md`](../../specs/2026-09-08-product-direction-review-decisions.md)):**
+> the "decision queue" for script divergences is gone. `ExistingSiteMigration.run` is now the
+> single implementation for the windowed and headless paths alike: every app-owned file
+> (create, refresh, *and* the formerly-asked divergence) is applied without asking and reported
+> in `ExistingSiteMigration.Report`; only the `security.txt` Adopt/Preserve question remains,
+> supplied through a decision seam (the sheet interactively, Preserve headlessly). The
+> "Noninteractive flows" and "UX" sections below describe the pre-#1962 shape.
+
 ## Noninteractive flows
 
 `SiteOperations.swift` (the headless App Intents/Shortcuts/Siri path) runs this migration too, not
