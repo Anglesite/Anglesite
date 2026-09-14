@@ -52,4 +52,22 @@
 # `runDetaching` itself blocking on the daemon — moving here is the same established
 # mitigation, paired with tightening the bound (still >2x an isolated run's overhead, well
 # under the 5s failure signature) now that cross-suite contention is removed.
-export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests|ProcessSupervisorShutdownTests|HMRRelayTests|ProcessSupervisorRunLoggingTests|ProcessSupervisorRunLoggingPortableTests'
+#
+# DeployCommandTests (self-diagnosed, PR #1975 merge-conflict resolution session, 2026-09-13):
+# `cancellationTerminatesWrangler` uses the same `waitForMarker` "subprocess started" poll shape
+# as ProcessSupervisorShutdownTests/AuditCommandTests above — spawning a real `/bin/sh` fixture
+# and waiting (bounded, 30s `ContinuousClock` deadline) for it to echo `__STARTED__` before the
+# test cancels it and asserts the real SIGTERM took effect. Flaked under build-test's full
+# `swift test --parallel` load with the identical starved-scheduler shape #1344 already named for
+# the suites above; passes in milliseconds run alone or under this isolated lane.
+#
+# HTTPTransportTests (self-diagnosed, PR #1975 merge-conflict resolution session, 2026-09-13):
+# `clientOverHTTP` (`"MCPClient.connect probes and lists tools over HTTP"`) drives a real
+# `URLSession` through two round trips — `StubURLProtocol` fakes only the network layer, not the
+# session's own dispatch-queue scheduling of callbacks — and was seen missing its timing under
+# build-test's full-parallel run, the same class of GCD/dispatch thread-pool oversubscription
+# #1344 already isolated this lane for; it passes in well under a second run alone or here.
+# Anchored (`\.HTTPTransportTests/`, not a bare substring) because `ACPHTTPTransportTests` and
+# `SessionfulHTTPTransportTests` both contain "HTTPTransportTests" as a substring and must stay
+# in the main parallel run.
+export TIMING_SENSITIVE_TEST_FILTER='VsockTCPProxyTests|E2EServerReadinessTests|AuditCommandTests|MCPClientTests|LoopbackMCPBridgeTests|LocalContainerSiteRuntimeReindexTests|ProcessSupervisorShutdownTests|HMRRelayTests|ProcessSupervisorRunLoggingTests|ProcessSupervisorRunLoggingPortableTests|DeployCommandTests|\.HTTPTransportTests/'
