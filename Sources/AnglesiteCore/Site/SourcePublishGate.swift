@@ -69,12 +69,16 @@ public struct SourcePublishGate: Sendable {
         templateDirectory: @escaping @Sendable () -> URL? = { TemplateRuntime.resolve().url },
         runtime: @escaping RuntimeProvider,
         logCenter: LogCenter = .shared,
-        gitCommitBatch: @escaping @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil
     ) {
         self.templateDirectory = templateDirectory
         self.runtime = runtime
         self.logCenter = logCenter
-        self.gitCommitBatch = gitCommitBatch
+        // #1990: an async closure parameter must not default to a function reference — Swift 6.3.3
+        // (CI's Xcode 26.6) re-emits the synthesized default-argument closure in every client
+        // module with a different context size and the linker mixes the copies, so the task
+        // allocator aborts. Optional parameter, resolved here, is the safe shape.
+        self.gitCommitBatch = gitCommitBatch ?? InboxSubmissionCommitter.processGitCommitBatch
     }
 
     /// The production gate: integrity against the running app's template, and a scan routed

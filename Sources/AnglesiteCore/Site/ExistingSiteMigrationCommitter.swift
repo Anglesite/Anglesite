@@ -38,16 +38,18 @@ public enum ExistingSiteMigrationCommitter {
         sourceDirectory: URL,
         configDirectory: URL,
         message: String,
-        gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch,
-        isTracked: @Sendable (URL, String) async -> Bool = InboxSubmissionCommitter.isTracked
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil,
+        isTracked: (@Sendable (URL, String) async -> Bool)? = nil
     ) async -> Bool {
+        // #1990: an async closure parameter must not default to a function reference — Swift 6.3.3
+        // (CI's Xcode 26.6) re-emits the synthesized default-argument closure in every client
+        // module with a different context size and the linker mixes the copies, so the task
+        // allocator aborts. Optional parameter, resolved here, is the safe shape.
+        let gitCommitBatch = gitCommitBatch ?? InboxSubmissionCommitter.processGitCommitBatch
+        let isTracked = isTracked ?? InboxSubmissionCommitter.isTracked
         let alreadyPending = ExistingSiteMigrationPendingCommit.load(from: configDirectory).pendingPaths
         var paths: [String] = []
         for path in Set(touchedPaths).union(alreadyPending).sorted() {
-            // Deliberately plain statements rather than `else if await …` in the condition: the
-            // Swift 6.3.3 toolchain on CI's macOS 26 runners tripped the concurrency runtime's
-            // task-allocator LIFO check ("freed pointer was not the last allocation") on this
-            // loop when the await sat inside the `if` chain; 6.4 compiles either form cleanly.
             let existsOnDisk = FileManager.default.fileExists(
                 atPath: sourceDirectory.appendingPathComponent(path).path)
             if existsOnDisk {
@@ -79,8 +81,8 @@ public enum ExistingSiteMigrationCommitter {
         sourceDirectory: URL,
         configDirectory: URL,
         message: String,
-        gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch,
-        isTracked: @Sendable (URL, String) async -> Bool = InboxSubmissionCommitter.isTracked
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil,
+        isTracked: (@Sendable (URL, String) async -> Bool)? = nil
     ) async -> Bool {
         let pending = ExistingSiteMigrationPendingCommit.load(from: configDirectory)
         guard !pending.pendingPaths.isEmpty else { return true }
