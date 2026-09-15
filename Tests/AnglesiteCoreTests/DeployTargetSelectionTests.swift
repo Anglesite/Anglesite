@@ -1,5 +1,6 @@
 import Testing
 import Foundation
+import AnglesiteTestSupport
 @testable import AnglesiteCore
 
 /// Tests for deploy-target selection (#1682, #1015 slice 3) — the mapping from the persisted
@@ -165,7 +166,7 @@ struct DeployTargetSelectionTests {
         #expect(command.target(for: siteDirectory) is CloudflareDeployTarget)
         // The injected executor survived the copy — a `pinning` that dropped it would silently
         // fall back to `HostDeployExecutor` and try to spawn a real subprocess here.
-        let result = await command.deploy(siteID: "s", siteDirectory: siteDirectory)
+        let result = await command.deploy(siteID: "s", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory))
         guard case .succeeded = result else {
             Issue.record("expected .succeeded, got \(result)"); return
         }
@@ -198,7 +199,7 @@ struct DeployTargetSelectionTests {
             },
             executor: executor)
 
-        let result = await command.deploy(siteID: "s", siteDirectory: siteDirectory)
+        let result = await command.deploy(siteID: "s", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory))
         guard case .succeeded(let url, _) = result else {
             Issue.record("expected .succeeded, got \(result)"); return
         }
@@ -221,7 +222,7 @@ struct DeployTargetSelectionTests {
             },
             executor: executor)
 
-        let result = await command.deploy(siteID: "s", siteDirectory: siteDirectory)
+        let result = await command.deploy(siteID: "s", siteDirectory: siteDirectory, configDirectory: TestSiteLayout.configDirectory(for: siteDirectory))
         guard case .succeeded = result else {
             Issue.record("expected .succeeded, got \(result)"); return
         }

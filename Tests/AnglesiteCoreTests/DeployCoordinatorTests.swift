@@ -323,10 +323,10 @@ struct DeployCoordinatorTests {
         let dir = try temporaryDirectory()
         let configStore = SiteConfigStore(configDirectory: dir)
         let resources = WorkerComposition.ProvisionedResources(d1DatabaseID: "d1-1", kvNamespaceID: "kv-1", r2BucketName: nil)
+        try await configStore.save(SiteSettings(displayName: "Keep Me"))
 
         await DeployCoordinator.persistProvisionedResources(
             configStore: configStore,
-            settings: SiteSettings(displayName: "Keep Me"),
             effectiveActiveIDs: ["websub", "indieauth"],
             resources: resources
         )
@@ -334,7 +334,26 @@ struct DeployCoordinatorTests {
         let saved = try await configStore.load()
         #expect(saved.lastDeployedWorkerIDs == ["indieauth", "websub"])
         #expect(saved.provisionedWorkerResources == resources)
-        // Unrelated fields on the passed-in settings are preserved, not clobbered.
+        // Unrelated fields are preserved, not clobbered.
+        #expect(saved.displayName == "Keep Me")
+    }
+
+    @Test("persistProvisionedResources keeps a field another writer set after the caller's snapshot (#1960)")
+    func persistProvisionedResourcesDoesNotClobberConcurrentWrites() async throws {
+        // `CloudflareDeployTarget.persistWorkerDeployed` writes `workerDeployed` into the same
+        // plist while the deploy runs, after `DeployModel` loaded its own settings — the old
+        // save-the-deploy-start-snapshot implementation dropped the marker.
+        let dir = try temporaryDirectory()
+        let configStore = SiteConfigStore(configDirectory: dir)
+        try await configStore.save(SiteSettings(displayName: "Keep Me"))
+        try await SiteConfigStore(configDirectory: dir).update { $0.workerDeployed = true }
+
+        await DeployCoordinator.persistProvisionedResources(
+            configStore: configStore, effectiveActiveIDs: [], resources: .init()
+        )
+
+        let saved = try await configStore.load()
+        #expect(saved.workerDeployed == true)
         #expect(saved.displayName == "Keep Me")
     }
 
@@ -345,7 +364,7 @@ struct DeployCoordinatorTests {
         let actorURL = URL(string: "https://my-community.example/users/site")!
 
         await DeployCoordinator.persistProvisionedResources(
-            configStore: configStore, settings: SiteSettings(), effectiveActiveIDs: [],
+            configStore: configStore, effectiveActiveIDs: [],
             resources: .init(), communityActorURL: actorURL
         )
 
@@ -540,7 +559,6 @@ struct DeployCoordinatorTests {
 
         await DeployCoordinator.persistProvisionedResources(
             configStore: configStore,
-            settings: SiteSettings(),
             effectiveActiveIDs: [],
             resources: resources,
             apUsername: "example.com"
@@ -555,10 +573,10 @@ struct DeployCoordinatorTests {
         let dir = try temporaryDirectory()
         let configStore = SiteConfigStore(configDirectory: dir)
         let resources = WorkerComposition.ProvisionedResources()
+        try await configStore.save(SiteSettings(lastDeployedAPUsername: "example.com"))
 
         await DeployCoordinator.persistProvisionedResources(
             configStore: configStore,
-            settings: SiteSettings(lastDeployedAPUsername: "example.com"),
             effectiveActiveIDs: [],
             resources: resources
         )

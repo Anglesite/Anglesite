@@ -12,10 +12,12 @@ import Foundation
 /// `git add`) at the moment a site opens, those would be swept into this migration commit too.
 public enum ExistingSiteMigrationCommitter {
     /// Commits `touchedPaths` **plus** whatever `Config/existing-site-migration-pending-commit.json`
-    /// already lists (deduplicated and filtered to paths that actually exist on disk — a path a
-    /// failed write never produced would abort the whole batch commit in
-    /// `InboxSubmissionCommitter.processGitCommitBatch`, since a failed `git add` on a missing
-    /// path fails the entire call) via `gitCommitBatch`. Records the merged paths as pending
+    /// already lists, deduplicated and filtered to paths that actually exist on disk **or** that
+    /// the repo still tracks — a path a failed write never produced would abort the whole batch
+    /// commit in `InboxSubmissionCommitter.processGitCommitBatch`, since a failed `git add` on a
+    /// missing untracked path fails the entire call; a tracked path that a migration deliberately
+    /// removed, such as `DeployStateRelocation`'s `Source/wrangler.toml` (#1960), is kept so its
+    /// removal is committed too — via `gitCommitBatch`. Records the merged paths as pending
     /// *before* attempting the commit and clears the record only on success, so a crash between
     /// "files written" and "commit succeeded" leaves a durable retry list.
     ///
@@ -36,12 +38,29 @@ public enum ExistingSiteMigrationCommitter {
         sourceDirectory: URL,
         configDirectory: URL,
         message: String,
-        gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil,
+        isTracked: (@Sendable (URL, String) async -> Bool)? = nil
     ) async -> Bool {
+        // #1990: an async closure parameter must not default to a function reference — Swift 6.3.3
+        // (CI's Xcode 26.6) re-emits the synthesized default-argument closure in every client
+        // module with a different context size and the linker mixes the copies, so the task
+        // allocator aborts. Optional parameter, resolved here, is the safe shape.
+        let gitCommitBatch = gitCommitBatch ?? InboxSubmissionCommitter.processGitCommitBatch
+        let isTracked = isTracked ?? InboxSubmissionCommitter.isTracked
         let alreadyPending = ExistingSiteMigrationPendingCommit.load(from: configDirectory).pendingPaths
-        let paths = Array(Set(touchedPaths).union(alreadyPending))
-            .filter { FileManager.default.fileExists(atPath: sourceDirectory.appendingPathComponent($0).path) }
-            .sorted()
+        var paths: [String] = []
+        for path in Set(touchedPaths).union(alreadyPending).sorted() {
+            let existsOnDisk = FileManager.default.fileExists(
+                atPath: sourceDirectory.appendingPathComponent(path).path)
+            if existsOnDisk {
+                paths.append(path)
+                continue
+            }
+            let tracked = await isTracked(sourceDirectory, path)
+            if tracked {
+                paths.append(path)
+            }
+        }
         guard !paths.isEmpty else {
             try? ExistingSiteMigrationPendingCommit().save(to: configDirectory)
             return true
@@ -62,7 +81,8 @@ public enum ExistingSiteMigrationCommitter {
         sourceDirectory: URL,
         configDirectory: URL,
         message: String,
-        gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil,
+        isTracked: (@Sendable (URL, String) async -> Bool)? = nil
     ) async -> Bool {
         let pending = ExistingSiteMigrationPendingCommit.load(from: configDirectory)
         guard !pending.pendingPaths.isEmpty else { return true }
@@ -71,7 +91,8 @@ public enum ExistingSiteMigrationCommitter {
             sourceDirectory: sourceDirectory,
             configDirectory: configDirectory,
             message: message,
-            gitCommitBatch: gitCommitBatch
+            gitCommitBatch: gitCommitBatch,
+            isTracked: isTracked
         )
     }
 }

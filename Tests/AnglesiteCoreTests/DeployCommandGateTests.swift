@@ -108,7 +108,7 @@ struct DeployCommandGateTests {
         let (site, template, root) = try await makeFixture()
         defer { try? FileManager.default.removeItem(at: root) }
         let exec = FakeExecutor()
-        let result = await command(executor: exec, template: template).deploy(siteID: "s", siteDirectory: site)
+        let result = await command(executor: exec, template: template).deploy(siteID: "s", siteDirectory: site, configDirectory: root.appendingPathComponent("Config", isDirectory: true))
         guard case .succeeded = result else { Issue.record("expected .succeeded, got \(result)"); return }
         #expect(exec.ran("build") && exec.ran("preflight") && exec.ran("wrangler"))
         #expect(try await git(["log", "-1", "--format=%s"], in: site) == "seed")
@@ -123,7 +123,8 @@ struct DeployCommandGateTests {
         let observer = Observer()
 
         let result = await command(executor: exec, template: template).deploy(
-            siteID: "s", siteDirectory: site, onPreflight: { outcome in observer.record(outcome) })
+            siteID: "s", siteDirectory: site, configDirectory: root.appendingPathComponent("Config", isDirectory: true),
+            onPreflight: { outcome in observer.record(outcome) })
 
         guard case .blocked(let failures, let warnings) = result else {
             Issue.record("expected .blocked, got \(result)"); return
@@ -154,11 +155,11 @@ struct DeployCommandGateTests {
         defer { try? FileManager.default.removeItem(at: root) }
         try writeFile("tampered", to: site.appendingPathComponent("src/lib/rsl.ts"))
         let first = FakeExecutor()
-        guard case .blocked = await command(executor: first, template: template).deploy(siteID: "s", siteDirectory: site) else {
+        guard case .blocked = await command(executor: first, template: template).deploy(siteID: "s", siteDirectory: site, configDirectory: root.appendingPathComponent("Config", isDirectory: true)) else {
             Issue.record("first attempt should block"); return
         }
         let second = FakeExecutor()
-        let result = await command(executor: second, template: template).deploy(siteID: "s", siteDirectory: site)
+        let result = await command(executor: second, template: template).deploy(siteID: "s", siteDirectory: site, configDirectory: root.appendingPathComponent("Config", isDirectory: true))
         guard case .succeeded = result else { Issue.record("expected .succeeded after restore, got \(result)"); return }
         #expect(second.ran("wrangler"))
     }
@@ -170,7 +171,7 @@ struct DeployCommandGateTests {
         let exec = FakeExecutor()
         let cmd = DeployCommand(
             target: CloudflareDeployTarget(tokenSource: { "tok" }), executor: exec, templateDirectory: { nil })
-        let result = await cmd.deploy(siteID: "s", siteDirectory: site)
+        let result = await cmd.deploy(siteID: "s", siteDirectory: site, configDirectory: root.appendingPathComponent("Config", isDirectory: true))
         guard case .succeeded = result else { Issue.record("expected .succeeded, got \(result)"); return }
     }
 
@@ -182,7 +183,7 @@ struct DeployCommandGateTests {
         let exec = FakeExecutor()
         let base = command(executor: exec, template: template)
         let pinned = base.pinning(target: base.target(for: site))
-        guard case .blocked = await pinned.deploy(siteID: "s", siteDirectory: site) else {
+        guard case .blocked = await pinned.deploy(siteID: "s", siteDirectory: site, configDirectory: root.appendingPathComponent("Config", isDirectory: true)) else {
             Issue.record("the pinned command must verify against the same template"); return
         }
     }
@@ -196,7 +197,7 @@ struct DeployCommandGateTests {
         digests["scripts/pre-deploy-check.ts"] = PortableSHA256.hexDigest(of: Data("disabled in the guest".utf8))
         let exec = RuntimeFakeExecutor(digests: digests)
 
-        let first = await command(executor: exec, template: template).deploy(siteID: "s", siteDirectory: site)
+        let first = await command(executor: exec, template: template).deploy(siteID: "s", siteDirectory: site, configDirectory: root.appendingPathComponent("Config", isDirectory: true))
         guard case .blocked(let failures, _) = first else { Issue.record("expected .blocked, got \(first)"); return }
         #expect(failures.first?.category == .appOwnedScriptRestored)
         #expect(!exec.ran("build"))
@@ -205,7 +206,7 @@ struct DeployCommandGateTests {
         #expect(try await git(["log", "-1", "--format=%s"], in: site) == "seed")
 
         // With the guest copy restored, the next attempt goes through.
-        let second = await command(executor: exec, template: template).deploy(siteID: "s", siteDirectory: site)
+        let second = await command(executor: exec, template: template).deploy(siteID: "s", siteDirectory: site, configDirectory: root.appendingPathComponent("Config", isDirectory: true))
         guard case .succeeded = second else { Issue.record("expected .succeeded after the guest restore, got \(second)"); return }
     }
 
@@ -227,7 +228,7 @@ struct DeployCommandGateTests {
         let (site, template, root) = try await makeFixture()
         defer { try? FileManager.default.removeItem(at: root) }
         let exec = Unreadable()
-        let result = await command(executor: exec, template: template).deploy(siteID: "s", siteDirectory: site)
+        let result = await command(executor: exec, template: template).deploy(siteID: "s", siteDirectory: site, configDirectory: root.appendingPathComponent("Config", isDirectory: true))
         guard case .failed(let reason, let exitCode) = result else { Issue.record("expected .failed, got \(result)"); return }
         #expect(exitCode == nil)
         #expect(reason.contains("couldn't confirm this site's safety check"))

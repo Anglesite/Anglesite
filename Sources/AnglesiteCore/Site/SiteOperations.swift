@@ -169,6 +169,7 @@ public struct SiteOperations: Sendable {
         let provisionResult = await factory.socialWorkerProvision().provision(
             siteID: site.id,
             siteDirectory: siteDirectory,
+            configDirectory: site.configDirectory,
             siteName: workerSiteName,
             workers: workers,
             routeClaims: effectiveRouteClaims.map(\.claim),
@@ -196,21 +197,28 @@ public struct SiteOperations: Sendable {
         // re-issue `d1 create` against a name that already exists on the account. The
         // `.succeeded`-only side effects (`lastDeployedWorkerIDs`, `communityActorURL`) stay gated
         // exactly as before — only the resources persistence itself is unconditional.
-        var updated = settings
-        updated.provisionedWorkerResources = provisionResult.resources
-        if case .succeeded(let deployedURL, _, _) = provisionResult {
-            updated.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
-            if isHostedCommunity && activitypubProvisioned {
-                // Same derivation `DeployModel.runDeploy` and `ModerationModel.ownActorURL` use —
-                // prefer the confirmed site URL (which may already carry a custom domain) over the
-                // workers.dev URL this particular deploy printed, falling back to it only before
-                // any URL has ever been recorded.
-                let communityActorSiteURL =
-                    DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory).flatMap { URL(string: $0) } ?? deployedURL
-                updated.communityActorURL = ActivityPubActor.actorURL(siteURL: communityActorSiteURL)
+        // Read-modify-write against the store's current contents (#1960): the deploy target
+        // wrote `workerProvisioned`/`workerDeployed` into the same plist during this deploy, and
+        // saving the deploy-start `settings` snapshot would silently drop them.
+        do {
+            try await configStore.update { updated in
+                updated.provisionedWorkerResources = provisionResult.resources
+                if case .succeeded(let deployedURL, _, _) = provisionResult {
+                    updated.lastDeployedWorkerIDs = Array(effectiveActiveIDs).sorted()
+                    if isHostedCommunity && activitypubProvisioned {
+                        // Same derivation `DeployModel.runDeploy` and `ModerationModel.ownActorURL` use —
+                        // prefer the confirmed site URL (which may already carry a custom domain) over the
+                        // workers.dev URL this particular deploy printed, falling back to it only before
+                        // any URL has ever been recorded.
+                        let communityActorSiteURL =
+                            DeployCoordinator.resolveSiteURL(siteDirectory: siteDirectory).flatMap { URL(string: $0) } ?? deployedURL
+                        updated.communityActorURL = ActivityPubActor.actorURL(siteURL: communityActorSiteURL)
+                    }
+                }
             }
+        } catch {
+            // Best-effort persistence; the provisioning result is still returned below.
         }
-        try? await configStore.save(updated)
 
         return provisionResult.asDeployCommandResult
     }
@@ -266,9 +274,25 @@ public struct SiteOperations: Sendable {
     public func provisionSocialWorker(site: SiteStore.Site) async -> SocialWorkerProvisionCommand.Result {
         do {
             return try await socialWorkerAccess(site, store) { url in
-                await factory.socialWorkerProvision().provision(
+                // #745/#1960: mirrors `deploy(site:)` above -- this headless path (the "turn on
+                // social basics" App Intent/Shortcut) is the other caller that can reach a site
+                // no window has ever opened. Without this, a pre-#1960 site provisioned only
+                // through this Shortcut keeps a stale, git-tracked `Source/wrangler.toml`
+                // indefinitely: `provision()`'s default `knownResources: .init()` falls back to
+                // reading it for legacy resource ids, but the regenerated config is then
+                // persisted only to `Config/wrangler.toml`, leaving the `Source/` copy in place.
+                // Runs ahead of provisioning with every decision defaulted to Preserve; never
+                // blocks provisioning itself.
+                await ExistingSiteMigration.runNoninteractively(
+                    sourceDirectory: url,
+                    configDirectory: site.configDirectory,
+                    templateDirectory: TemplateRuntime.bundledURL(),
+                    source: "provision:\(site.id)"
+                )
+                return await factory.socialWorkerProvision().provision(
                     siteID: site.id,
                     siteDirectory: url,
+                    configDirectory: site.configDirectory,
                     siteName: WorkerSiteName.derive(from: site.name),
                     workers: Self.v2StarterWorkers
                 )

@@ -31,7 +31,7 @@ public struct SourcePublishGate: Sendable {
         /// Runs the source scan against the site and returns the parsed outcome.
         public let scan: @Sendable (_ sourceDirectory: URL) async -> PreDeployCheck.Outcome
 
-        /// Memberwise — production runtimes come from ``containerRuntime(control:siteID:syncFromHost:logCenter:)``,
+        /// Memberwise — production runtimes come from ``containerRuntime(control:siteID:configDirectory:syncFromHost:logCenter:)``,
         /// tests build one around a canned outcome.
         public init(
             scriptsCopy: AppOwnedScriptsGate.RuntimeCopy?,
@@ -69,12 +69,16 @@ public struct SourcePublishGate: Sendable {
         templateDirectory: @escaping @Sendable () -> URL? = { TemplateRuntime.resolve().url },
         runtime: @escaping RuntimeProvider,
         logCenter: LogCenter = .shared,
-        gitCommitBatch: @escaping @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil
     ) {
         self.templateDirectory = templateDirectory
         self.runtime = runtime
         self.logCenter = logCenter
-        self.gitCommitBatch = gitCommitBatch
+        // #1990: an async closure parameter must not default to a function reference — Swift 6.3.3
+        // (CI's Xcode 26.6) re-emits the synthesized default-argument closure in every client
+        // module with a different context size and the linker mixes the copies, so the task
+        // allocator aborts. Optional parameter, resolved here, is the safe shape.
+        self.gitCommitBatch = gitCommitBatch ?? InboxSubmissionCommitter.processGitCommitBatch
     }
 
     /// The production gate: integrity against the running app's template, and a scan routed
@@ -128,10 +132,12 @@ public struct SourcePublishGate: Sendable {
     public static func containerRuntime(
         control: any LocalContainerControl,
         siteID: String,
+        configDirectory: URL,
         syncFromHost: @escaping @Sendable () async throws -> Void,
         logCenter: LogCenter = .shared
     ) -> Runtime {
-        let executor = ContainerDeployExecutor(control: control, siteID: siteID, logCenter: logCenter)
+        let executor = ContainerDeployExecutor(
+            control: control, siteID: siteID, configDirectory: configDirectory, logCenter: logCenter)
         let source = "publish:\(siteID):scan"
         return Runtime(
             scriptsCopy: AppOwnedScriptsGate.RuntimeCopy(executor: executor, source: source),

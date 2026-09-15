@@ -6,8 +6,8 @@ import Foundation
 /// existing dirty-state UI (`DeployDrawerView`), never as a bake error — a stale bundle is
 /// correct-but-stale by design, not a failure.
 public enum SourceBundleStatus: Sendable, Equatable {
-    /// `.site-config` has no `CF_SOURCE_BUCKET` — the deployed-source bundle feature isn't active
-    /// for this site (today: every site, since no provisioning flow writes that key yet).
+    /// `SiteSettings.sourceBundleBucket` is unset — the deployed-source bundle feature isn't
+    /// active for this site (today: every site, since no provisioning flow writes it yet).
     case notConfigured
     /// A bucket is configured but no upload has ever succeeded (`deployedSourceBundleCommit` is
     /// `nil`).
@@ -17,15 +17,14 @@ public enum SourceBundleStatus: Sendable, Equatable {
     /// `Source/` has commits after the last uploaded bundle.
     case dirty(uploadedCommit: String, currentCommit: String)
 
-    /// Computes the status for one site by reading `.site-config` and asking git for `HEAD`.
-    /// Deliberately quiet on every failure path: an unreadable config or a `rev-parse` that
-    /// doesn't run reports `.notConfigured`/`.upToDate` rather than an error — this check only
-    /// exists to *offer* a "redeploy your source bundle" nudge, so a wrong-but-calm answer beats
-    /// alarming the owner over a diagnostic the deploy itself will surface properly.
+    /// Computes the status for one site from its settings and git's `HEAD`. Deliberately quiet
+    /// on every failure path: a `rev-parse` that doesn't run reports `.upToDate` rather than an
+    /// error — this check only exists to *offer* a "redeploy your source bundle" nudge, so a
+    /// wrong-but-calm answer beats alarming the owner over a diagnostic the deploy itself will
+    /// surface properly.
     public static func check(siteDirectory: URL, settings: SiteSettings) async -> SourceBundleStatus {
-        let configURL = siteDirectory.appendingPathComponent(".site-config")
-        let config = (try? String(contentsOf: configURL, encoding: .utf8)) ?? ""
-        guard SiteConfigFile.value(forKey: "CF_SOURCE_BUCKET", in: config) != nil else { return .notConfigured }
+        guard let bucket = settings.sourceBundleBucket?.trimmingCharacters(in: .whitespacesAndNewlines), !bucket.isEmpty
+        else { return .notConfigured }
         guard let uploadedCommit = settings.deployedSourceBundleCommit else { return .notYetUploaded }
 
         guard let headResult = try? await BackupCommand.defaultRunner(siteDirectory, ["rev-parse", "HEAD"]),

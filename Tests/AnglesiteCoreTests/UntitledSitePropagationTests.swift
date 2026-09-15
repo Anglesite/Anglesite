@@ -9,36 +9,54 @@ final class UntitledSitePropagationTests {
         for dir in createdDirs { try? FileManager.default.removeItem(at: dir) }
     }
 
-    private func makeSiteDirectory(siteConfig: String, wranglerToml: String? = #"name = "untitled""#) -> URL {
-        let dir = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+    /// A bare `Source/` directory; its `Config/` sibling (#1960) holds `wrangler.toml` and the
+    /// deploy markers (`settings`).
+    private func makeSiteDirectory(
+        siteConfig: String, wranglerToml: String? = #"name = "untitled""#, settings: SiteSettings? = nil
+    ) -> URL {
+        let root = FileManager.default.temporaryDirectory.appendingPathComponent(UUID().uuidString, isDirectory: true)
+        let dir = root.appendingPathComponent("Source", isDirectory: true)
         try! FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         try! siteConfig.write(to: dir.appendingPathComponent(".site-config"), atomically: true, encoding: .utf8)
         if let wranglerToml {
-            try! wranglerToml.write(to: dir.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
+            try! WranglerConfigFile.write(wranglerToml, configDirectory: configDirectory(for: dir))
         }
-        createdDirs.append(dir)
+        if let settings {
+            try! SiteConfigStore.write(settings, to: configDirectory(for: dir))
+        }
+        createdDirs.append(root)
         return dir
+    }
+
+    private func configDirectory(for siteDirectory: URL) -> URL {
+        siteDirectory.deletingLastPathComponent().appendingPathComponent("Config", isDirectory: true)
+    }
+
+    private func propagate(_ name: String, in dir: URL) {
+        UntitledSitePropagation.propagateIfUntitled(newDisplayName: name, siteDirectory: dir, configDirectory: configDirectory(for: dir))
     }
 
     @Test("Propagates SITE_NAME, CF_PROJECT_NAME, and wrangler.toml name for a virgin untitled site")
     func propagatesForVirginUntitledSite() throws {
         let dir = makeSiteDirectory(siteConfig: "SITE_NAME=Untitled\nCF_PROJECT_NAME=untitled\nTAGLINE=hi\n")
 
-        UntitledSitePropagation.propagateIfUntitled(newDisplayName: "Acme Bakery", siteDirectory: dir)
+        propagate("Acme Bakery", in: dir)
 
         let config = try String(contentsOf: dir.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "SITE_NAME", in: config) == "Acme Bakery")
         #expect(SiteConfigFile.value(forKey: "CF_PROJECT_NAME", in: config) == "acme-bakery")
         #expect(SiteConfigFile.value(forKey: "TAGLINE", in: config) == "hi", "unrelated keys must survive")
-        let toml = try String(contentsOf: dir.appendingPathComponent("wrangler.toml"), encoding: .utf8)
+        let toml = try #require(WranglerConfigFile.read(configDirectory: configDirectory(for: dir)))
         #expect(toml.contains(#"name = "acme-bakery""#))
+        #expect(!FileManager.default.fileExists(atPath: dir.appendingPathComponent("wrangler.toml").path),
+                "propagation must never create wrangler.toml inside Source/")
     }
 
     @Test("Propagates for a virgin site still carrying the chooser's numbered 'Untitled N' default")
     func propagatesForNumberedUntitledSite() throws {
         let dir = makeSiteDirectory(siteConfig: "SITE_NAME=Untitled 3\nCF_PROJECT_NAME=untitled-3\n")
 
-        UntitledSitePropagation.propagateIfUntitled(newDisplayName: "My Blog", siteDirectory: dir)
+        propagate("My Blog", in: dir)
 
         let config = try String(contentsOf: dir.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "SITE_NAME", in: config) == "My Blog")
@@ -51,29 +69,31 @@ final class UntitledSitePropagationTests {
         // applied) -> rename again to "Dave's Blog", still before any deploy.
         let dir = makeSiteDirectory(siteConfig: "SITE_NAME=My Blog\nCF_PROJECT_NAME=my-blog\n")
 
-        UntitledSitePropagation.propagateIfUntitled(newDisplayName: "Dave's Blog", siteDirectory: dir)
+        propagate("Dave's Blog", in: dir)
 
         let config = try String(contentsOf: dir.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "SITE_NAME", in: config) == "Dave's Blog")
         #expect(SiteConfigFile.value(forKey: "CF_PROJECT_NAME", in: config) == "dave-s-blog")
     }
 
-    @Test("No-ops when CF_WORKER_DEPLOYED is already set")
+    @Test("No-ops once the site has deployed (SiteSettings.workerDeployed, #1960)")
     func noOpWhenDeployed() throws {
-        let dir = makeSiteDirectory(siteConfig: "SITE_NAME=Untitled\nCF_PROJECT_NAME=untitled\nCF_WORKER_DEPLOYED=true\n")
+        let dir = makeSiteDirectory(
+            siteConfig: "SITE_NAME=Untitled\nCF_PROJECT_NAME=untitled\n", settings: SiteSettings(workerDeployed: true))
 
-        UntitledSitePropagation.propagateIfUntitled(newDisplayName: "Acme Bakery", siteDirectory: dir)
+        propagate("Acme Bakery", in: dir)
 
         let config = try String(contentsOf: dir.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "SITE_NAME", in: config) == "Untitled")
         #expect(SiteConfigFile.value(forKey: "CF_PROJECT_NAME", in: config) == "untitled")
     }
 
-    @Test("No-ops when CF_WORKER_PROVISIONED is already set")
+    @Test("No-ops once the site's Worker name is provisioned (SiteSettings.workerProvisioned, #1960)")
     func noOpWhenProvisioned() throws {
-        let dir = makeSiteDirectory(siteConfig: "SITE_NAME=Untitled\nCF_PROJECT_NAME=untitled\nCF_WORKER_PROVISIONED=true\n")
+        let dir = makeSiteDirectory(
+            siteConfig: "SITE_NAME=Untitled\nCF_PROJECT_NAME=untitled\n", settings: SiteSettings(workerProvisioned: true))
 
-        UntitledSitePropagation.propagateIfUntitled(newDisplayName: "Acme Bakery", siteDirectory: dir)
+        propagate("Acme Bakery", in: dir)
 
         let config = try String(contentsOf: dir.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "SITE_NAME", in: config) == "Untitled")
@@ -83,7 +103,7 @@ final class UntitledSitePropagationTests {
     func noOpWhenProjectNameCustomized() throws {
         let dir = makeSiteDirectory(siteConfig: "SITE_NAME=Untitled\nCF_PROJECT_NAME=custom-project-name\n")
 
-        UntitledSitePropagation.propagateIfUntitled(newDisplayName: "Acme Bakery", siteDirectory: dir)
+        propagate("Acme Bakery", in: dir)
 
         let config = try String(contentsOf: dir.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "SITE_NAME", in: config) == "Untitled")
@@ -97,14 +117,14 @@ final class UntitledSitePropagationTests {
         createdDirs.append(dir)
 
         // Must not throw or crash.
-        UntitledSitePropagation.propagateIfUntitled(newDisplayName: "Acme Bakery", siteDirectory: dir)
+        propagate("Acme Bakery", in: dir)
     }
 
     @Test("Still updates .site-config when wrangler.toml is missing")
     func updatesSiteConfigWhenWranglerMissing() throws {
         let dir = makeSiteDirectory(siteConfig: "SITE_NAME=Untitled\nCF_PROJECT_NAME=untitled\n", wranglerToml: nil)
 
-        UntitledSitePropagation.propagateIfUntitled(newDisplayName: "Acme Bakery", siteDirectory: dir)
+        propagate("Acme Bakery", in: dir)
 
         let config = try String(contentsOf: dir.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "SITE_NAME", in: config) == "Acme Bakery")
@@ -115,7 +135,7 @@ final class UntitledSitePropagationTests {
     func sanitizesEmbeddedNewline() throws {
         let dir = makeSiteDirectory(siteConfig: "SITE_NAME=Untitled\nCF_PROJECT_NAME=untitled\n")
 
-        UntitledSitePropagation.propagateIfUntitled(newDisplayName: "Acme Bakery\nEVIL_KEY=1", siteDirectory: dir)
+        propagate("Acme Bakery\nEVIL_KEY=1", in: dir)
 
         let config = try String(contentsOf: dir.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "SITE_NAME", in: config) == "Acme Bakery")
@@ -127,7 +147,7 @@ final class UntitledSitePropagationTests {
     func noOpWhenSanitizedNameIsBlank() throws {
         let dir = makeSiteDirectory(siteConfig: "SITE_NAME=Untitled\nCF_PROJECT_NAME=untitled\n")
 
-        UntitledSitePropagation.propagateIfUntitled(newDisplayName: "\n  \n", siteDirectory: dir)
+        propagate("\n  \n", in: dir)
 
         let config = try String(contentsOf: dir.appendingPathComponent(".site-config"), encoding: .utf8)
         #expect(SiteConfigFile.value(forKey: "SITE_NAME", in: config) == "Untitled")
