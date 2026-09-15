@@ -206,8 +206,13 @@ public enum AppOwnedScriptsGate {
         runtimeCopy: RuntimeCopy? = nil,
         source: String,
         logCenter: LogCenter = .shared,
-        gitCommitBatch: @escaping @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil
     ) async -> Outcome {
+        // #1990: an async closure parameter must not default to a function reference — Swift 6.3.3
+        // (CI's Xcode 26.6) re-emits the synthesized default-argument closure in every client
+        // module with a different context size and the linker mixes the copies, so the task
+        // allocator aborts. Optional parameter, resolved here, is the safe shape.
+        let gitCommitBatch = gitCommitBatch ?? InboxSubmissionCommitter.processGitCommitBatch
         guard let templateDirectory else {
             return await unverifiable(
                 "Anglesite couldn't find its own copy of the site scripts to verify against",
