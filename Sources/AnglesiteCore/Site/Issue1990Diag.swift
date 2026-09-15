@@ -15,12 +15,12 @@ public enum Issue1990Diag {
         _ url: URL, isTracked: (URL, String) async -> Bool = InboxSubmissionCommitter.isTracked
     ) async -> Bool { await isTracked(url, "x") }
 
-    static func localAsync(_ a: URL, _ b: String) async -> Bool { false }
+    public static func localAsync(_ a: URL, _ b: String) async -> Bool { false }
     public static func viaLocalFuncRefDefault(
         _ url: URL, isTracked: @Sendable (URL, String) async -> Bool = Issue1990Diag.localAsync
     ) async -> Bool { await isTracked(url, "x") }
 
-    @Sendable static func localSendableAsync(_ a: URL, _ b: String) async -> Bool { false }
+    @Sendable public static func localSendableAsync(_ a: URL, _ b: String) async -> Bool { false }
     public static func viaLocalSendableFuncRefDefault(
         _ url: URL, isTracked: @Sendable (URL, String) async -> Bool = Issue1990Diag.localSendableAsync
     ) async -> Bool { await isTracked(url, "x") }
