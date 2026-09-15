@@ -673,12 +673,12 @@ jobs:
           swift test -c debug --parallel --filter 'relocatesLegacyDeployStateIntoConfigWithoutAskingOrLoggingAFinding' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A0: FAILED ==='; diag_status=1; }
           echo '=== DIAG X1 ==='
           swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x1_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X1: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X10 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x10_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X10: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X11 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x11_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X11: FAILED ==='; diag_status=1; }
           echo '=== DIAG X14 ==='
           swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x14_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X14: FAILED ==='; diag_status=1; }
+          echo '=== DIAG A3 ==='
+          swift test -c debug --parallel --filter 'ExistingSiteMigration' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A3: FAILED ==='; diag_status=1; }
+          echo '=== DIAG B: full run ==='
+          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG B: FAILED ==='; diag_status=1; }
           exit $diag_status
 
       # DIAGNOSTIC (#1990, revert before merge): print every crash report the test step produced,
@@ -1188,6 +1188,9 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - run: scripts/check-test-userdefaults-suite-literal.sh
+      # #1990: no async closure parameter may default to a function/value reference (Swift 6.3.3
+      # re-emits the synthesized thunk per client module with a different context size).
+      - run: scripts/check-async-closure-default-args.sh
 
   reuse-lint:
     name: REUSE licensing lint

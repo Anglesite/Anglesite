@@ -33,8 +33,13 @@ public enum CommunityMemberCommitter {
         members: [CommunityMember],
         into siteDirectory: URL,
         fileManager: FileManager = .default,
-        gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil
     ) async -> [String] {
+        // #1990: an async closure parameter must not default to a function reference — Swift 6.3.3
+        // (CI's Xcode 26.6) re-emits the synthesized default-argument closure in every client
+        // module with a different context size and the linker mixes the copies, so the task
+        // allocator aborts. Optional parameter, resolved here, is the safe shape.
+        let gitCommitBatch = gitCommitBatch ?? InboxSubmissionCommitter.processGitCommitBatch
         let membersDir = siteDirectory.appendingPathComponent("data/community-members", isDirectory: true)
         let currentIDs = Set(members.map(\.id))
 

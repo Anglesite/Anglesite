@@ -8,5 +8,6 @@ let package = Package(
     targets: [
         .target(name: "Lib", swiftSettings: strict),
         .executableTarget(name: "App", dependencies: ["Lib"], swiftSettings: strict),
+        .testTarget(name: "LibTests", dependencies: ["Lib"], swiftSettings: strict),
     ]
 )

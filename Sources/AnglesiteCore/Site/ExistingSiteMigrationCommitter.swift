@@ -38,9 +38,15 @@ public enum ExistingSiteMigrationCommitter {
         sourceDirectory: URL,
         configDirectory: URL,
         message: String,
-        gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch,
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil,
         isTracked: (@Sendable (URL, String) async -> Bool)? = nil
     ) async -> Bool {
+        // #1990: an async closure parameter must not default to a function reference — Swift 6.3.3
+        // (CI's Xcode 26.6) re-emits the synthesized default-argument closure in every client
+        // module with a different context size and the linker mixes the copies, so the task
+        // allocator aborts. Optional parameter, resolved here, is the safe shape.
+        let gitCommitBatch = gitCommitBatch ?? InboxSubmissionCommitter.processGitCommitBatch
+        let isTracked = isTracked ?? InboxSubmissionCommitter.isTracked
         let alreadyPending = ExistingSiteMigrationPendingCommit.load(from: configDirectory).pendingPaths
         var paths: [String] = []
         for path in Set(touchedPaths).union(alreadyPending).sorted() {
@@ -54,17 +60,7 @@ public enum ExistingSiteMigrationCommitter {
                 paths.append(path)
                 continue
             }
-            // `isTracked` is an optional seam rather than a defaulted parameter on purpose (#1990):
-            // Swift 6.3.3 (Xcode 26.6, CI's build-test toolchain) under-sizes the async context of
-            // the `@Sendable` closure it synthesizes for a `= InboxSubmissionCommitter.isTracked`
-            // default when a cross-module caller omits the argument, and the task allocator then
-            // aborts ("freed pointer was not the last allocation"). A direct call has no thunk.
-            let tracked: Bool
-            if let isTracked {
-                tracked = await isTracked(sourceDirectory, path)
-            } else {
-                tracked = await InboxSubmissionCommitter.isTracked(sourceDirectory, path)
-            }
+            let tracked = await isTracked(sourceDirectory, path)
             if tracked {
                 paths.append(path)
             }
@@ -89,7 +85,7 @@ public enum ExistingSiteMigrationCommitter {
         sourceDirectory: URL,
         configDirectory: URL,
         message: String,
-        gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch,
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil,
         isTracked: (@Sendable (URL, String) async -> Bool)? = nil
     ) async -> Bool {
         let pending = ExistingSiteMigrationPendingCommit.load(from: configDirectory)

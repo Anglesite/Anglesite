@@ -10,6 +10,12 @@ for v in sendable plain literal; do
   echo "=== PKG: run $v ==="
   "$BIN" "$v"; echo "=== PKG: run $v exit $? ==="
 done
+for t in sendableRef plainRef literal; do
+  echo "=== PKG: swift test --filter $t ==="
+  swift test -c debug --filter "LibTests/$t" 2>&1 | tail -4; echo "=== PKG: swift test $t exit ${PIPESTATUS[0]} ==="
+done
+TB=$(find .build -type f -path '*LibTests*.xctest/Contents/MacOS/*' | head -1); echo "test bundle: $TB"
+[ -n "$TB" ] && python3 ../afp.py "$TB" "Committer.via" "Inbox.isTracked" 2>&1 | grep -v "^\s*[0-9a-f]\{8,\}:" | head -60
 echo "=== PKG: AFP records (linked App) ==="
 python3 ../afp.py "$BIN" "Committer.via" "Inbox.isTracked" 2>&1 | grep -v "^\s*[0-9a-f]\{8,\}:" | head -80
 for o in $(find .build -type f \( -name 'Lib.o' -o -name 'Lib.swift.o' -o -name 'main.o' -o -name 'main.swift.o' \) | grep -v ModuleCache); do

@@ -62,8 +62,13 @@ public enum ExistingSiteMigration {
         securityTxtDecision: @Sendable () async -> SecurityTxtMigrationApplier.Decision,
         source: String,
         logCenter: LogCenter = .shared,
-        gitCommitBatch: @escaping @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil
     ) async -> Report {
+        // #1990: an async closure parameter must not default to a function reference — Swift 6.3.3
+        // (CI's Xcode 26.6) re-emits the synthesized default-argument closure in every client
+        // module with a different context size and the linker mixes the copies, so the task
+        // allocator aborts. Optional parameter, resolved here, is the safe shape.
+        let gitCommitBatch = gitCommitBatch ?? InboxSubmissionCommitter.processGitCommitBatch
         // #745: retry a commit an interrupted prior migration didn't finish, before looking for
         // any new work — otherwise a stale pending commit could sit alongside a fresh one.
         await ExistingSiteMigrationCommitter.retryPendingCommit(
@@ -174,7 +179,7 @@ public enum ExistingSiteMigration {
         templateDirectory: URL?,
         source: String,
         logCenter: LogCenter = .shared,
-        gitCommitBatch: @escaping @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch
+        gitCommitBatch: (@Sendable (URL, [String], String) async -> String?)? = nil
     ) async -> Report {
         await run(
             sourceDirectory: sourceDirectory, configDirectory: configDirectory, templateDirectory: templateDirectory,
