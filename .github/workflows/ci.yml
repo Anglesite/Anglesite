@@ -671,12 +671,26 @@ jobs:
           diag_status=0
           echo '=== DIAG A1: ExistingSiteMigrationTests alone ==='
           swift test -c debug --parallel --filter 'ExistingSiteMigrationTests' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A1: FAILED ==='; diag_status=1; }
-          echo '=== DIAG A2: ExistingSiteMigrationCommitterTests alone ==='
-          swift test -c debug --parallel --filter 'ExistingSiteMigrationCommitterTests' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A2: FAILED ==='; diag_status=1; }
-          echo '=== DIAG A3: all three ExistingSiteMigration* suites ==='
-          swift test -c debug --parallel --filter 'ExistingSiteMigration' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A3: FAILED ==='; diag_status=1; }
-          echo '=== DIAG B: full run ==='
-          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG B: FAILED ==='; diag_status=1; }
+          echo '=== DIAG A0: the one crashing test alone ==='
+          swift test -c debug --parallel --filter 'relocatesLegacyDeployStateIntoConfigWithoutAskingOrLoggingAFinding' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A0: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X1 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x1_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X1: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X2 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x2_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X2: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X3 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x3_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X3: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X4 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x4_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X4: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X5 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x5_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X5: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X6 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x6_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X6: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X7 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x7_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X7: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X8 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x8_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X8: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X9 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x9_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X9: FAILED ==='; diag_status=1; }
           exit $diag_status
 
       # DIAGNOSTIC (#1990, revert before merge): print every crash report the test step produced,
