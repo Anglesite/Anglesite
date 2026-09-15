@@ -664,7 +664,75 @@ jobs:
         run: |
           set -o pipefail
           source scripts/lib/timing-sensitive-tests.sh
-          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" 2>&1 | tee "$RUNNER_TEMP/swift-test.log"
+          # DIAGNOSTIC (#1990, revert before merge): capture a backtrace for the task-allocator
+          # abort. A1-A3: the ExistingSiteMigration* suites alone (the group the #1976 bisect
+          # isolated); B: the real full run. Crash reports are dumped by the step below.
+          mkdir -p "$RUNNER_TEMP/diag" && date -u +%Y-%m-%dT%H:%M:%SZ > "$RUNNER_TEMP/diag/started-at"
+          diag_status=0
+          echo '=== DIAG A1: ExistingSiteMigrationTests alone ==='
+          swift test -c debug --parallel --filter 'ExistingSiteMigrationTests' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A1: FAILED ==='; diag_status=1; }
+          echo '=== DIAG A2: ExistingSiteMigrationCommitterTests alone ==='
+          swift test -c debug --parallel --filter 'ExistingSiteMigrationCommitterTests' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A2: FAILED ==='; diag_status=1; }
+          echo '=== DIAG A3: all three ExistingSiteMigration* suites ==='
+          swift test -c debug --parallel --filter 'ExistingSiteMigration' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A3: FAILED ==='; diag_status=1; }
+          echo '=== DIAG B: full run ==='
+          swift test -c debug --parallel --skip "$TIMING_SENSITIVE_TEST_FILTER" 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG B: FAILED ==='; diag_status=1; }
+          exit $diag_status
+
+      # DIAGNOSTIC (#1990, revert before merge): print every crash report the test step produced,
+      # symbolicating frames in our own images with atos where ReportCrash left them raw.
+      - name: Dump crash reports (DIAGNOSTIC #1990)
+        if: always()
+        run: |
+          set +e
+          echo "=== DiagnosticReports listing ==="
+          ls -la ~/Library/Logs/DiagnosticReports/ 2>/dev/null
+          shopt -s nullglob
+          for f in ~/Library/Logs/DiagnosticReports/*.ips; do
+            echo "=================== $f ==================="
+            python3 - "$f" <<'PY'
+          import json, sys, subprocess
+          path = sys.argv[1]
+          with open(path) as fh:
+              header = json.loads(fh.readline())
+              body = json.loads(fh.read())
+          print("proc:", header.get("name"), "pid:", header.get("pid"), "at:", header.get("timestamp"))
+          print("exception:", json.dumps(body.get("exception")))
+          print("termination:", json.dumps(body.get("termination")))
+          print("asi:", json.dumps(body.get("asi")))
+          images = body.get("usedImages", [])
+          faulting = body.get("faultingThread")
+          def sym(frame):
+              idx = frame.get("imageIndex")
+              img = images[idx] if idx is not None and idx < len(images) else {}
+              name = img.get("name") or img.get("path") or "?"
+              off = frame.get("imageOffset", 0)
+              s = frame.get("symbol")
+              if s:
+                  return f"{name} {s} + {frame.get('symbolLocation', 0)}"
+              base = img.get("base")
+              p = img.get("path")
+              if base is not None and p and ("Anglesite" in p or ".build" in p):
+                  try:
+                      out = subprocess.run(["atos", "-o", p, "-l", hex(base), hex(base + off)],
+                                           capture_output=True, text=True, timeout=60).stdout.strip()
+                      if out:
+                          return f"{name} {out}"
+                  except Exception as e:
+                      return f"{name} +0x{off:x} (atos failed: {e})"
+              return f"{name} +0x{off:x}"
+          for t in body.get("threads", []):
+              tid = t.get("id"); q = t.get("queue"); n = t.get("name")
+              is_fault = (body.get("threads", []).index(t) == faulting) or t.get("triggered")
+              if not is_fault:
+                  continue
+              print(f"--- faulting thread idx={faulting} id={tid} name={n} queue={q} ---")
+              for i, fr in enumerate(t.get("frames", [])):
+                  print(f"  {i:3d} {sym(fr)}")
+          PY
+            echo "=================== raw: $f ==================="
+            cat "$f"
+          done
 
       - name: Surface Swift errors (annotations + job summary)
         if: failure() && steps.swift-test.outcome == 'failure'
