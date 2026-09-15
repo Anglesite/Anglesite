@@ -49,6 +49,24 @@ import Foundation
         #expect(ExistingSiteMigrationPendingCommit.load(from: config).pendingPaths == ["file.txt"])
     }
 
+    @Test func aTrackedPathRemovedFromDiskIsKeptSoItsDeletionIsCommitted() async throws {
+        // #1960: `DeployStateRelocation` deletes `Source/wrangler.toml`; the removal must reach
+        // the commit, so a path that's gone from disk but still tracked stays in the batch.
+        let (source, config) = tmpDirs()
+        try "content".write(to: source.appendingPathComponent("real.txt"), atomically: true, encoding: .utf8)
+
+        var committedPaths: [String] = []
+        let result = await ExistingSiteMigrationCommitter.commit(
+            touchedPaths: ["real.txt", "wrangler.toml", "never-tracked.txt"],
+            sourceDirectory: source, configDirectory: config, message: "test",
+            gitCommitBatch: { _, paths, _ in committedPaths = paths; return "deadbeef" },
+            isTracked: { _, path in path == "wrangler.toml" }
+        )
+
+        #expect(result == true)
+        #expect(committedPaths == ["real.txt", "wrangler.toml"])
+    }
+
     @Test func pathsThatDoNotExistOnDiskAreExcludedFromTheCommit() async throws {
         let (source, config) = tmpDirs()
         try "content".write(to: source.appendingPathComponent("real.txt"), atomically: true, encoding: .utf8)

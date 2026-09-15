@@ -120,14 +120,15 @@ struct SiteScaffolderTests {
         #expect(css.contains("--color-primary: #1e3a5f;"))
     }
 
-    @Test("the happy path writes a deployable wrangler config")
+    @Test("the happy path writes a deployable wrangler config into Config/, never into Source/ (#1960)")
     func happyPathWritesADeployableWranglerConfig() async throws {
         let root = tmpDir()
         let scaffolder = makeScaffolder(root: root)
         for await _ in scaffolder.scaffold(makeDraft()) {}
 
         let pkgURL = root.appendingPathComponent("acme-co.anglesite")
-        let toml = try String(contentsOf: pkgURL.appendingPathComponent("Source/wrangler.toml"), encoding: .utf8)
+        #expect(!FileManager.default.fileExists(atPath: pkgURL.appendingPathComponent("Source/wrangler.toml").path))
+        let toml = try String(contentsOf: pkgURL.appendingPathComponent("Config/wrangler.toml"), encoding: .utf8)
         #expect(toml.contains(#"name = "acme-co""#))
         #expect(toml.contains(#"directory = "dist""#))
         // Static-only: no social-feature bindings and no Worker entrypoint.

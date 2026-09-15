@@ -1,6 +1,7 @@
 import Foundation
 
-/// Runs every existing-site migration step — app-owned script-file sync (`scripts/`, `src/lib/`)
+/// Runs every existing-site migration step — app-owned script-file sync (`scripts/`, `src/lib/`),
+/// `DeployStateRelocation` (#1960: `wrangler.toml`/deploy markers from `Source/` to `Config/`),
 /// and `SecurityTxtMigrationChecker`/`Applier` — for both the windowed site-open path
 /// (`SiteWindowModel.loadAndStart()`) and the headless App Intents/Shortcuts/Siri path
 /// (`SiteOperations`). One implementation, one set of decisions (#1962, owner decision D1,
@@ -71,6 +72,11 @@ public enum ExistingSiteMigration {
         )
 
         var report = Report()
+
+        // #1960: app-owned deploy state (`wrangler.toml`, the `CF_WORKER_*`/`CF_SOURCE_BUCKET`
+        // markers) leaves `Source/` for `Config/`. Never a decision — the app knows where its own
+        // state belongs — so it runs identically here and in the windowed path.
+        report.otherTouchedPaths += DeployStateRelocation.apply(sourceDirectory: sourceDirectory, configDirectory: configDirectory)
 
         if let templateDirectory {
             let plan = TemplateScriptsSyncChecker.check(

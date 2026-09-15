@@ -105,7 +105,8 @@ import Foundation
         // file from one that never got attempted. The fixed version keeps trying every pin and
         // returns exactly the ones that landed.
         let control = ScriptedRestoreControl(failingCallIndex: 2)
-        let executor = ContainerDeployExecutor(control: control, siteID: "s", logCenter: LogCenter())
+        let executor = ContainerDeployExecutor(
+            control: control, siteID: "s", configDirectory: FileManager.default.temporaryDirectory, logCenter: LogCenter())
         let pins = [
             AppOwnedScriptsGate.Pin(relativePath: "scripts/pre-deploy-check.ts", content: Data("a".utf8)),
             AppOwnedScriptsGate.Pin(relativePath: "src/lib/rsl.ts", content: Data("b".utf8)),
@@ -121,7 +122,8 @@ import Foundation
 
     @Test func restoreAppOwnedScriptsReportsAllPathsWhenNoneFail() async throws {
         let control = ScriptedRestoreControl(failingCallIndex: nil)
-        let executor = ContainerDeployExecutor(control: control, siteID: "s", logCenter: LogCenter())
+        let executor = ContainerDeployExecutor(
+            control: control, siteID: "s", configDirectory: FileManager.default.temporaryDirectory, logCenter: LogCenter())
         let pins = [AppOwnedScriptsGate.Pin(relativePath: "scripts/pre-deploy-check.ts", content: Data("a".utf8))]
         let restored = await executor.restoreAppOwnedScripts(pins, source: "test")
         #expect(restored == ["scripts/pre-deploy-check.ts"])
