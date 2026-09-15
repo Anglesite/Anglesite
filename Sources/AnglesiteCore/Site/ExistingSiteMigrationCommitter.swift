@@ -39,7 +39,7 @@ public enum ExistingSiteMigrationCommitter {
         configDirectory: URL,
         message: String,
         gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch,
-        isTracked: @Sendable (URL, String) async -> Bool = InboxSubmissionCommitter.isTracked
+        isTracked: (@Sendable (URL, String) async -> Bool)? = nil
     ) async -> Bool {
         let alreadyPending = ExistingSiteMigrationPendingCommit.load(from: configDirectory).pendingPaths
         var paths: [String] = []
@@ -54,7 +54,17 @@ public enum ExistingSiteMigrationCommitter {
                 paths.append(path)
                 continue
             }
-            let tracked = await isTracked(sourceDirectory, path)
+            // `isTracked` is an optional seam rather than a defaulted parameter on purpose (#1990):
+            // Swift 6.3.3 (Xcode 26.6, CI's build-test toolchain) under-sizes the async context of
+            // the `@Sendable` closure it synthesizes for a `= InboxSubmissionCommitter.isTracked`
+            // default when a cross-module caller omits the argument, and the task allocator then
+            // aborts ("freed pointer was not the last allocation"). A direct call has no thunk.
+            let tracked: Bool
+            if let isTracked {
+                tracked = await isTracked(sourceDirectory, path)
+            } else {
+                tracked = await InboxSubmissionCommitter.isTracked(sourceDirectory, path)
+            }
             if tracked {
                 paths.append(path)
             }
@@ -80,7 +90,7 @@ public enum ExistingSiteMigrationCommitter {
         configDirectory: URL,
         message: String,
         gitCommitBatch: @Sendable (URL, [String], String) async -> String? = InboxSubmissionCommitter.processGitCommitBatch,
-        isTracked: @Sendable (URL, String) async -> Bool = InboxSubmissionCommitter.isTracked
+        isTracked: (@Sendable (URL, String) async -> Bool)? = nil
     ) async -> Bool {
         let pending = ExistingSiteMigrationPendingCommit.load(from: configDirectory)
         guard !pending.pendingPaths.isEmpty else { return true }

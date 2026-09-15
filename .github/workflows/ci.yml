@@ -671,10 +671,12 @@ jobs:
           diag_status=0
           echo '=== DIAG A0 ==='
           swift test -c debug --parallel --filter 'relocatesLegacyDeployStateIntoConfigWithoutAskingOrLoggingAFinding' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A0: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X1 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x1_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X1: FAILED ==='; diag_status=1; }
           echo '=== DIAG X10 ==='
           swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x10_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X10: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X13 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x13_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X13: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X11 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x11_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X11: FAILED ==='; diag_status=1; }
           echo '=== DIAG X14 ==='
           swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x14_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X14: FAILED ==='; diag_status=1; }
           exit $diag_status
@@ -687,10 +689,15 @@ jobs:
         if: always()
         run: |
           set +e
-          bash .github/diag-1990/run.sh 2>&1 | head -700
+          bash .github/diag-1990/run-pkg.sh 2>&1 | head -400
           echo "=== LINKED BUNDLE: async function pointer records + resolved disassembly ==="
           BIN=$(find .build/arm64-apple-macosx/debug -path '*AnglesitePackageTests.xctest/Contents/MacOS/AnglesitePackageTests' | head -1); echo "binary: $BIN"
-          python3 .github/diag-1990/afp.py "$BIN" 2>&1 | head -900
+          python3 .github/diag-1990/afp.py "$BIN" 2>&1 | head -1500
+          for o in Issue1990Diag.swift.o Issue1990ExperimentTests.swift.o ExistingSiteMigrationCommitter.swift.o ExistingSiteMigrationCommitterTests.swift.o ExistingSiteMigrationTests.swift.o; do
+            f=$(find .build/arm64-apple-macosx/debug -name "$o" | head -1)
+            echo "=== OBJECT $o: $f ==="
+            python3 .github/diag-1990/afp.py "$f" 2>&1 | awk '/=== async function pointer records/{p=1} /=== resolved disassembly/{p=0} p'
+          done
 
       - name: Dump crash reports (DIAGNOSTIC #1990)
         if: always()

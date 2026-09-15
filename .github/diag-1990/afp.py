@@ -6,13 +6,9 @@ import re, struct, subprocess, sys
 
 binary = sys.argv[1]
 PATTERNS = [
-    "default argument 5 of static ExistingSiteMigrationCommitter.commit",
-    "default argument 1 of static Issue1990Diag.via",
-    "InboxSubmissionCommitter.isTracked",
-    "Issue1990Diag.localAsync", "Issue1990Diag.localSendableAsync",
-    "Issue1990Diag.viaFuncRefDefault", "Issue1990Diag.viaLocalFuncRefDefault",
-    "Issue1990Diag.viaLocalSendableFuncRefDefault",
-    "static ExistingSiteMigrationCommitter.commit(touchedPaths:sourceDirectory:configDirectory:message:gitCommitBatch:isTracked:)",
+    "ExistingSiteMigrationCommitter.commit(", "ExistingSiteMigrationCommitter.retryPendingCommit(",
+    "Issue1990Diag.", "InboxSubmissionCommitter.isTracked", "InboxSubmissionCommitter.processGitCommitBatch",
+    "x2_isTrackedViaClosureValueNonRepo",
 ] + sys.argv[2:]
 
 nm = subprocess.run(["nm", "-n", binary], capture_output=True, text=True).stdout.splitlines()
@@ -25,7 +21,7 @@ names = "\n".join(r[2] for r in rows)
 dem = subprocess.run(["swift", "demangle", "-compact"], input=names, capture_output=True, text=True).stdout.splitlines()
 sel = []
 for (addr, typ, mangled), d in zip(rows, dem):
-    if any(p in d for p in PATTERNS) and "Issue1990ExperimentTests" not in d:
+    if any(p in d for p in PATTERNS):
         sel.append((addr, typ, mangled, d))
 print("=== selected symbols ===")
 for addr, typ, mangled, d in sel:
@@ -74,9 +70,9 @@ for addr, typ, mangled, d in sel:
 
 print("\n=== resolved disassembly of thunks and callees ===")
 want = [mangled for addr, typ, mangled, d in sel
-        if typ in "tT" and ("implicit closure" in d or "localAsync" in d or "localSendableAsync" in d or "InboxSubmissionCommitter.isTracked" in d)]
+        if typ in "tT" and ("closure" in d and "default argument" in d and "Issue1990Diag" in d)]
 if want:
     out = subprocess.run(["objdump", "-d", "--no-show-raw-insn", "--disassemble-symbols=" + ",".join(want), binary],
                          capture_output=True, text=True).stdout
     out = subprocess.run(["swift", "demangle", "-compact"], input=out, capture_output=True, text=True).stdout
-    print(out[:60000])
+    print(out[:40000])
