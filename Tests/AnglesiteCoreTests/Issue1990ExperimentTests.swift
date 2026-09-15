@@ -131,5 +131,26 @@ import SwiftGit2
         )
         #expect(WranglerConfigFile.read(configDirectory: config) == "name = \"acme\"\n")
     }
+
+    @Test func x10_diagViaFuncRefDefault() async throws {
+        let (source, _, _) = tmpDirs()
+        #expect(await Issue1990Diag.viaFuncRefDefault(source) == false)
+    }
+    @Test func x11_diagViaLiteralDefault() async throws {
+        let (source, _, _) = tmpDirs()
+        #expect(await Issue1990Diag.viaLiteralDefault(source) == false)
+    }
+    @Test func x12_diagViaNonSendableFuncRefDefault() async throws {
+        let (source, _, _) = tmpDirs()
+        #expect(await Issue1990Diag.viaNonSendableFuncRefDefault(source) == false)
+    }
+    @Test func x13_diagViaLocalFuncRefDefault() async throws {
+        let (source, _, _) = tmpDirs()
+        #expect(await Issue1990Diag.viaLocalFuncRefDefault(source) == false)
+    }
+    @Test func x14_diagViaLocalSendableFuncRefDefault() async throws {
+        let (source, _, _) = tmpDirs()
+        #expect(await Issue1990Diag.viaLocalSendableFuncRefDefault(source) == false)
+    }
 }
 #endif

@@ -691,10 +691,59 @@ jobs:
           swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x8_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X8: FAILED ==='; diag_status=1; }
           echo '=== DIAG X9 ==='
           swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x9_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X9: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X10 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x10_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X10: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X11 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x11_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X11: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X12 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x12_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X12: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X13 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x13_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X13: FAILED ==='; diag_status=1; }
+          echo '=== DIAG X14 ==='
+          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x14_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X14: FAILED ==='; diag_status=1; }
           exit $diag_status
 
       # DIAGNOSTIC (#1990, revert before merge): print every crash report the test step produced,
       # symbolicating frames in our own images with atos where ReportCrash left them raw.
+      # DIAGNOSTIC (#1990, revert before merge): standalone swiftc reproducer + disassembly of the
+      # real crashing thunk in the built object.
+      - name: Standalone reproducer and thunk disassembly (DIAGNOSTIC #1990)
+        if: always()
+        run: |
+          set +e
+          bash .github/diag-1990/run.sh 2>&1 | head -700
+          echo "=== BUILT OBJECT: default-argument thunk of ExistingSiteMigrationCommitter.commit ==="
+          O=$(find .build -name 'ExistingSiteMigrationCommitter.swift.o' | head -1); echo "object: $O"
+          nm -n "$O" | swift demangle | grep -n "default argument\|isTracked" | head -40
+          objdump -d --no-show-raw-insn "$O" | swift demangle | python3 -c '
+          import sys,re
+          out=sys.stdin.read()
+          for blk in re.split(r"\n\n", out):
+              h=blk.split("\n",1)[0]
+              if "default argument 5 of" in h:
+                  print(blk); print()
+          ' | head -400
+          echo "=== BUILT OBJECT: x2 hand thunk in the test module ==="
+          T=$(find .build -name 'Issue1990ExperimentTests.swift.o' | head -1); echo "object: $T"
+          objdump -d --no-show-raw-insn "$T" | swift demangle | python3 -c '
+          import sys,re
+          out=sys.stdin.read()
+          for blk in re.split(r"\n\n", out):
+              h=blk.split("\n",1)[0]
+              if "implicit closure" in h and "x2_" in h:
+                  print(blk); print()
+          ' | head -200
+          echo "=== BUILT OBJECT: Issue1990Diag default-argument thunks ==="
+          G=$(find .build -name 'Issue1990Diag.swift.o' | head -1); echo "object: $G"
+          objdump -d --no-show-raw-insn "$G" | swift demangle | python3 -c '
+          import sys,re
+          out=sys.stdin.read()
+          for blk in re.split(r"\n\n", out):
+              h=blk.split("\n",1)[0]
+              if "default argument" in h:
+                  print(blk); print()
+          ' | head -600
+
       - name: Dump crash reports (DIAGNOSTIC #1990)
         if: always()
         run: |
