@@ -669,34 +669,10 @@ jobs:
           # isolated); B: the real full run. Crash reports are dumped by the step below.
           mkdir -p "$RUNNER_TEMP/diag" && date -u +%Y-%m-%dT%H:%M:%SZ > "$RUNNER_TEMP/diag/started-at"
           diag_status=0
-          echo '=== DIAG A1: ExistingSiteMigrationTests alone ==='
-          swift test -c debug --parallel --filter 'ExistingSiteMigrationTests' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A1: FAILED ==='; diag_status=1; }
-          echo '=== DIAG A0: the one crashing test alone ==='
+          echo '=== DIAG A0 ==='
           swift test -c debug --parallel --filter 'relocatesLegacyDeployStateIntoConfigWithoutAskingOrLoggingAFinding' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG A0: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X1 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x1_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X1: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X2 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x2_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X2: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X3 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x3_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X3: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X4 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x4_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X4: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X5 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x5_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X5: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X6 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x6_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X6: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X7 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x7_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X7: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X8 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x8_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X8: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X9 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x9_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X9: FAILED ==='; diag_status=1; }
           echo '=== DIAG X10 ==='
           swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x10_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X10: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X11 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x11_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X11: FAILED ==='; diag_status=1; }
-          echo '=== DIAG X12 ==='
-          swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x12_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X12: FAILED ==='; diag_status=1; }
           echo '=== DIAG X13 ==='
           swift test -c debug --parallel --filter 'Issue1990ExperimentTests/x13_' 2>&1 | tee -a "$RUNNER_TEMP/swift-test.log" || { echo '=== DIAG X13: FAILED ==='; diag_status=1; }
           echo '=== DIAG X14 ==='
@@ -712,37 +688,9 @@ jobs:
         run: |
           set +e
           bash .github/diag-1990/run.sh 2>&1 | head -700
-          echo "=== BUILT OBJECT: default-argument thunk of ExistingSiteMigrationCommitter.commit ==="
-          O=$(find .build -name 'ExistingSiteMigrationCommitter.swift.o' | head -1); echo "object: $O"
-          nm -n "$O" | swift demangle | grep -n "default argument\|isTracked" | head -40
-          objdump -d --no-show-raw-insn "$O" | swift demangle | python3 -c '
-          import sys,re
-          out=sys.stdin.read()
-          for blk in re.split(r"\n\n", out):
-              h=blk.split("\n",1)[0]
-              if "default argument 5 of" in h:
-                  print(blk); print()
-          ' | head -400
-          echo "=== BUILT OBJECT: x2 hand thunk in the test module ==="
-          T=$(find .build -name 'Issue1990ExperimentTests.swift.o' | head -1); echo "object: $T"
-          objdump -d --no-show-raw-insn "$T" | swift demangle | python3 -c '
-          import sys,re
-          out=sys.stdin.read()
-          for blk in re.split(r"\n\n", out):
-              h=blk.split("\n",1)[0]
-              if "implicit closure" in h and "x2_" in h:
-                  print(blk); print()
-          ' | head -200
-          echo "=== BUILT OBJECT: Issue1990Diag default-argument thunks ==="
-          G=$(find .build -name 'Issue1990Diag.swift.o' | head -1); echo "object: $G"
-          objdump -d --no-show-raw-insn "$G" | swift demangle | python3 -c '
-          import sys,re
-          out=sys.stdin.read()
-          for blk in re.split(r"\n\n", out):
-              h=blk.split("\n",1)[0]
-              if "default argument" in h:
-                  print(blk); print()
-          ' | head -600
+          echo "=== LINKED BUNDLE: async function pointer records + resolved disassembly ==="
+          BIN=$(find .build/arm64-apple-macosx/debug -path '*AnglesitePackageTests.xctest/Contents/MacOS/AnglesitePackageTests' | head -1); echo "binary: $BIN"
+          python3 .github/diag-1990/afp.py "$BIN" 2>&1 | head -900
 
       - name: Dump crash reports (DIAGNOSTIC #1990)
         if: always()
