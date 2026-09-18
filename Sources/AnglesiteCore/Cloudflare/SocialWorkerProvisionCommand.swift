@@ -24,8 +24,8 @@ public actor SocialWorkerProvisionCommand {
         /// already created some.
         case blocked(failures: [PreDeployCheck.ScanFailure], warnings: [PreDeployCheck.ScanWarning], resources: WorkerComposition.ProvisionedResources)
         /// The candidate Worker name is already in use on the connected Cloudflare account by a
-        /// project this site's own local config doesn't already claim as its own (`.site-config`'s
-        /// `CF_WORKER_DEPLOYED`/`CF_WORKER_PROVISIONED`) — mirrors
+        /// project this site's own local config doesn't already claim as its own
+        /// (`SiteSettings.workerDeployed`/`.workerProvisioned` in `Config/settings.plist`, #1960) — mirrors
         /// `DeployCommand.Result.workerNameConflict` rather than collapsing it, so callers can
         /// drive the same rename-and-retry UX (#740). Checked at the very start of `provision()`,
         /// before any wrangler call runs against the name, so a genuine collision is caught before
@@ -42,7 +42,7 @@ public actor SocialWorkerProvisionCommand {
         /// plan fact.)
         case webmentionPaidPlanConfirmationNeeded(resources: WorkerComposition.ProvisionedResources)
         /// Mirrors `DeployCommand.Result.domainConfigDrift` (#1173) — the downstream deploy's
-        /// declared-vs-live check found drift. This check runs in `authorize(siteDirectory:)`,
+        /// declared-vs-live check found drift. This check runs in `authorize(siteDirectory:configDirectory:)`,
         /// before any of this command's own resource creation (`publish(context:)` is only
         /// reached once `authorize` returns `.ready`), so a fresh provisioning attempt that hits
         /// drift here typically has no resources yet; `resources` still rides along, same as
@@ -156,6 +156,10 @@ public actor SocialWorkerProvisionCommand {
     public func provision(
         siteID: String,
         siteDirectory: URL,
+        /// The site's `Config/` directory — where `wrangler.toml` and the deploy markers live
+        /// (#1960) — forwarded to `DeployCommand.deploy`, which also uses it for route-coverage
+        /// scanning and the deployed-routes snapshot write (#530).
+        configDirectory: URL,
         siteName: String,
         workers: [WorkerDescriptor],
         /// Effective active dynamic-route claims (#746), pre-validated via
@@ -236,11 +240,7 @@ public actor SocialWorkerProvisionCommand {
         /// `needsKV`-flagged worker active still needs `SOCIAL_KV` when MCP is on, since
         /// `worker/mcp-server.ts`'s rate limiter binds to it.
         mcpEnabled: Bool = false,
-        /// The site's `Config/` directory, forwarded verbatim to `DeployCommand.deploy` — `nil`
-        /// skips route-coverage scanning and the deployed-routes snapshot write (#530).
-        configDirectory: URL? = nil,
-        /// The site's currently published route set, forwarded verbatim to `DeployCommand.deploy`
-        /// — used only when `configDirectory` is non-nil.
+        /// The site's currently published route set, forwarded verbatim to `DeployCommand.deploy`.
         currentRoutes: [String] = [],
         /// Forwarded verbatim to `DeployCommand.deploy` so a caller (`DeployModel`) can observe
         /// the pre-deploy security scan's outcome as it happens.
@@ -262,7 +262,9 @@ public actor SocialWorkerProvisionCommand {
         // already exist on the account, which Cloudflare rejects. Falling back to a best-effort
         // scrape of the site's own `wrangler.toml` — the same file `persistConfig` writes the
         // real ids into — is strictly safer than trusting the caller-supplied value alone.
-        let resources = knownResources == .init() ? Self.readPersistedResources(from: siteDirectory) : knownResources
+        let resources = knownResources == .init()
+            ? Self.readPersistedResources(configDirectory: configDirectory, sourceDirectory: siteDirectory)
+            : knownResources
 
         let token: String?
         do {
@@ -318,15 +320,18 @@ public actor SocialWorkerProvisionCommand {
     }
 
     /// Best-effort recovery of already-provisioned resource ids from the site's own
-    /// `wrangler.toml` — the fallback `provision()` uses when `knownResources` (normally seeded
-    /// from `SiteSettings.provisionedWorkerResources`) is empty, so a site whose resources were
-    /// created before that persisted field existed (or whose settings were reset independently of
-    /// its `wrangler.toml`) doesn't get silently treated as unprovisioned and re-create Cloudflare
-    /// resources that already exist. `.init()` (all-nil) when there's no file to read, which
-    /// `provision()` then treats exactly like a genuinely fresh site.
-    static func readPersistedResources(from siteDirectory: URL) -> WorkerComposition.ProvisionedResources {
-        let url = siteDirectory.appendingPathComponent("wrangler.toml")
-        guard let toml = try? String(contentsOf: url, encoding: .utf8) else {
+    /// `Config/wrangler.toml` (#1960) — the fallback `provision()` uses when `knownResources`
+    /// (normally seeded from `SiteSettings.provisionedWorkerResources`) is empty, so a site whose
+    /// resources were created before that persisted field existed (or whose settings were reset
+    /// independently of its `wrangler.toml`) doesn't get silently treated as unprovisioned and
+    /// re-create Cloudflare resources that already exist. A site that predates the relocation and
+    /// somehow reached a deploy before `DeployStateRelocation` moved its file is read from the
+    /// legacy `Source/wrangler.toml` as a last resort. `.init()` (all-nil) when there's no file to
+    /// read, which `provision()` then treats exactly like a genuinely fresh site.
+    static func readPersistedResources(configDirectory: URL, sourceDirectory: URL) -> WorkerComposition.ProvisionedResources {
+        guard let toml = WranglerConfigFile.read(configDirectory: configDirectory)
+                ?? (try? String(contentsOf: WranglerConfigFile.legacyURL(sourceDirectory: sourceDirectory), encoding: .utf8))
+        else {
             return .init()
         }
         // Three features each own a queue; the generated names are deterministic

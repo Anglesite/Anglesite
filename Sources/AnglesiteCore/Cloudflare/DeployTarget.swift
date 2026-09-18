@@ -1,6 +1,6 @@
 import Foundation
 
-/// Outcome of a `DeployTarget`'s pre-build gate (`authorize(siteDirectory:)`). `DeployCommand`
+/// Outcome of a `DeployTarget`'s pre-build gate (`authorize(siteDirectory:configDirectory:)`). `DeployCommand`
 /// calls this before spending any time on the well-known scan or the build, so a deploy that
 /// can't succeed fails fast — matches `DeployCommand.deploy`'s original pre-spawn-refusal
 /// behavior exactly.
@@ -20,15 +20,16 @@ public enum DeployTargetAuthorization: Sendable {
 public struct DeployTargetContext: Sendable {
     public let siteID: String
     public let siteDirectory: URL
-    /// The site's `Config/` directory, or `nil` when the caller didn't supply one (tests, and the
-    /// two non-primary deploy paths in `SocialWorkerProvisionCommand`/`SiteOperations`) — mirrors
-    /// `DeployCommand.deploy`'s own `configDirectory` parameter (#530).
-    public let configDirectory: URL?
+    /// The site's `Config/` directory — where the generated `wrangler.toml`, the deploy markers
+    /// (`SiteSettings.workerDeployed`/`.workerProvisioned`/`.sourceBundleBucket`) and the
+    /// deployed-routes snapshot live (#1960, #530). Always supplied: app-owned deploy state has
+    /// no other home.
+    public let configDirectory: URL
     /// The site's currently published route set, forwarded from `DeployCommand.deploy`'s
-    /// `currentRoutes` parameter — only meaningful when `configDirectory` is non-nil.
+    /// `currentRoutes` parameter.
     public let currentRoutes: [String]
-    /// The credential `authorize(siteDirectory:)` resolved, forwarded verbatim from its
-    /// `.ready(credential:)` case.
+    /// The credential `authorize(siteDirectory:configDirectory:)` resolved, forwarded verbatim
+    /// from its `.ready(credential:)` case.
     public let credential: String
     /// The curated, secret-stripped environment `DeployCommand.hostDeployEnvironment()` produced
     /// for the build/preflight steps — the target adds its own credential to this (rather than
@@ -54,7 +55,7 @@ public struct DeployTargetContext: Sendable {
     public init(
         siteID: String,
         siteDirectory: URL,
-        configDirectory: URL?,
+        configDirectory: URL,
         currentRoutes: [String],
         credential: String,
         baseEnvironment: [String: String],
@@ -81,7 +82,7 @@ public struct DeployTargetContext: Sendable {
 /// specific to its provider: credential resolution, any target-specific pre-checks, the actual
 /// upload, and post-publish effects. `CloudflareDeployTarget` is the only conformer today.
 ///
-/// `DeployCommand.deploy` calls `authorize(siteDirectory:)` before the shared well-known-scan and
+/// `DeployCommand.deploy` calls `authorize(siteDirectory:configDirectory:)` before the shared well-known-scan and
 /// build steps run, then `publish(context:)` only after those and the non-bypassable
 /// `PreDeployCheck` preflight have all passed — no conformer gets a hook into the preflight gate
 /// itself.
@@ -94,8 +95,9 @@ public protocol DeployTarget: Sendable {
 
     /// Pre-build gate: resolves this target's credential and runs any fail-fast checks against
     /// current deployed state. Called before the well-known scan and the build, so a deploy that
-    /// can't succeed never pays for either.
-    func authorize(siteDirectory: URL) async -> DeployTargetAuthorization
+    /// can't succeed never pays for either. `configDirectory` is the site's `Config/`, where
+    /// the deploy markers a pre-check may consult live (#1960).
+    func authorize(siteDirectory: URL, configDirectory: URL) async -> DeployTargetAuthorization
 
     /// Publishes the build produced by the shared spine and performs any post-publish effects.
     /// Only called after `authorize` returned `.ready`, the well-known scan passed, the build

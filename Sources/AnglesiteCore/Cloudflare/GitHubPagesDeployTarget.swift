@@ -36,7 +36,7 @@ public struct GitHubPagesDeployTarget: DeployTarget {
     /// Pre-build gate: token resolution only — no network call belongs here, matching
     /// `CloudflareDeployTarget.authorize`'s "fail-fast, not fail-first" posture. Repo
     /// creation/Pages enablement (which do call the network) happen in `publish`, not here.
-    public func authorize(siteDirectory: URL) async -> DeployTargetAuthorization {
+    public func authorize(siteDirectory: URL, configDirectory: URL) async -> DeployTargetAuthorization {
         let token: String?
         do {
             token = try await tokenSource()

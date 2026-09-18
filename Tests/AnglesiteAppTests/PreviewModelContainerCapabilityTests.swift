@@ -243,8 +243,9 @@ struct PreviewModelContainerCapabilityTests {
     @Test("sourcePublishGateProvider() resolves a real container Runtime once the container is up")
     func sourcePublishGateProviderResolvesOnceBooted() async {
         let runtime = FakeContainerCapableSiteRuntime()
-        await runtime.start(siteID: "custom-site", siteDirectory: URL(fileURLWithPath: "/unused"))
-        let model = PreviewModel(runtime: runtime)
+        let siteDirectory = URL(fileURLWithPath: "/unused")
+        await runtime.start(siteID: "custom-site", siteDirectory: siteDirectory)
+        let model = PreviewModel(runtime: runtime, openSiteDirectory: siteDirectory)
         let provider = PreviewModel.sourcePublishGateProvider(for: model)
 
         guard let resolved = await provider() else {

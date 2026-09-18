@@ -195,8 +195,9 @@ public actor SiteScaffolder {
         // uniqueness check ran against) so a fresh site is deployable without hand-editing
         // wrangler.toml, and two sites never clobber each other's Worker. `WorkerSiteName` (not
         // the bare folder `SiteSlug`) so the name also fits wrangler's resource-name budget (#1750).
+        // Written into `Config/`, not `Source/` (#1960): it's app-owned provisioning state.
         let projectSlug = WorkerSiteName.derive(from: draft.name)
-        do { try writeWranglerConfig(siteName: projectSlug, siteDir: siteDir) }
+        do { try writeWranglerConfig(siteName: projectSlug, configDir: configDir) }
         catch { emit(.warning(step: "writingContent", message: "Cloudflare Worker config not written: \(humanize(error))")) }
 
         do { try appendSiteConfig(draft, logoPublicPath: logoPublicPath, metadataDescription: metadataDescription, siteDir: siteDir, cfProjectName: projectSlug) }
@@ -231,12 +232,12 @@ public actor SiteScaffolder {
         } catch { emit(.failed(step: "registering", message: humanize(error))) }
     }
 
-    /// Writes a static-only `wrangler.toml` (no social features) so the site is deployable via
-    /// `npx wrangler deploy` with no manual setup. `SocialWorkerProvisionCommand` overwrites this
+    /// Writes a static-only `Config/wrangler.toml` (no social features) so the site is deployable
+    /// via `wrangler deploy` with no manual setup. `SocialWorkerProvisionTarget` overwrites this
     /// with a features-enabled config if the owner opts into social features later.
-    private func writeWranglerConfig(siteName: String, siteDir: URL) throws {
+    private func writeWranglerConfig(siteName: String, configDir: URL) throws {
         let configuration = try WorkerComposition.generateWranglerToml(siteName: siteName, workers: [])
-        try configuration.toml.write(to: siteDir.appendingPathComponent("wrangler.toml"), atomically: true, encoding: .utf8)
+        try WranglerConfigFile.write(configuration.toml, configDirectory: configDir, fileManager: fileManager)
     }
 
     /// Append owner answers without clobbering existing lines (e.g. ANGLESITE_VERSION).

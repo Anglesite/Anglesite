@@ -31,7 +31,7 @@ public struct SourcePublishGate: Sendable {
         /// Runs the source scan against the site and returns the parsed outcome.
         public let scan: @Sendable (_ sourceDirectory: URL) async -> PreDeployCheck.Outcome
 
-        /// Memberwise — production runtimes come from ``containerRuntime(control:siteID:syncFromHost:logCenter:)``,
+        /// Memberwise — production runtimes come from ``containerRuntime(control:siteID:configDirectory:syncFromHost:logCenter:)``,
         /// tests build one around a canned outcome.
         public init(
             scriptsCopy: AppOwnedScriptsGate.RuntimeCopy?,
@@ -132,10 +132,12 @@ public struct SourcePublishGate: Sendable {
     public static func containerRuntime(
         control: any LocalContainerControl,
         siteID: String,
+        configDirectory: URL,
         syncFromHost: @escaping @Sendable () async throws -> Void,
         logCenter: LogCenter = .shared
     ) -> Runtime {
-        let executor = ContainerDeployExecutor(control: control, siteID: siteID, logCenter: logCenter)
+        let executor = ContainerDeployExecutor(
+            control: control, siteID: siteID, configDirectory: configDirectory, logCenter: logCenter)
         let source = "publish:\(siteID):scan"
         return Runtime(
             scriptsCopy: AppOwnedScriptsGate.RuntimeCopy(executor: executor, source: source),

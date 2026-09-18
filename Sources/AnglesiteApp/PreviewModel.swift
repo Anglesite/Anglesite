@@ -333,8 +333,9 @@ final class PreviewModel {
         ))
     }
 
-    init(runtime: any SiteRuntime) {
+    init(runtime: any SiteRuntime, openSiteDirectory: URL? = nil) {
         self.runtime = runtime
+        self.openSiteDirectory = openSiteDirectory
         self.editRouter = MCPApplyEditRouter(
             mcpClient: { [weak runtime] in
                 // `runtime` is the actor instance; reading `mcpClient` hops onto the actor.
@@ -816,8 +817,11 @@ final class PreviewModel {
                                 + "container preview")
                     })
             }
+            guard let siteDirectory = await preview.openSiteDirectory else { return nil }
+            let configDirectory = siteDirectory.deletingLastPathComponent()
+                .appendingPathComponent("Config", isDirectory: true)
             return SourcePublishGate.containerRuntime(
-                control: cc.control, siteID: cc.siteID,
+                control: cc.control, siteID: cc.siteID, configDirectory: configDirectory,
                 syncFromHost: { try await preview.syncContentFromHostOrThrow() })
         }
     }
