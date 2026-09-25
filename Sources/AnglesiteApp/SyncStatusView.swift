@@ -96,6 +96,9 @@ struct SyncStatusView: View {
                 Text("iCloud Sync").font(.headline)
             }
             Text(model.statusLabel).font(.callout).foregroundStyle(.secondary)
+            if let detail = model.failureDetail {
+                FailureDetailsView(detail: detail)
+            }
             if model.bannerPresented {
                 Button("Resolve…") {
                     popoverPresented = false

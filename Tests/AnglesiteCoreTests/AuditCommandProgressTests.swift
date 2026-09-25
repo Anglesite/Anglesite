@@ -14,7 +14,7 @@ struct AuditCommandProgressTests {
             resolveCommand: { step in
                 switch step {
                 case .build: return { _ in .run(executable: URL(fileURLWithPath: "/usr/bin/true"), arguments: []) }
-                case .a11y: return { _ in .unavailable(reason: "not used by this fixture") }
+                case .a11y, .brokenLinks: return { _ in .unavailable(reason: "not used by this fixture") }
                 }
             }
         )

@@ -31,7 +31,7 @@ struct BackupCommandCancellationTests {
             if args.first == "add" { await cancelHolder.cancel() }   // cancel right after staging
             return (0, "")
         }
-        let cmd = BackupCommand(runner: runner, streamer: streamer)
+        let cmd = BackupCommand(runner: runner, streamer: streamer, gate: .passing)
         let task = Task { await cmd.backup(siteID: "s", siteDirectory: URL(fileURLWithPath: "/tmp/s")) }
         await cancelHolder.hold(task)
         let result = await task.value

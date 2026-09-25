@@ -16,6 +16,7 @@ import AnglesiteTestSupport
     @discardableResult
     private func git(_ arguments: [String], in dir: URL) async throws -> String {
         let result = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: ["git"] + arguments,
             currentDirectoryURL: dir
@@ -48,7 +49,7 @@ import AnglesiteTestSupport
         try "hello v2".write(to: site.appendingPathComponent("hello.txt"), atomically: true, encoding: .utf8)
 
         let siteID = "e2e-\(UUID().uuidString)"
-        let result = await BackupCommand().backup(siteID: siteID, siteDirectory: site)
+        let result = await BackupCommand(gate: .passing).backup(siteID: siteID, siteDirectory: site)
 
         guard case .succeeded(let sha, let branch, let remoteURL) = result else {
             Issue.record("expected .succeeded, got \(result)")
@@ -84,7 +85,7 @@ import AnglesiteTestSupport
         try await git(["remote", "add", "origin", remote.absoluteString], in: site)
         try await git(["push", "origin", "draft"], in: site)
 
-        let result = await BackupCommand().backup(siteID: "e2e-clean", siteDirectory: site)
+        let result = await BackupCommand(gate: .passing).backup(siteID: "e2e-clean", siteDirectory: site)
         #expect(result == .noChanges)
     }
 
@@ -108,7 +109,7 @@ import AnglesiteTestSupport
         try await git(["commit", "-m", "stranded"], in: site)
         let localHEAD = try await git(["rev-parse", "HEAD"], in: site)
 
-        let result = await BackupCommand().backup(siteID: "e2e-stranded", siteDirectory: site)
+        let result = await BackupCommand(gate: .passing).backup(siteID: "e2e-stranded", siteDirectory: site)
 
         guard case .succeeded(let sha, _, _) = result else {
             Issue.record("expected .succeeded, got \(result)")

@@ -87,11 +87,13 @@ public struct DomainOperations: DomainOperationsService {
     public init(
         reader: any CloudflareReading = HTTPCloudflareClient(),
         writer: any CloudflareWriting = HTTPCloudflareClient(),
-        tokenProvider: @escaping @Sendable () async -> String? = DomainOperations.defaultTokenProvider
+        tokenProvider: (@Sendable () async -> String?)? = nil
     ) {
         self.reader = reader
         self.writer = writer
-        self.tokenProvider = tokenProvider
+        // #1990: see scripts/check-async-closure-default-args.sh — no function/value defaults on
+        // async closure parameters; resolve the optional here instead.
+        self.tokenProvider = tokenProvider ?? DomainOperations.defaultTokenProvider
     }
 
     /// Env → OAuth (refresh-aware) → legacy-token, via the shared resolver (#1211).

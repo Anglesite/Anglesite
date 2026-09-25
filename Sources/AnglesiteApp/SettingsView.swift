@@ -51,7 +51,7 @@ private struct GeneralSettingsView: View {
 
             Section("Sound") {
                 Toggle("Play dial-up sound while loading", isOn: $playsDialupSoundEffect)
-                Text("Plays a nostalgic dial-up modem sound while the dev server starts up or a publish is running. Purely decorative — off by default.")
+                Text("Plays a nostalgic dial-up modem sound while the preview starts up or a publish is running. Purely decorative — off by default.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -114,6 +114,12 @@ private struct AgentsSettingsView: View {
                     }
                 )
                 Text("Works with any OpenAI-compatible chat-completions endpoint — hosted providers or a self-hosted server on this machine or your network (e.g. Ollama, llama.cpp, vLLM). The base URL should not include \"/chat/completions\"; Anglesite appends it.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                // Off-device disclosure (#1965, LLM policy 2026-07-08 §8): the opt-in has to say
+                // what leaves the Mac. `ExternalLLMBackend` sends the page text (capped at
+                // `maxPageContentCharacters`) plus up to `maxHistoryMessages` of history per request.
+                Text("While Custom Endpoint is the active model, your chat messages, the recent conversation, and the text of the page you're editing are sent to this server with every request — they leave this Mac unless the server is one you run here. Choose a provider you trust with your site's content.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
@@ -301,6 +307,15 @@ private struct ACPAgentEditorSheet: View {
                 )
             }
 
+            // Same disclosure as the External LLM section (#1965): an agent is an opt-in that
+            // sees the owner's content. A `.stdio` agent execs inside the site's container with
+            // `Source/` as its working directory; a `.remote` one receives the chat over the network.
+            Text(kind == .local
+                 ? "This agent runs alongside your site and can read and change its files while it works. Only add agents you trust with your site's content."
+                 : "Your chat messages are sent to this address over the network while the agent is the active model. Only add agents you trust with your site's content.")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+
             HStack {
                 Button("Cancel", action: onCancel)
                 Spacer()
@@ -352,6 +367,7 @@ enum AdvancedSettingsCopy {
 private struct AdvancedSettingsView: View {
     @AppStorage(AppSettings.Key.sitesRootOverride) private var sitesRootOverride: String = ""
     @AppStorage(AppSettings.Key.debugPaneEnabled) private var debugPaneEnabled: Bool = false
+    @AppStorage(AppSettings.Key.developerToolsEnabled) private var developerToolsEnabled: Bool = false
     @AppStorage(AppSettings.Key.botPreferenceSyncUIEnabled) private var botPreferenceSyncUIEnabled: Bool = false
     @AppStorage(AppSettings.Key.lanRuntimeHost) private var lanRuntimeHost: String = ""
     @AppStorage(AppSettings.Key.lanRuntimePreviewPort) private var lanRuntimePreviewPort: String = ""
@@ -368,6 +384,13 @@ private struct AdvancedSettingsView: View {
         #else
         return debugPaneEnabled
         #endif
+    }
+
+    /// The one gate every code editor and the Safari bridge section read (#1964, D1) — see
+    /// `DeveloperToolsVisibility` for why, unlike `showsLANRuntimeSection`, Debug builds don't
+    /// auto-reveal it.
+    private var developerTools: DeveloperToolsVisibility {
+        DeveloperToolsVisibility(settingEnabled: developerToolsEnabled)
     }
 
     /// The effective port for the Safari MCP Bridge section below — falls back to
@@ -424,21 +447,34 @@ private struct AdvancedSettingsView: View {
                         AppSettings.shared.gitHubAccount.map { .init(label: $0.login, detail: $0.name, avatarURL: $0.avatarURL) }
                     }
                 )
-                Text("Used to push backups and publish sites to GitHub over HTTPS (the sandboxed app can't run `git` or `gh`, so it pushes in-process with this token). Create a fine-grained token scoped to All repositories with Contents: Read and write, Administration: Read and write access (Administration is needed to create a new repo when publishing), Pages: Read and write access (needed to publish a site via the GitHub Pages deploy target), Repository security advisories: Read, and Dependabot alerts: Read (both are used to show a site's open security reports) at github.com/settings/tokens. Stored in the macOS Keychain under `io.dwk.anglesite` and never written to logs.")
+                Text("Lets Anglesite back up your sites and publish them to your GitHub account. Create a fine-grained token at github.com/settings/tokens for All repositories with these permissions: Contents (read and write), Administration (read and write — lets Anglesite create a new project on GitHub when publishing), Pages (read and write — for publishing with GitHub Pages), Repository security advisories (read), and Dependabot alerts (read — both show a site's open security reports). Stored in the macOS Keychain and never written to logs.")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
-            Section("Safari MCP Bridge") {
-                LabeledContent("Bridge port") {
-                    TextField("", text: $safariMCPBridgePortText,
-                              prompt: Text(verbatim: AdvancedSettingsCopy.portPlaceholder(SafariMCPBridgeDetector.defaultPort)))
-                        .textFieldStyle(.roundedBorder)
-                        .frame(width: 100)
-                        .accessibilityLabel("Safari MCP bridge port")
-                        .accessibilityIdentifier(AXID.settingsSafariMCPBridgePort)
+            Section("Developer Tools") {
+                Toggle("Show developer tools", isOn: $developerToolsEnabled)
+                    .accessibilityIdentifier(AXID.settingsDeveloperToolsToggle)
+                Text("Adds a Source tab and code-level Style and Metadata inspectors to the Component Editor, opens your site's other files as plain text, and shows the Safari bridge setup below. Off by default: Anglesite takes care of these files for you, and everything you publish works without them.")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
+
+            // The bridge's setup guidance is a Terminal command (#1910) — a developer tool by
+            // definition (decision D1), so the whole section rides the toggle above rather than
+            // the Debug-pane rule the LAN section uses.
+            if developerTools.showsSafariBridgeSetup {
+                Section("Safari MCP Bridge") {
+                    LabeledContent("Bridge port") {
+                        TextField("", text: $safariMCPBridgePortText,
+                                  prompt: Text(verbatim: AdvancedSettingsCopy.portPlaceholder(SafariMCPBridgeDetector.defaultPort)))
+                            .textFieldStyle(.roundedBorder)
+                            .frame(width: 100)
+                            .accessibilityLabel("Safari MCP bridge port")
+                            .accessibilityIdentifier(AXID.settingsSafariMCPBridgePort)
+                    }
+                    SafariMCPBridgeStatusRow(port: safariMCPBridgePort)
                 }
-                SafariMCPBridgeStatusRow(port: safariMCPBridgePort)
             }
 
             if showsLANRuntimeSection {
@@ -466,7 +502,7 @@ private struct AdvancedSettingsView: View {
 
                     lanDiscoveryControls
 
-                    Text("Dev/test only: when this Mac can't boot the local container runtime (e.g. inside a VM without nested virtualization), Anglesite connects preview and editing to a dev server already running on the named host over the trusted local network. Leave the host blank to disable. Takes effect the next time a site window opens.")
+                    Text("Dev/test only: when this Mac can't boot the local container runtime (e.g. inside a VM without nested virtualization), Anglesite connects preview and editing to a site preview already running on the named host over the trusted local network. Leave the host blank to disable. Takes effect the next time a site window opens.")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }

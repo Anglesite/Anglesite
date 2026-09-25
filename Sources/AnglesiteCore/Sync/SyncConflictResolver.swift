@@ -39,6 +39,82 @@ public actor SyncConflictResolver {
         public let oursText: String?
         /// The other Mac's version of the file, or `nil` when deleted/binary/too large (see type doc).
         public let theirsText: String?
+        /// When this Mac's side was committed (the conflict's `ourOID` committer time), or `nil`
+        /// when that commit couldn't be read. Drives ``defaultChoice``.
+        public let oursDate: Date?
+        /// When the other Mac's side was committed (the `theirOID` committer time), or `nil`.
+        public let theirsDate: Date?
+
+        /// Owner-facing name for the sheet: the file's name without directory or extension
+        /// (`about` for `src/pages/about.astro`). Two files with the same name in different
+        /// directories, or the same name with different extensions, collide on this alone —
+        /// callers displaying a *list* of files should go through
+        /// ``SyncConflictResolver/displayNames(for:)`` instead, which disambiguates collisions.
+        /// The full path stays available as a developer detail (e.g. a tooltip).
+        public var displayName: String {
+            URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
+        }
+
+        /// The side the resolution sheet preselects for this file — see
+        /// ``SyncConflictResolver/defaultChoice(oursDate:theirsDate:)``.
+        public var defaultChoice: Choice {
+            SyncConflictResolver.defaultChoice(oursDate: oursDate, theirsDate: theirsDate)
+        }
+
+        /// The side that's *provably* the more recent edit, or `nil` when the two can't be
+        /// ordered — see ``SyncConflictResolver/newerSide(oursDate:theirsDate:)``. Distinct from
+        /// ``defaultChoice``: the sheet uses this to decide whether it's honest to label a
+        /// segment "(newer)", separately from which side `defaultChoice` preselects.
+        public var newerSide: Choice? {
+            SyncConflictResolver.newerSide(oursDate: oursDate, theirsDate: theirsDate)
+        }
+    }
+
+    /// The side that's provably the more recent edit: `nil` when the two commits' times can't be
+    /// ordered (either timestamp unreadable, or the same instant — a tie isn't "newer," it's
+    /// unknown). Kept separate from ``defaultChoice(oursDate:theirsDate:)`` on purpose: that
+    /// function *always* has to pick a side to preselect, even when this one can't tell which is
+    /// newer, and conflating the two let the resolution sheet's "(newer)" label show up on the
+    /// tie-break fallback as if Anglesite actually knew this Mac's edit was more recent.
+    public static func newerSide(oursDate: Date?, theirsDate: Date?) -> Choice? {
+        guard let oursDate, let theirsDate, oursDate != theirsDate else { return nil }
+        return theirsDate > oursDate ? .keepTheirs : .keepMine
+    }
+
+    /// The default the sheet opens with, so the owner is never handed an unanswered per-file
+    /// question (decision D1, #1964: the app advises; it does not delegate the decision). The
+    /// newer edit wins (``newerSide(oursDate:theirsDate:)``). When the two can't be ordered —
+    /// either timestamp unreadable, or the same instant — this Mac's version stays: it's what the
+    /// owner is looking at right now, so keeping it never changes anything on screen unexpectedly.
+    public static func defaultChoice(oursDate: Date?, theirsDate: Date?) -> Choice {
+        newerSide(oursDate: oursDate, theirsDate: theirsDate) ?? .keepMine
+    }
+
+    /// ``defaultChoice(oursDate:theirsDate:)`` for every file, keyed by path — the shape
+    /// ``resolve(package:conflict:choices:)`` takes, so the sheet's initial `choices` are exactly
+    /// what Apply would commit untouched.
+    public static func defaultChoices(for files: [ConflictedFile]) -> [String: Choice] {
+        Dictionary(uniqueKeysWithValues: files.map { ($0.path, $0.defaultChoice) })
+    }
+
+    /// ``ConflictedFile/displayName`` for every file, keyed by path, disambiguated when two or
+    /// more files in `files` share a display name — e.g. `src/pages/en/about.md` and
+    /// `src/pages/fr/about.md` both reduce to "about" alone, so this appends the parent directory
+    /// to each colliding entry ("about — en", "about — fr") rather than letting two indistinguishable
+    /// rows sit side by side in the resolution sheet. Non-colliding names are returned unchanged.
+    public static func displayNames(for files: [ConflictedFile]) -> [String: String] {
+        var countsByName: [String: Int] = [:]
+        for file in files { countsByName[file.displayName, default: 0] += 1 }
+        return Dictionary(uniqueKeysWithValues: files.map { file in
+            let base = file.displayName
+            guard (countsByName[base] ?? 0) > 1 else { return (file.path, base) }
+            // Pure string splitting, not `URL(fileURLWithPath:)` — these paths are relative to
+            // `Source/`, and resolving a relative URL against the process's actual working
+            // directory would make a top-level file's "parent" the app's cwd instead of "none".
+            let components = file.path.split(separator: "/")
+            guard components.count > 1, let parent = components.dropLast().last else { return (file.path, base) }
+            return (file.path, "\(base) — \(parent)")
+        })
     }
 
     /// Why a `resolve` call couldn't commit. Messages are lower-case fragments meant to be
@@ -82,11 +158,18 @@ public actor SyncConflictResolver {
               let ourOID = OID(string: conflict.ourOID), let theirOID = OID(string: conflict.theirOID)
         else { return [] }
 
+        // Tip-commit times, not per-path last-touch times: one revwalk per side is enough to
+        // order "which Mac edited more recently", and every path in one conflict shares the
+        // same two tips anyway.
+        let oursDate = (try? repo.commit(ourOID).get())?.committer.time
+        let theirsDate = (try? repo.commit(theirOID).get())?.committer.time
         return conflict.conflictedPaths.map { path in
             ConflictedFile(
                 path: path,
                 oursText: Self.blobText(repo: repo, commitOID: ourOID, path: path),
-                theirsText: Self.blobText(repo: repo, commitOID: theirOID, path: path)
+                theirsText: Self.blobText(repo: repo, commitOID: theirOID, path: path),
+                oursDate: oursDate,
+                theirsDate: theirsDate
             )
         }
     }

@@ -106,7 +106,7 @@ time.
 > `SyncSchedulerTests.conflictResolvedRepullsAndClears` covers leaving `needs attention` (2.7).
 > What stays manual: iCloud actually minting `NSFileVersion` conflict versions from two real
 > concurrent writes (2.2–2.3 — the tests hand-build those handles), the sheet and banner as
-> *rendered UI*, "Open Both…" opening Finder (2.6), and that the banner doesn't block editing (2.4).
+> *rendered UI*, "Compare Both…" opening Finder (2.6), and that the banner doesn't block editing (2.4).
 
 | Step | Action | Expected outcome |
 |---|---|---|
@@ -114,9 +114,9 @@ time.
 | 2.2 | Wait ~30s–2min for iCloud to propagate both writes, watching the sync icon on both Macs. | Both Macs eventually show `Synced` with **both** edits present — Debug Pane `sync:pull` shows a `merged` line (non-overlapping edits three-way-merge cleanly), never `conflicted`. No banner appears. |
 | 2.3 | Now edit **the same page, same content region** on both Macs within the same window (a genuine textual collision — e.g. both retype the same paragraph differently). | Both writes push. On whichever Mac's `pull()` runs against the *other's* now-diverged history, the toolbar icon turns to `N files need attention` and the orange banner appears: "This site was edited on two Macs — N files need attention." |
 | 2.4 | Confirm the banner does **not** block editing: keep navigating/editing other pages while it's showing. | All other editing works normally; only pushing *this branch* is paused (Debug Pane may show `sync:push` logging a pause, or simply no new `pushed` lines for this branch until resolved). |
-| 2.5 | Click "Resolve…" on the banner (or the toolbar icon's popover). | The resolution sheet opens, listing the conflicted file(s) with a segmented "This Mac / Other Mac" picker per file and an "Open Both…" link. |
-| 2.6 | Use "Open Both…" for the conflicted file. | Finder opens showing two files ("This Mac — …" / "Other Mac — …") with each side's actual content, for comparison. |
-| 2.7 | Choose a side (This Mac or Other Mac) for every conflicted file, then click Apply. | The sheet closes with no error; the toolbar icon returns to `Syncing…` then `Synced`. Debug Pane shows a resolution merge commit and a subsequent successful push. |
+| 2.5 | Click "Resolve…" on the banner (or the toolbar icon's popover). | The "Edited on Two Macs" sheet opens, listing each conflicted file by name (path as a tooltip) with a segmented "This Mac · <when> / Other Mac · <when>" picker per file, the newer side marked "(newer)" and preselected (#1964), and a "Compare Both…" link. Apply is enabled as soon as the list loads. |
+| 2.6 | Use "Compare Both…" for the conflicted file. | Finder opens showing two files ("This Mac — …" / "Other Mac — …") with each side's actual content, for comparison. |
+| 2.7 | Keep the preselected side, or switch any file to the other Mac's version, then click Apply. | The sheet closes with no error; the toolbar icon returns to `Syncing…` then `Synced`. Debug Pane shows a resolution merge commit and a subsequent successful push. |
 | 2.8 | Open the site on the *other* Mac and pull (open the window, or wait for the next automatic pull). | The other Mac converges to the same resolved content — no repeat conflict, no banner. |
 
 **Pass criteria:** the conflict is detected, never silently auto-resolved or rewound (both Macs'

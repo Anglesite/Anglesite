@@ -53,6 +53,10 @@ private final class WorkersConformanceStubURLProtocol: URLProtocol, @unchecked S
     }
     """
 
+    /// The digest a fetcher must be handed for `sampleJSON` to pass verification — computed the
+    /// same way `scripts/bump-worker-catalog.sh` records it in the lock.
+    private var sampleDigest: String { PinnedManifestFetch.sha256Hex(Data(sampleJSON.utf8)) }
+
     private func tempCacheURL() -> URL {
         URL(fileURLWithPath: NSTemporaryDirectory(), isDirectory: true)
             .appendingPathComponent("worker-conformance-\(UUID().uuidString)", isDirectory: true)
@@ -69,6 +73,7 @@ private final class WorkersConformanceStubURLProtocol: URLProtocol, @unchecked S
 
         let fetcher = WorkersConformanceFetcher(
             statusURL: URL(string: "https://example.invalid/status.json")!,
+            expectedSHA256: sampleDigest,
             cacheURL: cacheURL,
             session: WorkersConformanceStubURLProtocol.makeSession()
         )
@@ -89,6 +94,7 @@ private final class WorkersConformanceStubURLProtocol: URLProtocol, @unchecked S
         WorkersConformanceStubURLProtocol.shouldFailToLoad = true
         let fetcher = WorkersConformanceFetcher(
             statusURL: URL(string: "https://example.invalid/status.json")!,
+            expectedSHA256: sampleDigest,
             cacheURL: cacheURL,
             session: WorkersConformanceStubURLProtocol.makeSession()
         )
@@ -105,6 +111,7 @@ private final class WorkersConformanceStubURLProtocol: URLProtocol, @unchecked S
 
         let fetcher = WorkersConformanceFetcher(
             statusURL: URL(string: "https://example.invalid/status.json")!,
+            expectedSHA256: sampleDigest,
             cacheURL: cacheURL,
             session: WorkersConformanceStubURLProtocol.makeSession()
         )
@@ -122,6 +129,7 @@ private final class WorkersConformanceStubURLProtocol: URLProtocol, @unchecked S
 
         let fetcher = WorkersConformanceFetcher(
             statusURL: URL(string: "https://example.invalid/status.json")!,
+            expectedSHA256: sampleDigest,
             cacheURL: cacheURL,
             session: WorkersConformanceStubURLProtocol.makeSession()
         )
@@ -143,6 +151,7 @@ private final class WorkersConformanceStubURLProtocol: URLProtocol, @unchecked S
         WorkersConformanceStubURLProtocol.body = "{ not valid json"
         let fetcher = WorkersConformanceFetcher(
             statusURL: URL(string: "https://example.invalid/status.json")!,
+            expectedSHA256: sampleDigest,
             cacheURL: cacheURL,
             session: WorkersConformanceStubURLProtocol.makeSession()
         )
@@ -162,6 +171,7 @@ private final class WorkersConformanceStubURLProtocol: URLProtocol, @unchecked S
         WorkersConformanceStubURLProtocol.shouldFailToLoad = true
         let fetcher = WorkersConformanceFetcher(
             statusURL: URL(string: "https://example.invalid/status.json")!,
+            expectedSHA256: sampleDigest,
             cacheURL: cacheURL,
             session: WorkersConformanceStubURLProtocol.makeSession()
         )
@@ -170,11 +180,63 @@ private final class WorkersConformanceStubURLProtocol: URLProtocol, @unchecked S
         #expect(status.packages.isEmpty)
     }
 
-    @Test("productionStatusURL points at the published davidwkeith/workers conformance status")
-    func productionStatusURLIsThePublishedManifest() {
+    @Test("a 200 body whose digest doesn't match the pin is discarded: cache served, mismatch logged, cache not overwritten")
+    func digestMismatchFallsBackToCacheAndLogs() async throws {
+        let cacheURL = tempCacheURL()
+        defer { try? FileManager.default.removeItem(at: cacheURL.deletingLastPathComponent()) }
+        try FileManager.default.createDirectory(
+            at: cacheURL.deletingLastPathComponent(), withIntermediateDirectories: true)
+        try Data(sampleJSON.utf8).write(to: cacheURL)
+
+        let tampered = sampleJSON.replacingOccurrences(of: "\"status\": \"passing\"", with: "\"status\": \"failing\"")
+        WorkersConformanceStubURLProtocol.shouldFailToLoad = false
+        WorkersConformanceStubURLProtocol.statusCode = 200
+        WorkersConformanceStubURLProtocol.body = tampered
+        let logs = PinnedManifestLogCollector()
+        let fetcher = WorkersConformanceFetcher(
+            statusURL: URL(string: "https://example.invalid/status.json")!,
+            expectedSHA256: sampleDigest,
+            cacheURL: cacheURL,
+            session: WorkersConformanceStubURLProtocol.makeSession(),
+            log: { logs.sink($0) }
+        )
+
+        let status = await fetcher.status()
+        #expect(status.packages["@dwk/webmention"]?.integrationStatus == "passing", "the last verified cache is served")
+        #expect(try String(contentsOf: cacheURL, encoding: .utf8) == sampleJSON, "unverified bytes never reach the cache")
+        #expect(logs.messages.contains { $0.contains("digest mismatch") }, "the fallback is diagnosed: \(logs.messages)")
+    }
+
+    @Test("a digest mismatch with no cache fails closed to an empty status and writes nothing")
+    func digestMismatchWithNoCacheFailsClosed() async {
+        WorkersConformanceStubURLProtocol.shouldFailToLoad = false
+        WorkersConformanceStubURLProtocol.statusCode = 200
+        WorkersConformanceStubURLProtocol.body = sampleJSON
+        let cacheURL = tempCacheURL()
+        defer { try? FileManager.default.removeItem(at: cacheURL.deletingLastPathComponent()) }
+
+        let logs = PinnedManifestLogCollector()
+        let fetcher = WorkersConformanceFetcher(
+            statusURL: URL(string: "https://example.invalid/status.json")!,
+            expectedSHA256: String(repeating: "0", count: 64),
+            cacheURL: cacheURL,
+            session: WorkersConformanceStubURLProtocol.makeSession(),
+            log: { logs.sink($0) }
+        )
+
+        let status = await fetcher.status()
+        #expect(status.packages.isEmpty)
+        #expect(!FileManager.default.fileExists(atPath: cacheURL.path), "nothing unverified is cached")
+        #expect(logs.messages.contains { $0.contains("digest mismatch") })
+    }
+
+    @Test("productionStatusURL is the commit-pinned davidwkeith/workers conformance status, never a branch")
+    func productionStatusURLIsPinned() {
+        #expect(WorkersConformanceFetcher.productionStatusURL == WorkerCatalogPin.conformanceStatusURL)
         #expect(
             WorkersConformanceFetcher.productionStatusURL
-                == URL(string: "https://raw.githubusercontent.com/davidwkeith/workers/main/conformance/status.json")!
+                == URL(string: "https://raw.githubusercontent.com/davidwkeith/workers/\(WorkerCatalogPin.commit)/conformance/status.json")!
         )
+        #expect(!WorkersConformanceFetcher.productionStatusURL.path.contains("/main/"))
     }
 }

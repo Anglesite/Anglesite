@@ -299,9 +299,9 @@ public struct ContainerizationControl: LocalContainerControl {
         // this PR builds that capability even though `start()` is its only caller today).
         await live.teardownWorkersDev(siteID: siteID)
 
-        // Ephemeral, git-ignore-free local config: lives outside /workspace/site entirely, so a
-        // transient local-dev session can never dirty the site's real, git-tracked wrangler.toml
-        // (#708 design §4). No real resource ids — Miniflare creates local-persisted D1/KV/R2
+        // Ephemeral local config: lives outside /workspace/site entirely, so a transient
+        // local-dev session can never be confused with the site's real `Config/wrangler.toml`
+        // (#708 design §4; app-owned, never in the repo since #1960). No real resource ids — Miniflare creates local-persisted D1/KV/R2
         // stores automatically for declared bindings in --local mode.
         //
         // The Worker name goes through the same derivation the deploy path uses (#1750): a stock

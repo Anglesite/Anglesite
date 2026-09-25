@@ -77,7 +77,7 @@ struct GitHubPagesDeployTargetTests {
     @Test("authorize blocks when the token is missing")
     func authorizeBlocksOnMissingToken() async {
         let target = GitHubPagesDeployTarget(tokenSource: { nil })
-        let outcome = await target.authorize(siteDirectory: URL(fileURLWithPath: "/tmp"))
+        let outcome = await target.authorize(siteDirectory: URL(fileURLWithPath: "/tmp"), configDirectory: URL(fileURLWithPath: "/tmp"))
         guard case .blocked(.failed) = outcome else {
             Issue.record("expected .blocked(.failed), got \(outcome)"); return
         }
@@ -86,7 +86,7 @@ struct GitHubPagesDeployTargetTests {
     @Test("authorize blocks when the token is empty")
     func authorizeBlocksOnEmptyToken() async {
         let target = GitHubPagesDeployTarget(tokenSource: { "" })
-        let outcome = await target.authorize(siteDirectory: URL(fileURLWithPath: "/tmp"))
+        let outcome = await target.authorize(siteDirectory: URL(fileURLWithPath: "/tmp"), configDirectory: URL(fileURLWithPath: "/tmp"))
         guard case .blocked(.failed) = outcome else {
             Issue.record("expected .blocked(.failed), got \(outcome)"); return
         }
@@ -95,7 +95,7 @@ struct GitHubPagesDeployTargetTests {
     @Test("authorize is ready with a valid token")
     func authorizeReadyWithValidToken() async {
         let target = GitHubPagesDeployTarget(tokenSource: { "tok" })
-        let outcome = await target.authorize(siteDirectory: URL(fileURLWithPath: "/tmp"))
+        let outcome = await target.authorize(siteDirectory: URL(fileURLWithPath: "/tmp"), configDirectory: URL(fileURLWithPath: "/tmp"))
         guard case .ready(let credential) = outcome else {
             Issue.record("expected .ready, got \(outcome)"); return
         }
@@ -116,7 +116,7 @@ struct GitHubPagesDeployTargetTests {
         let executor = FakeExecutor().returning(exitCode: 0)
 
         let context = DeployTargetContext(
-            siteID: "site-id", siteDirectory: siteDirectory, configDirectory: nil, currentRoutes: [],
+            siteID: "site-id", siteDirectory: siteDirectory, configDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("GitHubPagesDeployTargetTests-\(UUID().uuidString)", isDirectory: true), currentRoutes: [],
             credential: "tok", baseEnvironment: [:], executor: executor,
             onDomainAttach: nil, onMarkdownForAgents: nil, onProgress: nil)
         let result = await target.publish(context: context)
@@ -140,7 +140,7 @@ struct GitHubPagesDeployTargetTests {
         let executor = FakeExecutor().returning(exitCode: 0)
 
         let context = DeployTargetContext(
-            siteID: "site-id", siteDirectory: siteDirectory, configDirectory: nil, currentRoutes: [],
+            siteID: "site-id", siteDirectory: siteDirectory, configDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("GitHubPagesDeployTargetTests-\(UUID().uuidString)", isDirectory: true), currentRoutes: [],
             credential: "tok", baseEnvironment: [:], executor: executor,
             onDomainAttach: nil, onMarkdownForAgents: nil, onProgress: nil)
         let result = await target.publish(context: context)
@@ -171,7 +171,7 @@ struct GitHubPagesDeployTargetTests {
         let executor = FakeExecutor().returning(exitCode: 0)
 
         let context = DeployTargetContext(
-            siteID: "site-id", siteDirectory: siteDirectory, configDirectory: nil, currentRoutes: [],
+            siteID: "site-id", siteDirectory: siteDirectory, configDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("GitHubPagesDeployTargetTests-\(UUID().uuidString)", isDirectory: true), currentRoutes: [],
             credential: "secret-tok", baseEnvironment: ["PATH": "/usr/bin"], executor: executor,
             onDomainAttach: nil, onMarkdownForAgents: nil, onProgress: nil)
         _ = await target.publish(context: context)
@@ -198,7 +198,7 @@ struct GitHubPagesDeployTargetTests {
         let executor = FakeExecutor().returning(exitCode: 17, output: "push rejected")
 
         let context = DeployTargetContext(
-            siteID: "site-id", siteDirectory: siteDirectory, configDirectory: nil, currentRoutes: [],
+            siteID: "site-id", siteDirectory: siteDirectory, configDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("GitHubPagesDeployTargetTests-\(UUID().uuidString)", isDirectory: true), currentRoutes: [],
             credential: "tok", baseEnvironment: [:], executor: executor,
             onDomainAttach: nil, onMarkdownForAgents: nil, onProgress: nil)
         let result = await target.publish(context: context)
@@ -229,7 +229,7 @@ struct GitHubPagesDeployTargetTests {
         let flags = Flags()
 
         let context = DeployTargetContext(
-            siteID: "site-id", siteDirectory: siteDirectory, configDirectory: nil, currentRoutes: [],
+            siteID: "site-id", siteDirectory: siteDirectory, configDirectory: FileManager.default.temporaryDirectory.appendingPathComponent("GitHubPagesDeployTargetTests-\(UUID().uuidString)", isDirectory: true), currentRoutes: [],
             credential: "tok", baseEnvironment: [:], executor: executor,
             onDomainAttach: { _ in flags.domainAttachFired = true },
             onMarkdownForAgents: { _ in flags.markdownForAgentsFired = true },

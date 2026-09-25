@@ -10,18 +10,14 @@ import FoundationNetworking
 import OSLog
 #endif
 
-/// Internal failure signal for the fetch path — never escapes `WorkersConformanceFetcher.status()`,
-/// which degrades to cache/empty instead of throwing; public only so tests can construct it.
-public enum WorkersConformanceFetchError: Error, Sendable, Equatable {
-    /// The HTTP fetch didn't produce a usable 2xx response; the string names the URL for the log.
-    case fetchFailed(String)
-}
-
-/// Fetches, parses, and disk-caches `conformance/status.json` from the `@dwk/workers` monorepo.
-/// Network or parse failures degrade to the last successfully cached copy, then to an empty
-/// status — this is advisory-only (see `WorkerActivation.conformanceAdvisory`), so a fetch
-/// failure must never block a deploy, mirroring `WorkerCatalogFetcher`'s own degradation
-/// contract.
+/// Fetches, verifies, parses, and disk-caches `conformance/status.json` from the `@dwk/workers`
+/// monorepo.
+///
+/// Pinned the same way as ``WorkerCatalogFetcher`` (#1961, decision D7): commit-addressed URL from
+/// ``WorkerCatalogPin``, body verified against ``WorkerCatalogPin/conformanceStatusSHA256``
+/// before parse or cache. Network, digest, or parse failures degrade to the last successfully
+/// verified cached copy, then to an empty status — this is advisory-only (see
+/// `WorkerActivation.conformanceAdvisory`), so a fetch failure must never block a deploy.
 public actor WorkersConformanceFetcher {
     #if canImport(OSLog)
     private static let logger = Logger(subsystem: "io.dwk.anglesite", category: "WorkersConformanceFetcher")
@@ -38,53 +34,73 @@ public actor WorkersConformanceFetcher {
     }
 
     private let statusURL: URL
+    private let expectedSHA256: String
     private let cacheURL: URL
     private let session: URLSession
     private let fileManager: FileManager
+    private let log: @Sendable (String) -> Void
 
-    /// Creates a fetcher. `statusURL` is deliberately required (pass ``productionStatusURL`` in
-    /// production) so tests point at a local fixture server; cache location, session, and file
-    /// manager default to production values.
+    /// Creates a fetcher. `statusURL` and `expectedSHA256` are deliberately required (use
+    /// ``productionBounded(timeout:)`` for the pinned production values) so tests point at a
+    /// local fixture server with a digest of the fixture, and so no call site can construct an
+    /// unverified fetcher by omission.
+    ///
+    /// - Parameters:
+    ///   - statusURL: Where to fetch `conformance/status.json` from.
+    ///   - expectedSHA256: Lowercase-hex SHA-256 the response body must match.
+    ///   - cacheURL: On-disk location of the last verified copy.
+    ///   - session: Session to fetch with.
+    ///   - fileManager: File manager for the cache directory.
+    ///   - log: Degradation sink; `nil` (the default) means the `io.dwk.anglesite` logger (stderr
+    ///     off-Darwin). Tests inject a collector to assert on fallback diagnostics.
     public init(
         statusURL: URL,
+        expectedSHA256: String,
         cacheURL: URL = WorkersConformanceFetcher.defaultCacheURL(),
         session: URLSession = .shared,
-        fileManager: FileManager = .default
+        fileManager: FileManager = .default,
+        log: (@Sendable (String) -> Void)? = nil
     ) {
         self.statusURL = statusURL
+        self.expectedSHA256 = expectedSHA256
         self.cacheURL = cacheURL
         self.session = session
         self.fileManager = fileManager
+        // Resolved here rather than as a default argument: a public init's default can't name the
+        // private logger.
+        self.log = log ?? { Self.logDegradation($0) }
     }
 
-    /// Fetches the latest conformance status and caches the raw manifest bytes to disk on
-    /// success. On any failure (network error, non-2xx response, malformed JSON), falls back to
-    /// the last cached status; if there is no cache either, returns an empty status. Never
-    /// throws — this is advisory-only, so callers must never have to handle a failure path.
+    /// Fetches the pinned conformance status, verifies its digest, and caches the raw manifest
+    /// bytes to disk on success. On any failure (network error, non-2xx response, digest
+    /// mismatch, malformed JSON), falls back to the last cached status; if there is no cache
+    /// either, returns an empty status. Never throws — this is advisory-only, so callers must
+    /// never have to handle a failure path. A digest mismatch is logged with both digests and the
+    /// bytes are never cached.
     public func status() async -> WorkersConformanceStatus {
         do {
             return try await fetchAndCache()
+        } catch let PinnedManifestFetchError.digestMismatch(url, expected, actual) {
+            log("conformance status digest mismatch at \(url): expected \(expected), got \(actual) — discarding the response and falling back to the last verified cache (bump the pin with scripts/bump-worker-catalog.sh if the status moved deliberately)")
         } catch {
-            Self.logDegradation("status fetch failed, falling back to cache: \(error)")
+            log("status fetch failed, falling back to cache: \(error)")
         }
         do {
             return try Self.readCache(cacheURL)
         } catch {
-            Self.logDegradation("status cache read failed, falling back to empty status: \(error)")
+            log("status cache read failed, falling back to empty status: \(error)")
             return WorkersConformanceStatus(packages: [:])
         }
     }
 
     private func fetchAndCache() async throws -> WorkersConformanceStatus {
-        let (data, response) = try await session.data(from: statusURL)
-        guard let http = response as? HTTPURLResponse, 200..<300 ~= http.statusCode else {
-            throw WorkersConformanceFetchError.fetchFailed("bad response from \(statusURL)")
-        }
+        let data = try await PinnedManifestFetch.verifiedData(
+            from: statusURL, expectedSHA256: expectedSHA256, session: session)
         let status = try WorkersConformanceReader.parse(data)
         do {
             try Self.writeCache(data, to: cacheURL, fileManager: fileManager)
         } catch {
-            Self.logDegradation("status cache write failed (serving fresh data anyway): \(error)")
+            log("status cache write failed (serving fresh data anyway): \(error)")
         }
         return status
     }
@@ -100,21 +116,29 @@ public actor WorkersConformanceFetcher {
         try data.write(to: url, options: [.atomic])
     }
 
-    /// Verified live against `davidwkeith/workers` during #359 planning (2026-07-21).
-    public static let productionStatusURL = URL(
-        string: "https://raw.githubusercontent.com/davidwkeith/workers/main/conformance/status.json"
-    )!
+    /// The pinned conformance status manifest — ``WorkerCatalogPin/conformanceStatusURL``,
+    /// addressed by commit. Production fetchers come from ``productionBounded(timeout:)``, which
+    /// pairs this URL with its digest.
+    public static var productionStatusURL: URL { WorkerCatalogPin.conformanceStatusURL }
 
-    /// A fetcher pointed at ``productionStatusURL``, with a request timeout bounded well under
+    /// A fetcher pointed at ``productionStatusURL`` and verified against
+    /// ``WorkerCatalogPin/conformanceStatusSHA256``, with a request timeout bounded well under
     /// `URLSession.shared`'s ~60s default — so an unreachable `raw.githubusercontent.com`
     /// (offline use, corporate firewall) can't add meaningful latency to a caller before this
     /// degrades to cache/empty. Every advisory-only production call site should go through this
     /// rather than hand-rolling the same `URLSessionConfiguration` (previously duplicated between
     /// `DeployModel` and `MicropubOnboardingModel` — #800 review feedback).
+    ///
+    /// - Parameter timeout: Per-request timeout in seconds.
+    /// - Returns: A fetcher for the pinned conformance status.
     public static func productionBounded(timeout: TimeInterval = 5) -> WorkersConformanceFetcher {
         let config = URLSessionConfiguration.default
         config.timeoutIntervalForRequest = timeout
-        return WorkersConformanceFetcher(statusURL: productionStatusURL, session: URLSession(configuration: config))
+        return WorkersConformanceFetcher(
+            statusURL: productionStatusURL,
+            expectedSHA256: WorkerCatalogPin.conformanceStatusSHA256,
+            session: URLSession(configuration: config)
+        )
     }
 
     /// `~/Library/Application Support/Anglesite/worker-conformance-cache.json` — mirrors

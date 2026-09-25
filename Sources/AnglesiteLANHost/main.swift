@@ -111,12 +111,13 @@ struct AnglesiteLANHost {
         let nodeModules = siteDirectory.appendingPathComponent("node_modules", isDirectory: true)
         guard !FileManager.default.fileExists(atPath: nodeModules.path) else { return }
         print("anglesite-lan-host: installing dependencies in \(siteDirectory.path)…")
-        let result = try await ProcessSupervisor.shared.run(
+        // `run` streams npm's output into `LogCenter.shared` (which `streamLogs` echoes to the
+        // terminal) as it happens — no post-hoc forwarding needed (#1966).
+        _ = try await ProcessSupervisor.shared.run(
+            source: "npm-install",
             executable: URL(fileURLWithPath: "/usr/bin/env"),
             arguments: ["npm", "install"],
             currentDirectoryURL: siteDirectory)
-        if !result.stdout.isEmpty { await LogCenter.shared.append(source: "npm-install", stream: .stdout, text: result.stdout) }
-        if !result.stderr.isEmpty { await LogCenter.shared.append(source: "npm-install", stream: .stderr, text: result.stderr) }
     }
 
     private static func streamLogs() async {

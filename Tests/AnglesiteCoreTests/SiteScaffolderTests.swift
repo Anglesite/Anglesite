@@ -120,14 +120,15 @@ struct SiteScaffolderTests {
         #expect(css.contains("--color-primary: #1e3a5f;"))
     }
 
-    @Test("the happy path writes a deployable wrangler config")
+    @Test("the happy path writes a deployable wrangler config into Config/, never into Source/ (#1960)")
     func happyPathWritesADeployableWranglerConfig() async throws {
         let root = tmpDir()
         let scaffolder = makeScaffolder(root: root)
         for await _ in scaffolder.scaffold(makeDraft()) {}
 
         let pkgURL = root.appendingPathComponent("acme-co.anglesite")
-        let toml = try String(contentsOf: pkgURL.appendingPathComponent("Source/wrangler.toml"), encoding: .utf8)
+        #expect(!FileManager.default.fileExists(atPath: pkgURL.appendingPathComponent("Source/wrangler.toml").path))
+        let toml = try String(contentsOf: pkgURL.appendingPathComponent("Config/wrangler.toml"), encoding: .utf8)
         #expect(toml.contains(#"name = "acme-co""#))
         #expect(toml.contains(#"directory = "dist""#))
         // Static-only: no social-feature bindings and no Worker entrypoint.
@@ -322,7 +323,7 @@ struct SiteScaffolderTests {
         let configDir = pkgURL.appendingPathComponent("Config")
         let baseline = DependencyBaseline.load(from: configDir)
         #expect(baseline != nil)
-        #expect(baseline?["astro"] == "^7.2.9")  // matches Resources/Template/package.json today
+        #expect(baseline?["astro"] == "^7.3.2")  // matches Resources/Template/package.json today
 
         let siteConfig = try String(
             contentsOf: pkgURL.appendingPathComponent("Source/.site-config"), encoding: .utf8)
@@ -546,6 +547,7 @@ struct SiteScaffolderTests {
         let sourceDir = pkgURL.appendingPathComponent("Source")
         let git = URL(fileURLWithPath: "/usr/bin/git")
         let log = try await ProcessSupervisor.shared.run(
+            source: "test",
             executable: git, arguments: ["log", "--oneline"], currentDirectoryURL: sourceDir)
         #expect(log.exitCode == 0, "git log failed — no initial commit was created: \(log.stderr)")
         #expect(!log.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
